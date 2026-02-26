@@ -5,3 +5,10 @@ namespace: synesis-rag
 resources:
   - job.yaml
   - cronjob.yaml
+
+configMapGenerator:
+  - name: architecture-indexer-sources
+    files:
+      - sources.yaml
+    options:
+      disableNameSuffixHash: true
