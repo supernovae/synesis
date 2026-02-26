@@ -31,8 +31,7 @@ spec:
           nvidia.com/gpu: "1"
       runtime: mistral-nemo-12b
       storage:
-        # STS/IRSA: no key needed (see qwen-coder-inference-service.yaml)
-        # key: aws-connection-synesis-models
+        key: aws-connection-synesis-models
         path: s3://byron-ai-4b0263a0-rhoai-data/models/Mistral-Nemo-Instruct-2407-FP8/
     tolerations:
       - effect: NoSchedule

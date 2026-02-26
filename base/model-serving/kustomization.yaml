@@ -10,9 +10,7 @@ labels:
 
 resources:
   - namespace.yaml
-  # Uncomment the line below ONLY if NOT using STS/IRSA for S3 access.
-  # With STS roles, the service account gets credentials automatically.
-  # - model-storage-secret.yaml
+  - model-storage-secret.yaml
   - qwen-coder-serving-runtime.yaml
   - qwen-coder-inference-service.yaml
   - mistral-nemo-serving-runtime.yaml
