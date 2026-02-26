@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 from pymilvus import DataType, FieldSchema
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ingestion"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "ingestion"))
 from app.indexer_base import (
     EmbedClient,
     MilvusWriter,
