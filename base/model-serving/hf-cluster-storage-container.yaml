@@ -13,7 +13,7 @@ metadata:
 spec:
   container:
     name: storage-initializer
-    image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9:latest
+    image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9@sha256:17631a94bb410a662084480b710a3ceaad8e744b84f59f40f2db3c3ea39e45b4
     resources:
       requests:
         cpu: 100m
