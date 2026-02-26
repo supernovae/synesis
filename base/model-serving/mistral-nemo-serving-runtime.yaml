@@ -20,7 +20,8 @@ spec:
     prometheus.io/port: "8080"
   containers:
     - name: kserve-container
-      image: quay.io/modh/vllm:rhoai-2.16
+      # Upstream vLLM - public, stable. Override via kustomize for registry.redhat.io/rhaiis/vllm-cuda-rhel9 if preferred.
+      image: vllm/vllm-openai:latest
       command:
         - python
         - -m
