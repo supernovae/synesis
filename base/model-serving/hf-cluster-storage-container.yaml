@@ -1,6 +1,10 @@
 # RHOAI workaround (RHOAIENG-23169): register hf:// protocol support.
 # Without this, the storage initializer doesn't know how to handle
 # HuggingFace URIs and the model download fails.
+#
+# RHOAI's webhook already injects HF_HOME, HF_HUB_ENABLE_HF_TRANSFER,
+# etc. into the init container. Do NOT set HF env vars here or they
+# will conflict with the webhook-injected values.
 
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterStorageContainer
@@ -10,17 +14,6 @@ spec:
   container:
     name: storage-initializer
     image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9:latest
-    env:
-      - name: HF_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: hf-secret
-            key: HF_TOKEN
-            optional: true
-      - name: HF_HOME
-        value: /tmp/hf_home
-      - name: HF_HUB_ENABLE_HF_TRANSFER
-        value: "1"
     resources:
       requests:
         cpu: 100m
