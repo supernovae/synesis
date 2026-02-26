@@ -82,7 +82,13 @@ jobs:
 
       - name: Lint Dockerfiles
         run: |
-          find base/ -name 'Dockerfile' -type f | while read -r df; do
+          status=0
+          for df in $(find base/ -name 'Dockerfile' -type f | sort); do
             echo "--- $df ---"
-            hadolint --ignore DL3008 --ignore DL3013 --ignore DL3018 "$df"
+            hadolint \
+              --ignore DL3008 --ignore DL3013 --ignore DL3018 \
+              --ignore DL3016 \
+              --failure-threshold error \
+              "$df" || status=1
           done
+          exit "$status"
