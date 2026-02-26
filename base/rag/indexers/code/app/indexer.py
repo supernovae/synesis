@@ -282,6 +282,7 @@ def main() -> None:
     parser.add_argument("--language", default=None, help="Index only this language")
     parser.add_argument("--repo", default=None, help="Index only this repo (owner/name)")
     parser.add_argument("--force", action="store_true", help="Re-embed all chunks even if already indexed")
+    parser.add_argument("--dry-run", action="store_true", help="Validate config and sources without connecting to Milvus/embedder")
     args = parser.parse_args()
 
     sources_path = Path(args.sources)
@@ -294,11 +295,27 @@ def main() -> None:
 
     repositories = sources.get("repositories", {})
 
-    writer = MilvusWriter()
+    languages_to_index = [args.language] if args.language else list(repositories.keys())
+    total_repos = sum(len(repositories.get(l, [])) for l in languages_to_index)
+    logger.info(f"Loaded {total_repos} repositories across {len(languages_to_index)} languages from {sources_path}")
+    for lang in languages_to_index:
+        repos = repositories.get(lang, [])
+        logger.info(f"  {lang}: {len(repos)} repos")
+        for r in repos:
+            logger.info(f"    - {r['repo']}")
+
+    if args.dry_run:
+        logger.info("Dry run complete -- config and sources are valid")
+        return
+
+    try:
+        writer = MilvusWriter()
+    except Exception as e:
+        logger.error(f"Failed to connect to Milvus: {e}")
+        sys.exit(1)
+
     embedder = EmbedClient()
     progress = ProgressTracker(name="Code Repository Indexer")
-
-    languages_to_index = [args.language] if args.language else list(repositories.keys())
 
     for lang in languages_to_index:
         repos = repositories.get(lang, [])

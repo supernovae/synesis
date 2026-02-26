@@ -294,6 +294,7 @@ def main() -> None:
     parser.add_argument("--compat", required=True, help="Path to compatibility.yaml")
     parser.add_argument("--license", default=None, help="Index only this SPDX license ID")
     parser.add_argument("--force", action="store_true", help="Re-embed all chunks")
+    parser.add_argument("--dry-run", action="store_true", help="Validate config and sources without connecting to Milvus/embedder")
     args = parser.parse_args()
 
     sources_path = Path(args.sources)
@@ -309,7 +310,23 @@ def main() -> None:
     with open(sources_path) as f:
         sources = yaml.safe_load(f)
 
-    writer = MilvusWriter()
+    with open(compat_path) as f:
+        compat = yaml.safe_load(f)
+
+    logger.info(f"Loaded sources from {sources_path}")
+    logger.info(f"Loaded {len(compat.get('rules', []))} compatibility rules from {compat_path}")
+    logger.info(f"SPDX source: {sources.get('spdx', {}).get('licenses_url', 'N/A')}")
+
+    if args.dry_run:
+        logger.info("Dry run complete -- config and sources are valid")
+        return
+
+    try:
+        writer = MilvusWriter()
+    except Exception as e:
+        logger.error(f"Failed to connect to Milvus: {e}")
+        sys.exit(1)
+
     embedder = EmbedClient()
     progress = ProgressTracker(name="License Compliance Indexer")
 
