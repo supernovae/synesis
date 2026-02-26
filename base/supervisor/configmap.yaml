@@ -14,9 +14,11 @@ data:
     # When a circuit opens, the planner degrades gracefully rather than
     # failing completely.
 
+    # Model endpoints: deploy via OpenShift AI 3 dashboard, then set URLs to match.
+    # Pattern: http://<inference-service-name>-predictor.synesis-models.svc.cluster.local:8080/v1
     services:
       qwen-coder:
-        endpoint: "http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1"
+        endpoint: "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
@@ -29,7 +31,7 @@ data:
         timeout_seconds: 60
 
       mistral-nemo:
-        endpoint: "http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1"
+        endpoint: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5

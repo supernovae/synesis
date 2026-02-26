@@ -11,11 +11,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SYNESIS_")
 
-    # Model endpoints (KServe InferenceService URLs)
-    coder_model_url: str = "http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1"
-    coder_model_name: str = "qwen-coder-32b"
-    supervisor_model_url: str = "http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1"
-    supervisor_model_name: str = "mistral-nemo-12b"
+    # Model endpoints (OpenShift AI 3 InferenceService URLs; deploy via dashboard)
+    coder_model_url: str = "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
+    coder_model_name: str = "synesis-coder"
+    supervisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+    supervisor_model_name: str = "synesis-supervisor"
 
     # RAG / Milvus
     milvus_host: str = "milvus.synesis-rag.svc.cluster.local"

@@ -10,9 +10,3 @@ labels:
 
 resources:
   - namespace.yaml
-  - hf-secret.yaml
-  - hf-cluster-storage-container.yaml
-  - qwen-coder-serving-runtime.yaml
-  - qwen-coder-inference-service.yaml
-  - mistral-nemo-serving-runtime.yaml
-  - mistral-nemo-inference-service.yaml

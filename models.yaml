@@ -1,19 +1,16 @@
 # ============================================================================
-# Synesis Model Registry -- SINGLE SOURCE OF TRUTH
+# Synesis Model Registry -- Reference for OpenShift AI 3 Deployments
 # ============================================================================
 #
-# Every model used by Synesis is defined here. All scripts, manifests, and
-# code that reference model names, HuggingFace repos, or S3 paths MUST
-# derive from this file.
+# Model recommendations for Synesis. Deploy via OpenShift AI 3 dashboard
+# (Deploy model wizard) or InferenceService YAML. Update planner/supervisor
+# config to point at your deployed endpoints.
 #
-# When you change a model (e.g., upgrade Qwen 32B to Qwen 35B):
-#   1. Update this file
-#   2. Run: ./scripts/download-models.sh
-#   3. Run: ./scripts/upload-models-s3.sh
-#   4. Run: ./scripts/deploy.sh <env>
+# Coder and supervisor models: deploy in synesis-models project, name them
+# synesis-coder and synesis-supervisor to match default config, or patch
+# the config to point at your deployment names.
 #
-# The Cursor rule (.cursor/rules/model-alignment.mdc) enforces that all
-# references across the codebase stay in sync with this file.
+# See base/model-serving/README.md for deployment instructions.
 # ============================================================================
 
 models:
@@ -72,13 +69,8 @@ storage:
   endpoint: ""
   region: "us-east-1"
 
-# Files that reference model identifiers (for alignment checking)
+# Files that reference model identifiers
 references:
-  - base/model-serving/qwen-coder-serving-runtime.yaml
-  - base/model-serving/qwen-coder-inference-service.yaml
-  - base/model-serving/mistral-nemo-serving-runtime.yaml
-  - base/model-serving/mistral-nemo-inference-service.yaml
-  - base/model-serving/model-storage-secret.yaml
   - base/gateway/litellm-config.yaml
   - base/planner/app/config.py
   - base/planner/deployment.yaml

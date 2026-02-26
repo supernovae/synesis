@@ -18,45 +18,6 @@ resources:
   - ../../base/webui
 
 patches:
-  # Reduce Qwen model context for faster dev iteration
-  - target:
-      kind: ServingRuntime
-      name: qwen-coder-32b
-    patch: |
-      - op: replace
-        path: /spec/containers/0/args/5
-        value: "--max-model-len=4096"
-
-  # Reduce Qwen resource requests for dev
-  - target:
-      kind: InferenceService
-      name: qwen-coder-32b
-    patch: |
-      - op: replace
-        path: /spec/predictor/model/resources/requests/memory
-        value: "16Gi"
-
-  # Reduce supervisor model context and resources for dev
-  - target:
-      kind: ServingRuntime
-      name: mistral-nemo-12b
-    patch: |
-      - op: replace
-        path: /spec/containers/0/args/5
-        value: "--max-model-len=2048"
-      - op: replace
-        path: /spec/containers/0/resources/requests/cpu
-        value: "4"
-      - op: replace
-        path: /spec/containers/0/resources/requests/memory
-        value: "12Gi"
-      - op: replace
-        path: /spec/containers/0/resources/limits/cpu
-        value: "8"
-      - op: replace
-        path: /spec/containers/0/resources/limits/memory
-        value: "18Gi"
-
   # Set debug logging and reduce resources on planner
   # SYNESIS_LOG_LEVEL is env[45] in base/planner/deployment.yaml
   - target:

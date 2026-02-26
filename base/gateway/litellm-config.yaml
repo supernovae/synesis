@@ -8,21 +8,20 @@ metadata:
     app.kubernetes.io/component: gateway
 data:
   config.yaml: |
+    # Model endpoints: deploy via OpenShift AI 3, then set api_base to match.
     model_list:
-      # Primary code generation model -- Qwen 2.5 Coder 32B FP8
       - model_name: synesis-coder
         litellm_params:
-          model: openai/qwen-coder-32b
-          api_base: http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-coder
+          api_base: http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 8192
           temperature: 0.2
 
-      # Supervisor/Critic model -- Mistral Nemo 12B
       - model_name: synesis-supervisor
         litellm_params:
-          model: openai/mistral-nemo-12b
-          api_base: http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-supervisor
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.3

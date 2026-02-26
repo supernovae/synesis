@@ -72,10 +72,9 @@ Nodes marked [+Search] query SearXNG for live web context (see Web Search sectio
 
 ### Prerequisites
 
-- OpenShift 4.x cluster with RHOAI installed
+- **OpenShift AI 3.x** (fast or stable channel)
 - NVIDIA GPU Operator (for code generation model)
 - `oc`, `kubectl`, `kustomize`, `helm` CLI tools
-- S3-compatible storage for model weights
 
 ### 1. Bootstrap
 
@@ -85,48 +84,18 @@ Nodes marked [+Search] query SearXNG for live web context (see Web Search sectio
 
 This installs the Milvus Operator, creates namespaces, and verifies prerequisites.
 
-### 2. Download Models
+### 2. Deploy Models (OpenShift AI 3)
 
-All models are defined in `models.yaml` (the single source of truth).
+Models are deployed via the **OpenShift AI dashboard**, not pre-downloaded or S3. Use the **Deploy model** wizard in your Data Science Project:
 
-```bash
-# Install prerequisites (uv tool puts `hf` on your PATH)
-uv tool install huggingface-hub
+1. Create or select the `synesis-models` project.
+2. Click **Deploy model**.
+3. **Coder model** (code generation): Deploy Qwen2.5-Coder-32B or similar, name it `synesis-coder`.
+4. **Supervisor model** (routing/critic): Deploy Mistral-Nemo or similar, name it `synesis-supervisor`.
 
-# Login to HuggingFace
-hf auth login
+Model sources: OCI registry, HuggingFace (`hf://`), or S3. Use **Red Hat validated models** from the Model Hub when available. See `base/model-serving/README.md` for details and example InferenceService YAML.
 
-# NOTE: If using gated models (e.g., Llama), you must accept the license first:
-#   1. Visit the model page on huggingface.co
-#   2. Click "Agree and access repository"
-#   3. Wait for approval
-# Mistral Nemo (default supervisor) is Apache-2.0 and requires no approval.
-
-# Download all models (~50GB total)
-./scripts/download-models.sh
-
-# Or download individually
-./scripts/download-models.sh --model coder
-./scripts/download-models.sh --model supervisor
-./scripts/download-models.sh --model embedder
-```
-
-### 3. Upload Models to S3
-
-```bash
-# For MinIO on-cluster, port-forward first:
-oc port-forward svc/minio 9000:9000 -n synesis-models &
-export AWS_ACCESS_KEY_ID=minioadmin
-export AWS_SECRET_ACCESS_KEY=minioadmin
-
-# Upload all models
-./scripts/upload-models-s3.sh --endpoint http://localhost:9000
-
-# Or use MinIO client
-./scripts/upload-models-s3.sh --use-mc --endpoint http://localhost:9000
-```
-
-### 4. Build and Push Images
+### 3. Build and Push Images
 
 Synesis has 10 custom container images that must be built and pushed to a registry
 before deploying. The build script auto-detects `podman` or `docker`.
@@ -190,16 +159,7 @@ done
 
 ### 5. Configure
 
-**S3 Access (STS recommended):** The InferenceServices default to STS/IRSA for S3 bucket
-access -- no Secret needed. Annotate the service account with your IAM role:
-
-```bash
-oc annotate serviceaccount default -n synesis-models \
-  eks.amazonaws.com/role-arn=arn:aws:iam::ACCOUNT:role/synesis-model-reader
-```
-
-If you're not using STS, uncomment `model-storage-secret.yaml` in
-`base/model-serving/kustomization.yaml` and fill in the credentials.
+**Model endpoints:** If you deployed models with different names than `synesis-coder` and `synesis-supervisor`, patch the planner env vars and supervisor config to point at your InferenceService URLs. See `base/model-serving/README.md`.
 
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
@@ -246,7 +206,7 @@ curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
 synesis/
 ├── models.yaml                # SINGLE SOURCE OF TRUTH for all model definitions
 ├── base/
-│   ├── model-serving/         # KServe InferenceService + vLLM ServingRuntime
+│   ├── model-serving/         # Namespace + RHOAI 3 deployment docs (models via dashboard)
 │   ├── gateway/               # LiteLLM proxy (OpenAI-compatible API)
 │   ├── planner/               # FastAPI + LangGraph orchestrator
 │   │   ├── app/

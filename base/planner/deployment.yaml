@@ -31,13 +31,13 @@ spec:
               protocol: TCP
           env:
             - name: SYNESIS_CODER_MODEL_URL
-              value: "http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_CODER_MODEL_NAME
-              value: "qwen-coder-32b"
+              value: "synesis-coder"
             - name: SYNESIS_SUPERVISOR_MODEL_URL
-              value: "http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
-              value: "mistral-nemo-12b"
+              value: "synesis-supervisor"
             - name: SYNESIS_MILVUS_HOST
               value: "milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT
