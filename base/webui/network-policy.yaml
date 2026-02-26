@@ -17,17 +17,9 @@ spec:
         - port: 8080
           protocol: TCP
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: synesis-gateway
-      ports:
-        - port: 4000
-          protocol: TCP
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 53
-          protocol: TCP
+    - {}
+# Open WebUI needs full egress for:
+#   - LiteLLM gateway (synesis-gateway:4000)
+#   - HuggingFace Hub (embedding model download on first boot)
+#   - Plugin registry, update checks, model avatars
+# The pod still runs as non-root with restricted SCC.

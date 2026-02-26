@@ -30,6 +30,7 @@ patches:
         value: 2
 
   # Scale planner for HA
+  # SYNESIS_LOG_LEVEL is env[45] in base/planner/deployment.yaml
   - target:
       kind: Deployment
       name: synesis-planner
@@ -38,7 +39,7 @@ patches:
         path: /spec/replicas
         value: 2
       - op: replace
-        path: /spec/template/spec/containers/0/env/8/value
+        path: /spec/template/spec/containers/0/env/45/value
         value: "warning"
 
   # Scale SearXNG for HA in prod

@@ -68,6 +68,31 @@ jobs:
       - name: Validate kustomize build (${{ matrix.overlay }})
         run: kustomize build overlays/${{ matrix.overlay }} > /dev/null
 
+  planner-tests:
+    name: Planner Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: base/planner
+        run: pip install -r requirements-test.txt
+
+      - name: Run tests
+        working-directory: base/planner
+        run: python -m pytest tests/ -v --tb=short --junitxml=../../test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: planner-test-results
+          path: test-results.xml
+
   hadolint:
     name: Dockerfile Lint
     runs-on: ubuntu-latest

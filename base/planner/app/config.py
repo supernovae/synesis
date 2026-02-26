@@ -5,10 +5,12 @@ Every tunable knob lives here. Override via ConfigMap env vars in K8s.
 
 from typing import Literal
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SYNESIS_")
+
     # Model endpoints (KServe InferenceService URLs)
     coder_model_url: str = "http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1"
     coder_model_name: str = "qwen-coder-32b"
@@ -99,8 +101,6 @@ class Settings(BaseSettings):
     port: int = 8000
     log_level: str = "info"
 
-    class Config:
-        env_prefix = "SYNESIS_"
 
 
 settings = Settings()

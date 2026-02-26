@@ -12,3 +12,6 @@ pyyaml>=6.0
 FlashRank>=0.2.10
 rank-bm25>=0.2.2
 kubernetes-asyncio>=31.0.0
+
+# Test dependencies (not installed in production image)
+# Install with: pip install -r requirements-test.txt

@@ -20,12 +20,13 @@ resources:
 patches:
   # Staging uses same model config as prod
   # but with info-level logging for debugging
+  # SYNESIS_LOG_LEVEL is env[45] in base/planner/deployment.yaml
   - target:
       kind: Deployment
       name: synesis-planner
     patch: |
       - op: replace
-        path: /spec/template/spec/containers/0/env/8/value
+        path: /spec/template/spec/containers/0/env/45/value
         value: "info"
 
   # Set Route domain for staging
