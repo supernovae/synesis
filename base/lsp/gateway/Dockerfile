@@ -1,5 +1,7 @@
 FROM python:3.12-slim AS base
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
@@ -23,7 +25,7 @@ RUN curl -fsSL "https://go.dev/dl/go${GOLANG_VERSION}.linux-amd64.tar.gz" \
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # staticcheck for Go
-RUN GOBIN=/usr/local/bin go install honnef.co/go/tools/cmd/staticcheck@latest
+RUN GOBIN=/usr/local/bin go install honnef.co/go/tools/cmd/staticcheck@2024.1.1
 
 # Rust minimal toolchain (rustc + cargo only, no docs)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \

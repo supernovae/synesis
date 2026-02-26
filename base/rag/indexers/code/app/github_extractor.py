@@ -105,11 +105,13 @@ def _extract_via_github_api(
                 text += f"Merge commit: {merge_msg}\n"
             text += f"\n{body}"
 
-            chunks.append(PatternChunk(
-                text=text[:8000],
-                source=f"repo:{repo_full_name} pr:{pr.number}",
-                pattern_type="pr_description",
-            ))
+            chunks.append(
+                PatternChunk(
+                    text=text[:8000],
+                    source=f"repo:{repo_full_name} pr:{pr.number}",
+                    pattern_type="pr_description",
+                )
+            )
             count += 1
 
         logger.info(f"Extracted {len(chunks)} PR patterns from {repo_full_name}")
@@ -131,8 +133,12 @@ def _extract_via_git_log(
     try:
         result = subprocess.run(
             [
-                "git", "log", "--merges", "--format=%H|%s|%b",
-                "-n", "500",
+                "git",
+                "log",
+                "--merges",
+                "--format=%H|%s|%b",
+                "-n",
+                "500",
             ],
             cwd=clone_dir,
             capture_output=True,
@@ -160,11 +166,13 @@ def _extract_via_git_log(
             if len(text.strip()) < 20:
                 continue
 
-            chunks.append(PatternChunk(
-                text=text[:8000],
-                source=f"repo:{repo_full_name} commit:{sha}",
-                pattern_type="commit_message",
-            ))
+            chunks.append(
+                PatternChunk(
+                    text=text[:8000],
+                    source=f"repo:{repo_full_name} commit:{sha}",
+                    pattern_type="commit_message",
+                )
+            )
 
         logger.info(f"Extracted {len(chunks)} merge commit patterns from {repo_full_name} (git log)")
 

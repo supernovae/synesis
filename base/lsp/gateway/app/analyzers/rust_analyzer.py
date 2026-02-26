@@ -29,16 +29,15 @@ class RustAnalyzer(BaseAnalyzer):
     async def _run_analysis(self, code_path: Path, workdir: Path) -> list[Diagnostic]:
         cargo_toml = workdir / "Cargo.toml"
         if not cargo_toml.exists():
-            cargo_toml.write_text(
-                '[package]\nname = "snippet"\nversion = "0.1.0"\nedition = "2021"\n'
-            )
+            cargo_toml.write_text('[package]\nname = "snippet"\nversion = "0.1.0"\nedition = "2021"\n')
             src_dir = workdir / "src"
             src_dir.mkdir(exist_ok=True)
             (src_dir / "main.rs").write_text(code_path.read_text())
 
-        rc, stdout, stderr = await self._run_command(
+        _rc, stdout, _stderr = await self._run_command(
             [
-                "cargo", "check",
+                "cargo",
+                "check",
                 "--message-format=json",
             ],
             cwd=workdir,
@@ -81,13 +80,15 @@ class RustAnalyzer(BaseAnalyzer):
             if isinstance(code_info, dict):
                 rule = code_info.get("code", "")
 
-            diagnostics.append(Diagnostic(
-                severity=severity_map.get(level, "error"),
-                line=diag_line,
-                column=diag_col,
-                message=compiler_msg.get("message", ""),
-                rule=rule,
-                source="cargo-check",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    severity=severity_map.get(level, "error"),
+                    line=diag_line,
+                    column=diag_col,
+                    message=compiler_msg.get("message", ""),
+                    rule=rule,
+                    source="cargo-check",
+                )
+            )
 
         return diagnostics

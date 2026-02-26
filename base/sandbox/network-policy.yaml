@@ -11,6 +11,6 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  # No rules = deny all traffic. Sandbox pods cannot reach anything
-  # and nothing can reach them. The planner reads Job status and pod
-  # logs via the K8s API server (control plane), not pod networking.
+# No rules = deny all traffic. Sandbox pods cannot reach anything
+# and nothing can reach them. The planner reads Job status and pod
+# logs via the K8s API server (control plane), not pod networking.

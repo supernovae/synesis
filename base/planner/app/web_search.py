@@ -11,9 +11,9 @@ the LangGraph pipeline. All failures return empty results gracefully.
 from __future__ import annotations
 
 import logging
-import time
 import threading
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 from typing import Any
 
 import httpx

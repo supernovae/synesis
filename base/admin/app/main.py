@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse
@@ -36,11 +34,14 @@ def _get_client():
     global _client
     if _client is None:
         from pymilvus import MilvusClient
+
         _client = MilvusClient(uri=f"http://{MILVUS_HOST}:{MILVUS_PORT}")
     return _client
 
 
-def _safe_query(filter_expr: str = "", output_fields: list[str] | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
+def _safe_query(
+    filter_expr: str = "", output_fields: list[str] | None = None, limit: int = 100, offset: int = 0
+) -> list[dict]:
     try:
         client = _get_client()
         if FAILURES_COLLECTION not in client.list_collections():
@@ -81,21 +82,31 @@ async def failures_list(
     failures = _safe_query(
         filter_expr=filter_expr,
         output_fields=[
-            "failure_id", "code", "error_output", "exit_code",
-            "error_type", "language", "task_description", "resolution", "timestamp",
+            "failure_id",
+            "code",
+            "error_output",
+            "exit_code",
+            "error_type",
+            "language",
+            "task_description",
+            "resolution",
+            "timestamp",
         ],
         limit=page_size,
         offset=offset,
     )
 
-    return templates.TemplateResponse("failures.html", {
-        "request": request,
-        "failures": failures,
-        "language": language,
-        "error_type": error_type,
-        "page": page,
-        "page_size": page_size,
-    })
+    return templates.TemplateResponse(
+        "failures.html",
+        {
+            "request": request,
+            "failures": failures,
+            "language": language,
+            "error_type": error_type,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
 
 
 @app.get("/admin/failures/stats", response_class=HTMLResponse)
@@ -118,14 +129,17 @@ async def failures_stats(request: Request):
         if f.get("resolution"):
             resolved += 1
 
-    return templates.TemplateResponse("stats.html", {
-        "request": request,
-        "total": total,
-        "resolved": resolved,
-        "unresolved": total - resolved,
-        "by_language": by_language,
-        "by_error_type": by_error_type,
-    })
+    return templates.TemplateResponse(
+        "stats.html",
+        {
+            "request": request,
+            "total": total,
+            "resolved": resolved,
+            "unresolved": total - resolved,
+            "by_language": by_language,
+            "by_error_type": by_error_type,
+        },
+    )
 
 
 @app.get("/admin/failures/gaps", response_class=HTMLResponse)
@@ -144,11 +158,14 @@ async def failures_gaps(request: Request):
             gap_clusters[lang] = []
         gap_clusters[lang].append(f)
 
-    return templates.TemplateResponse("gaps.html", {
-        "request": request,
-        "gap_clusters": gap_clusters,
-        "total_unresolved": len(unresolved),
-    })
+    return templates.TemplateResponse(
+        "gaps.html",
+        {
+            "request": request,
+            "gap_clusters": gap_clusters,
+            "total_unresolved": len(unresolved),
+        },
+    )
 
 
 @app.get("/admin/failures/{failure_id}", response_class=HTMLResponse)
@@ -156,17 +173,27 @@ async def failure_detail(request: Request, failure_id: str):
     results = _safe_query(
         filter_expr=f'failure_id == "{failure_id}"',
         output_fields=[
-            "failure_id", "code", "error_output", "exit_code",
-            "error_type", "language", "task_description", "resolution", "timestamp",
+            "failure_id",
+            "code",
+            "error_output",
+            "exit_code",
+            "error_type",
+            "language",
+            "task_description",
+            "resolution",
+            "timestamp",
         ],
         limit=1,
     )
 
     failure = results[0] if results else None
-    return templates.TemplateResponse("detail.html", {
-        "request": request,
-        "failure": failure,
-    })
+    return templates.TemplateResponse(
+        "detail.html",
+        {
+            "request": request,
+            "failure": failure,
+        },
+    )
 
 
 @app.get("/admin/api/failures/stats")
@@ -201,4 +228,5 @@ async def api_failures_stats():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8080)

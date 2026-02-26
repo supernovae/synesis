@@ -20,7 +20,7 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-  # Egress is NOT listed here. The existing sandbox-deny-all policy
-  # already denies egress for all pods. K8s network policies are
-  # additive for the same direction, but sandbox-deny-all already
-  # has Egress in policyTypes with no rules, so egress stays blocked.
+# Egress is NOT listed here. The existing sandbox-deny-all policy
+# already denies egress for all pods. K8s network policies are
+# additive for the same direction, but sandbox-deny-all already
+# has Egress in policyTypes with no rules, so egress stays blocked.

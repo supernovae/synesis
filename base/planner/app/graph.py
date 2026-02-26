@@ -21,21 +21,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from typing import Any
 from functools import wraps
+from typing import Any
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from .state import SynesisState, NodeTrace, NodeOutcome
-from .nodes import supervisor_node, worker_node, critic_node, executor_node, lsp_analyzer_node
 from .config import settings
+from .nodes import critic_node, executor_node, lsp_analyzer_node, supervisor_node, worker_node
+from .state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.graph")
 
 
 def with_timeout(timeout_seconds: float):
     """Erlang-style timeout wrapper. Node either returns or gets killed."""
+
     def decorator(func):
         @wraps(func)
         async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
@@ -44,7 +44,7 @@ def with_timeout(timeout_seconds: float):
                     func(state),
                     timeout=timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 node_name = func.__name__.replace("_node", "")
                 logger.error(f"Node '{node_name}' timed out after {timeout_seconds}s")
                 return {
@@ -61,7 +61,9 @@ def with_timeout(timeout_seconds: float):
                         )
                     ],
                 }
+
         return wrapper
+
     return decorator
 
 

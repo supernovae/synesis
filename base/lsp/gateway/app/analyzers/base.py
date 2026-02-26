@@ -85,7 +85,7 @@ class BaseAnalyzer(ABC):
                     timeout=timeout,
                 )
                 result.diagnostics = diagnostics
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 result.error = f"Analysis timed out after {timeout}s"
                 logger.warning(
                     "analysis_timeout",

@@ -7,11 +7,11 @@ Follows the same pattern as the Synesis health monitor.
 from __future__ import annotations
 
 import enum
-import time
 import threading
+import time
 from dataclasses import dataclass, field
 
-from prometheus_client import Gauge, Counter
+from prometheus_client import Counter, Gauge
 
 CIRCUIT_STATE = Gauge(
     "synesis_lsp_circuit_breaker_state",
@@ -61,9 +61,7 @@ class CircuitBreaker:
             self.failure_count += 1
             self.last_failure_time = time.monotonic()
             old_state = self.state
-            if self.state == CircuitState.HALF_OPEN:
-                self.state = CircuitState.OPEN
-            elif self.failure_count >= self.failure_threshold:
+            if self.state == CircuitState.HALF_OPEN or self.failure_count >= self.failure_threshold:
                 self.state = CircuitState.OPEN
             if old_state != CircuitState.OPEN and self.state == CircuitState.OPEN:
                 CIRCUIT_TRIPS.labels(language=self.language).inc()

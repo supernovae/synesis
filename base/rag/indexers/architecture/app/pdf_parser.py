@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from io import BytesIO
 
 logger = logging.getLogger("synesis.indexer.architecture.pdf")
 
@@ -69,12 +68,14 @@ def parse_pdf(
             if len(text_chunks) > 1:
                 chunk_title = f"{section_title} (part {i + 1})"
 
-            chunks.append(SectionChunk(
-                text=tc,
-                section=chunk_title,
-                document_name=document_name,
-                tags=tags,
-            ))
+            chunks.append(
+                SectionChunk(
+                    text=tc,
+                    section=chunk_title,
+                    document_name=document_name,
+                    tags=tags,
+                )
+            )
 
     logger.info(f"Extracted {len(chunks)} sections from PDF: {document_name}")
     return chunks

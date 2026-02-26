@@ -5,13 +5,13 @@ Maps language names to their analyzer implementations.
 
 from __future__ import annotations
 
-from .base import BaseAnalyzer, AnalysisResult, Diagnostic
-from .python_analyzer import PythonAnalyzer
-from .go_analyzer import GoAnalyzer
-from .typescript_analyzer import TypeScriptAnalyzer
+from .base import AnalysisResult, BaseAnalyzer, Diagnostic
 from .bash_analyzer import BashAnalyzer
+from .go_analyzer import GoAnalyzer
 from .java_analyzer import JavaAnalyzer
+from .python_analyzer import PythonAnalyzer
 from .rust_analyzer import RustAnalyzer
+from .typescript_analyzer import TypeScriptAnalyzer
 
 ANALYZERS: dict[str, BaseAnalyzer] = {
     "python": PythonAnalyzer(),
@@ -45,10 +45,10 @@ def supported_languages() -> list[str]:
 
 
 __all__ = [
+    "ANALYZERS",
+    "AnalysisResult",
+    "BaseAnalyzer",
+    "Diagnostic",
     "get_analyzer",
     "supported_languages",
-    "BaseAnalyzer",
-    "AnalysisResult",
-    "Diagnostic",
-    "ANALYZERS",
 ]

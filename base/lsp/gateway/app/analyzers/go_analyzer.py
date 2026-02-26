@@ -6,15 +6,12 @@ Go pitfalls that go beyond basic compilation.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 from .base import BaseAnalyzer, Diagnostic
 
-_GO_DIAG_RE = re.compile(
-    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+):\s*(?P<msg>.+)$"
-)
+_GO_DIAG_RE = re.compile(r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+):\s*(?P<msg>.+)$")
 
 
 class GoAnalyzer(BaseAnalyzer):
@@ -37,14 +34,14 @@ class GoAnalyzer(BaseAnalyzer):
 
         diagnostics: list[Diagnostic] = []
 
-        rc, stdout, stderr = await self._run_command(
+        _rc, _stdout, stderr = await self._run_command(
             ["go", "vet", f"./{code_path.name}"],
             cwd=workdir,
             env={"GOPATH": str(workdir / ".gopath"), "GOCACHE": str(workdir / ".gocache")},
         )
         diagnostics.extend(self._parse_go_output(stderr, "go vet"))
 
-        rc2, stdout2, stderr2 = await self._run_command(
+        _rc2, stdout2, stderr2 = await self._run_command(
             ["staticcheck", f"./{code_path.name}"],
             cwd=workdir,
             env={"GOPATH": str(workdir / ".gopath"), "GOCACHE": str(workdir / ".gocache")},
@@ -65,12 +62,14 @@ class GoAnalyzer(BaseAnalyzer):
                     if parts[0].startswith("SA") or parts[0].startswith("S1") or parts[0].startswith("ST"):
                         rule = parts[0]
                         msg = parts[1] if len(parts) > 1 else msg
-                diagnostics.append(Diagnostic(
-                    severity="error" if source == "go vet" else "warning",
-                    line=int(m.group("line")),
-                    column=int(m.group("col")),
-                    message=msg,
-                    rule=rule,
-                    source=source,
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error" if source == "go vet" else "warning",
+                        line=int(m.group("line")),
+                        column=int(m.group("col")),
+                        message=msg,
+                        rule=rule,
+                        source=source,
+                    )
+                )
         return diagnostics

@@ -12,14 +12,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
 
-import tree_sitter_python as tspython
 import tree_sitter_go as tsgo
-import tree_sitter_rust as tsrust
-import tree_sitter_javascript as tsjavascript
-import tree_sitter_typescript as tstypescript
 import tree_sitter_java as tsjava
+import tree_sitter_javascript as tsjavascript
+import tree_sitter_python as tspython
+import tree_sitter_rust as tsrust
+import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Parser
 
 logger = logging.getLogger("synesis.indexer.treesitter")
@@ -49,8 +48,10 @@ LANG_CONFIGS: dict[str, dict] = {
         "language": Language(tsjavascript.language()),
         "extensions": {".js", ".jsx", ".mjs"},
         "top_level_types": {
-            "function_declaration", "class_declaration",
-            "lexical_declaration", "export_statement",
+            "function_declaration",
+            "class_declaration",
+            "lexical_declaration",
+            "export_statement",
         },
         "nested_types": {"function_declaration", "method_definition"},
     },
@@ -58,9 +59,12 @@ LANG_CONFIGS: dict[str, dict] = {
         "language": Language(tstypescript.language_typescript()),
         "extensions": {".ts", ".tsx"},
         "top_level_types": {
-            "function_declaration", "class_declaration",
-            "lexical_declaration", "export_statement",
-            "interface_declaration", "type_alias_declaration",
+            "function_declaration",
+            "class_declaration",
+            "lexical_declaration",
+            "export_statement",
+            "interface_declaration",
+            "type_alias_declaration",
         },
         "nested_types": {"function_declaration", "method_definition"},
     },
@@ -105,7 +109,12 @@ def _get_leading_comment(source_bytes: bytes, node) -> bytes:
     comment_lines: list[bytes] = []
     for line in reversed(lines):
         stripped = line.strip()
-        if stripped.startswith(b"#") or stripped.startswith(b"//") or stripped.startswith(b"/*") or stripped.startswith(b"*"):
+        if (
+            stripped.startswith(b"#")
+            or stripped.startswith(b"//")
+            or stripped.startswith(b"/*")
+            or stripped.startswith(b"*")
+        ):
             comment_lines.insert(0, line)
         elif stripped == b"":
             if comment_lines:
@@ -148,31 +157,38 @@ def chunk_file(
         symbol_type = node.type.replace("_declaration", "").replace("_definition", "").replace("_item", "")
 
         if len(text) <= max_chunk_chars:
-            chunks.append(CodeChunk(
-                text=text,
-                symbol_name=symbol_name,
-                symbol_type=symbol_type,
-                file_path=file_path,
-                start_line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
-            ))
-        else:
-            nested_types = config.get("nested_types", set())
-            sub_chunks = _split_large_node(
-                node, source_bytes, nested_types,
-                file_path, max_chunk_chars,
-            )
-            if sub_chunks:
-                chunks.extend(sub_chunks)
-            else:
-                chunks.append(CodeChunk(
-                    text=text[:max_chunk_chars],
+            chunks.append(
+                CodeChunk(
+                    text=text,
                     symbol_name=symbol_name,
                     symbol_type=symbol_type,
                     file_path=file_path,
                     start_line=node.start_point[0] + 1,
                     end_line=node.end_point[0] + 1,
-                ))
+                )
+            )
+        else:
+            nested_types = config.get("nested_types", set())
+            sub_chunks = _split_large_node(
+                node,
+                source_bytes,
+                nested_types,
+                file_path,
+                max_chunk_chars,
+            )
+            if sub_chunks:
+                chunks.extend(sub_chunks)
+            else:
+                chunks.append(
+                    CodeChunk(
+                        text=text[:max_chunk_chars],
+                        symbol_name=symbol_name,
+                        symbol_type=symbol_type,
+                        file_path=file_path,
+                        start_line=node.start_point[0] + 1,
+                        end_line=node.end_point[0] + 1,
+                    )
+                )
 
     return chunks
 
@@ -197,14 +213,16 @@ def _split_large_node(
             parent_name = _extract_symbol_name(node)
             full_name = f"{parent_name}.{symbol_name}" if parent_name else symbol_name
 
-            chunks.append(CodeChunk(
-                text=text[:max_chunk_chars],
-                symbol_name=full_name,
-                symbol_type=child.type.replace("_declaration", "").replace("_definition", ""),
-                file_path=file_path,
-                start_line=child.start_point[0] + 1,
-                end_line=child.end_point[0] + 1,
-            ))
+            chunks.append(
+                CodeChunk(
+                    text=text[:max_chunk_chars],
+                    symbol_name=full_name,
+                    symbol_type=child.type.replace("_declaration", "").replace("_definition", ""),
+                    file_path=file_path,
+                    start_line=child.start_point[0] + 1,
+                    end_line=child.end_point[0] + 1,
+                )
+            )
 
     return chunks
 

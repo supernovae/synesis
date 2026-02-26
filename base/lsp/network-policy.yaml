@@ -19,5 +19,5 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
-  # No egress rules: LSP gateway runs CLI tools locally,
-  # does not need to reach any external service.
+# No egress rules: LSP gateway runs CLI tools locally,
+# does not need to reach any external service.

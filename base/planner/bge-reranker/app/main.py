@@ -13,7 +13,7 @@ import time
 
 import torch
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -25,9 +25,7 @@ DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
 
 logger.info(f"Loading {MODEL_NAME} on {DEVICE} with dtype={DTYPE}")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_NAME, torch_dtype=DTYPE
-).to(DEVICE).eval()
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, torch_dtype=DTYPE).to(DEVICE).eval()
 logger.info("Model loaded")
 
 app = FastAPI(title="Synesis BGE Reranker", version="0.1.0")

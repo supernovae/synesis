@@ -59,11 +59,13 @@ def parse_spec(spec_content: str, spec_name: str) -> list[EndpointChunk]:
             text = _format_endpoint(path, method, operation, schemas, spec_name)
             endpoint_id = f"{method.upper()} {path}"
 
-            chunks.append(EndpointChunk(
-                text=text[:8000],
-                source=f"spec:{spec_name} endpoint:{endpoint_id}",
-                endpoint=endpoint_id,
-            ))
+            chunks.append(
+                EndpointChunk(
+                    text=text[:8000],
+                    source=f"spec:{spec_name} endpoint:{endpoint_id}",
+                    endpoint=endpoint_id,
+                )
+            )
 
     logger.info(f"Parsed {len(chunks)} endpoints from {spec_name} (version: {version})")
     return chunks

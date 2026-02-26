@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 import yaml
-from pymilvus import MilvusClient, CollectionSchema, FieldSchema, DataType
+from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 from .chunker import chunk_document
 
@@ -171,14 +171,16 @@ def run_ingestion(pack_path: Path):
                 f"{source_name}:{chunk.get('section', '')}:{chunk['text'][:100]}".encode()
             ).hexdigest()[:64]
 
-            entities.append({
-                "chunk_id": chunk_id,
-                "text": chunk["text"][:8192],
-                "source": source_name[:512],
-                "source_section": chunk.get("section", "")[:256],
-                "language": language[:32],
-                "embedding": embedding,
-            })
+            entities.append(
+                {
+                    "chunk_id": chunk_id,
+                    "text": chunk["text"][:8192],
+                    "source": source_name[:512],
+                    "source_section": chunk.get("section", "")[:256],
+                    "language": language[:32],
+                    "embedding": embedding,
+                }
+            )
 
         if entities:
             client.upsert(collection_name=collection_name, data=entities)

@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir \
     bandit \
     semgrep
 
+# hadolint ignore=DL3016
 RUN npm install -g eslint prettier --no-fund --no-audit 2>/dev/null || true
 
 RUN mkdir -p /sandbox /tmp/sandbox-work

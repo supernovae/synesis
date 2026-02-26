@@ -22,12 +22,22 @@ select = [
     "RUF",   # ruff-specific
 ]
 ignore = [
-    "E501",  # line length handled by formatter
-    "S101",  # allow assert in non-test code (used in state validation)
-    "S104",  # binding to all interfaces is intentional for containers
-    "S603",  # subprocess calls are used intentionally in sandbox/LSP
-    "S607",  # partial executable path is fine in containers
-    "B008",  # function call in default arg (FastAPI Depends pattern)
+    "E501",   # line length handled by formatter
+    "S101",   # allow assert in non-test code (used in state validation)
+    "S104",   # binding to all interfaces is intentional for containers
+    "S108",   # hardcoded /tmp is fine in containers with emptyDir mounts
+    "S110",   # try-except-pass is used intentionally for optional deps
+    "S112",   # try-except-continue is used in batch indexers by design
+    "S603",   # subprocess calls are used intentionally in sandbox/LSP
+    "S607",   # partial executable path is fine in containers
+    "B007",   # unused loop variables are acceptable in iteration patterns
+    "B008",   # function call in default arg (FastAPI Depends pattern)
+    "B905",   # zip() without strict= is fine for matched iterables
+    "E402",   # module-level import not at top (conditional imports)
+    "E741",   # ambiguous variable names acceptable in tight loops
+    "SIM102", # nested if is sometimes more readable than collapsed
+    "SIM108", # ternary is not always clearer than if/else
+    "UP042",  # str+Enum pattern is intentional for JSON serialization
 ]
 
 [tool.ruff.lint.per-file-ignores]

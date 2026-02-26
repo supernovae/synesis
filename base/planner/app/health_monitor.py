@@ -11,12 +11,12 @@ import asyncio
 import enum
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 import yaml
-from prometheus_client import start_http_server, Gauge, Counter
+from prometheus_client import Counter, Gauge, start_http_server
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("synesis.health_monitor")
@@ -75,9 +75,7 @@ class CircuitBreaker:
         self.failure_count += 1
         self.last_failure_time = time.monotonic()
 
-        if self.state == CircuitState.HALF_OPEN:
-            self.state = CircuitState.OPEN
-        elif self.failure_count >= self.failure_threshold:
+        if self.state == CircuitState.HALF_OPEN or self.failure_count >= self.failure_threshold:
             self.state = CircuitState.OPEN
 
     def should_allow_request(self) -> bool:
@@ -119,13 +117,15 @@ def load_config(config_path: str = "/etc/synesis/supervisor.yaml") -> list[Servi
             reset_timeout_seconds=cb_cfg.get("reset_timeout_seconds", 60),
             half_open_max_requests=cb_cfg.get("half_open_max_requests", 2),
         )
-        services.append(ServiceConfig(
-            name=name,
-            endpoint=cfg["endpoint"],
-            health_path=cfg.get("health_path", "/health"),
-            circuit_breaker=cb,
-            timeout_seconds=cfg.get("timeout_seconds", 10),
-        ))
+        services.append(
+            ServiceConfig(
+                name=name,
+                endpoint=cfg["endpoint"],
+                health_path=cfg.get("health_path", "/health"),
+                circuit_breaker=cb,
+                timeout_seconds=cfg.get("timeout_seconds", 10),
+            )
+        )
 
     return services
 

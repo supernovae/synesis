@@ -17,20 +17,20 @@ import sys
 from pathlib import Path
 
 import yaml
-from pymilvus import FieldSchema, DataType
+from pymilvus import DataType, FieldSchema
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ingestion"))
 from app.indexer_base import (
-    MilvusWriter,
     EmbedClient,
+    MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .spdx_parser import parse_spdx_licenses, SPDXLicense
-from .fedora_parser import fetch_fedora_statuses, FedoraLicenseStatus
-from .choosealicense_parser import fetch_choosealicense_licenses, ChoosealicenseData
+from .choosealicense_parser import ChoosealicenseData, fetch_choosealicense_licenses
 from .compatibility_loader import load_compatibility_rules, load_copyleft_classification
+from .fedora_parser import FedoraLicenseStatus, fetch_fedora_statuses
+from .spdx_parser import SPDXLicense, parse_spdx_licenses
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("synesis.indexer.license")
@@ -48,10 +48,19 @@ LICENSE_EXTRA_FIELDS = [
     FieldSchema(name="limitations", dtype=DataType.VARCHAR, max_length=512),
 ]
 
-LONG_TEXT_LICENSES = {"GPL-2.0-only", "GPL-3.0-only", "AGPL-3.0-only",
-                      "LGPL-2.1-only", "LGPL-3.0-only", "MPL-2.0",
-                      "GPL-2.0-or-later", "GPL-3.0-or-later",
-                      "AGPL-3.0-or-later", "LGPL-2.1-or-later", "LGPL-3.0-or-later"}
+LONG_TEXT_LICENSES = {
+    "GPL-2.0-only",
+    "GPL-3.0-only",
+    "AGPL-3.0-only",
+    "LGPL-2.1-only",
+    "LGPL-3.0-only",
+    "MPL-2.0",
+    "GPL-2.0-or-later",
+    "GPL-3.0-or-later",
+    "AGPL-3.0-or-later",
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-or-later",
+}
 
 MAX_FULL_TEXT_CHUNK = 6000
 
@@ -181,21 +190,23 @@ def index_licenses(
         cid = chunk_id_hash(summary, f"license:{spdx_id}:summary")
 
         if cid not in existing_ids:
-            entities.append({
-                "chunk_id": cid,
-                "text": summary[:8192],
-                "source": f"license:{spdx_id}"[:512],
-                "language": "license",
-                "spdx_id": spdx_id[:64],
-                "license_name": spdx_lic.name[:256],
-                "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
-                "redhat_status": (fedora.status if fedora else "unknown")[:32],
-                "copyleft": copyleft_level[:16],
-                "permissions": (",".join(choose.permissions) if choose else "")[:512],
-                "conditions": (",".join(choose.conditions) if choose else "")[:512],
-                "limitations": (",".join(choose.limitations) if choose else "")[:512],
-                "embedding": None,
-            })
+            entities.append(
+                {
+                    "chunk_id": cid,
+                    "text": summary[:8192],
+                    "source": f"license:{spdx_id}"[:512],
+                    "language": "license",
+                    "spdx_id": spdx_id[:64],
+                    "license_name": spdx_lic.name[:256],
+                    "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
+                    "redhat_status": (fedora.status if fedora else "unknown")[:32],
+                    "copyleft": copyleft_level[:16],
+                    "permissions": (",".join(choose.permissions) if choose else "")[:512],
+                    "conditions": (",".join(choose.conditions) if choose else "")[:512],
+                    "limitations": (",".join(choose.limitations) if choose else "")[:512],
+                    "embedding": None,
+                }
+            )
         else:
             skipped += 1
 
@@ -207,21 +218,23 @@ def index_licenses(
                 if ft_cid in existing_ids:
                     skipped += 1
                     continue
-                entities.append({
-                    "chunk_id": ft_cid,
-                    "text": chunk_text[:8192],
-                    "source": f"license:{spdx_id}:fulltext:{i}"[:512],
-                    "language": "license",
-                    "spdx_id": spdx_id[:64],
-                    "license_name": spdx_lic.name[:256],
-                    "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
-                    "redhat_status": (fedora.status if fedora else "unknown")[:32],
-                    "copyleft": copyleft_level[:16],
-                    "permissions": ""[:512],
-                    "conditions": ""[:512],
-                    "limitations": ""[:512],
-                    "embedding": None,
-                })
+                entities.append(
+                    {
+                        "chunk_id": ft_cid,
+                        "text": chunk_text[:8192],
+                        "source": f"license:{spdx_id}:fulltext:{i}"[:512],
+                        "language": "license",
+                        "spdx_id": spdx_id[:64],
+                        "license_name": spdx_lic.name[:256],
+                        "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
+                        "redhat_status": (fedora.status if fedora else "unknown")[:32],
+                        "copyleft": copyleft_level[:16],
+                        "permissions": ""[:512],
+                        "conditions": ""[:512],
+                        "limitations": ""[:512],
+                        "embedding": None,
+                    }
+                )
 
     if skipped:
         logger.info(f"Skipped {skipped} unchanged license chunks")
@@ -241,21 +254,23 @@ def index_licenses(
         cid = chunk_id_hash(text, f"compat:{rule.from_license}:{rule.to_license}")
         if cid in existing_ids:
             continue
-        compat_entities.append({
-            "chunk_id": cid,
-            "text": text[:8192],
-            "source": f"compat:{rule.from_license}->{rule.to_license}"[:512],
-            "language": "license",
-            "spdx_id": f"{rule.from_license}->{rule.to_license}"[:64],
-            "license_name": "compatibility rule"[:256],
-            "osi_approved": ""[:8],
-            "redhat_status": ""[:32],
-            "copyleft": ""[:16],
-            "permissions": ""[:512],
-            "conditions": ""[:512],
-            "limitations": ""[:512],
-            "embedding": None,
-        })
+        compat_entities.append(
+            {
+                "chunk_id": cid,
+                "text": text[:8192],
+                "source": f"compat:{rule.from_license}->{rule.to_license}"[:512],
+                "language": "license",
+                "spdx_id": f"{rule.from_license}->{rule.to_license}"[:64],
+                "license_name": "compatibility rule"[:256],
+                "osi_approved": ""[:8],
+                "redhat_status": ""[:32],
+                "copyleft": ""[:16],
+                "permissions": ""[:512],
+                "conditions": ""[:512],
+                "limitations": ""[:512],
+                "embedding": None,
+            }
+        )
 
     progress.log_source("Compatibility rules", len(compat_entities))
 

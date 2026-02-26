@@ -26,7 +26,7 @@ class BashAnalyzer(BaseAnalyzer):
         return ".sh"
 
     async def _run_analysis(self, code_path: Path, workdir: Path) -> list[Diagnostic]:
-        rc, stdout, stderr = await self._run_command(
+        _rc, stdout, stderr = await self._run_command(
             [
                 "shellcheck",
                 "--format=json",
@@ -47,22 +47,26 @@ class BashAnalyzer(BaseAnalyzer):
                     "info": "info",
                     "style": "hint",
                 }
-                diagnostics.append(Diagnostic(
-                    severity=severity_map.get(f.get("level", "warning"), "warning"),
-                    line=f.get("line", 1),
-                    column=f.get("column", 1),
-                    message=f.get("message", ""),
-                    rule=f"SC{f.get('code', '')}",
-                    source="shellcheck",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        severity=severity_map.get(f.get("level", "warning"), "warning"),
+                        line=f.get("line", 1),
+                        column=f.get("column", 1),
+                        message=f.get("message", ""),
+                        rule=f"SC{f.get('code', '')}",
+                        source="shellcheck",
+                    )
+                )
         except json.JSONDecodeError:
             if stderr.strip():
-                diagnostics.append(Diagnostic(
-                    severity="error",
-                    line=1,
-                    column=1,
-                    message=stderr.strip()[:500],
-                    source="shellcheck",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        severity="error",
+                        line=1,
+                        column=1,
+                        message=stderr.strip()[:500],
+                        source="shellcheck",
+                    )
+                )
 
         return diagnostics

@@ -7,20 +7,19 @@ is a teammate that enriches understanding, not a gate that blocks.
 
 from __future__ import annotations
 
-import time
 import json
 import logging
+import re
+import time
 from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-import re
-
-from ..state import NodeTrace, NodeOutcome, WhatIfAnalysis
 from ..config import settings
-from ..rag_client import retrieve_context, discover_collections
-from ..web_search import search_client, format_search_results
+from ..rag_client import discover_collections, retrieve_context
+from ..state import NodeOutcome, NodeTrace, WhatIfAnalysis
+from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.critic")
 
@@ -117,14 +116,52 @@ _IMPORT_PATTERNS = [
 ]
 
 _STDLIB_PREFIXES = {
-    "os", "sys", "json", "re", "time", "datetime", "math", "io",
-    "collections", "itertools", "functools", "pathlib", "typing",
-    "subprocess", "threading", "logging", "unittest", "http",
-    "urllib", "hashlib", "base64", "shutil", "tempfile", "glob",
-    "string", "textwrap", "copy", "enum", "abc", "contextlib",
-    "dataclasses", "pprint", "traceback", "inspect", "uuid",
-    "fmt", "net", "os", "strings", "strconv", "sync", "context",
-    "errors", "bytes", "bufio", "encoding", "crypto",
+    "os",
+    "sys",
+    "json",
+    "re",
+    "time",
+    "datetime",
+    "math",
+    "io",
+    "collections",
+    "itertools",
+    "functools",
+    "pathlib",
+    "typing",
+    "subprocess",
+    "threading",
+    "logging",
+    "unittest",
+    "http",
+    "urllib",
+    "hashlib",
+    "base64",
+    "shutil",
+    "tempfile",
+    "glob",
+    "string",
+    "textwrap",
+    "copy",
+    "enum",
+    "abc",
+    "contextlib",
+    "dataclasses",
+    "pprint",
+    "traceback",
+    "inspect",
+    "uuid",
+    "fmt",
+    "net",
+    "strings",
+    "strconv",
+    "sync",
+    "context",
+    "errors",
+    "bytes",
+    "bufio",
+    "encoding",
+    "crypto",
 }
 
 
@@ -256,7 +293,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
         if settings.web_search_enabled and settings.web_search_critic_enabled:
             packages = _extract_third_party_imports(generated_code)
             if packages:
-                vuln_results, vuln_queries = await _search_library_vulnerabilities(packages)
+                vuln_results, _vuln_queries = await _search_library_vulnerabilities(packages)
                 if vuln_results:
                     vuln_lines = "\n".join(f"- {r}" for r in vuln_results)
                     vuln_block = (
@@ -306,9 +343,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 }
 
         approved = parsed.get("approved", True)
-        what_ifs = [
-            WhatIfAnalysis(**wif) for wif in parsed.get("what_if_analyses", [])
-        ]
+        what_ifs = [WhatIfAnalysis(**wif) for wif in parsed.get("what_if_analyses", [])]
 
         at_max_iterations = iteration + 1 >= max_iterations
         if at_max_iterations and not approved:

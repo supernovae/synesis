@@ -20,18 +20,18 @@ import sys
 from pathlib import Path
 
 import yaml
-from pymilvus import FieldSchema, DataType
+from pymilvus import DataType, FieldSchema
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ingestion"))
 from app.indexer_base import (
-    MilvusWriter,
     EmbedClient,
+    MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .tree_sitter_chunker import chunk_file, get_extensions_for_language
 from .github_extractor import extract_pr_patterns
+from .tree_sitter_chunker import chunk_file, get_extensions_for_language
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("synesis.indexer.code")
@@ -69,8 +69,16 @@ _LICENSE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("EPL-2.0", re.compile(r"Eclipse Public License.*?2\.0", re.IGNORECASE)),
 ]
 
-_LICENSE_FILENAMES = ("LICENSE", "LICENSE.md", "LICENSE.txt", "LICENCE",
-                      "LICENCE.md", "LICENCE.txt", "COPYING", "COPYING.md")
+_LICENSE_FILENAMES = (
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+    "LICENCE",
+    "LICENCE.md",
+    "LICENCE.txt",
+    "COPYING",
+    "COPYING.md",
+)
 
 
 def _detect_repo_license(clone_dir: str) -> str:
@@ -97,7 +105,8 @@ def _clone_repo(repo_full_name: str) -> str:
         logger.info(f"  Repo already cloned: {dest}")
         subprocess.run(
             ["git", "-C", dest, "pull", "--ff-only"],
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
         return dest
 
@@ -105,7 +114,9 @@ def _clone_repo(repo_full_name: str) -> str:
     logger.info(f"  Cloning {url} -> {dest}")
     result = subprocess.run(
         ["git", "clone", "--depth", "1", url, dest],
-        capture_output=True, text=True, timeout=300,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if result.returncode != 0:
         raise RuntimeError(f"git clone failed: {result.stderr[:500]}")
@@ -213,15 +224,17 @@ def index_language(
                 if cid in existing_code_ids:
                     skipped += 1
                     continue
-                code_entities.append({
-                    "chunk_id": cid,
-                    "text": chunk.text[:8192],
-                    "source": f"repo:{repo_name} path:{chunk.file_path}"[:512],
-                    "symbol_name": chunk.symbol_name[:256],
-                    "symbol_type": chunk.symbol_type[:64],
-                    "repo_license": repo_license[:64],
-                    "language": language[:32],
-                })
+                code_entities.append(
+                    {
+                        "chunk_id": cid,
+                        "text": chunk.text[:8192],
+                        "source": f"repo:{repo_name} path:{chunk.file_path}"[:512],
+                        "symbol_name": chunk.symbol_name[:256],
+                        "symbol_type": chunk.symbol_type[:64],
+                        "repo_license": repo_license[:64],
+                        "language": language[:32],
+                    }
+                )
 
         if skipped:
             logger.info(f"  Skipped {skipped} unchanged code chunks")
@@ -244,14 +257,16 @@ def index_language(
                 cid = chunk_id_hash(pc.text, pc.source)
                 if cid in existing_pattern_ids:
                     continue
-                pattern_entities.append({
-                    "chunk_id": cid,
-                    "text": pc.text[:8192],
-                    "source": pc.source[:512],
-                    "pattern_type": pc.pattern_type[:64],
-                    "repo_license": repo_license[:64],
-                    "language": language[:32],
-                })
+                pattern_entities.append(
+                    {
+                        "chunk_id": cid,
+                        "text": pc.text[:8192],
+                        "source": pc.source[:512],
+                        "pattern_type": pc.pattern_type[:64],
+                        "repo_license": repo_license[:64],
+                        "language": language[:32],
+                    }
+                )
 
             texts = [e["text"] for e in pattern_entities]
             embeddings = embedder.embed_texts(texts)
@@ -284,9 +299,7 @@ def main() -> None:
     embedder = EmbedClient()
     progress = ProgressTracker(name="Code Repository Indexer")
 
-    languages_to_index = (
-        [args.language] if args.language else list(repositories.keys())
-    )
+    languages_to_index = [args.language] if args.language else list(repositories.keys())
 
     for lang in languages_to_index:
         repos = repositories.get(lang, [])

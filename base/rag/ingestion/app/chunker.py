@@ -84,9 +84,11 @@ def chunk_document(
         text_chunks = _chunk_text(section["text"], chunk_size, overlap)
         for tc in text_chunks:
             if tc.strip():
-                chunks.append({
-                    "text": tc.strip(),
-                    "section": section["section"],
-                })
+                chunks.append(
+                    {
+                        "text": tc.strip(),
+                        "section": section["section"],
+                    }
+                )
 
     return chunks

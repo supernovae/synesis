@@ -8,20 +8,20 @@ Supervisor -> Worker -> Critic pipeline.
 from __future__ import annotations
 
 import hashlib
+import logging
 import time
 import uuid
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
 
-from .graph import graph
 from .config import settings
-from .state import RetrievalParams
 from .conversation_memory import memory
+from .graph import graph
+from .state import RetrievalParams
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -59,6 +59,7 @@ class ChatMessage(BaseModel):
 
 class RetrievalOptions(BaseModel):
     """Per-request retrieval overrides sent alongside chat messages."""
+
     strategy: str = "hybrid"
     reranker: str = "flashrank"
     top_k: int = 5
@@ -117,11 +118,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     user_id = _resolve_user_id(request, http_request)
 
-    user_messages = [
-        HumanMessage(content=m.content)
-        for m in request.messages
-        if m.role == "user"
-    ]
+    user_messages = [HumanMessage(content=m.content) for m in request.messages if m.role == "user"]
 
     if not user_messages:
         raise HTTPException(status_code=400, detail="No user messages provided")
@@ -152,7 +149,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         result = await graph.ainvoke(initial_state)
     except Exception as e:
         logger.exception("graph_execution_error")
-        raise HTTPException(status_code=500, detail=f"Graph execution failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Graph execution failed: {e}") from e
 
     messages = result.get("messages", [])
     last_message = messages[-1] if messages else None

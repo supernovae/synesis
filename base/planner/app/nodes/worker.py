@@ -6,16 +6,16 @@ inline reasoning, and returns results for the Critic to evaluate.
 
 from __future__ import annotations
 
-import time
 import logging
+import time
 from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..state import NodeTrace, NodeOutcome
-from ..web_search import search_client, format_search_results
 from ..config import settings
+from ..state import NodeOutcome, NodeTrace
+from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.worker")
 
@@ -53,6 +53,7 @@ worker_llm = ChatOpenAI(
 def _build_execution_feedback(execution_result: str, iteration: int) -> str:
     """Format sandbox execution results into a prompt section for revision."""
     import json
+
     try:
         result = json.loads(execution_result)
     except (json.JSONDecodeError, TypeError):
@@ -82,10 +83,7 @@ def _build_failure_hints(failure_context: list[str]) -> str:
     if not failure_context:
         return ""
     hints = "\n".join(f"- {ctx}" for ctx in failure_context[:5])
-    return (
-        f"\n\n## Known Failure Patterns\n"
-        f"These similar tasks have failed before. Avoid these pitfalls:\n{hints}"
-    )
+    return f"\n\n## Known Failure Patterns\nThese similar tasks have failed before. Avoid these pitfalls:\n{hints}"
 
 
 def _build_lsp_diagnostics_block(lsp_diagnostics: list[str]) -> str:
@@ -105,15 +103,13 @@ def _build_web_search_block(web_search_results: list[str]) -> str:
     if not web_search_results:
         return ""
     lines = "\n".join(f"- {r}" for r in web_search_results[:8])
-    return (
-        f"\n\n## Web Search Context\n"
-        f"Relevant information from the web:\n{lines}"
-    )
+    return f"\n\n## Web Search Context\nRelevant information from the web:\n{lines}"
 
 
 def _extract_error_for_search(execution_result: str) -> str:
     """Extract the key error message from execution results for web search."""
     import json
+
     try:
         result = json.loads(execution_result)
     except (json.JSONDecodeError, TypeError):
@@ -139,10 +135,7 @@ def _build_context_block(rag_context: list[str]) -> str:
     if not rag_context:
         return ""
     joined = "\n---\n".join(rag_context)
-    return (
-        f"\n\n## Reference Material (from RAG)\n"
-        f"Use these style guides and best practices:\n\n{joined}"
-    )
+    return f"\n\n## Reference Material (from RAG)\nUse these style guides and best practices:\n\n{joined}"
 
 
 async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -210,10 +203,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         previous_code = ""
         if iteration > 0 and state.get("generated_code"):
-            previous_code = (
-                f"\n\n## Previous Code (needs revision)\n"
-                f"```{target_lang}\n{state['generated_code']}\n```"
-            )
+            previous_code = f"\n\n## Previous Code (needs revision)\n```{target_lang}\n{state['generated_code']}\n```"
 
         prompt = (
             f"## Task\nLanguage: {target_lang}\n{task_desc}"
@@ -229,6 +219,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         response = await worker_llm.ainvoke(messages)
 
         import json
+
         try:
             parsed = json.loads(response.content)
         except json.JSONDecodeError:

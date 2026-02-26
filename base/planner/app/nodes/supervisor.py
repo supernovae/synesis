@@ -7,20 +7,20 @@ and route to the appropriate worker or directly to response.
 from __future__ import annotations
 
 import json
-import time
 import logging
+import time
 from collections import Counter
 from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..state import SynesisState, NodeTrace, NodeOutcome, TaskType, RetrievalParams
-from ..rag_client import retrieve_context, select_collections_for_task
-from ..failure_store import query_similar_failures
-from ..failfast_cache import cache as failfast_cache
-from ..web_search import search_client, format_search_results
 from ..config import settings
+from ..failfast_cache import cache as failfast_cache
+from ..failure_store import query_similar_failures
+from ..rag_client import retrieve_context, select_collections_for_task
+from ..state import NodeOutcome, NodeTrace, RetrievalParams
+from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.supervisor")
 
@@ -49,8 +49,8 @@ _SEARCH_TRIGGER_KEYWORDS = re.compile(
     r"\b(latest|current|newest|updated|upgrade|migrate|deprecated|"
     r"kubernetes|openshift|k8s|aws|azure|gcp|docker|terraform|"
     r"react|fastapi|django|flask|spring|nestjs|express|gin|"
-    r"v\d+|version\s*\d)"
-    , re.IGNORECASE,
+    r"v\d+|version\s*\d)",
+    re.IGNORECASE,
 )
 
 _API_KEYWORDS = re.compile(
@@ -181,10 +181,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 reranker=reranker,
             )
             rag_context = [r.text for r in rag_results]
-            fallback_to_bm25 = any(
-                r.retrieval_source == "bm25" and strategy != "bm25"
-                for r in rag_results
-            )
+            fallback_to_bm25 = any(r.retrieval_source == "bm25" and strategy != "bm25" for r in rag_results)
 
         next_node = "worker" if needs_code else "respond"
 
@@ -207,10 +204,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     top_k=3,
                 )
                 for f in similar_failures:
-                    summary = (
-                        f"[{f['error_type']}] {f['task_description'][:200]} → "
-                        f"{f['error_output'][:200]}"
-                    )
+                    summary = f"[{f['error_type']}] {f['task_description'][:200]} → {f['error_output'][:200]}"
                     if f.get("resolution"):
                         summary += f" (resolved with: {f['resolution'][:200]})"
                     failure_context.append(summary)

@@ -16,12 +16,11 @@ strategies auto-degrade to BM25-only from cached chunks.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from rank_bm25 import BM25Okapi
@@ -49,6 +48,7 @@ def _ensure_metrics():
         return
     try:
         from prometheus_client import Counter, Histogram
+
         _retrieval_source_counter = Counter(
             "synesis_retrieval_source_total",
             "Count of retrieval results by source",
@@ -80,6 +80,7 @@ def _get_client() -> httpx.AsyncClient:
 # Embedding helper
 # ---------------------------------------------------------------------------
 
+
 async def _embed_text(text: str) -> list[float]:
     """Get embedding vector from the embedder service."""
     client = _get_client()
@@ -95,6 +96,7 @@ async def _embed_text(text: str) -> list[float]:
 # ---------------------------------------------------------------------------
 # BM25 In-Memory Index with Milvus chunk cache
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _CachedChunk:
@@ -130,9 +132,7 @@ class BM25Index:
         try:
             from pymilvus import MilvusClient
 
-            client = MilvusClient(
-                uri=f"http://{settings.milvus_host}:{settings.milvus_port}"
-            )
+            client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
 
             if collection not in client.list_collections():
                 logger.warning(f"BM25 refresh: collection '{collection}' not found")
@@ -153,11 +153,13 @@ class BM25Index:
                 if not results:
                     break
                 for row in results:
-                    all_chunks.append(_CachedChunk(
-                        text=row.get("text", ""),
-                        source=row.get("source", "unknown"),
-                        chunk_id=row.get("chunk_id", ""),
-                    ))
+                    all_chunks.append(
+                        _CachedChunk(
+                            text=row.get("text", ""),
+                            source=row.get("source", "unknown"),
+                            chunk_id=row.get("chunk_id", ""),
+                        )
+                    )
                 if len(results) < batch_size:
                     break
                 offset += batch_size
@@ -198,20 +200,20 @@ class BM25Index:
         tokenized_query = self._tokenize(query)
         scores = index.get_scores(tokenized_query)
 
-        scored = sorted(
-            enumerate(scores), key=lambda x: x[1], reverse=True
-        )[:top_k]
+        scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
 
         results = []
         for idx, score in scored:
             if score <= 0:
                 continue
             chunk = chunks[idx]
-            results.append({
-                "text": chunk.text,
-                "source": chunk.source,
-                "bm25_score": float(score),
-            })
+            results.append(
+                {
+                    "text": chunk.text,
+                    "source": chunk.source,
+                    "bm25_score": float(score),
+                }
+            )
 
         return results
 
@@ -232,17 +234,13 @@ def discover_collections() -> list[str]:
     global _available_collections_cache, _collections_cache_time
     import time as _time
 
-    if (
-        _available_collections_cache is not None
-        and (_time.time() - _collections_cache_time) < 300
-    ):
+    if _available_collections_cache is not None and (_time.time() - _collections_cache_time) < 300:
         return _available_collections_cache
 
     try:
         from pymilvus import MilvusClient
-        client = MilvusClient(
-            uri=f"http://{settings.milvus_host}:{settings.milvus_port}"
-        )
+
+        client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
         _available_collections_cache = client.list_collections()
         _collections_cache_time = _time.time()
         return _available_collections_cache
@@ -293,9 +291,22 @@ def select_collections_for_task(
 
     if settings.rag_license_collection_enabled:
         license_keywords = {
-            "license", "licensing", "copyright", "gpl", "mit", "apache",
-            "open source", "compliance", "spdx", "bsd", "lgpl", "agpl",
-            "mpl", "copyleft", "permissive", "proprietary",
+            "license",
+            "licensing",
+            "copyright",
+            "gpl",
+            "mit",
+            "apache",
+            "open source",
+            "compliance",
+            "spdx",
+            "bsd",
+            "lgpl",
+            "agpl",
+            "mpl",
+            "copyleft",
+            "permissive",
+            "proprietary",
         }
         if any(kw in desc_lower for kw in license_keywords):
             if "licenses_v1" in available and "licenses_v1" not in selected:
@@ -309,6 +320,7 @@ def select_collections_for_task(
 # Vector search (Milvus)
 # ---------------------------------------------------------------------------
 
+
 async def _vector_search(
     query: str,
     collection: str,
@@ -317,9 +329,7 @@ async def _vector_search(
     """Semantic vector search via Milvus."""
     from pymilvus import MilvusClient
 
-    client = MilvusClient(
-        uri=f"http://{settings.milvus_host}:{settings.milvus_port}"
-    )
+    client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
 
     collections = client.list_collections()
     if collection not in collections:
@@ -342,11 +352,13 @@ async def _vector_search(
             if score < settings.rag_score_threshold:
                 continue
             entity = hit.get("entity", {})
-            formatted.append({
-                "text": entity.get("text", ""),
-                "source": entity.get("source", "unknown"),
-                "vector_score": float(score),
-            })
+            formatted.append(
+                {
+                    "text": entity.get("text", ""),
+                    "source": entity.get("source", "unknown"),
+                    "vector_score": float(score),
+                }
+            )
 
     return formatted
 
@@ -354,6 +366,7 @@ async def _vector_search(
 # ---------------------------------------------------------------------------
 # BM25 search (in-memory)
 # ---------------------------------------------------------------------------
+
 
 async def _bm25_search(
     query: str,
@@ -368,6 +381,7 @@ async def _bm25_search(
 # ---------------------------------------------------------------------------
 # Reciprocal Rank Fusion
 # ---------------------------------------------------------------------------
+
 
 def _reciprocal_rank_fusion(
     vector_results: list[dict[str, Any]],
@@ -428,6 +442,7 @@ def _get_flashrank_ranker():
         with _flashrank_lock:
             if _flashrank_ranker is None:
                 from flashrank import Ranker
+
                 _flashrank_ranker = Ranker(model_name=settings.rag_reranker_model)
     return _flashrank_ranker
 
@@ -519,6 +534,7 @@ async def _rerank(
 # Main retrieval entrypoint
 # ---------------------------------------------------------------------------
 
+
 async def retrieve_context(
     query: str,
     collection: str = "bash_v1",
@@ -553,7 +569,10 @@ async def retrieve_context(
     for coll in target_collections:
         try:
             coll_results, coll_fallback = await _retrieve_single_collection(
-                query, coll, top_k, strategy,
+                query,
+                coll,
+                top_k,
+                strategy,
             )
             for r in coll_results:
                 r["_collection"] = coll
@@ -571,9 +590,7 @@ async def retrieve_context(
 
     if _retrieval_source_counter:
         for doc in all_merged:
-            _retrieval_source_counter.labels(
-                source=doc.get("retrieval_source", "unknown")
-            ).inc()
+            _retrieval_source_counter.labels(source=doc.get("retrieval_source", "unknown")).inc()
 
     results = [
         RetrievalResult(
@@ -634,9 +651,7 @@ async def _retrieve_single_collection(
         bm25_results = await _bm25_search(query, collection, fetch_k)
 
     if strategy == "hybrid" or fallback_to_bm25:
-        merged = _reciprocal_rank_fusion(
-            vector_results, bm25_results, k=settings.rag_rrf_k
-        )
+        merged = _reciprocal_rank_fusion(vector_results, bm25_results, k=settings.rag_rrf_k)
     elif strategy == "vector":
         merged = [
             {**r, "retrieval_source": "vector", "bm25_score": 0.0, "rrf_score": r.get("vector_score", 0.0)}

@@ -15,14 +15,17 @@ import uuid
 from typing import Any
 
 from ..config import settings
-from ..state import NodeTrace, NodeOutcome
-from ..failure_store import store_failure, update_resolution
 from ..failfast_cache import cache as failfast_cache
+from ..failure_store import store_failure
+from ..state import NodeOutcome, NodeTrace
+
+_background_tasks: set[asyncio.Task] = set()
 
 logger = logging.getLogger("synesis.executor")
 
 try:
     from prometheus_client import Counter, Histogram
+
     _sandbox_execution_counter = Counter(
         "synesis_sandbox_executions_total",
         "Total sandbox executions by outcome and language",
@@ -51,12 +54,17 @@ except Exception:
     _warm_pool_counter = None
 
 LANGUAGE_EXTENSIONS = {
-    "bash": "sh", "shell": "sh", "sh": "sh",
+    "bash": "sh",
+    "shell": "sh",
+    "sh": "sh",
     "python": "py",
-    "javascript": "js", "js": "js",
-    "typescript": "ts", "ts": "ts",
+    "javascript": "js",
+    "js": "js",
+    "typescript": "ts",
+    "ts": "ts",
     "c": "c",
-    "cpp": "cpp", "c++": "cpp",
+    "cpp": "cpp",
+    "c++": "cpp",
     "java": "java",
     "go": "go",
 }
@@ -297,7 +305,9 @@ async def _execute_via_job(code: str, language: str, run_id: str, namespace: str
     job_name = await _create_sandbox_job(code, language, run_id)
     logger.info("Created sandbox job %s for %s code", job_name, language)
     result = await _wait_for_job(
-        job_name, namespace, settings.sandbox_timeout_seconds + 5,
+        job_name,
+        namespace,
+        settings.sandbox_timeout_seconds + 5,
     )
     return result
 
@@ -328,13 +338,15 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             "execution_exit_code": 0,
             "execution_lint_passed": True,
             "execution_security_passed": True,
-            "node_traces": [NodeTrace(
-                node_name=node_name,
-                reasoning="No code to execute",
-                confidence=1.0,
-                outcome=NodeOutcome.SUCCESS,
-                latency_ms=0,
-            )],
+            "node_traces": [
+                NodeTrace(
+                    node_name=node_name,
+                    reasoning="No code to execute",
+                    confidence=1.0,
+                    outcome=NodeOutcome.SUCCESS,
+                    latency_ms=0,
+                )
+            ],
         }
 
     run_id = uuid.uuid4().hex[:12]
@@ -415,12 +427,16 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
         task_desc = state.get("task_description", "")
         result_json = json.dumps(result, default=str)
         if exit_code != 0:
-            asyncio.create_task(store_failure(
-                code=code,
-                execution_result_json=result_json,
-                task_description=task_desc,
-                language=language,
-            ))
+            task = asyncio.create_task(
+                store_failure(
+                    code=code,
+                    execution_result_json=result_json,
+                    task_description=task_desc,
+                    language=language,
+                )
+            )
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)
             error_summary = ""
             if not lint_passed:
                 error_summary += f"Lint: {str(lint_data.get('output', ''))[:256]}. "
@@ -465,4 +481,6 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
 
     finally:
         if not used_warm_pool:
-            asyncio.create_task(_cleanup_sandbox(run_id, namespace))
+            task = asyncio.create_task(_cleanup_sandbox(run_id, namespace))
+            _background_tasks.add(task)
+            task.add_done_callback(_background_tasks.discard)

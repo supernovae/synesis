@@ -19,8 +19,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ingestion"))
 from app.indexer_base import (
-    MilvusWriter,
     EmbedClient,
+    MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
@@ -75,13 +75,15 @@ def index_spec(
         if cid in existing_ids:
             skipped += 1
             continue
-        entities.append({
-            "chunk_id": cid,
-            "text": chunk.text[:8192],
-            "source": chunk.source[:512],
-            "language": "openapi",
-            "embedding": None,
-        })
+        entities.append(
+            {
+                "chunk_id": cid,
+                "text": chunk.text[:8192],
+                "source": chunk.source[:512],
+                "language": "openapi",
+                "embedding": None,
+            }
+        )
 
     if skipped:
         logger.info(f"  Skipped {skipped} unchanged endpoint chunks")

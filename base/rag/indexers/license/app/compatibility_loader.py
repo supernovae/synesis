@@ -31,12 +31,14 @@ def load_compatibility_rules(path: str | Path) -> list[CompatibilityRule]:
 
     rules: list[CompatibilityRule] = []
     for entry in data.get("rules", []):
-        rules.append(CompatibilityRule(
-            from_license=entry["from"],
-            to_license=entry["to"],
-            compatible=str(entry.get("compatible", "unknown")),
-            note=entry.get("note", ""),
-        ))
+        rules.append(
+            CompatibilityRule(
+                from_license=entry["from"],
+                to_license=entry["to"],
+                compatible=str(entry.get("compatible", "unknown")),
+                note=entry.get("note", ""),
+            )
+        )
 
     logger.info(f"Loaded {len(rules)} compatibility rules")
     return rules

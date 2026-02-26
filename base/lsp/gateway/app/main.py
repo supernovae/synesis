@@ -8,16 +8,15 @@ failure to enrich error context for the worker's revision pass.
 from __future__ import annotations
 
 import logging
-import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import Response
 
-from .analyzers import get_analyzer, supported_languages, ANALYZERS
+from .analyzers import ANALYZERS, get_analyzer, supported_languages
 from .circuit_breaker import CircuitBreaker
 
 logging.basicConfig(
@@ -48,7 +47,7 @@ circuit_breakers: dict[str, CircuitBreaker] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    for lang_key, analyzer in ANALYZERS.items():
+    for _lang_key, analyzer in ANALYZERS.items():
         engine = analyzer.engine_name
         if engine not in circuit_breakers:
             circuit_breakers[engine] = CircuitBreaker(language=engine)
@@ -108,14 +107,14 @@ async def analyze(request: AnalyzeRequest):
     if analyzer is None:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported language: {request.language}. "
-                   f"Supported: {', '.join(supported_languages())}",
+            detail=f"Unsupported language: {request.language}. Supported: {', '.join(supported_languages())}",
         )
 
     cb = circuit_breakers.get(analyzer.engine_name)
     if cb and not cb.should_allow_request():
         ANALYSIS_REQUESTS.labels(
-            language=request.language, outcome="circuit_open",
+            language=request.language,
+            outcome="circuit_open",
         ).inc()
         return AnalyzeResponse(
             language=analyzer.language,
@@ -133,30 +132,32 @@ async def analyze(request: AnalyzeRequest):
         if cb:
             cb.record_failure()
         ANALYSIS_REQUESTS.labels(
-            language=request.language, outcome="error",
+            language=request.language,
+            outcome="error",
         ).inc()
     else:
         if cb:
             cb.record_success()
         ANALYSIS_REQUESTS.labels(
-            language=request.language, outcome="success",
+            language=request.language,
+            outcome="success",
         ).inc()
 
     ANALYSIS_DURATION.labels(
-        language=analyzer.language, engine=analyzer.engine_name,
+        language=analyzer.language,
+        engine=analyzer.engine_name,
     ).observe(result.analysis_time_ms / 1000)
 
     for diag in result.diagnostics:
         ANALYSIS_DIAGNOSTICS.labels(
-            language=analyzer.language, severity=diag.severity,
+            language=analyzer.language,
+            severity=diag.severity,
         ).inc()
 
     return AnalyzeResponse(
         language=result.language,
         engine=result.engine,
-        diagnostics=[
-            DiagnosticResponse(**asdict(d)) for d in result.diagnostics
-        ],
+        diagnostics=[DiagnosticResponse(**asdict(d)) for d in result.diagnostics],
         analysis_time_ms=result.analysis_time_ms,
         error=result.error,
         skipped=result.skipped,
@@ -179,11 +180,13 @@ async def languages():
         engine = analyzer.engine_name
         if engine not in seen:
             seen.add(engine)
-            result.append(LanguageInfo(
-                language=name,
-                engine=engine,
-                file_extension=analyzer.file_extension,
-            ))
+            result.append(
+                LanguageInfo(
+                    language=name,
+                    engine=engine,
+                    file_extension=analyzer.file_extension,
+                )
+            )
     return result
 
 

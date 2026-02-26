@@ -17,8 +17,8 @@ from typing import Any
 
 import httpx
 
-from ..state import NodeTrace, NodeOutcome
 from ..config import settings
+from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.lsp_analyzer")
 
@@ -117,9 +117,7 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
             elif severity == "warning":
                 warning_count += 1
             rule_tag = f" [{rule}]" if rule else ""
-            formatted.append(
-                f"[{severity.upper()}] L{line}:{col} ({source}{rule_tag}): {msg}"
-            )
+            formatted.append(f"[{severity.upper()}] L{line}:{col} ({source}{rule_tag}): {msg}")
 
         latency = (time.monotonic() - start) * 1000
         logger.info(

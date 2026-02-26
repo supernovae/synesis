@@ -24,6 +24,7 @@ logger = logging.getLogger("synesis.memory")
 @dataclass
 class ConversationTurn:
     """A single turn in a conversation."""
+
     role: str
     content: str
     timestamp: float = field(default_factory=time.time)
@@ -127,10 +128,7 @@ class ConversationMemory:
 
     def _evict_expired_users(self) -> None:
         now = time.time()
-        expired = [
-            uid for uid, last in self._last_active.items()
-            if now - last > self._ttl
-        ]
+        expired = [uid for uid, last in self._last_active.items() if now - last > self._ttl]
         for uid in expired:
             self._remove_user(uid)
 
@@ -151,9 +149,7 @@ class ConversationMemory:
         2. Embed the summary
         3. Upsert to a conversation_memory_v1 Milvus collection
         """
-        logger.debug(
-            f"Evicted {len(turns)} turns for user {user_id[:8]}... (L2 stub)"
-        )
+        logger.debug(f"Evicted {len(turns)} turns for user {user_id[:8]}... (L2 stub)")
 
     @property
     def active_users(self) -> int:

@@ -18,18 +18,18 @@ from pathlib import Path
 
 import httpx
 import yaml
-from pymilvus import FieldSchema, DataType
+from pymilvus import DataType, FieldSchema
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ingestion"))
 from app.indexer_base import (
-    MilvusWriter,
     EmbedClient,
+    MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .pdf_parser import parse_pdf
 from .html_parser import parse_html, parse_markdown
+from .pdf_parser import parse_pdf
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("synesis.indexer.architecture")
@@ -100,16 +100,18 @@ def index_document(
         if cid in existing_ids:
             skipped += 1
             continue
-        entities.append({
-            "chunk_id": cid,
-            "text": chunk.text[:8192],
-            "source": f"doc:{name} section:{chunk.section}"[:512],
-            "section": chunk.section[:256],
-            "document_name": name[:256],
-            "tags": ",".join(chunk.tags)[:512],
-            "language": "architecture",
-            "embedding": None,
-        })
+        entities.append(
+            {
+                "chunk_id": cid,
+                "text": chunk.text[:8192],
+                "source": f"doc:{name} section:{chunk.section}"[:512],
+                "section": chunk.section[:256],
+                "document_name": name[:256],
+                "tags": ",".join(chunk.tags)[:512],
+                "language": "architecture",
+                "embedding": None,
+            }
+        )
 
     if skipped:
         logger.info(f"  Skipped {skipped} unchanged section chunks")

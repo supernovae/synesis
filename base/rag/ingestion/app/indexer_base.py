@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
-from pymilvus import MilvusClient, CollectionSchema, FieldSchema, DataType
+from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 logger = logging.getLogger("synesis.indexer")
 
@@ -157,10 +157,7 @@ class ProgressTracker:
     def log_source(self, source_name: str, chunk_count: int) -> None:
         self.total_sources += 1
         self.total_chunks += chunk_count
-        logger.info(
-            f"  [{self.total_sources}] {source_name}: {chunk_count} chunks "
-            f"(total: {self.total_chunks})"
-        )
+        logger.info(f"  [{self.total_sources}] {source_name}: {chunk_count} chunks (total: {self.total_chunks})")
 
     def log_error(self, source_name: str, error: str) -> None:
         self.errors += 1

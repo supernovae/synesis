@@ -33,11 +33,8 @@ _start_time = time.monotonic()
 
 
 class WarmHandler(http.server.BaseHTTPRequestHandler):
-
     def log_message(self, fmt, *args):
-        sys.stderr.write(
-            f"[warm-server] {self.address_string()} - {fmt % args}\n"
-        )
+        sys.stderr.write(f"[warm-server] {self.address_string()} - {fmt % args}\n")
 
     def do_GET(self):
         if self.path == "/healthz":
@@ -76,7 +73,9 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
             filename = body.get("filename", "script.sh")
 
             if not code.strip():
-                self._respond(200, {"exit_code": 0, "lint": {"passed": True}, "execution": {"output": "", "exit_code": 0}})
+                self._respond(
+                    200, {"exit_code": 0, "lint": {"passed": True}, "execution": {"output": "", "exit_code": 0}}
+                )
                 return
 
             work_dir = tempfile.mkdtemp(dir="/tmp")

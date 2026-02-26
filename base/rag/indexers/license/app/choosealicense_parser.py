@@ -28,6 +28,7 @@ _YAML_FRONT_MATTER = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
 def _parse_yaml_front_matter(content: str) -> dict:
     """Extract YAML front matter from a Jekyll file."""
     import yaml
+
     match = _YAML_FRONT_MATTER.match(content)
     if not match:
         return {}

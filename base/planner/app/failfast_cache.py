@@ -20,6 +20,7 @@ logger = logging.getLogger("synesis.failfast_cache")
 @dataclass
 class CacheEntry:
     """A cached execution outcome."""
+
     task_hash: str
     task_description: str
     language: str
@@ -111,9 +112,7 @@ class FailFastCache:
                 f"Error: {entry.error_summary[:512]}. Avoid this approach."
             )
             if entry.code:
-                hints.append(
-                    f"Failed code to avoid:\n```\n{entry.code[:512]}\n```"
-                )
+                hints.append(f"Failed code to avoid:\n```\n{entry.code[:512]}\n```")
         return hints
 
     @property

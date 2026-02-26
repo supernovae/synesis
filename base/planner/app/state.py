@@ -11,9 +11,9 @@ import time
 from enum import Enum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
-from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel, Field
 
 
 class Confidence(float):
@@ -50,6 +50,7 @@ class WhatIfAnalysis(BaseModel):
 
 class RetrievalResult(BaseModel):
     """A single retrieved document chunk with full provenance metadata."""
+
     text: str
     source: str = "unknown"
     collection: str = ""
@@ -63,6 +64,7 @@ class RetrievalResult(BaseModel):
 
 class RetrievalParams(BaseModel):
     """Per-request retrieval configuration, overridable from the API."""
+
     strategy: Literal["hybrid", "vector", "bm25"] = "hybrid"
     reranker: Literal["flashrank", "bge", "none"] = "flashrank"
     top_k: int = 5
@@ -70,6 +72,7 @@ class RetrievalParams(BaseModel):
 
 class NodeTrace(BaseModel):
     """Audit trail for a single node execution -- observability requirement."""
+
     node_name: str
     reasoning: str
     assumptions: list[str] = Field(default_factory=list)

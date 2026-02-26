@@ -32,21 +32,25 @@ class TypeScriptAnalyzer(BaseAnalyzer):
 
     async def _run_analysis(self, code_path: Path, workdir: Path) -> list[Diagnostic]:
         tsconfig = workdir / "tsconfig.json"
-        tsconfig.write_text(json.dumps({
-            "compilerOptions": {
-                "strict": True,
-                "noEmit": True,
-                "target": "ES2022",
-                "module": "ES2022",
-                "moduleResolution": "bundler",
-                "skipLibCheck": True,
-                "allowJs": True,
-                "checkJs": True,
-            },
-            "include": [code_path.name],
-        }))
+        tsconfig.write_text(
+            json.dumps(
+                {
+                    "compilerOptions": {
+                        "strict": True,
+                        "noEmit": True,
+                        "target": "ES2022",
+                        "module": "ES2022",
+                        "moduleResolution": "bundler",
+                        "skipLibCheck": True,
+                        "allowJs": True,
+                        "checkJs": True,
+                    },
+                    "include": [code_path.name],
+                }
+            )
+        )
 
-        rc, stdout, stderr = await self._run_command(
+        _rc, stdout, stderr = await self._run_command(
             ["tsc", "--noEmit", "--pretty", "false"],
             cwd=workdir,
         )
@@ -56,13 +60,15 @@ class TypeScriptAnalyzer(BaseAnalyzer):
         for line in output.strip().splitlines():
             m = _TSC_DIAG_RE.match(line.strip())
             if m:
-                diagnostics.append(Diagnostic(
-                    severity=m.group("severity"),
-                    line=int(m.group("line")),
-                    column=int(m.group("col")),
-                    message=m.group("msg"),
-                    rule=m.group("code"),
-                    source="tsc",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        severity=m.group("severity"),
+                        line=int(m.group("line")),
+                        column=int(m.group("col")),
+                        message=m.group("msg"),
+                        rule=m.group("code"),
+                        source="tsc",
+                    )
+                )
 
         return diagnostics

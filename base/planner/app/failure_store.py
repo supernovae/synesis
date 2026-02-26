@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 import httpx
-from pymilvus import MilvusClient, CollectionSchema, FieldSchema, DataType
+from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 from .config import settings
 
@@ -91,7 +91,6 @@ def _classify_error(execution_result: dict[str, Any]) -> str:
     """Classify the error type from structured sandbox output."""
     lint = execution_result.get("lint", {})
     security = execution_result.get("security", {})
-    execution = execution_result.get("execution", {})
 
     if isinstance(lint, dict) and not lint.get("passed", True):
         return "lint"
@@ -195,8 +194,14 @@ async def query_similar_failures(
             data=[embedding],
             limit=top_k,
             output_fields=[
-                "failure_id", "code", "error_output", "exit_code",
-                "error_type", "language", "task_description", "resolution",
+                "failure_id",
+                "code",
+                "error_output",
+                "exit_code",
+                "error_type",
+                "language",
+                "task_description",
+                "resolution",
             ],
             filter=filter_expr if filter_expr else None,
         )
@@ -205,17 +210,19 @@ async def query_similar_failures(
         for hits in results:
             for hit in hits:
                 entity = hit.get("entity", hit)
-                failures.append({
-                    "failure_id": entity.get("failure_id", ""),
-                    "code": entity.get("code", ""),
-                    "error_output": entity.get("error_output", ""),
-                    "exit_code": entity.get("exit_code", 0),
-                    "error_type": entity.get("error_type", ""),
-                    "language": entity.get("language", ""),
-                    "task_description": entity.get("task_description", ""),
-                    "resolution": entity.get("resolution", ""),
-                    "similarity": hit.get("distance", 0.0),
-                })
+                failures.append(
+                    {
+                        "failure_id": entity.get("failure_id", ""),
+                        "code": entity.get("code", ""),
+                        "error_output": entity.get("error_output", ""),
+                        "exit_code": entity.get("exit_code", 0),
+                        "error_type": entity.get("error_type", ""),
+                        "language": entity.get("language", ""),
+                        "task_description": entity.get("task_description", ""),
+                        "resolution": entity.get("resolution", ""),
+                        "similarity": hit.get("distance", 0.0),
+                    }
+                )
         return failures
 
     except Exception as e:
@@ -285,8 +292,15 @@ async def get_failures_paginated(
             collection_name=COLLECTION,
             filter=filter_expr if filter_expr else "",
             output_fields=[
-                "failure_id", "code", "error_output", "exit_code",
-                "error_type", "language", "task_description", "resolution", "timestamp",
+                "failure_id",
+                "code",
+                "error_output",
+                "exit_code",
+                "error_type",
+                "language",
+                "task_description",
+                "resolution",
+                "timestamp",
             ],
             limit=limit,
             offset=offset,

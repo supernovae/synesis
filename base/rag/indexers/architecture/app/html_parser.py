@@ -67,12 +67,14 @@ def parse_markdown(
             if len(text_chunks) > 1:
                 chunk_title = f"{title} (part {i + 1})"
 
-            chunks.append(SectionChunk(
-                text=tc,
-                section=chunk_title,
-                document_name=document_name,
-                tags=tags,
-            ))
+            chunks.append(
+                SectionChunk(
+                    text=tc,
+                    section=chunk_title,
+                    document_name=document_name,
+                    tags=tags,
+                )
+            )
 
     logger.info(f"Extracted {len(chunks)} sections from: {document_name}")
     return chunks
