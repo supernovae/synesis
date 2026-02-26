@@ -5,10 +5,8 @@ WORKDIR /app
 COPY indexers/license/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY ingestion/app/__init__.py /app/ingestion/app/__init__.py
-COPY ingestion/app/indexer_base.py /app/ingestion/app/indexer_base.py
-
 COPY indexers/license/app/ /app/app/
+COPY ingestion/app/indexer_base.py /app/app/indexer_base.py
 COPY indexers/license/sources.yaml /data/sources.yaml
 COPY indexers/license/compatibility.yaml /data/compatibility.yaml
 
