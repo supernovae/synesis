@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lsp-gateway
+  namespace: synesis-lsp
+  labels:
+    app.kubernetes.io/name: lsp-gateway
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: lsp
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: lsp-gateway
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

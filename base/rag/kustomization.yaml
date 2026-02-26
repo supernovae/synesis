@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-rag
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - milvus/milvus-cluster.yaml
+  - embedder/deployment.yaml
+  - embedder/service.yaml
+  - indexers

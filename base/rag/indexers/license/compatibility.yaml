@@ -1,0 +1,133 @@
+# License compatibility matrix for common OSS licenses.
+#
+# direction: "from" license can be included in a project under "to" license.
+# compatible: true/false/conditional
+# note: human-readable explanation for the Critic prompt
+
+rules:
+  # Permissive -> Permissive (generally compatible)
+  - from: "MIT"
+    to: "Apache-2.0"
+    compatible: true
+    note: "MIT code can be included in Apache-2.0 projects. Retain copyright notice."
+
+  - from: "Apache-2.0"
+    to: "MIT"
+    compatible: true
+    note: "Apache-2.0 code can be included in MIT projects. Retain NOTICE file and copyright."
+
+  - from: "BSD-2-Clause"
+    to: "MIT"
+    compatible: true
+    note: "BSD-2-Clause is compatible with MIT. Retain copyright notice."
+
+  - from: "BSD-3-Clause"
+    to: "MIT"
+    compatible: true
+    note: "BSD-3-Clause is compatible with MIT. Retain copyright notice and no-endorsement clause."
+
+  - from: "ISC"
+    to: "MIT"
+    compatible: true
+    note: "ISC is functionally equivalent to MIT. Fully compatible."
+
+  # Permissive -> Copyleft (one-way compatible)
+  - from: "MIT"
+    to: "GPL-2.0-only"
+    compatible: true
+    note: "MIT code can be included in GPL-2.0 projects. The combined work must be GPL-2.0."
+
+  - from: "MIT"
+    to: "GPL-3.0-only"
+    compatible: true
+    note: "MIT code can be included in GPL-3.0 projects. The combined work must be GPL-3.0."
+
+  - from: "Apache-2.0"
+    to: "GPL-3.0-only"
+    compatible: true
+    note: "Apache-2.0 code can be included in GPL-3.0 projects. Combined work is GPL-3.0."
+
+  - from: "Apache-2.0"
+    to: "GPL-2.0-only"
+    compatible: false
+    note: "Apache-2.0 has patent clauses incompatible with GPL-2.0. Use GPL-3.0 or later instead."
+
+  # Copyleft -> Permissive (generally incompatible for combined works)
+  - from: "GPL-2.0-only"
+    to: "MIT"
+    compatible: false
+    note: "GPL-2.0 code cannot be relicensed under MIT. The combined work must remain GPL-2.0."
+
+  - from: "GPL-3.0-only"
+    to: "MIT"
+    compatible: false
+    note: "GPL-3.0 code cannot be relicensed under MIT. The combined work must remain GPL-3.0."
+
+  - from: "GPL-3.0-only"
+    to: "Apache-2.0"
+    compatible: false
+    note: "GPL-3.0 code cannot be included in Apache-2.0 projects. The copyleft requirement propagates."
+
+  - from: "AGPL-3.0-only"
+    to: "Apache-2.0"
+    compatible: false
+    note: "AGPL-3.0 requires source disclosure even for network use. Incompatible with Apache-2.0."
+
+  - from: "AGPL-3.0-only"
+    to: "MIT"
+    compatible: false
+    note: "AGPL-3.0 copyleft propagates to the combined work. Cannot be relicensed under MIT."
+
+  # Weak copyleft
+  - from: "LGPL-2.1-only"
+    to: "MIT"
+    compatible: conditional
+    note: "LGPL-2.1 code can be used in MIT projects if linked dynamically (not statically combined)."
+
+  - from: "MPL-2.0"
+    to: "Apache-2.0"
+    compatible: conditional
+    note: "MPL-2.0 is file-level copyleft. MPL files must remain MPL, but can coexist with Apache-2.0 files."
+
+  - from: "MPL-2.0"
+    to: "GPL-2.0-only"
+    compatible: true
+    note: "MPL-2.0 has an explicit GPL compatibility clause."
+
+  # Copyleft version compatibility
+  - from: "GPL-2.0-only"
+    to: "GPL-3.0-only"
+    compatible: false
+    note: "GPL-2.0-only code cannot be upgraded to GPL-3.0. Use GPL-2.0-or-later if upgrade is intended."
+
+  - from: "GPL-2.0-or-later"
+    to: "GPL-3.0-only"
+    compatible: true
+    note: "GPL-2.0-or-later can be used under GPL-3.0 terms."
+
+  # Creative Commons (documentation)
+  - from: "CC-BY-4.0"
+    to: "MIT"
+    compatible: conditional
+    note: "CC-BY-4.0 is for creative works, not software. If used for documentation alongside MIT code, retain attribution."
+
+  - from: "CC0-1.0"
+    to: "MIT"
+    compatible: true
+    note: "CC0 is a public domain dedication. No restrictions."
+
+  # Unlicense / public domain
+  - from: "Unlicense"
+    to: "MIT"
+    compatible: true
+    note: "Unlicense is a public domain dedication. No restrictions on use."
+
+  - from: "Unlicense"
+    to: "Apache-2.0"
+    compatible: true
+    note: "Unlicense is a public domain dedication. No restrictions on use."
+
+copyleft_classification:
+  none: ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unlicense", "CC0-1.0", "0BSD", "MIT-0", "Zlib", "BSL-1.0", "PostgreSQL"]
+  weak: ["LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later", "MPL-2.0", "EPL-2.0", "CDDL-1.0"]
+  strong: ["GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later", "AGPL-3.0-only", "AGPL-3.0-or-later", "OSL-3.0", "EUPL-1.2"]

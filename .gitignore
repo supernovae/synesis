@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+scripts/.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cursor (project rules are committed intentionally)
+.cursor/*
+!.cursor/rules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model weights (large files -- use scripts to download)
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.onnx
+
+# Local model cache
+synesis-models/
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# Kustomize build output
+output.txt
+scripts/output.txt
+
+# Terraform state (if colocated)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Logs
+*.log
+
+# Coverage and test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

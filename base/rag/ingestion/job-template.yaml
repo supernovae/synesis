@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ingest-LANGUAGE-PACK
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-ingestion
+    synesis.io/language-pack: LANGUAGE-PACK
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rag-ingestor
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ingestor
+          image: synesis-ingestor:latest
+          args:
+            - --pack
+            - /data/language-packs/LANGUAGE-PACK
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: language-packs
+              mountPath: /data/language-packs
+              readOnly: true
+      volumes:
+        - name: language-packs
+          configMap:
+            name: language-pack-LANGUAGE-PACK

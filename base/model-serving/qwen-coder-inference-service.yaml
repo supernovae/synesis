@@ -1,0 +1,43 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: qwen-coder-32b
+  namespace: synesis-models
+  annotations:
+    openshift.io/display-name: Synesis Qwen 2.5 Coder 32B
+    serving.kserve.io/deploymentMode: RawDeployment
+    serving.knative.openshift.io/enablePassthrough: "true"
+    sidecar.istio.io/inject: "true"
+    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
+spec:
+  predictor:
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      resources:
+        limits:
+          cpu: "8"
+          memory: 48Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "4"
+          memory: 32Gi
+          nvidia.com/gpu: "1"
+      runtime: qwen-coder-32b
+      storage:
+        # STS/IRSA: no key needed, the service account's IAM role
+        # provides S3 read access via projected token credentials.
+        # If using explicit credentials, uncomment the key line and
+        # the Secret in kustomization.yaml.
+        # key: aws-connection-synesis-models
+        path: s3://byron-ai-4b0263a0-rhoai-data/models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic/
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists

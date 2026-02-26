@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-models
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  # Uncomment the line below ONLY if NOT using STS/IRSA for S3 access.
+  # With STS roles, the service account gets credentials automatically.
+  # - model-storage-secret.yaml
+  - qwen-coder-serving-runtime.yaml
+  - qwen-coder-inference-service.yaml
+  - mistral-nemo-serving-runtime.yaml
+  - mistral-nemo-inference-service.yaml

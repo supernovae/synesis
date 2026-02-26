@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: synesis-models
+  labels:
+    app.kubernetes.io/part-of: synesis
+    opendatahub.io/dashboard: "true"

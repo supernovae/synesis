@@ -1,0 +1,5 @@
+pymilvus>=2.5.0
+httpx>=0.28.0
+pyyaml>=6.0
+pydantic>=2.0
+tomli>=2.0.0

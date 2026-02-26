@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lsp-allow-planner-only
+  namespace: synesis-lsp
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: lsp
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - protocol: TCP
+          port: 8000
+  # No egress rules: LSP gateway runs CLI tools locally,
+  # does not need to reach any external service.

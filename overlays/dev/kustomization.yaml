@@ -1,0 +1,224 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev overlay: single replica, relaxed resources, debug logging,
+# CPU-only supervisor model, reduced model context lengths
+
+resources:
+  - ../../base/model-serving
+  - ../../base/gateway
+  - ../../base/planner
+  - ../../base/rag
+  - ../../base/supervisor
+  - ../../base/observability
+  - ../../base/sandbox
+  - ../../base/admin
+  - ../../base/lsp
+  - ../../base/search
+  - ../../base/webui
+
+patches:
+  # Reduce Qwen model context for faster dev iteration
+  - target:
+      kind: ServingRuntime
+      name: qwen-coder-32b
+    patch: |
+      - op: replace
+        path: /spec/containers/0/args/5
+        value: "--max-model-len=4096"
+
+  # Reduce Qwen resource requests for dev
+  - target:
+      kind: InferenceService
+      name: qwen-coder-32b
+    patch: |
+      - op: replace
+        path: /spec/predictor/model/resources/requests/memory
+        value: "16Gi"
+
+  # Reduce supervisor model context and resources for dev
+  - target:
+      kind: ServingRuntime
+      name: mistral-nemo-12b
+    patch: |
+      - op: replace
+        path: /spec/containers/0/args/5
+        value: "--max-model-len=2048"
+      - op: replace
+        path: /spec/containers/0/resources/requests/cpu
+        value: "4"
+      - op: replace
+        path: /spec/containers/0/resources/requests/memory
+        value: "12Gi"
+      - op: replace
+        path: /spec/containers/0/resources/limits/cpu
+        value: "8"
+      - op: replace
+        path: /spec/containers/0/resources/limits/memory
+        value: "18Gi"
+
+  # Set debug logging on planner
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/8/value
+        value: "debug"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+
+  # Reduce LiteLLM resources
+  - target:
+      kind: Deployment
+      name: litellm-proxy
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+
+  # Reduce LSP gateway resources for dev
+  - target:
+      kind: Deployment
+      name: lsp-gateway
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+
+  # Reduce SearXNG resources for dev
+  - target:
+      kind: Deployment
+      name: searxng
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "256Mi"
+
+  # Scale warm pool to 1 replica in dev
+  - target:
+      kind: Deployment
+      name: synesis-warm-pool
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Disable CronJobs in dev (manual trigger only)
+  - target:
+      kind: CronJob
+      name: synesis-index-code
+    patch: |
+      - op: replace
+        path: /spec/suspend
+        value: true
+
+  - target:
+      kind: CronJob
+      name: synesis-index-apispec
+    patch: |
+      - op: replace
+        path: /spec/suspend
+        value: true
+
+  - target:
+      kind: CronJob
+      name: synesis-index-architecture
+    patch: |
+      - op: replace
+        path: /spec/suspend
+        value: true
+
+  - target:
+      kind: CronJob
+      name: synesis-index-license
+    patch: |
+      - op: replace
+        path: /spec/suspend
+        value: true
+
+  # Reduce Open WebUI resources for dev
+  - target:
+      kind: Deployment
+      name: open-webui
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+
+  # Reduce Milvus to minimal footprint
+  - target:
+      kind: Milvus
+      name: synesis-milvus
+    patch: |
+      - op: replace
+        path: /spec/components/standalone/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/components/standalone/resources/requests/memory
+        value: "1Gi"
+
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest
+  - name: synesis-indexer-code
+    newName: ghcr.io/supernovae/synesis/indexer-code
+    newTag: latest
+  - name: synesis-indexer-apispec
+    newName: ghcr.io/supernovae/synesis/indexer-apispec
+    newTag: latest
+  - name: synesis-indexer-architecture
+    newName: ghcr.io/supernovae/synesis/indexer-architecture
+    newTag: latest
+  - name: synesis-indexer-license
+    newName: ghcr.io/supernovae/synesis/indexer-license
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: dev
+    includeSelectors: false

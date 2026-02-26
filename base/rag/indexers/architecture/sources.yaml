@@ -1,0 +1,72 @@
+documents:
+  - name: "AWS Well-Architected Framework"
+    url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf"
+    type: pdf
+    collection: "arch_well_architected_v1"
+    tags: ["cloud", "architecture", "reliability", "security", "performance", "cost", "sustainability"]
+
+  - name: "AWS Reliability Pillar"
+    url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/reliability-pillar/wellarchitected-reliability-pillar.pdf"
+    type: pdf
+    collection: "arch_well_architected_v1"
+    tags: ["reliability", "fault-tolerance", "resilience", "disaster-recovery"]
+
+  - name: "AWS Security Pillar"
+    url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/security-pillar/wellarchitected-security-pillar.pdf"
+    type: pdf
+    collection: "arch_well_architected_v1"
+    tags: ["security", "identity", "encryption", "detection"]
+
+  - name: "AWS Operational Excellence Pillar"
+    url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/operational-excellence-pillar/wellarchitected-operational-excellence-pillar.pdf"
+    type: pdf
+    collection: "arch_well_architected_v1"
+    tags: ["operations", "monitoring", "incident-response", "automation"]
+
+  - name: "Cloud Design Patterns (Microsoft)"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/index.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "microservices", "resilience", "scalability"]
+
+  - name: "Twelve-Factor App"
+    url: "https://12factor.net/"
+    type: html
+    collection: "arch_cloud_patterns_v1"
+    tags: ["twelve-factor", "saas", "cloud-native", "best-practices"]
+
+  - name: "Circuit Breaker Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/circuit-breaker.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "resilience", "fault-tolerance"]
+
+  - name: "Retry Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/retry.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "resilience", "transient-faults"]
+
+  - name: "Bulkhead Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/bulkhead.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "resilience", "isolation"]
+
+  - name: "CQRS Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/cqrs.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "data", "scalability"]
+
+  - name: "Event Sourcing Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/event-sourcing.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "data", "event-driven"]
+
+  - name: "Sidecar Pattern"
+    url: "https://raw.githubusercontent.com/MicrosoftDocs/architecture-center/main/docs/patterns/sidecar.md"
+    type: markdown
+    collection: "arch_cloud_patterns_v1"
+    tags: ["patterns", "deployment", "microservices"]

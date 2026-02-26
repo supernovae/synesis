@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Stats - Synesis Admin{% endblock %}
+{% block content %}
+<h1>Failure Statistics</h1>
+
+<div class="stat-grid">
+    <div class="card stat">
+        <div class="value">{{ total }}</div>
+        <div class="label">Total Failures</div>
+    </div>
+    <div class="card stat">
+        <div class="value" style="color: var(--green);">{{ resolved }}</div>
+        <div class="label">Resolved</div>
+    </div>
+    <div class="card stat">
+        <div class="value" style="color: var(--red);">{{ unresolved }}</div>
+        <div class="label">Unresolved</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{% if total > 0 %}{{ "%.0f" | format(resolved / total * 100) }}%{% else %}0%{% endif %}</div>
+        <div class="label">Resolution Rate</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+    <div class="card">
+        <h2 style="font-size: 1rem; margin-bottom: 1rem;">By Language</h2>
+        <table>
+            <thead><tr><th>Language</th><th>Count</th></tr></thead>
+            <tbody>
+                {% for lang, count in by_language.items() | sort(attribute='1', reverse=True) %}
+                <tr>
+                    <td>{{ lang }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+                {% if not by_language %}<tr><td colspan="2" class="empty">No data</td></tr>{% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2 style="font-size: 1rem; margin-bottom: 1rem;">By Error Type</h2>
+        <table>
+            <thead><tr><th>Type</th><th>Count</th></tr></thead>
+            <tbody>
+                {% for etype, count in by_error_type.items() | sort(attribute='1', reverse=True) %}
+                <tr>
+                    <td><span class="badge badge-{{ etype }}">{{ etype }}</span></td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+                {% if not by_error_type %}<tr><td colspan="2" class="empty">No data</td></tr>{% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    model_list:
+      # Primary code generation model -- Qwen 2.5 Coder 32B FP8
+      - model_name: synesis-coder
+        litellm_params:
+          model: openai/qwen-coder-32b
+          api_base: http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Supervisor/Critic model -- Mistral Nemo 12B
+      - model_name: synesis-supervisor
+        litellm_params:
+          model: openai/mistral-nemo-12b
+          api_base: http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.3
+
+      # Orchestrated pipeline -- routes to FastAPI planner
+      - model_name: synesis-agent
+        litellm_params:
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 120
+      fallbacks:
+        - synesis-agent: [synesis-coder]
+
+    general_settings:
+      master_key: "sk-synesis-change-me"

@@ -1,0 +1,51 @@
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: synesis-milvus
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  mode: standalone
+  dependencies:
+    etcd:
+      inCluster:
+        values:
+          replicaCount: 1
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+    storage:
+      inCluster:
+        values:
+          mode: distributed
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          persistence:
+            enabled: true
+            size: 20Gi
+  components:
+    standalone:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 500m
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+  config:
+    common:
+      retentionDuration: 172800
+    log:
+      level: info

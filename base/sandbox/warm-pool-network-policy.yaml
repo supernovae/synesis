@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warm-pool-allow-planner
+  namespace: synesis-sandbox
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: sandbox
+spec:
+  podSelector:
+    matchLabels:
+      synesis-component: warm-pool
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - protocol: TCP
+          port: 8080
+  # Egress is NOT listed here. The existing sandbox-deny-all policy
+  # already denies egress for all pods. K8s network policies are
+  # additive for the same direction, but sandbox-deny-all already
+  # has Egress in policyTypes with no rules, so egress stays blocked.

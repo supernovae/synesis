@@ -1,0 +1,45 @@
+---
+description: Enforces that all model references across the Synesis codebase stay in sync with models.yaml
+alwaysApply: true
+---
+
+# Model Alignment Rule
+
+`models.yaml` at the project root is the **single source of truth** for all LLM model definitions in Synesis.
+
+## When modifying any model reference, always:
+
+1. **Start with `models.yaml`** -- change the model there first
+2. **Update all referencing files** listed in `models.yaml` under `references:`
+3. **Never hardcode** a HuggingFace repo ID, model name, or S3 path in any file without checking it matches `models.yaml`
+
+## Model identity fields and where they appear:
+
+- `models.coder.name` ("qwen-coder-32b") -> ServingRuntime name, InferenceService name/runtime, LiteLLM config model name, planner config `coder_model_name`, planner deployment env vars
+- `models.coder.huggingface_repo` -> download script, README
+- `models.coder.s3_path` -> InferenceService `storage.path`
+- `models.coder.vllm_args` -> ServingRuntime container args
+- `models.supervisor.name` ("mistral-nemo-12b") -> same pattern as coder
+- `models.embedder.name` -> embedder deployment image args, planner config `embedder_model`, RAG client
+- `models.storage.bucket` -> model-storage-secret, upload script
+- `models.storage.endpoint` -> model-storage-secret, upload script
+
+## Files that reference model identifiers:
+
+- `base/model-serving/qwen-coder-serving-runtime.yaml`
+- `base/model-serving/qwen-coder-inference-service.yaml`
+- `base/model-serving/mistral-nemo-serving-runtime.yaml`
+- `base/model-serving/mistral-nemo-inference-service.yaml`
+- `base/model-serving/model-storage-secret.yaml`
+- `base/gateway/litellm-config.yaml`
+- `base/planner/app/config.py`
+- `base/planner/deployment.yaml`
+- `base/rag/embedder/deployment.yaml`
+- `base/supervisor/configmap.yaml`
+
+## When the user asks to change a model:
+
+1. Read `models.yaml` to understand current state
+2. Update `models.yaml` first
+3. Update every file listed in `references:` that uses the changed field
+4. Remind the user to re-run `./scripts/download-models.sh` and `./scripts/upload-models-s3.sh`

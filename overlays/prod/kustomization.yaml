@@ -1,0 +1,115 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod overlay: HA for stateless services, strict resource limits,
+# PodDisruptionBudgets, NetworkPolicies, warning-level logging
+
+resources:
+  - ../../base/model-serving
+  - ../../base/gateway
+  - ../../base/planner
+  - ../../base/rag
+  - ../../base/supervisor
+  - ../../base/observability
+  - ../../base/sandbox
+  - ../../base/admin
+  - ../../base/lsp
+  - ../../base/search
+  - ../../base/webui
+  - network-policy.yaml
+  - pdb.yaml
+
+patches:
+  # Scale LiteLLM for HA
+  - target:
+      kind: Deployment
+      name: litellm-proxy
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # Scale planner for HA
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/env/8/value
+        value: "warning"
+
+  # Scale SearXNG for HA in prod
+  - target:
+      kind: Deployment
+      name: searxng
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+  # Scale warm pool for production throughput
+  - target:
+      kind: Deployment
+      name: synesis-warm-pool
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 4
+
+  # Set Route domain for prod
+  - target:
+      kind: Route
+      name: synesis-api
+    patch: |
+      - op: replace
+        path: /spec/host
+        value: synesis-api.apps.openshiftdemo.dev
+
+  # Scale Open WebUI for production
+  - target:
+      kind: Deployment
+      name: open-webui
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest
+  - name: synesis-indexer-code
+    newName: ghcr.io/supernovae/synesis/indexer-code
+    newTag: latest
+  - name: synesis-indexer-apispec
+    newName: ghcr.io/supernovae/synesis/indexer-apispec
+    newTag: latest
+  - name: synesis-indexer-architecture
+    newName: ghcr.io/supernovae/synesis/indexer-architecture
+    newTag: latest
+  - name: synesis-indexer-license
+    newName: ghcr.io/supernovae/synesis/indexer-license
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: prod
+    includeSelectors: false

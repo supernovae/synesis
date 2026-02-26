@@ -1,0 +1,34 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: mistral-nemo-12b
+  namespace: synesis-models
+  annotations:
+    openshift.io/display-name: Synesis Mistral Nemo 12B FP8 Supervisor
+    serving.kserve.io/deploymentMode: RawDeployment
+    serving.knative.openshift.io/enablePassthrough: "true"
+    sidecar.istio.io/inject: "true"
+    sidecar.istio.io/rewriteAppHTTPProbers: "true"
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
+spec:
+  predictor:
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      modelFormat:
+        name: vLLM
+      resources:
+        limits:
+          cpu: "16"
+          memory: 24Gi
+        requests:
+          cpu: "8"
+          memory: 16Gi
+      runtime: mistral-nemo-12b
+      storage:
+        # STS/IRSA: no key needed (see qwen-coder-inference-service.yaml)
+        # key: aws-connection-synesis-models
+        path: s3://byron-ai-4b0263a0-rhoai-data/models/Mistral-Nemo-Instruct-2407-FP8/

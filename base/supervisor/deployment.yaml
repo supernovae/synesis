@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-health-monitor
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-health-monitor
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: supervisor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-health-monitor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-health-monitor
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: supervisor
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: synesis-health-monitor
+      containers:
+        - name: monitor
+          image: synesis-planner:latest
+          command:
+            - python
+            - -m
+            - app.health_monitor
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: SYNESIS_LOG_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/synesis/supervisor.yaml
+              subPath: supervisor.yaml
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: synesis-supervisor-config
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: synesis-health-monitor
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis

@@ -1,0 +1,60 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: mistral-nemo-12b
+  namespace: synesis-models
+  annotations:
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/template-display-name: Synesis Supervisor vLLM Runtime
+    opendatahub.io/template-name: synesis-supervisor-runtime
+    openshift.io/display-name: Mistral Nemo 12B FP8 Supervisor
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
+spec:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+  containers:
+    - name: kserve-container
+      image: quay.io/modh/vllm:rhoai-2.16
+      command:
+        - python
+        - -m
+        - vllm.entrypoints.openai.api_server
+      args:
+        - --port=8080
+        - --model=/mnt/models
+        - --served-model-name={{.Name}}
+        - --dtype=float16
+        - --quantization=fp8
+        - --max-model-len=8192
+        - --distributed-executor-backend=mp
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+        - name: CUDA_VISIBLE_DEVICES
+          value: ""
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      resources:
+        limits:
+          cpu: "16"
+          memory: 24Gi
+        requests:
+          cpu: "8"
+          memory: 16Gi
+      volumeMounts:
+        - mountPath: /dev/shm
+          name: shm
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 4Gi

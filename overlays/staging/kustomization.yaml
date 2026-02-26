@@ -1,0 +1,117 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging overlay: mirrors prod topology but with synthetic load
+# testing support and slightly relaxed timeouts
+
+resources:
+  - ../../base/model-serving
+  - ../../base/gateway
+  - ../../base/planner
+  - ../../base/rag
+  - ../../base/supervisor
+  - ../../base/observability
+  - ../../base/sandbox
+  - ../../base/admin
+  - ../../base/lsp
+  - ../../base/search
+  - ../../base/webui
+
+patches:
+  # Staging uses same model config as prod
+  # but with info-level logging for debugging
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/8/value
+        value: "info"
+
+  # Set Route domain for staging
+  - target:
+      kind: Route
+      name: synesis-api
+    patch: |
+      - op: replace
+        path: /spec/host
+        value: synesis-api-staging.apps.openshiftdemo.dev
+
+  # Run indexer CronJobs bi-weekly in staging
+  - target:
+      kind: CronJob
+      name: synesis-index-code
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 3 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-index-apispec
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 4 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-index-architecture
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 5 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-index-license
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 6 1,15 * *"
+
+  # Set Route domain for staging WebUI
+  - target:
+      kind: Route
+      name: synesis-webui
+    patch: |
+      - op: replace
+        path: /spec/host
+        value: synesis-staging.apps.openshiftdemo.dev
+
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest
+  - name: synesis-indexer-code
+    newName: ghcr.io/supernovae/synesis/indexer-code
+    newTag: latest
+  - name: synesis-indexer-apispec
+    newName: ghcr.io/supernovae/synesis/indexer-apispec
+    newTag: latest
+  - name: synesis-indexer-architecture
+    newName: ghcr.io/supernovae/synesis/indexer-architecture
+    newTag: latest
+  - name: synesis-indexer-license
+    newName: ghcr.io/supernovae/synesis/indexer-license
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: staging
+    includeSelectors: false

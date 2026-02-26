@@ -1,0 +1,30 @@
+rules:
+  - id: hardcoded-secret
+    patterns:
+      - pattern-either:
+          - pattern: $VAR = "..."
+          - pattern: $VAR = '...'
+    metadata:
+      category: security
+      confidence: MEDIUM
+    message: Possible hardcoded secret in variable assignment
+    languages: [python, javascript, typescript, java, go]
+    severity: WARNING
+
+  - id: shell-injection-eval
+    pattern: eval($X)
+    message: Use of eval() can lead to code injection
+    languages: [python, javascript, bash]
+    severity: ERROR
+
+  - id: unsafe-subprocess-shell
+    pattern: subprocess.call(..., shell=True, ...)
+    message: subprocess with shell=True is vulnerable to shell injection
+    languages: [python]
+    severity: ERROR
+
+  - id: bash-curl-pipe-bash
+    pattern: curl ... | bash
+    message: Piping curl output to bash is a security risk
+    languages: [bash]
+    severity: ERROR

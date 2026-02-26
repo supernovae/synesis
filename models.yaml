@@ -1,0 +1,86 @@
+# ============================================================================
+# Synesis Model Registry -- SINGLE SOURCE OF TRUTH
+# ============================================================================
+#
+# Every model used by Synesis is defined here. All scripts, manifests, and
+# code that reference model names, HuggingFace repos, or S3 paths MUST
+# derive from this file.
+#
+# When you change a model (e.g., upgrade Qwen 32B to Qwen 35B):
+#   1. Update this file
+#   2. Run: ./scripts/download-models.sh
+#   3. Run: ./scripts/upload-models-s3.sh
+#   4. Run: ./scripts/deploy.sh <env>
+#
+# The Cursor rule (.cursor/rules/model-alignment.mdc) enforces that all
+# references across the codebase stay in sync with this file.
+# ============================================================================
+
+models:
+  coder:
+    name: "qwen-coder-32b"
+    display_name: "Qwen 2.5 Coder 32B FP8"
+    role: "Code generation (worker node)"
+    huggingface_repo: "BCCard/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic"
+    # Tokenizer from the base (non-quantized) model for best compatibility
+    tokenizer_repo: "Qwen/Qwen2.5-Coder-32B-Instruct"
+    s3_path: "models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic/"
+    quantization: "fp8"
+    vllm_args:
+      - "--dtype=float16"
+      - "--quantization=fp8"
+      - "--max-model-len=16384"
+      - "--gpu-memory-utilization=0.90"
+      - "--enforce-eager"
+    requires_gpu: true
+    min_vram_gb: 34
+    context_length: 16384
+
+  supervisor:
+    name: "mistral-nemo-12b"
+    display_name: "Mistral Nemo 12B FP8 Supervisor"
+    role: "Supervisor routing and Safety-II critic"
+    huggingface_repo: "RedHatAI/Mistral-Nemo-Instruct-2407-FP8"
+    tokenizer_repo: "RedHatAI/Mistral-Nemo-Instruct-2407-FP8"
+    s3_path: "models/Mistral-Nemo-Instruct-2407-FP8/"
+    quantization: "fp8"
+    license: "Apache-2.0"
+    vllm_args:
+      - "--dtype=float16"
+      - "--quantization=fp8"
+      - "--max-model-len=8192"
+    requires_gpu: false
+    min_vram_gb: 0
+    context_length: 8192
+
+  embedder:
+    name: "all-MiniLM-L6-v2"
+    display_name: "MiniLM L6 v2 Embedder"
+    role: "RAG embedding generation"
+    huggingface_repo: "sentence-transformers/all-MiniLM-L6-v2"
+    tokenizer_repo: "sentence-transformers/all-MiniLM-L6-v2"
+    s3_path: "models/all-MiniLM-L6-v2/"
+    quantization: "none"
+    requires_gpu: false
+    embedding_dim: 384
+
+# S3 storage configuration
+# STS/IRSA is the default -- pods get credentials from IAM role annotations
+# on the service account. Set endpoint only if using MinIO or non-AWS S3.
+storage:
+  bucket: "byron-ai-4b0263a0-rhoai-data"
+  endpoint: ""
+  region: "us-east-1"
+
+# Files that reference model identifiers (for alignment checking)
+references:
+  - base/model-serving/qwen-coder-serving-runtime.yaml
+  - base/model-serving/qwen-coder-inference-service.yaml
+  - base/model-serving/mistral-nemo-serving-runtime.yaml
+  - base/model-serving/mistral-nemo-inference-service.yaml
+  - base/model-serving/model-storage-secret.yaml
+  - base/gateway/litellm-config.yaml
+  - base/planner/app/config.py
+  - base/planner/deployment.yaml
+  - base/rag/embedder/deployment.yaml
+  - base/supervisor/configmap.yaml

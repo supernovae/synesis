@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synesis-supervisor-config
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: supervisor
+data:
+  supervisor.yaml: |
+    # Erlang/OTP-style supervision configuration
+    #
+    # Each service has independent circuit breaker and retry settings.
+    # When a circuit opens, the planner degrades gracefully rather than
+    # failing completely.
+
+    services:
+      qwen-coder:
+        endpoint: "http://qwen-coder-32b.synesis-models.svc.cluster.local:8080/v1"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 1.0
+          backoff_max_seconds: 10.0
+        timeout_seconds: 60
+
+      mistral-nemo:
+        endpoint: "http://mistral-nemo-12b.synesis-models.svc.cluster.local:8080/v1"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+      milvus:
+        endpoint: "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
+        health_path: "/healthz"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 2
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 10
+
+      embedder:
+        endpoint: "http://embedder.synesis-rag.svc.cluster.local:8080"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 2
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 15
+
+      lsp-gateway:
+        endpoint: "http://lsp-gateway.synesis-lsp.svc:8000"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 1
+          backoff_base_seconds: 1.0
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+    # Dead-letter queue settings
+    dead_letter:
+      enabled: true
+      max_queue_size: 1000
+      log_level: "warning"
+
+    # Global degradation policy
+    degradation:
+      # If the coder model is down, return an error (no fallback)
+      coder_unavailable: "error_with_explanation"
+      # If the supervisor model is down, skip critique and return raw code
+      supervisor_unavailable: "skip_critique"
+      # If RAG is down, generate without context
+      rag_unavailable: "generate_without_context"
+      # If LSP gateway is down, skip deep analysis (never blocks)
+      lsp_unavailable: "skip_analysis"

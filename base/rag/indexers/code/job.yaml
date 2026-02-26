@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: synesis-index-code
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer-code
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 7200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: indexer-code
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: default
+      containers:
+        - name: indexer
+          image: synesis-indexer-code:latest
+          args:
+            - --sources
+            - /data/sources.yaml
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-github-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          volumeMounts:
+            - name: sources
+              mountPath: /data/sources.yaml
+              subPath: sources.yaml
+              readOnly: true
+            - name: clone-cache
+              mountPath: /tmp/synesis-repos
+      volumes:
+        - name: sources
+          configMap:
+            name: code-indexer-sources
+        - name: clone-cache
+          emptyDir:
+            sizeLimit: 50Gi
