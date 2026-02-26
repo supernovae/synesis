@@ -32,7 +32,7 @@ spec:
       runtime: qwen-coder-32b
       storage:
         key: aws-connection-synesis-models
-        path: s3://byron-ai-4b0263a0-rhoai-data/models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic/
+        path: /models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic
     tolerations:
       - effect: NoSchedule
         key: nvidia.com/gpu
