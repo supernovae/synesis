@@ -5,6 +5,7 @@ WORKDIR /app
 COPY indexers/architecture/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY ingestion/app/__init__.py /app/ingestion/app/__init__.py
 COPY ingestion/app/indexer_base.py /app/ingestion/app/indexer_base.py
 
 COPY indexers/architecture/app/ /app/app/
