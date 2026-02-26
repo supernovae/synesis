@@ -22,13 +22,19 @@ spec:
         name: vLLM
       resources:
         limits:
-          cpu: "16"
+          cpu: "4"
           memory: 24Gi
+          nvidia.com/gpu: "1"
         requests:
-          cpu: "8"
+          cpu: "2"
           memory: 16Gi
+          nvidia.com/gpu: "1"
       runtime: mistral-nemo-12b
       storage:
         # STS/IRSA: no key needed (see qwen-coder-inference-service.yaml)
         # key: aws-connection-synesis-models
         path: s3://byron-ai-4b0263a0-rhoai-data/models/Mistral-Nemo-Instruct-2407-FP8/
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Exists

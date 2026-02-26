@@ -4,7 +4,9 @@ metadata:
   name: mistral-nemo-12b
   namespace: synesis-models
   annotations:
+    opendatahub.io/accelerator-name: migrated-gpu
     opendatahub.io/apiProtocol: REST
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
     opendatahub.io/template-display-name: Synesis Supervisor vLLM Runtime
     opendatahub.io/template-name: synesis-supervisor-runtime
     openshift.io/display-name: Mistral Nemo 12B FP8 Supervisor
@@ -34,18 +36,18 @@ spec:
       env:
         - name: HF_HOME
           value: /tmp/hf_home
-        - name: CUDA_VISIBLE_DEVICES
-          value: ""
       ports:
         - containerPort: 8080
           protocol: TCP
       resources:
         limits:
-          cpu: "16"
+          cpu: "4"
           memory: 24Gi
+          nvidia.com/gpu: "1"
         requests:
-          cpu: "8"
+          cpu: "2"
           memory: 16Gi
+          nvidia.com/gpu: "1"
       volumeMounts:
         - mountPath: /dev/shm
           name: shm
