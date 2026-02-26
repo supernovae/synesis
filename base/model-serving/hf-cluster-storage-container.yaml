@@ -1,0 +1,32 @@
+# RHOAI workaround (RHOAIENG-23169): register hf:// protocol support.
+# Without this, the storage initializer doesn't know how to handle
+# HuggingFace URIs and the model download fails.
+
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterStorageContainer
+metadata:
+  name: hf-hub
+spec:
+  container:
+    name: storage-initializer
+    image: registry.redhat.io/rhoai/odh-kserve-storage-initializer-rhel9:latest
+    env:
+      - name: HF_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: hf-secret
+            key: HF_TOKEN
+            optional: true
+      - name: HF_HOME
+        value: /tmp/hf_home
+      - name: HF_HUB_ENABLE_HF_TRANSFER
+        value: "1"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 4Gi
+  supportedUriFormats:
+    - prefix: "hf://"

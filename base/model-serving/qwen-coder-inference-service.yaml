@@ -30,9 +30,14 @@ spec:
           memory: 32Gi
           nvidia.com/gpu: "1"
       runtime: qwen-coder-32b
-      storage:
-        key: aws-connection-synesis-models
-        path: /models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic
+      storageUri: hf://neuralmagic/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-secret
+              key: HF_TOKEN
+              optional: true
     tolerations:
       - effect: NoSchedule
         key: nvidia.com/gpu
