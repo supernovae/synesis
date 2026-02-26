@@ -398,6 +398,13 @@ install_milvus_operator() {
         oc adm policy add-scc-to-user nonroot-v2 \
             "system:serviceaccount:milvus-operator:${helm_sa}" 2>/dev/null || true
 
+        # Grant operator permission to create SCCs for MinIO/etcd (Bitnami chart requirement)
+        local rbac_file="$PROJECT_ROOT/base/rag/milvus/milvus-operator-scc-rbac.yaml"
+        if [[ -f "$rbac_file" ]]; then
+            log "  Granting Milvus operator SCC manage permission..."
+            oc apply -f "$rbac_file" 2>/dev/null || true
+        fi
+
         # Patch the container securityContext to add capabilities.drop
         # (the chart template doesn't support this via values)
         log "  Patching deployment for OpenShift SCC compliance..."
