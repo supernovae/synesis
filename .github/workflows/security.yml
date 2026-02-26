@@ -20,7 +20,7 @@ jobs:
       matrix:
         language: [python]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -39,7 +39,7 @@ jobs:
     name: Trivy Config Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run Trivy (Kubernetes manifests)
         uses: aquasecurity/trivy-action@master
@@ -61,7 +61,7 @@ jobs:
     name: Bandit (Python Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install bandit
         run: pip install bandit[toml]
