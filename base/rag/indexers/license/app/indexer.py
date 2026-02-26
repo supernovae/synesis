@@ -11,28 +11,30 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from pathlib import Path
 
-import yaml
-from pymilvus import DataType, FieldSchema
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("synesis.indexer.license")
+logger.info("License Compliance Indexer starting (pid %d)", __import__("os").getpid())
 
-from .indexer_base import (
+import argparse  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import yaml  # noqa: E402
+from pymilvus import DataType, FieldSchema  # noqa: E402
+
+from .indexer_base import (  # noqa: E402
     EmbedClient,
     MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .choosealicense_parser import ChoosealicenseData, fetch_choosealicense_licenses
-from .compatibility_loader import load_compatibility_rules, load_copyleft_classification
-from .fedora_parser import FedoraLicenseStatus, fetch_fedora_statuses
-from .spdx_parser import SPDXLicense, parse_spdx_licenses
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("synesis.indexer.license")
+from .choosealicense_parser import ChoosealicenseData, fetch_choosealicense_licenses  # noqa: E402
+from .compatibility_loader import load_compatibility_rules, load_copyleft_classification  # noqa: E402
+from .fedora_parser import FedoraLicenseStatus, fetch_fedora_statuses  # noqa: E402
+from .spdx_parser import SPDXLicense, parse_spdx_licenses  # noqa: E402
 
 COLLECTION_NAME = "licenses_v1"
 
@@ -344,4 +346,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.exception("License Compliance Indexer crashed with unhandled exception")
+        sys.exit(1)

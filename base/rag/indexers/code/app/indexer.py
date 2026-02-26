@@ -11,29 +11,31 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import logging
-import os
-import re
-import subprocess
 import sys
-from pathlib import Path
 
-import yaml
-from pymilvus import DataType, FieldSchema
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("synesis.indexer.code")
+logger.info("Code Repository Indexer starting (pid %d)", __import__("os").getpid())
 
-from .indexer_base import (
+import argparse  # noqa: E402
+import os  # noqa: E402
+import re  # noqa: E402
+import subprocess  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import yaml  # noqa: E402
+from pymilvus import DataType, FieldSchema  # noqa: E402
+
+from .indexer_base import (  # noqa: E402
     EmbedClient,
     MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .github_extractor import extract_pr_patterns
-from .tree_sitter_chunker import chunk_file, get_extensions_for_language
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("synesis.indexer.code")
+from .github_extractor import extract_pr_patterns  # noqa: E402
+from .tree_sitter_chunker import chunk_file, get_extensions_for_language  # noqa: E402
 
 CLONE_BASE = os.environ.get("CLONE_DIR", "/tmp/synesis-repos")
 
@@ -336,4 +338,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.exception("Code Repository Indexer crashed with unhandled exception")
+        sys.exit(1)

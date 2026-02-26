@@ -86,3 +86,12 @@ spec:
           protocol: TCP
         - port: 8080
           protocol: TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: synesis
+      ports:
+        - port: 19530
+          protocol: TCP
+        - port: 8080
+          protocol: TCP

@@ -11,27 +11,29 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from pathlib import Path
 
-import httpx
-import yaml
-from pymilvus import DataType, FieldSchema
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("synesis.indexer.architecture")
+logger.info("Architecture Whitepaper Indexer starting (pid %d)", __import__("os").getpid())
 
-from .indexer_base import (
+import argparse  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import httpx  # noqa: E402
+import yaml  # noqa: E402
+from pymilvus import DataType, FieldSchema  # noqa: E402
+
+from .indexer_base import (  # noqa: E402
     EmbedClient,
     MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
 
-from .html_parser import parse_html, parse_markdown
-from .pdf_parser import parse_pdf
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("synesis.indexer.architecture")
+from .html_parser import parse_html, parse_markdown  # noqa: E402
+from .pdf_parser import parse_pdf  # noqa: E402
 
 
 ARCH_EXTRA_FIELDS = [
@@ -176,4 +178,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.exception("Architecture Whitepaper Indexer crashed with unhandled exception")
+        sys.exit(1)
