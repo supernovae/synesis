@@ -17,6 +17,8 @@ spec:
     spec:
       restartPolicy: OnFailure
       serviceAccountName: default
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: indexer
           image: synesis-indexer-code:latest

@@ -336,6 +336,8 @@ wait_for_deployment() {
 wait_for_deployment synesis-gateway litellm-proxy
 wait_for_deployment synesis-planner synesis-planner
 wait_for_deployment synesis-planner synesis-health-monitor
+wait_for_deployment synesis-rag etcd-deployment
+wait_for_deployment synesis-rag milvus-standalone
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-webui open-webui
 

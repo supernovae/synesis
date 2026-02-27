@@ -6,18 +6,28 @@ set -euo pipefail
 # Prepares an OpenShift cluster for Synesis deployment.
 # Requires: RHOAI operator + NVIDIA GPU Operator already installed.
 #
-# Usage: ./scripts/bootstrap.sh [--force]
+# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds]
+#   --ghcr-creds     Prompt for GitHub credentials to create GHCR pull secrets (for private images)
+#   --skip-ghcr-creds  Skip GHCR pull secret setup (use when images are public)
 
 FORCE=false
+GHCR_CREDS=false
+SKIP_GHCR_CREDS=false
 
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=true ;;
+        --ghcr-creds) GHCR_CREDS=true ;;
+        --skip-ghcr-creds) SKIP_GHCR_CREDS=true ;;
         --help|-h)
-            echo "Usage: $0 [--force]"
+            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds]"
             echo ""
             echo "Prepares an OpenShift cluster for Synesis deployment."
-            echo "  --force  Continue even if RHOAI/GPU checks fail"
+            echo "  --force           Continue even if RHOAI/GPU checks fail"
+            echo "  --ghcr-creds      Prompt for GitHub user/token to create GHCR pull secrets (private images)"
+            echo "  --skip-ghcr-creds Skip GHCR pull secret setup (default when not prompting)"
+            echo ""
+            echo "For non-interactive use, set GITHUB_USERNAME and GITHUB_TOKEN env vars."
             exit 0
             ;;
         *)
@@ -254,11 +264,66 @@ preflight_gate() {
 
 create_namespaces() {
     log "Creating Synesis namespaces..."
-    local namespaces=(synesis-models synesis-gateway synesis-planner synesis-rag)
+    local namespaces=(
+        synesis-models synesis-gateway synesis-planner synesis-rag
+        synesis-sandbox synesis-search synesis-lsp synesis-webui
+    )
     for ns in "${namespaces[@]}"; do
         oc create namespace "$ns" 2>/dev/null || log "  Namespace $ns already exists"
         oc label namespace "$ns" app.kubernetes.io/part-of=synesis --overwrite
     done
+}
+
+# ---------------------------------------------------------------------------
+# GHCR pull secrets for private container images
+#
+# When Synesis images are in a private GHCR repo, OpenShift needs credentials
+# to pull them. This creates a docker-registry secret and links it to the
+# default service account in each namespace.
+#
+# Use GITHUB_USERNAME (or GITHUB_USER) and GITHUB_TOKEN for non-interactive.
+# ---------------------------------------------------------------------------
+configure_ghcr_pull_secrets() {
+    local gh_user="${GITHUB_USERNAME:-${GITHUB_USER:-}}"
+    local gh_token="${GITHUB_TOKEN:-}"
+
+    # Prompt if --ghcr-creds and values missing
+    if [[ "$GHCR_CREDS" == "true" ]] && [[ -z "$gh_user" || -z "$gh_token" ]]; then
+        if [[ -t 0 ]]; then
+            log "GitHub credentials for GHCR (private container images)"
+            [[ -z "$gh_user" ]] && read -rp "  GitHub username: " gh_user
+            [[ -z "$gh_token" ]] && read -rsp "  GitHub token (or PAT): " gh_token && echo ""
+        else
+            warn "Cannot prompt for credentials (non-interactive). Set GITHUB_USERNAME and GITHUB_TOKEN."
+            return 1
+        fi
+    fi
+
+    if [[ -z "$gh_user" || -z "$gh_token" ]]; then
+        return 0
+    fi
+
+    log "Creating GHCR pull secrets in Synesis namespaces..."
+    local namespaces=(
+        synesis-gateway synesis-planner synesis-rag synesis-sandbox
+        synesis-search synesis-lsp synesis-webui
+    )
+    for ns in "${namespaces[@]}"; do
+        if oc get namespace "$ns" &>/dev/null; then
+            oc create secret docker-registry ghcr-pull-secret \
+                --docker-server=ghcr.io \
+                --docker-username="$gh_user" \
+                --docker-password="$gh_token" \
+                -n "$ns" \
+                --dry-run=client -o yaml | oc apply -f -
+            oc secrets link default ghcr-pull-secret --for=pull -n "$ns"
+            # synesis-planner namespace: health monitor uses custom SA
+            if [[ "$ns" == "synesis-planner" ]]; then
+                oc secrets link synesis-health-monitor ghcr-pull-secret --for=pull -n "$ns" 2>/dev/null || true
+            fi
+        fi
+    done
+    log "  GHCR pull secrets configured (ghcr.io)"
 }
 
 main() {
@@ -276,6 +341,16 @@ main() {
     log ""
     log "--- Namespaces ---"
     create_namespaces
+
+    if [[ "$SKIP_GHCR_CREDS" != "true" ]]; then
+        log ""
+        log "--- GHCR Pull Secrets (private images) ---"
+        if [[ "$GHCR_CREDS" == "true" ]] || [[ -n "${GITHUB_USERNAME:-}${GITHUB_USER:-}" && -n "${GITHUB_TOKEN:-}" ]]; then
+            configure_ghcr_pull_secrets || true
+        else
+            log "  Skipped (use --ghcr-creds to prompt, or set GITHUB_USERNAME + GITHUB_TOKEN)"
+        fi
+    fi
 
     log ""
     log "=== Bootstrap complete ==="

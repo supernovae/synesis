@@ -14,6 +14,8 @@ A resilient, Safety-II aligned LLM code assistant built on [OpenShift AI (RHOAI)
 
 ## Architecture
 
+Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs with distinct roles, plus a sandbox for safe code execution. The system asks for clarification or plan approval instead of guessing, and the Executor LLM (Worker) can request more information before generating code.
+
 ```
 [Cursor / Claude CLI / Dev Tools]
         |
@@ -26,38 +28,35 @@ A resilient, Safety-II aligned LLM code assistant built on [OpenShift AI (RHOAI)
         v
 [FastAPI + LangGraph Planner]
         |
-   ┌────┼──────────────────────────────────────────────┐
-   v    v           v           v          v            v
-[Supervisor]  [Worker]  [Executor]  [LSP Analyzer]  [Critic]  [Respond]
- (Mistral)    (Qwen)    (Sandbox)   (Gateway)       (Mistral)
- [+Search]    [+Search]                              [+Search]
-   │            │  ^         │          │               │
-   │            │  +--fail---+---[LSP]--+               │
-   │            │            │                          │
-   └────────────┼────────────┼──────────────────────────┘
-                │            │
-   ┌────────────┴──┐     ┌───┴──────────────┐   ┌─────────────────┐
-   │ Hybrid RAG    │     │ Execution Sandbox│   │ LSP Gateway     │
-   │ Vector + BM25 │     │ synesis-sandbox  │   │ synesis-lsp     │
-   │ RRF + Rerank  │     │ (Warm Pool + Job │   │ (6 lang engines │
-   │ Multi-Collect │     │  fallback, deny- │   │  circuit break) │
-   └───────┬───────┘     │  all networking) │   └─────────────────┘
-           │             └──────┬───────────┘
-           │                    │
- ┌─────────┴──────────┐    ┌────┴────────────────┐  ┌──────────────────┐
- │ Knowledge Indexers │    │ Failure Knowledge   │  │ SearXNG Search   │
- │ Code (tree-sitter) │    │ Milvus: failures_v1 │  │ synesis-search   │
- │ API Specs (OpenAPI)│    │ Fail-Fast LRU Cache │  │ Google, Bing,    │
- │ Architecture (PDFs)│    │ Admin Dashboard     │  │ GitHub, StackOvf │
- │ Licenses (SPDX)    │    │                     │  │                  │
- └────────────────────┘    └─────────────────────┘  └──────────────────┘
-
-Nodes marked [+Search] query SearXNG for live web context (see Web Search section).
+   ┌────┼────────────────────────────────────────────────────────────┐
+   v    v         v           v            v          v              v
+[Entry] [Supervisor] [Planner] [Worker]  [Sandbox] [LSP Analyzer] [Critic] [Respond]
+  │      Qwen3-14B   Qwen3-14B  Qwen3     (runs     (Gateway)     Qwen3
+  │      [+Search]   Coder     Coder     code)                    14B
+  │         │          │         │         │          │              │
+  │         │          │         └──fail──┼──[LSP]───┘              │
+  │         └──────────┼──────────────────┼────────────────────────┘
+  │                    │                  │
+  └── pending_plan/needs_input ──► Worker (resume)
+  │
+  └── else ──► Supervisor
 ```
+
+**Flow:** Entry → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
+
+**Supporting services:**
+
+| Component | Role |
+|-----------|------|
+| **Hybrid RAG** | Vector + BM25, RRF, re-ranker. Multi-collection (code, API specs, architecture, licenses). |
+| **Sandbox** | Isolated pod (warm pool or Job). Lint → security → execute. Deny-all networking. |
+| **LSP Gateway** | Deep type/symbol analysis (6 languages). On failure or pre-execution. |
+| **Failure Knowledge** | Milvus failures_v1 + fail-fast cache. Inject past mistakes into Supervisor/Worker. |
+| **SearXNG** | Live web context. Supervisor and Worker query by profile (web/code). |
 
 ### Core Principles
 
-1. **Joint Cognitive System (JCS):** The LLM is a teammate, not a replacement. The Critic enriches understanding through "What-If" analysis instead of binary pass/fail.
+1. **Joint Cognitive System (JCS):** The LLM is a teammate, not a replacement. The Critic enriches understanding through "What-If" analysis instead of binary pass/fail. Clarification and plan approval reduce guesswork.
 2. **Erlang/OTP Supervision:** Every node returns a typed response or crashes and gets caught. Circuit breakers, timeouts, and dead-letter queues ensure graceful degradation.
 3. **Observability:** Every node outputs its reasoning, assumptions, and confidence level. Prometheus metrics and Grafana dashboards track system health.
 
@@ -65,8 +64,10 @@ Nodes marked [+Search] query SearXNG for live web context (see Web Search sectio
 
 | Role | Model | Quantization | Runtime |
 |------|-------|-------------|---------|
-| Code Generation | Qwen2.5-Coder-32B-Instruct | FP8 Dynamic | vLLM on GPU (48GB) |
-| Supervisor/Critic | Mistral-Nemo-Instruct-2407 (12B) | FP8 | vLLM on CPU |
+| Supervisor | Qwen3-14B | FP8 | vLLM on CPU |
+| Planner | Qwen3-14B (shared with Supervisor) | — | vLLM on CPU |
+| Executor (Worker) | Qwen3-Coder-Next | FP8 | vLLM on GPU (~48GB) |
+| Critic | Qwen3-14B | FP8 | vLLM on CPU |
 
 ## Quick Start
 
@@ -79,10 +80,11 @@ Nodes marked [+Search] query SearXNG for live web context (see Web Search sectio
 ### 1. Bootstrap
 
 ```bash
-./scripts/bootstrap.sh
+./scripts/bootstrap.sh                    # Basic bootstrap
+./scripts/bootstrap.sh --ghcr-creds       # Also configure GHCR pull secrets (prompts for GitHub user/token)
 ```
 
-This creates namespaces and verifies prerequisites. RAG uses a simple Milvus standalone deployment (no Operator).
+This creates namespaces and verifies prerequisites. For **private GHCR images**, use `--ghcr-creds` to create pull secrets in all Synesis namespaces (or set `GITHUB_USERNAME` and `GITHUB_TOKEN` for non-interactive).
 
 ### 2. Deploy Models (OpenShift AI 3)
 
@@ -90,10 +92,9 @@ Models are deployed via the **OpenShift AI dashboard**, not pre-downloaded or S3
 
 1. Create or select the `synesis-models` project.
 2. Click **Deploy model**.
-3. **Coder model** (code generation): Deploy Qwen2.5-Coder-32B or similar, name it `synesis-coder`.
-4. **Supervisor model** (routing/critic): Deploy Mistral-Nemo or similar, name it `synesis-supervisor`.
+3. **Three JCS model deployments**: Supervisor+Planner share Qwen3-14B; Executor (Qwen3-Coder-Next); Critic (Qwen3-14B). See `models.yaml`.
 
-Model sources: OCI registry, HuggingFace (`hf://`), or S3. Use **Red Hat validated models** from the Model Hub when available. See `base/model-serving/README.md` for details and example InferenceService YAML.
+Model sources: **Model Hub**, HuggingFace (`hf://`), or OCI. No local download or S3 upload needed. See `base/model-serving/README.md` for details and example InferenceService YAML.
 
 ### 3. Build and Push Images
 
@@ -130,8 +131,10 @@ Then update the `images:` block in `overlays/<env>/kustomization.yaml` to match.
 builds and pushes all images on push to `main`. Trigger manually via workflow_dispatch
 for custom tags.
 
-**Private repos:** If your GHCR packages are private, create a pull secret in each
-Synesis namespace:
+**Private repos:** If your GHCR packages are private, run `./scripts/bootstrap.sh --ghcr-creds`
+(prompts for GitHub username/token) or set `GITHUB_USERNAME` and `GITHUB_TOKEN` before bootstrap.
+The token must be a GitHub PAT with `read:packages` scope. Re-run bootstrap after deploy if you add creds later.
+Alternatively, create the pull secret manually in each namespace:
 
 ```bash
 for ns in synesis-gateway synesis-planner synesis-rag synesis-sandbox synesis-search synesis-lsp synesis-webui; do
@@ -146,7 +149,7 @@ done
 
 | Image | Dockerfile | Description |
 |---|---|---|
-| `synesis/planner` | `base/planner/Dockerfile` | LangGraph agent (supervisor, worker, critic, executor) |
+| `synesis/planner` | `base/planner/Dockerfile` | LangGraph agent (entry, supervisor, planner, worker, sandbox, critic) |
 | `synesis/admin` | `base/admin/Dockerfile` | Failure pattern admin dashboard |
 | `synesis/lsp-gateway` | `base/lsp/gateway/Dockerfile` | LSP diagnostics gateway (6 languages) |
 | `synesis/sandbox` | `base/sandbox/image/Dockerfile` | Code execution sandbox with linters |
@@ -159,7 +162,7 @@ done
 
 ### 5. Configure
 
-**Model endpoints:** If you deployed models with different names than `synesis-coder` and `synesis-supervisor`, patch the planner env vars and supervisor config to point at your InferenceService URLs. See `base/model-serving/README.md`.
+**Model endpoints:** If you deployed models with different names than `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`, patch the planner env vars and supervisor config. See `base/model-serving/README.md`.
 
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
@@ -177,6 +180,8 @@ is free -- this key is just a passphrase you use to authenticate to your own pro
 ```
 
 ### 7. Load RAG Corpus
+
+The RAG stack (Milvus + embedder + indexers) is deployed by `deploy.sh`. Optional: install it standalone with `./scripts/install-rag-stack.sh --wait`.
 
 ```bash
 ./scripts/load-language-pack.sh bash
@@ -205,22 +210,27 @@ curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
 ```
 synesis/
 ├── models.yaml                # SINGLE SOURCE OF TRUTH for all model definitions
+├── docs/                      # Architecture and workflow documentation
+│   ├── WORKFLOW.md            # Full graph flow, plan approval, needs_input (read this for routing)
+│   ├── MODEL_ARCHITECTURE_PROPOSAL.md
+│   └── PLAN_REMAINING_WORK.md
 ├── base/
 │   ├── model-serving/         # Namespace + RHOAI 3 deployment docs (models via dashboard)
 │   ├── gateway/               # LiteLLM proxy (OpenAI-compatible API)
 │   ├── planner/               # FastAPI + LangGraph orchestrator
 │   │   ├── app/
-│   │   │   ├── graph.py       # Supervisor → Worker → Executor → Critic loop
+│   │   │   ├── graph.py       # Entry → Supervisor → Planner/Worker → Sandbox → Critic
 │   │   │   ├── state.py       # Pydantic state model
 │   │   │   ├── rag_client.py  # Hybrid retrieval + re-ranking pipeline
 │   │   │   ├── failure_store.py  # Milvus failure knowledge base client
 │   │   │   ├── failfast_cache.py # In-memory success/failure LRU cache
-│   │   │   ├── conversation_memory.py # Per-user L1 conversation memory
+│   │   │   ├── conversation_memory.py # L1 memory + pending_plan, pending_needs_input
 │   │   │   ├── web_search.py    # Async SearXNG client (web + code profiles)
 │   │   │   └── nodes/
-│   │   │       ├── supervisor.py    # Intent routing + failure context injection
-│   │   │       ├── worker.py        # Code generation + execution/LSP feedback
-│   │   │       ├── executor.py      # Sandbox Job creation + result parsing
+│   │   │       ├── supervisor.py    # Intent routing, clarification, planning suggestion
+│   │   │       ├── planner_node.py  # Task breakdown, execution_plan
+│   │   │       ├── worker.py        # Executor LLM: code generation, needs_input
+│   │   │       ├── executor.py      # Sandbox node: Job creation, result parsing
 │   │   │       ├── lsp_analyzer.py  # LSP Gateway client for deep diagnostics
 │   │   │       └── critic.py        # Safety-II "What-If" analysis
 │   │   └── bge-reranker/      # Optional BGE re-ranker service
@@ -283,8 +293,7 @@ synesis/
 │   ├── bootstrap.sh           # Cluster preparation
 │   ├── build-images.sh        # Build + push all 10 custom container images
 │   ├── deploy.sh              # Kustomize apply
-│   ├── download-models.sh     # Download models from HuggingFace
-│   ├── upload-models-s3.sh    # Upload models to S3 storage
+│   ├── install-rag-stack.sh   # Milvus + embedder + indexers (standalone or pre-deploy)
 │   ├── load-language-pack.sh  # RAG ingestion trigger
 │   ├── index-code.sh          # Code repository indexer trigger
 │   ├── index-apispec.sh       # API spec indexer trigger
@@ -298,14 +307,10 @@ synesis/
 
 All model definitions live in `models.yaml`. When you want to swap a model (e.g., upgrade Qwen 32B to a newer version):
 
-1. Edit `models.yaml` with the new HuggingFace repo, name, S3 path, and vLLM args
+1. Edit `models.yaml` with the new HuggingFace repo, name, and vLLM args
 2. Update all files listed in `models.yaml` under `references:` (the Cursor rule will remind you)
-3. Download and upload:
-   ```bash
-   ./scripts/download-models.sh --model coder
-   ./scripts/upload-models-s3.sh --model coder
-   ./scripts/deploy.sh dev
-   ```
+3. Deploy via OpenShift AI dashboard — use Model Hub or `hf://org/model-name` as the model location
+4. Redeploy Synesis if config changed: `./scripts/deploy.sh dev`
 
 ## Hybrid RAG Pipeline
 
@@ -393,12 +398,12 @@ oc set env deployment/synesis-planner -n synesis-planner \
 
 ## Code Execution Sandbox
 
-Synesis validates generated code before presenting it to the user. Every code snippet produced by the Worker node is sent to an **isolated execution sandbox** -- an ephemeral Kubernetes Job in the `synesis-sandbox` namespace -- which runs linting, security scanning, and actual execution. If any step fails, the code is routed back to the Worker with detailed error context for revision.
+Synesis validates generated code before presenting it to the user. Every code snippet produced by the **Worker** (Executor LLM) is sent to the **Sandbox** node -- an isolated execution environment -- which runs linting, security scanning, and actual execution. If any step fails, the code is routed back to the Worker with detailed error context for revision.
 
 ### How It Works
 
-1. **Worker generates code** -- the generated snippet and its target language are passed to the Executor node.
-2. **Executor creates a K8s Job** -- the code is mounted as a ConfigMap into a sandbox pod. The pod runs a pipeline: lint -> security scan -> execute.
+1. **Worker generates code** -- the Executor LLM (Qwen3-Coder-Next) produces the snippet; target language is passed in state.
+2. **Sandbox runs the code** -- via warm pool (HTTP) or ephemeral K8s Job. The pod runs a pipeline: lint → security scan → execute.
 3. **On success** (exit code 0, lint passed, security passed): the result moves forward to the Critic for Safety-II "What-If" analysis.
 4. **On failure**: the error context (lint errors, security findings, runtime output) is injected into the state and the graph routes back to the Worker for a revision pass. This loops up to `max_iterations` (default 3).
 
@@ -519,7 +524,7 @@ Three new Grafana panels track sandbox health:
 
 ## Conversation Memory
 
-Synesis maintains per-user conversation history so the system can understand references across chat sessions ("fix that script", "add error handling to it", "the previous one"). This eliminates the need for clients to re-send full conversation context with every request.
+Synesis maintains per-user conversation history so the system can understand references across chat sessions ("fix that script", "add error handling to it", "the previous one"). It also stores **pending plan** and **pending needs_input** context so the next user message can resume at the right node. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for plan approval and needs_input flows.
 
 ### How It Works
 
@@ -532,7 +537,9 @@ Synesis maintains per-user conversation history so the system can understand ref
 
 3. **Turn storage**: After each request completes, both the user's message and the assistant's response are stored as turns in the memory.
 
-4. **Eviction**: Users are tracked in LRU order. Inactive users (default 4h TTL) are cleaned up lazily. When the max user limit (default 5000) is reached, the least recently active user is evicted.
+4. **Pending plan / needs_input**: When the Planner surfaces a plan for approval or the Worker asks a question (`needs_input`), the context is stored. On the user's next message, it is restored and the Entry node routes directly to the Worker (skipping Supervisor/Planner).
+
+5. **Eviction**: Users are tracked in LRU order. Inactive users (default 4h TTL) are cleaned up lazily. When the max user limit (default 5000) is reached, the least recently active user is evicted.
 
 ### Passing the `user` Field
 
@@ -984,15 +991,17 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 - Copy-to-clipboard button
 - Line numbers for longer snippets
 
-The `synesis-agent` model routes through the full LangGraph pipeline (Supervisor -> Worker -> Executor -> Critic), so code responses have already been linted, security-scanned, and critic-reviewed before reaching the UI.
+The `synesis-agent` model routes through the full LangGraph pipeline (Entry → Supervisor → Planner/Worker → Sandbox → Critic), so code responses have already been linted, security-scanned, and critic-reviewed before reaching the UI.
 
 ### Available Models in the UI
 
 | Model Name | What It Does |
 |------------|-------------|
-| `synesis-agent` | Full pipeline: planning, code generation, sandbox execution, critic review |
-| `synesis-coder` | Direct access to Qwen2.5-Coder-32B (no pipeline, raw model) |
-| `synesis-supervisor` | Direct access to Mistral Nemo 12B (no pipeline, raw model) |
+| `synesis-agent` | Full pipeline: Supervisor → Planner → Executor → Critic → sandbox |
+| `synesis-supervisor` | Direct access to Qwen3-14B (routing, critic) |
+| `synesis-planner` | Direct access to Qwen3-14B planning (shares Supervisor) |
+| `synesis-executor` | Direct access to Qwen3-Coder-Next (code generation) |
+| `synesis-critic` | Direct access to Qwen3-14B (safety review) |
 
 ### Configuration
 
@@ -1018,13 +1027,13 @@ Open WebUI can only reach the LiteLLM gateway (`synesis-gateway:4000`) and DNS. 
 
 ## Hardware Sizing
 
-### GPU (Qwen2.5-Coder-32B FP8 -- Code Generation)
+### GPU (Qwen3-Coder-Next / Executor -- Code Generation)
 
-The coder model requires a dedicated GPU. Memory bandwidth is the primary driver of token generation speed (decode is memory-bound). With `--max-model-len=16384` and `--gpu-memory-utilization=0.90`:
+The executor model requires a dedicated GPU. Memory bandwidth is the primary driver of token generation speed (decode is memory-bound). With `--max-model-len=65536` and `--gpu-memory-utilization=0.90`:
 
-- Model weights (FP8): ~32 GB
-- KV cache (16K context, single request): ~2-3 GB
-- Total active VRAM: ~34-37 GB
+- Model weights (FP8): ~40 GB
+- KV cache (64K context, single request): ~8-10 GB
+- Total active VRAM: ~48-50 GB
 
 | GPU | VRAM | Bandwidth | Est. tok/s (single user) | Notes |
 |-----|------|-----------|--------------------------|-------|
@@ -1035,9 +1044,14 @@ The coder model requires a dedicated GPU. Memory bandwidth is the primary driver
 
 One GPU node is sufficient. `--tensor-parallel-size` is not set (TP=1), so multi-GPU is not required. To scale throughput for many concurrent users, add a second GPU node and scale the InferenceService replicas rather than adding TP.
 
-### CPU (Mistral Nemo 12B FP8 -- Supervisor / Critic)
+### CPU (Qwen3-14B -- Supervisor, Planner, Critic)
 
-The supervisor model runs on CPU by default (`CUDA_VISIBLE_DEVICES=""`). CPU inference is much slower than GPU (~2-5 tok/s) but acceptable because the supervisor generates short routing decisions and critic analyses, not long code blocks.
+Supervisor, Planner, and Critic run on CPU. CPU inference (~2-5 tok/s) is acceptable because these models produce short outputs: routing decisions, structured plans, and what-if analyses.
+
+| Model | Deployment | Context | Notes |
+|-------|-------------|---------|-------|
+| Qwen3-14B | synesis-supervisor, synesis-critic | 16K | Can share one deployment |
+| Qwen3-14B | synesis-planner | 16K | Planning (shared with Supervisor) |
 
 | Setting | Base / Prod | Dev |
 |---------|-------------|-----|
@@ -1045,16 +1059,20 @@ The supervisor model runs on CPU by default (`CUDA_VISIBLE_DEVICES=""`). CPU inf
 | CPU limit | 16 cores | 8 cores |
 | Memory request | 16 Gi | 12 Gi |
 | Memory limit | 24 Gi | 18 Gi |
-| Context length | 8192 | 2048 |
 
-For lowest latency, schedule the supervisor pod on a dedicated node with 16+ physical cores and allocate 32 GB RAM.
+For lowest latency, schedule CPU model pods on dedicated nodes with 16+ physical cores.
 
 ### Cluster Summary (Production)
 
 | Component | Node Type | Count | Minimum Spec |
-|-----------|-----------|-------|-------------|
-| Qwen Coder 32B (vLLM) | GPU node | 1 | 1x A100 80GB, 8 vCPU, 64 GB RAM |
-| Mistral Nemo 12B (vLLM) | CPU node | 1 | 16 vCPU, 32 GB RAM |
+|-----------|-----------|-------|--------------|
+| **GPU models** | | | |
+| synesis-executor (Qwen3-Coder-Next) | GPU node | 1 | 1x A100 80GB, 8 vCPU, 64 GB RAM |
+| **CPU models** | | | |
+| synesis-supervisor (Qwen3-14B) | CPU node | 1 | 16 vCPU, 32 GB RAM |
+| synesis-planner (Qwen3-14B shared) | — | Shares Supervisor deployment |
+| synesis-critic (Qwen3-14B) | CPU node | 1 | 16 vCPU, 32 GB RAM (or share with supervisor) |
+| **Services** | | | |
 | Planner + RAG + Services | Worker node | 2 | 8 vCPU, 16 GB RAM each |
 | Milvus + Infra | Worker node | 1 | 4 vCPU, 16 GB RAM |
 

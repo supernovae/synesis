@@ -13,7 +13,7 @@ set -euo pipefail
 #   ./scripts/build-images.sh --list                     # list images and exit
 #
 # Environment:
-#   SYNESIS_REGISTRY   Override the registry prefix (default: ghcr.io/bymiller/synesis)
+#   SYNESIS_REGISTRY   Override the registry prefix (default: ghcr.io/supernovae/synesis)
 #   CONTAINER_ENGINE   Force podman or docker (auto-detected if unset)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

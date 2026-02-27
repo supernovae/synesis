@@ -22,6 +22,8 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8000"
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: planner
           image: synesis-planner:latest

@@ -18,6 +18,8 @@ spec:
         app.kubernetes.io/component: admin
         app.kubernetes.io/part-of: synesis
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       securityContext:
         runAsNonRoot: true
         seccompProfile:

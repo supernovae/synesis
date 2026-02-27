@@ -4,3 +4,5 @@ metadata:
   name: synesis-rag
   labels:
     app.kubernetes.io/part-of: synesis
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted

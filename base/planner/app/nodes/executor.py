@@ -183,6 +183,9 @@ async def _create_sandbox_job(
                     ),
                     spec=client.V1PodSpec(
                         restart_policy="Never",
+                        image_pull_secrets=[
+                            client.V1LocalObjectReference(name="ghcr-pull-secret"),
+                        ],
                         security_context=client.V1PodSecurityContext(
                             run_as_non_root=True,
                             seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),

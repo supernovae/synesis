@@ -19,13 +19,13 @@ resources:
 
 patches:
   # Set debug logging and reduce resources on planner
-  # SYNESIS_LOG_LEVEL is env[45] in base/planner/deployment.yaml
+  # SYNESIS_LOG_LEVEL is env[49] in base/planner/deployment.yaml
   - target:
       kind: Deployment
       name: synesis-planner
     patch: |
       - op: replace
-        path: /spec/template/spec/containers/0/env/45/value
+        path: /spec/template/spec/containers/0/env/49/value
         value: "debug"
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/cpu

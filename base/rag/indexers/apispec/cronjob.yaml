@@ -22,6 +22,8 @@ spec:
             app.kubernetes.io/part-of: synesis
         spec:
           restartPolicy: OnFailure
+          imagePullSecrets:
+            - name: ghcr-pull-secret
           containers:
             - name: indexer
               image: synesis-indexer-apispec:latest

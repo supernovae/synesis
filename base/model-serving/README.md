@@ -15,17 +15,22 @@ Synesis does **not** ship custom InferenceServices or ServingRuntimes. Models ar
 
 ## Deploying Models
 
+**Strategy (keep it simple):**
+- **Primary**: HuggingFace direct (`hf://Qwen/Qwen3-14B`, `hf://Qwen/Qwen3-Coder-Next`) — reliable for our models.
+- **Optional**: Red Hat validated models when available (e.g. `RedHatAI/Qwen3-14B-FP8-dynamic` in Model Hub).
+- **Optional**: Custom catalog — add a Synesis catalog via `model-catalog-sources` ConfigMap if you manage catalogs manually.
+
 ### Via the OpenShift AI Dashboard
 
 1. Create or select a **Data Science Project** (use `synesis-models` to keep models in the Synesis namespace).
 2. Click **Deploy model**.
 3. In the wizard:
-   - **Model location**: OCI registry, HuggingFace (`hf://`), or S3
+   - **Model location**: HuggingFace (`hf://`), Model Hub, or OCI
    - **Serving runtime**: Select the **vLLM NVIDIA GPU** runtime (RHOAI built-in — not custom Docker Hub images)
    - **Hardware profile**: Choose your GPU node profile
-   - **Model deployment name**: e.g. `synesis-coder`, `synesis-supervisor`
+   - **Model deployment name**: e.g. `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`
 
-4. For validated models, use the **Model Hub** or Red Hat's [validated models](https://huggingface.co/collections/RedHatAI).
+4. For each model, use `hf://` or Model Hub: see `models.yaml` for HuggingFace repo IDs.
 
 ### Via CLI (InferenceService YAML)
 
@@ -35,7 +40,7 @@ If you prefer GitOps, create an InferenceService that references RHOAI's vLLM ru
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
-  name: synesis-coder
+  name: synesis-executor
   namespace: synesis-models
 spec:
   predictor:
@@ -44,8 +49,8 @@ spec:
       runtime: vllm
       modelFormat:
         name: vllm
-      # OCI modelcar, HuggingFace, or S3
-      storageUri: hf://Qwen/Qwen2.5-Coder-32B-Instruct
+      # OCI model or HuggingFace (hf://)
+      storageUri: hf://Qwen/Qwen3-Coder-Next
       resources:
         limits:
           cpu: "8"
@@ -61,17 +66,17 @@ Check **Settings → Serving runtimes** in the OpenShift AI dashboard for the ex
 
 ## Configuring Synesis
 
-After deploying models, point Synesis at your endpoints:
+After deploying models, point Synesis at your endpoints. Deploy three model predictors: **synesis-supervisor** (also used by planner), **synesis-executor**, **synesis-critic**.
 
-1. **Planner env vars** (patch in overlay or set in ConfigMap):
-   - `SYNESIS_CODER_MODEL_URL` → `http://<deployment-name>-predictor.synesis-models.svc.cluster.local:8080/v1`
-   - `SYNESIS_CODER_MODEL_NAME` → your model's `served-model-name`
-   - `SYNESIS_SUPERVISOR_MODEL_URL` → supervisor model endpoint
-   - `SYNESIS_SUPERVISOR_MODEL_NAME` → supervisor model name
+1. **Planner env vars** (`base/planner/deployment.yaml` or ConfigMap):
+   - `SYNESIS_SUPERVISOR_MODEL_URL` → `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1`
+   - `SYNESIS_PLANNER_MODEL_URL` → `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1` (planner shares Supervisor)
+   - `SYNESIS_EXECUTOR_MODEL_URL` → `http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1`
+   - `SYNESIS_CRITIC_MODEL_URL` → `http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1`
 
-2. **Supervisor config** (`base/supervisor/configmap.yaml`): Override `qwen-coder` and `mistral-nemo` service endpoints to match your deployed model URLs.
+2. **Supervisor config** (`base/supervisor/configmap.yaml`): Health monitor circuit breakers for synesis-supervisor, synesis-planner, synesis-executor, synesis-critic. Override endpoints if your deployment names differ.
 
-3. **LiteLLM** (`base/gateway/litellm-config.yaml`): Update `api_base` for `synesis-coder` and `synesis-supervisor` to point at your InferenceService endpoints.
+3. **LiteLLM** (`base/gateway/litellm-config.yaml`): `synesis-agent` routes to the planner orchestrator; individual models are listed for direct access. Update `api_base` if deployment names differ.
 
 Example service URL pattern:
 `http://<inference-service-name>-predictor.<namespace>.svc.cluster.local:8080/v1`

@@ -24,6 +24,8 @@ spec:
         prometheus.io/path: /metrics
     spec:
       serviceAccountName: synesis-health-monitor
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: monitor
           image: synesis-planner:latest

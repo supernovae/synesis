@@ -2,6 +2,15 @@
 
 Synesis RAG uses a **simple Milvus standalone deployment** (no Milvus Operator). This matches the approach used by RHOAI 3's Llama Stack documentation.
 
+## Install
+
+```bash
+./scripts/install-rag-stack.sh         # Apply manifests only
+./scripts/install-rag-stack.sh --wait  # Apply and wait for etcd, Milvus, embedder
+```
+
+The full `./scripts/deploy.sh dev` also installs the RAG stack as part of the overlay.
+
 ## Components
 
 | Component | Purpose |

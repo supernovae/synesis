@@ -20,6 +20,8 @@ spec:
         app.kubernetes.io/component: sandbox
         synesis-component: warm-pool
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       securityContext:
         runAsNonRoot: true
         seccompProfile:
