@@ -181,6 +181,16 @@ is free -- this key is just a passphrase you use to authenticate to your own pro
 ./scripts/deploy.sh prod     # Production
 ```
 
+**Avoid model restarts during debugging:** Use `overlays/dev-services` (excludes model-serving) for day-to-day deploys. Models stay running; only planner, webui, gateway, etc. are updated:
+
+```bash
+# Day-to-day: planner, webui, etc. (no 30min model restarts)
+kustomize build overlays/dev-services | oc apply -f -
+
+# Models only (when InferenceService/ServingRuntime changes)
+kustomize build overlays/dev-models | oc apply -f -
+```
+
 ### 7. Load RAG Corpus
 
 The RAG stack (Milvus + embedder + indexers) is deployed by `deploy.sh`. Optional: install it standalone with `./scripts/install-rag-stack.sh --wait`.

@@ -1,11 +1,21 @@
+# Dev overlay WITHOUT model-serving. Use for day-to-day deploys when iterating on
+# planner, webui, gateway, etc. Avoids InferenceService restarts (30+ min).
+#
+# Usage:
+#   kustomize build overlays/dev-services | oc apply -f -
+#
+# Deploy models separately when needed (rare):
+#   kustomize build overlays/dev -k overlays/dev-models  # no, that doesn't work
+#   # Or apply model-serving by itself:
+#   kustomize build overlays/dev | oc apply -f - -l app.kubernetes.io/component=model
+#   # Simpler: just apply the model-serving base when models change:
+#   kustomize build base/model-serving | oc apply -f -
+#
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Dev overlay: single replica, relaxed resources, debug logging,
-# CPU-only supervisor model, reduced model context lengths
-
+# Same as dev, but EXCLUDES model-serving (InferenceServices, ServingRuntimes, etc.)
 resources:
-  - ../../base/model-serving
   - ../../base/gateway
   - ../../base/planner
   - ../../base/rag
@@ -18,8 +28,6 @@ resources:
   - ../../base/webui
 
 patches:
-  # Set debug logging, reduce resources, disable FlashRank on planner (avoids OOM in dev)
-  # SYNESIS_LOG_LEVEL=env[49], SYNESIS_RAG_RERANKER=env[12]
   - target:
       kind: Deployment
       name: synesis-planner
@@ -37,7 +45,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "512Mi"
 
-  # Reduce LiteLLM resources
   - target:
       kind: Deployment
       name: litellm-proxy
@@ -49,7 +56,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "256Mi"
 
-  # Reduce LSP gateway resources for dev
   - target:
       kind: Deployment
       name: lsp-gateway
@@ -67,7 +73,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: "2Gi"
 
-  # Reduce SearXNG resources for dev
   - target:
       kind: Deployment
       name: searxng
@@ -85,7 +90,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: "256Mi"
 
-  # Scale warm pool to 1 replica in dev
   - target:
       kind: Deployment
       name: synesis-warm-pool
@@ -94,7 +98,6 @@ patches:
         path: /spec/replicas
         value: 1
 
-  # Disable CronJobs in dev (manual trigger only)
   - target:
       kind: CronJob
       name: synesis-index-code
@@ -127,7 +130,6 @@ patches:
         path: /spec/suspend
         value: true
 
-  # Reduce Open WebUI resources for dev
   - target:
       kind: Deployment
       name: open-webui
@@ -139,13 +141,11 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "256Mi"
 
-  # Bypass LiteLLM: Open WebUI talks directly to planner (fixes connection errors)
   - target:
       kind: Deployment
       name: open-webui
     path: openwebui-direct-planner.yaml
 
-  # Reduce Milvus standalone to minimal footprint in dev
   - target:
       kind: Deployment
       name: milvus-standalone

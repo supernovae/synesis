@@ -456,26 +456,48 @@ async def _rerank_flashrank(
     if not results:
         return results
 
-    from flashrank import RerankRequest
+    # Build passages; skip entries without valid text (defensive)
+    passages = []
+    valid_indices = []
+    for i, r in enumerate(results):
+        text = r.get("text") if isinstance(r, dict) else None
+        if text and isinstance(text, str) and text.strip():
+            passages.append({"id": i, "text": text[:8000]})
+            valid_indices.append(i)
 
-    ranker = _get_flashrank_ranker()
-    passages = [{"id": i, "text": r["text"]} for i, r in enumerate(results)]
-    request = RerankRequest(query=query, passages=passages)
+    if not passages:
+        return results[:top_k]
 
-    start = time.monotonic()
-    reranked = ranker.rerank(request)
-    elapsed = time.monotonic() - start
+    try:
+        from flashrank import RerankRequest
 
-    _ensure_metrics()
-    if _reranker_latency_histogram:
-        _reranker_latency_histogram.labels(reranker="flashrank").observe(elapsed)
+        ranker = _get_flashrank_ranker()
+        request = RerankRequest(query=query, passages=passages)
 
-    id_to_score = {r["id"]: r["score"] for r in reranked}
-    for i, result in enumerate(results):
-        result["rerank_score"] = id_to_score.get(i, 0.0)
+        start = time.monotonic()
+        reranked = ranker.rerank(request)
+        elapsed = time.monotonic() - start
 
-    results.sort(key=lambda r: r["rerank_score"], reverse=True)
-    return results[:top_k]
+        _ensure_metrics()
+        if _reranker_latency_histogram:
+            _reranker_latency_histogram.labels(reranker="flashrank").observe(elapsed)
+
+        # FlashRank returns list of {"id": ..., "score": ...}; handle format variations
+        id_to_score: dict[int, float] = {}
+        for r in reranked if isinstance(reranked, list) else []:
+            rid = r.get("id") if isinstance(r, dict) else None
+            score = r.get("score") if isinstance(r, dict) else 0.0
+            if rid is not None:
+                id_to_score[int(rid)] = float(score) if score is not None else 0.0
+
+        for i, result in enumerate(results):
+            result["rerank_score"] = id_to_score.get(i, 0.0)
+
+        results.sort(key=lambda r: r["rerank_score"], reverse=True)
+        return results[:top_k]
+    except Exception as e:
+        logger.warning(f"FlashRank rerank failed, using RRF order: {e}")
+        return results[:top_k]
 
 
 async def _rerank_bge(
