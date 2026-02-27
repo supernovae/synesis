@@ -95,7 +95,7 @@ supervisor_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.supervisor_model_name,
     temperature=0.0,
-    max_tokens=1024,
+    max_tokens=1536,
 )
 
 
@@ -181,7 +181,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             json_start = content.find("{")
             json_end = content.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                data = json.loads(content[json_start:json_end])
+                try:
+                    data = json.loads(content[json_start:json_end])
+                except json.JSONDecodeError:
+                    data = {}
+            else:
+                data = {}
+
+            if data:
                 parsed = SupervisorOut(
                     task_type=TaskType(data.get("task_type", "general")),
                     task_description=data.get("task_description", ""),
@@ -196,7 +203,19 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     planning_suggested=data.get("planning_suggested", False),
                 )
             else:
-                raise
+                # Truncated or empty: infer from user message and proceed (avoid clarification loop)
+                user_msg = user_context if user_context else ""
+                user_lower = user_msg.lower()
+                lang = "python" if "python" in user_lower else "bash" if "bash" in user_lower or "shell" in user_lower else "python"
+                parsed = SupervisorOut(
+                    task_type=TaskType.CODE_GENERATION,
+                    task_description=user_msg or "Generate code as requested",
+                    target_language=lang,
+                    needs_code_generation=True,
+                    needs_clarification=False,
+                    reasoning="Fallback: schema parse failed, proceeding with inferred task",
+                    confidence=0.5,
+                )
 
         task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
         target_language = parsed.target_language

@@ -20,7 +20,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def _extract_json(raw: str) -> str:
-    """Extract JSON object from raw LLM output (handles markdown fences, extra text)."""
+    """Extract JSON object from raw LLM output (handles markdown fences, extra text, braces in strings)."""
     content = raw.strip()
     # Try direct parse first
     try:
@@ -29,26 +29,60 @@ def _extract_json(raw: str) -> str:
     except json.JSONDecodeError:
         pass
 
-    # Find outermost { ... }
     start = content.find("{")
     if start < 0:
         raise ValueError("No JSON object found in response")
 
+    # Depth-based: find matching } (fails when braces appear inside string values)
     depth = 0
+    in_string = False
+    escape = False
+    quote = None
     end = -1
-    for i, c in enumerate(content[start:], start=start):
-        if c == "{":
+    i = start
+    while i < len(content):
+        c = content[i]
+        if escape:
+            escape = False
+        elif in_string:
+            if c == "\\":
+                escape = True
+            elif c == quote:
+                in_string = False
+        elif c in ('"', "'"):
+            in_string = True
+            quote = c
+        elif c == "{":
             depth += 1
         elif c == "}":
             depth -= 1
             if depth == 0:
                 end = i
                 break
+        i += 1
 
-    if end < 0:
-        raise ValueError("Unbalanced braces in JSON object")
+    if end >= 0:
+        return content[start : end + 1]
 
-    return content[start : end + 1]
+    # Fallback: first { to last } (handles truncation; may include trailing garbage)
+    last_brace = content.rfind("}")
+    if last_brace > start:
+        candidate = content[start : last_brace + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            pass
+        # Try repairing truncated JSON by appending closing braces
+        for _ in range(5):
+            candidate += "}"
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                pass
+
+    raise ValueError("Unbalanced braces in JSON object")
 
 
 def parse_and_validate(raw: str, model: type[T], retry_prompt: str | None = None) -> T:
