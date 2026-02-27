@@ -84,7 +84,7 @@ run_security() {
         else
             rules_flag="--config auto"
         fi
-        semgrep_out=$(semgrep --json --quiet $rules_flag "$WORK_FILE" 2>/dev/null) || true
+        semgrep_out=$(semgrep --json --quiet "$rules_flag" "$WORK_FILE" 2>/dev/null) || true
     fi
 
     case "$LANGUAGE" in

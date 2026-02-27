@@ -5,17 +5,22 @@ Every tunable knob lives here. Override via ConfigMap env vars in K8s.
 
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SYNESIS_")
 
-    # Model endpoints (OpenShift AI 3 InferenceService URLs; deploy via dashboard)
-    coder_model_url: str = "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
-    coder_model_name: str = "synesis-coder"
+    # Model endpoints (OpenShift AI 3 — deploy synesis-supervisor, synesis-planner, synesis-executor, synesis-critic)
     supervisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
     supervisor_model_name: str = "synesis-supervisor"
+    planner_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+    planner_model_name: str = "synesis-supervisor"
+    executor_model_url: str = "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+    executor_model_name: str = "synesis-executor"
+    critic_model_url: str = "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+    critic_model_name: str = "synesis-critic"
 
     # RAG / Milvus (service from milvus-standalone.yaml or LlamaStack)
     milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"
@@ -23,6 +28,7 @@ class Settings(BaseSettings):
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
     embedder_model: str = "all-MiniLM-L6-v2"
     rag_top_k: int = 5
+    rag_overfetch_count: int = 30  # Over-fetch for excluded telemetry (Q1.3); Curator trims to top_k
     rag_score_threshold: float = 0.5
 
     # Retrieval strategy: "hybrid" (BM25 + vector), "vector", or "bm25"
@@ -90,17 +96,92 @@ class Settings(BaseSettings):
 
     # Graph behavior
     max_iterations: int = 3
+    require_plan_approval: bool = True
     node_timeout_seconds: float = 60.0
+
+    # Budget limits
+    max_tokens_per_request: int = 100000
+    max_sandbox_minutes: float = 5.0
+    max_lsp_calls: int = 5
+    max_evidence_experiments: int = 3
+    # Evidence experiments: max blast radius (§8.4)
+    experiment_timeout_seconds: int = 120
+    experiment_max_stdout_bytes: int = 1_000_000  # 1MB
+    experiment_max_files_created: int = 50  # under .synesis/experiments/<attempt_id>
+    experiment_max_commands: int = 10  # max commands per experiment_plan
+    # Per-node-class (optional; 0 = use global)
+    max_executor_tokens: int = 0
+    max_controller_tokens: int = 0
+    max_retrieval_tokens: int = 0
+
+    # Patch Integrity Gate — path and file policy
+    integrity_path_denylist: list[str] = Field(
+        default_factory=lambda: ["**/package-lock.json", "**/yarn.lock", "**/*.lock"]
+    )
+    integrity_evidence_command_allowlist: list[str] = Field(
+        default_factory=lambda: [
+            "python",
+            "pytest",
+            "bash",
+            "sh",
+            "node",
+            "npm",
+            "cargo",
+            "go",
+            "ruff",
+            "mypy",
+            "shellcheck",
+        ]
+    )
+    integrity_path_allowlist: list[str] = Field(default_factory=list)
+    integrity_max_code_chars: int = 100_000
+    integrity_max_patch_file_chars: int = 50_000  # §7.4: per-file limit for patch_ops
+    integrity_target_workspace: str = ""  # Default workspace prefix; Planner can override
+    integrity_trusted_packages: list[str] = Field(
+        default_factory=lambda: [
+            "requests",
+            "urllib3",
+            "httpx",
+            "os",
+            "sys",
+            "json",
+            "re",
+            "pathlib",
+            "subprocess",
+            "typing",
+        ]
+    )  # Import Integrity: block packages not in this list or requirements.txt
+
+    # Pending question (concurrency / multi-tab safety)
+    pending_question_ttl_seconds: int = 86400  # expires_at = now + ttl; stale answer detection
 
     # Erlang-style supervision
     circuit_breaker_threshold: int = 5
     circuit_breaker_reset_seconds: float = 60.0
 
+    # Context Curator — trusted sources (policy smuggling prevention)
+    curator_trusted_sources: list[str] = Field(
+        default_factory=lambda: ["tool_contract", "output_format", "embedded_policy", "admin_policy"]
+    )
+    curator_recurate_on_retry: bool = True  # Re-fetch RAG with execution error on retries (Q1.1)
+    curator_curation_mode: Literal["stable", "adaptive"] = (
+        "adaptive"  # §8.7: stable=reuse pack; adaptive=pivot on stderr
+    )
+    curator_arch_standards_collections: list[str] = Field(default_factory=lambda: ["arch_standards_v1"])
+    curator_budget_alert_threshold: float = 0.85  # Excluded chunk score > this + budget_exceeded → Budget Alert
+    curator_context_drift_jaccard_threshold: float = 0.2  # If similarity < this, trigger Re-sync
+
+    # IDE/agent client coordination — prompt-injection safety
+    injection_scan_enabled: bool = True
+    injection_action: Literal["reduce", "block", "log"] = "reduce"
+
+    # JCS UX: Decision Summary ("why this approach")
+    decision_summary_enabled: bool = True
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
-
 
 
 settings = Settings()

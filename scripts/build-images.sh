@@ -146,7 +146,7 @@ for entry in "${IMAGES[@]}"; do
     log "  Image:      $full_image:$TAG"
 
     if ! $ENGINE build \
-        $PLATFORM_FLAG \
+        "$PLATFORM_FLAG" \
         -f "$PROJECT_ROOT/$dockerfile" \
         -t "$full_image:$TAG" \
         "$PROJECT_ROOT/$context" 2>&1; then

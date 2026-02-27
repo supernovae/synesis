@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any
 
 import httpx
 
 from ..config import settings
+from ..schemas import make_tool_ref
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.lsp_analyzer")
@@ -26,6 +28,24 @@ logger = logging.getLogger("synesis.lsp_analyzer")
 async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "lsp_analyzer"
+
+    lsp_calls_used = state.get("lsp_calls_used", 0)
+    if lsp_calls_used >= settings.max_lsp_calls:
+        logger.info("lsp_budget_exceeded", extra={"lsp_calls_used": lsp_calls_used})
+        return {
+            "current_node": node_name,
+            "lsp_analysis_skipped": True,
+            "lsp_calls_used": lsp_calls_used,
+            "node_traces": [
+                NodeTrace(
+                    node_name=node_name,
+                    reasoning="LSP call limit reached",
+                    confidence=1.0,
+                    outcome=NodeOutcome.SUCCESS,
+                    latency_ms=0.0,
+                )
+            ],
+        }
 
     code = state.get("generated_code", "")
     language = state.get("target_language", "")
@@ -62,17 +82,24 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
             ],
         }
 
+    request_id = str(uuid.uuid4())
+    params = {
+        "code": code[:5000],
+        "language": language,
+        "query_symbol": "",  # LSP may accept; hash consistency
+        "uri": "",
+    }
+    headers = {"X-Synesis-Request-ID": request_id}
     try:
         async with httpx.AsyncClient(timeout=settings.lsp_timeout_seconds) as client:
             resp = await client.post(
                 f"{settings.lsp_gateway_url.rstrip('/')}/analyze",
-                json={
-                    "code": code,
-                    "language": language,
-                },
+                json={k: v for k, v in params.items() if k in ("code", "language")},  # API contract
+                headers=headers,
             )
             resp.raise_for_status()
             data = resp.json()
+        tool_ref = make_tool_ref("lsp", params, data, request_id=request_id)
 
         diagnostics_raw = data.get("diagnostics", [])
         engine = data.get("engine", "unknown")
@@ -86,11 +113,15 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
                 extra={"engine": engine, "error": error, "skipped": skipped},
             )
             latency = (time.monotonic() - start) * 1000
+            ref = make_tool_ref("lsp", params, data, request_id=request_id)
+            existing_refs = state.get("tool_refs") or []
             return {
                 "current_node": node_name,
                 "lsp_analysis_skipped": True,
                 "lsp_diagnostics": [],
                 "lsp_languages_analyzed": [],
+                "lsp_calls_used": lsp_calls_used + 1,
+                "tool_refs": [*existing_refs, ref.model_dump()],
                 "node_traces": [
                     NodeTrace(
                         node_name=node_name,
@@ -133,11 +164,16 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
+        existing_refs = state.get("tool_refs") or []
+        lsp_has_compile_errors = error_count > 0
         return {
             "current_node": node_name,
             "lsp_diagnostics": formatted,
             "lsp_languages_analyzed": [language],
             "lsp_analysis_skipped": False,
+            "lsp_calls_used": lsp_calls_used + 1,
+            "lsp_has_compile_errors": lsp_has_compile_errors,
+            "tool_refs": [*existing_refs, tool_ref.model_dump()],
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
@@ -157,6 +193,7 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
             "lsp_analysis_skipped": True,
             "lsp_diagnostics": [],
             "lsp_languages_analyzed": [],
+            "lsp_calls_used": lsp_calls_used + 1,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
@@ -176,6 +213,7 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
             "lsp_analysis_skipped": True,
             "lsp_diagnostics": [],
             "lsp_languages_analyzed": [],
+            "lsp_calls_used": lsp_calls_used + 1,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

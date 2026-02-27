@@ -18,8 +18,8 @@ class TestSettingsValidation:
     def _make_settings(self, **overrides):
         """Create a fresh Settings instance with env overrides."""
         env = {
-            "SYNESIS_CODER_MODEL_URL": "http://localhost:8080/v1",
             "SYNESIS_SUPERVISOR_MODEL_URL": "http://localhost:8081/v1",
+            "SYNESIS_EXECUTOR_MODEL_URL": "http://localhost:8080/v1",
             "SYNESIS_RAG_RERANKER": "flashrank",
             "SYNESIS_RAG_RETRIEVAL_STRATEGY": "hybrid",
             "SYNESIS_LSP_MODE": "on_failure",
@@ -33,7 +33,7 @@ class TestSettingsValidation:
 
     def test_default_settings_valid(self):
         s = self._make_settings()
-        assert s.coder_model_name == "qwen-coder-32b"
+        assert s.executor_model_name == "synesis-executor"
         assert s.rag_reranker in ("flashrank", "bge", "none")
 
     def test_all_reranker_values(self):

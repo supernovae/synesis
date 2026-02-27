@@ -8,9 +8,6 @@ set -euo pipefail
 #
 # Usage: ./scripts/bootstrap.sh [--force]
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
 FORCE=false
 
 for arg in "$@"; do
@@ -284,10 +281,9 @@ main() {
     log "=== Bootstrap complete ==="
     log ""
     log "Next steps:"
-    log "  1. Upload models to S3 storage (or configure HuggingFace download)"
-    log "  2. Update base/model-serving/model-storage-secret.yaml with your S3 credentials"
-    log "  3. Update base/gateway/litellm-route.yaml with your cluster domain"
-    log "  4. Run: ./scripts/deploy.sh dev"
+    log "  1. Deploy models via OpenShift AI dashboard (Model Hub or HuggingFace hf://)"
+    log "  2. Update base/gateway/litellm-route.yaml with your cluster domain"
+    log "  3. Run: ./scripts/deploy.sh dev"
 }
 
 main "$@"

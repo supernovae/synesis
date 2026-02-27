@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from .config import settings
 from .conversation_memory import memory
 from .graph import graph
+from .injection_scanner import reduce_context_on_injection, scan_user_input
 from .state import RetrievalParams
 
 logging.basicConfig(
@@ -136,14 +137,89 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             top_k=request.retrieval.top_k,
         )
 
+    last_user_content = user_messages[-1].content if user_messages else ""
+
+    # IDE/agent coordination: scan for prompt injection in user + conversation
+    injection_detected = False
+    injection_scan_result: dict[str, object] = {}
+    if settings.injection_scan_enabled:
+        injection_detected, injection_scan_result = scan_user_input(
+            last_user_content,
+            conversation_history,
+        )
+        if injection_detected:
+            if settings.injection_action == "block":
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Suspicious content detected. If this was unintentional, rephrase your message and try again."
+                    ),
+                )
+            elif settings.injection_action == "reduce" and last_user_content:
+                last_user_content = reduce_context_on_injection(
+                    last_user_content,
+                    str(injection_scan_result.get("patterns_found", [])),
+                )
+                # Rebuild user_messages with redacted last message
+                user_messages = [HumanMessage(content=m.content) for m in request.messages if m.role == "user"]
+                if user_messages:
+                    user_messages[-1] = HumanMessage(content=last_user_content)
+
+    run_id = str(uuid.uuid4())
     initial_state = {
         "messages": user_messages,
         "max_iterations": settings.max_iterations,
+        "injection_detected": injection_detected,
+        "injection_scan_result": injection_scan_result,
+        "run_id": run_id,
         "iteration_count": 0,
         "retrieval_params": retrieval_params,
         "user_id": user_id,
         "conversation_history": conversation_history,
+        "token_budget_remaining": settings.max_tokens_per_request,
+        "sandbox_minutes_used": 0.0,
+        "lsp_calls_used": 0,
+        "evidence_experiments_count": 0,
     }
+
+    # Unified pending question: plan approval, needs_input, or clarification
+    if settings.memory_enabled:
+        pending = memory.get_and_clear_pending_question(user_id)
+        if not pending:
+            # Backward compat: migrate from legacy stores
+            pending = memory.get_and_clear_pending_plan(user_id)
+            if pending:
+                pending["source_node"] = "planner"
+            else:
+                pending = memory.get_and_clear_pending_needs_input(user_id)
+                if pending:
+                    pending["source_node"] = "worker"
+
+        if pending:
+            source_node = pending.get("source_node", "worker")
+            context = pending.get("context", pending)
+            for key, val in context.items():
+                if key != "source_node" and val is not None:
+                    initial_state[key] = val
+            if source_node == "worker":
+                initial_state["user_answer_to_needs_input"] = last_user_content
+            elif source_node == "supervisor":
+                initial_state["user_answer_to_clarification"] = last_user_content
+            elif source_node == "planner":
+                for k in (
+                    "execution_plan",
+                    "task_description",
+                    "target_language",
+                    "rag_context",
+                    "task_type",
+                    "assumptions",
+                    "failure_context",
+                    "web_search_results",
+                ):
+                    if k in pending and pending[k] is not None:
+                        initial_state[k] = pending[k]
+            initial_state["pending_question_continue"] = True
+            initial_state["pending_question_source"] = source_node if source_node != "planner" else "worker"
 
     try:
         result = await graph.ainvoke(initial_state)

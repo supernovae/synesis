@@ -1,12 +1,11 @@
 """Supervisor node -- the Erlang-style router that decides what happens next.
 
-Uses the Mistral Nemo supervisor model to classify intent, fetch RAG context,
-and route to the appropriate worker or directly to response.
+Uses the supervisor model to classify intent, fetch RAG context, and route.
+JCS: can request clarification or suggest planning instead of guessing.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from collections import Counter
@@ -18,8 +17,10 @@ from langchain_openai import ChatOpenAI
 from ..config import settings
 from ..failfast_cache import cache as failfast_cache
 from ..failure_store import query_similar_failures
+from ..injection_scanner import scan_and_filter_rag_context
 from ..rag_client import retrieve_context, select_collections_for_task
-from ..state import NodeOutcome, NodeTrace, RetrievalParams
+from ..schemas import SupervisorOut, make_tool_ref, parse_and_validate
+from ..state import NodeOutcome, NodeTrace, RetrievalParams, TaskType
 from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.supervisor")
@@ -36,8 +37,15 @@ You MUST respond with valid JSON containing exactly these fields:
   "needs_code_generation": true/false,
   "reasoning": "your reasoning for this classification",
   "assumptions": ["list", "of", "assumptions"],
-  "confidence": 0.0 to 1.0
+  "confidence": 0.0 to 1.0,
+  "needs_clarification": false,
+  "clarification_question": null,
+  "clarification_options": [],
+  "planning_suggested": false
 }
+
+CRITICAL - Do not guess. If the request is ambiguous or you lack context (e.g. "fix the script" without knowing which script), set needs_clarification=true and provide clarification_question with a specific question. Optionally add clarification_options as a list of choices.
+For multi-step or complex tasks (refactoring, migration, multi-file changes), set planning_suggested=true.
 
 If the user is asking for shell/bash code, set task_type to "shell_script".
 If this is a revision cycle, incorporate the critic's feedback into the task description.
@@ -86,7 +94,7 @@ supervisor_llm = ChatOpenAI(
     base_url=settings.supervisor_model_url,
     api_key="not-needed",
     model=settings.supervisor_model_name,
-    temperature=0.3,
+    temperature=0.0,
     max_tokens=1024,
 )
 
@@ -111,12 +119,36 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             if last_user:
                 user_context = last_user.content
 
+        clarification_answer_block = ""
+        user_answer_to_clarification = state.get("user_answer_to_clarification", "")
+        if user_answer_to_clarification:
+            clarification_answer_block = (
+                f"\n\n## User answered your clarification\n"
+                f"The user provided: {user_answer_to_clarification}\n"
+                f"Incorporate this into the task description and proceed accordingly."
+            )
+
         revision_note = ""
         if iteration > 0 and critic_feedback:
             revision_note = (
                 f"\n\nThis is revision iteration {iteration}. "
                 f"The critic provided this feedback:\n{critic_feedback}\n"
                 f"Please incorporate this feedback into the task description."
+            )
+        scope_expansion_note = ""
+        if state.get("scope_expansion_needed"):
+            requested = state.get("requested_files", [])
+            expl = (
+                state.get("scope_expansion_reason")
+                or state.get("stop_reason_explanation", "")
+                or "Worker needs to touch files not in the execution plan."
+            )
+            files_str = ", ".join(requested[:5]) if requested else "(unlisted)"
+            scope_expansion_note = (
+                f"\n\n**Scope expansion needed:** {expl}\n"
+                f"Requested files: {files_str}\n"
+                f"Either ask the user to confirm which files to add, or set planning_suggested=true "
+                f"to trigger Planner to update touched_files (deterministic: no extra planning chatter)."
             )
 
         history_block = ""
@@ -132,31 +164,90 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         prompt_messages = [
             SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT),
-            HumanMessage(content=f"User request: {user_context}{history_block}{revision_note}"),
+            HumanMessage(
+                content=f"User request: {user_context}{clarification_answer_block}{history_block}{revision_note}{scope_expansion_note}"
+            ),
         ]
 
         response = await supervisor_llm.ainvoke(prompt_messages)
 
         try:
-            parsed = json.loads(response.content)
-        except json.JSONDecodeError:
+            parsed = parse_and_validate(response.content, SupervisorOut)
+        except Exception as e:
+            logger.warning(f"Supervisor schema validation failed: {e}, using fallback parse")
+            import json
+
             content = response.content
             json_start = content.find("{")
             json_end = content.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
-                parsed = json.loads(content[json_start:json_end])
+                data = json.loads(content[json_start:json_end])
+                parsed = SupervisorOut(
+                    task_type=TaskType(data.get("task_type", "general")),
+                    task_description=data.get("task_description", ""),
+                    target_language=data.get("target_language", "bash"),
+                    needs_code_generation=data.get("needs_code_generation", True),
+                    reasoning=data.get("reasoning", ""),
+                    assumptions=data.get("assumptions", []),
+                    confidence=data.get("confidence", 0.5),
+                    needs_clarification=data.get("needs_clarification", False),
+                    clarification_question=data.get("clarification_question"),
+                    clarification_options=data.get("clarification_options", []),
+                    planning_suggested=data.get("planning_suggested", False),
+                )
             else:
                 raise
 
-        task_type = parsed.get("task_type", "general")
-        target_language = parsed.get("target_language", "bash")
-        needs_code = parsed.get("needs_code_generation", True)
+        task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
+        target_language = parsed.target_language
+        needs_code = parsed.needs_code_generation
+
+        # §7.8 / Item 1: SupervisorGuard mode — when from Critic, only clarification or forward.
+        # May NOT modify evidence_needed, strategy_candidates, or planning. Passthrough to Worker.
+        supervisor_guard = state.get("supervisor_clarification_only", False)
+        if supervisor_guard:
+            if parsed.planning_suggested:
+                logger.info(
+                    "supervisor_guard_override", extra={"reason": "planning_suggested disallowed in SupervisorGuard"}
+                )
+            planning_suggested = False
+        elif state.get("scope_expansion_needed"):
+            # Worker needs files not in touched_files; prefer Planner to update manifest
+            planning_suggested = True
+        else:
+            planning_suggested = parsed.planning_suggested
+
+        # JCS: route to respond when clarification needed
+        if parsed.needs_clarification and parsed.clarification_question:
+            next_node = "respond"
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning=parsed.reasoning,
+                assumptions=parsed.assumptions,
+                confidence=parsed.confidence,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+                tokens_used=response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0,
+            )
+            logger.info("supervisor_clarification_request", extra={"question": parsed.clarification_question[:80]})
+            return {
+                "task_type": task_type,
+                "task_description": parsed.task_description,
+                "target_language": target_language,
+                "clarification_question": parsed.clarification_question,
+                "clarification_options": parsed.clarification_options,
+                "current_node": node_name,
+                "next_node": next_node,
+                "node_traces": [trace],
+            }
 
         # Resolve retrieval params: per-request override > config defaults
         retrieval_params: RetrievalParams | None = state.get("retrieval_params")
         strategy = retrieval_params.strategy if retrieval_params else settings.rag_retrieval_strategy
         reranker = retrieval_params.reranker if retrieval_params else settings.rag_reranker
         top_k = retrieval_params.top_k if retrieval_params else settings.rag_top_k
+        fetch_count = getattr(settings, "rag_overfetch_count", None) or top_k
 
         rag_results = []
         rag_context = []
@@ -164,7 +255,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         fallback_to_bm25 = False
 
         if needs_code:
-            task_desc = parsed.get("task_description", user_context)
+            task_desc = parsed.task_description or user_context
             rag_collections = select_collections_for_task(
                 task_type=task_type,
                 target_language=target_language,
@@ -173,22 +264,45 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             if not rag_collections:
                 rag_collections = [f"{target_language}_v1"]
 
+            rag_params = {
+                "query": task_desc[:500],
+                "collections": rag_collections,
+                "top_k": fetch_count,
+                "strategy": strategy,
+                "reranker": reranker,
+            }
             rag_results = await retrieve_context(
                 query=task_desc,
                 collections=rag_collections,
-                top_k=top_k,
+                top_k=fetch_count,
                 strategy=strategy,
                 reranker=reranker,
             )
+            rag_result_summary = {
+                "count": len(rag_results),
+                "sources": [getattr(r, "source", "") for r in rag_results[:5]],
+            }
+            rag_tool_ref = make_tool_ref("rag", rag_params, rag_result_summary)
             rag_context = [r.text for r in rag_results]
+            # IDE coordination: scan RAG for prompt injection
+            if settings.injection_scan_enabled and rag_context:
+                rag_context, rag_injection, rag_details = scan_and_filter_rag_context(
+                    rag_context,
+                    action=settings.injection_action,
+                )
+                if rag_injection:
+                    logger.warning(
+                        "injection_scan_rag",
+                        extra={"chunks_affected": len(rag_details), "details": rag_details[:5]},
+                    )
             fallback_to_bm25 = any(r.retrieval_source == "bm25" and strategy != "bm25" for r in rag_results)
 
-        next_node = "worker" if needs_code else "respond"
+        next_node = "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
 
         # Query failure knowledge base for similar past failures
         failure_context: list[str] = []
         if needs_code:
-            task_desc = parsed.get("task_description", user_context)
+            task_desc = parsed.task_description or user_context
 
             # 1. Check fail-fast cache (instant, in-memory)
             cache_hints = failfast_cache.get_hints(task_desc, target_language)
@@ -216,8 +330,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         web_search_queries: list[str] = []
         if needs_code and settings.web_search_enabled:
             should_search, search_query, search_profile = _should_search_supervisor(
-                task_description=parsed.get("task_description", user_context),
-                confidence=parsed.get("confidence", 0.5),
+                task_description=parsed.task_description or user_context,
+                confidence=parsed.confidence,
                 needs_code=needs_code,
             )
             if should_search:
@@ -240,9 +354,9 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         latency = (time.monotonic() - start) * 1000
         trace = NodeTrace(
             node_name=node_name,
-            reasoning=parsed.get("reasoning", ""),
-            assumptions=parsed.get("assumptions", []),
-            confidence=parsed.get("confidence", 0.5),
+            reasoning=parsed.reasoning,
+            assumptions=parsed.assumptions,
+            confidence=parsed.confidence,
             outcome=NodeOutcome.SUCCESS,
             latency_ms=latency,
             tokens_used=response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0,
@@ -253,7 +367,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             extra={
                 "task_type": task_type,
                 "next_node": next_node,
-                "confidence": parsed.get("confidence"),
+                "confidence": parsed.confidence,
                 "iteration": iteration,
                 "latency_ms": latency,
                 "retrieval_strategy": strategy,
@@ -266,13 +380,18 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        return {
+        existing_refs = state.get("tool_refs") or []
+        tool_refs = [*existing_refs, rag_tool_ref.model_dump()] if rag_results else existing_refs
+
+        # SupervisorGuard: preserve evidence_needed, strategy_candidates; do NOT overwrite with LLM output
+        out: dict[str, Any] = {
             "task_type": task_type,
-            "task_description": parsed.get("task_description", ""),
+            "task_description": parsed.task_description,
             "target_language": target_language,
             "rag_results": rag_results,
             "rag_context": rag_context,
             "rag_collections_queried": rag_collections,
+            "tool_refs": tool_refs,
             "rag_retrieval_strategy": strategy,
             "rag_reranker_used": reranker,
             "rag_vector_fallback_to_bm25": fallback_to_bm25,
@@ -282,8 +401,21 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": node_name,
             "next_node": next_node,
             "node_traces": [trace],
-            "iteration_count": iteration,
         }
+        if supervisor_guard and next_node == "worker":
+            # Passthrough: preserve Critic's evidence context; Supervisor must not rewrite experiment
+            for key in (
+                "evidence_needed",
+                "evidence_gap",
+                "strategy_candidates",
+                "revision_strategy",
+                "revision_constraints",
+                "task_description",
+                "critic_feedback",
+            ):
+                if key in state and state[key] is not None:
+                    out[key] = state[key]
+        return out
 
     except Exception as e:
         latency = (time.monotonic() - start) * 1000

@@ -30,14 +30,22 @@ spec:
               containerPort: 8000
               protocol: TCP
           env:
-            - name: SYNESIS_CODER_MODEL_URL
-              value: "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
-            - name: SYNESIS_CODER_MODEL_NAME
-              value: "synesis-coder"
             - name: SYNESIS_SUPERVISOR_MODEL_URL
               value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
               value: "synesis-supervisor"
+            - name: SYNESIS_PLANNER_MODEL_URL
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_PLANNER_MODEL_NAME
+              value: "synesis-supervisor"
+            - name: SYNESIS_EXECUTOR_MODEL_URL
+              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_EXECUTOR_MODEL_NAME
+              value: "synesis-executor"
+            - name: SYNESIS_CRITIC_MODEL_URL
+              value: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_CRITIC_MODEL_NAME
+              value: "synesis-critic"
             - name: SYNESIS_MILVUS_HOST
               value: "synesis-milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT

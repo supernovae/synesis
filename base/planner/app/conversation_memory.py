@@ -4,7 +4,8 @@ Per-user conversation history keyed by user_id, with LRU eviction at the
 user level and per-user turn limits via bounded deques. Designed with an
 explicit L2 eviction hook for future Milvus-backed persistence.
 
-Thread-safe via threading.Lock following the FailFastCache pattern.
+PendingCheckpointStore: optional L2 for pending_question state snapshots.
+When pods scale down, get_and_clear_pending_question can fall back to L2.
 """
 
 from __future__ import annotations
@@ -12,11 +13,31 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from .config import settings
+
+
+class PendingCheckpointStore(Protocol):
+    """L2 persistence for pending_question state snapshots.
+
+    Pluggable backend (Redis, Postgres, no-op). Enables resume after pod restart.
+    CAS claim: When L2 backend supports it, use atomic claim-and-delete (GETDEL
+    in Redis or UPDATE ... WHERE claimed=false RETURNING in Postgres).
+    """
+
+    def write(self, user_id: str, data: dict[str, Any], ttl_seconds: int = 86400) -> None:
+        """Persist state snapshot. Overwrites existing for user_id."""
+        ...
+
+    def read_and_delete(self, user_id: str) -> dict[str, Any] | None:
+        """Retrieve and remove. Returns None if not found.
+        L2: Prefer atomic claim-and-delete to avoid double-submit races."""
+        ...
+
 
 logger = logging.getLogger("synesis.memory")
 
@@ -45,12 +66,17 @@ class ConversationMemory:
         max_turns_per_user: int = 20,
         max_users: int = 5000,
         ttl_seconds: float = 14400.0,
+        pending_checkpoint_store: PendingCheckpointStore | None = None,
     ):
         self._max_turns = max_turns_per_user
         self._max_users = max_users
         self._ttl = ttl_seconds
+        self._pending_l2 = pending_checkpoint_store
         self._users: OrderedDict[str, deque[ConversationTurn]] = OrderedDict()
         self._last_active: dict[str, float] = {}
+        self._pending_plans: dict[str, dict[str, Any]] = {}
+        self._pending_needs_input: dict[str, dict[str, Any]] = {}
+        self._pending_questions: dict[str, dict[str, Any]] = {}  # unified: plan, needs_input, clarification
         self._lock = threading.Lock()
 
     def store_turn(self, user_id: str, role: str, content: str) -> None:
@@ -122,6 +148,69 @@ class ConversationMemory:
                 return 0
             return len(self._users[user_id])
 
+    def store_pending_plan(self, user_id: str, plan_data: dict[str, Any]) -> None:
+        """Store a plan awaiting user approval. Overwrites any existing pending plan."""
+        with self._lock:
+            self._pending_plans[user_id] = plan_data
+            self._last_active[user_id] = time.time()
+
+    def get_and_clear_pending_plan(self, user_id: str) -> dict[str, Any] | None:
+        """Retrieve and remove pending plan for user. Returns None if none."""
+        with self._lock:
+            return self._pending_plans.pop(user_id, None)
+
+    def store_pending_needs_input(self, user_id: str, data: dict[str, Any]) -> None:
+        """Store context when Executor asked user a question. Overwrites any existing."""
+        with self._lock:
+            self._pending_needs_input[user_id] = data
+            self._last_active[user_id] = time.time()
+
+    def get_and_clear_pending_needs_input(self, user_id: str) -> dict[str, Any] | None:
+        """Retrieve and remove pending needs_input context. Returns None if none."""
+        with self._lock:
+            return self._pending_needs_input.pop(user_id, None)
+
+    def store_pending_question(self, user_id: str, data: dict[str, Any]) -> None:
+        """Unified: any question (plan, needs_input, clarification). Overwrites existing.
+        L2 write-through when pending_checkpoint_store is set.
+
+        Concurrency safety (multi-tab/double-submit): When storing, inject
+        pending_question_id, run_id, turn_id, expires_at. Client should echo
+        pending_question_id when replying; backend validates match before resume.
+        """
+        enriched = dict(data)
+        enriched.setdefault("pending_question_id", str(uuid.uuid4()))
+        enriched.setdefault("run_id", data.get("run_id", ""))
+        enriched.setdefault("turn_id", data.get("turn_id", ""))
+        expires_sec = getattr(settings, "pending_question_ttl_seconds", 86400) or 86400
+        enriched.setdefault("expires_at", time.time() + expires_sec)
+        with self._lock:
+            self._pending_questions[user_id] = enriched
+            self._last_active[user_id] = time.time()
+        if self._pending_l2:
+            try:
+                snapshot = {k: v for k, v in enriched.items() if k != "question"}
+                snapshot["_full"] = enriched
+                self._pending_l2.write(user_id, snapshot, ttl_seconds=86400)
+            except Exception as e:
+                logger.debug(f"L2 pending checkpoint write failed: {e}")
+
+    def get_and_clear_pending_question(self, user_id: str) -> dict[str, Any] | None:
+        """Retrieve and remove pending question. L1 first; fallback to L2 on miss (pod restart)."""
+        with self._lock:
+            data = self._pending_questions.pop(user_id, None)
+        if data is not None:
+            return data
+        if self._pending_l2:
+            try:
+                data = self._pending_l2.read_and_delete(user_id)
+                if data and isinstance(data.get("_full"), dict):
+                    return data["_full"]
+                return data
+            except Exception as e:
+                logger.debug(f"L2 pending checkpoint read failed: {e}")
+        return None
+
     def _is_expired(self, user_id: str) -> bool:
         last = self._last_active.get(user_id, 0)
         return time.time() - last > self._ttl
@@ -135,6 +224,9 @@ class ConversationMemory:
     def _remove_user(self, user_id: str) -> None:
         turns = self._users.pop(user_id, None)
         self._last_active.pop(user_id, None)
+        self._pending_plans.pop(user_id, None)
+        self._pending_needs_input.pop(user_id, None)
+        self._pending_questions.pop(user_id, None)
         if turns:
             self._on_evict(user_id, list(turns))
 

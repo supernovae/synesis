@@ -1,13 +1,18 @@
-"""Executor node -- runs generated code in an isolated OpenShift sandbox pod.
+"""Sandbox node -- runs generated code in an isolated OpenShift sandbox pod.
 
-Creates an ephemeral K8s Job in the synesis-sandbox namespace with deny-all
-networking, restricted SCC, and no privilege escalation. The Job runs
-linting, security scanning, and code execution, returning structured JSON.
+Formerly executor_node. Creates an ephemeral K8s Job in the synesis-sandbox
+namespace with deny-all networking, restricted SCC, and no privilege escalation.
+The Job runs linting, security scanning, and code execution, returning structured JSON.
+
+Two-Phase Commit: When Worker outputs patch_ops (multi-file), bundles them into
+a runnable script that creates files and runs the command. Works with existing
+single-script Sandbox.
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -17,6 +22,8 @@ from typing import Any
 from ..config import settings
 from ..failfast_cache import cache as failfast_cache
 from ..failure_store import store_failure
+from ..revision_constraints import REVISION_CONSTRAINTS, STRATEGY_CANDIDATES_BY_FAILURE
+from ..schemas import make_tool_ref
 from ..state import NodeOutcome, NodeTrace
 
 _background_tasks: set[asyncio.Task] = set()
@@ -52,6 +59,60 @@ except Exception:
     _sandbox_latency_histogram = None
     _sandbox_failure_type_counter = None
     _warm_pool_counter = None
+
+
+def _bundle_patch_ops_to_script(
+    patch_ops: list,
+    language: str,
+    experiment_plan: dict | None,
+    attempt_id: str = "0",
+) -> str:
+    """Two-Phase Commit: convert patch_ops to a bash script. §7.4: canonical order by (path, op). §7.5: experiments under .synesis/experiments/<attempt_id>/."""
+    if not patch_ops:
+        return ""
+
+    # Canonical apply order (§7.4)
+    def _key(o: dict) -> tuple[str, str]:
+        path = o.get("path", "") if isinstance(o, dict) else getattr(o, "path", "")
+        op = o.get("op", "modify") if isinstance(o, dict) else getattr(o, "op", "modify")
+        return (path, op)
+
+    sorted_ops = sorted(patch_ops, key=_key)
+    parts = ["#!/bin/bash", "set -euo pipefail", ""]
+    for op in sorted_ops:
+        path = op.get("path", "") if isinstance(op, dict) else getattr(op, "path", "")
+        text = (
+            op.get("text", "") or op.get("content", "")
+            if isinstance(op, dict)
+            else getattr(op, "text", "") or getattr(op, "content", "")
+        )
+        op_type = op.get("op", "modify") if isinstance(op, dict) else getattr(op, "op", "modify")
+        if not path:
+            continue
+        if op_type == "delete":
+            parts.append(f"rm -f {path!r}")
+            continue
+        dir_part = path.rsplit("/", 1)[0] if "/" in path else ""
+        if dir_part:
+            parts.append(f"mkdir -p {dir_part!r}")
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        parts.append(f"echo {b64!r} | base64 -d > {path!r}")
+        parts.append("")
+    cmd = "python -m pytest" if language in ("python", "py") else "true"
+    if experiment_plan and isinstance(experiment_plan, dict):
+        cmds = experiment_plan.get("commands", [])
+        if cmds:
+            cmd = " ".join(str(c) for c in cmds)
+    elif hasattr(experiment_plan, "commands") and getattr(experiment_plan, "commands", []):
+        cmd = " ".join(getattr(experiment_plan, "commands", []))
+    # §7.5: Establish experiment workspace; commands run from repo root (patch files there)
+    if experiment_plan and cmd != "true":
+        parts.insert(-1, f"mkdir -p .synesis/experiments/{attempt_id}")
+        parts.insert(-1, f"export SYNESIS_EXPERIMENT_DIR=.synesis/experiments/{attempt_id}")
+        parts.insert(-1, "")
+    parts.append(cmd)
+    return "\n".join(parts)
+
 
 LANGUAGE_EXTENSIONS = {
     "bash": "sh",
@@ -270,7 +331,13 @@ async def _cleanup_sandbox(run_id: str, namespace: str) -> None:
         logger.debug(f"Sandbox cleanup for {run_id}: {e}")
 
 
-async def _execute_warm_pool(code: str, language: str, filename: str) -> dict[str, Any] | None:
+async def _execute_warm_pool(
+    code: str,
+    language: str,
+    filename: str,
+    *,
+    request_id: str | None = None,
+) -> dict[str, Any] | None:
     """Try executing via the pre-warmed sandbox pool. Returns None on failure."""
     import httpx
 
@@ -279,12 +346,16 @@ async def _execute_warm_pool(code: str, language: str, filename: str) -> dict[st
 
     url = f"{settings.sandbox_warm_pool_url}/execute"
     payload = {"language": language, "code": code, "filename": filename}
+    headers = {}
+    if request_id:
+        headers["X-Synesis-Request-ID"] = request_id
 
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 url,
                 json=payload,
+                headers=headers or None,
                 timeout=settings.sandbox_timeout_seconds + 2.0,
             )
         if resp.status_code == 200:
@@ -312,10 +383,27 @@ async def _execute_via_job(code: str, language: str, run_id: str, namespace: str
     return result
 
 
-async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
+async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
     """Execute generated code in an isolated sandbox pod."""
     start = time.monotonic()
-    node_name = "executor"
+    node_name = "sandbox"
+
+    sandbox_minutes_used = state.get("sandbox_minutes_used", 0.0)
+    if sandbox_minutes_used >= settings.max_sandbox_minutes:
+        return {
+            "current_node": node_name,
+            "next_node": "respond",
+            "error": f"Sandbox time limit reached ({settings.max_sandbox_minutes} min). Partial result may be available.",
+            "node_traces": [
+                NodeTrace(
+                    node_name=node_name,
+                    reasoning="Budget limit reached",
+                    confidence=0.0,
+                    outcome=NodeOutcome.ERROR,
+                    latency_ms=0,
+                )
+            ],
+        }
 
     if not settings.sandbox_enabled:
         logger.info("Sandbox disabled, skipping execution")
@@ -330,6 +418,30 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
     code = state.get("generated_code", "")
     language = state.get("target_language", "bash")
     iteration = state.get("iteration_count", 0)
+    patch_ops = state.get("patch_ops", []) or []
+    experiment_plan = state.get("experiment_plan") or {}
+    state_run_id = state.get("run_id", "") or str(uuid.uuid4())
+    attempt_id = f"{state_run_id[:8]}-{iteration}"
+
+    # Two-Phase Commit: bundle patch_ops to runnable script when code empty
+    has_patch_content = any(
+        (
+            p.get("text") or p.get("content")
+            if isinstance(p, dict)
+            else getattr(p, "text", "") or getattr(p, "content", "")
+        )
+        for p in patch_ops
+    )
+    if not code.strip() and has_patch_content:
+        ep = (
+            experiment_plan
+            if isinstance(experiment_plan, dict)
+            else (experiment_plan.model_dump() if hasattr(experiment_plan, "model_dump") else {})
+            if experiment_plan
+            else {}
+        )
+        code = _bundle_patch_ops_to_script(patch_ops, language, ep, attempt_id=attempt_id)
+        language = "bash"
 
     if not code.strip():
         return {
@@ -350,17 +462,28 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     run_id = uuid.uuid4().hex[:12]
+    request_id = str(uuid.uuid4())
     namespace = settings.sandbox_namespace
     ext = LANGUAGE_EXTENSIONS.get(language, "txt")
     filename = f"script.{ext}"
     used_warm_pool = False
 
+    context_files = state.get("files_touched", []) or state.get("touched_files", [])
+    sandbox_params = {
+        "code": code[:2000],
+        "language": language,
+        "context_files": context_files[:20] if context_files else [],
+    }
+
     try:
-        result = await _execute_warm_pool(code, language, filename)
+        result = await _execute_warm_pool(code, language, filename, request_id=request_id)
         if result is not None:
             used_warm_pool = True
         else:
             result = await _execute_via_job(code, language, run_id, namespace)
+
+        tool_ref = make_tool_ref("sandbox", sandbox_params, result, request_id=request_id)
+        existing_refs = state.get("tool_refs") or []
 
         exit_code = result.get("exit_code", 1)
         lint_data = result.get("lint", {})
@@ -370,6 +493,15 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
         security_passed = security_data.get("passed", True) if isinstance(security_data, dict) else True
         pod_name = result.get("pod_name", "")
 
+        strategy_updates: dict[str, Any] = {}
+        failure_type = "runtime"
+        if not lint_passed:
+            failure_type = "lint"
+        elif not security_passed:
+            failure_type = "security"
+        elif state.get("lsp_diagnostics"):
+            failure_type = "lsp"
+
         if exit_code == 0:
             next_node = "critic"
             outcome = NodeOutcome.SUCCESS
@@ -377,8 +509,63 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             max_iter = state.get("max_iterations", settings.max_iterations)
             if iteration + 1 < max_iter:
                 next_node = "worker"
+                # Set strategy_candidates and revision_strategy from failure type
+                prev_stages = state.get("stages_passed", [])
+                curr_strategy = state.get("revision_strategy", "")
+                preserve_stages = (state.get("revision_constraints") or {}).get("preserve_stages", [])
+                strategy_violation = False
+                if prev_stages and preserve_stages:
+                    if (not lint_passed and "lint" in preserve_stages and "lint" in prev_stages) or (
+                        not security_passed and "security" in preserve_stages and "security" in prev_stages
+                    ):
+                        strategy_violation = True
+                if strategy_violation:
+                    revision_strategies_tried = [*state.get("revision_strategies_tried", []), curr_strategy]
+                else:
+                    revision_strategies_tried = state.get("revision_strategies_tried", [])
+
+                high_iteration = iteration + 1 >= max(2, max_iter - 1)
+                candidates = STRATEGY_CANDIDATES_BY_FAILURE.get(failure_type, STRATEGY_CANDIDATES_BY_FAILURE["default"])
+                # High iteration: prefer refactor (constraint degradation)
+                if high_iteration and "refactor" not in revision_strategies_tried:
+                    refactor_cand = next(
+                        (c for c in candidates if isinstance(c, dict) and c.get("name") == "refactor"),
+                        None,
+                    )
+                    if refactor_cand:
+                        chosen = "refactor"
+                    else:
+                        chosen = None
+                else:
+                    chosen = None
+                if chosen is None:
+                    for c in candidates:
+                        name = c.get("name", "") if isinstance(c, dict) else ""
+                        if name and name not in revision_strategies_tried:
+                            chosen = name
+                            break
+                if not chosen and candidates:
+                    chosen = (
+                        candidates[0].get("name", "minimal_fix") if isinstance(candidates[0], dict) else "minimal_fix"
+                    )
+                strategy_updates = {
+                    "failure_type": failure_type,
+                    "strategy_candidates": candidates,
+                    "revision_strategy": chosen or "minimal_fix",
+                    "revision_strategies_tried": revision_strategies_tried,
+                    "revision_constraints": REVISION_CONSTRAINTS.get(chosen or "minimal_fix", {}),
+                    "strategy_violation": strategy_violation,
+                }
+                # Monotonicity: record stages that passed (do not regress on retry)
+                stages_passed: list[str] = []
+                if lint_passed:
+                    stages_passed.append("lint")
+                if security_passed:
+                    stages_passed.append("security")
+                strategy_updates["stages_passed"] = stages_passed
             else:
-                next_node = "respond"
+                next_node = "critic"  # postmortem path
+                strategy_updates["failure_type"] = failure_type
             outcome = NodeOutcome.NEEDS_REVISION
 
         latency = (time.monotonic() - start) * 1000
@@ -400,7 +587,7 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             _sandbox_failure_type_counter.labels(error_type=err_type, language=language).inc()
 
         logger.info(
-            "executor_completed",
+            "sandbox_completed",
             extra={
                 "exit_code": exit_code,
                 "lint_passed": lint_passed,
@@ -420,8 +607,12 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             latency_ms=latency,
         )
 
-        # Increment iteration on failure so the worker sees it as a revision
-        new_iteration = iteration + 1 if exit_code != 0 else iteration
+        # Increment iteration on failure. Do NOT increment on strategy_violation (monotonicity regression).
+        strategy_violation = strategy_updates.get("strategy_violation", False)
+        if exit_code == 0 or strategy_violation:
+            new_iteration = iteration
+        else:
+            new_iteration = iteration + 1
 
         # Update failure store and fail-fast cache
         task_desc = state.get("task_description", "")
@@ -449,21 +640,26 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             failfast_cache.put(task_desc, language, "success", code)
 
+        latency_minutes = (time.monotonic() - start) / 60.0
         return {
             "execution_result": json.dumps(result, default=str),
             "execution_exit_code": exit_code,
             "execution_lint_passed": lint_passed,
             "execution_security_passed": security_passed,
             "execution_sandbox_pod": pod_name,
+            "attempt_id": attempt_id,
             "current_node": node_name,
             "next_node": next_node,
             "iteration_count": new_iteration,
+            "sandbox_minutes_used": sandbox_minutes_used + latency_minutes,
+            "tool_refs": [*existing_refs, tool_ref.model_dump()],
             "node_traces": [trace],
+            **strategy_updates,
         }
 
     except Exception as e:
         latency = (time.monotonic() - start) * 1000
-        logger.exception("executor_error")
+        logger.exception("sandbox_error")
         trace = NodeTrace(
             node_name=node_name,
             reasoning=f"Sandbox error: {e}",

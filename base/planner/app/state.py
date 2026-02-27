@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 from enum import Enum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
@@ -96,9 +96,23 @@ class SynesisState(BaseModel):
     user_id: str = "anonymous"
     conversation_history: list[str] = Field(default_factory=list)
 
+    # Run/Attempt identity (§7.1): correlate logs, idempotency
+    run_id: str = ""  # Per user request / conversation turn
+    attempt_id: str = ""  # Per Worker→Gate→Sandbox loop
+
     task_type: TaskType = TaskType.GENERAL
     task_description: str = ""
     target_language: str = "bash"
+
+    # JCS: clarification request (Supervisor emits when ambiguous)
+    clarification_question: str = ""
+    clarification_options: list[str] = Field(default_factory=list)
+    # JCS: Executor "I need more" (agentic model asks user instead of guessing)
+    needs_input_question: str = ""
+
+    # JCS: structured plan from Planner node
+    execution_plan: dict[str, Any] = Field(default_factory=dict)
+    assumptions: list[str] = Field(default_factory=list)
 
     # RAG retrieval -- rich results with provenance
     rag_results: list[RetrievalResult] = Field(default_factory=list)
@@ -111,6 +125,10 @@ class SynesisState(BaseModel):
     # Per-request retrieval overrides (set from API, consumed by supervisor)
     retrieval_params: RetrievalParams | None = None
 
+    # Session-scoped workspace boundary (Planner/Supervisor sets; Gate enforces)
+    target_workspace: str = ""  # e.g. /app/src/; Gate strict prefix check for multi-file
+    touched_files: list[str] = Field(default_factory=list)  # Planner manifest; Gate scope validation
+
     generated_code: str = ""
     code_explanation: str = ""
 
@@ -120,6 +138,9 @@ class SynesisState(BaseModel):
     execution_lint_passed: bool = True
     execution_security_passed: bool = True
     execution_sandbox_pod: str = ""
+
+    # Monotonicity: stages that passed last run (do not regress)
+    stages_passed: list[str] = Field(default_factory=list)  # e.g. ["lint", "security"]
 
     # Failure knowledge base context (injected by supervisor)
     failure_context: list[str] = Field(default_factory=list)
@@ -136,9 +157,43 @@ class SynesisState(BaseModel):
     what_if_analyses: list[WhatIfAnalysis] = Field(default_factory=list)
     critic_feedback: str = ""
     critic_approved: bool = False
+    residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
     iteration_count: int = 0
     max_iterations: int = 3
+
+    # Revision strategy (strategy-diverse retries)
+    strategy_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    revision_strategy: str = ""
+    revision_strategies_tried: list[str] = Field(default_factory=list)
+    revision_constraints: dict[str, Any] = Field(default_factory=dict)
+
+    # Unified pending question / clarification
+    user_answer_to_clarification: str = ""
+
+    # Budget accounting
+    token_budget_remaining: int = 100000
+    sandbox_minutes_used: float = 0.0
+    lsp_calls_used: int = 0
+    evidence_experiments_count: int = 0
+
+    # Critic stop condition
+    critic_should_continue: bool = False
+    critic_continue_reason: str | None = None
+
+    # IDE/agent coordination — prompt-injection safety
+    injection_detected: bool = False
+    injection_scan_result: dict[str, Any] = Field(default_factory=dict)
+
+    # Tool evidence (LSP, Sandbox, RAG) for auditability
+    tool_refs: list[dict[str, Any]] = Field(default_factory=list)
+    # §7.6: code_ref for patch provenance (Worker → Critic)
+    code_ref: dict[str, Any] | None = None
+
+    # Evidence-gap: novelty check. Item 4: novelty = new query_hash OR new result_hash OR new result_fingerprint
+    evidence_queries_tried: list[str] = Field(default_factory=list)
+    evidence_results_tried: list[str] = Field(default_factory=list)  # result_hash, artifact_hashes
+    evidence_fingerprints_tried: list[str] = Field(default_factory=list)  # result_fingerprint from Sandbox
 
     node_traces: list[NodeTrace] = Field(default_factory=list)
 
