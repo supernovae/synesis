@@ -136,6 +136,12 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "256Mi"
 
+  # Bypass LiteLLM: Open WebUI talks directly to planner (fixes connection errors)
+  - target:
+      kind: Deployment
+      name: open-webui
+    path: openwebui-direct-planner.yaml
+
   # Reduce Milvus standalone to minimal footprint in dev
   - target:
       kind: Deployment

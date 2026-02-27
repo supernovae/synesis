@@ -193,11 +193,20 @@ The RAG stack (Milvus + embedder + indexers) is deployed by `deploy.sh`. Optiona
 
 Point any OpenAI-compatible client to the Route URL:
 
+| Route | Base URL | Use Case |
+|-------|----------|----------|
+| **synesis-api** (LiteLLM) | `https://synesis-api.<cluster-domain>/v1` | Multi-model routing: synesis-agent, synesis-executor, synesis-supervisor, synesis-critic |
+| **synesis-executor-api** (vLLM) | `https://synesis-executor.<cluster-domain>/v1` | Direct vLLM executor only — Cursor/Claude Code for raw code model |
+| **synesis-planner-api** | `https://synesis-planner.<cluster-domain>/v1` | Full agent pipeline (planning → sandbox → critic) without LiteLLM |
+| **synesis-admin** | `https://synesis-admin.<cluster-domain>/` | Failure dashboard (stats, gaps, failure details) |
+
+Default host suffix is `apps.openshiftdemo.dev`. If your cluster uses a different ingress domain, patch the Route `spec.host` in an overlay.
+
 ```bash
 # Cursor: Settings > Models > Custom API
 # Base URL: https://synesis-api.apps.openshiftdemo.dev/v1
 
-# Direct test:
+# LiteLLM (multi-model):
 curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_GENERATED_KEY" \
@@ -205,6 +214,11 @@ curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
     "model": "synesis-agent",
     "messages": [{"role": "user", "content": "Write a bash script to safely rename files matching a pattern"}]
   }'
+
+# Direct vLLM executor (Cursor/Claude Code — raw code model, no auth by default):
+curl -X POST https://synesis-executor.apps.openshiftdemo.dev/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "synesis-executor", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ## Project Structure
@@ -217,9 +231,9 @@ synesis/
 │   ├── MODEL_ARCHITECTURE_PROPOSAL.md
 │   └── PLAN_REMAINING_WORK.md
 ├── base/
-│   ├── model-serving/         # Namespace + RHOAI 3 deployment docs (models via dashboard)
+│   ├── model-serving/         # Namespace + RHOAI 3 deployment + route-executor.yaml (direct vLLM)
 │   ├── gateway/               # LiteLLM proxy (OpenAI-compatible API)
-│   ├── planner/               # FastAPI + LangGraph orchestrator
+│   ├── planner/               # FastAPI + LangGraph orchestrator + route.yaml (synesis-planner-api)
 │   │   ├── app/
 │   │   │   ├── graph.py       # Entry → Supervisor → Planner/Worker → Sandbox → Critic
 │   │   │   ├── state.py       # Pydantic state model
@@ -1030,25 +1044,65 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 Open WebUI can only reach the LiteLLM gateway (`synesis-gateway:4000`) and DNS. It has no access to the planner, Milvus, sandbox, or external internet. All model inference goes through the LiteLLM proxy.
 
-### Troubleshooting: "Connection error" / "OpenAIException" for synesis-agent
+### Troubleshooting: "500: Open WebUI: Server Connection Error"
 
-When Open WebUI shows `litellm.InternalServerError: Connection error.. Model Group=synesis-agent`, LiteLLM cannot reach the planner. Check:
+**Cause:** (a) Open WebUI cannot reach its backend, (b) bad URL persisted in Admin → Settings, or (c) planner's graph execution failed (models down, timeout, etc.).
+
+**If /v1/models works but chat fails:** The planner is reachable; the failure is during graph execution. Check:
 
 ```bash
-# 1. Planner running?
-oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner
+# Planner logs show the actual exception
+oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=100
 
-# 2. LiteLLM can reach planner? (from a litellm pod)
-oc exec -n synesis-gateway deploy/litellm-proxy -- curl -s -o /dev/null -w "%{http_code}" http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1/models
-
-# 3. Planner logs (errors?)
-oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=50
-
-# 4. LiteLLM logs (connection errors?)
-oc logs -n synesis-gateway -l app.kubernetes.io/name=litellm-proxy --tail=50
+# Admin status page: are models healthy?
+# Visit https://synesis-admin.<cluster>/admin/status — executor/supervisor/critic should show OK
 ```
 
-**Common causes:** Planner pod not ready (image pull, crash); network policy blocking synesis-gateway → synesis-planner (prod overlay); planner waiting on models (executor OOM, etc.).
+**Quick fixes:**
+
+1. **Reset persisted config** — dev-webui overlay sets `RESET_CONFIG_ON_START=true` so env vars override DB. Re-apply and restart:
+   ```bash
+   kustomize build overlays/dev-webui | oc apply -f -
+   oc rollout restart deployment/open-webui -n synesis-webui
+   ```
+
+2. **Verify planner is reachable** (when using direct-planner):
+   ```bash
+   oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner
+   oc run -it --rm debug --image=curlimages/curl --restart=Never -n synesis-webui -- \
+     curl -s http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1/models
+   ```
+   If the curl fails, the planner is down or unreachable.
+
+3. **Switch to LiteLLM** — if planner path is broken, point Open WebUI at LiteLLM instead: remove the direct-planner patch from your overlay and set `OPENAI_API_BASE_URL` to `http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1`.
+
+### Troubleshooting: "Connection error" / "OpenAIException" for synesis-agent
+
+**Quick fix: bypass LiteLLM.** The dev overlay includes `openwebui-direct-planner.yaml`, which points Open WebUI directly at the planner. Redeploy and Open WebUI will talk to the planner without LiteLLM (synesis-agent only; individual models won't appear in the UI).
+
+**To revert to LiteLLM:** Remove the `openwebui-direct-planner.yaml` patch from `overlays/dev/kustomization.yaml` and redeploy.
+
+**Debug LiteLLM** (if you need multi-model routing):
+
+```bash
+# 1. Planner running and updated?
+oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner
+oc rollout status deployment/synesis-planner -n synesis-planner
+
+# 2. Connectivity from gateway namespace
+oc run -it --rm debug --image=curlimages/curl --restart=Never -n synesis-gateway -- \
+  curl -sv http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1/models
+
+# 3. Planner logs (400? stream=true rejection before SSE fix?)
+oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=50
+
+# 4. LiteLLM verbose
+oc set env deployment/litellm-proxy -n synesis-gateway LITELLM_LOG=DEBUG
+# ... reproduce error, check logs ...
+oc set env deployment/litellm-proxy -n synesis-gateway LITELLM_LOG-
+```
+
+**Architecture note:** synesis-agent is the planner (LangGraph), not a vLLM model. Cursor and Claude Code can use the **synesis-executor-api** route for direct vLLM (raw code model) or **synesis-planner-api** for the full agentic pipeline (planning → sandbox → critic).
 
 ## Hardware Sizing
 

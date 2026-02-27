@@ -17,3 +17,4 @@ resources:
   - inference-service-supervisor.yaml
   - inference-service-executor.yaml
   - inference-service-critic.yaml
+  - route-executor.yaml

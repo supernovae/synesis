@@ -11,8 +11,9 @@ import logging
 import os
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -58,9 +59,57 @@ def _safe_query(
         return []
 
 
+# Service endpoints to probe (vLLM uses /health at root; planner/Milvus use their own paths)
+STATUS_SERVICES = [
+    {"name": "synesis-supervisor", "url": "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/health"},
+    {"name": "synesis-executor", "url": "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/health"},
+    {"name": "synesis-critic", "url": "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/health"},
+    {"name": "synesis-planner", "url": "http://synesis-planner.synesis-planner.svc.cluster.local:8000/health"},
+    {"name": "milvus", "url": "http://synesis-milvus.synesis-rag.svc.cluster.local:9091/healthz"},
+    {"name": "embedder", "url": "http://embedder.synesis-rag.svc.cluster.local:8080/health"},
+    {"name": "lsp-gateway", "url": "http://lsp-gateway.synesis-lsp.svc:8000/health"},
+]
+
+
+@app.get("/")
+async def root():
+    return RedirectResponse(url="/admin/status", status_code=302)
+
+
 @app.get("/admin/health")
 async def health():
     return {"status": "ok", "service": "synesis-admin"}
+
+
+async def _probe_service(client: httpx.AsyncClient, svc: dict, timeout: float = 5.0) -> dict:
+    try:
+        resp = await client.get(svc["url"], timeout=timeout)
+        return {
+            "name": svc["name"],
+            "status": "ok" if resp.status_code < 500 else "error",
+            "status_code": resp.status_code,
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "name": svc["name"],
+            "status": "error",
+            "status_code": None,
+            "error": str(e)[:80],
+        }
+
+
+@app.get("/admin/status", response_class=HTMLResponse)
+async def status_page(request: Request):
+    results = []
+    async with httpx.AsyncClient() as client:
+        for svc in STATUS_SERVICES:
+            r = await _probe_service(client, svc)
+            results.append(r)
+    return templates.TemplateResponse(
+        "status.html",
+        {"request": request, "services": results},
+    )
 
 
 @app.get("/admin/failures", response_class=HTMLResponse)

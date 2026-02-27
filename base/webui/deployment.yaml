@@ -65,6 +65,9 @@ spec:
               value: "false"
             - name: CONTENT_EXTRACTION_ENGINE
               value: ""
+            # Agentic flow (planning→sandbox→critic) can take several minutes
+            - name: AIOHTTP_CLIENT_TIMEOUT
+              value: "600"
           volumeMounts:
             - name: data
               mountPath: /app/backend/data

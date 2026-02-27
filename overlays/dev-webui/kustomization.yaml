@@ -1,0 +1,33 @@
+# Minimal overlay: Open WebUI only. Use when you need to apply/restart
+# webui without touching models (avoids 30+ min InferenceService restarts).
+#
+# Usage:
+#   kustomize build overlays/dev-webui | oc apply -f -
+#   oc rollout restart deployment/open-webui -n synesis-webui
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-webui
+
+resources:
+  - ../../base/webui
+
+patches:
+  - target:
+      kind: Deployment
+      name: open-webui
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+      # Force env vars over persisted DB config (fixes 500 Server Connection Error after bad Settings save)
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: RESET_CONFIG_ON_START
+          value: "true"

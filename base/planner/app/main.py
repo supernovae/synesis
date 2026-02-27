@@ -18,7 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .config import settings
 from .conversation_memory import memory
@@ -56,8 +56,23 @@ app.add_middleware(
 
 
 class ChatMessage(BaseModel):
+    """OpenAI-compatible message; content can be str or array of parts (multimodal)."""
     role: str
     content: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_content(cls, data: object) -> object:
+        if isinstance(data, dict) and "content" in data:
+            c = data["content"]
+            if isinstance(c, list):
+                texts = [
+                    x.get("text", "")
+                    for x in c
+                    if isinstance(x, dict) and x.get("type") == "text"
+                ]
+                data = {**data, "content": " ".join(texts).strip() or ""}
+        return data
 
 
 class RetrievalOptions(BaseModel):
@@ -76,6 +91,8 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     user: str | None = None
     retrieval: RetrievalOptions | None = None
+
+    model_config = {"extra": "ignore"}  # Open WebUI sends frequency_penalty, etc.
 
 
 class Choice(BaseModel):
@@ -229,7 +246,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         result = await graph.ainvoke(initial_state)
     except Exception as e:
         logger.exception("graph_execution_error")
-        raise HTTPException(status_code=500, detail=f"Graph execution failed: {e}") from e
+        err_msg = str(e)[:200]  # Truncate for response
+        detail = f"Graph execution failed: {err_msg}. Check planner logs and admin status page for model health."
+        raise HTTPException(status_code=500, detail=detail) from e
 
     messages = result.get("messages", [])
     last_message = messages[-1] if messages else None
