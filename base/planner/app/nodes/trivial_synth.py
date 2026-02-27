@@ -14,14 +14,6 @@ from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.trivial_synth")
 
-# (pattern, resolver_fn)
-_TRIVIAL_TEMPLATES: list[tuple[re.Pattern[str], Any]] = [
-    (
-        re.compile(r"hello\s+world|print\s+hello|basic\s+print|simple\s+hello", re.IGNORECASE),
-        _hello_world,
-    ),
-]
-
 
 def _hello_world(user_msg: str) -> dict[str, Any]:
     """Generate hello world for detected language."""
@@ -46,6 +38,15 @@ def _hello_world(user_msg: str) -> dict[str, Any]:
         "code_explanation": "Minimal hello world. Run: python hello.py",
         "defaults_used": ["Python"],
     }
+
+
+# (pattern, resolver_fn)
+_TRIVIAL_TEMPLATES: list[tuple[re.Pattern[str], Any]] = [
+    (
+        re.compile(r"hello\s+world|print\s+hello|basic\s+print|simple\s+hello", re.IGNORECASE),
+        _hello_world,
+    ),
+]
 
 
 def _detect_trivial_pattern(user_msg: str) -> dict[str, Any] | None:
