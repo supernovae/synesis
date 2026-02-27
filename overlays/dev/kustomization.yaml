@@ -136,16 +136,16 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "256Mi"
 
-  # Reduce Milvus to minimal footprint
+  # Reduce Milvus standalone to minimal footprint in dev
   - target:
-      kind: Milvus
-      name: synesis-milvus
+      kind: Deployment
+      name: milvus-standalone
     patch: |
       - op: replace
-        path: /spec/components/standalone/resources/requests/cpu
+        path: /spec/template/spec/containers/0/resources/requests/cpu
         value: "250m"
       - op: replace
-        path: /spec/components/standalone/resources/requests/memory
+        path: /spec/template/spec/containers/0/resources/requests/memory
         value: "1Gi"
 
 images:

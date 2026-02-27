@@ -2,11 +2,15 @@
 
 Synesis does **not** ship custom InferenceServices or ServingRuntimes. Models are deployed via **OpenShift AI 3** using the platform's model serving capabilities.
 
+## Important: Use RHOAI Built-in vLLM Only
+
+**Do not use Docker Hub vLLM images.** Custom vLLM containers from Docker Hub failed on RHOAI v2 due to Python path issues. Always use the **RHOAI built-in vLLM ServingRuntime** (select it in the Deploy model wizard). The platform provides validated, OpenShift-compatible images.
+
 ## Prerequisites
 
 - **OpenShift AI 3.x** (fast or stable channel)
 - **Single-model serving** enabled (KServe)
-- **vLLM ServingRuntime** enabled for your project
+- **vLLM ServingRuntime** (RHOAI's built-in vLLM NVIDIA GPU runtime)
 - **GPU support** (NVIDIA GPU Operator) for code generation models
 
 ## Deploying Models
@@ -17,7 +21,7 @@ Synesis does **not** ship custom InferenceServices or ServingRuntimes. Models ar
 2. Click **Deploy model**.
 3. In the wizard:
    - **Model location**: OCI registry, HuggingFace (`hf://`), or S3
-   - **Serving runtime**: Select the vLLM NVIDIA GPU runtime (pre-installed by RHOAI)
+   - **Serving runtime**: Select the **vLLM NVIDIA GPU** runtime (RHOAI built-in — not custom Docker Hub images)
    - **Hardware profile**: Choose your GPU node profile
    - **Model deployment name**: e.g. `synesis-coder`, `synesis-supervisor`
 

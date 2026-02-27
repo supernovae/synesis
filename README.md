@@ -82,7 +82,7 @@ Nodes marked [+Search] query SearXNG for live web context (see Web Search sectio
 ./scripts/bootstrap.sh
 ```
 
-This installs the Milvus Operator, creates namespaces, and verifies prerequisites.
+This creates namespaces and verifies prerequisites. RAG uses a simple Milvus standalone deployment (no Operator).
 
 ### 2. Deploy Models (OpenShift AI 3)
 

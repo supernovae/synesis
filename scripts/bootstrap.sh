@@ -6,24 +6,21 @@ set -euo pipefail
 # Prepares an OpenShift cluster for Synesis deployment.
 # Requires: RHOAI operator + NVIDIA GPU Operator already installed.
 #
-# Usage: ./scripts/bootstrap.sh [--skip-milvus-operator] [--force]
+# Usage: ./scripts/bootstrap.sh [--force]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-SKIP_MILVUS_OPERATOR=false
 FORCE=false
 
 for arg in "$@"; do
     case "$arg" in
-        --skip-milvus-operator) SKIP_MILVUS_OPERATOR=true ;;
         --force) FORCE=true ;;
         --help|-h)
-            echo "Usage: $0 [--skip-milvus-operator] [--force]"
+            echo "Usage: $0 [--force]"
             echo ""
             echo "Prepares an OpenShift cluster for Synesis deployment."
-            echo "  --skip-milvus-operator  Skip Milvus Operator Helm install"
-            echo "  --force                 Continue even if RHOAI/GPU checks fail"
+            echo "  --force  Continue even if RHOAI/GPU checks fail"
             exit 0
             ;;
         *)
@@ -258,216 +255,6 @@ preflight_gate() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# Milvus Operator install
-#
-# OpenShift-specific: must set securityContext for restricted PSA compliance.
-# Also: longer timeout + retry for clusters that are autoscaling.
-# ---------------------------------------------------------------------------
-check_cluster_allocatable() {
-    log "Checking cluster allocatable resources for Milvus Operator..."
-
-    local total_cpu_millicores=0
-    local total_mem_bytes=0
-
-    while IFS=$'\t' read -r cpu mem; do
-        [[ -z "$cpu" ]] && continue
-        if [[ "$cpu" == *m ]]; then
-            total_cpu_millicores=$((total_cpu_millicores + ${cpu%m}))
-        else
-            total_cpu_millicores=$((total_cpu_millicores + cpu * 1000))
-        fi
-        if [[ "$mem" == *Ki ]]; then
-            total_mem_bytes=$((total_mem_bytes + ${mem%Ki} * 1024))
-        elif [[ "$mem" == *Mi ]]; then
-            total_mem_bytes=$((total_mem_bytes + ${mem%Mi} * 1024 * 1024))
-        elif [[ "$mem" == *Gi ]]; then
-            total_mem_bytes=$((total_mem_bytes + ${mem%Gi} * 1024 * 1024 * 1024))
-        fi
-    done < <(oc get nodes -o jsonpath='{range .items[*]}{.status.allocatable.cpu}{"\t"}{.status.allocatable.memory}{"\n"}{end}' 2>/dev/null)
-
-    local total_cpu=$((total_cpu_millicores / 1000))
-    local total_mem_gi=$((total_mem_bytes / 1024 / 1024 / 1024))
-
-    log "  Cluster allocatable: ~${total_cpu} CPU cores, ~${total_mem_gi}Gi memory"
-
-    if [[ "$total_cpu" -lt 2 ]]; then
-        warn "Less than 2 allocatable CPU cores. Milvus Operator may not schedule."
-        warn "  If the cluster is autoscaling, wait for new nodes and re-run."
-        return 1
-    fi
-
-    return 0
-}
-
-dump_milvus_diagnostics() {
-    log ""
-    log "--- Milvus Operator Diagnostics ---"
-    log "Pods:"
-    oc get pods -n milvus-operator -o wide 2>/dev/null || true
-    log ""
-    log "Pod describe (last 40 lines):"
-    oc describe pods -n milvus-operator 2>/dev/null | tail -40 || true
-    log ""
-    log "Recent events:"
-    oc get events -n milvus-operator --sort-by='.lastTimestamp' 2>/dev/null | tail -20 || true
-    log "--- End Diagnostics ---"
-}
-
-install_milvus_operator() {
-    if [[ "$SKIP_MILVUS_OPERATOR" == "true" ]]; then
-        log "Skipping Milvus Operator install (--skip-milvus-operator)"
-        return
-    fi
-
-    if ! command -v helm &>/dev/null; then
-        err "helm not found. Install helm or use --skip-milvus-operator"
-        exit 1
-    fi
-
-    # Check if already installed and running
-    if oc get deployment milvus-operator -n milvus-operator &>/dev/null; then
-        local ready
-        ready=$(oc get deployment milvus-operator -n milvus-operator -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-        if [[ "$ready" -gt 0 ]]; then
-            log "Milvus Operator already installed and running (${ready} ready replicas)"
-            return 0
-        fi
-        log "Milvus Operator deployment exists but has 0 ready replicas, will attempt fix..."
-    fi
-
-    check_cluster_allocatable || {
-        warn "Cluster may not have enough resources. Attempting Milvus install anyway..."
-    }
-
-    log "Installing Milvus Operator (OpenShift-compatible)..."
-    oc create namespace milvus-operator 2>/dev/null || true
-
-    # Label the namespace for PSA.  "baseline" enforcement is sufficient --
-    # the remaining "restricted" gaps (capabilities.drop) are cosmetic warnings
-    # that don't block pod creation under baseline.
-    oc label namespace milvus-operator \
-        pod-security.kubernetes.io/enforce=baseline \
-        pod-security.kubernetes.io/audit=restricted \
-        pod-security.kubernetes.io/warn=restricted \
-        --overwrite 2>/dev/null || true
-
-    # Grant the nonroot-v2 SCC to the operator's service account.
-    # The default restricted-v2 SCC rejects any runAsUser outside the
-    # namespace's allocated UID range.  nonroot-v2 allows any non-root UID
-    # which is what the operator image needs (it runs as a high UID).
-    local sa_name="milvus-operator"
-    log "  Granting nonroot-v2 SCC to serviceaccount $sa_name..."
-    oc adm policy add-scc-to-user nonroot-v2 \
-        "system:serviceaccount:milvus-operator:${sa_name}" 2>/dev/null || {
-        # Service account may not exist yet on first install; grant after helm
-        log "  (will grant SCC after helm install creates the service account)"
-    }
-
-    helm repo add milvus-operator https://zilliztech.github.io/milvus-operator/ 2>/dev/null || true
-    helm repo update milvus-operator
-
-    # Values file removes runAsUser (lets OpenShift assign from range),
-    # keeps runAsNonRoot:true, reduces resource requests for constrained clusters.
-    # Note: the chart template hardcodes container securityContext to only
-    # allowPrivilegeEscalation -- capabilities.drop can't be set via values,
-    # so we patch the deployment post-install.
-    local values_file="$PROJECT_ROOT/base/rag/milvus/openshift-operator-values.yaml"
-
-    if [[ ! -f "$values_file" ]]; then
-        err "OpenShift values file not found: $values_file"
-        exit 1
-    fi
-
-    local max_attempts=3
-    local attempt=1
-
-    while [[ $attempt -le $max_attempts ]]; do
-        log "  Install attempt $attempt/$max_attempts..."
-
-        # Helm install/upgrade (without --wait so release is recorded even if
-        # pods take time to schedule on an autoscaling cluster)
-        helm -n milvus-operator upgrade --install milvus-operator milvus-operator/milvus-operator \
-            -f "$values_file" \
-            --timeout "10m" 2>&1 || true
-
-        # Now grant the SCC (service account exists after first helm install)
-        local helm_sa
-        helm_sa=$(oc get deployment milvus-operator -n milvus-operator \
-            -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null || echo "milvus-operator")
-        oc adm policy add-scc-to-user nonroot-v2 \
-            "system:serviceaccount:milvus-operator:${helm_sa}" 2>/dev/null || true
-
-        # Grant operator permission to create SCCs for MinIO/etcd (Bitnami chart requirement)
-        local rbac_file="$PROJECT_ROOT/base/rag/milvus/milvus-operator-scc-rbac.yaml"
-        if [[ -f "$rbac_file" ]]; then
-            log "  Granting Milvus operator SCC manage permission..."
-            oc apply -f "$rbac_file" 2>/dev/null || true
-        fi
-
-        # Patch the container securityContext to add capabilities.drop
-        # (the chart template doesn't support this via values)
-        log "  Patching deployment for OpenShift SCC compliance..."
-        oc patch deployment milvus-operator -n milvus-operator --type=json -p='[
-          {"op":"add","path":"/spec/template/spec/containers/0/securityContext/capabilities","value":{"drop":["ALL"]}},
-          {"op":"add","path":"/spec/template/spec/containers/0/securityContext/seccompProfile","value":{"type":"RuntimeDefault"}}
-        ]' 2>/dev/null || true
-
-        # Delete any stuck pods from the old (bad UID) replicaset so the
-        # new rollout can proceed
-        oc delete pods -n milvus-operator -l app.kubernetes.io/name=milvus-operator \
-            --field-selector=status.phase!=Running 2>/dev/null || true
-
-        log "  Waiting for deployment rollout (up to 5m)..."
-        if oc rollout status deployment/milvus-operator -n milvus-operator --timeout=300s 2>&1; then
-            log "  Milvus Operator installed and running"
-            return 0
-        fi
-
-        warn "Attempt $attempt: deployment not ready yet"
-        dump_milvus_diagnostics
-
-        if [[ $attempt -lt $max_attempts ]]; then
-            local wait_seconds=$((30 * attempt))
-            log "  Waiting ${wait_seconds}s before retry..."
-            sleep "$wait_seconds"
-        fi
-
-        attempt=$((attempt + 1))
-    done
-
-    err "Milvus Operator install failed after $max_attempts attempts."
-    err ""
-    err "  The deployment could not reach a ready state. Common causes:"
-    err ""
-    err "    1. RESOURCE PRESSURE: Cluster is out of CPU/memory."
-    err "       Check: oc describe nodes | grep -A5 'Allocated resources'"
-    err "       Fix:   Add nodes or wait for autoscaler to provision them."
-    err ""
-    err "    2. IMAGE PULL FAILURE: Cannot pull milvusdb/milvus-operator image."
-    err "       Check: oc get events -n milvus-operator | grep -i pull"
-    err "       Fix:   Verify internet access or mirror the image internally."
-    err ""
-    err "    3. POD SECURITY: Pod rejected by admission controller."
-    err "       Check: oc get events -n milvus-operator | grep -i secur"
-    err "       Fix:   The values file should handle this, but check for SCC issues."
-    err ""
-    err "  Quick debug:"
-    err "    oc get pods -n milvus-operator -o wide"
-    err "    oc describe pod -n milvus-operator -l app.kubernetes.io/name=milvus-operator"
-    err "    oc logs -n milvus-operator -l app.kubernetes.io/name=milvus-operator"
-    err ""
-    err "  To retry later: ./scripts/bootstrap.sh --skip-milvus-operator"
-    err "  Then manually: helm -n milvus-operator upgrade --install milvus-operator \\"
-    err "    milvus-operator/milvus-operator -f base/rag/milvus/openshift-operator-values.yaml"
-
-    if [[ "$FORCE" == "true" ]]; then
-        warn "Continuing (--force)."
-    else
-        exit 1
-    fi
-}
-
 create_namespaces() {
     log "Creating Synesis namespaces..."
     local namespaces=(synesis-models synesis-gateway synesis-planner synesis-rag)
@@ -488,10 +275,6 @@ main() {
     verify_rhoai  || true
     verify_gpu_operator || true
     preflight_gate
-
-    log ""
-    log "--- Milvus Operator ---"
-    install_milvus_operator
 
     log ""
     log "--- Namespaces ---"

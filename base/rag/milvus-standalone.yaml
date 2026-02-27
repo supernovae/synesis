@@ -1,0 +1,213 @@
+# Milvus standalone (no Operator) - RHOAI 3 / Llama Stack compatible
+#
+# Replaces the Milvus Operator approach. Use this when running with OpenShift AI 3.
+# Service name synesis-milvus matches planner, indexers, and supervisor config.
+#
+# Ref: https://docs.redhat.com/.../deploying-a-rag-stack-in-a-data-science-project_rag
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: milvus-secret
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+type: Opaque
+stringData:
+  root-password: "synesis-milvus"  # Override via overlay for production
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: milvus-pvc
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  volumeMode: Filesystem
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etcd-deployment
+  namespace: synesis-rag
+  labels:
+    app: etcd
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: etcd
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: etcd
+        app.kubernetes.io/part-of: synesis
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.5
+          command:
+            - etcd
+            - --advertise-client-urls=http://127.0.0.1:2379
+            - --listen-client-urls=http://0.0.0.0:2379
+            - --data-dir=/etcd
+          ports:
+            - containerPort: 2379
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /etcd
+          env:
+            - name: ETCD_AUTO_COMPACTION_MODE
+              value: revision
+            - name: ETCD_AUTO_COMPACTION_RETENTION
+              value: "1000"
+            - name: ETCD_QUOTA_BACKEND_BYTES
+              value: "4294967296"
+            - name: ETCD_SNAPSHOT_COUNT
+              value: "50000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: etcd-data
+          emptyDir: {}
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd-service
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  ports:
+    - port: 2379
+      targetPort: 2379
+  selector:
+    app: etcd
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: milvus-standalone
+  namespace: synesis-rag
+  labels:
+    app: milvus-standalone
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: milvus-standalone
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: milvus-standalone
+        app.kubernetes.io/part-of: synesis
+    spec:
+      containers:
+        - name: milvus-standalone
+          image: milvusdb/milvus:v2.6.0
+          args:
+            - milvus
+            - run
+            - standalone
+          env:
+            - name: DEPLOY_MODE
+              value: standalone
+            - name: ETCD_ENDPOINTS
+              value: etcd-service:2379
+            - name: COMMON_STORAGETYPE
+              value: local
+            - name: MILVUS_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: milvus-secret
+                  key: root-password
+          livenessProbe:
+            exec:
+              command:
+                - curl
+                - -f
+                - http://localhost:9091/healthz
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 20
+            failureThreshold: 5
+          ports:
+            - containerPort: 19530
+              protocol: TCP
+            - containerPort: 9091
+              protocol: TCP
+          volumeMounts:
+            - name: milvus-data
+              mountPath: /var/lib/milvus
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      volumes:
+        - name: milvus-data
+          persistentVolumeClaim:
+            claimName: milvus-pvc
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-milvus
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  selector:
+    app: milvus-standalone
+  ports:
+    - name: grpc
+      port: 19530
+      targetPort: 19530
+    - name: http
+      port: 9091
+      targetPort: 9091

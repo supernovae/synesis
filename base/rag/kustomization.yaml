@@ -10,8 +10,7 @@ labels:
 
 resources:
   - namespace.yaml
-  - milvus/milvus-operator-scc-rbac.yaml
-  - milvus/milvus-cluster.yaml
+  - milvus-standalone.yaml
   - embedder/deployment.yaml
   - embedder/service.yaml
   - indexers

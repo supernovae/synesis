@@ -39,7 +39,7 @@ spec:
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_MILVUS_HOST
-              value: "milvus.synesis-rag.svc.cluster.local"
+              value: "synesis-milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT
               value: "19530"
             - name: SYNESIS_EMBEDDER_URL

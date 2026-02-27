@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     supervisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
     supervisor_model_name: str = "synesis-supervisor"
 
-    # RAG / Milvus
-    milvus_host: str = "milvus.synesis-rag.svc.cluster.local"
+    # RAG / Milvus (service from milvus-standalone.yaml or LlamaStack)
+    milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"
     milvus_port: int = 19530
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
     embedder_model: str = "all-MiniLM-L6-v2"

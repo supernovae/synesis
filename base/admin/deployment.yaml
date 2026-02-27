@@ -30,7 +30,7 @@ spec:
               protocol: TCP
           env:
             - name: SYNESIS_MILVUS_HOST
-              value: "milvus.synesis-rag.svc.cluster.local"
+              value: "synesis-milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT
               value: "19530"
           securityContext:

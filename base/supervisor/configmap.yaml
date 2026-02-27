@@ -44,7 +44,7 @@ data:
         timeout_seconds: 30
 
       milvus:
-        endpoint: "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
+        endpoint: "http://synesis-milvus.synesis-rag.svc.cluster.local:9091"
         health_path: "/healthz"
         circuit_breaker:
           failure_threshold: 3
