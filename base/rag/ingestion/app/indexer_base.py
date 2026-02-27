@@ -30,6 +30,27 @@ def chunk_id_hash(text: str, source: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:64]
 
 
+def _ensure_index_and_load(client: MilvusClient, collection_name: str) -> None:
+    """Create index on embedding field if missing, then load collection. Required before querying."""
+    try:
+        indexes = client.list_indexes(collection_name=collection_name)
+        has_embedding_index = indexes and any("embedding" in str(idx).lower() for idx in indexes)
+    except Exception:
+        has_embedding_index = False
+    if not has_embedding_index:
+        try:
+            client.create_index(
+                collection_name=collection_name,
+                field_name="embedding",
+                index_params={"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 128}},
+            )
+            logger.info(f"Created index on '{collection_name}'")
+        except Exception as e:
+            if "already" not in str(e).lower():
+                raise
+    client.load_collection(collection_name=collection_name)
+
+
 class EmbedClient:
     """Batch embedding client using the Synesis embedder service."""
 
@@ -71,6 +92,7 @@ class MilvusWriter:
     ) -> None:
         if collection_name in self.client.list_collections():
             logger.info(f"Collection '{collection_name}' already exists")
+            _ensure_index_and_load(self.client, collection_name)
             return
 
         fields = [
@@ -91,12 +113,7 @@ class MilvusWriter:
         )
 
         self.client.create_collection(collection_name=collection_name, schema=schema)
-        self.client.create_index(
-            collection_name=collection_name,
-            field_name="embedding",
-            index_params={"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 128}},
-        )
-        self.client.load_collection(collection_name=collection_name)
+        _ensure_index_and_load(self.client, collection_name)
         logger.info(f"Created collection '{collection_name}'")
 
     def existing_chunk_ids(self, collection_name: str) -> set[str]:
@@ -108,8 +125,8 @@ class MilvusWriter:
         if collection_name not in self.client.list_collections():
             return set()
 
-        # Milvus requires collection to be loaded before querying (e.g. after restart)
-        self.client.load_collection(collection_name=collection_name)
+        # Milvus requires index + load before querying (e.g. after restart, or index missing)
+        _ensure_index_and_load(self.client, collection_name)
 
         ids: set[str] = set()
         batch_size = 5000
