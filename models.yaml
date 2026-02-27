@@ -35,12 +35,12 @@ models:
 
   executor:
     name: "synesis-executor"
-    display_name: "Qwen3 Coder Next (Executor)"
+    display_name: "Qwen3 Coder 30B FP8 (Executor)"
     role: "Agentic code generation, tool calling, long context"
-    huggingface_repo: "Qwen/Qwen3-Coder-Next"
+    huggingface_repo: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
     quantization: "fp8"
     requires_gpu: true
-    min_vram_gb: 40
+    min_vram_gb: 32
     context_length: 65536
 
   critic:

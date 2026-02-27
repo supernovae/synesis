@@ -66,7 +66,7 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
 |------|-------|-------------|---------|
 | Supervisor | Qwen3-8B-FP8-dynamic (Red Hat catalog) | FP8 | vLLM on GPU (1×8Gi) |
 | Planner | Qwen3-8B-FP8-dynamic (shared with Supervisor) | — | vLLM on GPU |
-| Executor (Worker) | Qwen3-Coder-Next | FP8 | vLLM on GPU (~48GB) |
+| Executor (Worker) | Qwen3-Coder-Next-FP8 | FP8 | vLLM on GPU (~48GB) |
 | Critic | Qwen3-8B-FP8-dynamic (Red Hat catalog) | FP8 | vLLM on GPU (1×8Gi) |
 
 ## Quick Start
@@ -94,7 +94,7 @@ Models are deployed via the **OpenShift AI dashboard**, not pre-downloaded or S3
 
 1. Create or select the `synesis-models` project.
 2. Click **Deploy model**.
-3. **Three JCS model deployments**: Supervisor+Planner+Critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU each); Executor uses Qwen3-Coder-Next. See `models.yaml`.
+3. **Three JCS model deployments**: Supervisor+Planner+Critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU each); Executor uses Qwen3-Coder-Next-FP8. See `models.yaml`.
 
 Model sources: **Model Hub**, HuggingFace (`hf://`), or OCI. No local download or S3 upload needed. See `base/model-serving/README.md` for details and example InferenceService YAML.
 
@@ -404,7 +404,7 @@ Synesis validates generated code before presenting it to the user. Every code sn
 
 ### How It Works
 
-1. **Worker generates code** -- the Executor LLM (Qwen3-Coder-Next) produces the snippet; target language is passed in state.
+1. **Worker generates code** -- the Executor LLM (Qwen3-Coder-Next-FP8) produces the snippet; target language is passed in state.
 2. **Sandbox runs the code** -- via warm pool (HTTP) or ephemeral K8s Job. The pod runs a pipeline: lint → security scan → execute.
 3. **On success** (exit code 0, lint passed, security passed): the result moves forward to the Critic for Safety-II "What-If" analysis.
 4. **On failure**: the error context (lint errors, security findings, runtime output) is injected into the state and the graph routes back to the Worker for a revision pass. This loops up to `max_iterations` (default 3).
@@ -1005,7 +1005,7 @@ The `synesis-agent` model routes through the full LangGraph pipeline (Entry → 
 | `synesis-agent` | Full pipeline: Supervisor → Planner → Executor → Critic → sandbox |
 | `synesis-supervisor` | Direct access to Qwen3-14B (routing, critic) |
 | `synesis-planner` | Direct access to Qwen3-14B planning (shares Supervisor) |
-| `synesis-executor` | Direct access to Qwen3-Coder-Next (code generation) |
+| `synesis-executor` | Direct access to Qwen3-Coder-Next-FP8 (code generation) |
 | `synesis-critic` | Direct access to Qwen3-14B (safety review) |
 
 ### Configuration
@@ -1030,9 +1030,29 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 Open WebUI can only reach the LiteLLM gateway (`synesis-gateway:4000`) and DNS. It has no access to the planner, Milvus, sandbox, or external internet. All model inference goes through the LiteLLM proxy.
 
+### Troubleshooting: "Connection error" / "OpenAIException" for synesis-agent
+
+When Open WebUI shows `litellm.InternalServerError: Connection error.. Model Group=synesis-agent`, LiteLLM cannot reach the planner. Check:
+
+```bash
+# 1. Planner running?
+oc get pods -n synesis-planner -l app.kubernetes.io/name=synesis-planner
+
+# 2. LiteLLM can reach planner? (from a litellm pod)
+oc exec -n synesis-gateway deploy/litellm-proxy -- curl -s -o /dev/null -w "%{http_code}" http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1/models
+
+# 3. Planner logs (errors?)
+oc logs -n synesis-planner -l app.kubernetes.io/name=synesis-planner --tail=50
+
+# 4. LiteLLM logs (connection errors?)
+oc logs -n synesis-gateway -l app.kubernetes.io/name=litellm-proxy --tail=50
+```
+
+**Common causes:** Planner pod not ready (image pull, crash); network policy blocking synesis-gateway → synesis-planner (prod overlay); planner waiting on models (executor OOM, etc.).
+
 ## Hardware Sizing
 
-### GPU (Qwen3-Coder-Next / Executor -- Code Generation)
+### GPU (Qwen3-Coder-Next-FP8 / Executor -- Code Generation)
 
 The executor model requires a dedicated GPU. Memory bandwidth is the primary driver of token generation speed (decode is memory-bound). With `--max-model-len=65536` and `--gpu-memory-utilization=0.90`:
 
@@ -1072,7 +1092,7 @@ For lowest latency, schedule CPU model pods on dedicated nodes with 16+ physical
 | Component | Node Type | Count | Minimum Spec |
 |-----------|-----------|-------|--------------|
 | **GPU models** | | | |
-| synesis-executor (Qwen3-Coder-Next) | GPU node | 1 | 1x A100 80GB, 8 vCPU, 64 GB RAM |
+| synesis-executor (Qwen3-Coder-Next-FP8) | GPU node | 1 | 1x L40S 48GB, 8 vCPU, 64 GB RAM |
 | **CPU models** | | | |
 | synesis-supervisor (Qwen3-14B) | CPU node | 1 | 16 vCPU, 32 GB RAM |
 | synesis-planner (Qwen3-14B shared) | — | Shares Supervisor deployment |

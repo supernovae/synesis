@@ -8,6 +8,7 @@ Supervisor -> Worker -> Critic pipeline.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import time
 import uuid
@@ -15,6 +16,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
@@ -110,11 +112,13 @@ def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request)
     return "anonymous"
 
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-async def chat_completions(request: ChatCompletionRequest, http_request: Request):
-    if request.stream:
-        raise HTTPException(status_code=400, detail="Streaming not yet supported")
+def _sse_chunk(data: dict) -> str:
+    """Format JSON as SSE data line."""
+    return f"data: {json.dumps(data)}\n\n"
 
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatCompletionRequest, http_request: Request):
     start = time.monotonic()
 
     user_id = _resolve_user_id(request, http_request)
@@ -258,7 +262,45 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         },
     )
 
+    chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+    if request.stream:
+        # Emit SSE format (OpenAI-compatible): role+content chunk, then finish chunk, then [DONE]
+        async def sse_generator() -> object:
+            yield _sse_chunk(
+                {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": content},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+            yield _sse_chunk(
+                {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+            )
+            yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            sse_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return ChatCompletionResponse(
+        id=chat_id,
         model=request.model,
         choices=[
             Choice(

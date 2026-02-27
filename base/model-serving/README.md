@@ -10,7 +10,7 @@ Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scr
 
 - **OpenShift AI 3.x** (fast or stable channel)
 - **Single-model serving** enabled (KServe)
-- **NVIDIA GPU** for all models — supervisor/critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU, 8Gi each); executor uses Qwen3-Coder-Next
+- **NVIDIA GPU** for all models — supervisor/critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU, 8Gi each); executor uses Qwen3-Coder-30B-A3B-FP8
 - **HuggingFace token** (recommended): `./scripts/bootstrap.sh --hf-token` to avoid rate limiting
 
 ## Deploying Models
@@ -18,15 +18,17 @@ Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scr
 **Primary**: `./scripts/bootstrap.sh --hf-token` (once), then `./scripts/deploy.sh dev` applies everything. Manifests match ODH dashboard-created format (verified against cluster).
 
 **What deploy.sh creates:**
-- **Connection secret** (ODH URI): synesis-executor (hf:// Qwen3-Coder-Next)
+- **Connection secret** (ODH URI): synesis-executor (hf:// Qwen3-Coder-30B-A3B-Instruct-FP8)
 - **ServingRuntime**: synesis-executor (vLLM CUDA) — shared by all three
 - **InferenceServices**: synesis-supervisor, synesis-executor, synesis-critic
   - Supervisor/critic: `RedHatAI/Qwen3-8B-FP8-dynamic` from HuggingFace (1 GPU, 8Gi each; OCI registry has sigstore 500 issues)
-  - Executor: `Qwen3-Coder-Next` from HuggingFace (~48Gi GPU)
+  - Executor: `Qwen3-Coder-30B-A3B-Instruct-FP8` from HuggingFace (~48Gi GPU; 30B MoE, ~30GB VRAM)
 
 **Ports:** All models use port 8080. Planner, gateway, and supervisor config point at these URLs.
 
 **GPU scheduling:** Supervisor and critic use `nodeSelector: nvidia.com/gpu.product=NVIDIA-A10G` (g5.xlarge, 24GB); executor uses `nvidia.com/gpu.product=NVIDIA-L40S` (g6e.4xlarge, 48GB). Adjust nodeSelectors if your instance types differ.
+
+**Deployment strategy:** We use `Recreate` (not `RollingUpdate`) so apply-triggered restarts don't require N+1 GPU capacity. RHOAI 3 can restart pods even when the spec is unchanged.
 
 **Migrating from dashboard-created deployments:** If you have `synesis-supervisor-qwen3-14b`, `synesis-executor-qwen3-coder-next`, or `critic` from the wizard, delete them before deploy to avoid duplicates: `oc delete inferenceservice synesis-supervisor-qwen3-14b synesis-executor-qwen3-coder-next critic -n synesis-models`
 
@@ -81,7 +83,7 @@ If you prefer manual deployment or `deploy.sh` skips model serving (no kserve Ma
    - **Hardware profile**: Choose your GPU node profile for executor
    - **Model deployment name**: `synesis-supervisor`, `synesis-executor`, `synesis-critic`
 
-4. Use `hf://` URIs from `models.yaml`: `Qwen/Qwen3-14B`, `Qwen/Qwen3-Coder-Next`.
+4. Use `hf://` URIs from `models.yaml`: `Qwen/Qwen3-14B`, `Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8`.
 
 The manifests in `base/model-serving/` follow this structure. Check **Settings → Serving runtimes** for the exact `runtime` name on your cluster.
 

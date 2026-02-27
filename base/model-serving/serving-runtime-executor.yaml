@@ -1,6 +1,5 @@
-# ServingRuntime for synesis-executor — vLLM CUDA for Qwen3-Coder-Next (80B MoE).
-# Args from vLLM recipes: https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3-Next.html
-#                         https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3-Coder-480B-A35B.html
+# ServingRuntime for synesis-executor — vLLM CUDA for Qwen3-Coder-30B-A3B-FP8 (30B MoE, ~30GB FP8).
+# Args from vLLM recipes: https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3-Coder-480B-A35B.html
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:

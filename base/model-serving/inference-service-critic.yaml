@@ -20,7 +20,7 @@ spec:
   predictor:
     automountServiceAccountToken: false
     deploymentStrategy:
-      type: RollingUpdate
+      type: Recreate
     maxReplicas: 1
     minReplicas: 1
     model:
