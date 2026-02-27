@@ -336,7 +336,8 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     task_desc = state.get("task_description", "")
     task_type = state.get("task_type", "general")
     target_lang = state.get("target_language", "python")
-    rag_results = list(state.get("rag_results", []))
+    rag_mode = state.get("rag_mode", "normal")
+    rag_results = [] if rag_mode == "disabled" else list(state.get("rag_results", []))
     execution_plan = state.get("execution_plan", {})
     iteration = state.get("iteration_count", 0)
     execution_result = state.get("execution_result", "")
@@ -344,10 +345,10 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     max_retrieval = settings.max_retrieval_tokens or 0  # 0 = no cap from retrieval budget
     retrieval_budget_chars = max_retrieval * 4 if max_retrieval else 0  # ~4 chars/token
 
-    # Tier 2: Fetch organization standards from arch_standards collection
+    # Tier 2: Fetch organization standards (skip when rag_mode=disabled for trivial tasks)
     org_standards: list[ContextChunk] = []
     arch_colls = getattr(settings, "curator_arch_standards_collections", []) or []
-    if arch_colls:
+    if arch_colls and rag_mode != "disabled":
         try:
             org_results = await retrieve_context(
                 query=task_desc[:300],
@@ -440,7 +441,8 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     failure_type = state.get("failure_type", "runtime")
     pivot_plausible = failure_type in ("lsp", "runtime")  # symbol/type/dep errors; not lint whitespace
     if (
-        curation_mode == "adaptive"
+        rag_mode != "disabled"
+        and curation_mode == "adaptive"
         and iteration > 0
         and execution_result
         and pivot_plausible

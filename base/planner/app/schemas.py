@@ -143,6 +143,9 @@ class SupervisorOut(BaseModel):
     # Tool gating
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])  # none | lsp | sandbox | ...
 
+    # RAG mode: disabled for trivial (no irrelevant snippets), light | normal for complex
+    rag_mode: str = "normal"  # disabled | light | normal
+
 
 # ---------------------------------------------------------------------------
 # Planner output schema

@@ -29,6 +29,7 @@ from .nodes import (
     planner_node,
     sandbox_node,
     supervisor_node,
+    trivial_synth_node,
     worker_node,
 )
 from .state import NodeOutcome, NodeTrace
@@ -93,6 +94,11 @@ def route_after_supervisor(state: dict[str, Any]) -> str:
     if next_node == "planner":
         return "planner"
     if next_node == "worker":
+        # C) Trivial bypass: deterministic templates for hello world, etc.
+        task_is_trivial = state.get("task_is_trivial", False)
+        deliverable = state.get("deliverable_type", "single_file")
+        if task_is_trivial and deliverable in ("snippet", "single_file"):
+            return "trivial_synth"
         return "context_curator"
     return "respond"
 
@@ -365,6 +371,7 @@ lsp_timeout = settings.lsp_timeout_seconds + 5
 graph_builder.add_node("entry", entry_router_node)
 graph_builder.add_node("supervisor", with_timeout(timeout)(supervisor_node))
 graph_builder.add_node("planner", with_timeout(timeout)(planner_node))
+graph_builder.add_node("trivial_synth", trivial_synth_node)
 graph_builder.add_node("context_curator", context_curator_node)
 graph_builder.add_node("worker", with_timeout(timeout)(worker_node))
 graph_builder.add_node("patch_integrity_gate", patch_integrity_gate_node)
@@ -382,7 +389,12 @@ graph_builder.add_conditional_edges(
 graph_builder.add_conditional_edges(
     "supervisor",
     route_after_supervisor,
-    {"context_curator": "context_curator", "planner": "planner", "respond": "respond"},
+    {
+        "context_curator": "context_curator",
+        "planner": "planner",
+        "respond": "respond",
+        "trivial_synth": "trivial_synth",
+    },
 )
 
 
@@ -396,6 +408,18 @@ def route_after_planner(state: dict[str, Any]) -> str:
 graph_builder.add_conditional_edges(
     "planner",
     route_after_planner,
+    {"context_curator": "context_curator", "respond": "respond"},
+)
+
+
+def route_after_trivial_synth(state: dict[str, Any]) -> str:
+    """TrivialSynth: matched → respond; no match → context_curator (Worker handles)."""
+    return state.get("next_node", "context_curator")
+
+
+graph_builder.add_conditional_edges(
+    "trivial_synth",
+    route_after_trivial_synth,
     {"context_curator": "context_curator", "respond": "respond"},
 )
 graph_builder.add_edge("context_curator", "worker")

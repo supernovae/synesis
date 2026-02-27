@@ -27,6 +27,7 @@ spec:
       containers:
         - name: planner
           image: synesis-planner:latest
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8000

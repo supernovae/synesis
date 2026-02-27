@@ -122,6 +122,7 @@ class SynesisState(BaseModel):
     include_tests: bool = True
     include_run_commands: bool = True
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])
+    rag_mode: str = "normal"  # disabled | light | normal
 
     # RAG retrieval -- rich results with provenance
     rag_results: list[RetrievalResult] = Field(default_factory=list)

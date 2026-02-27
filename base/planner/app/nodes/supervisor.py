@@ -26,7 +26,12 @@ from ..web_search import format_search_results, search_client
 logger = logging.getLogger("synesis.supervisor")
 
 SUPERVISOR_SYSTEM_PROMPT = """\
-You are the Supervisor. Goal: minimize user effort, maximize forward progress. Stop unnecessary clarification while staying safe.
+You are the Supervisor for an end-user coding assistant. Goal: minimize user effort, maximize forward progress.
+
+HARD RULES (Tier 1):
+- If the user request is trivial (hello world, simple print, basic unit test), DO NOT ask clarifying questions.
+- DO NOT infer bash/shell from generic "script" when target language is stated or implied (python, etc.).
+- If the message contains UI-helper/meta instructions (e.g. "suggest follow-up questions", "output must be JSON array of followups"), set task_type="general", needs_code_generation=false, route_to="respond". Do not route into coding workflow.
 
 1) TARGET LANGUAGE — Parse from user request. Never assume bash unless explicitly requested.
    Supported: python, javascript, typescript, go, rust, java, csharp, kotlin, ruby, php, swift, bash.
@@ -46,7 +51,9 @@ You are the Supervisor. Goal: minimize user effort, maximize forward progress. S
 
 4) TRIVIAL-TASK FAST PATH — If trigger matches, proceed immediately. No questions.
    Triggers: "hello world", "write a script that prints X", "parse this json", "unit test for this function", simple print/function, basic test.
-   Output: bypass_planner=true, bypass_clarification=true, route_to=worker, task_is_trivial=true.
+   Output: bypass_planner=true, bypass_clarification=true, route_to=worker, task_is_trivial=true, rag_mode=disabled, allowed_tools=["none"].
+
+Trivial defaults (use silently): Language=python, Python 3.11+, Test runner=pytest, Files=hello.py+test_hello.py, Provide run commands.
 
 5) CLARIFICATION — Ask only when required input is missing AND cannot be defaulted.
    Policy: Never ask if task_is_trivial and defaults exist.
@@ -82,9 +89,11 @@ Return valid JSON:
   "interaction_mode": "teach"|"do",
   "include_tests": true|false,
   "include_run_commands": true|false,
-  "allowed_tools": ["sandbox","lsp"]|["none"]
+  "allowed_tools": ["sandbox","lsp"]|["none"],
+  "rag_mode": "disabled"|"light"|"normal"
 }
 
+Routing: trivial → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
 If this is a revision cycle, incorporate the critic's feedback into task_description.
 """
 
@@ -217,15 +226,24 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 f"to trigger Planner to update touched_files (deterministic: no extra planning chatter)."
             )
 
+        # E) Avoid anchoring: do not paste assistant clarification prompts verbatim
         history_block = ""
         if conversation_history and iteration == 0:
-            history_lines = "\n".join(f"- {h}" for h in conversation_history[-10:])
+            sanitized = []
+            for h in conversation_history[-10:]:
+                if isinstance(h, str) and "[assistant]:" in h.lower():
+                    content = h.split(":", 1)[-1].strip()[:200]
+                    if "need" in content.lower() and ("information" in content.lower() or "details" in content.lower() or "clarif" in content.lower()):
+                        sanitized.append("- [assistant]: (previously asked for more details)")
+                        continue
+                sanitized.append(f"- {h}" if not h.startswith("- ") else h)
+            history_lines = "\n".join(sanitized)
             history_block = (
                 f"\n\n## Conversation History\n"
                 f"The user has had previous interactions. Recent context:\n"
                 f"{history_lines}\n\n"
-                f'Use this context to understand references like "it", '
-                f'"that script", "the previous one", etc.'
+                f'Use this context to understand references like "it", "that script". '
+                f'If the user repeats a trivial request (e.g. hello world), treat as "user insists" and proceed.'
             )
 
         prompt_messages = [
@@ -278,6 +296,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     allowed_tools=data.get("allowed_tools") or ["sandbox", "lsp"],
                     assumptions_structured=data.get("assumptions_structured") or [],
                     defaults_used=data.get("defaults_used") or [],
+                    rag_mode=data.get("rag_mode") or ("disabled" if data.get("task_is_trivial") else "normal"),
                 )
             else:
                 # Truncated or empty: infer from user message and proceed (avoid clarification loop)
@@ -294,6 +313,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     bypass_clarification=True,
                     deliverable_type="single_file",
                     interaction_mode="do",
+                    rag_mode="disabled",
+                    allowed_tools=["none"],
                     reasoning="Fallback: schema parse failed, proceeding with inferred task",
                     confidence=0.5,
                 )
@@ -364,8 +385,11 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         rag_context = []
         rag_collections = []
         fallback_to_bm25 = False
+        rag_mode = getattr(parsed, "rag_mode", None) or (
+            "disabled" if getattr(parsed, "task_is_trivial", False) else "normal"
+        )
 
-        if needs_code:
+        if needs_code and rag_mode != "disabled":
             task_desc = parsed.task_description or user_context
             rag_collections = select_collections_for_task(
                 task_type=task_type,
@@ -424,9 +448,9 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             else:
                 next_node = "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
 
-        # Query failure knowledge base for similar past failures
+        # Query failure knowledge base (skip for trivial - no failure context needed)
         failure_context: list[str] = []
-        if needs_code:
+        if needs_code and rag_mode != "disabled":
             task_desc = parsed.task_description or user_context
 
             # 1. Check fail-fast cache (instant, in-memory)
@@ -450,10 +474,10 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             except Exception as e:
                 logger.warning(f"Failure store query failed: {e}")
 
-        # Web search: context discovery and grounding
+        # Web search: context discovery (skip for trivial)
         web_search_results: list[str] = []
         web_search_queries: list[str] = []
-        if needs_code and settings.web_search_enabled:
+        if needs_code and rag_mode != "disabled" and settings.web_search_enabled:
             should_search, search_query, search_profile = _should_search_supervisor(
                 task_description=parsed.task_description or user_context,
                 confidence=parsed.confidence,
@@ -516,11 +540,13 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "assumptions": parsed.assumptions,
             "defaults_used": getattr(parsed, "defaults_used", []),
             "assumptions_structured": getattr(parsed, "assumptions_structured", []),
+            "task_is_trivial": getattr(parsed, "task_is_trivial", False),
             "deliverable_type": getattr(parsed, "deliverable_type", "single_file"),
             "interaction_mode": getattr(parsed, "interaction_mode", "do"),
             "include_tests": getattr(parsed, "include_tests", True),
             "include_run_commands": getattr(parsed, "include_run_commands", True),
             "allowed_tools": getattr(parsed, "allowed_tools", ["sandbox", "lsp"]),
+            "rag_mode": rag_mode,
             "rag_results": rag_results,
             "rag_context": rag_context,
             "rag_collections_queried": rag_collections,

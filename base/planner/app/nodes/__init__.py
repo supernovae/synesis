@@ -5,6 +5,7 @@ from .lsp_analyzer import lsp_analyzer_node
 from .patch_integrity_gate import patch_integrity_gate_node
 from .planner_node import planner_node
 from .supervisor import supervisor_node
+from .trivial_synth import trivial_synth_node
 from .worker import worker_node
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "planner_node",
     "sandbox_node",
     "supervisor_node",
+    "trivial_synth_node",
     "worker_node",
 ]

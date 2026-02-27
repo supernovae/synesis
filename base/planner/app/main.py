@@ -24,6 +24,7 @@ from .config import settings
 from .conversation_memory import memory
 from .graph import graph
 from .injection_scanner import reduce_context_on_injection, scan_user_input
+from .message_filter import is_ui_helper_message
 from .state import RetrievalParams
 
 logging.basicConfig(
@@ -159,6 +160,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         )
 
     last_user_content = user_messages[-1].content if user_messages else ""
+
+    # A) UI-helper filter: reject follow-up suggestions, title/tag generators before Supervisor
+    if is_ui_helper_message(last_user_content):
+        logger.info("message_filter_ui_helper", extra={"user_id": user_id})
+        return ChatCompletionResponse(
+            choices=[
+                Choice(
+                    message=ChatMessage(
+                        role="assistant",
+                        content="[UI helper request; no coding task to process.]",
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(),
+        )
 
     # IDE/agent coordination: scan for prompt injection in user + conversation
     injection_detected = False
