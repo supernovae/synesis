@@ -102,7 +102,7 @@ class SynesisState(BaseModel):
 
     task_type: TaskType = TaskType.GENERAL
     task_description: str = ""
-    target_language: str = "bash"
+    target_language: str = "python"
 
     # JCS: clarification request (Supervisor emits when ambiguous)
     clarification_question: str = ""
@@ -113,6 +113,15 @@ class SynesisState(BaseModel):
     # JCS: structured plan from Planner node
     execution_plan: dict[str, Any] = Field(default_factory=dict)
     assumptions: list[str] = Field(default_factory=list)
+    defaults_used: list[str] = Field(default_factory=list)
+    assumptions_structured: list[dict[str, Any]] = Field(default_factory=list)
+
+    # Supervisor: intent + output shape
+    deliverable_type: str = "single_file"
+    interaction_mode: str = "do"
+    include_tests: bool = True
+    include_run_commands: bool = True
+    allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])
 
     # RAG retrieval -- rich results with provenance
     rag_results: list[RetrievalResult] = Field(default_factory=list)

@@ -419,7 +419,7 @@ async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     code = state.get("generated_code", "")
-    language = state.get("target_language", "bash")
+    language = state.get("target_language", "python")
     iteration = state.get("iteration_count", 0)
     patch_ops = state.get("patch_ops", []) or []
     experiment_plan = state.get("experiment_plan") or {}

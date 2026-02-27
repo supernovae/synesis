@@ -110,19 +110,38 @@ class SupervisorOut(BaseModel):
 
     task_type: TaskType = TaskType.GENERAL
     task_description: str = ""
-    target_language: str = "bash"
+    target_language: str = "python"  # Parsed from user request; normalized name
     needs_code_generation: bool = True
     reasoning: str = ""
-    assumptions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)  # Human-readable, backward compat
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+
+    # Assumption engine: structured assumptions + defaults used
+    assumptions_structured: list[dict[str, Any]] = Field(default_factory=list)  # [{key, value, confidence?, user_visible?}]
+    defaults_used: list[str] = Field(default_factory=list)
 
     # JCS: clarification request
     needs_clarification: bool = False
     clarification_question: str | None = None
-    clarification_options: list[str] = Field(default_factory=list)
+    clarification_options: list[str] = Field(default_factory=list)  # Prefer multiple-choice
 
     # JCS: planning checkpoint for complex tasks
     planning_suggested: bool = False
+
+    # Routing
+    route_to: str | None = None  # "worker" | "planner" | "respond"
+    task_is_trivial: bool = False
+    bypass_planner: bool = False
+    bypass_clarification: bool = False
+
+    # Intent + output shape
+    deliverable_type: str = "single_file"  # snippet | single_file | multi_file_patch | explain_only | mixed
+    interaction_mode: str = "do"  # teach | do
+    include_tests: bool = True
+    include_run_commands: bool = True
+
+    # Tool gating
+    allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])  # none | lsp | sandbox | ...
 
 
 # ---------------------------------------------------------------------------

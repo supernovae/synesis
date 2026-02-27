@@ -72,7 +72,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language", "bash")
+        target_lang = state.get("target_language", "python")
         rag_context = state.get("rag_context", [])
         assumptions = state.get("assumptions", [])
         if isinstance(assumptions, list):

@@ -36,7 +36,7 @@ RULES:
 3. Include clear comments only where the intent is non-obvious.
 4. Prefer defensive patterns: validate inputs, quote variables, check return codes.
 5. Think about edge cases before writing code.
-6. If the task is ambiguous or you lack critical info, set needs_input=true and provide needs_input_question. Do NOT guess.
+6. For trivial, fully-specified tasks (hello world, simple print/function, basic unit test), proceed immediately with minimal correct code. Only set needs_input=true when critical info is genuinely missing (e.g. file paths, env details, ambiguous "fix the script" without context).
 
 You MUST respond with valid JSON:
 {
@@ -189,7 +189,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             }
 
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language", "bash")
+        target_lang = state.get("target_language", "python")
         rag_context = state.get("rag_context", [])
         critic_feedback = state.get("critic_feedback", "")
         iteration = state.get("iteration_count", 0)

@@ -26,32 +26,98 @@ from ..web_search import format_search_results, search_client
 logger = logging.getLogger("synesis.supervisor")
 
 SUPERVISOR_SYSTEM_PROMPT = """\
-You are the Supervisor in a Safety-II Joint Cognitive System called Synesis.
-Your role is to analyze the user's request and decide the best course of action.
+You are the Supervisor. Goal: minimize user effort, maximize forward progress. Stop unnecessary clarification while staying safe.
 
-You MUST respond with valid JSON containing exactly these fields:
+1) TARGET LANGUAGE — Parse from user request. Never assume bash unless explicitly requested.
+   Supported: python, javascript, typescript, go, rust, java, csharp, kotlin, ruby, php, swift, bash.
+   When unspecified: infer from context (.py file, "learning to code"). Last resort: python.
+
+2) ASSUMPTION ENGINE — Decide what is missing and whether it can be safely defaulted.
+   - Parse: task complexity (trivial/small/multi-step/risky), missing inputs, whether defaults exist.
+   - If trivial and language known: proceed with defaults. Never ask clarification.
+   - Produce assumptions_structured: [{key, value, confidence, user_visible}] for assumptions you're making.
+   - defaults_used: list of defaults applied (e.g. "pytest", "Python 3.11", "repo root writable").
+
+3) INTENT + OUTPUT SHAPE — What format should the answer take?
+   - deliverable_type: snippet | single_file | multi_file_patch | explain_only | mixed
+   - Default: single_file for learning/code tasks. snippet for quick one-liners. explain_only when user asks "why" or "explain".
+   - include_tests: true for code tasks unless user says "no tests". include_run_commands: true.
+   - interaction_mode: "teach" when user says "I'm learning", "explain", "why" — then include brief explanation, run commands, tests. Otherwise "do" (just code + commands).
+
+4) TRIVIAL-TASK FAST PATH — If trigger matches, proceed immediately. No questions.
+   Triggers: "hello world", "write a script that prints X", "parse this json", "unit test for this function", simple print/function, basic test.
+   Output: bypass_planner=true, bypass_clarification=true, route_to=worker, task_is_trivial=true.
+
+5) CLARIFICATION — Ask only when required input is missing AND cannot be defaulted.
+   Policy: Never ask if task_is_trivial and defaults exist.
+   When you do ask: ONE question max. Prefer multiple-choice. clarification_options: ["(A) pytest (default)", "(B) unittest"].
+
+6) TOOL GATING — Which tools does this task need?
+   - "explain" or "simple code" / explain_only → allowed_tools: ["none"]
+   - Debugging runtime error → allow sandbox, LSP as needed. Code generation → ["sandbox","lsp"].
+
+7) ROUTING — route_to: worker (trivial/normal), planner (multi-step), respond (clarification needed).
+   If task_is_trivial && target_language && !needs_clarification → route_to=worker, bypass_planner=true.
+
+Return valid JSON:
 {
-  "task_type": one of ["code_generation", "code_review", "explanation", "debugging", "shell_script", "general"],
-  "task_description": "clear description of what needs to be done",
-  "target_language": "the programming language (default: bash)",
-  "needs_code_generation": true/false,
-  "reasoning": "your reasoning for this classification",
-  "assumptions": ["list", "of", "assumptions"],
-  "confidence": 0.0 to 1.0,
+  "task_type": "code_generation"|"code_review"|"explanation"|"debugging"|"shell_script"|"general",
+  "task_description": "clear description",
+  "target_language": "parsed from user",
+  "needs_code_generation": true|false,
+  "reasoning": "brief",
+  "assumptions": ["human-readable list"],
+  "assumptions_structured": [{"key":"test_runner","value":"pytest","confidence":0.9,"user_visible":true}],
+  "defaults_used": ["pytest","Python 3.11"],
+  "confidence": 0.0-1.0,
   "needs_clarification": false,
   "clarification_question": null,
   "clarification_options": [],
-  "planning_suggested": false
+  "planning_suggested": false,
+  "route_to": "worker"|"planner"|"respond",
+  "task_is_trivial": true|false,
+  "bypass_planner": true|false,
+  "bypass_clarification": true|false,
+  "deliverable_type": "snippet"|"single_file"|"multi_file_patch"|"explain_only"|"mixed",
+  "interaction_mode": "teach"|"do",
+  "include_tests": true|false,
+  "include_run_commands": true|false,
+  "allowed_tools": ["sandbox","lsp"]|["none"]
 }
 
-CRITICAL - Do not guess. If the request is ambiguous or you lack context (e.g. "fix the script" without knowing which script), set needs_clarification=true and provide clarification_question with a specific question. Optionally add clarification_options as a list of choices.
-For multi-step or complex tasks (refactoring, migration, multi-file changes), set planning_suggested=true.
-
-If the user is asking for shell/bash code, set task_type to "shell_script".
-If this is a revision cycle, incorporate the critic's feedback into the task description.
+If this is a revision cycle, incorporate the critic's feedback into task_description.
 """
 
 import re
+
+# Ordered: more specific patterns first (e.g. typescript before script)
+_LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\btypescript\b", re.IGNORECASE), "typescript"),
+    (re.compile(r"\bjavascript\b|\.js\b|\.jsx\b|\.mjs\b", re.IGNORECASE), "javascript"),
+    (re.compile(r"\bpython\b|\.py\b|learning\s+python", re.IGNORECASE), "python"),
+    (re.compile(r"\bgolang\b|\bgo\s+(?:lang|code|script|program)\b|in\s+go\b|using\s+go\b|\.go\b", re.IGNORECASE), "go"),
+    (re.compile(r"\brust\b|\.rs\b", re.IGNORECASE), "rust"),
+    (re.compile(r"\bjava\b(?!\s+script)|\bkotlin\b|\.java\b|\.kt\b", re.IGNORECASE), "java"),
+    (re.compile(r"\bc#\b|csharp\b|\.cs\b", re.IGNORECASE), "csharp"),
+    (re.compile(r"\bruby\b|\.rb\b", re.IGNORECASE), "ruby"),
+    (re.compile(r"\bphp\b|\.php\b", re.IGNORECASE), "php"),
+    (re.compile(r"\bswift\b|\.swift\b", re.IGNORECASE), "swift"),
+    (re.compile(r"\bbash\b|shell\b|\.sh\b|\.bash\b|sh script", re.IGNORECASE), "bash"),
+]
+
+DEFAULT_LANGUAGE = "python"
+
+
+def _extract_language_from_text(text: str) -> str:
+    """Parse target language from user message. Returns normalized name or DEFAULT_LANGUAGE."""
+    if not text or not text.strip():
+        return DEFAULT_LANGUAGE
+    lower = text.lower()
+    for pattern, lang in _LANGUAGE_PATTERNS:
+        if pattern.search(text):
+            return lang
+    return DEFAULT_LANGUAGE
+
 
 _SEARCH_TRIGGER_KEYWORDS = re.compile(
     r"\b(latest|current|newest|updated|upgrade|migrate|deprecated|"
@@ -192,7 +258,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 parsed = SupervisorOut(
                     task_type=TaskType(data.get("task_type", "general")),
                     task_description=data.get("task_description", ""),
-                    target_language=data.get("target_language", "bash"),
+                    target_language=data.get("target_language") or _extract_language_from_text(user_context),
                     needs_code_generation=data.get("needs_code_generation", True),
                     reasoning=data.get("reasoning", ""),
                     assumptions=data.get("assumptions", []),
@@ -201,25 +267,48 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     clarification_question=data.get("clarification_question"),
                     clarification_options=data.get("clarification_options", []),
                     planning_suggested=data.get("planning_suggested", False),
+                    route_to=data.get("route_to"),
+                    task_is_trivial=data.get("task_is_trivial", False),
+                    bypass_planner=data.get("bypass_planner", False),
+                    bypass_clarification=data.get("bypass_clarification", False),
+                    deliverable_type=data.get("deliverable_type", "single_file"),
+                    interaction_mode=data.get("interaction_mode", "do"),
+                    include_tests=data.get("include_tests", True),
+                    include_run_commands=data.get("include_run_commands", True),
+                    allowed_tools=data.get("allowed_tools") or ["sandbox", "lsp"],
+                    assumptions_structured=data.get("assumptions_structured") or [],
+                    defaults_used=data.get("defaults_used") or [],
                 )
             else:
                 # Truncated or empty: infer from user message and proceed (avoid clarification loop)
                 user_msg = user_context if user_context else ""
-                user_lower = user_msg.lower()
-                lang = "python" if "python" in user_lower else "bash" if "bash" in user_lower or "shell" in user_lower else "python"
                 parsed = SupervisorOut(
                     task_type=TaskType.CODE_GENERATION,
                     task_description=user_msg or "Generate code as requested",
-                    target_language=lang,
+                    target_language=_extract_language_from_text(user_msg),
                     needs_code_generation=True,
                     needs_clarification=False,
+                    route_to="worker",
+                    task_is_trivial=True,
+                    bypass_planner=True,
+                    bypass_clarification=True,
+                    deliverable_type="single_file",
+                    interaction_mode="do",
                     reasoning="Fallback: schema parse failed, proceeding with inferred task",
                     confidence=0.5,
                 )
 
         task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
-        target_language = parsed.target_language
+        target_language = (parsed.target_language or "").strip() or _extract_language_from_text(user_context)
         needs_code = parsed.needs_code_generation
+
+        # Policy: never ask clarification if trivial and language known (trivial tasks always have implicit defaults)
+        bypass_clarification = getattr(parsed, "bypass_clarification", False) or (
+            getattr(parsed, "task_is_trivial", False) and target_language
+        )
+        if bypass_clarification and parsed.needs_clarification:
+            parsed = parsed.model_copy(update={"needs_clarification": False, "clarification_question": None})
+            logger.info("supervisor_bypass_clarification", extra={"reason": "trivial_with_defaults"})
 
         # §7.8 / Item 1: SupervisorGuard mode — when from Critic, only clarification or forward.
         # May NOT modify evidence_needed, strategy_candidates, or planning. Passthrough to Worker.
@@ -256,6 +345,9 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "target_language": target_language,
                 "clarification_question": parsed.clarification_question,
                 "clarification_options": parsed.clarification_options,
+                "assumptions": parsed.assumptions,
+                "defaults_used": getattr(parsed, "defaults_used", []),
+                "assumptions_structured": getattr(parsed, "assumptions_structured", []),
                 "current_node": node_name,
                 "next_node": next_node,
                 "node_traces": [trace],
@@ -316,7 +408,21 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     )
             fallback_to_bm25 = any(r.retrieval_source == "bm25" and strategy != "bm25" for r in rag_results)
 
-        next_node = "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
+        # Prefer route_to from LLM when valid; respect bypass_planner and supervisor_guard
+        route_to = getattr(parsed, "route_to", None)
+        bypass_planner = getattr(parsed, "bypass_planner", False) or getattr(parsed, "task_is_trivial", False)
+        if route_to in ("worker", "planner", "respond"):
+            if supervisor_guard and route_to == "planner":
+                next_node = "worker"
+            elif bypass_planner and route_to == "planner":
+                next_node = "worker"  # Trivial fast path: skip planner
+            else:
+                next_node = route_to
+        else:
+            if bypass_planner and needs_code:
+                next_node = "worker"
+            else:
+                next_node = "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
 
         # Query failure knowledge base for similar past failures
         failure_context: list[str] = []
@@ -407,6 +513,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "task_type": task_type,
             "task_description": parsed.task_description,
             "target_language": target_language,
+            "assumptions": parsed.assumptions,
+            "defaults_used": getattr(parsed, "defaults_used", []),
+            "assumptions_structured": getattr(parsed, "assumptions_structured", []),
+            "deliverable_type": getattr(parsed, "deliverable_type", "single_file"),
+            "interaction_mode": getattr(parsed, "interaction_mode", "do"),
+            "include_tests": getattr(parsed, "include_tests", True),
+            "include_run_commands": getattr(parsed, "include_run_commands", True),
+            "allowed_tools": getattr(parsed, "allowed_tools", ["sandbox", "lsp"]),
             "rag_results": rag_results,
             "rag_context": rag_context,
             "rag_collections_queried": rag_collections,

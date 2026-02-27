@@ -177,7 +177,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "context": {
                     "execution_plan": execution_plan,
                     "task_description": state.get("task_description", ""),
-                    "target_language": state.get("target_language", "bash"),
+                    "target_language": state.get("target_language", "python"),
                     "rag_context": state.get("rag_context", []),
                     "task_type": state.get("task_type", "general"),
                     "assumptions": state.get("assumptions", []),
@@ -186,7 +186,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
                 "execution_plan": execution_plan,
                 "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "bash"),
+                "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
                 "task_type": state.get("task_type", "general"),
                 "assumptions": state.get("assumptions", []),
@@ -223,7 +223,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "question": clarification_question,
                 "context": {},
                 "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "bash"),
+                "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
             },
         )
@@ -263,7 +263,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "context": {},
                 "needs_input_question": needs_input_question,
                 "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "bash"),
+                "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
                 "execution_plan": state.get("execution_plan", {}),
                 "assumptions": state.get("assumptions", []),
@@ -280,8 +280,23 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             content += f"\n\nPartial result:\n```\n{code}\n```"
     else:
         parts = []
+        # Micro-ack: brief line when we have assumptions/defaults to surface (human, low-friction)
+        micro_ack_parts = []
+        lang = state.get("target_language", "python")
+        defaults = state.get("defaults_used", [])
+        assume_struct = state.get("assumptions_structured", [])
+        if isinstance(assume_struct, list):
+            for a in assume_struct:
+                if isinstance(a, dict) and a.get("user_visible", True):
+                    val = a.get("value") or a.get("key", "")
+                    if val:
+                        micro_ack_parts.append(val)
+        if defaults:
+            micro_ack_parts.extend(defaults[:3])  # Cap at 3
+        if micro_ack_parts and code:
+            ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
+            parts.append(ack)
         if code:
-            lang = state.get("target_language", "bash")
             parts.append(f"```{lang}\n{code}\n```")
         if explanation:
             parts.append(f"\n**Approach:** {explanation}")

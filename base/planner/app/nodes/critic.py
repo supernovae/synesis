@@ -285,7 +285,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
         generated_code = state.get("generated_code", "")
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language", "bash")
+        target_lang = state.get("target_language", "python")
         iteration = state.get("iteration_count", 0)
         max_iterations = state.get("max_iterations", 3)
 

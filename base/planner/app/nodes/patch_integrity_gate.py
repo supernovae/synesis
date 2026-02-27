@@ -589,7 +589,7 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     """
     node_name = "patch_integrity_gate"
     code = state.get("generated_code", "")
-    language = state.get("target_language", "bash")
+    language = state.get("target_language", "python")
     experiment_script = state.get("experiment_script", "")
     experiment_plan = state.get("experiment_plan") or {}
     commands_from_plan = (

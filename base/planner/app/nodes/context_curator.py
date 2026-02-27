@@ -96,6 +96,7 @@ def _build_pinned_context(
     execution_plan: dict[str, Any],
     org_standards: list[ContextChunk],
     project_manifest: list[ContextChunk],
+    session_preferences: dict[str, Any] | None = None,
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session)."""
     chunks: list[ContextChunk] = []
@@ -159,6 +160,36 @@ def _build_pinned_context(
                 ),
             )
         )
+
+    # Tier 4b: Session preferences (deliverable shape, interaction mode)
+    if session_preferences:
+        prefs = []
+        if session_preferences.get("deliverable_type"):
+            prefs.append(f"Deliverable: {session_preferences['deliverable_type']}")
+        if session_preferences.get("interaction_mode") == "teach":
+            prefs.append("Interaction mode: teach — include 2-4 line explanation, run commands, and tests")
+        elif session_preferences.get("interaction_mode") == "do":
+            prefs.append("Interaction mode: do — output code and run commands")
+        if not session_preferences.get("include_tests", True):
+            prefs.append("Do not include tests")
+        if not session_preferences.get("include_run_commands", True):
+            prefs.append("Do not include run commands")
+        if prefs:
+            prefs_text = "Session preferences: " + "; ".join(prefs)
+            chunks.append(
+                ContextChunk(
+                    source="tool_contract",
+                    text=prefs_text,
+                    score=0.85,
+                    collection="",
+                    doc_id="session_preferences",
+                    origin_metadata=OriginMetadata(
+                        origin="trusted",
+                        content_hash=_hash_chunk(prefs_text),
+                        source_label="session_preferences",
+                    ),
+                )
+            )
     return chunks
 
 
@@ -304,7 +335,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     task_desc = state.get("task_description", "")
     task_type = state.get("task_type", "general")
-    target_lang = state.get("target_language", "bash")
+    target_lang = state.get("target_language", "python")
     rag_results = list(state.get("rag_results", []))
     execution_plan = state.get("execution_plan", {})
     iteration = state.get("iteration_count", 0)
@@ -376,8 +407,14 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     tier2_tier3_conflicts = _detect_tier2_tier3_conflicts(org_standards, project_manifest)
     context_conflicts = tier2_tier3_conflicts
 
+    session_prefs = {
+        "deliverable_type": state.get("deliverable_type", "single_file"),
+        "interaction_mode": state.get("interaction_mode", "do"),
+        "include_tests": state.get("include_tests", True),
+        "include_run_commands": state.get("include_run_commands", True),
+    }
     pinned = _build_pinned_context(
-        str(task_type), target_lang, task_desc, execution_plan, org_standards, project_manifest
+        str(task_type), target_lang, task_desc, execution_plan, org_standards, project_manifest, session_prefs
     )
     for c in tier2_tier3_conflicts:
         pinned.append(_build_synthetic_conflict_chunk(c))
