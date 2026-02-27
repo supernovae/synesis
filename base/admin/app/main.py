@@ -47,13 +47,29 @@ def _safe_query(
         client = _get_client()
         if FAILURES_COLLECTION not in client.list_collections():
             return []
-        return client.query(
-            collection_name=FAILURES_COLLECTION,
-            filter=filter_expr if filter_expr else "",
-            output_fields=output_fields or [],
-            limit=limit,
-            offset=offset,
-        )
+        try:
+            return client.query(
+                collection_name=FAILURES_COLLECTION,
+                filter=filter_expr if filter_expr else "",
+                output_fields=output_fields or [],
+                limit=limit,
+                offset=offset,
+            )
+        except Exception as e:
+            if "collection not loaded" in str(e).lower():
+                try:
+                    client.load_collection(collection_name=FAILURES_COLLECTION)
+                    return client.query(
+                        collection_name=FAILURES_COLLECTION,
+                        filter=filter_expr if filter_expr else "",
+                        output_fields=output_fields or [],
+                        limit=limit,
+                        offset=offset,
+                    )
+                except Exception as retry_e:
+                    logger.warning(f"Milvus query retry failed: {retry_e}")
+                    return []
+            raise
     except Exception as e:
         logger.warning(f"Milvus query error: {e}")
         return []

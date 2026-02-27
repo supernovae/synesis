@@ -31,6 +31,13 @@ from ..schemas import (
 logger = logging.getLogger("synesis.context_curator")
 
 
+def _get_attr(obj: Any, key: str, default: Any = "") -> Any:
+    """Safe get for dict or object (RetrievalResult etc)."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def _hash_chunk(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:24]
 
@@ -317,7 +324,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                 top_k=3,
             )
             for r in org_results:
-                t = getattr(r, "text", r.get("text", "")) if isinstance(r, dict) else r.text
+                t = _get_attr(r, "text", "")
                 org_standards.append(
                     ContextChunk(
                         source="arch",
@@ -421,8 +428,8 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Merge: prioritize entity chunks and priority_doc_ids, then existing rag_results
     def _chunk_key(r):
-        t = getattr(r, "text", r.get("text", "")) if isinstance(r, dict) else r.text
-        sid = getattr(r, "source", r.get("source", ""))
+        t = _get_attr(r, "text", "")
+        sid = _get_attr(r, "source", "")
         return (sid, t[:80])
 
     seen = set()
@@ -433,7 +440,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             seen.add(k)
             merged.append(r)
     for r in rag_results:
-        doc_id = getattr(r, "source", r.get("source", f"rag_{len(merged)}"))
+        doc_id = _get_attr(r, "source", f"rag_{len(merged)}")
         if doc_id in priority_doc_ids:
             merged.insert(0, r)
         else:

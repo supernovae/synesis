@@ -25,6 +25,14 @@ If you have **Llama Stack Operator** enabled in OpenShift AI 3, you can optional
 
 The LlamaStackDistribution connects to the same Milvus (`synesis-milvus`) and can use your deployed vLLM models. It is **not required** for Synesis — our planner and indexers work with Milvus + embedder directly.
 
-## vLLM: Use RHOAI Built-in Only
+## Indexer Idempotency
 
-Deploy models via the OpenShift AI dashboard. **Do not use Docker Hub vLLM images** — they failed on RHOAI v2 due to Python path issues. Use the platform's built-in vLLM ServingRuntime.
+Indexers use **content-hash chunk IDs** (`chunk_id_hash` in indexer_base.py) and `existing_chunk_ids()` to skip re-embedding unchanged content. On re-run:
+
+- **Same source data** → existing chunks skipped, only new/changed chunks embedded and upserted
+- **Upsert by primary key** → same chunk_id overwrites in place (no duplicates)
+- Use `--force` to re-embed everything (e.g. after embedding model change)
+
+## Collection Loading
+
+Milvus requires collections to be **loaded** before search/query. Indexers call `load_collection` when they create or ensure a collection. If Milvus restarts, collections may be unloaded. The planner and failure store will attempt to load on first "collection not loaded" error and retry. Missing or empty collections return `[]` gracefully — some collections take time to build.

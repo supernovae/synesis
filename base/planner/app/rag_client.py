@@ -131,6 +131,7 @@ class BM25Index:
         """Synchronously fetch all chunks from Milvus and rebuild BM25 index."""
         try:
             from pymilvus import MilvusClient
+            from pymilvus.exceptions import MilvusException
 
             client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
 
@@ -138,18 +139,32 @@ class BM25Index:
                 logger.warning(f"BM25 refresh: collection '{collection}' not found")
                 return
 
+            def _query_batch(offset: int):
+                return client.query(
+                    collection_name=collection,
+                    filter="",
+                    output_fields=["chunk_id", "text", "source"],
+                    limit=1000,
+                    offset=offset,
+                )
+
             all_chunks: list[_CachedChunk] = []
             batch_size = 1000
             offset = 0
 
             while True:
-                results = client.query(
-                    collection_name=collection,
-                    filter="",
-                    output_fields=["chunk_id", "text", "source"],
-                    limit=batch_size,
-                    offset=offset,
-                )
+                try:
+                    results = _query_batch(offset)
+                except MilvusException as e:
+                    if "collection not loaded" in str(e).lower():
+                        _ensure_collection_loaded(client, collection)
+                        try:
+                            results = _query_batch(offset)
+                        except Exception as retry_e:
+                            logger.warning(f"BM25 refresh failed for '{collection}' (collection unloadable): {retry_e}")
+                            return
+                    else:
+                        raise
                 if not results:
                     break
                 for row in results:
@@ -320,14 +335,27 @@ def select_collections_for_task(
 # Vector search (Milvus)
 # ---------------------------------------------------------------------------
 
+_NOT_LOADED = "collection not loaded"
+
+
+def _ensure_collection_loaded(client, collection_name: str) -> bool:
+    """Load collection if not loaded. Returns True if searchable."""
+    try:
+        client.load_collection(collection_name=collection_name)
+        return True
+    except Exception as e:
+        logger.debug(f"Could not load collection '{collection_name}': {e}")
+        return False
+
 
 async def _vector_search(
     query: str,
     collection: str,
     top_k: int,
 ) -> list[dict[str, Any]]:
-    """Semantic vector search via Milvus."""
+    """Semantic vector search via Milvus. Gracefully returns [] on missing/empty/unloaded collection."""
     from pymilvus import MilvusClient
+    from pymilvus.exceptions import MilvusException
 
     client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
 
@@ -338,12 +366,30 @@ async def _vector_search(
 
     query_vector = await _embed_text(query)
 
-    results = client.search(
-        collection_name=collection,
-        data=[query_vector],
-        limit=top_k,
-        output_fields=["text", "source", "chunk_id"],
-    )
+    try:
+        results = client.search(
+            collection_name=collection,
+            data=[query_vector],
+            limit=top_k,
+            output_fields=["text", "source", "chunk_id"],
+        )
+    except MilvusException as e:
+        if _NOT_LOADED in str(e).lower():
+            if _ensure_collection_loaded(client, collection):
+                try:
+                    results = client.search(
+                        collection_name=collection,
+                        data=[query_vector],
+                        limit=top_k,
+                        output_fields=["text", "source", "chunk_id"],
+                    )
+                except Exception as retry_e:
+                    logger.warning(f"Vector search retry failed for '{collection}': {retry_e}")
+                    return []
+            else:
+                return []
+        else:
+            raise
 
     formatted = []
     for hits in results:

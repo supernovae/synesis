@@ -42,6 +42,10 @@ def _ensure_collection() -> None:
 
     client = _get_client()
     if COLLECTION in client.list_collections():
+        try:
+            client.load_collection(collection_name=COLLECTION)
+        except Exception as e:
+            logger.debug(f"Load of '{COLLECTION}' deferred: {e}")
         _initialized = True
         return
 
@@ -71,6 +75,10 @@ def _ensure_collection() -> None:
     )
     client.create_index(collection_name=COLLECTION, index_params=index_params)
     logger.info(f"Created Milvus collection '{COLLECTION}'")
+    try:
+        client.load_collection(collection_name=COLLECTION)
+    except Exception as e:
+        logger.debug(f"Initial load of '{COLLECTION}' deferred: {e}")
     _initialized = True
 
 
