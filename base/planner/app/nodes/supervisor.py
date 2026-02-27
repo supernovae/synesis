@@ -49,8 +49,8 @@ HARD RULES (Tier 1):
    - include_tests: true for code tasks unless user says "no tests". include_run_commands: true.
    - interaction_mode: "teach" when user says "I'm learning", "explain", "why" — then include brief explanation, run commands, tests. Otherwise "do" (just code + commands).
 
-4) TRIVIAL-TASK FAST PATH — If trigger matches, proceed immediately. No questions.
-   Triggers: "hello world", "write a script that prints X", "parse this json", "unit test for this function", simple print/function, basic test.
+4) TRIVIAL-TASK — Use your judgment: if the user's intent is obvious and minimal code solves it, set task_is_trivial=true.
+   Examples: "hello world", "write a script that prints X", "parse this json", "unit test for this function", "simple fizzbuzz", "function that returns 42". Use semantic understanding, not rigid patterns.
    Output: bypass_planner=true, bypass_clarification=true, route_to=worker, task_is_trivial=true, rag_mode=disabled, allowed_tools=["none"].
 
 Trivial defaults (use silently): Language=python, Python 3.11+, Test runner=pytest, Files=hello.py+test_hello.py, Provide run commands.

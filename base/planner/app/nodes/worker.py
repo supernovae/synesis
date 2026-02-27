@@ -422,7 +422,12 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
 
         task_is_trivial = state.get("task_is_trivial", False)
-        trivial_hint = "\n\n**task_is_trivial=true** — proceed immediately, no needs_input." if task_is_trivial else ""
+        trivial_hint = (
+            "\n\n**Trivial task** (Supervisor classified). Produce minimal correct code. "
+            "Use sensible defaults (pytest, hello.py/test_hello.py). Include run commands. No questions."
+            if task_is_trivial
+            else ""
+        )
         prompt = (
             f"{milestone_banner}"
             f"\n\n## Task\nLanguage: {target_lang}\n{task_desc}{trivial_hint}"

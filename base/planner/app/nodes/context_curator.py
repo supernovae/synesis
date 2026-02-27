@@ -97,9 +97,32 @@ def _build_pinned_context(
     org_standards: list[ContextChunk],
     project_manifest: list[ContextChunk],
     session_preferences: dict[str, Any] | None = None,
+    task_is_trivial: bool = False,
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session)."""
     chunks: list[ContextChunk] = []
+
+    # Tier 1: Trivial task override (Supervisor LLM classified this; Worker proceeds with minimal output)
+    if task_is_trivial:
+        trivial_t = (
+            "TRIVIAL TASK (Supervisor classified). Produce minimal correct code immediately. "
+            "NEVER set needs_input. Default: pytest for Python tests, hello.py/test_hello.py for hello world. "
+            "Keep explanation brief (1 line). Include run commands. No overthinking."
+        )
+        chunks.append(
+            ContextChunk(
+                source="tool_contract",
+                text=trivial_t,
+                score=1.0,
+                collection="",
+                doc_id="invariant_trivial",
+                origin_metadata=OriginMetadata(
+                    origin="trusted",
+                    content_hash=_hash_chunk(trivial_t),
+                    source_label="trivial_task",
+                ),
+            )
+        )
 
     # Tier 1: Global policy (hardcoded)
     t1 = "Respond with valid JSON. Include code, explanation, reasoning, assumptions, confidence, edge_cases_considered, needs_input, needs_input_question, stop_reason."
@@ -414,8 +437,16 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "include_tests": state.get("include_tests", True),
         "include_run_commands": state.get("include_run_commands", True),
     }
+    task_is_trivial = state.get("task_is_trivial", False)
     pinned = _build_pinned_context(
-        str(task_type), target_lang, task_desc, execution_plan, org_standards, project_manifest, session_prefs
+        str(task_type),
+        target_lang,
+        task_desc,
+        execution_plan,
+        org_standards,
+        project_manifest,
+        session_prefs,
+        task_is_trivial=task_is_trivial,
     )
     for c in tier2_tier3_conflicts:
         pinned.append(_build_synthetic_conflict_chunk(c))
