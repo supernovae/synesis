@@ -62,11 +62,14 @@ def _ensure_collection() -> None:
     )
 
     client.create_collection(collection_name=COLLECTION, schema=schema)
-    client.create_index(
-        collection_name=COLLECTION,
+    index_params = MilvusClient.prepare_index_params()
+    index_params.add_index(
         field_name="embedding",
-        index_params={"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 128}},
+        index_type="IVF_FLAT",
+        metric_type="COSINE",
+        params={"nlist": 128},
     )
+    client.create_index(collection_name=COLLECTION, index_params=index_params)
     logger.info(f"Created Milvus collection '{COLLECTION}'")
     _initialized = True
 

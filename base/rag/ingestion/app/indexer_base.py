@@ -39,11 +39,14 @@ def _ensure_index_and_load(client: MilvusClient, collection_name: str) -> None:
         has_embedding_index = False
     if not has_embedding_index:
         try:
-            client.create_index(
-                collection_name=collection_name,
+            index_params = MilvusClient.prepare_index_params()
+            index_params.add_index(
                 field_name="embedding",
-                index_params={"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 128}},
+                index_type="IVF_FLAT",
+                metric_type="COSINE",
+                params={"nlist": 128},
             )
+            client.create_index(collection_name=collection_name, index_params=index_params)
             logger.info(f"Created index on '{collection_name}'")
         except Exception as e:
             if "already" not in str(e).lower():

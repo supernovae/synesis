@@ -170,6 +170,23 @@ check_rhoai_webhook() {
     [[ "${#endpoint_json}" -gt 2 ]]
 }
 
+# -----------------------------------------------------------------------
+# Runtime discovery: verify ClusterServingRuntimes exist for model deployment.
+# Override via SYNESIS_RUNTIME_GPU, SYNESIS_RUNTIME_CPU env vars (requires overlay patches).
+# -----------------------------------------------------------------------
+discover_runtimes() {
+    if [[ "$ISVC_SKIP" == "true" ]]; then return 0; fi
+
+    local names
+    names=$(oc get servingruntimes -n synesis-models -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [[ -n "$names" ]]; then
+        log "  ServingRuntimes in synesis-models: $names"
+        for r in synesis-supervisor synesis-executor synesis-critic; do
+            echo "$names" | grep -q "$r" || log "  WARNING: $r not found (deploy creates it)"
+        done
+    fi
+}
+
 log ""
 log "Checking RHOAI model serving readiness..."
 
@@ -189,9 +206,11 @@ if ! check_dsc_kserve; then
 elif check_rhoai_webhook; then
     log "  DataScienceCluster: OK (kserve Managed)"
     log "  Model controller webhook: ready"
+    discover_runtimes
 else
     log "  DataScienceCluster: OK (kserve Managed)"
     log "  Model controller webhook: not ready yet (will retry after apply)"
+    discover_runtimes
 fi
 
 build_manifests() {
@@ -342,11 +361,22 @@ wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-webui open-webui
 
 log ""
-log "Checking InferenceServices..."
+log "Model serving status (synesis-models namespace):"
 if [[ "$ISVC_SKIP" == "true" ]]; then
-    log "  Skipped (no DataScienceCluster with kserve Managed)"
+    log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
+    log "  Models must be deployed manually via OpenShift AI dashboard."
 else
-    oc get inferenceservice -n synesis-models 2>/dev/null || log "  No InferenceServices found yet (webhook may not be ready)"
+    if oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | head -5 | grep -q .; then
+        log ""
+        oc get inferenceservice -n synesis-models 2>/dev/null
+        log ""
+        log "  Deployed models: synesis-supervisor, synesis-executor, synesis-critic"
+        log "  Planner uses synesis-supervisor. Wait for PredictorReady before using."
+    else
+        log "  No InferenceServices found yet (webhook may not be ready, or apply failed)"
+        log "  Check: oc get servingruntimes -n synesis-models (deploy creates synesis-supervisor, -executor, -critic)"
+        log "  Then retry: ./scripts/deploy.sh $ENV"
+    fi
 fi
 
 log ""
