@@ -64,10 +64,10 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
 
 | Role | Model | Quantization | Runtime |
 |------|-------|-------------|---------|
-| Supervisor | Qwen3-14B | FP8 | vLLM on CPU |
-| Planner | Qwen3-14B (shared with Supervisor) | — | vLLM on CPU |
+| Supervisor | Qwen3-8B-FP8-dynamic (Red Hat catalog) | FP8 | vLLM on GPU (1×8Gi) |
+| Planner | Qwen3-8B-FP8-dynamic (shared with Supervisor) | — | vLLM on GPU |
 | Executor (Worker) | Qwen3-Coder-Next | FP8 | vLLM on GPU (~48GB) |
-| Critic | Qwen3-14B | FP8 | vLLM on CPU |
+| Critic | Qwen3-8B-FP8-dynamic (Red Hat catalog) | FP8 | vLLM on GPU (1×8Gi) |
 
 ## Quick Start
 
@@ -81,10 +81,12 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
 
 ```bash
 ./scripts/bootstrap.sh                    # Basic bootstrap
-./scripts/bootstrap.sh --ghcr-creds       # Also configure GHCR pull secrets (prompts for GitHub user/token)
+./scripts/bootstrap.sh --ghcr-creds       # Also configure GHCR pull secrets + synesis-github-token (RAG indexer)
+./scripts/bootstrap.sh --hf-token         # HuggingFace token for model downloads (avoids throttling)
+./scripts/bootstrap.sh --github-token    # Only create synesis-github-token in synesis-rag (RAG indexer jobs)
 ```
 
-This creates namespaces and verifies prerequisites. For **private GHCR images**, use `--ghcr-creds` to create pull secrets in all Synesis namespaces (or set `GITHUB_USERNAME` and `GITHUB_TOKEN` for non-interactive).
+This creates namespaces and verifies prerequisites. For **private GHCR images**, use `--ghcr-creds` (also creates `synesis-github-token` for RAG indexer jobs). For **model deployments from HuggingFace** (hf://), use `--hf-token`. For **RAG indexer jobs** (code/apispec/architecture/license), use `--github-token` or `--ghcr-creds` (same token works).
 
 ### 2. Deploy Models (OpenShift AI 3)
 
@@ -92,7 +94,7 @@ Models are deployed via the **OpenShift AI dashboard**, not pre-downloaded or S3
 
 1. Create or select the `synesis-models` project.
 2. Click **Deploy model**.
-3. **Three JCS model deployments**: Supervisor+Planner share Qwen3-14B; Executor (Qwen3-Coder-Next); Critic (Qwen3-14B). See `models.yaml`.
+3. **Three JCS model deployments**: Supervisor+Planner+Critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU each); Executor uses Qwen3-Coder-Next. See `models.yaml`.
 
 Model sources: **Model Hub**, HuggingFace (`hf://`), or OCI. No local download or S3 upload needed. See `base/model-serving/README.md` for details and example InferenceService YAML.
 
@@ -699,10 +701,13 @@ Clones 50 high-quality open-source repositories across Python, Go, Rust, TypeScr
 **GitHub PR extraction:** If you provide a GitHub PAT, the indexer uses the GitHub API to fetch merged PR descriptions with titles, labels, changed files, and merge commit messages. Without a PAT, it falls back to `git log --merges`:
 
 ```bash
+# Create synesis-github-token (RAG indexer jobs expect key "token")
 oc create secret generic synesis-github-token \
   --from-literal=token=ghp_YOUR_TOKEN_HERE \
   -n synesis-rag
 ```
+
+Or run `./scripts/bootstrap.sh --github-token` (prompts) or `./scripts/bootstrap.sh --ghcr-creds` (same token for GHCR + RAG).
 
 ### Indexer 2: API Spec Indexer
 

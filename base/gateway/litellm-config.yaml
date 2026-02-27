@@ -9,15 +9,17 @@ metadata:
 data:
   config.yaml: |
     # Model endpoints: deploy via OpenShift AI 3, then set api_base to match.
+    # synesis-agent orchestrates Supervisor → Planner → Executor → Critic pipeline.
     model_list:
-      - model_name: synesis-coder
+      - model_name: synesis-agent
         litellm_params:
-          model: openai/synesis-coder
-          api_base: http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
           api_key: "not-needed"
           max_tokens: 8192
           temperature: 0.2
 
+      # Individual models (for direct access; planner calls these internally)
       - model_name: synesis-supervisor
         litellm_params:
           model: openai/synesis-supervisor
@@ -26,21 +28,35 @@ data:
           max_tokens: 4096
           temperature: 0.3
 
-      # Orchestrated pipeline -- routes to FastAPI planner
-      - model_name: synesis-agent
+      - model_name: synesis-planner
         litellm_params:
-          model: openai/synesis-agent
-          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          model: openai/synesis-planner
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.2
+
+      - model_name: synesis-executor
+        litellm_params:
+          model: openai/synesis-executor
+          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 8192
+          temperature: 0.2
+
+      - model_name: synesis-critic
+        litellm_params:
+          model: openai/synesis-critic
+          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.1
 
     litellm_settings:
       drop_params: true
       set_verbose: false
       num_retries: 2
       request_timeout: 120
-      fallbacks:
-        - synesis-agent: [synesis-coder]
 
     general_settings:
       master_key: "sk-synesis-change-me"

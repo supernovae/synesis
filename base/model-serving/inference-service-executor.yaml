@@ -1,0 +1,53 @@
+# Synesis Executor (Qwen3-Coder-Next) — L40S (g6e.4xlarge, 48GB) via nodeSelector
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: synesis-executor
+  labels:
+    app.kubernetes.io/name: synesis-executor
+    app.kubernetes.io/component: model
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/genai-asset: "true"
+  annotations:
+    opendatahub.io/connections: synesis-executor
+    opendatahub.io/model-type: generative
+    openshift.io/description: Synesis Executor (Qwen3-Coder-Next)
+    openshift.io/display-name: Synesis Executor (Qwen3-Coder-Next)
+    security.opendatahub.io/enable-auth: "false"
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    automountServiceAccountToken: false
+    deploymentStrategy:
+      type: RollingUpdate
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      runtime: synesis-executor
+      modelFormat:
+        name: vLLM
+      name: ""
+      storageUri: hf://Qwen/Qwen3-Coder-Next
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: synesis-hf-token
+              key: HF_TOKEN
+              optional: true
+      resources:
+        limits:
+          cpu: "8"
+          memory: 48Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "4"
+          memory: 32Gi
+          nvidia.com/gpu: "1"
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-L40S
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Equal
+        value: "true"

@@ -14,11 +14,36 @@ data:
     # When a circuit opens, the planner degrades gracefully rather than
     # failing completely.
 
-    # Model endpoints: deploy via OpenShift AI 3 dashboard, then set URLs to match.
-    # Pattern: http://<inference-service-name>-predictor.synesis-models.svc.cluster.local:8080/v1
+    # Model endpoints: vLLM CPU (supervisor/critic) port 8080, CUDA (executor) port 8080
     services:
-      qwen-coder:
-        endpoint: "http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
+      synesis-supervisor:
+        endpoint: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+      synesis-planner:
+        endpoint: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 60
+
+      synesis-executor:
+        endpoint: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
@@ -30,8 +55,8 @@ data:
           backoff_max_seconds: 10.0
         timeout_seconds: 60
 
-      mistral-nemo:
-        endpoint: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+      synesis-critic:
+        endpoint: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
@@ -90,10 +115,10 @@ data:
 
     # Global degradation policy
     degradation:
-      # If the coder model is down, return an error (no fallback)
-      coder_unavailable: "error_with_explanation"
-      # If the supervisor model is down, skip critique and return raw code
+      executor_unavailable: "error_with_explanation"
       supervisor_unavailable: "skip_critique"
+      planner_unavailable: "skip_to_worker"
+      critic_unavailable: "skip_critique"
       # If RAG is down, generate without context
       rag_unavailable: "generate_without_context"
       # If LSP gateway is down, skip deep analysis (never blocks)

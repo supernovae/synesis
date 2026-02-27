@@ -96,6 +96,7 @@ class MilvusWriter:
             field_name="embedding",
             index_params={"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 128}},
         )
+        self.client.load_collection(collection_name=collection_name)
         logger.info(f"Created collection '{collection_name}'")
 
     def existing_chunk_ids(self, collection_name: str) -> set[str]:
@@ -106,6 +107,9 @@ class MilvusWriter:
         """
         if collection_name not in self.client.list_collections():
             return set()
+
+        # Milvus requires collection to be loaded before querying (e.g. after restart)
+        self.client.load_collection(collection_name=collection_name)
 
         ids: set[str] = set()
         batch_size = 5000

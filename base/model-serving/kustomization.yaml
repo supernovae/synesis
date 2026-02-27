@@ -10,3 +10,10 @@ labels:
 
 resources:
   - namespace.yaml
+  # ODH URI connection for executor (hf://); supervisor/critic use OCI catalog
+  - connection-executor.yaml
+  # ServingRuntimes: vLLM CUDA for all three (supervisor/critic = catalog Qwen3-8B-FP8)
+  - serving-runtime-executor.yaml
+  - inference-service-supervisor.yaml
+  - inference-service-executor.yaml
+  - inference-service-critic.yaml

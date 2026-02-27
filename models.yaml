@@ -2,72 +2,72 @@
 # Synesis Model Registry -- Reference for OpenShift AI 3 Deployments
 # ============================================================================
 #
-# Model recommendations for Synesis. Deploy via OpenShift AI 3 dashboard
-# (Deploy model wizard) or InferenceService YAML. Update planner/supervisor
-# config to point at your deployed endpoints.
+# Four-model JCS pipeline. Deploy via OpenShift AI 3 dashboard (Deploy model
+# wizard) or InferenceService YAML. Name deployments synesis-supervisor,
+# synesis-planner, synesis-executor, synesis-critic to match default config.
 #
-# Coder and supervisor models: deploy in synesis-models project, name them
-# synesis-coder and synesis-supervisor to match default config, or patch
-# the config to point at your deployment names.
-#
-# See base/model-serving/README.md for deployment instructions.
+# See base/model-serving/README.md, docs/MODEL_ARCHITECTURE_PROPOSAL.md, docs/WORKFLOW.md.
 # ============================================================================
 
 models:
-  coder:
-    name: "qwen-coder-32b"
-    display_name: "Qwen 2.5 Coder 32B FP8"
-    role: "Code generation (worker node)"
-    huggingface_repo: "BCCard/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic"
-    # Tokenizer from the base (non-quantized) model for best compatibility
-    tokenizer_repo: "Qwen/Qwen2.5-Coder-32B-Instruct"
-    s3_path: "models/Qwen2.5-Coder-32B-Instruct-FP8-Dynamic/"
+  # -------------------------------------------------------------------------
+  # JCS Pipeline (primary models)
+  # -------------------------------------------------------------------------
+  qwen3_supervisor:
+    name: "synesis-supervisor"
+    display_name: "Qwen3 8B FP8 Supervisor"
+    role: "Supervisor routing"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
     quantization: "fp8"
-    vllm_args:
-      - "--dtype=float16"
-      - "--quantization=fp8"
-      - "--max-model-len=16384"
-      - "--gpu-memory-utilization=0.90"
-      - "--enforce-eager"
     requires_gpu: true
-    min_vram_gb: 34
-    context_length: 16384
+    min_vram_gb: 8
+    context_length: 32768
 
-  supervisor:
-    name: "mistral-nemo-12b"
-    display_name: "Mistral Nemo 12B FP8 Supervisor"
-    role: "Supervisor routing and Safety-II critic"
-    huggingface_repo: "RedHatAI/Mistral-Nemo-Instruct-2407-FP8"
-    tokenizer_repo: "RedHatAI/Mistral-Nemo-Instruct-2407-FP8"
-    s3_path: "models/Mistral-Nemo-Instruct-2407-FP8/"
+  planner:
+    name: "synesis-planner"
+    display_name: "Qwen3 8B FP8 Planner"
+    role: "Task planning and breakdown (shares model with Supervisor)"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
     quantization: "fp8"
-    license: "Apache-2.0"
-    vllm_args:
-      - "--dtype=float16"
-      - "--quantization=fp8"
-      - "--max-model-len=8192"
-    requires_gpu: false
-    min_vram_gb: 0
-    context_length: 8192
+    requires_gpu: true
+    min_vram_gb: 8
+    context_length: 32768
 
+  executor:
+    name: "synesis-executor"
+    display_name: "Qwen3 Coder Next (Executor)"
+    role: "Agentic code generation, tool calling, long context"
+    huggingface_repo: "Qwen/Qwen3-Coder-Next"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 40
+    context_length: 65536
+
+  critic:
+    name: "synesis-critic"
+    display_name: "Qwen3 8B FP8 Critic"
+    role: "Safety-II what-if analysis, evidence-based review"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 8
+    context_length: 32768
+
+  # -------------------------------------------------------------------------
+  # Supporting services
+  # -------------------------------------------------------------------------
   embedder:
     name: "all-MiniLM-L6-v2"
     display_name: "MiniLM L6 v2 Embedder"
     role: "RAG embedding generation"
     huggingface_repo: "sentence-transformers/all-MiniLM-L6-v2"
     tokenizer_repo: "sentence-transformers/all-MiniLM-L6-v2"
-    s3_path: "models/all-MiniLM-L6-v2/"
     quantization: "none"
     requires_gpu: false
     embedding_dim: 384
 
-# S3 storage configuration
-# STS/IRSA is the default -- pods get credentials from IAM role annotations
-# on the service account. Set endpoint only if using MinIO or non-AWS S3.
-storage:
-  bucket: "byron-ai-4b0263a0-rhoai-data"
-  endpoint: ""
-  region: "us-east-1"
+# OpenShift AI 3: deploy from Model Hub, HuggingFace (hf://), or OCI.
+# No local download or S3 upload required.
 
 # Files that reference model identifiers
 references:

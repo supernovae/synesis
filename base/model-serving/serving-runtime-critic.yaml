@@ -1,0 +1,52 @@
+# ServingRuntime for synesis-critic — from vllm-spyre-x86-runtime-template. Port 8000.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: synesis-critic
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    opendatahub.io/apiProtocol: REST
+    opendatahub.io/recommended-accelerators: '["ibm.com/spyre_pf"]'
+    opendatahub.io/serving-runtime-scope: global
+    opendatahub.io/template-name: vllm-spyre-x86-runtime-template
+    openshift.io/display-name: Synesis Critic (vLLM Spyre x86)
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: vllm
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+  containers:
+    - args:
+        - --model=/mnt/models
+        - --port=8000
+        - --served-model-name={{.Name}}
+        - --dtype=float16
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+        - name: FLEX_COMPUTE
+          value: SENTIENT
+        - name: FLEX_DEVICE
+          value: PF
+        - name: TOKENIZERS_PARALLELISM
+          value: "false"
+        - name: DTLOG_LEVEL
+          value: error
+        - name: TORCH_SENDNN_LOG
+          value: CRITICAL
+        - name: VLLM_SPYRE_WARMUP_BATCH_SIZES
+          value: "4"
+        - name: VLLM_SPYRE_WARMUP_PROMPT_LENS
+          value: "1024"
+        - name: VLLM_SPYRE_WARMUP_NEW_TOKENS
+          value: "256"
+      image: registry.redhat.io/rhaiis/vllm-spyre-rhel9@sha256:80ae3e435a5be2c1f117f36599103ab05357917dd6e37f0df6613cb3ac2c13ea
+      name: kserve-container
+      ports:
+        - containerPort: 8000
+          protocol: TCP
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: vLLM

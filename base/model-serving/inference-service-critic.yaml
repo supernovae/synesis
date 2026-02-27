@@ -1,0 +1,54 @@
+# Synesis Critic — RedHatAI/Qwen3-8B-FP8-dynamic from HuggingFace, vLLM CUDA, 1 GPU, port 8080
+# OCI registry (rhelai1) has intermittent sigstore 500 errors; hf:// bypasses that.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: synesis-critic
+  labels:
+    app.kubernetes.io/name: synesis-critic
+    app.kubernetes.io/component: model
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/genai-asset: "true"
+  annotations:
+    opendatahub.io/genai-use-case: natural language processing
+    opendatahub.io/model-type: generative
+    openshift.io/description: Synesis Critic (Qwen3-8B-FP8-dynamic)
+    openshift.io/display-name: Synesis Critic (Qwen3-8B-FP8-dynamic)
+    security.opendatahub.io/enable-auth: "false"
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    automountServiceAccountToken: false
+    deploymentStrategy:
+      type: RollingUpdate
+    maxReplicas: 1
+    minReplicas: 1
+    model:
+      runtime: synesis-executor
+      modelFormat:
+        name: vLLM
+      name: ""
+      storageUri: hf://RedHatAI/Qwen3-8B-FP8-dynamic
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: synesis-hf-token
+              key: HF_TOKEN
+              optional: true
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+          nvidia.com/gpu: "1"
+        requests:
+          cpu: "1"
+          memory: 4Gi
+          nvidia.com/gpu: "1"
+    nodeSelector:
+      nvidia.com/gpu.product: NVIDIA-A10G
+    tolerations:
+      - effect: NoSchedule
+        key: nvidia.com/gpu
+        operator: Equal
+        value: "true"

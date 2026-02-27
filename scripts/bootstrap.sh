@@ -6,28 +6,36 @@ set -euo pipefail
 # Prepares an OpenShift cluster for Synesis deployment.
 # Requires: RHOAI operator + NVIDIA GPU Operator already installed.
 #
-# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds]
-#   --ghcr-creds     Prompt for GitHub credentials to create GHCR pull secrets (for private images)
+# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]
+#   --ghcr-creds     Prompt for GitHub credentials to create GHCR pull secrets (private images)
 #   --skip-ghcr-creds  Skip GHCR pull secret setup (use when images are public)
+#   --hf-token       Prompt for HuggingFace token (avoids throttling, enables private models)
+#   --github-token   Create synesis-github-token in synesis-rag (RAG indexer jobs need this for GitHub API)
 
 FORCE=false
 GHCR_CREDS=false
 SKIP_GHCR_CREDS=false
+HF_TOKEN=false
+GITHUB_TOKEN_FLAG=false
 
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=true ;;
         --ghcr-creds) GHCR_CREDS=true ;;
         --skip-ghcr-creds) SKIP_GHCR_CREDS=true ;;
+        --hf-token) HF_TOKEN=true ;;
+        --github-token) GITHUB_TOKEN_FLAG=true ;;
         --help|-h)
-            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds]"
+            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]"
             echo ""
             echo "Prepares an OpenShift cluster for Synesis deployment."
             echo "  --force           Continue even if RHOAI/GPU checks fail"
             echo "  --ghcr-creds      Prompt for GitHub user/token to create GHCR pull secrets (private images)"
             echo "  --skip-ghcr-creds Skip GHCR pull secret setup (default when not prompting)"
+            echo "  --hf-token        Prompt for HuggingFace token (model downloads, avoids throttling)"
+            echo "  --github-token    Create synesis-github-token in synesis-rag (RAG indexer jobs)"
             echo ""
-            echo "For non-interactive use, set GITHUB_USERNAME and GITHUB_TOKEN env vars."
+            echo "For non-interactive use: GITHUB_USERNAME, GITHUB_TOKEN, HUGGINGFACE_TOKEN env vars."
             exit 0
             ;;
         *)
@@ -324,6 +332,62 @@ configure_ghcr_pull_secrets() {
         fi
     done
     log "  GHCR pull secrets configured (ghcr.io)"
+
+    # Also create synesis-github-token in synesis-rag (RAG indexer jobs use this for GitHub API)
+    configure_github_token_rag "$gh_token"
+}
+
+# ---------------------------------------------------------------------------
+# GitHub token for RAG indexer jobs (synesis-rag)
+#
+# The code indexer (synesis-index-code) needs GITHUB_TOKEN for cloning repos
+# and fetching PR metadata. Stored as synesis-github-token with key "token".
+# Jobs expect: secretKeyRef name=synesis-github-token key=token
+# ---------------------------------------------------------------------------
+configure_github_token_rag() {
+    local gh_token="${1:-${GITHUB_TOKEN:-}}"
+
+    if [[ -z "$gh_token" ]]; then
+        return 0
+    fi
+
+    oc create namespace synesis-rag 2>/dev/null || true
+    oc create secret generic synesis-github-token \
+        --from-literal=token="$gh_token" \
+        -n synesis-rag \
+        --dry-run=client -o yaml | oc apply -f -
+    log "  GitHub token stored in synesis-rag/synesis-github-token (RAG indexer)"
+}
+
+# ---------------------------------------------------------------------------
+# HuggingFace token for model deployments
+#
+# KServe/ODH uses HF_TOKEN when pulling models from HuggingFace (hf://).
+# Prevents throttling and enables private models. Stored in synesis-models.
+# ---------------------------------------------------------------------------
+configure_hf_token() {
+    local hf_token="${HUGGINGFACE_TOKEN:-}"
+
+    if [[ "$HF_TOKEN" == "true" ]] && [[ -z "$hf_token" ]]; then
+        if [[ -t 0 ]]; then
+            log "HuggingFace token (avoids throttling, enables private models)"
+            read -rsp "  HuggingFace token (optional, press Enter to skip): " hf_token && echo ""
+        else
+            warn "Cannot prompt (non-interactive). Set HUGGINGFACE_TOKEN to provide HF token."
+            return 0
+        fi
+    fi
+
+    if [[ -z "$hf_token" ]]; then
+        return 0
+    fi
+
+    oc create namespace synesis-models 2>/dev/null || true
+    oc create secret generic synesis-hf-token \
+        --from-literal=HF_TOKEN="$hf_token" \
+        -n synesis-models \
+        --dry-run=client -o yaml | oc apply -f -
+    log "  HuggingFace token stored in synesis-models/synesis-hf-token"
 }
 
 main() {
@@ -353,12 +417,41 @@ main() {
     fi
 
     log ""
+    log "--- GitHub Token (RAG indexer jobs) ---"
+    if [[ "$GITHUB_TOKEN_FLAG" == "true" ]]; then
+        local gh_token="${GITHUB_TOKEN:-}"
+        if [[ -z "$gh_token" ]] && [[ -t 0 ]]; then
+            log "GitHub token for RAG indexer (clone repos, fetch PR metadata)"
+            read -rsp "  GitHub token (or PAT): " gh_token && echo ""
+        fi
+        if [[ -n "$gh_token" ]]; then
+            configure_github_token_rag "$gh_token"
+        else
+            warn "No token provided. Set GITHUB_TOKEN or run with --ghcr-creds (same token works for both)."
+        fi
+    elif [[ -n "${GITHUB_TOKEN:-}" ]] && oc get namespace synesis-rag &>/dev/null; then
+        # If GITHUB_TOKEN is set (e.g. from --ghcr-creds), ensure RAG secret exists
+        configure_github_token_rag || true
+    else
+        log "  Skipped (use --github-token to create, or --ghcr-creds which also creates it)"
+    fi
+
+    log ""
+    log "--- HuggingFace Token (model downloads) ---"
+    if [[ "$HF_TOKEN" == "true" ]] || [[ -n "${HUGGINGFACE_TOKEN:-}" ]]; then
+        configure_hf_token || true
+    else
+        log "  Skipped (use --hf-token to prompt, or set HUGGINGFACE_TOKEN)"
+        log "  Recommended to avoid rate limiting when deploy.sh deploys models from hf://"
+    fi
+
+    log ""
     log "=== Bootstrap complete ==="
     log ""
     log "Next steps:"
-    log "  1. Deploy models via OpenShift AI dashboard (Model Hub or HuggingFace hf://)"
-    log "  2. Update base/gateway/litellm-route.yaml with your cluster domain"
-    log "  3. Run: ./scripts/deploy.sh dev"
+    log "  1. Run: ./scripts/deploy.sh dev (deploys models if kserve Managed)"
+    log "  2. If models fail: ./scripts/list-model-runtimes.sh to check runtime names"
+    log "  3. Update base/gateway/litellm-route.yaml with your cluster domain if needed"
 }
 
 main "$@"
