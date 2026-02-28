@@ -47,6 +47,7 @@ _TRIVIAL_PATTERNS = [
     re.compile(r"\bbasic\s+script\b", re.IGNORECASE),
     re.compile(r"^create\s+a\s+(?:simple\s+)?(?:python\s+)?(?:script|file)\s+that\s+(?:prints?|says)\b", re.IGNORECASE),
     re.compile(r"\bminimal\s+(?:hello|example)\b", re.IGNORECASE),
+    re.compile(r"\b(?:how\s+to\s+)?(?:build|create|write)\s+a\s+(?:simple\s+)?(?:hello\s+world|python)\s+(?:app|script|example)\b", re.IGNORECASE),
 ]
 
 # Complex escalation — only with clear signals

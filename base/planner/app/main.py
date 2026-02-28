@@ -204,8 +204,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     user_messages[-1] = HumanMessage(content=last_user_content)
 
     run_id = str(uuid.uuid4())
+    # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
     initial_state = {
         "messages": user_messages,
+        "task_description": (last_user_content or "").strip()[:500],
+        "last_user_content": (last_user_content or "").strip()[:500],
         "max_iterations": settings.max_iterations,
         "injection_detected": injection_detected,
         "injection_scan_result": injection_scan_result,

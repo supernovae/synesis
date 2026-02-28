@@ -200,6 +200,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 if c and isinstance(c, str) and c.strip():
                     task_desc = c.strip()[:500]
                     break
+            if not task_desc:
+                task_desc = state.get("last_user_content", "").strip()[:500]
         target_lang = state.get("target_language", "python")
         rag_context = state.get("rag_context", [])
         critic_feedback = state.get("critic_feedback", "")
