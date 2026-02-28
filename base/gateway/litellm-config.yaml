@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    # Model endpoints: deploy via OpenShift AI 3, then set api_base to match.
+    # synesis-agent orchestrates Supervisor → Planner → Executor → Critic pipeline.
+    model_list:
+      - model_name: synesis-agent
+        litellm_params:
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Individual models (for direct access; planner calls these internally)
+      - model_name: synesis-supervisor
+        litellm_params:
+          model: openai/synesis-supervisor
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.3
+
+      - model_name: synesis-planner
+        litellm_params:
+          model: openai/synesis-planner
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.2
+
+      - model_name: synesis-executor
+        litellm_params:
+          model: openai/synesis-executor
+          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      - model_name: synesis-critic
+        litellm_params:
+          model: openai/synesis-critic
+          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.1
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 120
+
+    general_settings:
+      master_key: "sk-synesis-change-me"

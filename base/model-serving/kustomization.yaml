@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-models
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  # ODH URI connection for executor (hf://); supervisor/critic use OCI catalog
+  - connection-executor.yaml
+  # ServingRuntimes: executor (MoE, no prefix cache) | supervisor/critic (dense 8B, prefix cache)
+  - serving-runtime-executor.yaml
+  - serving-runtime-supervisor-critic.yaml
+  # Summarizer (0.5B on GPU) — pivot history, Tier 3 manifest; also draft for speculative decoding
+  - serving-runtime-summarizer.yaml
+  - inference-service-supervisor.yaml
+  - inference-service-executor.yaml
+  - inference-service-critic.yaml
+  - inference-service-summarizer.yaml
+  - route-executor.yaml

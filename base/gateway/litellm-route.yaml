@@ -1,0 +1,22 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-api
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/name: litellm-proxy
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
+spec:
+  host: synesis-api.apps.openshiftdemo.dev
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: litellm-proxy
+    weight: 100
+  port:
+    targetPort: http

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Service Status - Synesis Admin{% endblock %}
+{% block content %}
+<h1>Service Status</h1>
+<p style="color: var(--muted); margin-bottom: 1.5rem; font-size: 0.875rem;">
+  Live health check of LLM predictors and supporting services. Useful for debugging "no response" or models competing for resources.
+</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for s in services %}
+        <tr>
+            <td><code>{{ s.name }}</code></td>
+            <td>
+                {% if s.status == "ok" %}
+                <span class="badge badge-resolved">OK</span>
+                {% else %}
+                <span class="badge badge-security">Error</span>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.8rem; color: var(--muted);">
+                {% if s.status_code %}{{ s.status_code }}{% endif %}
+                {% if s.error %}{{ s.error }}{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<p style="margin-top: 1.5rem; font-size: 0.8rem; color: var(--muted);">
+  Auto-refresh not enabled. Reload page to re-check. If executor/supervisor/critic show Error, models may be restarting or overloaded.
+</p>
+{% endblock %}

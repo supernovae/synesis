@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: webui-allow-ingress
+  namespace: synesis-webui
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    - {}
+# Open WebUI needs full egress for:
+#   - LiteLLM gateway (synesis-gateway:4000)
+#   - HuggingFace Hub (embedding model download on first boot)
+#   - Plugin registry, update checks, model avatars
+# The pod still runs as non-root with restricted SCC.

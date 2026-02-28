@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-planner
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-planner
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: planner
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: planner
+          image: synesis-planner:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: SYNESIS_SUPERVISOR_MODEL_URL
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_SUPERVISOR_MODEL_NAME
+              value: "synesis-supervisor"
+            - name: SYNESIS_PLANNER_MODEL_URL
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_PLANNER_MODEL_NAME
+              value: "synesis-supervisor"
+            - name: SYNESIS_EXECUTOR_MODEL_URL
+              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_EXECUTOR_MODEL_NAME
+              value: "synesis-executor"
+            - name: SYNESIS_CRITIC_MODEL_URL
+              value: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_CRITIC_MODEL_NAME
+              value: "synesis-critic"
+            - name: SYNESIS_SUMMARIZER_MODEL_URL
+              value: "http://synesis-summarizer-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_SUMMARIZER_MODEL_NAME
+              value: "synesis-summarizer"
+            - name: SYNESIS_MILVUS_HOST
+              value: "synesis-milvus.synesis-rag.svc.cluster.local"
+            - name: SYNESIS_MILVUS_PORT
+              value: "19530"
+            - name: SYNESIS_EMBEDDER_URL
+              value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+            - name: SYNESIS_RAG_RETRIEVAL_STRATEGY
+              value: "hybrid"
+            - name: SYNESIS_RAG_RERANKER
+              value: "flashrank"
+            - name: SYNESIS_RAG_RERANKER_MODEL
+              value: "ms-marco-MiniLM-L-12-v2"
+            - name: SYNESIS_RAG_BM25_REFRESH_INTERVAL_SECONDS
+              value: "600"
+            - name: SYNESIS_RAG_RRF_K
+              value: "60"
+            - name: SYNESIS_RAG_BGE_RERANKER_URL
+              value: ""
+            - name: SYNESIS_RAG_CODE_COLLECTIONS_ENABLED
+              value: "true"
+            - name: SYNESIS_RAG_MULTI_COLLECTION_MAX
+              value: "3"
+            - name: SYNESIS_RAG_CRITIC_ARCH_ENABLED
+              value: "true"
+            - name: SYNESIS_RAG_LICENSE_COLLECTION_ENABLED
+              value: "true"
+            - name: SYNESIS_RAG_CRITIC_LICENSE_ENABLED
+              value: "true"
+            - name: SYNESIS_MAX_ITERATIONS
+              value: "3"
+            - name: SYNESIS_SANDBOX_ENABLED
+              value: "true"
+            - name: SYNESIS_SANDBOX_NAMESPACE
+              value: "synesis-sandbox"
+            - name: SYNESIS_SANDBOX_IMAGE
+              value: "synesis-sandbox:latest"
+            - name: SYNESIS_SANDBOX_TIMEOUT_SECONDS
+              value: "30"
+            - name: SYNESIS_SANDBOX_CPU_LIMIT
+              value: "2"
+            - name: SYNESIS_SANDBOX_MEMORY_LIMIT
+              value: "1Gi"
+            - name: SYNESIS_SANDBOX_WARM_POOL_ENABLED
+              value: "true"
+            - name: SYNESIS_SANDBOX_WARM_POOL_URL
+              value: "http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080"
+            - name: SYNESIS_FAILURE_STORE_ENABLED
+              value: "true"
+            - name: SYNESIS_FAILFAST_CACHE_MAX_SIZE
+              value: "1000"
+            - name: SYNESIS_FAILFAST_CACHE_TTL_SECONDS
+              value: "86400"
+            - name: SYNESIS_MEMORY_ENABLED
+              value: "true"
+            - name: SYNESIS_MEMORY_MAX_TURNS_PER_USER
+              value: "20"
+            - name: SYNESIS_MEMORY_MAX_USERS
+              value: "5000"
+            - name: SYNESIS_MEMORY_TTL_SECONDS
+              value: "14400"
+            - name: SYNESIS_WEB_SEARCH_ENABLED
+              value: "true"
+            - name: SYNESIS_WEB_SEARCH_URL
+              value: "http://searxng.synesis-search.svc.cluster.local:8080"
+            - name: SYNESIS_WEB_SEARCH_TIMEOUT_SECONDS
+              value: "5"
+            - name: SYNESIS_WEB_SEARCH_MAX_RESULTS
+              value: "5"
+            - name: SYNESIS_WEB_SEARCH_SUPERVISOR_ENABLED
+              value: "true"
+            - name: SYNESIS_WEB_SEARCH_WORKER_ERROR_ENABLED
+              value: "true"
+            - name: SYNESIS_WEB_SEARCH_CRITIC_ENABLED
+              value: "false"
+            - name: SYNESIS_LSP_ENABLED
+              value: "true"
+            - name: SYNESIS_LSP_MODE
+              value: "on_failure"
+            - name: SYNESIS_LSP_GATEWAY_URL
+              value: "http://lsp-gateway.synesis-lsp.svc:8000"
+            - name: SYNESIS_LSP_TIMEOUT_SECONDS
+              value: "30"
+            - name: SYNESIS_LOG_LEVEL
+              value: "info"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5

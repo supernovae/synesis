@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-admin
+  labels:
+    app.kubernetes.io/name: synesis-admin
+    app.kubernetes.io/component: admin
+    app.kubernetes.io/part-of: synesis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: synesis-admin
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http

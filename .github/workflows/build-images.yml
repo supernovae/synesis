@@ -1,0 +1,124 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'base/**/Dockerfile'
+      - 'base/**/requirements.txt'
+      - 'base/**/app/**'
+      - 'base/sandbox/image/**'
+      - 'base/rag/ingestion/**'
+      - '.github/workflows/build-images.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g., v0.1.0). Defaults to sha-<commit>.'
+        required: false
+        type: string
+      images:
+        description: 'Comma-separated list of images to build (empty = all)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/synesis
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: planner
+            dockerfile: base/planner/Dockerfile
+            context: base/planner
+          - name: admin
+            dockerfile: base/admin/Dockerfile
+            context: base/admin
+          - name: lsp-gateway
+            dockerfile: base/lsp/gateway/Dockerfile
+            context: base/lsp/gateway
+          - name: sandbox
+            dockerfile: base/sandbox/image/Dockerfile
+            context: base/sandbox/image
+          - name: bge-reranker
+            dockerfile: base/planner/bge-reranker/Dockerfile
+            context: base/planner/bge-reranker
+          - name: ingestor
+            dockerfile: base/rag/ingestion/Dockerfile
+            context: base/rag/ingestion
+          - name: indexer-code
+            dockerfile: base/rag/indexers/code/Dockerfile
+            context: base/rag
+          - name: indexer-apispec
+            dockerfile: base/rag/indexers/apispec/Dockerfile
+            context: base/rag
+          - name: indexer-architecture
+            dockerfile: base/rag/indexers/architecture/Dockerfile
+            context: base/rag
+          - name: indexer-license
+            dockerfile: base/rag/indexers/license/Dockerfile
+            context: base/rag
+
+    steps:
+      - name: Filter by input
+        id: filter
+        if: inputs.images != ''
+        run: |
+          if ! echo ",${{ inputs.images }}," | grep -qi ",${{ matrix.name }},"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.filter.outputs.skip != 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine tag
+        if: steps.filter.outputs.skip != 'true'
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get build metadata
+        if: steps.filter.outputs.skip != 'true'
+        id: build_meta
+        run: |
+          echo "timestamp=$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ steps.build_meta.outputs.timestamp }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

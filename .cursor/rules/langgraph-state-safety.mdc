@@ -1,0 +1,54 @@
+---
+description: LangGraph state safety — nodes must forward keys downstream needs
+globs: base/planner/app/graph.py,base/planner/app/nodes/*.py,base/planner/app/state.py
+alwaysApply: false
+---
+
+# LangGraph State Safety
+
+We use `StateGraph(dict)`. Merge semantics: nodes return partial updates; keys not returned may be dropped depending on graph construction.
+
+## Rules
+
+1. **Nodes are partial updaters** — Return only the keys you modify or explicitly forward. Never construct a fresh state dict (that wipes everything).
+2. **Forward required keys** — If a downstream node (e.g. Respond) needs `generated_code`, `patch_ops`, `code_explanation`, any node between Worker and Respond must include them in its return. Don't assume keys persist.
+3. **Never overwrite with None** — Returning `"key": None` can clear the value. Omit the key if unchanged, or pass `state.get("key", "")` to forward.
+4. **Early exits** — Early returns (e.g. `if not code: return {...}`) must still forward keys that Respond needs.
+
+## Safe pattern
+
+```python
+# BAD: assumes generated_code persists
+return {"next_node": "critic", "execution_exit_code": 0}
+
+# GOOD: explicitly forward keys Respond needs
+return {
+    "next_node": "critic",
+    "execution_exit_code": 0,
+    "generated_code": state.get("generated_code", ""),
+    "code_explanation": state.get("code_explanation", ""),
+    "patch_ops": state.get("patch_ops", []) or [],
+}
+```
+
+## Key flow
+
+Worker → Gate → [LSP?] → Sandbox → Critic → Respond. Every node between Worker and Respond must forward `generated_code`, `code_explanation`, `patch_ops` in all return paths: Gate, LSP (when Gate→LSP→Sandbox), Sandbox, Critic. Also: Context Curator (revision path), Supervisor (revision path), and `with_timeout` wrapper (timeout fallback).
+
+## Routing signals
+
+Nodes set `next_node` (or other routing signals) to steer conditional edges. **If a node sets a routing signal, the router for that node’s outgoing edge MUST read it.**
+
+| Node        | Sets `next_node` | Router              | Must check? |
+|-------------|------------------|---------------------|-------------|
+| Supervisor  | planner, worker, respond | route_after_supervisor      | ✓ (reads first) |
+| Planner     | respond, worker  | route_after_planner  | ✓ (reads plan_pending_approval) |
+| Patch Gate  | sandbox, lsp_analyzer | route_after_patch_integrity_gate | ✓ (uses next_node) |
+| Sandbox     | critic, worker   | route_after_sandbox  | ✓ (check `next_node == "critic"` before other logic) |
+| Critic      | respond, supervisor | route_after_critic | ✓ (uses critic_approved, iteration, need_more_evidence) |
+
+**Checklist when adding/changing routing:** When a node starts setting `next_node` (or a new routing field), add a corresponding check at the *top* of the router for that node’s outgoing edge. Do not rely on downstream logic to “figure it out.”
+
+## Typed schema (GraphState)
+
+The graph uses `StateGraph(GraphState)` where `GraphState` is a `TypedDict` in `state.py`. This provides schema documentation and IDE support. Keys are kept in sync with `SynesisState` (Pydantic).

@@ -1,0 +1,78 @@
+# ============================================================================
+# Synesis Model Registry -- Reference for OpenShift AI 3 Deployments
+# ============================================================================
+#
+# Four-model JCS pipeline. Deploy via OpenShift AI 3 dashboard (Deploy model
+# wizard) or InferenceService YAML. Name deployments synesis-supervisor,
+# synesis-planner, synesis-executor, synesis-critic to match default config.
+#
+# See base/model-serving/README.md, docs/MODEL_ARCHITECTURE_PROPOSAL.md, docs/WORKFLOW.md.
+# ============================================================================
+
+models:
+  # -------------------------------------------------------------------------
+  # JCS Pipeline (primary models)
+  # -------------------------------------------------------------------------
+  qwen3_supervisor:
+    name: "synesis-supervisor"
+    display_name: "Qwen3 8B FP8 Supervisor"
+    role: "Supervisor routing"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 8
+    context_length: 32768
+
+  planner:
+    name: "synesis-planner"
+    display_name: "Qwen3 8B FP8 Planner"
+    role: "Task planning and breakdown (shares model with Supervisor)"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 8
+    context_length: 32768
+
+  executor:
+    name: "synesis-executor"
+    display_name: "Qwen3 Coder 30B FP8 (Executor)"
+    role: "Agentic code generation, tool calling, long context"
+    huggingface_repo: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 32
+    context_length: 65536
+
+  critic:
+    name: "synesis-critic"
+    display_name: "Qwen3 8B FP8 Critic"
+    role: "Safety-II what-if analysis, evidence-based review"
+    huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
+    quantization: "fp8"
+    requires_gpu: true
+    min_vram_gb: 8
+    context_length: 32768
+
+  # -------------------------------------------------------------------------
+  # Supporting services
+  # -------------------------------------------------------------------------
+  embedder:
+    name: "all-MiniLM-L6-v2"
+    display_name: "MiniLM L6 v2 Embedder"
+    role: "RAG embedding generation"
+    huggingface_repo: "sentence-transformers/all-MiniLM-L6-v2"
+    tokenizer_repo: "sentence-transformers/all-MiniLM-L6-v2"
+    quantization: "none"
+    requires_gpu: false
+    embedding_dim: 384
+
+# OpenShift AI 3: deploy from Model Hub, HuggingFace (hf://), or OCI.
+# No local download or S3 upload required.
+
+# Files that reference model identifiers
+references:
+  - base/gateway/litellm-config.yaml
+  - base/planner/app/config.py
+  - base/planner/deployment.yaml
+  - base/rag/embedder/deployment.yaml
+  - base/supervisor/configmap.yaml

@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-planner
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-health-monitor
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-health-monitor
+  endpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-gateway
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm-proxy
+  endpoints:
+    - port: http
+      interval: 15s
+      path: /metrics

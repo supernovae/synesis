@@ -1,0 +1,23 @@
+# Public HTTPS route for admin dashboard (failures, stats, gaps).
+# Override spec.host via overlay to match your cluster ingress domain.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-admin
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-admin
+    app.kubernetes.io/part-of: synesis
+  annotations:
+    haproxy.router.openshift.io/timeout: 60s
+spec:
+  host: synesis-admin.apps.openshiftdemo.dev
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: synesis-admin
+    weight: 100
+  port:
+    targetPort: http

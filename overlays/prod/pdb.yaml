@@ -1,0 +1,25 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: synesis-planner-pdb
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: litellm-proxy-pdb
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: litellm-proxy

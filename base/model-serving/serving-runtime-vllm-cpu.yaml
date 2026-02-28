@@ -1,0 +1,43 @@
+# Optional: vLLM CPU ServingRuntime for x86 (no GPU required)
+# Apply this if "waiting for runtime to become available" — RHOAI may not pre-install vllm-cpu on x86.
+#
+#   oc apply -f base/model-serving/serving-runtime-vllm-cpu.yaml -n synesis-models
+#
+# Source: https://github.com/rh-aiservices-bu/llm-on-openshift (vll-runtime-cpu.yaml)
+# Image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9
+# Model formats: FP32, BF16 (FP16 auto-converted to BF16)
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: vllm-cpu
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    openshift.io/display-name: vLLM CPU (x86, no GPU)
+    opendatahub.io/recommended-accelerators: '[]'
+spec:
+  builtInAdapter:
+    modelLoadingTimeoutMillis: 180000
+  containers:
+    - args:
+        - --model
+        - /mnt/models/
+        - --download-dir
+        - /models-cache
+        - --port
+        - "8080"
+        - --max-model-len
+        - "16384"
+      image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9:0.3
+      name: kserve-container
+      ports:
+        - containerPort: 8080
+          name: http1
+          protocol: TCP
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: true
+      name: pytorch

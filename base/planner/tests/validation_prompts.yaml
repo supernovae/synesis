@@ -1,0 +1,113 @@
+# Canonical prompts for intent-flow validation.
+#
+# Run: cd base/planner && pip install -r requirements.txt -r requirements-test.txt && pytest tests/test_intent_validation.py -v
+#
+# EntryClassifier is deterministic — no LLM needed. These assert expected
+# task_size, interaction_mode, routing, etc. Use for regression testing and
+# to validate flow behavior as the system evolves.
+#
+# Future: Integration tests (full graph with model proxy) can use the same
+# prompts and assert on final response shape (e.g. Learner's Corner present).
+
+prompts:
+  # --- Trivial (fast path, bypass Supervisor) ---
+  - prompt: "hello world in python"
+    expected:
+      task_size: trivial
+      bypass_supervisor: true
+      task_is_trivial: true
+      rag_mode: disabled
+      interaction_mode: do
+      target_language: python
+
+  - prompt: "print hello"
+    expected:
+      task_size: trivial
+      bypass_supervisor: true
+      interaction_mode: do
+
+  - prompt: "write a basic unit test for this function"
+    expected:
+      task_size: trivial
+      bypass_supervisor: true
+      interaction_mode: do
+
+  - prompt: "parse this json"
+    expected:
+      task_size: trivial
+      bypass_supervisor: true
+
+  - prompt: "simple fizzbuzz"
+    expected:
+      task_size: trivial
+      bypass_supervisor: true
+
+  # --- Small (default, Supervisor runs) ---
+  - prompt: "write a script that fetches data from an API and saves to csv"
+    expected:
+      task_size: small
+      bypass_supervisor: false
+      interaction_mode: do
+
+  - prompt: "add error handling to this function"
+    expected:
+      task_size: small
+      bypass_supervisor: false
+
+  # --- Complex (escalate, plan approval) ---
+  - prompt: "design the architecture for our microservices migration"
+    expected:
+      task_size: complex
+      bypass_supervisor: false
+      plan_required: true
+
+  - prompt: "refactor across the whole repo"
+    expected:
+      task_size: complex
+
+  - prompt: "connect to AWS and sync credentials"
+    expected:
+      task_size: complex
+
+  # --- Educational / Mentor mode ---
+  - prompt: "explain how this hello world works"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "how does it work?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "why did you use print() instead of sys.stdout?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "I'm learning Python, can you walk me through this?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "teach me how context managers work"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "what does this code do?"
+    expected:
+      interaction_mode: teach
+
+  # --- Language detection ---
+  - prompt: "hello world"
+    expected:
+      target_language: python  # default when unspecified
+
+  - prompt: "write a go script that prints hi"
+    expected:
+      target_language: go
+
+  - prompt: "create a rust program"
+    expected:
+      target_language: rust
+
+  # --- UI helper (should be filtered in main.py; EntryClassifier double-check) ---
+  - prompt: "suggest 3-5 follow-up questions"
+    expected:
+      message_origin: ui_helper

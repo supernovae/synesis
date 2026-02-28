@@ -1,0 +1,160 @@
+repositories:
+  python:
+    - repo: "tiangolo/fastapi"
+      paths: ["fastapi/"]
+      description: "Modern async web framework"
+    - repo: "django/django"
+      paths: ["django/"]
+      description: "High-level Python web framework"
+    - repo: "psf/requests"
+      paths: ["src/requests/"]
+      description: "HTTP library for Python"
+    - repo: "pytest-dev/pytest"
+      paths: ["src/pytest/", "src/_pytest/"]
+      description: "Python testing framework"
+    - repo: "sqlalchemy/sqlalchemy"
+      paths: ["lib/sqlalchemy/"]
+      description: "SQL toolkit and ORM"
+    - repo: "apache/airflow"
+      paths: ["airflow/"]
+      description: "Workflow orchestration platform"
+    - repo: "celery/celery"
+      paths: ["celery/"]
+      description: "Distributed task queue"
+    - repo: "pydantic/pydantic"
+      paths: ["pydantic/"]
+      description: "Data validation using Python type annotations"
+    - repo: "psf/black"
+      paths: ["src/black/"]
+      description: "Uncompromising Python code formatter"
+    - repo: "home-assistant/core"
+      paths: ["homeassistant/"]
+      description: "Home automation platform"
+
+  go:
+    - repo: "kubernetes/kubernetes"
+      paths: ["pkg/", "staging/src/k8s.io/client-go/"]
+      description: "Container orchestration platform"
+    - repo: "prometheus/prometheus"
+      paths: ["pkg/", "model/"]
+      description: "Monitoring and alerting toolkit"
+    - repo: "etcd-io/etcd"
+      paths: ["server/", "client/"]
+      description: "Distributed reliable key-value store"
+    - repo: "traefik/traefik"
+      paths: ["pkg/"]
+      description: "Cloud-native application proxy"
+    - repo: "gohugoio/hugo"
+      paths: ["hugolib/", "tpl/"]
+      description: "Static site generator"
+    - repo: "hashicorp/terraform"
+      paths: ["internal/"]
+      description: "Infrastructure as Code"
+    - repo: "gin-gonic/gin"
+      paths: ["."]
+      description: "HTTP web framework"
+    - repo: "go-gorm/gorm"
+      paths: ["."]
+      description: "ORM library for Go"
+    - repo: "moby/moby"
+      paths: ["daemon/", "client/"]
+      description: "Container engine"
+    - repo: "ethereum/go-ethereum"
+      paths: ["core/", "eth/"]
+      description: "Go implementation of Ethereum"
+
+  rust:
+    - repo: "tokio-rs/tokio"
+      paths: ["tokio/src/"]
+      description: "Async runtime for Rust"
+    - repo: "rust-analyzer/rust-analyzer"
+      paths: ["crates/"]
+      description: "Rust language server"
+    - repo: "actix/actix-web"
+      paths: ["actix-web/src/"]
+      description: "Powerful web framework"
+    - repo: "rwf2/Rocket"
+      paths: ["core/lib/src/"]
+      description: "Web framework for Rust"
+    - repo: "diesel-rs/diesel"
+      paths: ["diesel/src/"]
+      description: "Safe, extensible ORM and query builder"
+    - repo: "BurntSushi/ripgrep"
+      paths: ["crates/"]
+      description: "Line-oriented search tool"
+    - repo: "rust-lang/cargo"
+      paths: ["src/cargo/"]
+      description: "Rust package manager"
+    - repo: "pola-rs/polars"
+      paths: ["crates/polars-core/src/"]
+      description: "Fast DataFrame library"
+    - repo: "firecracker-microvm/firecracker"
+      paths: ["src/"]
+      description: "Lightweight virtualization"
+    - repo: "tauri-apps/tauri"
+      paths: ["crates/tauri/src/"]
+      description: "Desktop app framework"
+
+  typescript:
+    - repo: "microsoft/vscode"
+      paths: ["src/"]
+      description: "Code editor"
+    - repo: "vercel/next.js"
+      paths: ["packages/next/src/"]
+      description: "React framework"
+    - repo: "nestjs/nest"
+      paths: ["packages/"]
+      description: "Progressive Node.js framework"
+    - repo: "reduxjs/redux"
+      paths: ["src/"]
+      description: "Predictable state container"
+    - repo: "prisma/prisma"
+      paths: ["packages/client/src/"]
+      description: "Next-gen Node.js ORM"
+    - repo: "axios/axios"
+      paths: ["lib/"]
+      description: "Promise-based HTTP client"
+    - repo: "tailwindlabs/tailwindcss"
+      paths: ["src/"]
+      description: "Utility-first CSS framework"
+    - repo: "d3/d3"
+      paths: ["src/"]
+      description: "Data visualization library"
+    - repo: "expressjs/express"
+      paths: ["lib/"]
+      description: "Minimal web framework for Node.js"
+    - repo: "electron/electron"
+      paths: ["lib/"]
+      description: "Cross-platform desktop apps"
+
+  java:
+    - repo: "spring-projects/spring-boot"
+      paths: ["spring-boot-project/spring-boot/src/main/java/"]
+      description: "Production-ready Spring applications"
+    - repo: "junit-team/junit5"
+      paths: ["junit-jupiter-api/src/main/java/"]
+      description: "Testing framework for Java"
+    - repo: "google/guava"
+      paths: ["guava/src/com/google/common/"]
+      description: "Google core libraries for Java"
+    - repo: "elastic/elasticsearch"
+      paths: ["server/src/main/java/org/elasticsearch/"]
+      description: "Distributed search and analytics engine"
+    - repo: "apache/kafka"
+      paths: ["clients/src/main/java/org/apache/kafka/"]
+      description: "Distributed event streaming platform"
+    - repo: "jenkinsci/jenkins"
+      paths: ["core/src/main/java/"]
+      description: "Automation server"
+    - repo: "apache/maven"
+      paths: ["maven-core/src/main/java/"]
+      description: "Project management and build tool"
+    - repo: "mockito/mockito"
+      paths: ["src/main/java/"]
+      description: "Mocking framework for unit tests"
+    - repo: "apache/spark"
+      paths: ["core/src/main/java/", "sql/core/src/main/java/"]
+      description: "Unified analytics engine"
+    - repo: "apache/hadoop"
+      paths: ["hadoop-common-project/hadoop-common/src/main/java/"]
+      description: "Distributed computing framework"

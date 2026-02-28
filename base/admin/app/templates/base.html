@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Synesis Admin{% endblock %}</title>
+    <style>
+        :root {
+            --bg: #0f1117; --surface: #1a1d28; --border: #2d3041;
+            --text: #e1e4eb; --muted: #8b8fa3; --accent: #6366f1;
+            --red: #ef4444; --green: #22c55e; --yellow: #eab308;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+        nav { background: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; gap: 2rem; align-items: center; }
+        nav a { color: var(--muted); text-decoration: none; font-size: 0.875rem; transition: color 0.2s; }
+        nav a:hover, nav a.active { color: var(--accent); }
+        nav .brand { color: var(--text); font-weight: 700; font-size: 1.1rem; letter-spacing: -0.02em; }
+        main { max-width: 1200px; margin: 2rem auto; padding: 0 2rem; }
+        h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 1.5rem; }
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1.25rem; margin-bottom: 1rem; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat { text-align: center; }
+        .stat .value { font-size: 2rem; font-weight: 700; color: var(--accent); }
+        .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.875rem; }
+        th { color: var(--muted); font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        tr:hover { background: rgba(99, 102, 241, 0.05); }
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; }
+        .badge-lint { background: rgba(234, 179, 8, 0.15); color: var(--yellow); }
+        .badge-security { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+        .badge-runtime { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+        .badge-timeout { background: rgba(139, 143, 163, 0.15); color: var(--muted); }
+        .badge-resolved { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+        pre { background: var(--bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 1rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.5; }
+        code { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+        a.link { color: var(--accent); text-decoration: none; }
+        a.link:hover { text-decoration: underline; }
+        .filters { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; align-items: center; }
+        .filters select, .filters input { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; }
+        .filters button { background: var(--accent); color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; }
+        .empty { color: var(--muted); text-align: center; padding: 3rem; }
+        .pagination { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1.5rem; }
+        .pagination a { color: var(--accent); text-decoration: none; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.875rem; }
+        .pagination a:hover { background: var(--surface); }
+    </style>
+</head>
+<body>
+    <nav>
+        <span class="brand">Synesis</span>
+        <a href="/admin/status">Status</a>
+        <a href="/admin/failures/stats">Stats</a>
+        <a href="/admin/failures">Failures</a>
+        <a href="/admin/failures/gaps">Gaps</a>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

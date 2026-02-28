@@ -1,0 +1,15 @@
+# ODH URI connection for HuggingFace model — required by dashboard.
+# Matches format from: oc get secret -n synesis-models -l opendatahub.io/dashboard
+apiVersion: v1
+kind: Secret
+metadata:
+  name: synesis-supervisor
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    opendatahub.io/connection-type-protocol: uri
+    opendatahub.io/connection-type-ref: uri-v1
+    openshift.io/display-name: Synesis Supervisor (Qwen3-14B)
+type: Opaque
+stringData:
+  URI: "hf://Qwen/Qwen3-14B"

@@ -1,0 +1,25 @@
+---
+description: Enforces that model references stay in sync with models.yaml
+alwaysApply: true
+---
+
+# Model Alignment Rule
+
+`models.yaml` is the **reference** for recommended Synesis models. Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML), not by Synesis manifests.
+
+## When modifying model references:
+
+1. **Update `models.yaml`** with recommended HuggingFace repos and metadata
+2. **Update config files** that point at deployed model endpoints:
+   - `base/gateway/litellm-config.yaml` — `api_base` for synesis-supervisor, synesis-planner, synesis-executor, synesis-critic
+   - `base/planner/app/config.py` — default `supervisor_model_url`, `planner_model_url`, `executor_model_url`, `critic_model_url`
+   - `base/planner/deployment.yaml` — env vars `SYNESIS_SUPERVISOR_MODEL_URL`, `SYNESIS_PLANNER_MODEL_URL`, etc.
+3. **Remind the user** to deploy models via OpenShift AI 3 and configure endpoints if deployment names differ from defaults (`synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`)
+
+## Service URL pattern
+
+`http://<inference-service-name>-predictor.<namespace>.svc.cluster.local:8080/v1`
+
+## vLLM config alignment
+
+When executor/supervisor/critic fail to start or OOM: check [vLLM Recipes](https://docs.vllm.ai/projects/recipes/en/latest/) and `docs/VLLM_RECIPES.md` for model-specific args (tensor-parallel-size, max-model-len, tool-call-parser, etc.).
