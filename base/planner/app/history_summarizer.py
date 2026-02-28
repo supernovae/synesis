@@ -25,7 +25,7 @@ _summarizer_llm: Any = "__unset__"
 def _get_summarizer_llm():
     """Lazy-init summarizer LLM. Returns None if URL not configured or init failed."""
     global _summarizer_llm
-    from ..url_utils import ensure_url_protocol
+    from .url_utils import ensure_url_protocol
 
     url = ensure_url_protocol(getattr(settings, "summarizer_model_url", "") or "")
     if not url or not url.strip():
