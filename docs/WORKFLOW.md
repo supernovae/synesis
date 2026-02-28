@@ -10,53 +10,97 @@ This document describes the full LangGraph workflow: target design, nodes, routi
 
 ---
 
+## Mind Map: How We Solve These Problems
+
+| Problem | Solution | Where |
+|---------|----------|-------|
+| "I need more info…" on hello world | EntryClassifier: trivial → bypass Supervisor, go straight to Worker | `entry_classifier.py`, `route_after_entry_classifier` |
+| Stern, interrogating UX | Deterministic first: regex + rules classify before any LLM. Supervisor executes policy. | EntryClassifier, clarification_budget |
+| Rigid defaults (pytest, Python 3.11) | DefaultsPolicy: code constants + YAML overrides. Tune without editing prompts. | `defaults_policy.py`, `defaults.yaml.example` |
+| Plan approval on trivial tasks | plan_required from EntryClassifier/DefaultsPolicy. trivial/small → skip. | `planner_node.py`, `entry_classifier.py` |
+| UI helper prompts (follow-ups, title gen) leaking into coding flow | main.py filter + EntryClassifier double-check. Route to Respond. | `message_filter.py`, `route_after_entry_classifier` |
+| RAG poisoning trivial tasks | rag_mode=disabled for trivial. Context Curator uses empty RAG. | `context_curator.py`, `supervisor.py` |
+| Worker rarely asks needs_input on trivial | Trivial chunk in Context Curator: "NEVER set needs_input". Worker prompt priority. | `context_curator.py`, `worker.py` |
+| Small tasks feel robotic | Assume simple. clarification_budget=1. "If you prefer unittest…" in Respond. | `respond_node`, `graph.py` |
+| Complex tasks need planning | task_size=complex → plan_required, clarification_budget=2. Supervisor can ask. | EntryClassifier, Supervisor |
+| "How does it work?" / "Explain" / "I'm learning" | Educational mode: interaction_mode=teach. Worker produces Learner's Corner (pattern, why, resilience, trade_off). | EntryClassifier, Context Curator, Worker, Respond |
+
+**Flow summary:** Request → EntryClassifier (deterministic) → trivial fast path OR Supervisor (policy) → context curator → worker → gate → sandbox → critic → respond.
+
+---
+
 ## Graph Overview
 
 ```
 [User Message]
       │
       ▼
-┌─────────────┐
-│    Entry    │  Routes: pending_question? → source_node : Supervisor
-└──────┬──────┘  (Unified: plan approval, needs_input, clarification all store pending_question)
+┌──────────────────────┐
+│   EntryClassifier     │  Deterministic (regex + rules). No LLM. Produces IntentEnvelope.
+│   (Intent Resolution)  │  message_origin, task_size, target_language, clarification_budget, plan_required
+└──────┬───────────────┘
        │
-       ├─────────────► [Worker] | [Supervisor] | [Planner]  (resume at node that asked)
+       ├── pending_question? ──► [Context Curator] | [Supervisor] | [Planner]  (resume at source_node)
+       ├── message_origin=ui_helper ──► [Respond]  (short-circuit)
+       ├── task_size=trivial ──► [Context Curator] ──► [Worker]  (fast path, bypass Supervisor)
+       │
+       └── else ──► [Supervisor]  Uses pre-classified IntentEnvelope; defers to EntryClassifier values
+                 │
+                 ├── needs_clarification ──► [Respond]  (only if clarification_budget > 0)
+                 ├── planning_suggested ──► [Planner]
+                 └── else ──► [Context Curator] ──► [Worker]
+                        │
+       ┌────────────────┘
        │
        ▼
-┌─────────────┐
-│  Supervisor │  Routes: planner | worker | respond
-│  [+Search]  │  - needs_clarification → respond (stores pending_question, source=supervisor)
-└──────┬──────┘  - planning_suggested → planner (unless supervisor_clarification_only from Critic)
-       │         - else → worker
-       │
-       ├──► [Planner]  Produces execution_plan.
-       │         │
-       │         ├──► [Respond]  (plan approval → stores pending_question, source=planner)
-       │         │
-       │         └──► [Context Curator]  Deterministic ContextPack (pinned + retrieved + hash)
-       │                    │
-       │                    └──► [Worker]
-       │
-       └──► [Context Curator]  Always curates before Worker (re-curate on retries)
+┌──────────────────────┐
+│ [Planner]            │  plan_required from state (trivial/small typically skip approval)
+│   ├── plan_pending? ──► [Respond]
+│   └── else ──► [Context Curator]
+└──────────────────────┘
+
+┌──────────────────────┐
+│ [Context Curator]     │  Deterministic ContextPack. RAG disabled when rag_mode=disabled (trivial).
+└──────┬───────────────┘
+       └──► [Worker]   Executor LLM. task_is_trivial → never needs_input. Output → Validate(WorkerOut).
                  │
-                 └──► [Worker]   Executor LLM. Output → Validate(WorkerOut). Worker stop_reason → Respond.
-                       │
-                       └──► [Patch Integrity Gate]  workspace, scope (touched_files), secrets, network, UTF-8, dangerous_cmds, paths
-                                 │
-                                 ├── pass ──► [LSP Analyzer]  (lsp_mode=always) ──► [Sandbox]
-                                 │
-                                 └── pass ──► [Sandbox]  Staged: lint → security → execute
+                 └──► [Patch Integrity Gate] ──► [LSP] (optional) ──► [Sandbox]
                                            │
                                            ├── success ──► [Critic] ──► [Respond] | [Supervisor] | [Worker]
-                                           │
-                                           ├── failure (lint | security) ──► [Worker] (retry; LSP never)
-                                           │
-                                           ├── failure (runtime, lint+sec passed, on_failure) ──► [LSP] ──► [Worker]
-                                           │
-                                           ├── failure (else) ──► [Worker]  (single branch per event)
-                                           │
+                                           ├── failure ──► [Context Curator] | [LSP] | [Respond]
                                            └── max_iter ──► [Critic postmortem] ──► [Respond]
 ```
+
+---
+
+## Intent Resolution (EntryClassifier + DefaultsPolicy)
+
+**Problem:** "I need more info…" on trivial tasks (hello world, print X). LLM classification under uncertainty causes stern, interrogating UX.
+
+**Solution:** Deterministic-first intent resolution. EntryClassifier runs *before any LLM* and produces an IntentEnvelope the whole graph obeys. Supervisor executes policy; it does not discover it.
+
+**IntentEnvelope (from EntryClassifier):**
+
+| Field | trivial | small | complex |
+|-------|---------|-------|---------|
+| `message_origin` | end_user | end_user | end_user |
+| `task_size` | trivial | small | complex |
+| `target_language` | inferred (python, go, etc.) | inferred | inferred |
+| `bypass_supervisor` | true | false | false |
+| `bypass_planner` | true | false | false |
+| `plan_required` | false (policy) | false (policy) | true |
+| `clarification_budget` | 0 | 1 | 2 |
+| `requires_clarification` | false | false | Supervisor may ask |
+
+**Trivial triggers (regex):** hello world, print X, basic unit test, parse json, read file and print/count, simple fizzbuzz, basic script, etc.
+
+**Complex escalation triggers:** deploy, architecture, design, migrate, security/auth, credentials, connect to AWS/GCP, whole repo, destructive ops, etc.
+
+**DefaultsPolicy:** Code constants (default_language, default_test_runner, default_python_version, default_files) with optional YAML overrides (`/etc/synesis/defaults.yaml`, `SYNESIS_DEFAULTS_PATH`). Hard fences (e.g. `allow_questions_for_trivial=false`) cannot be overridden. See `base/planner/defaults.yaml.example`.
+
+**UI helper filter:** main.py rejects "suggest follow-up questions" etc. before graph. EntryClassifier double-checks; routes to Respond if slip-through.
+
+**Educational / Mentor mode:** When user says "explain", "how does it work", "why", "I'm learning", "teach me", "walk me through", EntryClassifier sets `interaction_mode=teach`. Context Curator injects TEACH MODE chunk; Worker produces `learners_corner: { pattern, why, resilience, trade_off }`; Respond formats as "Learner's Corner" section. Governance: trust boundaries, import integrity, minimal fix, no egress.
 
 ---
 
@@ -64,8 +108,8 @@ This document describes the full LangGraph workflow: target design, nodes, routi
 
 | Node | Model / Logic | Purpose |
 |------|---------------|---------|
-| **Entry** | Router | If `pending_question` exists and user replied → route to `pending_question.source_node`. Else → Supervisor. |
-| **Supervisor** | Qwen3-14B | Intent classification, clarification, planning suggestion. |
+| **EntryClassifier** | Deterministic (regex + rules) | Produces IntentEnvelope *before any LLM*. Routes: pending_question → source; ui_helper → respond; trivial → context_curator; else → supervisor. |
+| **Supervisor** | Qwen3-14B | Validates/uses pre-classified IntentEnvelope. RAG, planning_suggested, routing. *Must not* ask clarification when clarification_budget=0 or task_size in (trivial, small). |
 | **Planner** | Qwen3-14B | Task breakdown, execution_plan. **Invariant:** Always produces `touched_files` (even `[]` on error). |
 | **Worker** | Qwen3-Coder-Next | Code generation. Outputs `code` (single-file) or `patch_ops` (multi-file). **Invariant:** Always emits `files_touched` (defaults to `script.{ext}` in single-file mode). Produces `code_ref` for patch provenance. Receives `revision_strategy` on retry; must not repeat strategies in `revision_strategies_tried`. Regress-Reason: `regressions_intended`, `regression_justification`. |
 | **Context Curator** | Deterministic | Produces ContextPack: pinned_context, retrieved_context[], excluded_context[], context_hash. Worker consumes curated context only. See [HIGH_VALUE_ADDITIONS.md](HIGH_VALUE_ADDITIONS.md). |
@@ -80,7 +124,7 @@ This document describes the full LangGraph workflow: target design, nodes, routi
 
 ## Unified Pending Question
 
-**Goal:** Any question surfaced to the user becomes a stored "pending question" with expected answer type(s). Entry routes directly back to the node that asked. This makes the system feel stateful rather than chatty.
+**Goal:** Any question surfaced to the user becomes a stored "pending question" with expected answer type(s). EntryClassifier routes directly back to the node that asked. This makes the system feel stateful rather than chatty.
 
 **Unified storage:**
 ```python
@@ -94,13 +138,13 @@ This document describes the full LangGraph workflow: target design, nodes, routi
 
 **Sources and routing:**
 
-| Source | When | Entry routes to |
-|--------|------|-----------------|
+| Source | When | EntryClassifier routes to |
+|--------|------|----------------------------|
 | Supervisor | clarification (e.g. "Which script?") | Supervisor |
-| Planner | plan approval ("Reply to proceed") | Worker (plan in context) |
-| Worker | needs_input ("Which database?") | Worker |
+| Planner | plan approval ("Reply to proceed") | context_curator (Worker path) |
+| Worker | needs_input ("Which database?") | context_curator (Worker path) |
 
-**Implementation:** Replace `store_pending_plan`, `store_pending_needs_input`, and clarify-only behavior with a single `store_pending_question` / `get_and_clear_pending_question`. Entry uses `source_node` to route.
+**Implementation:** Single `store_pending_question` / `get_and_clear_pending_question`. EntryClassifier uses `source_node` to route.
 
 ---
 
@@ -306,30 +350,31 @@ Aggregatable weak signal for system brittleness (e.g. "module X consistently fai
 
 ## Plan Approval Flow
 
-1. Planner produces plan with steps, sets `plan_pending_approval=true` → Respond.
-2. Respond formats plan, calls `memory.store_pending_question(user_id, {..., source_node="planner"})`, returns to user.
-3. User replies.
-4. Entry: `get_and_clear_pending_question` → `source_node=planner` → route to Worker with plan in context.
+1. Planner produces plan with steps. **plan_required** (from EntryClassifier) gates approval: trivial/small → `plan_required=false` → skip approval, go straight to Worker.
+2. When approval needed: sets `plan_pending_approval=true` → Respond.
+3. Respond formats plan, calls `memory.store_pending_question(user_id, {..., source_node="planner"})`, returns to user.
+4. User replies.
+5. EntryClassifier: `get_and_clear_pending_question` → `source_node=planner` → route to context_curator (Worker path) with plan in context.
 
 ---
 
 ## Needs-Input Flow
 
-1. Worker sets `needs_input=true`, `needs_input_question` → Respond.
+1. Worker sets `needs_input=true`, `needs_input_question` → Respond. **Trivial:** Worker *never* sets needs_input (enforced by prompt + context curator).
 2. Respond surfaces question, calls `memory.store_pending_question(user_id, {..., source_node="worker"})`, returns.
 3. User replies.
-4. Entry routes to Worker with `user_answer` in context.
+4. EntryClassifier routes to context_curator (Worker path) with `user_answer_to_needs_input` in context.
 
 ---
 
 ## Clarification Flow (Unified)
 
-1. Supervisor sets `needs_clarification=true`, `clarification_question` → Respond.
-2. Respond surfaces question, calls `memory.store_pending_question(user_id, {..., source_node="supervisor"})`, returns.
+1. Supervisor sets `needs_clarification=true`, `clarification_question` → Respond. **But:** when `clarification_budget=0` (trivial) or `task_size` in (trivial, small) or `requires_clarification=false`, Supervisor *must* bypass—never ask.
+2. When allowed: Respond surfaces question, calls `memory.store_pending_question(user_id, {..., source_node="supervisor"})`, returns.
 3. User replies (e.g. "script.sh" or "the Python one").
-4. Entry routes to **Supervisor**. When restoring from `pending_question` with `source_node=supervisor`, inject `user_answer_to_clarification` (the user's reply) into state.
+4. EntryClassifier routes to **Supervisor**. When restoring from `pending_question` with `source_node=supervisor`, inject `user_answer_to_clarification` into state.
 
-**Supervisor support:** The Supervisor schema and prompt must accept `user_answer_to_clarification` when resuming. The prompt should include: "The user answered your clarification: {user_answer_to_clarification}. Use this to complete the task classification." Supervisor then re-classifies with the answer in context and routes to Worker or Planner accordingly.
+**Supervisor support:** Accepts `user_answer_to_clarification` when resuming. Re-classifies with answer in context, routes to Worker or Planner accordingly.
 
 ---
 
@@ -566,6 +611,7 @@ supervisor_clarification_only: bool  # §7.8: from Critic, blocks re-plan
 | `experiment_timeout_seconds` | `120` | §8.4: Max runtime for evidence experiments |
 | `experiment_max_commands` | `10` | §8.4: Max commands per experiment_plan |
 | `curator_curation_mode` | `adaptive` | §8.7: stable=reuse pack; adaptive=pivot on stderr |
+| `defaults_policy_path` | `""` | Optional YAML override path; `SYNESIS_DEFAULTS_PATH` env; `/etc/synesis/defaults.yaml` |
 
 ---
 
@@ -580,7 +626,8 @@ supervisor_clarification_only: bool  # §7.8: from Critic, blocks re-plan
 - [x] **Budget accounting:** token_budget, sandbox_minutes, lsp_calls, evidence_experiments; short-circuit on limit
 - [x] **Evidence-gap Worker:** `experiment_plan` schema (commands[], expected_artifacts[], success_criteria); Gate allowlists commands; evidence_queries_tried for novelty (Critic check pending)
 - [x] Unified `store_pending_question` / `get_and_clear_pending_question`
-- [x] Entry routes by `pending_question.source_node`
+- [x] EntryClassifier routes by `pending_question.source_node`
+- [x] **Intent flow:** EntryClassifier (deterministic), DefaultsPolicy, trivial fast path, clarification_budget, plan_required
 - [x] Supervisor: accept `user_answer_to_clarification` when resuming
 - [x] Postmortem Critic path: Sandbox failure (max iter) → Critic (postmortem) → Respond
 - [x] Sandbox: lint-first fail-fast

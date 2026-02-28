@@ -10,29 +10,39 @@ from unittest.mock import patch
 from app.graph import (
     respond_node,
     route_after_critic,
+    route_after_entry_classifier,
     route_after_patch_integrity_gate,
     route_after_sandbox,
     route_after_supervisor,
     route_after_worker,
-    route_entry,
 )
 
 
-class TestRouteEntry:
+class TestRouteAfterEntryClassifier:
     def test_no_pending_routes_to_supervisor(self):
-        assert route_entry({}) == "supervisor"
+        """Default path: no trivial, no pending → Supervisor."""
+        assert route_after_entry_classifier({}) == "supervisor"
 
     def test_pending_question_continue_routes_by_source(self):
         state = {"pending_question_continue": True, "pending_question_source": "worker"}
-        assert route_entry(state) == "context_curator"
+        assert route_after_entry_classifier(state) == "context_curator"
 
         state["pending_question_source"] = "supervisor"
-        assert route_entry(state) == "supervisor"
+        assert route_after_entry_classifier(state) == "supervisor"
 
     def test_pending_plan_routes_via_context_curator(self):
         """Planner/Worker source routes through context curator before worker."""
         state = {"pending_question_continue": True, "pending_question_source": "planner"}
-        assert route_entry(state) == "context_curator"
+        assert route_after_entry_classifier(state) == "context_curator"
+
+    def test_trivial_routes_to_context_curator(self):
+        """Trivial fast path: bypass Supervisor."""
+        state = {"task_size": "trivial", "bypass_supervisor": True}
+        assert route_after_entry_classifier(state) == "context_curator"
+
+    def test_ui_helper_routes_to_respond(self):
+        state = {"message_origin": "ui_helper"}
+        assert route_after_entry_classifier(state) == "respond"
 
 
 class TestRouteAfterWorker:
@@ -225,3 +235,26 @@ class TestRespondNode:
         assert "cannot proceed" in content.lower()
         assert "dependency" in content.lower() or "credential" in content.lower()
         assert "API key" in content
+
+    def test_learners_corner_formatted_when_present(self):
+        """Educational mode: Learner's Corner section when learners_corner in state."""
+        state = {
+            "generated_code": "print('hi')",
+            "code_explanation": "Prints greeting.",
+            "target_language": "python",
+            "learners_corner": {
+                "pattern": "Procedural",
+                "why": "Simple output, no abstraction needed.",
+                "resilience": "Responding: print() handles encoding.",
+                "trade_off": "Verbosity for readability.",
+            },
+            "node_traces": [],
+            "what_if_analyses": [],
+        }
+        result = respond_node(state)
+        content = result["messages"][0].content
+        assert "Learner's Corner" in content
+        assert "Pattern:" in content
+        assert "Procedural" in content
+        assert "Why:" in content
+        assert "Trade-off:" in content

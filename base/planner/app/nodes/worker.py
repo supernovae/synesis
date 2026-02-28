@@ -54,9 +54,11 @@ You MUST respond with valid JSON:
   "files_touched": [],
   "experiment_plan": null,
   "regressions_intended": [],
-  "regression_justification": null
+  "regression_justification": null,
+  "learners_corner": null
 }
-Optional: files_touched, unified_diff (unified diff string), patch_ops: [{path, op, text}]. For multi-file tasks (Planner touched_files has multiple paths), output patch_ops for each file; you may leave code empty — the system will bundle patches for execution. Gate enforces max_files_touched and max_loc_delta.
+Optional: files_touched, unified_diff (unified diff string), patch_ops: [{path, op, text}].
+When interaction_mode=teach (EDUCATIONAL MODE chunk present): learners_corner MUST be { "pattern": "...", "why": "...", "resilience": "...", "trade_off": "..." }. For multi-file tasks (Planner touched_files has multiple paths), output patch_ops for each file; you may leave code empty — the system will bundle patches for execution. Gate enforces max_files_touched and max_loc_delta.
 Regress-Reason: If a structural fix requires breaking a previously-passing stage (lint/security), set regressions_intended (e.g. ["lint"]) and regression_justification with your reasoning. Otherwise do NOT regress.
 
 When needs_input=true, leave code empty and ask a specific question.
@@ -609,6 +611,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 if hasattr(parsed.experiment_plan, "model_dump")
                 else parsed.experiment_plan
             )
+        if getattr(parsed, "learners_corner", None) and isinstance(parsed.learners_corner, dict):
+            updates["learners_corner"] = parsed.learners_corner
         if revision_strategy:
             updates["revision_strategies_tried"] = [*revision_strategies_tried, revision_strategy]
         return updates

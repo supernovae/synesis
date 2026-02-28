@@ -59,6 +59,19 @@ _COMPLEX_PATTERNS = [
     re.compile(r"\bfix\s+my\s+project\b|\bmake\s+this\s+work\b", re.IGNORECASE),  # Ambiguous scope
 ]
 
+# Educational/mentor intent — user wants explanation, not just code
+_EDUCATIONAL_PATTERNS = [
+    re.compile(r"\bexplain\b", re.IGNORECASE),
+    re.compile(r"\bhow\s+does\s+(?:it|that|this)\s+work\b", re.IGNORECASE),
+    re.compile(r"\bwhy\s+(?:did|do|would)\s+", re.IGNORECASE),
+    re.compile(r"\bwalk\s+me\s+through\b", re.IGNORECASE),
+    re.compile(r"\bteach\s+me\b", re.IGNORECASE),
+    re.compile(r"\bi['\u2019]m\s+learning\b", re.IGNORECASE),
+    re.compile(r"\blearn(?:ing)?\s+(?:how|to)\b", re.IGNORECASE),
+    re.compile(r"\bwhat\s+does\s+(?:this|that|it)\s+(?:do|mean)\b", re.IGNORECASE),
+    re.compile(r"\bcan\s+you\s+explain\b", re.IGNORECASE),
+]
+
 # UI helper (already filtered in main.py; double-check for graph routing)
 _UI_HELPER_PATTERNS = [
     re.compile(r"suggest\s+(3[- ]?5\s+)?follow[- ]?up\s+questions?", re.IGNORECASE),
@@ -110,6 +123,14 @@ def _classify_task_size(text: str) -> TaskSize:
     return "small"
 
 
+def _is_educational_intent(text: str) -> bool:
+    """User wants explanation/teaching, not just code."""
+    if not text or not text.strip():
+        return False
+    t = text.strip()[:600]
+    return any(pat.search(t) for pat in _EDUCATIONAL_PATTERNS)
+
+
 def _trivial_touched_files(text: str, target_language: str) -> list[str]:
     """Default touched_files for trivial tasks (from DefaultsPolicy)."""
     policy = get_defaults_policy()
@@ -133,6 +154,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     message_origin = _classify_message_origin(last_content)
     task_size = _classify_task_size(last_content)
     target_language = _detect_language(last_content)
+    educational_mode = _is_educational_intent(last_content)
 
     # Bypass Supervisor for trivial; else Supervisor runs
     bypass_supervisor = task_size == "trivial"
@@ -161,6 +183,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "requires_clarification": requires_clarification,
         "plan_required": plan_required,
         "clarification_budget": clarification_budget,
+        "interaction_mode": "teach" if educational_mode else "do",
         "intent_classifier_source": "deterministic",
     }
 
@@ -175,6 +198,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["include_run_commands"] = True
         out["task_type"] = "code_generation"
         out["allowed_tools"] = ["sandbox"]
-        out["interaction_mode"] = "do"
+        # Trivial default is "do"; override if educational intent
+        if not educational_mode:
+            out["interaction_mode"] = "do"
 
     return out

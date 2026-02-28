@@ -567,7 +567,11 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "assumptions_structured": getattr(parsed, "assumptions_structured", []),
             "task_is_trivial": getattr(parsed, "task_is_trivial", False),
             "deliverable_type": getattr(parsed, "deliverable_type", "single_file"),
-            "interaction_mode": getattr(parsed, "interaction_mode", "do"),
+            "interaction_mode": (
+                state["interaction_mode"]
+                if state.get("intent_classifier_source") == "deterministic" and state.get("interaction_mode") == "teach"
+                else getattr(parsed, "interaction_mode", "do")
+            ),
             "include_tests": getattr(parsed, "include_tests", True),
             "include_run_commands": getattr(parsed, "include_run_commands", True),
             "allowed_tools": getattr(parsed, "allowed_tools", ["sandbox", "lsp"]),

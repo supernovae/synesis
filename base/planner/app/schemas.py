@@ -235,6 +235,9 @@ class ExecutorOut(BaseModel):
     regressions_intended: list[str] = Field(default_factory=list)  # e.g. ["lint"]
     regression_justification: str | None = None
 
+    # Educational mode: Learner's Corner (Pedagogy Collection Schema)
+    learners_corner: dict[str, str] | None = None  # { pattern, why, resilience, trade_off }
+
 
 # ---------------------------------------------------------------------------
 # Context Curator (ContextPack schema)

@@ -319,6 +319,16 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             parts.append(f"```{lang}\n{code}\n```")
         if explanation:
             parts.append(f"\n**Approach:** {explanation}")
+        # Educational mode: Learner's Corner (Pedagogy Collection Schema)
+        learners_corner = state.get("learners_corner")
+        if learners_corner and isinstance(learners_corner, dict) and learners_corner.get("pattern"):
+            lc_lines = ["\n---\n**Learner's Corner**"]
+            for key, label in [("pattern", "Pattern"), ("why", "Why"), ("resilience", "Resilience"), ("trade_off", "Trade-off")]:
+                val = learners_corner.get(key, "").strip()
+                if val:
+                    lc_lines.append(f"- **{label}:** {val}")
+            if len(lc_lines) > 1:
+                parts.append("\n".join(lc_lines))
         if what_ifs:
             parts.append("\n**Safety Analysis:**")
             for wif in what_ifs:
