@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/component: model
     opendatahub.io/dashboard: "true"
   annotations:
+    opendatahub.io/connections: synesis-summarizer
     opendatahub.io/model-type: generative
     openshift.io/description: Synesis Summarizer (Qwen2.5-0.5B-Instruct, CPU)
     openshift.io/display-name: Synesis Summarizer (Qwen2.5-0.5B-Instruct)
@@ -37,7 +38,7 @@ spec:
       resources:
         limits:
           cpu: "2"
-          memory: 4Gi
+          memory: 8Gi
         requests:
           cpu: "1"
-          memory: 2Gi
+          memory: 4Gi

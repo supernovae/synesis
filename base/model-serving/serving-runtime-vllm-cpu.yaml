@@ -6,6 +6,11 @@
 # Source: https://github.com/rh-aiservices-bu/llm-on-openshift (vll-runtime-cpu.yaml)
 # Image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9
 # Model formats: FP32, BF16 (FP16 auto-converted to BF16)
+#
+# NOTE: We use --model Qwen/Qwen2.5-0.5B-Instruct (HF repo ID) instead of /mnt/models/
+# because vLLM has a bug (issues #13485, #13707) where local paths get passed to
+# HuggingFace list_repo_files(), causing HFValidationError. Loading directly from HF
+# bypasses this. HF_TOKEN from InferenceService env enables private/gated models.
 apiVersion: serving.kserve.io/v1alpha1
 kind: ServingRuntime
 metadata:
@@ -21,9 +26,9 @@ spec:
   containers:
     - args:
         - --model
-        - /mnt/models/
+        - Qwen/Qwen2.5-0.5B-Instruct
         - --download-dir
-        - /models-cache
+        - /tmp/models-cache
         - --port
         - "8080"
         - --max-model-len

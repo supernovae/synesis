@@ -25,7 +25,7 @@ spec:
         - --tensor-parallel-size=1
         - --max-model-len=32768
         - --speculative_config
-        - '{"model": "Qwen/Qwen2.5-0.5B-Instruct", "num_speculative_tokens": 5}'
+        - '{"method": "ngram", "num_speculative_tokens": 5, "prompt_lookup_max": 4}'
         - --reasoning-parser=qwen3
         - --enable-auto-tool-choice
         - --tool-call-parser=qwen3_coder

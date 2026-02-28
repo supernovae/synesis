@@ -143,6 +143,13 @@ def _sse_chunk(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _sse_status_chunk(data: dict) -> str:
+    """Format status event with event: status for Open WebUI routing.
+    Uses named SSE event so clients listening for 'status' receive it.
+    """
+    return f"event: status\ndata: {json.dumps(data)}\n\n"
+
+
 # User-friendly status messages for progressive feedback during graph execution.
 # Open WebUI format: {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}
 # Other clients ignore these lines; only Open WebUI displays them.
@@ -410,7 +417,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     result = chunk
                     node = chunk.get("current_node", "")
                     if node and node in NODE_STATUS_MESSAGES:
-                        yield _sse_chunk({
+                        yield _sse_status_chunk({
                             "type": "status",
                             "data": {
                                 "description": NODE_STATUS_MESSAGES[node],
@@ -430,7 +437,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 return
 
             # Stop status animation before streaming content (Open WebUI done=true)
-            yield _sse_chunk({
+            yield _sse_status_chunk({
                 "type": "status",
                 "data": {"description": "", "done": True, "hidden": False},
             })

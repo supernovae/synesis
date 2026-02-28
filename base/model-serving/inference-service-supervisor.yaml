@@ -29,6 +29,8 @@ spec:
       name: ""
       storageUri: hf://RedHatAI/Qwen3-8B-FP8-dynamic
       env:
+        - name: HF_HUB_OFFLINE
+          value: "false"
         - name: HF_TOKEN
           valueFrom:
             secretKeyRef:

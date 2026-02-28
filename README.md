@@ -1027,6 +1027,8 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 
 The `synesis-agent` model routes through the full LangGraph pipeline (Entry → Supervisor → Planner/Worker → Sandbox → Critic), so code responses have already been linted, security-scanned, and critic-reviewed before reaching the UI.
 
+**Phase/status display (Thinking, Validating, Testing):** The planner emits SSE status events during graph execution. See [docs/OPENWEBUI_PHASES.md](docs/OPENWEBUI_PHASES.md) for implementation details and troubleshooting if phases don't appear.
+
 ### Available Models in the UI
 
 | Model Name | What It Does |

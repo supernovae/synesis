@@ -18,7 +18,7 @@ Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scr
 **Primary**: `./scripts/bootstrap.sh --hf-token` (once), then `./scripts/deploy.sh dev` applies everything. Manifests match ODH dashboard-created format (verified against cluster).
 
 **What deploy.sh creates:**
-- **Connection secret** (ODH URI): synesis-executor (hf:// Qwen3-Coder-30B-A3B-Instruct-FP8)
+- **Connection secrets** (ODH URI): synesis-executor, synesis-summarizer (hf:// Qwen3-Coder-30B, Qwen2.5-0.5B)
 - **ServingRuntimes**: synesis-executor, synesis-supervisor-critic (vLLM CUDA, speculative), vllm-cpu (summarizer)
 - **InferenceServices**: synesis-supervisor, synesis-executor, synesis-critic, synesis-summarizer (optional)
   - Supervisor/critic: `RedHatAI/Qwen3-8B-FP8-dynamic` from HuggingFace (1 GPU, 8Gi each; OCI registry has sigstore 500 issues)
@@ -39,6 +39,14 @@ Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scr
 ### "Specified runtime does not support specified framework/version"
 
 The vLLM CPU runtime (`vllm-cpu`) declares `supportedModelFormats: pytorch`, so it rejects `modelFormat: vLLM`. Use the vLLM CUDA runtime (synesis-executor) with the Red Hat catalog OCI model `Qwen3-8B-FP8-dynamic` for supervisor/critic instead.
+
+### Speculative decoding: ngram only (draft model not supported)
+
+The RHOAI vLLM image does not support draft-model speculative decoding. We use ngram speculative decoding instead (no extra model, minimal overhead): `prompt_lookup_max=4`, `num_speculative_tokens=5`. Best gains on code/repetitive output (executor); supervisor/critic see modest benefit with low risk.
+
+### Summarizer: HFValidationError "Repo id must be in the form 'repo_name'..."
+
+vLLM has a bug (issues #13485, #13707) where local paths like `/mnt/models/` get passed to HuggingFace APIs. The vllm-cpu runtime workaround: load directly from HF repo ID (`Qwen/Qwen2.5-0.5B-Instruct`) instead of `/mnt/models/`. See `serving-runtime-vllm-cpu.yaml` comments.
 
 ### "Waiting for runtime to become available" / Deployments show Failed
 

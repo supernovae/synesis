@@ -10,8 +10,9 @@ labels:
 
 resources:
   - namespace.yaml
-  # ODH URI connection for executor (hf://); supervisor/critic use OCI catalog
+  # ODH URI connections for hf:// models
   - connection-executor.yaml
+  - connection-summarizer.yaml
   # ServingRuntimes: executor (MoE, no prefix cache) | supervisor/critic (dense 8B, prefix cache)
   - serving-runtime-executor.yaml
   - serving-runtime-supervisor-critic.yaml
