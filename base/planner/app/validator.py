@@ -13,7 +13,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from .schemas import _extract_json
+from .schemas import CriticOut, _extract_json
 
 logger = logging.getLogger("synesis.validator")
 
@@ -50,6 +50,46 @@ def _repair_json(raw: str) -> str:
     return extracted
 
 
+def _repair_truncated_json(content: str) -> tuple[str, bool]:
+    """Auto-close truncated JSON. Prioritize closing blocking_issues over nonblocking.
+
+    If Expecting ',' delimiter or unclosed brace, append ]} or } and return (repaired, True).
+    """
+    content = content.rstrip()
+    if not content:
+        return content, False
+
+    # Truncation: ends with partial token or unclosed structure
+    is_truncated = False
+    last_char = content[-1] if content else ""
+
+    for suffix in (
+        ',"nonblocking":[],"residual_risks":[]}',  # stopped after blocking_issues
+        '],"nonblocking":[]}',  # stopped mid-structure
+        "]}",   # inside array, e.g. blocking_issues
+        "}",    # inside object
+        "]",    # array only
+        '"',    # unclosed string
+    ):
+        try:
+            repaired = content + suffix
+            json.loads(repaired)
+            return repaired, True
+        except json.JSONDecodeError:
+            pass
+
+    # Try progressively adding closing chars
+    for closes in (["]", "}"], ["}"], ["]"], ['"']):
+        try:
+            repaired = content + "".join(closes)
+            json.loads(repaired)
+            return repaired, True
+        except json.JSONDecodeError:
+            pass
+
+    return content, False
+
+
 def validate_with_repair(raw: str, model: type[T]) -> T:
     """Validate raw LLM output. One repair pass if invalid. Hard fail if still invalid."""
     extracted = None
@@ -58,9 +98,14 @@ def validate_with_repair(raw: str, model: type[T]) -> T:
     except ValueError:
         extracted = _repair_json(raw)
 
-    for attempt in range(2):
+    for attempt in range(3):
         try:
-            content = extracted if attempt == 0 else _repair_json(extracted or raw)
+            if attempt == 0:
+                content = extracted or raw
+            elif attempt == 1:
+                content = _repair_json(extracted or raw)
+            else:
+                content, _ = _repair_truncated_json(extracted or raw)
             data = json.loads(content)
             if "task_type" in data and isinstance(data["task_type"], str):
                 from .state import TaskType
@@ -74,6 +119,42 @@ def validate_with_repair(raw: str, model: type[T]) -> T:
             if attempt == 0:
                 extracted = _repair_json(extracted or raw)
                 logger.warning("schema_repair_attempt", extra={"error": str(e)[:200]})
+            elif attempt == 1:
+                extracted, _ = _repair_truncated_json(extracted or raw)
+                logger.info("schema_truncation_repaired", extra={"message": "Auto-closed truncated JSON"})
             else:
                 raise ValueError(f"Schema validation failed after repair: {e}") from e
     raise ValueError("Schema validation failed")  # unreachable
+
+
+def validate_critic_with_repair(raw: str) -> tuple[CriticOut, bool]:
+    """Validate Critic output with truncation repair. Returns (parsed, is_truncated)."""
+    extracted = None
+    is_truncated = False
+    try:
+        extracted = _extract_json(raw)
+    except ValueError:
+        extracted = _repair_json(raw)
+
+    for attempt in range(3):
+        try:
+            if attempt == 0:
+                content = extracted or raw
+            elif attempt == 1:
+                content = _repair_json(extracted or raw)
+            else:
+                content, is_truncated = _repair_truncated_json(extracted or raw)
+                if is_truncated:
+                    extracted = content
+            data = json.loads(content)
+            return CriticOut.model_validate(data), is_truncated
+        except (json.JSONDecodeError, ValueError, ValidationError) as e:
+            if attempt == 0:
+                extracted = _repair_json(extracted or raw)
+            elif attempt == 1:
+                extracted, is_truncated = _repair_truncated_json(extracted or raw)
+                if is_truncated:
+                    logger.info("critic_truncation_repaired", extra={"message": "Auto-closed; first N blocking_issues preserved"})
+            else:
+                raise ValueError(f"Critic schema validation failed: {e}") from e
+    raise ValueError("Critic schema validation failed")

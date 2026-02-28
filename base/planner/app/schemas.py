@@ -590,14 +590,23 @@ def make_code_ref(
 
 
 class EvidenceRef(BaseModel):
-    """Structured evidence reference. Use one of spec_ref, lsp_ref, sandbox_ref, tool_ref, code_ref."""
+    """Pointer-only citation. UI hydrates from hash. ~15 tokens vs ~200 for raw strings.
 
-    source: Literal["spec", "lsp", "sandbox", "tool", "code"] = "sandbox"
-    spec_ref: SpecRef | None = None
-    lsp_ref: LSPRef | None = None
-    sandbox_ref: SandboxRef | None = None
-    tool_ref: ToolRef | None = None
-    code_ref: CodeRef | None = None
+    Forbid code_snippet, full_log, evidence (raw). Use ref_type + id + hash + selector.
+    """
+
+    ref_type: Literal["lsp", "sandbox", "spec", "tool", "code"]
+    id: str = ""  # e.g. sandbox_stage_2, lsp_err_001, spec_section_4.1
+    hash: str = ""  # result_hash or content_hash from tool output
+    selector: str = ""  # Line range "12-15" or symbol "validate_user" or "line 14:5"
+
+
+class BlockingIssue(BaseModel):
+    """Token-efficient blocking issue. Evidence via pointers; UI hydrates."""
+
+    description: str = ""  # Short; e.g. "NameError: 'x' undefined"
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    reasoning: str = ""  # Max 2 sentences per issue
 
 
 # ---------------------------------------------------------------------------
@@ -616,14 +625,14 @@ class CriticWhatIf(BaseModel):
 
 
 class CriticOut(BaseModel):
-    """Validated output from the Critic node."""
+    """Validated output from the Critic node. Pointer-only evidence for token efficiency."""
 
     what_if_analyses: list[dict[str, Any]] = Field(default_factory=list)
     overall_assessment: str = ""
     approved: bool = True
     revision_feedback: str = ""
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
-    reasoning: str = ""
+    reasoning: str = ""  # Limit to 2 sentences per blocking issue; EvidenceRef does heavy lifting
 
     # Stop condition (separate from approved)
     should_continue: bool = False
@@ -635,8 +644,8 @@ class CriticOut(BaseModel):
     route_to: str | None = None  # "lsp" | "worker" | "respond"
     evidence_needed: dict[str, Any] | None = None
 
-    # Structured evidence refs (optional; can coexist with legacy line_reference)
-    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
+    # Structured evidence: pointer-only; UI hydrates from hash
+    blocking_issues: list[BlockingIssue] = Field(default_factory=list)
     nonblocking: list[dict[str, Any]] = Field(default_factory=list)
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
