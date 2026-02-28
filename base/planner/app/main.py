@@ -36,7 +36,11 @@ logger = logging.getLogger("synesis.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Synesis planner starting", extra={"port": settings.port})
+    logger.info(
+        "Synesis planner starting build=%s port=%s",
+        settings.build_version,
+        settings.port,
+    )
     yield
     logger.info("Synesis planner shutting down")
 

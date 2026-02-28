@@ -3,10 +3,18 @@
 Every tunable knob lives here. Override via ConfigMap env vars in K8s.
 """
 
+import os
 from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _build_info() -> str:
+    """Build version string for log/debug — verify deployed image is current."""
+    sha = os.environ.get("SYNESIS_GIT_SHA", "dev")[:12]
+    ts = os.environ.get("SYNESIS_BUILD_TIMESTAMP", "dev")
+    return f"{sha}@{ts}"
 
 
 class Settings(BaseSettings):
@@ -185,6 +193,11 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+
+    @property
+    def build_version(self) -> str:
+        """Build identifier for logs — verify you're running the latest container."""
+        return _build_info()
 
 
 settings = Settings()

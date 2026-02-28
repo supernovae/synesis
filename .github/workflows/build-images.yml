@@ -101,6 +101,12 @@ jobs:
             echo "tag=sha-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Get build metadata
+        if: steps.filter.outputs.skip != 'true'
+        id: build_meta
+        run: |
+          echo "timestamp=$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         if: steps.filter.outputs.skip != 'true'
         uses: docker/build-push-action@v5
@@ -108,6 +114,9 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ steps.build_meta.outputs.timestamp }}
           tags: |
             ${{ env.REGISTRY }}/${{ matrix.name }}:${{ steps.tag.outputs.tag }}
             ${{ env.REGISTRY }}/${{ matrix.name }}:latest
