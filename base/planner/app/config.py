@@ -178,6 +178,9 @@ class Settings(BaseSettings):
     # JCS UX: Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
 
+    # DefaultsPolicy YAML override path (optional; /etc/synesis/defaults.yaml)
+    defaults_policy_path: str = ""
+
     # Server
     host: str = "0.0.0.0"
     port: int = 8000

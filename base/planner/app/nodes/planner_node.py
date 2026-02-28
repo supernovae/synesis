@@ -158,7 +158,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         steps = plan.get("steps", [])
-        needs_approval = settings.require_plan_approval and len(steps) > 0
+        # EntryClassifier sets plan_required=false for trivial/small; skip approval for those
+        plan_required = state.get("plan_required", True)
+        needs_approval = plan_required and settings.require_plan_approval and len(steps) > 0
         next_node = "respond" if needs_approval else "worker"
 
         return {

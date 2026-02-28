@@ -24,6 +24,7 @@ from .config import settings
 from .nodes import (
     context_curator_node,
     critic_node,
+    entry_classifier_node,
     lsp_analyzer_node,
     patch_integrity_gate_node,
     planner_node,
@@ -70,19 +71,23 @@ def with_timeout(timeout_seconds: float):
     return decorator
 
 
-def entry_router_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Passthrough. Routing is done by conditional edge."""
-    return state
-
-
-def route_entry(state: dict[str, Any]) -> str:
-    """Unified: if user replied to pending question, route to source_node; else supervisor."""
+def route_after_entry_classifier(state: dict[str, Any]) -> str:
+    """Route after deterministic IntentEnvelope. Trivial → context_curator; else supervisor."""
+    # Pending question (user replying to clarification/plan/needs_input)
     if state.get("pending_question_continue"):
         src = state.get("pending_question_source", "worker")
-        # Worker and planner (plan approval) paths go through context curator; supervisor direct
         if src in ("worker", "planner"):
             return "context_curator"
         return src
+
+    # UI helper slipped through main.py filter — short-circuit
+    if state.get("message_origin") == "ui_helper":
+        return "respond"
+
+    # Trivial fast path: skip Supervisor, go straight to context curator → Worker
+    if state.get("task_size") == "trivial" and state.get("bypass_supervisor"):
+        return "context_curator"
+
     return "supervisor"
 
 
@@ -165,6 +170,13 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     execution_plan = state.get("execution_plan", {})
     plan_pending_approval = state.get("plan_pending_approval", False)
     user_id = state.get("user_id", "anonymous")
+
+    # EntryClassifier routed UI-helper here (defensive; normally filtered in main.py)
+    if state.get("message_origin") == "ui_helper" and not code and not error:
+        return {
+            "messages": [AIMessage(content="[UI helper request; no coding task to process.]")],
+            "current_node": "respond",
+        }
 
     # JCS Phase 6: plan approval — store unified pending question, surface to user
     if plan_pending_approval and execution_plan and not code and not error:
@@ -297,6 +309,12 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         if micro_ack_parts and code:
             ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
             parts.append(ack)
+            # Step 2: Small tasks — friendly note that defaults can be overridden (no blocking)
+            task_size = state.get("task_size", "")
+            if task_size == "small" and any(
+                x for x in (defaults or []) if isinstance(x, str) and ("pytest" in x.lower() or "unittest" in x.lower() or "test" in x.lower())
+            ):
+                parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if code:
             parts.append(f"```{lang}\n{code}\n```")
         if explanation:
@@ -363,7 +381,7 @@ graph_builder = StateGraph(dict)
 sandbox_timeout = settings.sandbox_timeout_seconds + 15
 lsp_timeout = settings.lsp_timeout_seconds + 5
 
-graph_builder.add_node("entry", entry_router_node)
+graph_builder.add_node("entry_classifier", entry_classifier_node)
 graph_builder.add_node("supervisor", with_timeout(timeout)(supervisor_node))
 graph_builder.add_node("planner", with_timeout(timeout)(planner_node))
 graph_builder.add_node("context_curator", context_curator_node)
@@ -374,11 +392,11 @@ graph_builder.add_node("lsp_analyzer", with_timeout(lsp_timeout)(lsp_analyzer_no
 graph_builder.add_node("critic", with_timeout(timeout)(critic_node))
 graph_builder.add_node("respond", respond_node)
 
-graph_builder.set_entry_point("entry")
+graph_builder.set_entry_point("entry_classifier")
 graph_builder.add_conditional_edges(
-    "entry",
-    route_entry,
-    {"context_curator": "context_curator", "supervisor": "supervisor", "planner": "planner"},
+    "entry_classifier",
+    route_after_entry_classifier,
+    {"context_curator": "context_curator", "supervisor": "supervisor", "planner": "planner", "respond": "respond"},
 )
 graph_builder.add_conditional_edges(
     "supervisor",

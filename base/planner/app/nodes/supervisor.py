@@ -28,6 +28,8 @@ logger = logging.getLogger("synesis.supervisor")
 SUPERVISOR_SYSTEM_PROMPT = """\
 You are the Supervisor for an end-user coding assistant. Goal: minimize user effort, maximize forward progress.
 
+PRE-CLASSIFIED: When the message includes "Pre-classified (EntryClassifier)" with task_size and target_language, use those values. Do not re-classify. Focus on routing, RAG, planning_suggested, deliverable_type.
+
 HARD RULES (Tier 1):
 - If the user request is trivial (hello world, simple print, basic unit test), DO NOT ask clarifying questions.
 - DO NOT infer bash/shell from generic "script" when target language is stated or implied (python, etc.).
@@ -210,6 +212,18 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 f"The critic provided this feedback:\n{critic_feedback}\n"
                 f"Please incorporate this feedback into the task description."
             )
+        # Step 3: When EntryClassifier pre-classified, Supervisor validates and uses — does not re-classify
+        intent_envelope_block = ""
+        if state.get("intent_classifier_source") == "deterministic":
+            task_size = state.get("task_size", "small")
+            target_lang = state.get("target_language", "python")
+            intent_envelope_block = (
+                f"\n\n## Pre-classified (EntryClassifier)\n"
+                f"task_size={task_size}, target_language={target_lang}. "
+                f"Use these; do not re-classify language or task_size. "
+                f"Focus on: routing, RAG, planning_suggested, deliverable_type."
+            )
+
         scope_expansion_note = ""
         if state.get("scope_expansion_needed"):
             requested = state.get("requested_files", [])
@@ -249,7 +263,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         prompt_messages = [
             SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT),
             HumanMessage(
-                content=f"User request: {user_context}{clarification_answer_block}{history_block}{revision_note}{scope_expansion_note}"
+                content=f"User request: {user_context}{clarification_answer_block}{intent_envelope_block}{history_block}{revision_note}{scope_expansion_note}"
             ),
         ]
 
@@ -320,16 +334,27 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
 
         task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
-        target_language = (parsed.target_language or "").strip() or _extract_language_from_text(user_context)
+        # Step 3: Prefer EntryClassifier's language when pre-classified
+        if state.get("intent_classifier_source") == "deterministic" and state.get("target_language"):
+            target_language = state.get("target_language", "python")
+        else:
+            target_language = (parsed.target_language or "").strip() or _extract_language_from_text(user_context)
         needs_code = parsed.needs_code_generation
 
-        # Policy: never ask clarification if trivial and language known (trivial tasks always have implicit defaults)
-        bypass_clarification = getattr(parsed, "bypass_clarification", False) or (
-            getattr(parsed, "task_is_trivial", False) and target_language
+        # Policy: EntryClassifier sets clarification_budget; Supervisor must obey (0 = never ask)
+        requires_clarification = state.get("requires_clarification", True)
+        task_size = state.get("task_size", "small")
+        clarification_budget = state.get("clarification_budget", 1)
+        bypass_clarification = (
+            getattr(parsed, "bypass_clarification", False)
+            or (getattr(parsed, "task_is_trivial", False) and target_language)
+            or not requires_clarification
+            or task_size in ("trivial", "small")
+            or clarification_budget == 0
         )
         if bypass_clarification and parsed.needs_clarification:
             parsed = parsed.model_copy(update={"needs_clarification": False, "clarification_question": None})
-            logger.info("supervisor_bypass_clarification", extra={"reason": "trivial_with_defaults"})
+            logger.info("supervisor_bypass_clarification", extra={"reason": "entry_classifier_or_trivial"})
 
         # §7.8 / Item 1: SupervisorGuard mode — when from Critic, only clarification or forward.
         # May NOT modify evidence_needed, strategy_candidates, or planning. Passthrough to Worker.
