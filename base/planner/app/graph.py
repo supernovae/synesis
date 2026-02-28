@@ -266,6 +266,13 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     # JCS: needs_input (Executor) — store unified pending question
     if needs_input_question and not code and not error:
         content = f"**I need a bit more information:**\n\n{needs_input_question}"
+        ctx = {
+            "task_description": state.get("task_description", ""),
+            "target_language": state.get("target_language", "python"),
+            "rag_context": state.get("rag_context", []),
+            "execution_plan": state.get("execution_plan", {}),
+            "assumptions": state.get("assumptions", []),
+        }
         memory.store_pending_question(
             user_id,
             {
@@ -273,13 +280,9 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "turn_id": str(state.get("iteration_count", 0)),
                 "source_node": "worker",
                 "question": needs_input_question,
-                "context": {},
+                "context": ctx,
                 "needs_input_question": needs_input_question,
-                "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "python"),
-                "rag_context": state.get("rag_context", []),
-                "execution_plan": state.get("execution_plan", {}),
-                "assumptions": state.get("assumptions", []),
+                **ctx,
             },
         )
         return {

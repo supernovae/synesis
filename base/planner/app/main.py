@@ -241,6 +241,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     initial_state[key] = val
             if source_node == "worker":
                 initial_state["user_answer_to_needs_input"] = last_user_content
+                for k in (
+                    "task_description",
+                    "target_language",
+                    "rag_context",
+                    "execution_plan",
+                    "assumptions",
+                ):
+                    if k in pending and pending[k] is not None:
+                        initial_state[k] = pending[k]
             elif source_node == "supervisor":
                 initial_state["user_answer_to_clarification"] = last_user_content
             elif source_node == "planner":

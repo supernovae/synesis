@@ -192,7 +192,14 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-        task_desc = state.get("task_description", "")
+        task_desc = state.get("task_description", "").strip()
+        if not task_desc:
+            # Fallback: derive from last user message (avoids "I need more info" on trivial)
+            for m in reversed(state.get("messages", []) or []):
+                c = getattr(m, "content", None) if hasattr(m, "content") else (m.get("content") if isinstance(m, dict) else None)
+                if c and isinstance(c, str) and c.strip():
+                    task_desc = c.strip()[:500]
+                    break
         target_lang = state.get("target_language", "python")
         rag_context = state.get("rag_context", [])
         critic_feedback = state.get("critic_feedback", "")
