@@ -15,8 +15,8 @@ resources:
   # ServingRuntimes: executor (MoE, no prefix cache) | supervisor/critic (dense 8B, prefix cache)
   - serving-runtime-executor.yaml
   - serving-runtime-supervisor-critic.yaml
-  # Summarizer (0.5B on GPU) — pivot history, Tier 3 manifest; also draft for speculative decoding
-  - serving-runtime-summarizer.yaml
+  # Summarizer (0.5B on CPU) — no GPU; schedules on any node so 8B/30B get full GPU
+  - serving-runtime-vllm-cpu.yaml
   - inference-service-supervisor.yaml
   - inference-service-executor.yaml
   - inference-service-critic.yaml

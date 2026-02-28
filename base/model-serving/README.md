@@ -19,7 +19,7 @@ Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scr
 
 **What deploy.sh creates:**
 - **Connection secret** (ODH URI): synesis-executor (hf:// Qwen3-Coder-30B-A3B-Instruct-FP8)
-- **ServingRuntimes**: synesis-executor, synesis-supervisor-critic (vLLM CUDA, speculative), synesis-summarizer (0.5B GPU)
+- **ServingRuntimes**: synesis-executor, synesis-supervisor-critic (vLLM CUDA, speculative), vllm-cpu (summarizer)
 - **InferenceServices**: synesis-supervisor, synesis-executor, synesis-critic, synesis-summarizer (optional)
   - Supervisor/critic: `RedHatAI/Qwen3-8B-FP8-dynamic` from HuggingFace (1 GPU, 8Gi each; OCI registry has sigstore 500 issues)
   - Executor: `Qwen3-Coder-30B-A3B-Instruct-FP8` from HuggingFace (~48Gi GPU; 30B MoE, ~30GB VRAM)

@@ -1,6 +1,5 @@
 # Synesis Summarizer — Qwen2.5-0.5B-Instruct for pivot history and Tier 3 manifest summarization.
-# GPU: ~1–2GB VRAM; enables speculative decoding when used as draft model for main models.
-# Route summarizer API to executor predictor if colocated; else use this standalone deployment.
+# CPU-only: no GPU; schedules on any node so 8B/30B models get full GPU. 0.5B runs fine on CPU.
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:
@@ -11,7 +10,7 @@ metadata:
     opendatahub.io/dashboard: "true"
   annotations:
     opendatahub.io/model-type: generative
-    openshift.io/description: Synesis Summarizer (Qwen2.5-0.5B-Instruct, GPU)
+    openshift.io/description: Synesis Summarizer (Qwen2.5-0.5B-Instruct, CPU)
     openshift.io/display-name: Synesis Summarizer (Qwen2.5-0.5B-Instruct)
     security.opendatahub.io/enable-auth: "false"
     serving.kserve.io/deploymentMode: RawDeployment
@@ -23,9 +22,9 @@ spec:
     maxReplicas: 1
     minReplicas: 0
     model:
-      runtime: synesis-summarizer
+      runtime: vllm-cpu
       modelFormat:
-        name: vLLM
+        name: pytorch
       name: ""
       storageUri: hf://Qwen/Qwen2.5-0.5B-Instruct
       env:
@@ -39,15 +38,6 @@ spec:
         limits:
           cpu: "2"
           memory: 4Gi
-          nvidia.com/gpu: "1"
         requests:
           cpu: "1"
           memory: 2Gi
-          nvidia.com/gpu: "1"
-    nodeSelector:
-      nvidia.com/gpu.product: NVIDIA-A10G
-    tolerations:
-      - effect: NoSchedule
-        key: nvidia.com/gpu
-        operator: Equal
-        value: "true"
