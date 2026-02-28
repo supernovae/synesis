@@ -12,7 +12,7 @@ import json
 import uuid
 from typing import Any, Literal, TypeVar
 
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from .state import TaskType
 
@@ -207,6 +207,31 @@ class IntegrityFailure(BaseModel):
     remediation: str = ""  # e.g. "Remove the hardcoded API key and use environment variables."
 
 
+def _str_to_list(v: Any) -> list[str]:
+    """Coerce LLM string output to list (e.g. 'None needed' -> ['None needed'])."""
+    if isinstance(v, list):
+        return [str(x) for x in v]
+    if v is None:
+        return []
+    return [str(v).strip()] if str(v).strip() else []
+
+
+def _coerce_confidence(v: Any) -> float:
+    """Coerce LLM output: 'high'|'medium'|'low' or numeric string -> float 0-1."""
+    if isinstance(v, (int, float)):
+        return max(0.0, min(1.0, float(v)))
+    if v is None:
+        return 0.5
+    s = str(v).strip().lower()
+    mapping = {"high": 0.9, "medium": 0.6, "low": 0.3}
+    if s in mapping:
+        return mapping[s]
+    try:
+        return max(0.0, min(1.0, float(v)))
+    except (TypeError, ValueError):
+        return 0.5
+
+
 class ExecutorOut(BaseModel):
     """Validated output from the Executor LLM node."""
 
@@ -216,6 +241,16 @@ class ExecutorOut(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
     edge_cases_considered: list[str] = Field(default_factory=list)
+
+    @field_validator("assumptions", "edge_cases_considered", mode="before")
+    @classmethod
+    def coerce_list_fields(cls, v: Any) -> list[str]:
+        return _str_to_list(v)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def coerce_confidence(cls, v: Any) -> float:
+        return _coerce_confidence(v)
 
     # JCS: proactive "I need more" instead of guessing
     needs_input: bool = False
