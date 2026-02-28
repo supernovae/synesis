@@ -496,7 +496,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             confidence=parsed.confidence,
             outcome=NodeOutcome.SUCCESS if approved else NodeOutcome.NEEDS_REVISION,
             latency_ms=latency,
-            tokens_used=response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0,
+            tokens_used=response.usage_metadata.get("total_tokens", 0) if (response and response.usage_metadata) else 0,
         )
 
         logger.info(
