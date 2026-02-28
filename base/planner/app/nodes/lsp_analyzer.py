@@ -20,6 +20,7 @@ import httpx
 
 from ..config import settings
 from ..schemas import make_tool_ref
+from ..url_utils import ensure_url_protocol
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.lsp_analyzer")
@@ -108,7 +109,7 @@ async def lsp_analyzer_node(state: dict[str, Any]) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=settings.lsp_timeout_seconds) as client:
             resp = await client.post(
-                f"{settings.lsp_gateway_url.rstrip('/')}/analyze",
+                f"{ensure_url_protocol(settings.lsp_gateway_url).rstrip('/')}/analyze",
                 json={k: v for k, v in params.items() if k in ("code", "language")},  # API contract
                 headers=headers,
             )

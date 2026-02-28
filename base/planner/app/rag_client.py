@@ -26,6 +26,7 @@ import httpx
 from rank_bm25 import BM25Okapi
 
 from .config import settings
+from .url_utils import ensure_url_protocol
 from .state import RetrievalResult
 
 logger = logging.getLogger("synesis.rag")
@@ -83,9 +84,10 @@ def _get_client() -> httpx.AsyncClient:
 
 async def _embed_text(text: str) -> list[float]:
     """Get embedding vector from the embedder service."""
+    base = ensure_url_protocol(settings.embedder_url)
     client = _get_client()
     response = await client.post(
-        f"{settings.embedder_url}/embeddings",
+        f"{base.rstrip('/')}/embeddings",
         json={"input": text, "model": settings.embedder_model},
     )
     response.raise_for_status()
@@ -555,11 +557,12 @@ async def _rerank_bge(
     if not results or not settings.rag_bge_reranker_url:
         return results[:top_k]
 
+    base = ensure_url_protocol(settings.rag_bge_reranker_url)
     client = _get_client()
     try:
         start = time.monotonic()
         response = await client.post(
-            f"{settings.rag_bge_reranker_url}/rerank",
+            f"{base.rstrip('/')}/rerank",
             json={
                 "query": query,
                 "passages": [r["text"] for r in results],

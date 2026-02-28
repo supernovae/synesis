@@ -17,6 +17,7 @@ import httpx
 from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 from .config import settings
+from .url_utils import ensure_url_protocol
 
 logger = logging.getLogger("synesis.failure_store")
 
@@ -84,8 +85,9 @@ def _ensure_collection() -> None:
 
 def _embed(text: str) -> list[float]:
     """Embed text via the shared embedder service."""
+    base = ensure_url_protocol(settings.embedder_url)
     resp = httpx.post(
-        f"{settings.embedder_url}/embeddings",
+        f"{base.rstrip('/')}/embeddings",
         json={"input": [text], "model": settings.embedder_model},
         timeout=10,
     )

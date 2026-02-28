@@ -21,6 +21,7 @@ from typing import Any
 
 from ..config import settings
 from ..failfast_cache import cache as failfast_cache
+from ..url_utils import ensure_url_protocol
 from ..failure_store import compute_failure_id, store_failure
 from ..revision_constraints import REVISION_CONSTRAINTS, STRATEGY_CANDIDATES_BY_FAILURE
 from ..schemas import make_tool_ref
@@ -347,7 +348,8 @@ async def _execute_warm_pool(
     if not settings.sandbox_warm_pool_enabled:
         return None
 
-    url = f"{settings.sandbox_warm_pool_url}/execute"
+    base = ensure_url_protocol(settings.sandbox_warm_pool_url)
+    url = f"{base.rstrip('/')}/execute"
     payload = {"language": language, "code": code, "filename": filename}
     headers = {}
     if request_id:

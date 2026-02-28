@@ -6,8 +6,10 @@ Every tunable knob lives here. Override via ConfigMap env vars in K8s.
 import os
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .url_utils import ensure_url_protocol
 
 
 def _build_info() -> str:
@@ -37,6 +39,23 @@ class Settings(BaseSettings):
     milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"
     milvus_port: int = 19530
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+
+    @field_validator(
+        "embedder_url",
+        "web_search_url",
+        "lsp_gateway_url",
+        "sandbox_warm_pool_url",
+        "rag_bge_reranker_url",
+        "supervisor_model_url",
+        "planner_model_url",
+        "executor_model_url",
+        "critic_model_url",
+        "summarizer_model_url",
+        mode="before",
+    )
+    @classmethod
+    def normalize_url_protocol(cls, v: str) -> str:
+        return ensure_url_protocol(v) if isinstance(v, str) else v
     embedder_model: str = "all-MiniLM-L6-v2"
     rag_top_k: int = 5
     rag_overfetch_count: int = 30  # Over-fetch for excluded telemetry (Q1.3); Curator trims to top_k

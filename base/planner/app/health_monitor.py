@@ -101,6 +101,8 @@ class ServiceConfig:
 
 
 def load_config(config_path: str = "/etc/synesis/supervisor.yaml") -> list[ServiceConfig]:
+    from .url_utils import ensure_url_protocol
+
     path = Path(config_path)
     if not path.exists():
         logger.warning(f"Config not found at {config_path}, using defaults")
@@ -117,10 +119,11 @@ def load_config(config_path: str = "/etc/synesis/supervisor.yaml") -> list[Servi
             reset_timeout_seconds=cb_cfg.get("reset_timeout_seconds", 60),
             half_open_max_requests=cb_cfg.get("half_open_max_requests", 2),
         )
+        endpoint = ensure_url_protocol(cfg.get("endpoint", ""))
         services.append(
             ServiceConfig(
                 name=name,
-                endpoint=cfg["endpoint"],
+                endpoint=endpoint,
                 health_path=cfg.get("health_path", "/health"),
                 circuit_breaker=cb,
                 timeout_seconds=cfg.get("timeout_seconds", 10),
