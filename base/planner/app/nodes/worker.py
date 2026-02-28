@@ -129,6 +129,93 @@ worker_llm = ChatOpenAI(
 )
 
 
+def _format_lint_output(raw: str) -> str:
+    """Convert linter JSON output to human-readable file:line:col: message format.
+
+    Supports Ruff (Python), Shellcheck (bash), and ESLint (JS/TS). Falls back to raw
+    for other formats (e.g. cppcheck text, javac).
+    """
+    import json
+    import os
+
+    raw = (raw or "").strip()
+    if not raw:
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return raw
+
+    lines: list[str] = []
+
+    # Ruff: array of {filename, location: {row, column}, message, code}
+    # Shellcheck legacy -f json: array of {file, line, column, message, code}
+    if isinstance(parsed, list):
+        for d in parsed:
+            if not isinstance(d, dict):
+                continue
+            path = d.get("filename") or d.get("file", "")
+            if path:
+                path = os.path.basename(path)
+            loc = d.get("location") if isinstance(d.get("location"), dict) else {}
+            row = (loc.get("row") if loc else None) or d.get("line", 0)
+            col = (loc.get("column") if loc else None) or d.get("column", 0)
+            msg = d.get("message", "error")
+            code = d.get("code", "")
+            if isinstance(code, int):
+                code = f"SC{code}" if code else ""
+            if code:
+                lines.append(f"{path}:{row}:{col}: {msg} ({code})")
+            else:
+                lines.append(f"{path}:{row}:{col}: {msg}")
+
+    # Shellcheck json1: {comments: [{file, line, column, message, code}]}
+    elif isinstance(parsed, dict) and "comments" in parsed:
+        for c in parsed.get("comments", []):
+            if not isinstance(c, dict):
+                continue
+            path = os.path.basename(c.get("file", ""))
+            row = c.get("line", 0)
+            col = c.get("column", 0)
+            msg = c.get("message", "error")
+            code = c.get("code", "")
+            if code:
+                lines.append(f"{path}:{row}:{col}: {msg} (SC{code})")
+            else:
+                lines.append(f"{path}:{row}:{col}: {msg}")
+
+    # ESLint: {filePath, messages: [{line, column, message, ruleId}]} or array of those
+    elif isinstance(parsed, dict) and "messages" in parsed:
+        path = os.path.basename(parsed.get("filePath", ""))
+        for m in parsed.get("messages", []):
+            if not isinstance(m, dict):
+                continue
+            row = m.get("line", 0)
+            col = m.get("column", 0)
+            msg = m.get("message", "error")
+            code = m.get("ruleId", "")
+            if code:
+                lines.append(f"{path}:{row}:{col}: {msg} ({code})")
+            else:
+                lines.append(f"{path}:{row}:{col}: {msg}")
+    elif isinstance(parsed, list) and parsed and isinstance(parsed[0], dict) and "messages" in parsed[0]:
+        for item in parsed:
+            path = os.path.basename(item.get("filePath", ""))
+            for m in item.get("messages", []) or []:
+                if not isinstance(m, dict):
+                    continue
+                row = m.get("line", 0)
+                col = m.get("column", 0)
+                msg = m.get("message", "error")
+                code = m.get("ruleId", "")
+                if code:
+                    lines.append(f"{path}:{row}:{col}: {msg} ({code})")
+                else:
+                    lines.append(f"{path}:{row}:{col}: {msg}")
+
+    return "\n".join(lines) if lines else raw
+
+
 def _build_execution_feedback(execution_result: str, iteration: int) -> str:
     """Format sandbox execution results into a prompt section for revision."""
     import json
@@ -142,7 +229,9 @@ def _build_execution_feedback(execution_result: str, iteration: int) -> str:
 
     lint = result.get("lint", {})
     if isinstance(lint, dict) and not lint.get("passed", True):
-        parts.append(f"**Lint errors:**\n```\n{lint.get('output', 'unknown')}\n```")
+        raw_lint = lint.get("output", "unknown")
+        formatted = _format_lint_output(raw_lint)
+        parts.append(f"**Lint errors:**\n```\n{formatted}\n```")
 
     security = result.get("security", {})
     if isinstance(security, dict) and not security.get("passed", True):

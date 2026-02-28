@@ -157,9 +157,11 @@ def route_after_sandbox(state: dict[str, Any]) -> str:
     # Skip LSP for trivial tasks: simple hello-world code won't have type/symbol issues.
     # Runtime failure on trivial code is usually sandbox/env, not fixable by LSP.
     # After 1 retry, break the loop: route to critic→respond so user gets code + note.
+    # Same for lint/security on trivial: avoid endless retry loops; show code + failure note.
+    # Allow 2 retries (3 total attempts) for trivial to give structured feedback a chance.
     task_size = state.get("task_size", "")
-    if task_size == "trivial" and failure_type == "runtime":
-        if iteration >= 1:
+    if task_size == "trivial":
+        if iteration >= 2:
             return "critic"
         return "context_curator"
     if settings.lsp_enabled and settings.lsp_mode == "on_failure" and lsp_eligible:

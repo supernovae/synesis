@@ -58,6 +58,8 @@ run_lint() {
             LINT_OUTPUT=$(ruff check --output-format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
             ;;
         javascript|typescript|js|ts)
+            # Apply autofix first (formatting, unused imports, etc.); then report remaining issues
+            eslint --fix "$WORK_FILE" >/dev/null 2>&1 || true
             LINT_OUTPUT=$(eslint --format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
             ;;
         c|cpp|c++)
@@ -67,6 +69,10 @@ run_lint() {
             LINT_OUTPUT=$(javac -Xlint:all "$WORK_FILE" 2>&1) || LINT_EXIT=$?
             ;;
         go)
+            # Go needs writable GOCACHE/GOPATH; read-only root fails with "mkdir /.cache: read-only"
+            export GOCACHE="${WORK_DIR}/.gocache"
+            export GOPATH="${WORK_DIR}/.gopath"
+            mkdir -p "$GOCACHE" "$GOPATH"
             LINT_OUTPUT=$(go vet "$WORK_FILE" 2>&1) || LINT_EXIT=$?
             ;;
         *)
@@ -140,6 +146,9 @@ run_execution() {
             EXEC_OUTPUT=$(timeout 10s java "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
             ;;
         go)
+            export GOCACHE="${WORK_DIR}/.gocache"
+            export GOPATH="${WORK_DIR}/.gopath"
+            mkdir -p "$GOCACHE" "$GOPATH"
             EXEC_OUTPUT=$(timeout 10s go run "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
             ;;
         *)

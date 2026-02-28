@@ -413,7 +413,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         async def sse_generator() -> object:
             result = None
             try:
-                async for chunk in graph.astream(initial_state, stream_mode="values"):
+                # recursion_limit: allow ~3 sandbox retries + critic/supervisor; default 25 can hit mid-loop
+                config = {"recursion_limit": 50}
+                async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
                     result = chunk
                     node = chunk.get("current_node", "")
                     if node and node in NODE_STATUS_MESSAGES:
@@ -478,7 +480,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     # Non-streaming: run graph once, then build response
     try:
-        result = await graph.ainvoke(initial_state)
+        config = {"recursion_limit": 50}
+        result = await graph.ainvoke(initial_state, config=config)
     except Exception as e:
         logger.exception("graph_execution_error")
         err_msg = str(e)[:200]  # Truncate for response
