@@ -83,16 +83,23 @@ def _ensure_collection() -> None:
     _initialized = True
 
 
-def _embed(text: str) -> list[float]:
-    """Embed text via the shared embedder service."""
+def _embed(text: str) -> list[float] | None:
+    """Embed text via the shared embedder service. Returns None if embedder unavailable."""
+    if not settings.embedder_url or not str(settings.embedder_url).strip():
+        return None
     base = ensure_url_protocol(settings.embedder_url)
-    resp = httpx.post(
-        f"{base.rstrip('/')}/embeddings",
-        json={"input": [text], "model": settings.embedder_model},
-        timeout=10,
-    )
-    resp.raise_for_status()
-    return resp.json()["data"][0]["embedding"]
+    if not base.startswith(("http://", "https://")):
+        return None
+    try:
+        resp = httpx.post(
+            f"{base.rstrip('/')}/embeddings",
+            json={"input": [text], "model": settings.embedder_model},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
+    except Exception:
+        return None
 
 
 def _failure_id(code: str, error_output: str) -> str:
@@ -164,6 +171,8 @@ async def store_failure(
 
         embed_text = f"{code[:2048]}\n\nERROR: {error_output[:1024]}"
         embedding = _embed(embed_text)
+        if embedding is None:
+            return None
 
         entity = {
             "failure_id": fid,
@@ -213,6 +222,8 @@ async def query_similar_failures(
         _ensure_collection()
         query_text = f"{task_description[:512]}\n{code[:1024]}"
         embedding = _embed(query_text)
+        if embedding is None:
+            return []
 
         client = _get_client()
 
