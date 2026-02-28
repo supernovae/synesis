@@ -606,8 +606,12 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         needs_input = parsed.needs_input
         needs_input_question = (parsed.needs_input_question or "").strip()
 
-        # Worker stop_reason: needs_scope_expansion → Supervisor; blocked_external, cannot_reproduce, unsafe_request → Respond
-        stop_reason = (parsed.stop_reason or "").strip()
+        # Worker stop_reason: only accept known values; ignore LLM free-text (e.g. "Task completed successfully")
+        _raw_stop = (parsed.stop_reason or "").strip()
+        VALID_STOP_REASONS = {"blocked_external", "cannot_reproduce", "unsafe_request", "needs_scope_expansion"}
+        stop_reason = _raw_stop if _raw_stop in VALID_STOP_REASONS else ""
+        if _raw_stop and not stop_reason:
+            logger.info("worker_stop_reason_ignored", extra={"raw": _raw_stop[:80]})
         # §8.5: Post-validate scope: if Worker output has paths not in touched_files, force needs_scope_expansion
         out_of_scope: list[str] = []
         touched_files = state.get("touched_files", []) or []
