@@ -136,6 +136,8 @@ async def _create_sandbox_job(
     code: str,
     language: str,
     run_id: str,
+    *,
+    trivial: bool = False,
 ) -> str:
     """Create a ConfigMap with code and a Job to execute it. Returns Job name."""
     from kubernetes_asyncio import client, config
@@ -152,7 +154,7 @@ async def _create_sandbox_job(
     job_name = f"sandbox-{run_id}"
     cm_name = f"sandbox-code-{run_id}"
 
-    metadata_json = json.dumps({"language": language, "filename": filename})
+    metadata_json = json.dumps({"language": language, "filename": filename, "trivial": trivial})
 
     async with ApiClient() as api:
         core = client.CoreV1Api(api)
@@ -341,6 +343,7 @@ async def _execute_warm_pool(
     filename: str,
     *,
     request_id: str | None = None,
+    trivial: bool = False,
 ) -> dict[str, Any] | None:
     """Try executing via the pre-warmed sandbox pool. Returns None on failure."""
     import httpx
@@ -350,7 +353,7 @@ async def _execute_warm_pool(
 
     base = ensure_url_protocol(settings.sandbox_warm_pool_url)
     url = f"{base.rstrip('/')}/execute"
-    payload = {"language": language, "code": code, "filename": filename}
+    payload = {"language": language, "code": code, "filename": filename, "trivial": trivial}
     headers = {}
     if request_id:
         headers["X-Synesis-Request-ID"] = request_id
@@ -376,9 +379,11 @@ async def _execute_warm_pool(
     return None
 
 
-async def _execute_via_job(code: str, language: str, run_id: str, namespace: str) -> dict[str, Any]:
+async def _execute_via_job(
+    code: str, language: str, run_id: str, namespace: str, *, trivial: bool = False
+) -> dict[str, Any]:
     """Create an ephemeral K8s Job and wait for it to finish."""
-    job_name = await _create_sandbox_job(code, language, run_id)
+    job_name = await _create_sandbox_job(code, language, run_id, trivial=trivial)
     logger.info("Created sandbox job %s for %s code", job_name, language)
     result = await _wait_for_job(
         job_name,
@@ -492,12 +497,15 @@ async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
         "context_files": context_files[:20] if context_files else [],
     }
 
+    trivial = state.get("task_size") == "trivial" or state.get("task_is_trivial", False)
     try:
-        result = await _execute_warm_pool(code, language, filename, request_id=request_id)
+        result = await _execute_warm_pool(
+            code, language, filename, request_id=request_id, trivial=trivial
+        )
         if result is not None:
             used_warm_pool = True
         else:
-            result = await _execute_via_job(code, language, run_id, namespace)
+            result = await _execute_via_job(code, language, run_id, namespace, trivial=trivial)
 
         tool_ref = make_tool_ref("sandbox", sandbox_params, result, request_id=request_id)
         existing_refs = state.get("tool_refs") or []

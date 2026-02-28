@@ -71,6 +71,7 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
             language = body.get("language", "bash")
             code = body.get("code", "")
             filename = body.get("filename", "script.sh")
+            trivial = bool(body.get("trivial", False))
 
             if not code.strip():
                 self._respond(
@@ -83,7 +84,7 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
             os.makedirs(code_dir)
 
             with open(os.path.join(code_dir, "metadata.json"), "w") as f:
-                json.dump({"language": language, "filename": filename}, f)
+                json.dump({"language": language, "filename": filename, "trivial": trivial}, f)
 
             with open(os.path.join(code_dir, filename), "w") as f:
                 f.write(code)

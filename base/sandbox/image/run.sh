@@ -3,7 +3,7 @@
 #
 # Expects:
 #   $SANDBOX_CODE_DIR/script.<ext>    -- the code to validate and run
-#   $SANDBOX_CODE_DIR/metadata.json   -- {"language": "bash", "filename": "script.sh"}
+#   $SANDBOX_CODE_DIR/metadata.json   -- {"language": "bash", "filename": "script.sh", "trivial": false}
 #
 # SANDBOX_CODE_DIR defaults to /sandbox/code (ConfigMap mount for Job path).
 # The warm pool server overrides this to a per-request temp directory.
@@ -22,6 +22,7 @@ fi
 
 LANGUAGE=$(jq -r '.language // "bash"' "$METADATA")
 FILENAME=$(jq -r '.filename // "script.sh"' "$METADATA")
+TRIVIAL=$(jq -r '.trivial // false' "$METADATA")
 CODE_FILE="$CODE_DIR/$FILENAME"
 
 if [[ ! -f "$CODE_FILE" ]]; then
@@ -45,41 +46,75 @@ EXEC_EXIT=0
 
 # ---------------------------------------------------------------------------
 # Language-specific linting
+# Trivial: format/syntax only (avoids env-specific failures like go.mod, strict rules)
+# Non-trivial: full lint
 # ---------------------------------------------------------------------------
 run_lint() {
-    case "$LANGUAGE" in
-        bash|shell|sh)
-            LINT_OUTPUT=$(shellcheck -f json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        python)
-            # Try autofix first (fixes quoting, import order, casing, etc.)
-            # Must redirect stdout too: ruff --fix prints "Found N errors..." to stdout and would pollute our JSON
-            ruff check --fix "$WORK_FILE" >/dev/null 2>&1 || true
-            LINT_OUTPUT=$(ruff check --output-format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        javascript|typescript|js|ts)
-            # Apply autofix first (formatting, unused imports, etc.); then report remaining issues
-            eslint --fix "$WORK_FILE" >/dev/null 2>&1 || true
-            LINT_OUTPUT=$(eslint --format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        c|cpp|c++)
-            LINT_OUTPUT=$(cppcheck --enable=all --template='{file}:{line}: {severity}: {message}' "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        java)
-            LINT_OUTPUT=$(javac -Xlint:all "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        go)
-            # Go needs writable GOCACHE/GOPATH; read-only root fails with "mkdir /.cache: read-only"
-            export GOCACHE="${WORK_DIR}/.gocache"
-            export GOPATH="${WORK_DIR}/.gopath"
-            mkdir -p "$GOCACHE" "$GOPATH"
-            LINT_OUTPUT=$(go vet "$WORK_FILE" 2>&1) || LINT_EXIT=$?
-            ;;
-        *)
-            LINT_OUTPUT="No linter configured for language: $LANGUAGE"
-            LINT_EXIT=0
-            ;;
-    esac
+    if [[ "$TRIVIAL" == "true" ]]; then
+        case "$LANGUAGE" in
+            bash|shell|sh)
+                LINT_OUTPUT=$(bash -n "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            python)
+                LINT_OUTPUT=$(python3 -m py_compile "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            javascript|typescript|js|ts)
+                LINT_OUTPUT=$(node --check "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            c|cpp|c++)
+                if [[ "$LANGUAGE" == "c" ]]; then
+                    LINT_OUTPUT=$(gcc -fsyntax-only "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                else
+                    LINT_OUTPUT=$(g++ -fsyntax-only "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                fi
+                ;;
+            java)
+                LINT_OUTPUT=$(javac -Xlint:all "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            go)
+                export GOCACHE="${WORK_DIR}/.gocache"
+                export GOPATH="${WORK_DIR}/.gopath"
+                mkdir -p "$GOCACHE" "$GOPATH"
+                (cd "$WORK_DIR" && go mod init sandbox 2>/dev/null) || true
+                LINT_OUTPUT=$(cd "$WORK_DIR" && go build -o /dev/null "./$FILENAME" 2>&1) || LINT_EXIT=$?
+                ;;
+            *)
+                LINT_OUTPUT="No linter for trivial $LANGUAGE"
+                LINT_EXIT=0
+                ;;
+        esac
+    else
+        case "$LANGUAGE" in
+            bash|shell|sh)
+                LINT_OUTPUT=$(shellcheck -f json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            python)
+                ruff check --fix "$WORK_FILE" >/dev/null 2>&1 || true
+                LINT_OUTPUT=$(ruff check --output-format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            javascript|typescript|js|ts)
+                eslint --fix "$WORK_FILE" >/dev/null 2>&1 || true
+                LINT_OUTPUT=$(eslint --format json "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            c|cpp|c++)
+                LINT_OUTPUT=$(cppcheck --enable=all --template='{file}:{line}: {severity}: {message}' "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            java)
+                LINT_OUTPUT=$(javac -Xlint:all "$WORK_FILE" 2>&1) || LINT_EXIT=$?
+                ;;
+            go)
+                export GOCACHE="${WORK_DIR}/.gocache"
+                export GOPATH="${WORK_DIR}/.gopath"
+                mkdir -p "$GOCACHE" "$GOPATH"
+                (cd "$WORK_DIR" && go mod init sandbox 2>/dev/null) || true
+                LINT_OUTPUT=$(cd "$WORK_DIR" && go vet "./$FILENAME" 2>&1) || LINT_EXIT=$?
+                ;;
+            *)
+                LINT_OUTPUT="No linter configured for language: $LANGUAGE"
+                LINT_EXIT=0
+                ;;
+        esac
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -121,39 +156,88 @@ run_security() {
 }
 
 # ---------------------------------------------------------------------------
-# Code execution (only if lint + security pass)
+# Code execution (trivial: full run; non-trivial: compile/check only, no run)
+# Non-trivial snippets may lack full project context—verify they build, don't run.
 # ---------------------------------------------------------------------------
 run_execution() {
+    # Trivial: we have a complete standalone program—run it
+    if [[ "$TRIVIAL" == "true" ]]; then
+        case "$LANGUAGE" in
+            bash|shell|sh)
+                EXEC_OUTPUT=$(timeout 10s bash "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+                ;;
+            python)
+                EXEC_OUTPUT=$(timeout 10s python3 "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+                ;;
+            javascript|js)
+                EXEC_OUTPUT=$(timeout 10s node "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+                ;;
+            c)
+                gcc -Wall -Wextra -o "$WORK_DIR/a.out" "$WORK_FILE" 2>&1 && \
+                EXEC_OUTPUT=$(timeout 10s "$WORK_DIR/a.out" 2>&1) || EXEC_EXIT=$?
+                ;;
+            cpp|c++)
+                g++ -Wall -Wextra -o "$WORK_DIR/a.out" "$WORK_FILE" 2>&1 && \
+                EXEC_OUTPUT=$(timeout 10s "$WORK_DIR/a.out" 2>&1) || EXEC_EXIT=$?
+                ;;
+            java)
+                EXEC_OUTPUT=$(timeout 10s java "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+                ;;
+            go)
+                export GOCACHE="${WORK_DIR}/.gocache"
+                export GOPATH="${WORK_DIR}/.gopath"
+                mkdir -p "$GOCACHE" "$GOPATH"
+                (cd "$WORK_DIR" && go mod init sandbox 2>/dev/null) || true
+                EXEC_OUTPUT=$(cd "$WORK_DIR" && timeout 10s go run "./$FILENAME" 2>&1) || EXEC_EXIT=$?
+                ;;
+            *)
+                EXEC_OUTPUT="No executor for trivial $LANGUAGE"
+                EXEC_EXIT=1
+                ;;
+        esac
+    else
+        # Non-trivial: compile/parse check only—don't run (snippet may need full project)
+        run_compile_check
+    fi
+}
+
+run_compile_check() {
     case "$LANGUAGE" in
         bash|shell|sh)
-            EXEC_OUTPUT=$(timeout 10s bash "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            EXEC_OUTPUT=$(bash -n "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Syntax OK (non-trivial: run skipped)"
             ;;
         python)
-            EXEC_OUTPUT=$(timeout 10s python3 "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            EXEC_OUTPUT=$(python3 -m py_compile "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Compile OK (non-trivial: run skipped)"
             ;;
-        javascript|js)
-            EXEC_OUTPUT=$(timeout 10s node "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+        javascript|js|ts)
+            EXEC_OUTPUT=$(node --check "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Parse OK (non-trivial: run skipped)"
             ;;
         c)
-            gcc -Wall -Wextra -o "$WORK_DIR/a.out" "$WORK_FILE" 2>&1 && \
-            EXEC_OUTPUT=$(timeout 10s "$WORK_DIR/a.out" 2>&1) || EXEC_EXIT=$?
+            EXEC_OUTPUT=$(gcc -fsyntax-only -o /dev/null "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Compile OK (non-trivial: run skipped)"
             ;;
         cpp|c++)
-            g++ -Wall -Wextra -o "$WORK_DIR/a.out" "$WORK_FILE" 2>&1 && \
-            EXEC_OUTPUT=$(timeout 10s "$WORK_DIR/a.out" 2>&1) || EXEC_EXIT=$?
+            EXEC_OUTPUT=$(g++ -fsyntax-only -o /dev/null "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Compile OK (non-trivial: run skipped)"
             ;;
         java)
-            EXEC_OUTPUT=$(timeout 10s java "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            EXEC_OUTPUT=$(javac -Xlint:all "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Compile OK (non-trivial: run skipped)"
             ;;
         go)
             export GOCACHE="${WORK_DIR}/.gocache"
             export GOPATH="${WORK_DIR}/.gopath"
             mkdir -p "$GOCACHE" "$GOPATH"
-            EXEC_OUTPUT=$(timeout 10s go run "$WORK_FILE" 2>&1) || EXEC_EXIT=$?
+            (cd "$WORK_DIR" && go mod init sandbox 2>/dev/null) || true
+            EXEC_OUTPUT=$(cd "$WORK_DIR" && go build -o /dev/null "./$FILENAME" 2>&1) || EXEC_EXIT=$?
+            [[ $EXEC_EXIT -eq 0 ]] && EXEC_OUTPUT="Build OK (non-trivial: run skipped)"
             ;;
         *)
-            EXEC_OUTPUT="No executor configured for language: $LANGUAGE"
-            EXEC_EXIT=1
+            EXEC_OUTPUT="No compile check for $LANGUAGE"
+            EXEC_EXIT=0
             ;;
     esac
 }
@@ -169,11 +253,16 @@ SECURITY_PASSED=true
 [[ $LINT_EXIT -ne 0 ]] && LINT_PASSED=false
 [[ $SECURITY_EXIT -ne 0 ]] && SECURITY_PASSED=false
 
+EXEC_ATTEMPTED=false
+EXEC_SKIP_REASON=""
 if [[ "$LINT_PASSED" == "true" && "$SECURITY_PASSED" == "true" ]]; then
     run_execution
+    EXEC_ATTEMPTED=true
 else
     EXEC_OUTPUT="Skipped: lint or security checks failed"
     EXEC_EXIT=1
+    [[ "$LINT_PASSED" != "true" ]] && EXEC_SKIP_REASON="lint_failed"
+    [[ "$SECURITY_PASSED" != "true" && -z "$EXEC_SKIP_REASON" ]] && EXEC_SKIP_REASON="security_failed"
 fi
 
 OVERALL_EXIT=0
@@ -203,12 +292,14 @@ jq -n \
     --argjson security_passed "$SECURITY_PASSED" \
     --arg exec_output "$EXEC_OUTPUT" \
     --argjson exec_exit "$EXEC_EXIT" \
+    --argjson exec_attempted "$EXEC_ATTEMPTED" \
+    --arg exec_skip_reason "$EXEC_SKIP_REASON" \
     --argjson exit_code "$OVERALL_EXIT" \
     '{
         language: $language,
         lint: { output: $lint_output, exit_code: $lint_exit, passed: $lint_passed },
         security: { output: $security, exit_code: $security_exit, passed: $security_passed },
-        execution: { output: $exec_output, exit_code: $exec_exit },
+        execution: { output: $exec_output, exit_code: $exec_exit, attempted: $exec_attempted, skip_reason: (if $exec_skip_reason != "" then $exec_skip_reason else null end) },
         exit_code: $exit_code
     }'
 

@@ -109,12 +109,26 @@ class DefaultsPolicy:
         )
 
     def get_trivial_files(self, language: str, include_tests: bool = True) -> list[str]:
-        """Default touched_files for trivial tasks. Single file when no test requested; avoids patch_ops display bug."""
-        if language == "python":
+        """Default touched_files for trivial tasks. Language-appropriate filenames prevent scope loops (e.g. main.go for Go)."""
+        lang = (language or "python").lower().strip()
+        if lang == "python":
             if include_tests:
                 return list(self.default_files.get("python_project", ["hello.py", "test_hello.py"]))
             return ["hello.py"]
-        return ["main.py", "main_test.py"] if include_tests else ["main.py"]
+        # Per-language defaults so Worker output matches touched_files (avoids needs_scope_expansion loop)
+        trivial_by_lang: dict[str, tuple[str, str]] = {
+            "go": ("main.go", "main_test.go"),
+            "javascript": ("main.js", "main.test.js"),
+            "typescript": ("main.ts", "main.test.ts"),
+            "java": ("Main.java", "MainTest.java"),
+            "rust": ("main.rs", "main_test.rs"),
+            "c": ("main.c", "main_test.c"),
+            "cpp": ("main.cpp", "main_test.cpp"),
+            "ruby": ("main.rb", "main_test.rb"),
+            "bash": ("script.sh", "script_test.sh"),
+        }
+        main, test = trivial_by_lang.get(lang, ("main.py", "main_test.py"))
+        return [main, test] if include_tests else [main]
 
     def get_defaults_used(self, language: str) -> list[str]:
         """Human-readable defaults for micro-ack."""

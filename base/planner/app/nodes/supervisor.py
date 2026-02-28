@@ -615,6 +615,20 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "patch_ops": state.get("patch_ops", []) or [],
             "node_traces": [trace],
         }
+        # Trivial + scope_expansion: expand touched_files so Worker retry doesn't loop (bypass_planner skips Planner)
+        if state.get("scope_expansion_needed") and next_node == "worker" and getattr(parsed, "task_is_trivial", False):
+            requested = state.get("requested_files", []) or []
+            current = state.get("touched_files", []) or []
+            seen = {p.rstrip("/") for p in current if p}
+            expanded = list(current)
+            for p in requested:
+                if p and p.rstrip("/") not in seen:
+                    expanded.append(p)
+                    seen.add(p.rstrip("/"))
+            if expanded != current:
+                out["touched_files"] = expanded
+                logger.info("supervisor_expanded_scope", extra={"added": requested[:5], "touched_files": expanded[:10]})
+
         if supervisor_guard and next_node == "worker":
             # Passthrough: preserve Critic's evidence context; Supervisor must not rewrite experiment
             for key in (
