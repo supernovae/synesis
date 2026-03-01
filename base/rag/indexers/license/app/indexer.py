@@ -1,8 +1,9 @@
 """License Compliance Indexer.
 
 Fetches license data from SPDX, Fedora, and choosealicense.com,
-merges into unified license records, chunks and embeds into Milvus.
-Also loads the built-in compatibility matrix as separate chunks.
+merges into unified license records, chunks and embeds into synesis_catalog
+with indexer_source=license. Full license text stored for verbatim recall
+when creating LICENSE files. Also loads the built-in compatibility matrix.
 
 Usage:
     python -m app.indexer --sources /data/sources.yaml --compat /data/compatibility.yaml
@@ -22,8 +23,8 @@ import argparse
 from pathlib import Path
 
 import yaml
-from pymilvus import DataType, FieldSchema
 
+from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .choosealicense_parser import ChoosealicenseData, fetch_choosealicense_licenses
 from .compatibility_loader import load_compatibility_rules, load_copyleft_classification
 from .fedora_parser import FedoraLicenseStatus, fetch_fedora_statuses
@@ -34,19 +35,6 @@ from .indexer_base import (
     chunk_id_hash,
 )
 from .spdx_parser import SPDXLicense, parse_spdx_licenses
-
-COLLECTION_NAME = "licenses_v1"
-
-LICENSE_EXTRA_FIELDS = [
-    FieldSchema(name="spdx_id", dtype=DataType.VARCHAR, max_length=64),
-    FieldSchema(name="license_name", dtype=DataType.VARCHAR, max_length=256),
-    FieldSchema(name="osi_approved", dtype=DataType.VARCHAR, max_length=8),
-    FieldSchema(name="redhat_status", dtype=DataType.VARCHAR, max_length=32),
-    FieldSchema(name="copyleft", dtype=DataType.VARCHAR, max_length=16),
-    FieldSchema(name="permissions", dtype=DataType.VARCHAR, max_length=512),
-    FieldSchema(name="conditions", dtype=DataType.VARCHAR, max_length=512),
-    FieldSchema(name="limitations", dtype=DataType.VARCHAR, max_length=512),
-]
 
 LONG_TEXT_LICENSES = {
     "GPL-2.0-only",
@@ -119,6 +107,26 @@ def _split_full_text(text: str, spdx_id: str) -> list[str]:
     return chunks
 
 
+def _tags_for_license(
+    spdx_id: str,
+    license_name: str,
+    osi_approved: bool,
+    redhat_status: str,
+    copyleft: str,
+    choose: ChoosealicenseData | None,
+) -> str:
+    """Build tags string for license metadata (catalog schema)."""
+    parts = [f"spdx:{spdx_id}", f"name:{license_name[:64]}", f"osi:{str(osi_approved).lower()}"]
+    parts.append(f"rh:{redhat_status[:24]}")
+    parts.append(f"copyleft:{copyleft[:16]}")
+    if choose:
+        if choose.permissions:
+            parts.append(f"perm:{','.join(choose.permissions)[:80]}")
+        if choose.conditions:
+            parts.append(f"cond:{','.join(choose.conditions)[:80]}")
+    return " ".join(parts)[:512]
+
+
 def index_licenses(
     sources: dict,
     compat_path: str,
@@ -128,17 +136,10 @@ def index_licenses(
     skip_existing: bool = True,
     filter_license: str | None = None,
 ) -> None:
-    """Main indexing pipeline: fetch from all sources, merge, chunk, embed."""
-    writer.ensure_collection(
-        COLLECTION_NAME,
-        extra_fields=LICENSE_EXTRA_FIELDS,
-        description="Open source license knowledge for compliance checking",
-    )
-
-    existing_ids: set[str] = set()
-    if skip_existing:
-        existing_ids = writer.existing_chunk_ids(COLLECTION_NAME)
-        logger.info(f"Existing chunks in {COLLECTION_NAME}: {len(existing_ids)}")
+    """Main indexing pipeline: fetch from all sources, merge, chunk, embed into synesis_catalog."""
+    ensure_synesis_catalog()
+    existing_ids: set[str] = writer.existing_chunk_ids(SYNESIS_CATALOG) if skip_existing else set()
+    logger.info(f"Existing chunks in {SYNESIS_CATALOG}: {len(existing_ids)}")
 
     # --- Fetch SPDX ---
     spdx_cfg = sources.get("spdx", {})
@@ -177,40 +178,32 @@ def index_licenses(
             logger.warning(f"License '{filter_license}' not found in SPDX data")
             return
 
-    # --- Build entities ---
-    entities: list[dict] = []
+    # --- Build raw entities (cid, text, source, tags) ---
+    raw_entities: list[tuple[str, str, str, str]] = []
     skipped = 0
 
     for spdx_id, spdx_lic in spdx_map.items():
         fedora = fedora_map.get(spdx_id)
         choose = choose_map.get(spdx_id)
         copyleft_level = copyleft_map.get(spdx_id, "unknown")
+        tags = _tags_for_license(
+            spdx_id,
+            spdx_lic.name,
+            spdx_lic.osi_approved,
+            fedora.status if fedora else "unknown",
+            copyleft_level,
+            choose,
+        )
 
         summary = _build_summary_text(spdx_lic, fedora, choose, copyleft_level)
         cid = chunk_id_hash(summary, f"license:{spdx_id}:summary")
 
         if cid not in existing_ids:
-            entities.append(
-                {
-                    "chunk_id": cid,
-                    "text": summary[:8192],
-                    "source": f"license:{spdx_id}"[:512],
-                    "language": "license",
-                    "spdx_id": spdx_id[:64],
-                    "license_name": spdx_lic.name[:256],
-                    "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
-                    "redhat_status": (fedora.status if fedora else "unknown")[:32],
-                    "copyleft": copyleft_level[:16],
-                    "permissions": (",".join(choose.permissions) if choose else "")[:512],
-                    "conditions": (",".join(choose.conditions) if choose else "")[:512],
-                    "limitations": (",".join(choose.limitations) if choose else "")[:512],
-                    "embedding": None,
-                }
-            )
+            raw_entities.append((cid, summary[:8192], f"license:{spdx_id}"[:512], tags))
         else:
             skipped += 1
 
-        # Full text chunks for verbose licenses
+        # Full text chunks for verbose licenses (verbatim recall for LICENSE file creation)
         if spdx_lic.full_text and spdx_id in LONG_TEXT_LICENSES:
             text_chunks = _split_full_text(spdx_lic.full_text, spdx_id)
             for i, chunk_text in enumerate(text_chunks):
@@ -218,32 +211,22 @@ def index_licenses(
                 if ft_cid in existing_ids:
                     skipped += 1
                     continue
-                entities.append(
-                    {
-                        "chunk_id": ft_cid,
-                        "text": chunk_text[:8192],
-                        "source": f"license:{spdx_id}:fulltext:{i}"[:512],
-                        "language": "license",
-                        "spdx_id": spdx_id[:64],
-                        "license_name": spdx_lic.name[:256],
-                        "osi_approved": str(spdx_lic.osi_approved).lower()[:8],
-                        "redhat_status": (fedora.status if fedora else "unknown")[:32],
-                        "copyleft": copyleft_level[:16],
-                        "permissions": ""[:512],
-                        "conditions": ""[:512],
-                        "limitations": ""[:512],
-                        "embedding": None,
-                    }
-                )
+                ft_tags = f"spdx:{spdx_id} fulltext:true " + tags[:400]
+                raw_entities.append((
+                    ft_cid,
+                    chunk_text[:8192],
+                    f"license:{spdx_id}:fulltext:{i}"[:512],
+                    ft_tags[:512],
+                ))
 
     if skipped:
         logger.info(f"Skipped {skipped} unchanged license chunks")
 
-    progress.log_source("SPDX/Fedora/choosealicense", len(entities))
+    progress.log_source("SPDX/Fedora/choosealicense", len(raw_entities))
 
     # --- Compatibility rules ---
     compat_rules = load_compatibility_rules(compat_path)
-    compat_entities: list[dict] = []
+    compat_raw: list[tuple[str, str, str, str]] = []
 
     for rule in compat_rules:
         text = (
@@ -254,39 +237,36 @@ def index_licenses(
         cid = chunk_id_hash(text, f"compat:{rule.from_license}:{rule.to_license}")
         if cid in existing_ids:
             continue
-        compat_entities.append(
-            {
-                "chunk_id": cid,
-                "text": text[:8192],
-                "source": f"compat:{rule.from_license}->{rule.to_license}"[:512],
-                "language": "license",
-                "spdx_id": f"{rule.from_license}->{rule.to_license}"[:64],
-                "license_name": "compatibility rule"[:256],
-                "osi_approved": ""[:8],
-                "redhat_status": ""[:32],
-                "copyleft": ""[:16],
-                "permissions": ""[:512],
-                "conditions": ""[:512],
-                "limitations": ""[:512],
-                "embedding": None,
-            }
-        )
+        tags = f"compat {rule.from_license}->{rule.to_license}"
+        compat_raw.append((cid, text[:8192], f"compat:{rule.from_license}->{rule.to_license}"[:512], tags[:512]))
 
-    progress.log_source("Compatibility rules", len(compat_entities))
+    progress.log_source("Compatibility rules", len(compat_raw))
 
-    # --- Embed and upsert all ---
-    all_entities = entities + compat_entities
-    if not all_entities:
+    # --- Embed and upsert all into synesis_catalog ---
+    all_raw = raw_entities + compat_raw
+    if not all_raw:
         logger.info("No new chunks to embed")
         return
 
-    texts = [e["text"] for e in all_entities]
+    texts = [e[1] for e in all_raw]
     embeddings = embedder.embed_texts(texts)
-    for entity, emb in zip(all_entities, embeddings):
-        entity["embedding"] = emb
+    catalog_entities = []
+    for (cid, text, source, tags), emb in zip(all_raw, embeddings):
+        catalog_entities.append(
+            catalog_entity(
+                chunk_id=cid,
+                text=text,
+                source=source,
+                language="license",
+                embedding=emb,
+                domain="license",
+                indexer_source="license",
+                tags=tags,
+            )
+        )
 
-    count = writer.upsert_batch(COLLECTION_NAME, all_entities)
-    logger.info(f"Upserted {count} chunks into {COLLECTION_NAME}")
+    count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
+    logger.info(f"Upserted {count} chunks into {SYNESIS_CATALOG}")
 
 
 def main() -> None:

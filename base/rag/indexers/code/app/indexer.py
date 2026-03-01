@@ -3,7 +3,7 @@
 Clones high-quality OSS repositories, parses source files using
 tree-sitter for AST-aware chunking, optionally extracts merged PR
 descriptions and commit messages via the GitHub API, and upserts
-everything into per-language Milvus collections.
+into synesis_catalog (unified catalog) with indexer_source=code|patterns.
 
 Usage:
     python -m app.indexer --sources /data/sources.yaml [--language python] [--repo fastapi]
@@ -25,8 +25,8 @@ import subprocess
 from pathlib import Path
 
 import yaml
-from pymilvus import DataType, FieldSchema
 
+from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .github_extractor import extract_pr_patterns
 from .indexer_base import (
     EmbedClient,
@@ -157,34 +157,16 @@ def index_language(
     progress: ProgressTracker,
     skip_existing: bool = True,
 ) -> None:
-    """Index all repositories for a given language.
+    """Index all repositories for a given language into synesis_catalog.
 
     When *skip_existing* is True (the default), chunks whose
     ``chunk_id`` already exists in Milvus are skipped -- only
-    new/changed content gets embedded and upserted.  This makes
-    adding a single new repo to sources.yaml cheap even during a
-    full refresh.
+    new/changed content gets embedded and upserted.
     """
-    code_collection = f"code_{language}_v1"
-    pattern_collection = f"patterns_{language}_v1"
-
-    writer.ensure_collection(
-        code_collection,
-        extra_fields=CODE_EXTRA_FIELDS,
-        description=f"AST-chunked code from quality {language} projects",
-    )
-    writer.ensure_collection(
-        pattern_collection,
-        extra_fields=PATTERN_EXTRA_FIELDS,
-        description=f"PR/commit patterns from quality {language} projects",
-    )
-
-    existing_code_ids: set[str] = set()
-    existing_pattern_ids: set[str] = set()
+    ensure_synesis_catalog()
+    existing_ids: set[str] = writer.existing_chunk_ids(SYNESIS_CATALOG) if skip_existing else set()
     if skip_existing:
-        existing_code_ids = writer.existing_chunk_ids(code_collection)
-        existing_pattern_ids = writer.existing_chunk_ids(pattern_collection)
-        logger.info(f"  Existing chunks: {len(existing_code_ids)} code, {len(existing_pattern_ids)} patterns")
+        logger.info(f"  Existing chunks in {SYNESIS_CATALOG}: {len(existing_ids)}")
 
     extensions = get_extensions_for_language(language)
 
@@ -221,60 +203,72 @@ def index_language(
 
             for chunk in chunks:
                 cid = chunk_id_hash(chunk.text, f"repo:{repo_name} path:{chunk.file_path}")
-                if cid in existing_code_ids:
+                if cid in existing_ids:
                     skipped += 1
                     continue
+                tags = f"symbol:{chunk.symbol_name[:64]} type:{chunk.symbol_type[:32]} license:{repo_license[:32]}"
                 code_entities.append(
-                    {
-                        "chunk_id": cid,
-                        "text": chunk.text[:8192],
-                        "source": f"repo:{repo_name} path:{chunk.file_path}"[:512],
-                        "symbol_name": chunk.symbol_name[:256],
-                        "symbol_type": chunk.symbol_type[:64],
-                        "repo_license": repo_license[:64],
-                        "language": language[:32],
-                    }
+                    (cid, chunk.text, f"repo:{repo_name} path:{chunk.file_path}", tags)
                 )
 
         if skipped:
             logger.info(f"  Skipped {skipped} unchanged code chunks")
 
         if code_entities:
-            texts = [e["text"] for e in code_entities]
+            texts = [e[1] for e in code_entities]
             embeddings = embedder.embed_texts(texts)
-            for entity, emb in zip(code_entities, embeddings):
-                entity["embedding"] = emb
-
-            count = writer.upsert_batch(code_collection, code_entities)
+            catalog_entities = []
+            for (cid, text, source, tags), emb in zip(code_entities, embeddings):
+                catalog_entities.append(
+                    catalog_entity(
+                        chunk_id=cid,
+                        text=text[:8192],
+                        source=source[:512],
+                        language=language[:32],
+                        embedding=emb,
+                        domain=language,
+                        indexer_source="code",
+                        tags=tags[:512],
+                    )
+                )
+            count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
+            for cid, _, _, _ in code_entities:
+                existing_ids.add(cid)
             progress.log_source(f"{repo_name} (code)", count)
         else:
             progress.log_source(f"{repo_name} (code)", 0)
 
         pr_chunks = extract_pr_patterns(repo_name, clone_dir, language)
         if pr_chunks:
-            pattern_entities = []
+            pattern_entities_raw: list[tuple[str, str, str, str]] = []
             for pc in pr_chunks:
                 cid = chunk_id_hash(pc.text, pc.source)
-                if cid in existing_pattern_ids:
+                if cid in existing_ids:
                     continue
-                pattern_entities.append(
-                    {
-                        "chunk_id": cid,
-                        "text": pc.text[:8192],
-                        "source": pc.source[:512],
-                        "pattern_type": pc.pattern_type[:64],
-                        "repo_license": repo_license[:64],
-                        "language": language[:32],
-                    }
-                )
+                tags = f"pattern_type:{pc.pattern_type[:32]} license:{repo_license[:32]}"
+                pattern_entities_raw.append((cid, pc.text, pc.source, tags))
 
-            texts = [e["text"] for e in pattern_entities]
-            embeddings = embedder.embed_texts(texts)
-            for entity, emb in zip(pattern_entities, embeddings):
-                entity["embedding"] = emb
-
-            count = writer.upsert_batch(pattern_collection, pattern_entities)
-            progress.log_source(f"{repo_name} (patterns)", count)
+            if pattern_entities_raw:
+                texts = [e[1] for e in pattern_entities_raw]
+                embeddings = embedder.embed_texts(texts)
+                catalog_entities = []
+                for (cid, text, source, tags), emb in zip(pattern_entities_raw, embeddings):
+                    catalog_entities.append(
+                        catalog_entity(
+                            chunk_id=cid,
+                            text=text[:8192],
+                            source=source[:512],
+                            language=language[:32],
+                            embedding=emb,
+                            domain=language,
+                            indexer_source="patterns",
+                            tags=tags[:512],
+                        )
+                    )
+                count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
+                for cid, _, _, _ in pattern_entities_raw:
+                    existing_ids.add(cid)
+                progress.log_source(f"{repo_name} (patterns)", count)
 
 
 def main() -> None:

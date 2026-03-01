@@ -440,6 +440,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 task_type=task_type,
                 target_language=target_language,
                 task_description=task_desc,
+                platform_context=state.get("platform_context") or None,
+                active_domain_refs=state.get("active_domain_refs") or None,
             )
             if not rag_collections:
                 rag_collections = [f"{target_language}_v1"]

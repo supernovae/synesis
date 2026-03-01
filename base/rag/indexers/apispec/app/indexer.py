@@ -1,7 +1,7 @@
 """API Spec Indexer.
 
 Fetches OpenAPI 3.x / Swagger 2.0 specs from URLs, parses them into
-endpoint-level chunks, and upserts into per-spec Milvus collections.
+endpoint-level chunks, and upserts into synesis_catalog with indexer_source=apispec.
 
 Usage:
     python -m app.indexer --sources /data/sources.yaml [--spec kubernetes]
@@ -17,11 +17,13 @@ logger = logging.getLogger("synesis.indexer.apispec")
 logger.info("API Spec Indexer starting (pid %d)", __import__("os").getpid())
 
 import argparse
+import re
 from pathlib import Path
 
 import httpx
 import yaml
 
+from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .indexer_base import (
     EmbedClient,
     MilvusWriter,
@@ -31,6 +33,12 @@ from .indexer_base import (
 from .openapi_parser import parse_spec
 
 
+def _domain_from_collection(collection: str) -> str:
+    """Extract domain from collection name (e.g. apispec_kubernetes_v1 -> kubernetes)."""
+    m = re.match(r"apispec_(\w+)(?:_v\d+)?", collection)
+    return m.group(1) if m else "openapi"
+
+
 def index_spec(
     spec_cfg: dict,
     writer: MilvusWriter,
@@ -38,13 +46,14 @@ def index_spec(
     progress: ProgressTracker,
     skip_existing: bool = True,
 ) -> None:
-    """Fetch and index a single API spec."""
+    """Fetch and index a single API spec into synesis_catalog."""
     name = spec_cfg["name"]
     url = spec_cfg["url"]
     collection = spec_cfg["collection"]
     description = spec_cfg.get("description", "")
+    domain = _domain_from_collection(collection)
 
-    logger.info(f"Fetching spec: {name} from {url}")
+    logger.info(f"Fetching spec: {name} from {url} -> {SYNESIS_CATALOG}")
 
     try:
         resp = httpx.get(url, timeout=60, follow_redirects=True)
@@ -54,50 +63,48 @@ def index_spec(
         progress.log_error(name, f"Failed to fetch: {e}")
         return
 
-    writer.ensure_collection(
-        collection,
-        description=f"API spec: {description or name}",
-    )
-
-    existing_ids: set[str] = set()
-    if skip_existing:
-        existing_ids = writer.existing_chunk_ids(collection)
+    ensure_synesis_catalog()
+    existing_ids: set[str] = writer.existing_chunk_ids(SYNESIS_CATALOG) if skip_existing else set()
 
     chunks = parse_spec(spec_content, name)
     if not chunks:
         progress.log_source(name, 0)
         return
 
-    entities = []
+    raw_entities: list[tuple[str, str, str]] = []
     skipped = 0
     for chunk in chunks:
         cid = chunk_id_hash(chunk.text, chunk.source)
         if cid in existing_ids:
             skipped += 1
             continue
-        entities.append(
-            {
-                "chunk_id": cid,
-                "text": chunk.text[:8192],
-                "source": chunk.source[:512],
-                "language": "openapi",
-                "embedding": None,
-            }
-        )
+        raw_entities.append((cid, chunk.text, chunk.source))
 
     if skipped:
         logger.info(f"  Skipped {skipped} unchanged endpoint chunks")
 
-    if not entities:
+    if not raw_entities:
         progress.log_source(name, 0)
         return
 
-    texts = [e["text"] for e in entities]
+    texts = [e[1] for e in raw_entities]
     embeddings = embedder.embed_texts(texts)
-    for entity, emb in zip(entities, embeddings):
-        entity["embedding"] = emb
+    catalog_entities = []
+    for (cid, text, source), emb in zip(raw_entities, embeddings):
+        catalog_entities.append(
+            catalog_entity(
+                chunk_id=cid,
+                text=text[:8192],
+                source=source[:512],
+                language="openapi",
+                embedding=emb,
+                domain=domain,
+                indexer_source="apispec",
+                document_name=name[:256],
+            )
+        )
 
-    count = writer.upsert_batch(collection, entities)
+    count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
     progress.log_source(name, count)
 
 

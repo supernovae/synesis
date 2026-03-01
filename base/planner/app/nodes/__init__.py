@@ -5,6 +5,7 @@ from .executor import sandbox_node
 from .lsp_analyzer import lsp_analyzer_node
 from .patch_integrity_gate import patch_integrity_gate_node
 from .planner_node import planner_node
+from .strategic_advisor import strategic_advisor_node
 from .supervisor import supervisor_node
 from .worker import worker_node
 
@@ -16,6 +17,7 @@ __all__ = [
     "patch_integrity_gate_node",
     "planner_node",
     "sandbox_node",
+    "strategic_advisor_node",
     "supervisor_node",
     "worker_node",
 ]

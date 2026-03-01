@@ -9,6 +9,7 @@ on:
       - 'base/**/app/**'
       - 'base/sandbox/image/**'
       - 'base/rag/ingestion/**'
+      - 'base/rag/indexers/**'
       - '.github/workflows/build-images.yml'
   workflow_dispatch:
     inputs:
@@ -64,6 +65,9 @@ jobs:
             context: base/rag
           - name: indexer-license
             dockerfile: base/rag/indexers/license/Dockerfile
+            context: base/rag
+          - name: indexer-domain
+            dockerfile: base/rag/indexers/domain/Dockerfile
             context: base/rag
 
     steps:

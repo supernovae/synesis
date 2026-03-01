@@ -17,7 +17,7 @@ The full `./scripts/deploy.sh dev` also installs the RAG stack as part of the ov
 |-----------|---------|
 | **milvus-standalone.yaml** | etcd + Milvus standalone Deployments, Service `synesis-milvus` on port 19530 |
 | **embedder/** | TEI (sentence-transformers/all-MiniLM-L6-v2) for indexers and planner |
-| **indexers/** | Code, apispec, architecture, license indexers populate Milvus |
+| **indexers/** | Domain (runbooks), code, apispec, architecture, license — all write to `synesis_catalog` |
 
 ## Optional: LlamaStackDistribution
 

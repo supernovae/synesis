@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
-from ..rag_client import discover_collections, retrieve_context
+from ..rag_client import SYNESIS_CATALOG, discover_collections, retrieve_context
 from ..schemas import CriticOut
 from ..state import NodeOutcome, NodeTrace, WhatIfAnalysis
 from ..validator import validate_critic_with_repair
@@ -86,15 +86,9 @@ critic_structured_llm = critic_llm.with_structured_output(
 
 
 async def _fetch_architecture_context(task_desc: str, code: str) -> str:
-    """Query architecture collections and format results for the Critic prompt."""
+    """Query synesis_catalog for architecture context (indexer_source=architecture)."""
     try:
-        available = set(discover_collections())
-        arch_collections = [c for c in available if c.startswith("arch_")]
-
-        explicit = settings.rag_arch_collections
-        if explicit:
-            arch_collections = [c for c in explicit if c in available]
-
+        arch_collections = [SYNESIS_CATALOG]
         if not arch_collections:
             return ""
 
@@ -220,7 +214,8 @@ async def _check_license_compatibility(rag_results: list) -> str:
             return ""
 
         available = set(discover_collections())
-        if "licenses_v1" not in available:
+        license_coll = SYNESIS_CATALOG
+        if license_coll not in available:
             lines = ["\n\n## License Compliance"]
             lines.append("The generated code draws on patterns from these licensed sources:")
             for lic, repos in license_set.items():
@@ -233,7 +228,7 @@ async def _check_license_compatibility(rag_results: list) -> str:
         query = f"license compatibility {' '.join(spdx_ids)}"
         results = await retrieve_context(
             query=query,
-            collections=["licenses_v1"],
+            collections=[license_coll],
             top_k=5,
             strategy="vector",
             reranker="none",

@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     executor_model_name: str = "synesis-executor"
     critic_model_url: str = "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
     critic_model_name: str = "synesis-critic"
+    # Strategic Advisor: fast LLM for platform/domain classification (default: supervisor)
+    advisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+    advisor_model_name: str = "synesis-supervisor"
+    advisor_enabled: bool = True  # False = always use platform_context="generic"
     # UDS paths (when set, bypass HTTP; Planner uses socket for co-located vLLM)
     supervisor_model_uds: str = ""
     planner_model_uds: str = ""
@@ -55,6 +59,7 @@ class Settings(BaseSettings):
         "planner_model_url",
         "executor_model_url",
         "critic_model_url",
+        "advisor_model_url",
         "summarizer_model_url",
         mode="before",
     )
@@ -82,13 +87,8 @@ class Settings(BaseSettings):
     # BGE reranker service URL (only used when rag_reranker="bge")
     rag_bge_reranker_url: str = ""
 
-    # Multi-collection RAG (knowledge indexers)
-    rag_code_collections_enabled: bool = True
-    rag_apispec_collections: list[str] = []
-    rag_arch_collections: list[str] = []
-    rag_multi_collection_max: int = 3
+    # RAG: synesis_catalog only. Metadata (domain, indexer_source) drives retrieval.
     rag_critic_arch_enabled: bool = True
-    rag_license_collection_enabled: bool = True
     rag_critic_license_enabled: bool = True
 
     # Sandbox execution
@@ -212,7 +212,6 @@ class Settings(BaseSettings):
     curator_curation_mode: Literal["stable", "adaptive"] = (
         "adaptive"  # §8.7: stable=reuse pack; adaptive=pivot on stderr
     )
-    curator_arch_standards_collections: list[str] = Field(default_factory=lambda: ["arch_standards_v1"])
     curator_budget_alert_threshold: float = 0.85  # Excluded chunk score > this + budget_exceeded → Budget Alert
     curator_context_drift_jaccard_threshold: float = 0.2  # If similarity < this, trigger Re-sync
 
@@ -224,6 +223,8 @@ class Settings(BaseSettings):
     curator_max_total_tokens: int = 8192  # Hard cap for Worker prompt (A10G prefill target)
     curator_min_rerank_score: float = 0.6  # Drop RAG chunks below this score
     curator_tiktoken_enabled: bool = False  # Use tiktoken for accurate counts (optional dep)
+    curator_knowledge_gap_threshold: float = 0.6  # Max RAG score < this → incomplete_knowledge, backlog
+    knowledge_backlog_enabled: bool = True  # Publish knowledge gaps to Milvus
 
     # Context refs: use hash→text cache to reduce payload between nodes (context_curator → worker)
     context_refs_enabled: bool = True

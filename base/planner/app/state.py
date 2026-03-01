@@ -50,6 +50,12 @@ class GraphState(TypedDict, total=False):
     rag_results: list[Any]
     rag_context: list[str]
     rag_collections_queried: list[str]
+    # Federated RAG / Strategic Advisor
+    platform_context: str
+    active_domain_refs: list[str]
+    advisory_message: str
+    incomplete_knowledge: bool
+    knowledge_gap_message: str
     rag_retrieval_strategy: str
     rag_reranker_used: str
     rag_vector_fallback_to_bm25: bool
@@ -248,6 +254,12 @@ class SynesisState(BaseModel):
     context_cache: dict[str, str] = Field(default_factory=dict)
     rag_context_refs: list[str] = Field(default_factory=list)
     rag_collections_queried: list[str] = Field(default_factory=list)
+    # Federated RAG / Strategic Advisor (platform-aware SOP routing)
+    platform_context: str = ""  # Domain from fast LLM classifier (openshift, kubernetes, generic, etc.)
+    active_domain_refs: list[str] = Field(default_factory=list)  # Suggested collections for this turn
+    advisory_message: str = ""  # Proactive suggestion or knowledge-gap notice
+    incomplete_knowledge: bool = False  # True when RAG max score < threshold
+    knowledge_gap_message: str = ""  # User-facing "I've flagged this for update"
     rag_retrieval_strategy: str = "hybrid"
     rag_reranker_used: str = "flashrank"
     rag_vector_fallback_to_bm25: bool = False

@@ -19,7 +19,7 @@ from ..config import settings
 from ..failure_store import query_similar_failures
 from ..history_summarizer import summarize_text
 from ..injection_scanner import reduce_context_on_injection, scan_text
-from ..rag_client import retrieve_context
+from ..rag_client import retrieve_context, SYNESIS_CATALOG
 from ..schemas import (
     ConflictWarning,
     ContextChunk,
@@ -572,7 +572,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Tier 2: Fetch organization standards (skip when rag_mode=disabled for trivial tasks)
     org_standards: list[ContextChunk] = []
-    arch_colls = getattr(settings, "curator_arch_standards_collections", []) or []
+    arch_colls = [SYNESIS_CATALOG]
     if arch_colls and rag_mode != "disabled":
         try:
             org_results = await retrieve_context(
@@ -885,6 +885,42 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             break
 
+    # Knowledge gap: when best RAG score < threshold — Safety-II "what falls through"
+    gap_threshold = getattr(settings, "curator_knowledge_gap_threshold", 0.6)
+    incomplete_knowledge = False
+    knowledge_gap_message = ""
+    if rag_mode != "disabled" and candidates:
+        max_score = max((c.score or 0.0) for c in candidates)
+        if max_score < gap_threshold:
+            incomplete_knowledge = True
+            platform_ctx = state.get("platform_context", "generic")
+            knowledge_gap_message = (
+                f"I don't have definitive SOP documentation for this yet (best match score {max_score:.2f}). "
+                "I'm answering using general standards, but I've flagged this for my knowledge base update."
+            )
+            logger.info(
+                "context_curator_knowledge_gap",
+                extra={
+                    "max_score": max_score,
+                    "platform_context": platform_ctx,
+                    "query_preview": (task_desc or "")[:80],
+                },
+            )
+            if getattr(settings, "knowledge_backlog_enabled", True):
+                try:
+                    from ..knowledge_backlog import publish_knowledge_gap
+
+                    await publish_knowledge_gap(
+                        query=task_desc or "",
+                        task_description=(task_desc or "")[:512],
+                        collections_queried=rag_collections,
+                        max_score=max_score,
+                        platform_context=platform_ctx,
+                        target_language=target_lang,
+                    )
+                except Exception as e:
+                    logger.debug("knowledge_backlog_publish_failed", extra={"error": str(e)[:100]})
+
     untrusted_chunks = [c for c in retrieved]
     # Jaccard drift: if prev pack exists and similarity < threshold, set context_resync_message
     context_resync_message = ""
@@ -981,5 +1017,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "revision_constraints": state.get("revision_constraints") or {},
         "failure_ids_seen": state.get("failure_ids_seen", []) or [],
         "failure_context": failure_context,
+        "incomplete_knowledge": incomplete_knowledge,
+        "knowledge_gap_message": knowledge_gap_message,
     }
     return out

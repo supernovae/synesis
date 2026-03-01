@@ -29,6 +29,7 @@ from .nodes import (
     patch_integrity_gate_node,
     planner_node,
     sandbox_node,
+    strategic_advisor_node,
     supervisor_node,
     worker_node,
 )
@@ -438,6 +439,13 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 parts.append(f"\n---\n**{budget_alert}**")
             if resync:
                 parts.append(f"\n---\n**{resync}**")
+        # Advisory message (Strategic Advisor) + Knowledge gap (Safety-II)
+        advisory = (state.get("advisory_message") or "").strip()
+        knowledge_gap = (state.get("knowledge_gap_message") or "").strip()
+        if advisory:
+            parts.append(f"\n---\n**{advisory}**")
+        if knowledge_gap:
+            parts.append(f"\n---\n**{knowledge_gap}**")
         if not parts:
             # Diagnostic: log why we have no output (Executor may return empty code/patch_ops)
             logger.warning(
@@ -483,6 +491,7 @@ sandbox_timeout = settings.sandbox_timeout_seconds + 15
 lsp_timeout = settings.lsp_timeout_seconds + 5
 
 graph_builder.add_node("entry_classifier", with_debug_node_timing(entry_classifier_node))
+graph_builder.add_node("strategic_advisor", with_debug_node_timing(strategic_advisor_node))
 graph_builder.add_node("supervisor", with_debug_node_timing(with_timeout(timeout)(supervisor_node)))
 graph_builder.add_node("planner", with_debug_node_timing(with_timeout(timeout)(planner_node)))
 graph_builder.add_node("context_curator", with_debug_node_timing(context_curator_node))
@@ -494,8 +503,9 @@ graph_builder.add_node("critic", with_debug_node_timing(with_timeout(timeout)(cr
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
 graph_builder.set_entry_point("entry_classifier")
+graph_builder.add_edge("entry_classifier", "strategic_advisor")
 graph_builder.add_conditional_edges(
-    "entry_classifier",
+    "strategic_advisor",
     route_after_entry_classifier,
     {"context_curator": "context_curator", "supervisor": "supervisor", "planner": "planner", "respond": "respond"},
 )

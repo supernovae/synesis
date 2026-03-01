@@ -80,13 +80,7 @@ spec:
               value: "60"
             - name: SYNESIS_RAG_BGE_RERANKER_URL
               value: ""
-            - name: SYNESIS_RAG_CODE_COLLECTIONS_ENABLED
-              value: "true"
-            - name: SYNESIS_RAG_MULTI_COLLECTION_MAX
-              value: "3"
             - name: SYNESIS_RAG_CRITIC_ARCH_ENABLED
-              value: "true"
-            - name: SYNESIS_RAG_LICENSE_COLLECTION_ENABLED
               value: "true"
             - name: SYNESIS_RAG_CRITIC_LICENSE_ENABLED
               value: "true"

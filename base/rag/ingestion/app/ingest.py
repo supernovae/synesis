@@ -2,7 +2,7 @@
 
 Reads a language pack manifest, fetches/loads documents, chunks them
 using a section-aware strategy, embeds via the embedder service,
-and upserts into Milvus.
+and upserts into synesis_catalog (unified catalog).
 
 Usage:
     python -m app.ingest --pack /data/language-packs/bash
@@ -18,8 +18,9 @@ from pathlib import Path
 
 import httpx
 import yaml
-from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+from pymilvus import MilvusClient
 
+from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .chunker import chunk_document
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -91,58 +92,22 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return all_embeddings
 
 
-def ensure_collection(client: MilvusClient, collection_name: str):
-    """Create the Milvus collection if it doesn't exist."""
-    if collection_name in client.list_collections():
-        logger.info(f"Collection '{collection_name}' already exists")
-        return
-
-    schema = CollectionSchema(
-        fields=[
-            FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
-            FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
-            FieldSchema(name="source_section", dtype=DataType.VARCHAR, max_length=256),
-            FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
-            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
-        ],
-        description=f"Synesis RAG collection for {collection_name}",
-    )
-
-    client.create_collection(
-        collection_name=collection_name,
-        schema=schema,
-    )
-
-    index_params = MilvusClient.prepare_index_params()
-    index_params.add_index(
-        field_name="embedding",
-        index_type="IVF_FLAT",
-        metric_type="COSINE",
-        params={"nlist": 128},
-    )
-    client.create_index(collection_name=collection_name, index_params=index_params)
-
-    logger.info(f"Created collection '{collection_name}'")
-
-
 def run_ingestion(pack_path: Path):
     manifest = load_manifest(pack_path)
-    collection_name = manifest["collection"]
     language = manifest["language"]
     chunk_size = manifest.get("chunk_size", 512)
     chunk_overlap = manifest.get("chunk_overlap", 64)
 
     logger.info(f"Ingesting language pack: {manifest['name']} v{manifest['version']}")
-    logger.info(f"Collection: {collection_name}, Language: {language}")
+    logger.info(f"Target: {SYNESIS_CATALOG}, domain: {language}")
 
     sources = load_sources(pack_path)
     if not sources:
         logger.error("No sources defined in sources.yaml")
         sys.exit(1)
 
+    ensure_synesis_catalog(uri=MILVUS_URI)
     client = MilvusClient(uri=MILVUS_URI)
-    ensure_collection(client, collection_name)
 
     total_chunks = 0
 
@@ -173,24 +138,28 @@ def run_ingestion(pack_path: Path):
             chunk_id = hashlib.sha256(
                 f"{source_name}:{chunk.get('section', '')}:{chunk['text'][:100]}".encode()
             ).hexdigest()[:64]
+            section = chunk.get("section", "")
 
             entities.append(
-                {
-                    "chunk_id": chunk_id,
-                    "text": chunk["text"][:8192],
-                    "source": source_name[:512],
-                    "source_section": chunk.get("section", "")[:256],
-                    "language": language[:32],
-                    "embedding": embedding,
-                }
+                catalog_entity(
+                    chunk_id=chunk_id,
+                    text=chunk["text"][:8192],
+                    source=source_name[:512],
+                    language=language[:32],
+                    embedding=embedding,
+                    domain=language,
+                    indexer_source="ingestion",
+                    section=section[:256],
+                    document_name=source_name[:256],
+                )
             )
 
         if entities:
-            client.upsert(collection_name=collection_name, data=entities)
+            client.upsert(collection_name=SYNESIS_CATALOG, data=entities)
             total_chunks += len(entities)
             logger.info(f"  Upserted {len(entities)} chunks from {source_name}")
 
-    logger.info(f"Ingestion complete: {total_chunks} total chunks in '{collection_name}'")
+    logger.info(f"Ingestion complete: {total_chunks} total chunks in '{SYNESIS_CATALOG}'")
 
 
 def main():

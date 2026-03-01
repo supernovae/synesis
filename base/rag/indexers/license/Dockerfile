@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY indexers/license/app/ /app/app/
 COPY ingestion/app/indexer_base.py /app/app/indexer_base.py
+COPY catalog_schema.py /app/app/catalog_schema.py
 COPY indexers/license/sources.yaml /data/sources.yaml
 COPY indexers/license/compatibility.yaml /data/compatibility.yaml
 

@@ -5,7 +5,8 @@ WORKDIR /opt/app-root/src
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+COPY ingestion/app/ ./app/
+COPY catalog_schema.py ./app/catalog_schema.py
 
 USER 1001
 

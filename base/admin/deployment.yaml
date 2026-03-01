@@ -35,6 +35,8 @@ spec:
               value: "synesis-milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT
               value: "19530"
+            - name: SYNESIS_PLANNER_URL
+              value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

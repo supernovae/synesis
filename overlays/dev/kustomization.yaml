@@ -127,6 +127,14 @@ patches:
         path: /spec/suspend
         value: true
 
+  - target:
+      kind: CronJob
+      name: synesis-index-domain
+    patch: |
+      - op: replace
+        path: /spec/suspend
+        value: true
+
   # Reduce Open WebUI resources for dev
   - target:
       kind: Deployment
@@ -187,6 +195,9 @@ images:
     newTag: latest
   - name: synesis-indexer-license
     newName: ghcr.io/supernovae/synesis/indexer-license
+    newTag: latest
+  - name: synesis-indexer-domain
+    newName: ghcr.io/supernovae/synesis/indexer-domain
     newTag: latest
 
 labels:

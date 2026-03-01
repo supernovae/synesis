@@ -6,3 +6,4 @@ resources:
   - apispec
   - architecture
   - license
+  - domain

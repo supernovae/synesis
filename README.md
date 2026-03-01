@@ -42,7 +42,7 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
   └── else ──► Supervisor
 ```
 
-**Flow:** Entry → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
+**Flow:** Entry → Domain Aligner → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Domain Aligner enables domain-aware RAG; Context Curator flags knowledge gaps. Trivial tasks never bypass the Patch Integrity Gate. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and improvements. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
 
 **Performance:** Prefix caching (Supervisor/Critic), guided JSON decoding, persistent HTTP client, and state refs+cache reduce latency and payload size between nodes. See [docs/WORKFLOW.md § Performance and State Payload Optimization](docs/WORKFLOW.md#performance-and-state-payload-optimization).
 
@@ -50,7 +50,7 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
 
 | Component | Role |
 |-----------|------|
-| **Hybrid RAG** | Vector + BM25, RRF, re-ranker. Multi-collection (code, API specs, architecture, licenses). |
+| **Hybrid RAG** | Vector + BM25, RRF, re-ranker. Unified catalog (`synesis_catalog`) with domain metadata. |
 | **Sandbox** | Isolated pod (warm pool or Job). Lint → security → execute. Deny-all networking. |
 | **LSP Gateway** | Deep type/symbol analysis (6 languages). On failure or pre-execution. |
 | **Failure Knowledge** | Milvus failures_v1 + fail-fast cache. Inject past mistakes into Supervisor/Worker. |
@@ -84,13 +84,14 @@ Supervisor and Critic use a dedicated **synesis-supervisor-critic** ServingRunti
 ### 1. Bootstrap
 
 ```bash
-./scripts/bootstrap.sh                    # Basic bootstrap
-./scripts/bootstrap.sh --ghcr-creds       # Also configure GHCR pull secrets + synesis-github-token (RAG indexer)
-./scripts/bootstrap.sh --hf-token         # HuggingFace token for model downloads (avoids throttling)
-./scripts/bootstrap.sh --github-token    # Only create synesis-github-token in synesis-rag (RAG indexer jobs)
+./scripts/bootstrap.sh                    # Basic bootstrap (namespaces + RAG stack)
+./scripts/bootstrap.sh --ghcr-creds        # Also configure GHCR pull secrets + synesis-github-token
+./scripts/bootstrap.sh --hf-token          # HuggingFace token for model downloads (avoids throttling)
+./scripts/bootstrap.sh --load-knowledge    # Load bash pack + domain runbooks into synesis_catalog (after build-images)
+./scripts/bootstrap.sh --skip-rag          # Skip RAG stack (use when deploy.sh will apply it)
 ```
 
-This creates namespaces and verifies prerequisites. For **private GHCR images**, use `--ghcr-creds` (also creates `synesis-github-token` for RAG indexer jobs). For **model deployments from HuggingFace** (hf://), use `--hf-token`. For **RAG indexer jobs** (code/apispec/architecture/license), use `--github-token` or `--ghcr-creds` (same token works).
+Bootstrap creates namespaces, verifies RHOAI/GPU operators, installs the RAG stack (Milvus + embedder), and optionally loads the bash language pack and OpenShift domain runbooks into the unified `synesis_catalog`. For **private GHCR images**, use `--ghcr-creds`. For **model deployments from HuggingFace** (hf://), use `--hf-token`. Use `--load-knowledge` only after running `./scripts/build-images.sh`.
 
 ### 2. Deploy Models (OpenShift AI 3)
 
@@ -165,6 +166,7 @@ done
 | `synesis/indexer-apispec` | `base/rag/indexers/apispec/Dockerfile` | OpenAPI/Swagger spec indexer |
 | `synesis/indexer-architecture` | `base/rag/indexers/architecture/Dockerfile` | Architecture whitepaper indexer |
 | `synesis/indexer-license` | `base/rag/indexers/license/Dockerfile` | License compliance indexer |
+| `synesis/indexer-domain` | `base/rag/indexers/domain/Dockerfile` | OpenShift/Red Hat runbook indexer |
 
 ### 5. Configure
 
@@ -197,13 +199,16 @@ kustomize build overlays/dev-services | oc apply -f -
 kustomize build overlays/dev-models | oc apply -f -
 ```
 
-### 7. Load RAG Corpus
+### 7. Load RAG Corpus (optional)
 
-The RAG stack (Milvus + embedder + indexers) is deployed by `deploy.sh`. Optional: install it standalone with `./scripts/install-rag-stack.sh --wait`.
+The RAG stack is deployed by `deploy.sh` (or `./scripts/bootstrap.sh` which runs `install-rag-stack`). Knowledge lives in the unified catalog `synesis_catalog`. Populate it with:
 
 ```bash
-./scripts/load-language-pack.sh bash
+./scripts/load-language-pack.sh bash   # Bash style guide + best practices
+./scripts/index-domain.sh                 # OpenShift/Red Hat runbooks from GitHub
 ```
+
+Or use `./scripts/bootstrap.sh --load-knowledge` after building images.
 
 ### 8. Connect Your Tools
 
@@ -214,7 +219,7 @@ Point any OpenAI-compatible client to the Route URL:
 | **synesis-api** (LiteLLM) | `https://synesis-api.<cluster-domain>/v1` | Multi-model routing: synesis-agent, synesis-executor, synesis-supervisor, synesis-critic |
 | **synesis-executor-api** (vLLM) | `https://synesis-executor.<cluster-domain>/v1` | Direct vLLM executor only — Cursor/Claude Code for raw code model |
 | **synesis-planner-api** | `https://synesis-planner.<cluster-domain>/v1` | Full agent pipeline (planning → sandbox → critic) without LiteLLM |
-| **synesis-admin** | `https://synesis-admin.<cluster-domain>/` | Failure dashboard (stats, gaps, failure details) |
+| **synesis-admin** | `https://synesis-admin.<cluster-domain>/` | Failure dashboard, **Knowledge Gaps** (self-heal: review and submit to catalog) |
 
 Default host suffix is `apps.openshiftdemo.dev`. If your cluster uses a different ingress domain, patch the Route `spec.host` in an overlay.
 
@@ -290,13 +295,15 @@ synesis/
 │   │       ├── app/analyzers/ # basedpyright, gopls, tsc, shellcheck, javac, cargo
 │   │       ├── Dockerfile     # Multi-runtime container image
 │   │       └── deployment.yaml
-│   ├── rag/                   # Milvus + embedder + ingestion pipeline
-│   │   ├── ingestion/         # Base ingestor + shared indexer utilities
-│   │   ├── indexers/          # Knowledge indexer containers (Job/CronJob)
+│   ├── rag/                   # Milvus + embedder + unified catalog
+│   │   ├── catalog_schema.py  # synesis_catalog schema + catalog_entity()
+│   │   ├── ingestion/         # Language pack ingestor → synesis_catalog
+│   │   ├── indexers/          # Input processors → synesis_catalog (Job/CronJob)
 │   │   │   ├── code/          # AST-chunked OSS code (tree-sitter) + PR patterns
 │   │   │   ├── apispec/       # OpenAPI/Swagger endpoint chunking
 │   │   │   ├── architecture/  # Whitepapers + cloud design patterns (PDF/HTML/MD)
-│   │   │   └── license/       # OSS license compliance (SPDX, Fedora, compatibility)
+│   │   │   ├── license/       # OSS license compliance (SPDX, Fedora)
+│   │   │   └── sop/           # OpenShift/Red Hat runbooks from GitHub
 │   │   └── language-packs/
 │   │       ├── bash/          # Shell scripting corpus
 │   │       └── _template/     # Template for new languages
@@ -331,7 +338,8 @@ synesis/
 │   ├── index-code.sh          # Code repository indexer trigger
 │   ├── index-apispec.sh       # API spec indexer trigger
 │   ├── index-architecture.sh  # Architecture whitepaper indexer trigger
-│   └── index-license.sh       # License compliance indexer trigger
+│   ├── index-license.sh       # License compliance indexer trigger
+│   └── index-domain.sh           # Red Hat/OpenShift domain runbook indexer trigger
 └── .cursor/rules/
     └── model-alignment.mdc    # Cursor rule: keeps model refs in sync
 ```
@@ -347,7 +355,7 @@ All model definitions live in `models.yaml`. When you want to swap a model (e.g.
 
 ## Hybrid RAG Pipeline
 
-Synesis uses a hybrid retrieval pipeline that combines semantic vector search with keyword-based BM25 search, merged via Reciprocal Rank Fusion (RRF), and refined by a cross-encoder re-ranker. This approach significantly improves retrieval quality -- semantic search catches paraphrases and conceptual matches, while BM25 catches exact syntax and keyword matches (critical for code, where `set -euo pipefail` won't match semantically with "error handling").
+Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection for all domain knowledge. Indexers (language packs, domain runbooks, code, API specs, etc.) write to this catalog with metadata (`domain`, `indexer_source`). A hybrid retrieval pipeline combines semantic vector search with keyword-based BM25 over the catalog, merged via Reciprocal Rank Fusion (RRF), and refined by a cross-encoder re-ranker. Semantic search catches paraphrases; BM25 catches exact syntax (critical for code).
 
 ### How It Works
 
@@ -355,7 +363,7 @@ Synesis uses a hybrid retrieval pipeline that combines semantic vector search wi
    - **Vector search** (Milvus): Embeds the query and finds semantically similar chunks via cosine similarity.
    - **BM25 search** (in-memory): Keyword matching using BM25Okapi, built from chunks cached from Milvus at startup and refreshed every 10 minutes.
 
-2. **Reciprocal Rank Fusion**: Results from both retrievers are merged using RRF (`score = sum(1/(k + rank))`). Each result is tagged with its source ("vector", "bm25", or "both").
+2. **Reciprocal Rank Fusion**: Results from both retrievers (over `synesis_catalog`) are merged using RRF (`score = sum(1/(k + rank))`). Each result is tagged with its source ("vector", "bm25", or "both").
 
 3. **Cross-Encoder Re-ranking**: The merged candidates are re-scored by a cross-encoder that evaluates the (query, document) pair jointly -- unlike the retrievers which score documents independently.
 
@@ -407,6 +415,7 @@ All retrieval settings are environment variables (prefixed `SYNESIS_`):
 | `RAG_BM25_REFRESH_INTERVAL_SECONDS` | `600` | BM25 index rebuild interval |
 | `RAG_RRF_K` | `60` | RRF fusion constant |
 | `RAG_BGE_RERANKER_URL` | (empty) | BGE service URL (enable accuracy mode) |
+| `RAG_UNIFIED_CATALOG` | `true` | Use single synesis_catalog (false = legacy multi-collection) |
 
 ### Observability
 
@@ -814,7 +823,7 @@ Indexes open source license data from three authoritative sources plus a built-i
 | [choosealicense.com](https://choosealicense.com/) | Structured permissions, conditions, and limitations per license |
 | Built-in compatibility matrix | Pairwise license compatibility rules (e.g., "MIT -> Apache-2.0: compatible") |
 
-**Milvus collection:** `licenses_v1` -- one summary chunk per license (structured metadata + description), additional chunks for long license full texts (GPL, AGPL, LGPL, MPL), and compatibility rule chunks for common license pairs.
+**synesis_catalog:** License indexer writes to the unified catalog with `indexer_source=license` — summary chunks (metadata + description), full-text chunks for GPL/AGPL/LGPL/MPL (verbatim recall when creating LICENSE files), and compatibility rule chunks.
 
 **Code indexer enhancement:** Every code chunk and PR pattern chunk now carries a `repo_license` metadata field (e.g., `"Apache-2.0"`, `"MIT"`) detected from the repo's LICENSE file. The Critic extracts these during analysis.
 
@@ -848,14 +857,7 @@ rules:
 
 ### How the Planner Uses Indexed Knowledge
 
-The Supervisor node automatically selects which collections to query based on the task context:
-
-| Task Type | Collections Queried |
-|-----------|-------------------|
-| Code generation (Python) | `python_v1` (style guide) + `code_python_v1` (code examples) + `patterns_python_v1` (PR context) |
-| Task mentioning "kubernetes" | Above + `apispec_kubernetes_v1` |
-| Task mentioning "license", "GPL", "copyright" | Above + `licenses_v1` |
-| All tasks (Critic phase) | `arch_well_architected_v1` + `arch_cloud_patterns_v1` (architecture context) + license compliance check (if code chunks carry `repo_license` metadata) |
+**Unified catalog:** All tasks query `synesis_catalog` only. Metadata (`domain`, `indexer_source`) drives retrieval gravity — domain runbooks, code, API specs, architecture docs, and license data share the same collection. The Critic receives architecture and license compliance context from the catalog when relevant.
 
 The Critic receives architecture and design pattern context as part of its prompt:
 
@@ -879,11 +881,8 @@ Use these to evaluate the safety implications of the generated code.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RAG_CODE_COLLECTIONS_ENABLED` | `true` | Include code/pattern collections in multi-collection queries |
-| `RAG_MULTI_COLLECTION_MAX` | `3` | Max collections queried per request |
-| `RAG_CRITIC_ARCH_ENABLED` | `true` | Give the Critic architecture context |
-| `RAG_LICENSE_COLLECTION_ENABLED` | `true` | Include `licenses_v1` when task mentions license-related keywords |
-| `RAG_CRITIC_LICENSE_ENABLED` | `true` | Give the Critic license compliance context from code chunk metadata |
+| `RAG_CRITIC_ARCH_ENABLED` | `true` | Give the Critic architecture context from synesis_catalog |
+| `RAG_CRITIC_LICENSE_ENABLED` | `true` | Give the Critic license compliance context from synesis_catalog |
 
 ### Resource Requirements
 

@@ -1,0 +1,42 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: synesis-index-domain
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer-domain
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: indexer-domain
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: indexer
+          image: synesis-indexer-domain:latest
+          args:
+            - --sources
+            - /data/sources.yaml
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: sources
+              mountPath: /data/sources.yaml
+              subPath: sources.yaml
+              readOnly: true
+      volumes:
+        - name: sources
+          configMap:
+            name: domain-indexer-sources

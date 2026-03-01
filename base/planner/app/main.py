@@ -28,6 +28,7 @@ from .injection_scanner import reduce_context_on_injection, scan_user_input
 from .message_filter import is_ui_helper_message
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .nodes.entry_classifier import detect_language_deterministic
+from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 
 logging.basicConfig(
@@ -153,8 +154,20 @@ def _sse_status_chunk(data: dict) -> str:
 # User-friendly status messages for progressive feedback during graph execution.
 # Open WebUI format: {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}
 # Other clients ignore these lines; only Open WebUI displays them.
+# strategic_advisor = Domain Aligner (conceptual). Internal node name; display alias for docs/UX.
+DOMAIN_ALIGNER_NODE = "strategic_advisor"
+NODE_DISPLAY_NAMES: dict[str, str] = {
+    DOMAIN_ALIGNER_NODE: "Domain Aligner",
+    "entry_classifier": "Entry Classifier",
+    "supervisor": "Supervisor",
+    "context_curator": "Context Curator",
+    "worker": "Worker",
+    "patch_integrity_gate": "Patch Integrity Gate",
+    "critic": "Critic",
+}
 NODE_STATUS_MESSAGES: dict[str, str] = {
     "entry_classifier": "Analyzing request…",
+    "strategic_advisor": "Detecting domain…",
     "supervisor": "Planning…",
     "planner": "Building execution plan…",
     "context_curator": "Gathering context…",
@@ -532,6 +545,26 @@ async def list_models():
             }
         ],
     }
+
+
+class KnowledgeSubmitRequest(BaseModel):
+    """User-submitted knowledge to fill gaps. Self-heal flow."""
+
+    domain: str = Field(..., description="Domain (e.g. openshift, python, generalist)")
+    content: str = Field(..., min_length=1, description="Markdown or plain text content")
+
+
+@app.post("/v1/knowledge/submit")
+async def knowledge_submit(req: KnowledgeSubmitRequest):
+    """Submit user knowledge to synesis_catalog. Fills gaps from knowledge backlog review."""
+    chunk_id = await submit_user_knowledge(
+        domain=req.domain.strip() or "generalist",
+        content=req.content.strip(),
+        source="user_submitted",
+    )
+    if chunk_id:
+        return {"chunk_id": chunk_id, "status": "ingested"}
+    raise HTTPException(status_code=500, detail="Failed to submit knowledge")
 
 
 @app.get("/health")

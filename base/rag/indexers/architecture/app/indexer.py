@@ -1,9 +1,9 @@
 """Architecture Whitepaper Indexer.
 
 Downloads whitepapers and design pattern documentation (PDFs, HTML,
-Markdown), parses by section, embeds, and upserts into Milvus.
-Gives the Critic node access to architectural best practices for
-its Safety-II "What-If" analysis.
+Markdown), parses by section, embeds, and upserts into synesis_catalog
+with indexer_source=architecture. Gives the Critic node access to
+architectural best practices for its Safety-II "What-If" analysis.
 
 Usage:
     python -m app.indexer --sources /data/sources.yaml
@@ -19,12 +19,13 @@ logger = logging.getLogger("synesis.indexer.architecture")
 logger.info("Architecture Whitepaper Indexer starting (pid %d)", __import__("os").getpid())
 
 import argparse
+import re
 from pathlib import Path
 
 import httpx
 import yaml
-from pymilvus import DataType, FieldSchema
 
+from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .html_parser import parse_html, parse_markdown
 from .indexer_base import (
     EmbedClient,
@@ -34,11 +35,11 @@ from .indexer_base import (
 )
 from .pdf_parser import parse_pdf
 
-ARCH_EXTRA_FIELDS = [
-    FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
-    FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
-    FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
-]
+
+def _domain_from_collection(collection: str) -> str:
+    """Extract domain from collection name (e.g. arch_cloud -> cloud)."""
+    m = re.match(r"arch_(\w+)", collection)
+    return m.group(1) if m else "architecture"
 
 
 def index_document(
@@ -48,14 +49,15 @@ def index_document(
     progress: ProgressTracker,
     skip_existing: bool = True,
 ) -> None:
-    """Fetch and index a single architecture document."""
+    """Fetch and index a single architecture document into synesis_catalog."""
     name = doc_cfg["name"]
     url = doc_cfg["url"]
     doc_type = doc_cfg.get("type", "pdf")
     collection = doc_cfg["collection"]
     tags = doc_cfg.get("tags", [])
+    domain = _domain_from_collection(collection)
 
-    logger.info(f"Fetching document: {name} ({doc_type}) from {url}")
+    logger.info(f"Fetching document: {name} ({doc_type}) from {url} -> {SYNESIS_CATALOG}")
 
     try:
         if doc_type == "pdf":
@@ -67,15 +69,8 @@ def index_document(
         progress.log_error(name, f"Failed to fetch: {e}")
         return
 
-    writer.ensure_collection(
-        collection,
-        extra_fields=ARCH_EXTRA_FIELDS,
-        description=f"Architecture docs: {collection}",
-    )
-
-    existing_ids: set[str] = set()
-    if skip_existing:
-        existing_ids = writer.existing_chunk_ids(collection)
+    ensure_synesis_catalog()
+    existing_ids: set[str] = writer.existing_chunk_ids(SYNESIS_CATALOG) if skip_existing else set()
 
     if doc_type == "pdf":
         chunks = parse_pdf(resp.content, name, tags)
@@ -92,39 +87,48 @@ def index_document(
         progress.log_source(name, 0)
         return
 
-    entities = []
+    raw_entities: list[tuple[str, str, str, str, str]] = []
     skipped = 0
     for chunk in chunks:
         cid = chunk_id_hash(chunk.text, f"{name}:{chunk.section}")
         if cid in existing_ids:
             skipped += 1
             continue
-        entities.append(
-            {
-                "chunk_id": cid,
-                "text": chunk.text[:8192],
-                "source": f"doc:{name} section:{chunk.section}"[:512],
-                "section": chunk.section[:256],
-                "document_name": name[:256],
-                "tags": ",".join(chunk.tags)[:512],
-                "language": "architecture",
-                "embedding": None,
-            }
-        )
+        raw_entities.append((
+            cid,
+            chunk.text,
+            f"doc:{name} section:{chunk.section}",
+            chunk.section,
+            ",".join(chunk.tags),
+        ))
 
     if skipped:
         logger.info(f"  Skipped {skipped} unchanged section chunks")
 
-    if not entities:
+    if not raw_entities:
         progress.log_source(name, 0)
         return
 
-    texts = [e["text"] for e in entities]
+    texts = [e[1] for e in raw_entities]
     embeddings = embedder.embed_texts(texts)
-    for entity, emb in zip(entities, embeddings):
-        entity["embedding"] = emb
+    catalog_entities = []
+    for (cid, text, source, section, tags_str), emb in zip(raw_entities, embeddings):
+        catalog_entities.append(
+            catalog_entity(
+                chunk_id=cid,
+                text=text[:8192],
+                source=source[:512],
+                language="architecture",
+                embedding=emb,
+                domain=domain,
+                indexer_source="architecture",
+                section=section[:256],
+                document_name=name[:256],
+                tags=tags_str[:512],
+            )
+        )
 
-    count = writer.upsert_batch(collection, entities)
+    count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
     progress.log_source(name, count)
 
 

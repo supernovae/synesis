@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -24,9 +24,12 @@ app = FastAPI(title="Synesis Admin", version="0.1.0")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-MILVUS_HOST = os.getenv("SYNESIS_MILVUS_HOST", "milvus.synesis-rag.svc.cluster.local")
+MILVUS_HOST = os.getenv("SYNESIS_MILVUS_HOST", "synesis-milvus.synesis-rag.svc.cluster.local")
 MILVUS_PORT = int(os.getenv("SYNESIS_MILVUS_PORT", "19530"))
+PLANNER_URL = os.getenv("SYNESIS_PLANNER_URL", "http://synesis-planner.synesis-planner.svc.cluster.local:8000")
+PLANNER_URL = os.getenv("SYNESIS_PLANNER_URL", "http://synesis-planner.synesis-planner.svc.cluster.local:8000")
 FAILURES_COLLECTION = "failures_v1"
+KNOWLEDGE_BACKLOG_COLLECTION = "synesis_knowledge_backlog"
 
 _client = None
 
@@ -41,15 +44,19 @@ def _get_client():
 
 
 def _safe_query(
-    filter_expr: str = "", output_fields: list[str] | None = None, limit: int = 100, offset: int = 0
+    filter_expr: str = "",
+    output_fields: list[str] | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    collection: str = FAILURES_COLLECTION,
 ) -> list[dict]:
     try:
         client = _get_client()
-        if FAILURES_COLLECTION not in client.list_collections():
+        if collection not in client.list_collections():
             return []
         try:
             return client.query(
-                collection_name=FAILURES_COLLECTION,
+                collection_name=collection,
                 filter=filter_expr if filter_expr else "",
                 output_fields=output_fields or [],
                 limit=limit,
@@ -58,9 +65,9 @@ def _safe_query(
         except Exception as e:
             if "collection not loaded" in str(e).lower():
                 try:
-                    client.load_collection(collection_name=FAILURES_COLLECTION)
+                    client.load_collection(collection_name=collection)
                     return client.query(
-                        collection_name=FAILURES_COLLECTION,
+                        collection_name=collection,
                         filter=filter_expr if filter_expr else "",
                         output_fields=output_fields or [],
                         limit=limit,
@@ -265,6 +272,70 @@ async def failure_detail(request: Request, failure_id: str):
             "failure": failure,
         },
     )
+
+
+@app.get("/admin/knowledge-gaps", response_class=HTMLResponse)
+async def knowledge_gaps_list(
+    request: Request,
+    domain: str = Query("", description="Filter by domain/platform_context"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """Knowledge gaps — queries with low RAG confidence. Self-heal: review and submit content to fill."""
+    filter_parts = []
+    if domain:
+        filter_parts.append(f'platform_context == "{domain}"')
+    filter_expr = " and ".join(filter_parts)
+
+    offset = (page - 1) * page_size
+    gaps = _safe_query(
+        collection=KNOWLEDGE_BACKLOG_COLLECTION,
+        filter_expr=filter_expr,
+        output_fields=["chunk_id", "query", "task_description", "collections_queried", "max_score", "platform_context", "timestamp", "language"],
+        limit=page_size,
+        offset=offset,
+    )
+
+    return templates.TemplateResponse(
+        "knowledge_gaps.html",
+        {
+            "request": request,
+            "gaps": gaps,
+            "domain": domain,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
+@app.post("/admin/knowledge-gaps/submit")
+async def knowledge_gaps_submit(
+    domain: str = Form(...),
+    content: str = Form(...),
+):
+    """Forward submit to planner. Ingests into synesis_catalog."""
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(
+                f"{PLANNER_URL.rstrip('/')}/v1/knowledge/submit",
+                json={"domain": domain.strip() or "generalist", "content": content.strip()},
+            )
+            resp.raise_for_status()
+            return RedirectResponse(url="/admin/knowledge-gaps?submitted=1", status_code=303)
+        except Exception as e:
+            logger.warning(f"Knowledge submit failed: {e}")
+            return RedirectResponse(url=f"/admin/knowledge-gaps?error={str(e)[:50]}", status_code=303)
+
+
+@app.get("/admin/api/knowledge-gaps")
+async def api_knowledge_gaps(limit: int = Query(50, ge=1, le=200)):
+    """JSON API for knowledge gaps (Open WebUI Functions, dashboards)."""
+    gaps = _safe_query(
+        collection=KNOWLEDGE_BACKLOG_COLLECTION,
+        output_fields=["chunk_id", "query", "task_description", "collections_queried", "max_score", "platform_context", "timestamp", "language"],
+        limit=limit,
+    )
+    return {"gaps": gaps, "total": len(gaps)}
 
 
 @app.get("/admin/api/failures/stats")

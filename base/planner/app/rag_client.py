@@ -31,6 +31,10 @@ from .state import RetrievalResult
 
 logger = logging.getLogger("synesis.rag")
 
+# Unified catalog (synesis_catalog) — single collection, one BM25 index.
+# Schema must match base/rag/catalog_schema.py for indexer compatibility.
+SYNESIS_CATALOG = "synesis_catalog"
+
 _http_client: httpx.AsyncClient | None = None
 
 # ---------------------------------------------------------------------------
@@ -239,98 +243,123 @@ _bm25_index = BM25Index()
 
 
 # ---------------------------------------------------------------------------
-# Multi-collection discovery and selection
+# Unified catalog bootstrap (schema must match base/rag/catalog_schema.py)
 # ---------------------------------------------------------------------------
 
-_available_collections_cache: list[str] | None = None
-_collections_cache_time: float = 0.0
+_catalog_ensured = False
 
 
-def discover_collections() -> list[str]:
-    """Return all Milvus collection names, cached for 5 minutes."""
-    global _available_collections_cache, _collections_cache_time
-    import time as _time
+def _ensure_synesis_catalog() -> None:
+    """Create synesis_catalog if it does not exist. Idempotent."""
+    global _catalog_ensured
+    if _catalog_ensured:
+        return
+    try:
+        from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
-    if _available_collections_cache is not None and (_time.time() - _collections_cache_time) < 300:
-        return _available_collections_cache
+        client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
+        if SYNESIS_CATALOG in client.list_collections():
+            _catalog_ensured = True
+            return
+
+        schema = CollectionSchema(
+            fields=[
+                FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+                FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
+                FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
+                FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
+                FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
+                FieldSchema(name="expertise_level", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="indexer_source", dtype=DataType.VARCHAR, max_length=64),
+                FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
+                FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
+                FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
+            ],
+            description="Synesis unified RAG catalog",
+        )
+        client.create_collection(collection_name=SYNESIS_CATALOG, schema=schema)
+
+        index_params = MilvusClient.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
+        client.create_index(collection_name=SYNESIS_CATALOG, index_params=index_params)
+        client.load_collection(collection_name=SYNESIS_CATALOG)
+        _catalog_ensured = True
+        logger.info(f"Created unified catalog '{SYNESIS_CATALOG}'")
+    except Exception as e:
+        logger.warning(f"Could not ensure synesis_catalog: {e}")
+
+
+async def submit_user_knowledge(
+    domain: str,
+    content: str,
+    source: str = "user_submitted",
+) -> str | None:
+    """Submit user-provided knowledge to synesis_catalog. Returns chunk_id or None on error.
+
+    Used by self-heal flow: Admin/Open WebUI submits content to fill knowledge gaps.
+    """
+    import hashlib
+
+    if not content or not content.strip():
+        return None
+
+    _ensure_synesis_catalog()
+    embedding = await _embed_text(content.strip()[:8192])
+    chunk_id = hashlib.sha256(f"{source}:{domain}:{content[:500]}".encode()).hexdigest()[:64]
+
+    entity = {
+        "chunk_id": chunk_id,
+        "text": content.strip()[:8192],
+        "source": f"{source}:{domain}"[:512],
+        "language": "general",
+        "embedding": embedding,
+        "domain": (domain or "generalist")[:64],
+        "expertise_level": "",
+        "indexer_source": "user_submitted",
+        "section": "",
+        "document_name": source[:256],
+        "tags": "",
+    }
 
     try:
         from pymilvus import MilvusClient
 
         client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}")
-        _available_collections_cache = client.list_collections()
-        _collections_cache_time = _time.time()
-        return _available_collections_cache
+        client.upsert(collection_name=SYNESIS_CATALOG, data=[entity])
+        logger.info("knowledge_submitted", extra={"chunk_id": chunk_id[:12], "domain": domain})
+        return chunk_id
     except Exception as e:
-        logger.warning(f"Failed to discover collections: {e}")
-        return _available_collections_cache or []
+        logger.warning(f"Failed to submit knowledge: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Collection selection (unified catalog only)
+# ---------------------------------------------------------------------------
+
+
+def discover_collections() -> list[str]:
+    """Return synesis_catalog. Ensures it exists and is loaded."""
+    _ensure_synesis_catalog()
+    return [SYNESIS_CATALOG]
 
 
 def select_collections_for_task(
     task_type: str,
     target_language: str,
     task_description: str = "",
+    platform_context: str | None = None,
+    active_domain_refs: list[str] | None = None,
 ) -> list[str]:
-    """Auto-select Milvus collections based on task context.
-
-    Queries are distributed across the style guide collection,
-    code-example collections, pattern collections, and optionally
-    API spec collections when the task mentions relevant keywords.
-    """
-    available = set(discover_collections())
-    selected: list[str] = []
-
-    lang_collection = f"{target_language}_v1"
-    if lang_collection in available:
-        selected.append(lang_collection)
-
-    if settings.rag_code_collections_enabled:
-        code_coll = f"code_{target_language}_v1"
-        if code_coll in available:
-            selected.append(code_coll)
-
-        pattern_coll = f"patterns_{target_language}_v1"
-        if pattern_coll in available:
-            selected.append(pattern_coll)
-
-    k8s_keywords = {"kubernetes", "k8s", "openshift", "pod", "deployment", "service", "ingress", "route", "namespace"}
-    desc_lower = task_description.lower()
-    if any(kw in desc_lower for kw in k8s_keywords):
-        for coll in available:
-            if coll.startswith("apispec_"):
-                if coll not in selected:
-                    selected.append(coll)
-
-    if settings.rag_apispec_collections:
-        for coll in settings.rag_apispec_collections:
-            if coll in available and coll not in selected:
-                selected.append(coll)
-
-    if settings.rag_license_collection_enabled:
-        license_keywords = {
-            "license",
-            "licensing",
-            "copyright",
-            "gpl",
-            "mit",
-            "apache",
-            "open source",
-            "compliance",
-            "spdx",
-            "bsd",
-            "lgpl",
-            "agpl",
-            "mpl",
-            "copyleft",
-            "permissive",
-            "proprietary",
-        }
-        if any(kw in desc_lower for kw in license_keywords):
-            if "licenses_v1" in available and "licenses_v1" not in selected:
-                selected.append("licenses_v1")
-
-    max_colls = settings.rag_multi_collection_max
-    return selected[:max_colls]
+    """Return synesis_catalog only. Metadata (domain, indexer_source) drives retrieval gravity."""
+    _ensure_synesis_catalog()
+    return [SYNESIS_CATALOG]
 
 
 # ---------------------------------------------------------------------------

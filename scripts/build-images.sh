@@ -79,11 +79,12 @@ IMAGES=(
     "lsp-gateway|base/lsp/gateway/Dockerfile|base/lsp/gateway"
     "sandbox|base/sandbox/image/Dockerfile|base/sandbox/image"
     "bge-reranker|base/planner/bge-reranker/Dockerfile|base/planner/bge-reranker"
-    "ingestor|base/rag/ingestion/Dockerfile|base/rag/ingestion"
+    "ingestor|base/rag/ingestion/Dockerfile|base/rag"
     "indexer-code|base/rag/indexers/code/Dockerfile|base/rag"
     "indexer-apispec|base/rag/indexers/apispec/Dockerfile|base/rag"
     "indexer-architecture|base/rag/indexers/architecture/Dockerfile|base/rag"
     "indexer-license|base/rag/indexers/license/Dockerfile|base/rag"
+    "indexer-domain|base/rag/indexers/domain/Dockerfile|base/rag"
 )
 
 if [[ "$LIST_ONLY" == "true" ]]; then
