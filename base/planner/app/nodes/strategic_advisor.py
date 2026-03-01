@@ -58,11 +58,14 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     task_size = state.get("task_size", "small")
     rag_mode = state.get("rag_mode", "normal")
 
+    # Preserve EntryClassifier-seeded active_domain_refs (Sovereign Intersection)
+    existing_domains = state.get("active_domain_refs") or []
+
     # Trivial or RAG disabled: no-op, use generic
     if task_size == "trivial" or rag_mode == "disabled":
         return {
             "platform_context": "generic",
-            "active_domain_refs": [],
+            "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
         }
@@ -70,7 +73,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     if not getattr(settings, "advisor_enabled", True):
         return {
             "platform_context": "generic",
-            "active_domain_refs": [],
+            "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
         }
@@ -106,9 +109,10 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
         tokens_used=0,
     )
 
+    # Keep EntryClassifier deterministic domains; LLM platform_context complements them
     return {
         "platform_context": platform_context,
-        "active_domain_refs": [],  # Convention-based: select_collections uses domain_{platform_context}
+        "active_domain_refs": existing_domains,
         "advisory_message": "",
         "current_node": node_name,
         "node_traces": [trace],

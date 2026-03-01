@@ -1,0 +1,20 @@
+# Synesis Electronic Music & Synthesis Plugin
+# Focus: Signal flow, modulation, gear-specific logic.
+# High-gravity: avoiding digital clipping, phase cancellation.
+weights:
+  signal_flow:
+    weight: 8
+    domain: audio_synthesis
+    keywords: ["oscillator", "filter", "lfo", "envelope", "vca", "vcf", "adsr", "routing"]
+  synthesis_types:
+    weight: 10
+    keywords: ["fm synthesis", "subtractive", "wavetable", "granular", "additive", "modular"]
+  gear_specific:
+    weight: 12
+    keywords: ["eurorack", "midi", "cv/gate", "daw", "vst", "clock sync", "latency"]
+
+pairings:
+  - keywords: ["modular", "patch"]
+    extra_weight: 5  # Complex routing usually needs a plan/diagram
+  - keywords: ["latency", "buffer"]
+    extra_weight: 10  # Triggers Performance Tuning logic for audio

@@ -87,10 +87,11 @@ class TestEntryClassifierTrivialPath:
         assert route_after_entry_classifier(state) == "context_curator"
 
     def test_small_routes_to_supervisor(self):
+        """Small task (parse json + file) → supervisor, not trivial fast-path."""
         from app.graph import route_after_entry_classifier
 
         state = {
-            "messages": [{"content": "write a data fetcher script"}],
+            "messages": [{"content": "parse this json file and save to disk"}],
             "task_size": "small",
             "bypass_supervisor": False,
         }
@@ -140,7 +141,8 @@ class TestWorkerPromptTier:
         assert out.get("worker_prompt_tier") == "trivial"
 
     def test_small_sets_tier_small(self):
-        state = {"messages": [{"content": "write a data fetcher script"}]}
+        """Parse json + file I/O → small tier (data_manipulation + local_persistence)."""
+        state = {"messages": [{"content": "parse this json file and save to disk"}]}
         out = entry_classifier_node(state)
         assert out.get("worker_prompt_tier") == "small"
 

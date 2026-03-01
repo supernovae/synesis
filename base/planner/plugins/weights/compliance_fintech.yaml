@@ -1,0 +1,23 @@
+# Synesis Fintech & Banking Plugin
+# Focus: Auditability, transaction integrity, Four-Eyes principle.
+weights:
+  transaction_logic:
+    weight: 15
+    domain: fintech_compliance
+    keywords: ["ledger", "reconciliation", "swift", "iban", "ach", "wire transfer", "payment"]
+  fin_regulatory:
+    weight: 12
+    keywords: ["pci-dss", "pci", "sox", "kyc", "aml", "basel iii"]
+  fin_platforms:
+    weight: 10
+    keywords: ["stripe", "plaid", "adyen", "fiserv"]
+
+pairings:
+  - keywords: ["ledger", "update"]
+    extra_weight: 25  # Forces Four-Eyes review on core financial logic
+  - keywords: ["pci", "s3"]
+    extra_weight: 30  # Critical check for cardholder data storage
+  - keywords: ["delete", "ledger"]
+    extra_weight: 20
+  - keywords: ["modify", "transaction", "audit"]
+    extra_weight: 15

@@ -1,0 +1,110 @@
+# Synesis Universal Intent Ontology v2.0
+# Signal Aggregation: keywords by risk/blast-radius, not language.
+# Trivial < 5 | Small 5-15 | Complex > 15
+#
+# Advanced logic:
+#   - Pairings: dangerous combos (delete+database) add extra_weight
+#   - Density tax: 3+ distinct categories → +10 (cross-domain coordination)
+#   - Educational discount: explain/teach → -10 (informational query, low risk)
+
+thresholds:
+  trivial_max: 4   # score < 5 → trivial
+  small_max: 15    # score 5-15 → small, score > 15 → complex
+  density_threshold: 3   # categories touched before density tax
+  density_tax: 10
+  educational_discount: 10
+
+weights:
+  # --- Tier 1: Informational & Basic Logic (Weight: 1-2) ---
+  io_basic:
+    weight: 1
+    keywords: ["print", "prints", "echo", "log", "say", "hello", "fmt", "console", "write-host", "display", "show", "stdout", "output"]
+  logic_basic:
+    weight: 2
+    keywords: ["math", "sum", "count", "calculate", "fizzbuzz", "loop", "iterate", "sort", "reverse", "basic", "simple", "minimal", "script"]
+  query_basic:
+    weight: 2
+    keywords: ["what is", "how do i", "example of", "syntax for"]
+
+  # --- Tier 2: Data Structures & Local Files (Weight: 5-8) ---
+  data_manipulation:
+    weight: 5
+    keywords: ["parse", "json", "csv", "yaml", "xml", "regex", "base64", "convert", "transform", "map", "filter"]
+  local_persistence:
+    weight: 8
+    keywords: ["file", "directory", "folder", "read file", "write file", "save", "load", "mkdir", "path", "disk"]
+
+  # --- Tier 3: Environmental & External Interaction (Weight: 12-15) ---
+  networking:
+    weight: 12
+    keywords: ["http", "request", "api", "rest", "client", "server", "port", "socket", "url", "curl", "wget", "endpoint", "fetch", "get", "post"]
+  os_system:
+    weight: 15
+    keywords: ["process", "thread", "exec", "shell", "env", "variable", "systemd", "cron", "service", "daemon", "signal"]
+
+  # --- Tier 4: Sovereignty & Infrastructure (Weight: 20-30) ---
+  cloud_infra:
+    weight: 20
+    keywords: ["aws", "s3", "lambda", "ec2", "gcp", "azure", "cloud", "bucket", "cluster", "vpc", "iam", "terraform"]
+  orchestration:
+    weight: 25
+    keywords: ["k8s", "kubernetes", "openshift", "oc ", "kubectl", "pod", "deployment", "helm", "istio", "scc", "ingress", "manifest"]
+  persistence_engines:
+    weight: 20
+    keywords: ["sql", "database", "db", "postgres", "redis", "mongo", "query", "table", "schema", "migrate"]
+  security_governance:
+    weight: 30
+    keywords: ["auth", "login", "password", "token", "secret", "vault", "encrypt", "decrypt", "fips", "tls", "ssl", "certificate", "audit"]
+
+  # --- Tier 5: Meta-Intent (High Escalation) ---
+  scope_expansion:
+    weight: 20
+    keywords: ["architecture", "design", "refactor", "integrate", "whole", "entire", "all files", "across", "restructure"]
+  destructive:
+    weight: 20
+    keywords: ["delete", "wipe", "drop", "remove", "format", "truncate", "rotate keys"]
+
+# --- Contextual Risk Multipliers (pairings) ---
+# If all keywords in a pairing appear together, add extra_weight.
+pairings:
+  - keywords: ["delete", "database"]
+    extra_weight: 15
+  - keywords: ["production", "deploy"]
+    extra_weight: 20
+  - keywords: ["wipe", "cluster"]
+    extra_weight: 20
+
+# --- Special overrides (checked first, bypass scoring) ---
+overrides:
+  force_manual:
+    - "[STRICT]"
+    - "/plan"
+    - "/manual"
+    - "/strict"
+    - "@plan"
+  force_teach:
+    - "explain"
+    - "teach"
+    - "how does it work"
+    - "how does that work"
+    - "why did"
+    - "why do"
+    - "why would"
+    - "walk me through"
+    - "i'm learning"
+    - "learning how"
+    - "learning to"
+    - "what does this do"
+    - "what does that mean"
+    - "what does this code do"
+    - "what does the code"
+    - "can you explain"
+  force_pro_advanced:
+    - "plan first"
+    - "break it down"
+    - "break this down"
+    - "step-by-step plan"
+    - "execution plan"
+    - "I need a plan"
+    - "need a plan"
+    - "full planning"

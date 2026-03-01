@@ -1,0 +1,122 @@
+# Synesis EntryClassifier Scoring Configuration
+#
+# Logic: Score = Sum(Weights from matched keyword categories).
+# Tune thresholds or weights without redeploying code.
+# Keywords use word-boundary matching (\b) — "print" matches but not "sprinting".
+#
+# Thresholds:
+#   trivial: score < trivial_max  (fast path, bypass Supervisor)
+#   small:   trivial_max <= score <= small_max
+#   complex: score > small_max   (Supervisor + Planner)
+#
+# To scale: Add keywords for new languages/frameworks. Use functional intent
+# (e.g. "output", "parse-data") rather than syntax ("print", "json.loads").
+# See docs/USERGUIDE.md for user-facing triggers.
+
+thresholds:
+  trivial_max: 3   # score < 4 → trivial
+  small_max: 12    # score 4-12 → small, score > 12 → complex
+
+weights:
+  # --- Trivial markers (low weight) ---
+  io_basic:
+    weight: 1
+    keywords: ["print", "prints", "echo", "log", "say", "hello", "fmt.print", "console.log", "stdout", "output"]
+
+  logic_basic:
+    weight: 2
+    keywords: ["count", "sum", "add", "fizzbuzz", "loop", "iterate", "basic", "simple", "minimal", "script"]
+
+  unit_test_basic:
+    weight: 1
+    keywords: ["unit test", "basic test", "add test", "pytest", "unittest", "test for"]
+
+  parse_basic:
+    weight: 1
+    keywords: ["parse json", "parse this json", "parse csv", "read file and print", "read file and count"]
+
+  create_basic:
+    weight: 1
+    keywords: ["create a script", "create a simple script", "write a script", "create a file"]
+
+  # --- Small markers (medium weight) ---
+  data_processing:
+    weight: 5
+    # Heavier than parse_basic; exclude "parse"/"json" which parse_basic covers
+    keywords: ["regex", "filter", "sort", "mapping", "transform", "parse xml", "parse yaml"]
+
+  file_ops:
+    weight: 6
+    keywords: ["read file", "write file", "save", "load", "directory", "mkdir", "path"]
+
+  api_simple:
+    weight: 6
+    keywords: ["fetch", "request", "http", "get", "post", "api"]
+
+  maintenance:
+    weight: 5
+    keywords: ["error handling", "refactor", "fix", "update", "modify"]
+
+  # --- Complex markers (high weight) ---
+  destructive:
+    weight: 20
+    keywords: ["delete", "wipe", "format", "rm ", "remove all", "drop table", "truncate", "rotate keys"]
+
+  infrastructure:
+    weight: 15
+    keywords: ["deploy", "k8s", "kubernetes", "openshift", "container", "docker", "helm", "manifest", "ci/cd", "pipeline"]
+
+  security:
+    weight: 15
+    keywords: ["auth", "credentials", "secret", "encrypt", "decrypt", "iam", "scc", "fips"]
+
+  cloud_services:
+    weight: 12
+    keywords: ["aws", "gcp", "azure", "s3", "bucket", "database", "sql", "db"]
+
+  architecture:
+    weight: 20
+    keywords: ["design", "migrate", "refactor across", "architecture", "whole repo", "entire codebase", "system design", "high-level"]
+
+  ambiguous_scope:
+    weight: 15
+    keywords: ["fix my project", "make this work"]
+
+# --- Special overrides (checked first, bypass scoring) ---
+overrides:
+  # Force Manual: route through Supervisor even for trivial. [STRICT], /plan, etc.
+  force_manual:
+    - "[STRICT]"
+    - "/plan"
+    - "/manual"
+    - "/strict"
+    - "@plan"
+
+  # Educational mode: interaction_mode=teach, Learner's Corner in output
+  force_teach:
+    - "explain"
+    - "teach"
+    - "how does it work"
+    - "how does that work"
+    - "why did"
+    - "why do"
+    - "why would"
+    - "walk me through"
+    - "i'm learning"
+    - "learning how"
+    - "learning to"
+    - "what does this do"
+    - "what does that mean"
+    - "can you explain"
+
+  # Pro advanced: full JCS/planning prompt tier (worker_prompt_tier=full)
+  force_pro_advanced:
+    - "plan first"
+    - "plan before"
+    - "i need a plan"
+    - "break it down"
+    - "full planning"
+    - "architecture review"
+    - "design review"
+    - "step-by-step plan"
+    - "execution plan"

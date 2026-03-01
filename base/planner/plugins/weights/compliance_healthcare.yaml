@@ -1,0 +1,22 @@
+# Synesis Healthcare Compliance Plugin
+# Focus: Protecting PHI, interoperability risks, healthcare systems.
+# domain enables Sovereign Intersection for RAG (e.g. HIPAA + K8s).
+weights:
+  phi_identifiers:
+    weight: 15
+    domain: healthcare_compliance
+    keywords: ["phi", "patient", "medical record", "ssn", "dob", "provider", "diagnosis"]
+  interop_standards:
+    weight: 12
+    keywords: ["hl7", "fhir", "emr", "ehr", "dicom", "loinc", "snomed"]
+  healthcare_systems:
+    weight: 10
+    keywords: ["epic", "cerner", "meditech", "allscripts"]
+
+pairings:
+  - keywords: ["phi", "public"]
+    extra_weight: 40  # Massive escalation for public exposure of PHI
+  - keywords: ["fhir", "ingress"]
+    extra_weight: 20  # Escalation for exposing API endpoints
+  - keywords: ["hipaa", "log"]
+    extra_weight: 15  # Ensures audit logs are handled with care

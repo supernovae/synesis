@@ -1,23 +1,26 @@
-"""EntryClassifier node -- deterministic IntentEnvelope before any LLM.
+"""EntryClassifier node — deterministic IntentEnvelope before any LLM.
 
-Runs first on every request. Uses regex + rules to set 5-8 fields the whole
-graph obeys. Supervisor executes policy; it does not discover it.
+Runs first on every request. Uses YAML-driven ScoringEngine (keyword-weight map)
+to set task_size, plus overrides. Supervisor executes policy; it does not discover it.
 
-Step 0 of incremental rollout: stops "I need more info…" for trivial tasks.
-Uses DefaultsPolicy for trivial defaults (code constants + YAML overrides).
+Design: Tune complexity detection via entry_classifier_weights.yaml — no code
+changes for new languages/frameworks. See docs/USERGUIDE.md for user triggers.
 """
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 from typing import Any, Literal
 
 from ..defaults_policy import get_defaults_policy
+from ..entry_classifier_engine import get_scoring_engine
 
 TaskSize = Literal["trivial", "small", "complex"]
 MessageOrigin = Literal["end_user", "ui_helper", "system_internal", "tool_log"]
 
-# Language detection (ordered: more specific first)
+# Language detection (ordered: more specific first) — keep in code or move to YAML later
 _LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\btypescript\b", re.IGNORECASE), "typescript"),
     (re.compile(r"\bjavascript\b|\.js\b|\.jsx\b|\.mjs\b", re.IGNORECASE), "javascript"),
@@ -29,57 +32,6 @@ _LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bbash\b|shell\b|\.sh\b|sh script", re.IGNORECASE), "bash"),
 ]
 
-# Trivial triggers — high confidence, no questions
-_TRIVIAL_PATTERNS = [
-    re.compile(r"\bhello\s+world\b", re.IGNORECASE),
-    re.compile(r"\bprint\s+['\"]?\w+['\"]?\s*\)?\s*$", re.IGNORECASE),
-    re.compile(r"^print\s+", re.IGNORECASE),
-    re.compile(r"\bwrite\s+a\s+(?:simple\s+)?script\s+that\s+prints?\b", re.IGNORECASE),
-    re.compile(r"\bbasic\s+(?:unit\s+)?test\b", re.IGNORECASE),
-    re.compile(r"\badd\s+a\s+unit\s+test\s+for\b", re.IGNORECASE),
-    re.compile(r"\bunit\s+test\s+for\s+(?:this\s+)?function\b", re.IGNORECASE),
-    re.compile(r"\bparse\s+json\b", re.IGNORECASE),
-    re.compile(r"\bparse\s+this\s+json\b", re.IGNORECASE),
-    re.compile(r"\bread\s+a\s+file\s+and\s+(?:print|count)\b", re.IGNORECASE),
-    re.compile(r"\bwrite\s+a\s+function\s+that\s+returns\s+\d+\b", re.IGNORECASE),
-    re.compile(r"\bsimple\s+fizzbuzz\b", re.IGNORECASE),
-    re.compile(r"\bfizzbuzz\b", re.IGNORECASE),
-    re.compile(r"\bbasic\s+script\b", re.IGNORECASE),
-    re.compile(r"^create\s+a\s+(?:simple\s+)?(?:python\s+)?(?:script|file)\s+that\s+(?:prints?|says)\b", re.IGNORECASE),
-    re.compile(r"\bminimal\s+(?:hello|example)\b", re.IGNORECASE),
-    re.compile(
-        r"\b(?:how\s+to\s+)?(?:build|create|write)\s+a\s+(?:simple\s+)?(?:hello\s+world|python)\s+(?:app|script|example)\b",
-        re.IGNORECASE,
-    ),
-    re.compile(r"\bhelp\s+(?:me\s+)?(?:build|create|write).*hello\s+world", re.IGNORECASE),
-    re.compile(r"\b(?:build|create)\s+a\s+(?:simple\s+)?(?:python\s+)?hello\s+world\s+script\b", re.IGNORECASE),
-    re.compile(r"\bhelp\s+(?:me\s+)?write\s+a\s+(?:python\s+)?hello\s+world\s+script\b", re.IGNORECASE),
-    re.compile(r"\bcan\s+you\s+help\s+(?:me\s+)?write\s+.*(?:hello\s+world|python)\s+script\b", re.IGNORECASE),
-]
-
-# Complex escalation — only with clear signals
-_COMPLEX_PATTERNS = [
-    re.compile(r"\bdeploy\b|\barchitecture\b|\bdesign\b|\bmigrate\b|\brefactor\s+across\b", re.IGNORECASE),
-    re.compile(r"\bsecurity\b|\bauth\b|\bpayments?\b|\bcredentials?\b", re.IGNORECASE),
-    re.compile(r"\bconnect\s+to\s+(?:aws|gcp|s3|api)\b", re.IGNORECASE),
-    re.compile(r"\bwhole\s+repo\b|\bentire\s+codebase\b|\badd\s+feature\s+.*\s+across\s+modules\b", re.IGNORECASE),
-    re.compile(r"\bdelete\b.*\ball\b|\bwipe\b|\brotate\s+keys\b", re.IGNORECASE),
-    re.compile(r"\bfix\s+my\s+project\b|\bmake\s+this\s+work\b", re.IGNORECASE),  # Ambiguous scope
-]
-
-# Educational/mentor intent — user wants explanation, not just code
-_EDUCATIONAL_PATTERNS = [
-    re.compile(r"\bexplain\b", re.IGNORECASE),
-    re.compile(r"\bhow\s+does\s+(?:it|that|this)\s+work\b", re.IGNORECASE),
-    re.compile(r"\bwhy\s+(?:did|do|would)\s+", re.IGNORECASE),
-    re.compile(r"\bwalk\s+me\s+through\b", re.IGNORECASE),
-    re.compile(r"\bteach\s+me\b", re.IGNORECASE),
-    re.compile(r"\bi['\u2019]m\s+learning\b", re.IGNORECASE),
-    re.compile(r"\blearn(?:ing)?\s+(?:how|to)\b", re.IGNORECASE),
-    re.compile(r"\bwhat\s+does\s+(?:this|that|it)\s+(?:do|mean)\b", re.IGNORECASE),
-    re.compile(r"\bcan\s+you\s+explain\b", re.IGNORECASE),
-]
-
 # UI helper (already filtered in main.py; double-check for graph routing)
 _UI_HELPER_PATTERNS = [
     re.compile(r"suggest\s+(3[- ]?5\s+)?follow[- ]?up\s+questions?", re.IGNORECASE),
@@ -87,17 +39,20 @@ _UI_HELPER_PATTERNS = [
     re.compile(r"###\s*Task:\s*(?:Suggest|Generate)\s+", re.IGNORECASE),
 ]
 
-# Pro-user shortcut: explicit signals to use full JCS/planning prompt even for small tasks
-_PRO_ADVANCED_PATTERNS = [
-    re.compile(r"@plan\b|/plan\b|#plan\b", re.IGNORECASE),
-    re.compile(r"\bplan\s+first\b|\bplan\s+before\b|\bI\s+need\s+a\s+plan\b", re.IGNORECASE),
-    re.compile(r"\bbreak\s+(?:this\s+)?down\b|\bbreak\s+it\s+down\b", re.IGNORECASE),
-    re.compile(r"\bfull\s+planning\b|\barchitecture\s+review\b|\bdesign\s+review\b", re.IGNORECASE),
-    re.compile(r"\bscope\s*:\s*|\bmulti[- ]?file\s*:\s*|\bwalk\s+through\s+the\s+steps\b", re.IGNORECASE),
-    re.compile(r"\bstep[- ]?by[- ]?step\s+plan\b|\bexecution\s+plan\b", re.IGNORECASE),
-]
-
 DEFAULT_LANGUAGE = "python"
+
+
+def _weights_path() -> Path:
+    """Resolve config path: env override, then intent_weights, then entry_classifier_weights."""
+    env_path = os.environ.get("SYNESIS_ENTRY_CLASSIFIER_WEIGHTS")
+    if env_path and Path(env_path).exists():
+        return Path(env_path)
+    root = Path(__file__).parent.parent.parent
+    for name in ("intent_weights.yaml", "entry_classifier_weights.yaml"):
+        p = root / name
+        if p.exists():
+            return p
+    return root / "intent_weights.yaml"
 
 
 def detect_language_deterministic(text: str) -> str:
@@ -127,41 +82,6 @@ def _detect_language(text: str) -> str:
     return DEFAULT_LANGUAGE
 
 
-def _classify_task_size(text: str) -> TaskSize:
-    """3-tier: trivial (fast path), small (default), complex (escalate)."""
-    if not text or not text.strip():
-        return "small"
-    t = text.strip()[:800]
-
-    # Complex first — explicit escalation
-    for pat in _COMPLEX_PATTERNS:
-        if pat.search(t):
-            return "complex"
-
-    # Trivial — high confidence
-    for pat in _TRIVIAL_PATTERNS:
-        if pat.search(t):
-            return "trivial"
-
-    return "small"
-
-
-def _is_educational_intent(text: str) -> bool:
-    """User wants explanation/teaching, not just code."""
-    if not text or not text.strip():
-        return False
-    t = text.strip()[:600]
-    return any(pat.search(t) for pat in _EDUCATIONAL_PATTERNS)
-
-
-def _detect_pro_advanced(text: str) -> bool:
-    """Pro user shortcut: explicit signals to use full JCS/planning prompt."""
-    if not text or not text.strip():
-        return False
-    t = text.strip()[:800]
-    return any(pat.search(t) for pat in _PRO_ADVANCED_PATTERNS)
-
-
 def _trivial_wants_tests(text: str) -> bool:
     """User explicitly asked for tests. Don't assume tests for one-liners/simple scripts."""
     if not text or not text.strip():
@@ -180,7 +100,7 @@ def _trivial_touched_files(text: str, target_language: str) -> list[str]:
 
 
 def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Deterministic pre-pass: produce IntentEnvelope fields before any LLM."""
+    """Deterministic pre-pass: produce IntentEnvelope fields from ScoringEngine + overrides."""
     messages = state.get("messages", [])
     last_content = ""
     for m in reversed(messages):
@@ -192,31 +112,38 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             break
 
     message_origin = _classify_message_origin(last_content)
-    task_size = _classify_task_size(last_content)
     target_language = _detect_language(last_content)
-    educational_mode = _is_educational_intent(last_content)
+    policy = get_defaults_policy()
 
-    # Bypass Supervisor for trivial; else Supervisor runs
-    bypass_supervisor = task_size == "trivial"
-    bypass_planner = task_size == "trivial"
-    # Hard fence: trivial/small never ask; complex may (Supervisor decides)
+    # ScoringEngine from YAML (entry_classifier_weights.yaml)
+    config_path = _weights_path()
+    engine = get_scoring_engine(config_path)
+    analysis = engine.analyze(last_content)
+
+    task_size: TaskSize = analysis["task_size"]
+    manual_override = analysis.get("manual_override", False)
+    force_pro_advanced = analysis.get("force_pro_advanced", False)
+
+    # Bypass Supervisor for trivial; else Supervisor runs. Force manual overrides.
+    bypass_supervisor = task_size == "trivial" and not manual_override
+    bypass_planner = task_size == "trivial" and not manual_override
     requires_clarification = task_size == "complex"
 
-    # plan_required: from DefaultsPolicy (trivial/small typically false)
-    policy = get_defaults_policy()
-    if task_size == "trivial":
+    # plan_required
+    if manual_override:
+        plan_required = True
+    elif task_size == "trivial":
         plan_required = policy.plan_required_for_trivial
     elif task_size == "small":
         plan_required = policy.plan_required_for_small
     else:
         plan_required = True
 
-    # clarification_budget: 0 trivial, 1 small, 2 complex (design §8)
+    # clarification_budget
     clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
 
-    # Progressive prompt tier: trivial=minimal, small=defensive, full=JCS. Pro user shortcut forces full.
-    use_advanced = _detect_pro_advanced(last_content)
-    if use_advanced or task_size == "complex":
+    # worker_prompt_tier: trivial=minimal, small=defensive, full=JCS
+    if force_pro_advanced or task_size == "complex":
         worker_prompt_tier = "full"
     elif task_size == "trivial":
         worker_prompt_tier = "trivial"
@@ -232,25 +159,28 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "requires_clarification": requires_clarification,
         "plan_required": plan_required,
         "clarification_budget": clarification_budget,
-        "interaction_mode": "teach" if educational_mode else "do",
+        "interaction_mode": analysis.get("interaction_mode", "do"),
         "intent_classifier_source": "deterministic",
         "worker_prompt_tier": worker_prompt_tier,
     }
+    # Sovereign intersection: deterministic domains from EntryClassifier seed active_domain_refs
+    active_domains = analysis.get("active_domains") or []
+    if active_domains:
+        out["active_domain_refs"] = active_domains
 
-    if task_size == "trivial":
+    # Trivial fast-path fields — skip when manual_override (user wants Supervisor path)
+    if task_size == "trivial" and not manual_override:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
         out["touched_files"] = _trivial_touched_files(last_content, target_language)
         out["defaults_used"] = policy.get_defaults_used(target_language)
         out["deliverable_type"] = "single_file"
-        # Tests only when user asks — one-liners stay single-file, no forced coverage
         out["include_tests"] = _trivial_wants_tests(last_content)
         out["include_run_commands"] = True
         out["task_type"] = "code_generation"
         out["allowed_tools"] = ["sandbox"]
-        # Trivial default is "do"; override if educational intent
-        if not educational_mode:
+        if out.get("interaction_mode") != "teach":
             out["interaction_mode"] = "do"
 
     return out

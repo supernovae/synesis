@@ -84,8 +84,9 @@ class TestRouteAfterPatchIntegrityGate:
 
 class TestRouteAfterSupervisor:
     def test_routes_to_worker(self):
+        """Supervisor→worker path goes via context_curator (RAG) first; graph has no direct supervisor→worker edge."""
         state = {"next_node": "worker"}
-        assert route_after_supervisor(state) == "worker"
+        assert route_after_supervisor(state) == "context_curator"
 
     def test_routes_to_planner(self):
         state = {"next_node": "planner"}
@@ -205,8 +206,13 @@ class TestRouteAfterCritic:
 
     @patch("app.graph.settings")
     def test_not_approved_routes_to_supervisor(self, mock_settings):
+        """Critic not approved + should_continue → supervisor for revision (critic sets both when not approved)."""
         mock_settings.max_iterations = 3
-        state = {"critic_approved": False, "iteration_count": 1}
+        state = {
+            "critic_approved": False,
+            "critic_should_continue": True,
+            "iteration_count": 1,
+        }
         assert route_after_critic(state) == "supervisor"
 
     @patch("app.graph.settings")
