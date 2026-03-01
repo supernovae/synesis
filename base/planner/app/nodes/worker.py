@@ -1,7 +1,8 @@
 """Worker/Executor LLM node -- code generation.
 
 Receives task + RAG context (+ optional execution_plan from Planner) and generates code.
-Uses executor_model (Qwen3-Coder-Next). Agentic MoE: can output needs_input instead of guessing.
+Supports Qwen3-Coder (enable_thinking) and DeepSeek-Coder-V2 (no thinking mode).
+Agentic: can output needs_input instead of guessing.
 """
 
 from __future__ import annotations
@@ -125,7 +126,7 @@ worker_llm = ChatOpenAI(
     model=settings.executor_model_name,
     temperature=0.2,
     max_tokens=4096,
-    http_client=get_llm_http_client(),
+    http_client=get_llm_http_client(uds_path=settings.executor_model_uds or None),
 )
 
 
@@ -658,15 +659,20 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             HumanMessage(content=prompt),
         ]
 
-        # Thinking Mode: when task_size=complex, enable Qwen3 deliberate reasoning (slower, higher quality)
+        # Thinking Mode: when task_size=complex, enable model-specific reasoning (Qwen3: enable_thinking; DeepSeek-V3: thinking; DeepSeek-Coder: disabled)
         task_size = state.get("task_size", "small")
         llm_to_use = worker_llm
-        if task_size == "complex" and getattr(settings, "worker_thinking_mode_enabled", True):
+        thinking_param = getattr(settings, "executor_thinking_param", "enable_thinking") or ""
+        if (
+            task_size == "complex"
+            and getattr(settings, "worker_thinking_mode_enabled", True)
+            and thinking_param
+        ):
             llm_to_use = worker_llm.bind(
-                extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+                extra_body={"chat_template_kwargs": {thinking_param: True}},
                 temperature=0.6,
             )
-            logger.debug("worker_thinking_mode_enabled", extra={"task_size": task_size})
+            logger.debug("worker_thinking_mode_enabled", extra={"task_size": task_size, "param": thinking_param})
 
         response = await llm_to_use.ainvoke(messages)
 

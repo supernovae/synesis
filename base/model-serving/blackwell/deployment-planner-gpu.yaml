@@ -1,0 +1,76 @@
+# Synesis Planner — co-located with GPU node (planner-gpu-0 style)
+#
+# Tolerates GPU taint, prefers same node as vLLM. For UDS: mount shared volume
+# and set SYNESIS_*_MODEL_UDS. For HTTP: use Service URLs (default).
+#
+# Scaling: deploy planner-gpu-1, planner-gpu-2, etc. with matching node affinity.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-planner-gpu-0
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner
+    synesis.io/planner-instance: "0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-planner
+      synesis.io/planner-instance: "0"
+  template:
+    metadata:
+      labels:
+        app: synesis-planner
+        synesis.io/planner-instance: "0"
+    spec:
+      # Use Manager URL for supervisor/planner/critic (same model)
+      containers:
+        - name: planner
+          image: synesis-planner:latest
+          env:
+            - name: SYNESIS_SUPERVISOR_MODEL_URL
+              value: "http://synesis-manager-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_PLANNER_MODEL_URL
+              value: "http://synesis-manager-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_EXECUTOR_MODEL_URL
+              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_CRITIC_MODEL_URL
+              value: "http://synesis-manager-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_SUPERVISOR_MODEL_NAME
+              value: "synesis-manager"
+            - name: SYNESIS_PLANNER_MODEL_NAME
+              value: "synesis-manager"
+            - name: SYNESIS_CRITIC_MODEL_NAME
+              value: "synesis-manager"
+            - name: SYNESIS_EXECUTOR_MODEL_NAME
+              value: "synesis-executor"
+            # DeepSeek-R1-Distill-70B has thinking mode; use "thinking" for complex tasks
+            - name: SYNESIS_EXECUTOR_THINKING_PARAM
+              value: "thinking"
+            # UDS (when volume mounted): uncomment and set paths
+            # - name: SYNESIS_EXECUTOR_MODEL_UDS
+            #   value: "/tmp/vllm/executor.sock"
+            # - name: SYNESIS_SUPERVISOR_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
+            # - name: SYNESIS_PLANNER_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
+            # - name: SYNESIS_CRITIC_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
+      # Co-locate with GPU node
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-L40S
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: "true"
+      # Optional: pod affinity to run on same node as vLLM
+      # affinity:
+      #   podAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       - labelSelector:
+      #           matchLabels:
+      #             app: synesis-executor
+      #         topologyKey: kubernetes.io/hostname

@@ -170,6 +170,8 @@ done
 
 **Model endpoints:** If you deployed models with different names than `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`, patch the planner env vars and supervisor config. See `base/model-serving/README.md`.
 
+**Blackwell / ECR (ModelCar):** For ROSA with G7e (RTX 6000), DeepSeek-R1-Distill-70B executor and Qwen3.5-35B manager: build via `scripts/mirror-models-to-ecr.sh`, then deploy with `scripts/apply-blackwell-deployments.sh`. See [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
+
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
 is free -- this key is just a passphrase you use to authenticate to your own proxy.

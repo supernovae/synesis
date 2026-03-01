@@ -1,0 +1,23 @@
+# Buildah + AWS CLI for Red Hat stack → ECR push
+# Replaces Kaniko. Used by Manager and Executor ModelCar pipelines.
+#
+# Build and push to your ECR (from repo root):
+#   ./pipelines/buildah-ecr/build.sh
+# Use linux/amd64 for OpenShift/ROSA (x86_64 nodes).
+#
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+# Buildah + AWS CLI for ECR auth. fuse-overlayfs for rootless storage (optional; we run root)
+RUN dnf install -y buildah awscli --nodocs && dnf clean all
+
+# Buildah needs storage dir; pipeline pods use emptyDir or /var/lib/containers
+RUN mkdir -p /var/lib/containers && chmod 777 /var/lib/containers
+
+# Copy wrapper scripts
+COPY ecr-login-and-buildah-modelcar-pvc.sh /usr/local/bin/
+COPY ecr-login-and-buildah.sh /usr/local/bin/
+RUN sed -i 's/\r$//' /usr/local/bin/ecr-login-and-buildah-modelcar-pvc.sh /usr/local/bin/ecr-login-and-buildah.sh \
+    && chmod +x /usr/local/bin/ecr-login-and-buildah-modelcar-pvc.sh /usr/local/bin/ecr-login-and-buildah.sh
+
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/ecr-login-and-buildah.sh"]

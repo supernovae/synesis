@@ -1,0 +1,25 @@
+# Node-local PVC for vLLM UDS sockets (Option B: Planner + vLLM share socket dir)
+#
+# Requires OpenShift Local Storage Operator or equivalent node-local storage.
+# Both vLLM and Planner mount this; vLLM creates sockets, Planner connects.
+#
+# For single GPU node: one PVC. For multi-node, one PVC per node (or use
+# topology-aware provisioning if your storage class supports it).
+#
+# Apply: oc apply -f base/model-serving/blackwell/pvc-vllm-sockets.yaml -n synesis-models
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vllm-sockets
+  namespace: synesis-models
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  # Node-local storage (e.g. openshift-local-storage) so Planner + vLLM on same node share socket dir.
+  # RWO allows multiple pods on the same node to mount. Leave "" for cluster default.
+  storageClassName: ""
+  volumeMode: Filesystem

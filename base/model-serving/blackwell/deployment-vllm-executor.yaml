@@ -1,0 +1,109 @@
+# Synesis Executor — G6e (2× L40S) / G7e (Blackwell)
+#
+# G6e: Use executor-nvfp4 (FP8 ~70GB won't fit single 48GB). NVFP4 ~40GB on GPU 0.
+# G7e: executor (FP8) or executor-nvfp4, tp=1, fits single 96 GB.
+# Planner: SYNESIS_EXECUTOR_THINKING_PARAM=thinking (R1).
+# UDS: add --uds=/tmp/vllm/executor.sock and use shared PVC.
+#
+# Prerequisites: ECR synesis-models:executor-nvfp4 (G6e) or :executor (G7e). See docs/BLACKWELL_ARCHITECTURE.md.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-executor-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-executor
+spec:
+  selector:
+    app: synesis-executor
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-executor-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-executor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-executor
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synesis-executor
+    spec:
+      imagePullPolicy: IfNotPresent
+      volumes:
+        - name: model-store
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
+        - name: vllm-sockets
+          emptyDir: {}
+      # Optional: uncomment if nodes lack ECR pull via IAM (e.g. cross-account)
+      # imagePullSecrets:
+      #   - name: ecr-pull-secret
+      initContainers:
+        - name: fetch-model
+          image: ${ECR_REGISTRY}/${ECR_REPO}:${EXECUTOR_IMAGE_TAG}
+          command: ["/bin/sh", "-c", "cp -a /models/. /model/"]
+          volumeMounts:
+            - name: model-store
+              mountPath: /model
+      containers:
+        - name: vllm-executor
+          image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - vllm.entrypoints.openai.api_server
+          args:
+            - --port=8080
+            # Single GPU (96 GB): tensor-parallel-size=1; DeepSeek-R1-Distill-70B FP8 fits
+            - --tensor-parallel-size=1
+            # UDS (when enabled): add --uds=/tmp/vllm/executor.sock; port is then ignored.
+            - --model=/mnt/models
+            - --served-model-name=synesis-executor
+            - --max-model-len=32768
+            - --gpu-memory-utilization=0.55
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
+            - --trust-remote-code
+            # DeepSeek R1: extract <think> content for reasoning; needed for R1-Distill
+            - --reasoning-parser=deepseek_r1
+          resources:
+            limits:
+              cpu: "8"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-store
+              mountPath: /mnt/models
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+            - name: vllm-sockets
+              mountPath: /tmp/vllm
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-L40S
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: "true"

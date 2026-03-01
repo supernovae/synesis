@@ -176,7 +176,7 @@ supervisor_llm = ChatOpenAI(
     model=settings.supervisor_model_name,
     temperature=0.0,
     max_tokens=1536,
-    http_client=get_llm_http_client(),
+    http_client=get_llm_http_client(uds_path=settings.supervisor_model_uds or None),
 )
 
 # Guided JSON decoding: pass SupervisorOut schema to vLLM for constrained output

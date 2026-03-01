@@ -1,0 +1,17 @@
+# ModelCar for pipeline artifact — use when building from quantized model dir
+# Build context = directory containing model files (config.json, *.safetensors, tokenizer, etc.)
+#
+# Usage (Kaniko in pipeline):
+#   context = <artifact path from LLM Compressor>
+#   /kaniko/executor --dockerfile=Dockerfile.pipeline --context=dir://<context> --destination=<ecr>/synesis-models:executor-nvfp4
+#
+# No HF download; model is already in context from quantization step.
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+COPY . /models
+WORKDIR /models
+LABEL org.opencontainers.image.title="Synesis ModelCar (NVFP4)"
+LABEL org.opencontainers.image.description="OCI model bundle for vLLM inference"
+LABEL com.redhat.rhaiis.modelcar="true"
+LABEL com.redhat.rhaiis.model-format="vllm"
+ENV MODEL_PATH=/models

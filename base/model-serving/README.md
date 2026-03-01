@@ -2,6 +2,17 @@
 
 Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scripts/deploy.sh` applies them when a DataScienceCluster has `kserve: Managed`. Manifests include ODH dashboard labels, display names, **Generative AI** model type, and **Add as AI asset endpoint** (for GenAI Playground testing).
 
+## ModelCar + ECR (Mirror for Local Cache)
+
+For deployments with an **ECR registry** (e.g. AWS, private endpoint), use the ModelCar pattern to mirror models from HuggingFace into OCI images. This reduces startup time by pulling from a local cache instead of HuggingFace on each pod start.
+
+1. **Mirror models** (run from jump host): `./scripts/mirror-models-to-ecr.sh`
+2. **Deploy** using `deployment-modelcar-*.yaml` (override `ECR_REGISTRY`) instead of InferenceService.
+
+See `base/model-serving/modelcar/README.md` for build details and `deployment-modelcar-executor.yaml` for the deployment template (shm, vllm-sockets, init-container copy pattern). For the Blackwell / Multi-LoRA design, see [docs/BLACKWELL_ARCHITECTURE.md](../../docs/BLACKWELL_ARCHITECTURE.md).
+
+---
+
 ## Important: Use RHOAI Built-in vLLM Only
 
 **Do not use Docker Hub vLLM images.** Custom vLLM containers from Docker Hub failed on RHOAI v2 due to Python path issues. Always use **RHOAI or llm-on-openshift vLLM images** (e.g. `quay.io/rh-aiservices-bu/*`).

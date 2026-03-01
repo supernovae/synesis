@@ -1,0 +1,16 @@
+# Blackwell / G7e deployment: Executor + Manager
+#
+# Replace ECR_REGISTRY then apply:
+#   export ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com
+#   envsubst < pvc-vllm-sockets.yaml | oc apply -f - -n synesis-models
+#   envsubst < deployment-vllm-executor.yaml | oc apply -f - -n synesis-models
+#   envsubst < deployment-vllm-manager.yaml | oc apply -f - -n synesis-models
+#
+# Planner (synesis-planner ns): oc apply -f deployment-planner-gpu.yaml -n synesis-planner
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-models
+resources:
+  - pvc-vllm-sockets.yaml
+  - deployment-vllm-executor.yaml
+  - deployment-vllm-manager.yaml

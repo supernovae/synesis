@@ -78,28 +78,34 @@ def _log_model_response_headers_sync(response: Any) -> None:
         logger.debug("llm_telemetry_hook_error %s", e)
 
 
-_http_client: Any = None
+_default_client: Any = None
+_uds_clients: dict[str, Any] = {}
 
 
-def get_llm_http_client() -> Any | None:
-    """Return a shared httpx.Client for LLM calls to reduce connection churn across graph runs.
+def get_llm_http_client(*, uds_path: str | None = None) -> Any | None:
+    """Return httpx.Client for LLM calls. Reused per uds_path to reduce connection churn.
 
-    LangChain passes http_client to openai.OpenAI (sync), which expects httpx.Client.
-    Reusing the client avoids per-request connection overhead and improves latency.
-    The response hook logs x-* telemetry when SYNESIS_LOG_LEVEL=DEBUG.
+    When uds_path is set, uses Unix domain socket transport (for co-located vLLM).
+    Otherwise uses default TCP client. Both support x-* telemetry when DEBUG.
     """
-    global _http_client
-
-    if _http_client is not None:
-        return _http_client
-
     try:
         import httpx
 
-        _http_client = httpx.Client(
-            event_hooks={"response": [_log_model_response_headers_sync]},
-        )
-        return _http_client
+        if uds_path and uds_path.strip():
+            path = uds_path.strip()
+            if path not in _uds_clients:
+                transport = httpx.HTTPTransport(uds=path)
+                _uds_clients[path] = httpx.Client(
+                    transport=transport,
+                    event_hooks={"response": [_log_model_response_headers_sync]},
+                )
+            return _uds_clients[path]
+        global _default_client
+        if _default_client is None:
+            _default_client = httpx.Client(
+                event_hooks={"response": [_log_model_response_headers_sync]},
+            )
+        return _default_client
     except Exception as e:
         logger.debug("llm_telemetry_client_init_failed %s", e)
         return None

@@ -1,0 +1,31 @@
+# Kaniko + AWS CLI for IRSA → ECR push
+# Used by NVFP4 pipeline to build ModelCar and push to ECR.
+# Pod runs with IRSA; this image uses aws ecr get-login-password to create Docker config for Kaniko.
+#
+# Build and push to your ECR (from repo root):
+#   ./pipelines/kaniko-ecr/build.sh   # or: podman build --platform linux/amd64 ...
+# Use linux/amd64 for OpenShift/ROSA (x86_64 nodes); Apple Silicon defaults to arm64.
+
+# Kaniko no longer publishes executor binary; copy from official image.
+FROM gcr.io/kaniko-project/executor:v1.24.0 AS kaniko
+
+FROM amazon/aws-cli:2.15.0
+
+USER root
+COPY --from=kaniko /kaniko/executor /usr/local/bin/kaniko-executor
+RUN chmod +x /usr/local/bin/kaniko-executor
+# Kaniko expects /kaniko to exist for internal paths; make writable for pipeline pods.
+RUN mkdir -p /kaniko && chmod 777 /kaniko
+
+# Copy wrapper scripts and build contexts (fix CRLF if present, ensure executable)
+COPY ecr-login-and-kaniko.sh /usr/local/bin/
+COPY ecr-login-and-kaniko-modelcar.sh /usr/local/bin/
+COPY ecr-login-and-kaniko-modelcar-pvc.sh /usr/local/bin/
+RUN sed -i 's/\r$//' /usr/local/bin/ecr-login-and-kaniko.sh /usr/local/bin/ecr-login-and-kaniko-modelcar.sh /usr/local/bin/ecr-login-and-kaniko-modelcar-pvc.sh \
+    && chmod +x /usr/local/bin/ecr-login-and-kaniko.sh /usr/local/bin/ecr-login-and-kaniko-modelcar.sh /usr/local/bin/ecr-login-and-kaniko-modelcar-pvc.sh
+COPY Containerfile.modelcar /workspace/Containerfile.modelcar
+COPY modelcar-src/ /workspace/modelcar-src/
+
+# Run as root; pipeline has anyuid. USER awscli fails: "unable to find user awscli" in KFP launcher.
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/ecr-login-and-kaniko.sh"]

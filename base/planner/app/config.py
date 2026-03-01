@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     executor_model_name: str = "synesis-executor"
     critic_model_url: str = "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
     critic_model_name: str = "synesis-critic"
+    # UDS paths (when set, bypass HTTP; Planner uses socket for co-located vLLM)
+    supervisor_model_uds: str = ""
+    planner_model_uds: str = ""
+    executor_model_uds: str = ""
+    critic_model_uds: str = ""
 
     # RAG / Milvus (service from milvus-standalone.yaml or LlamaStack)
     milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"
@@ -112,8 +117,10 @@ class Settings(BaseSettings):
     memory_max_users: int = 5000
     memory_ttl_seconds: float = 14400.0
 
-    # Worker: Qwen3 Thinking Mode for complex tasks (deliberate reasoning, higher latency)
+    # Worker: Thinking Mode for complex tasks (deliberate reasoning, higher latency).
+    # executor_thinking_param: "enable_thinking" (Qwen3), "thinking" (DeepSeek-V3), "" (DeepSeek-Coder-V2 or disabled)
     worker_thinking_mode_enabled: bool = True
+    executor_thinking_param: str = "enable_thinking"
 
     # Web search (SearXNG)
     web_search_enabled: bool = True

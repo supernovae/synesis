@@ -47,6 +47,15 @@ spec:
               value: "synesis-executor"
             - name: SYNESIS_CRITIC_MODEL_URL
               value: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+            # UDS (Blackwell): when Planner shares socket volume with vLLM
+            # - name: SYNESIS_EXECUTOR_MODEL_UDS
+            #   value: "/tmp/vllm/executor.sock"
+            # - name: SYNESIS_SUPERVISOR_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
+            # - name: SYNESIS_PLANNER_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
+            # - name: SYNESIS_CRITIC_MODEL_UDS
+            #   value: "/tmp/vllm/manager.sock"
             - name: SYNESIS_CRITIC_MODEL_NAME
               value: "synesis-critic"
             - name: SYNESIS_SUMMARIZER_MODEL_URL

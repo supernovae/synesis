@@ -1,0 +1,16 @@
+# PVC for split manager pipeline — download task writes model, Kaniko reads it.
+# Create in DS project before running manager-split:
+#   DS_PROJECT=synesis  # or your project
+#   sed "s/NAMESPACE/$DS_PROJECT/" pipelines/manifests/modelcar-build-pvc.yaml | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: modelcar-build-pvc
+  namespace: NAMESPACE
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  # storageClassName: gp3   # Uncomment for ROSA (gp3)

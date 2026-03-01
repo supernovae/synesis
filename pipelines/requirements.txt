@@ -1,0 +1,2 @@
+# Kubeflow Pipelines SDK for compiling and running pipelines
+kfp[kubernetes]>=2.6.0

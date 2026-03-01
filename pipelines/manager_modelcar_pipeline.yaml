@@ -1,0 +1,135 @@
+# PIPELINE DEFINITION
+# Name: synesis-manager-modelcar
+# Description: Build Manager ModelCar (HF download during build), push to ECR
+# Inputs:
+#    ecr_uri: str [Default: '123456789012.dkr.ecr.us-east-1.amazonaws.com/synesis-models']
+#    image_tag: str [Default: 'manager']
+#    kaniko_image: str [Default: '660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr']
+#    model_name: str [Default: 'manager']
+#    model_repo: str [Default: 'nightmedia/Qwen3.5-35B-A3B-Text']
+components:
+  comp-build-and-push-manager-modelcar:
+    executorLabel: exec-build-and-push-manager-modelcar
+    inputDefinitions:
+      parameters:
+        ecr_uri:
+          parameterType: STRING
+        image_tag:
+          defaultValue: manager
+          isOptional: true
+          parameterType: STRING
+        kaniko_image:
+          defaultValue: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
+          isOptional: true
+          parameterType: STRING
+        model_name:
+          defaultValue: manager
+          isOptional: true
+          parameterType: STRING
+        model_repo:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-build-and-push-manager-modelcar:
+      container:
+        args:
+        - '{{$.inputs.parameters[''model_repo'']}}'
+        - '{{$.inputs.parameters[''model_name'']}}'
+        - '{{$.inputs.parameters[''ecr_uri'']}}'
+        - '{{$.inputs.parameters[''image_tag'']}}'
+        command:
+        - sh
+        - /usr/local/bin/ecr-login-and-kaniko-modelcar.sh
+        image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
+        resources:
+          cpuLimit: 8.0
+          cpuRequest: 4.0
+          memoryLimit: 51.539607552
+          memoryRequest: 17.179869184
+          resourceCpuLimit: 8000m
+          resourceCpuRequest: 4000m
+          resourceMemoryLimit: 48Gi
+          resourceMemoryRequest: 16Gi
+pipelineInfo:
+  description: Build Manager ModelCar (HF download during build), push to ECR
+  name: synesis-manager-modelcar
+root:
+  dag:
+    tasks:
+      build-and-push-manager-modelcar:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-build-and-push-manager-modelcar
+        inputs:
+          parameters:
+            ecr_uri:
+              componentInputParameter: ecr_uri
+            image_tag:
+              componentInputParameter: image_tag
+            kaniko_image:
+              componentInputParameter: kaniko_image
+            model_name:
+              componentInputParameter: model_name
+            model_repo:
+              componentInputParameter: model_repo
+        taskInfo:
+          name: build-and-push-manager-modelcar
+  inputDefinitions:
+    parameters:
+      ecr_uri:
+        defaultValue: 123456789012.dkr.ecr.us-east-1.amazonaws.com/synesis-models
+        isOptional: true
+        parameterType: STRING
+      image_tag:
+        defaultValue: manager
+        isOptional: true
+        parameterType: STRING
+      kaniko_image:
+        defaultValue: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
+        isOptional: true
+        parameterType: STRING
+      model_name:
+        defaultValue: manager
+        isOptional: true
+        parameterType: STRING
+      model_repo:
+        defaultValue: nightmedia/Qwen3.5-35B-A3B-Text
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-build-and-push-manager-modelcar:
+          imagePullPolicy: Always
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: AWS_ACCESS_KEY_ID
+              secretKey: AWS_ACCESS_KEY_ID
+            - envVar: AWS_SECRET_ACCESS_KEY
+              secretKey: AWS_SECRET_ACCESS_KEY
+            optional: false
+            secretName: aws-ecr-credentials
+            secretNameParameter:
+              runtimeValue:
+                constant: aws-ecr-credentials
+          - keyToEnv:
+            - envVar: AWS_SESSION_TOKEN
+              secretKey: AWS_SESSION_TOKEN
+            optional: true
+            secretName: aws-ecr-session-token
+            secretNameParameter:
+              runtimeValue:
+                constant: aws-ecr-session-token
+          - keyToEnv:
+            - envVar: HF_TOKEN
+              secretKey: HF_TOKEN
+            optional: true
+            secretName: hf-hub-secret
+            secretNameParameter:
+              runtimeValue:
+                constant: hf-hub-secret

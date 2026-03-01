@@ -1,0 +1,14 @@
+# ModelCar copy-only — use when model is pre-downloaded to context/models/
+# Expects: build context with models/ dir (from download task).
+# Build arg: MODEL_NAME
+
+ARG MODEL_NAME=model
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+ARG MODEL_NAME
+COPY models /models
+WORKDIR /models
+LABEL org.opencontainers.image.title="Synesis ModelCar: ${MODEL_NAME}"
+LABEL com.redhat.rhaiis.modelcar="true"
+LABEL com.redhat.rhaiis.model-format="vllm"
+ENV MODEL_PATH=/models

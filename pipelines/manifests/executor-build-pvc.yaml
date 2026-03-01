@@ -1,0 +1,16 @@
+# PVC for split executor pipeline — quant output + Kaniko build.
+# 70B quantized ~40–60GiB; use 150Gi to be safe.
+#
+#   sed "s/NAMESPACE/<ds-project>/" pipelines/manifests/executor-build-pvc.yaml | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: executor-build-pvc
+  namespace: NAMESPACE
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 150Gi
+  # storageClassName: gp3   # Uncomment for ROSA

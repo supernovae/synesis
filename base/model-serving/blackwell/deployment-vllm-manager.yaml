@@ -1,0 +1,101 @@
+# Synesis Manager — Qwen3.5-35B-A3B-Text (Supervisor + Planner + Critic)
+#
+# One model instance serves all three roles via different prompts and inference params.
+# No LoRA required; add --lora-modules when adapters are trained (see LORA_TRAINING_GUIDE).
+#
+# Prerequisites: ECR image synesis-models:manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-manager-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-manager
+spec:
+  selector:
+    app: synesis-manager
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-manager-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-manager
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synesis-manager
+    spec:
+      imagePullPolicy: IfNotPresent
+      # Optional: uncomment if nodes lack ECR pull via IAM (e.g. cross-account)
+      # imagePullSecrets:
+      #   - name: ecr-pull-secret
+      volumes:
+        - name: model-store
+          emptyDir: {}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi
+        - name: vllm-sockets
+          emptyDir: {}
+      initContainers:
+        - name: fetch-model
+          image: ${ECR_REGISTRY}/${ECR_REPO}:manager
+          command: ["/bin/sh", "-c", "cp -a /models/. /model/"]
+          volumeMounts:
+            - name: model-store
+              mountPath: /model
+      containers:
+        - name: vllm-manager
+          image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - vllm.entrypoints.openai.api_server
+          args:
+            - --port=8080
+            - --model=/mnt/models
+            - --served-model-name=synesis-manager
+            - --tensor-parallel-size=1
+            - --max-model-len=32768
+            - --gpu-memory-utilization=0.15
+            - --enable-prefix-caching
+          resources:
+            limits:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-store
+              mountPath: /mnt/models
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+            - name: vllm-sockets
+              mountPath: /tmp/vllm
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-L40S
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: "true"

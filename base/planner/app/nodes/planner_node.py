@@ -57,7 +57,7 @@ planner_llm = ChatOpenAI(
     model=settings.planner_model_name,
     temperature=0.2,
     max_tokens=2048,
-    http_client=get_llm_http_client(),
+    http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 
 
