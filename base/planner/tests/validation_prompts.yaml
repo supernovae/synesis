@@ -28,8 +28,8 @@ prompts:
 
   - prompt: "write a basic unit test for this function"
     expected:
-      task_size: trivial
-      bypass_supervisor: true
+      task_size: small
+      bypass_supervisor: false
       interaction_mode: do
 
   - prompt: "parse this json"
@@ -74,11 +74,11 @@ prompts:
       bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
-  # Note: scope_expansion weight may need tuning to hit complex (>15)
   - prompt: "design the architecture for our microservices migration"
     expected:
-      task_size: small
+      task_size: complex
       bypass_supervisor: false
+      plan_required: true
 
   - prompt: "refactor across the whole repo"
     expected:

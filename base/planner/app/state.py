@@ -43,6 +43,7 @@ class GraphState(TypedDict, total=False):
     deliverable_type: str
     interaction_mode: str
     worker_prompt_tier: str
+    worker_persona: str  # Minimalist | Senior | Architect
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
@@ -52,6 +53,7 @@ class GraphState(TypedDict, total=False):
     rag_collections_queried: list[str]
     # Federated RAG / Strategic Advisor
     platform_context: str
+    rag_gravity: str  # light (generic/python_web) | normal; skips heavy RAG when light
     active_domain_refs: list[str]
     advisory_message: str
     incomplete_knowledge: bool
@@ -243,6 +245,7 @@ class SynesisState(BaseModel):
     interaction_mode: str = "do"
     # Progressive prompt: trivial=minimal, small=defensive, full=JCS. Pro users can force full via @plan etc.
     worker_prompt_tier: str = "small"  # trivial | small | full
+    worker_persona: str = "Senior"  # Minimalist | Senior | Architect
     include_tests: bool = True
     include_run_commands: bool = True
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])

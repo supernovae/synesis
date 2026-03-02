@@ -180,6 +180,7 @@ NODE_DISPLAY_NAMES: dict[str, str] = {
     "patch_integrity_gate": "Patch Integrity Gate",
     "critic": "Critic",
 }
+# Adaptive Rigor: tier-matched status messages for Open WebUI
 NODE_STATUS_MESSAGES: dict[str, str] = {
     "entry_classifier": "Analyzing request…",
     "strategic_advisor": "Detecting domain…",
@@ -193,8 +194,32 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     "critic": "Reviewing…",
     "respond": "Finishing…",
 }
-# When EntryClassifier/StrategicAdvisor flags complex, show immediate feedback (progressive disclosure)
-COMPLEX_TASK_STATUS = "Complex task detected. Building execution plan…"
+
+# Tier-specific overrides for Adaptive Rigor UX
+STATUS_TRIVIAL: dict[str, str] = {
+    "entry_classifier": "Analyzing…",
+    "worker": "Generating your code…",
+}
+STATUS_SMALL: dict[str, str] = {
+    "worker": "Generating code…",
+}
+STATUS_COMPLEX: dict[str, str] = {
+    "entry_classifier": "Complex task detected. Building execution plan…",
+    "strategic_advisor": "Complex task detected. Building execution plan…",
+    "planner": "Architecting solution…",
+    "worker": "Architecting solution…",
+}
+
+
+def _status_for_node(node: str, task_size: str) -> str:
+    """Return tier-matched status message for Open WebUI."""
+    if task_size == "trivial" and node in STATUS_TRIVIAL:
+        return STATUS_TRIVIAL[node]
+    if task_size == "small" and node in STATUS_SMALL:
+        return STATUS_SMALL[node]
+    if task_size == "complex" and node in STATUS_COMPLEX:
+        return STATUS_COMPLEX[node]
+    return NODE_STATUS_MESSAGES.get(node, "")
 
 
 def _extract_content_and_metrics(
@@ -547,11 +572,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     result = chunk
                     node = chunk.get("current_node", "")
                     task_size = chunk.get("task_size", "")
-                    if node and node in NODE_STATUS_MESSAGES:
-                        desc = NODE_STATUS_MESSAGES[node]
-                        if task_size == "complex" and node in ("entry_classifier", "strategic_advisor"):
-                            desc = COMPLEX_TASK_STATUS
-                        yield _sse_status_chunk({
+                    if node:
+                        desc = _status_for_node(node, task_size or "")
+                        if desc:
+                            yield _sse_status_chunk({
                             "type": "status",
                             "data": {
                                 "description": desc,

@@ -23,7 +23,8 @@ from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.worker")
 
-# Progressive prompt tiers: trivial=minimal, small=defensive, full=JCS. Leads users toward rigor without forcing it upfront.
+# Adaptive Rigor: Cognitive sliding scale. Trivial=Minimalist, Small=Helpful Senior, Full=Architect.
+# JCS terminology and Regress-Reason live only in Full tier.
 
 WORKER_PROMPT_TRIVIAL = """\
 You are a code assistant. Produce minimal correct code for the user's request.
@@ -37,13 +38,13 @@ Use sensible defaults. Single file. Include run commands if relevant. No questio
 """
 
 WORKER_PROMPT_SMALL = """\
-You are a code assistant for developers. Produce correct, defensively written code.
+You are a helpful senior developer. Focus on working code and readability.
 
 Guidance:
-- Handle errors explicitly. For bash: use set -euo pipefail.
+- Write clear, correct code. Handle errors explicitly (for bash: set -euo pipefail).
 - Validate inputs, quote variables, check return codes.
-- Include clear comments only where intent is non-obvious.
-- Only set needs_input=true when required info is genuinely missing and cannot be defaulted.
+- Comments only where intent is non-obvious.
+- Only set needs_input=true when info is genuinely missing and cannot be defaulted.
 
 Respond with valid JSON:
 {
@@ -110,8 +111,16 @@ When stop_reason is set, leave code empty.
 """
 
 
-def _get_worker_system_prompt(tier: str) -> str:
-    """Select system prompt by tier: trivial (minimal), small (defensive), full (JCS)."""
+def _get_worker_system_prompt(tier: str, persona: str | None = None) -> str:
+    """Select system prompt by persona (Minimalist/Senior/Architect) or tier. Persona takes precedence."""
+    if persona:
+        p = persona.strip()
+        if p == "Minimalist":
+            return WORKER_PROMPT_TRIVIAL
+        if p == "Architect":
+            return WORKER_PROMPT_FULL
+        if p == "Senior":
+            return WORKER_PROMPT_SMALL
     t = (tier or "small").lower()
     if t == "trivial":
         return WORKER_PROMPT_TRIVIAL
@@ -617,10 +626,17 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         if isinstance(execution_plan, dict):
             steps = execution_plan.get("steps", [])
             if steps:
-                plan_lines = ["\n\n## Execution Plan (from Planner)"]
+                plan_lines = ["\n\n## Execution Plan (from Planner) — Atomic steps"]
                 for s in steps:
                     act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
-                    plan_lines.append(f"- {act}")
+                    files = s.get("files", []) if isinstance(s, dict) else []
+                    verify = s.get("verification_command", "") if isinstance(s, dict) else ""
+                    line = f"- {act}"
+                    if files:
+                        line += f" [files: {', '.join(files[:3])}]"
+                    if verify:
+                        line += f" — verify: `{verify}`"
+                    plan_lines.append(line)
                 plan_block = "\n".join(plan_lines)
         if len(touched_files) > 1:
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
@@ -650,10 +666,28 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # On revision (iteration > 0), upgrade to small so model gets execution feedback context
         tier = state.get("worker_prompt_tier", "small")
-        if iteration > 0 and tier == "trivial":
+        persona = state.get("worker_persona", "")
+        if iteration > 0 and (tier == "trivial" or persona == "Minimalist"):
             tier = "small"
-        system_prompt = _get_worker_system_prompt(tier)
-        logger.debug("worker_prompt_tier=%s", tier)
+            persona = "Senior"
+        system_prompt = _get_worker_system_prompt(tier, persona)
+
+        # Sovereign Persona Injection: append vertical-specific block when active_domain matches
+        from ..vertical_resolver import (
+            get_worker_persona_block,
+            resolve_active_vertical,
+        )
+
+        active_vertical = resolve_active_vertical(
+            active_domain_refs=state.get("active_domain_refs"),
+            platform_context=state.get("platform_context"),
+        )
+        vertical_block = get_worker_persona_block(active_vertical)
+        if vertical_block:
+            system_prompt = f"{system_prompt}\n\n{vertical_block}"
+            logger.debug("worker_vertical_injection", extra={"vertical": active_vertical})
+
+        logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt),

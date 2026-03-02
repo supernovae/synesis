@@ -1,0 +1,66 @@
+# Synesis Legal & Privacy Compliance Vertical
+# GDPR, CCPA, Legal workflows, e-discovery.
+# Works alongside compliance_healthcare and compliance_fintech.
+
+risk_weights:
+  gdpr_privacy:
+    weight: 18
+    domain: legal_compliance
+    keywords:
+      - gdpr
+      - ccpa
+      - right to be forgotten
+      - data subject request
+      - dsar
+      - consent management
+      - data retention
+      - privacy policy
+  legal_sensitive:
+    weight: 15
+    domain: legal_compliance
+    keywords:
+      - e-discovery
+      - legal hold
+      - privileged
+      - attorney-client
+      - deposition
+      - litigation
+
+complexity_weights:
+  regulatory_workflow:
+    weight: 12
+    keywords:
+      - compliance workflow
+      - audit trail
+      - retention policy
+      - data mapping
+      - ropa
+      - dpia
+
+domain_keywords:
+  privacy_tools:
+    domain: legal_compliance
+    keywords:
+      - one trust
+      - trustarc
+      - bigid
+      - datagrail
+      - cookie consent
+  legal_tech:
+    domain: legal_compliance
+    keywords:
+      - contract analysis
+      - clause
+      - signature
+      - docusign
+
+pairings:
+  - keywords: [gdpr, delete]
+    extra_weight: 25
+    axis: risk
+  - keywords: [pii, export]
+    extra_weight: 20
+    axis: risk
+  - keywords: [consent, api]
+    extra_weight: 15
+    axis: complexity

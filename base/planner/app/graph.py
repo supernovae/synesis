@@ -100,7 +100,7 @@ def with_timeout(timeout_seconds: float):
 
 
 def route_after_entry_classifier(state: dict[str, Any]) -> str:
-    """Route after deterministic IntentEnvelope. Trivial → context_curator; else supervisor."""
+    """Route after deterministic IntentEnvelope. Trivial → context_curator; complex → planner; else supervisor."""
     # Pending question (user replying to clarification/plan/needs_input)
     if state.get("pending_question_continue"):
         src = state.get("pending_question_source", "worker")
@@ -115,6 +115,10 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
     # Trivial fast path: skip Supervisor, go straight to context curator → Worker
     if state.get("task_size") == "trivial" and state.get("bypass_supervisor"):
         return "context_curator"
+
+    # Complex + plan_required: bypass Supervisor entirely, go direct to Planner (atomic decomposition)
+    if state.get("task_size") == "complex" and state.get("plan_required"):
+        return "planner"
 
     return "supervisor"
 
@@ -347,6 +351,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             content += f"\n\nPartial result:\n```\n{code}\n```"
     else:
         lang = state.get("target_language", "python")
+        persona = (state.get("worker_persona") or "").strip()
         # When Worker outputs patch_ops (multi-file trivial), code may be empty; build display from patches
         display_code = code
         if not (display_code or "").strip() and patch_ops:
@@ -362,6 +367,10 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     blocks.append(f"**{p}**\n```{lang}\n{t.strip()}\n```")
             if blocks:
                 display_code = "\n\n".join(blocks)
+
+        is_minimalist = persona == "Minimalist"
+        is_architect = persona == "Architect"
+
         # Micro-ack: brief line when we have assumptions/defaults to surface (human, low-friction)
         micro_ack_parts = []
         defaults = state.get("defaults_used", [])
@@ -374,7 +383,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                         micro_ack_parts.append(val)
         if defaults:
             micro_ack_parts.extend(defaults[:3])  # Cap at 3
-        if micro_ack_parts and display_code:
+        if not is_minimalist and micro_ack_parts and display_code:
             ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
             parts.append(ack)
             # Step 2: Small tasks — friendly note that defaults can be overridden (no blocking)
@@ -390,39 +399,45 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 parts.append(display_code)
             else:
                 parts.append(f"```{lang}\n{display_code}\n```")
-        if explanation:
-            parts.append(f"\n**Approach:** {explanation}")
-        # Educational mode: Learner's Corner (Pedagogy Collection Schema)
-        learners_corner = state.get("learners_corner")
-        if learners_corner and isinstance(learners_corner, dict) and learners_corner.get("pattern"):
-            lc_lines = ["\n---\n**Learner's Corner**"]
-            for key, label in [
-                ("pattern", "Pattern"),
-                ("why", "Why"),
-                ("resilience", "Resilience"),
-                ("trade_off", "Trade-off"),
-            ]:
-                val = learners_corner.get(key, "").strip()
-                if val:
-                    lc_lines.append(f"- **{label}:** {val}")
-            if len(lc_lines) > 1:
-                parts.append("\n".join(lc_lines))
-        if what_ifs:
-            parts.append("\n**Safety Analysis:**")
-            for wif in what_ifs:
-                risk_icon = {"low": "~", "medium": "!", "high": "!!", "critical": "!!!"}
-                icon = risk_icon.get(getattr(wif, "risk_level", "low"), "?")
-                scenario = getattr(wif, "scenario", str(wif))
-                expl = getattr(wif, "explanation", "")
-                mitigation = getattr(wif, "suggested_mitigation", "")
-                parts.append(f"- [{icon}] {scenario}: {expl}")
-                if mitigation:
-                    parts.append(f"  Mitigation: {mitigation}")
-        # JCS: Decision Summary ("why this approach") — compact, non-noisy
-        if settings.decision_summary_enabled:
-            summary = build_decision_summary(state)
-            if summary:
-                parts.append(f"\n---\n**How I got here**\n{summary}")
+        # Minimalist: code + one line only
+        if is_minimalist:
+            one_line = (explanation or "").strip() or (micro_ack_parts[0] if micro_ack_parts else "Done.")
+            parts.append(one_line[:200])  # Cap at 200 chars for true minimalism
+        else:
+            if explanation:
+                parts.append(f"\n**Approach:** {explanation}")
+            # Educational mode: Learner's Corner (Architect + Senior in teach mode)
+            learners_corner = state.get("learners_corner")
+            if learners_corner and isinstance(learners_corner, dict) and learners_corner.get("pattern"):
+                if is_architect or state.get("interaction_mode") == "teach":
+                    lc_lines = ["\n---\n**Learner's Corner**"]
+                    for key, label in [
+                        ("pattern", "Pattern"),
+                        ("why", "Why"),
+                        ("resilience", "Resilience"),
+                        ("trade_off", "Trade-off"),
+                    ]:
+                        val = learners_corner.get(key, "").strip()
+                        if val:
+                            lc_lines.append(f"- **{label}:** {val}")
+                    if len(lc_lines) > 1:
+                        parts.append("\n".join(lc_lines))
+            # What-If and Decision Summary: Architect only
+            if is_architect and what_ifs:
+                parts.append("\n**Safety Analysis:**")
+                for wif in what_ifs:
+                    risk_icon = {"low": "~", "medium": "!", "high": "!!", "critical": "!!!"}
+                    icon = risk_icon.get(getattr(wif, "risk_level", "low"), "?")
+                    scenario = getattr(wif, "scenario", str(wif))
+                    expl = getattr(wif, "explanation", "")
+                    mitigation = getattr(wif, "suggested_mitigation", "")
+                    parts.append(f"- [{icon}] {scenario}: {expl}")
+                    if mitigation:
+                        parts.append(f"  Mitigation: {mitigation}")
+            if is_architect and settings.decision_summary_enabled:
+                summary = build_decision_summary(state)
+                if summary:
+                    parts.append(f"\n---\n**How I got here**\n{summary}")
         # Budget Alert (Q1.3): high-score docs excluded for token limit
         context_pack = state.get("context_pack")
         if context_pack:

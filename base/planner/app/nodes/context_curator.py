@@ -705,12 +705,15 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Strategic Pivot: entity extraction + targeted RAG + context swapping
     # §8.7: curation_mode stable = reuse prior pack; adaptive = pivot when stderr suggests pivot could help
+    # Adaptive Rigor: skip pivot for rag_gravity=light (generic/python_web — common knowledge)
     entity_chunks: list[Any] = []
     curation_mode = getattr(settings, "curator_curation_mode", "adaptive") or "adaptive"
     failure_type = state.get("failure_type", "runtime")
     pivot_plausible = failure_type in ("lsp", "runtime")  # symbol/type/dep errors; not lint whitespace
+    skip_pivot = state.get("rag_gravity") == "light"
     if (
         rag_mode != "disabled"
+        and not skip_pivot
         and curation_mode == "adaptive"
         and iteration > 0
         and execution_result

@@ -21,34 +21,33 @@ from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.planner")
 
+# Atomic Planner: Each step is ATOMIC. Max 3 files per step. Every step MUST have verification_command.
 PLANNER_SYSTEM_PROMPT = """\
 You are the Planner in a Safety-II Joint Cognitive System called Synesis.
-Your role is to break down the user's task into a structured execution plan.
-You do NOT write code -- you produce a clear plan for the Executor to follow.
+Your role is ATOMIC decomposition: break the task into small, verifiable steps. You do NOT write code.
+
+ATOMIC RULES:
+- One step = max 3 files. Every step MUST have verification_command (runnable command to verify the step).
+- For protocol tasks (ActivityPub, Fediverse, WebFinger): FIRST step = discovery/WebFinger only. Do NOT plan the full app in one step.
+- Build incrementally: step 1 verifies before step 2 starts.
 
 You MUST respond with valid JSON:
 {
   "plan": {
     "steps": [
-      {"id": 1, "action": "Parse input file", "dependencies": []},
-      {"id": 2, "action": "Validate schema", "dependencies": [1]},
-      {"id": 3, "action": "Generate output", "dependencies": [2]}
+      {"id": 1, "action": "Implement WebFinger discovery", "dependencies": [], "files": ["webfinger.py"], "verification_command": "python -c \"from webfinger import lookup; print(lookup('user@example.com'))\""},
+      {"id": 2, "action": "Add Actor document", "dependencies": [1], "files": ["actor.py"], "verification_command": "python actor.py"}
     ],
-    "open_questions": ["List any ambiguities that need user or Executor to resolve"],
-    "assumptions": ["List assumptions you're making"]
+    "open_questions": [],
+    "assumptions": []
   },
-  "touched_files": ["/app/src/main.py"],
-  "open_questions": [],
-  "assumptions": [],
-  "reasoning": "Your reasoning for this plan",
+  "touched_files": ["webfinger.py", "actor.py"],
+  "reasoning": "Brief",
   "confidence": 0.0 to 1.0
 }
 
-touched_files: List of file paths the Executor may modify. Prevents scope creep. For single-file tasks, one path. For multi-file, list all permitted paths. Paths must be under workspace root.
-
-Keep plans concise. For simple tasks (single script, clear spec), 1-3 steps suffice.
-For complex tasks (multi-file, migration), break into logical phases.
-If the task is underspecified, add open_questions for the Executor or user to clarify.
+touched_files: All paths the Executor may modify (union of step.files). Paths under workspace root.
+Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions if underspecified.
 """
 
 planner_llm = ChatOpenAI(
@@ -86,10 +85,25 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         context_block = _build_context_block(rag_context)
 
+        # Domain-specific decomposition rules (Sovereign alignment)
+        from ..vertical_resolver import (
+            get_planner_decomposition_rules,
+            resolve_active_vertical,
+        )
+
+        active_vertical = resolve_active_vertical(
+            active_domain_refs=state.get("active_domain_refs"),
+            platform_context=state.get("platform_context"),
+        )
+        decomposition_rules = get_planner_decomposition_rules(active_vertical)
+        domain_rules_block = ""
+        if decomposition_rules:
+            domain_rules_block = f"\n\n## Domain-Specific Rules ({active_vertical})\n{decomposition_rules}\n"
+
         prompt = (
             f"## Task\nLanguage: {target_lang}\n{task_desc}\n"
             f"## Supervisor assumptions\n{assumptions_str}"
-            f"{context_block}\n\n"
+            f"{context_block}{domain_rules_block}\n\n"
             f"Produce a structured execution plan for the Executor to follow."
         )
 

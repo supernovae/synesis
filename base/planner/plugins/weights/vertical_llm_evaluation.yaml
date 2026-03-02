@@ -1,0 +1,48 @@
+# Synesis LLM Evaluation Vertical
+# Eval harnesses, benchmarks, hallucination detection. For users measuring LLM quality.
+# Critic: methodology, eval set validity, metric choice.
+
+complexity_weights:
+  eval_harness:
+    weight: 10
+    keywords:
+      - eval
+      - evaluation
+      - benchmark
+      - harness
+      - evals
+  hallucination:
+    weight: 10
+    keywords:
+      - hallucination
+      - factuality
+      - grounded
+      - citation
+      - source check
+  eval_metrics:
+    weight: 8
+    keywords:
+      - bleu
+      - rouge
+      - perplexity
+      - accuracy
+      - f1
+      - human eval
+
+domain_keywords:
+  llm_evaluation:
+    domain: llm_evaluation
+    keywords:
+      - trulens
+      - lm-eval
+      - ragas
+      - deepeval
+      - helm
+
+pairings:
+  - keywords: [eval, production]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [hallucination, deploy]
+    extra_weight: 15
+    axis: risk

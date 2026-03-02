@@ -155,11 +155,13 @@ class SupervisorOut(BaseModel):
 
 
 class PlanStep(BaseModel):
-    """A single step in the execution plan."""
+    """A single step in the execution plan. Atomic: max 3 files, verification_command required."""
 
     id: int = 0
     action: str = ""
     dependencies: list[int] = Field(default_factory=list)
+    files: list[str] = Field(default_factory=list)  # Max 3 files per step (enforced in prompt)
+    verification_command: str = ""  # Command to verify step (e.g. "python -c 'import m; m.test()'")
 
 
 class PlannerOut(BaseModel):

@@ -1,20 +1,46 @@
 # Synesis Fintech & Banking Plugin
-# Focus: Auditability, transaction integrity, Four-Eyes principle.
+# Focus: PCI-DSS, Ledger-Integrity, KYC/AML, Anti-fraud. 95% vertical catalog.
 risk_weights:
   transaction_logic:
     weight: 15
     domain: fintech_compliance
-    keywords: ["ledger", "reconciliation", "swift", "iban", "ach", "wire transfer", "payment"]
+    keywords:
+      - ledger
+      - reconciliation
+      - swift
+      - iban
+      - ach
+      - wire transfer
+      - payment
+      - double-entry
+      - ledger integrity
   fin_regulatory:
     weight: 12
-    keywords: ["pci-dss", "pci", "sox", "kyc", "aml", "basel iii"]
+    keywords:
+      - pci-dss
+      - pci dss
+      - pci
+      - sox
+      - kyc
+      - aml
+      - basel iii
+      - anti-fraud
+      - antifraud
+      - fraud detection
 
 domain_keywords:
   fin_platforms:
     domain: fintech_compliance
-    keywords: ["stripe", "plaid", "adyen", "fiserv"]
+    keywords:
+      - stripe
+      - plaid
+      - adyen
+      - fiserv
 
 pairings:
+  - keywords: ["ledger", "delete"]
+    extra_weight: 30
+    axis: risk
   - keywords: ["ledger", "update"]
     extra_weight: 25
     axis: risk

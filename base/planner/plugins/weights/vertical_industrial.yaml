@@ -1,0 +1,80 @@
+# Synesis Industrial & OT Vertical
+# ISO, Industrial IoT, OT/SCADA, Safety-Critical.
+# Sovereign RAG for manufacturing and process control.
+
+risk_weights:
+  industrial_safety:
+    weight: 20
+    domain: industrial
+    keywords:
+      - plc
+      - scada
+      - dcs
+      - safety instrumented
+      - sis
+      - emergency shutdown
+      - fail-safe
+  iso_compliance:
+    weight: 15
+    domain: industrial
+    keywords:
+      - iso 9001
+      - iso 27001
+      - iso 13485
+      - nist
+      - soc 2
+      - fda
+      - gmp
+
+complexity_weights:
+  ot_integration:
+    weight: 14
+    keywords:
+      - opc ua
+      - modbus
+      - profinet
+      - ethernet ip
+      - mqtt sparkplug
+      - iiot
+      - industrial protocol
+  manufacturing_workflow:
+    weight: 12
+    keywords:
+      - mes
+      - erp
+      - batch record
+      - traceability
+      - lot tracking
+      - quality control
+
+domain_keywords:
+  industrial_platforms:
+    domain: industrial
+    keywords:
+      - siemens
+      - rockwell
+      - abb
+      - schneider
+      - honeywell
+      - ignition
+  ot_standards:
+    domain: industrial
+    keywords:
+      - iec 62443
+      - isa-95
+      - isa-99
+      - nist sp 800-82
+
+pairings:
+  - keywords: [safety, override]
+    extra_weight: 40
+    axis: risk
+  - keywords: [plc, production]
+    extra_weight: 20
+    axis: risk
+  - keywords: [scada, remote]
+    extra_weight: 15
+    axis: risk
+  - keywords: [iso, audit]
+    extra_weight: 12
+    axis: complexity

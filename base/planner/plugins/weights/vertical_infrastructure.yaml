@@ -1,0 +1,109 @@
+# Synesis Infrastructure Vertical
+# Cloud (AWS/GCP/Azure), K8s, On-Prem, Networking, HPC.
+# Niche keywords for sovereign RAG routing.
+
+complexity_weights:
+  cloud_native:
+    weight: 10
+    keywords:
+      - serverless
+      - knative
+      - cloud run
+      - cloud functions
+      - ecs
+      - fargate
+      - cloud formation
+      - bicep
+  k8s_ops:
+    weight: 12
+    keywords:
+      - operator
+      - custom resource
+      - crd
+      - helm chart
+      - kustomize
+      - argo cd
+      - flux
+      - service mesh
+  hpc_scheduling:
+    weight: 12
+    keywords:
+      - slurm
+      - pbs
+      - mpi
+      - distributed training
+      - multi-node
+      - gpu scheduling
+
+risk_weights:
+  cluster_destructive:
+    weight: 18
+    domain: kubernetes
+    keywords:
+      - delete namespace
+      - drain node
+      - evict pod
+      - scale to zero
+      - cluster wipe
+
+domain_keywords:
+  cloud_aws:
+    domain: aws
+    keywords:
+      - cloudwatch
+      - cloudtrail
+      - iam role
+      - s3 bucket
+      - ec2 instance
+      - eks
+      - rds
+      - sqs
+      - sns
+  cloud_gcp:
+    domain: gcp
+    keywords:
+      - gke
+      - cloud run
+      - bigquery
+      - pub/sub
+      - cloud storage
+      - vertex ai
+  cloud_azure:
+    domain: azure
+    keywords:
+      - aks
+      - azure functions
+      - blob storage
+      - cosmos db
+      - service bus
+  on_prem:
+    domain: on_prem
+    keywords:
+      - bare metal
+      - vmware
+      - openstack
+      - proxmox
+      - rancher
+  observability:
+    domain: observability
+    keywords:
+      - prometheus
+      - grafana
+      - jaeger
+      - tempo
+      - loki
+      - opentelemetry
+
+pairings:
+  - keywords: [delete, namespace]
+    extra_weight: 20
+    axis: risk
+  - keywords: [production, cluster]
+    extra_weight: 15
+    axis: risk
+  - keywords: [k8s, migration]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [multi-cloud, deploy]
+    extra_weight: 15
+    axis: complexity

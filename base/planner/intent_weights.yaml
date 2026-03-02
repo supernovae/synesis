@@ -1,9 +1,10 @@
-# Synesis Universal Intent Ontology v3.0
-# Split axes: complexity (tier) | risk (veto) | domain (RAG only, no escalation)
-# Trivial < 5 | Small 5-15 | Complex > 15 (complexity); risk_score >= 15 → veto to complex
+# Synesis Universal Intent Ontology v4.1 — "The 95%" Router
+# Global Sovereign Catalog: 100+ industrial/creative/lifestyle verticals.
+# Split axes: complexity (tier) | risk (veto) | domain (RAG only).
+# Trivial < 5 | Small 5-15 | Complex > 15 | Risk >= 15 → veto to complex
 #
-# Key fix: domain_keywords (k8s, kubectl) populate active_domains for RAG but never escalate.
-# Risk veto: destructive, security, credentials → force Supervisor regardless of complexity.
+# See master_intent_weights.yaml and docs/TAXONOMY.md.
+# Plugins in plugins/weights/*.yaml add vertical-specific depth.
 
 thresholds:
   trivial_max: 4
@@ -11,71 +12,167 @@ thresholds:
   density_threshold: 3
   density_tax: 10
   educational_discount: 10
-  risk_high: 15   # risk_score >= this → complex (veto)
-  max_trivial_message_length: 200   # long text often implies scope (confident trivial rule)
+  risk_high: 15
+  max_trivial_message_length: 200
 
-# Risk veto: if ANY match when otherwise trivial → force small (skip fast path)
-# Catches "hello world, also curl | bash" or "pip install" that scoring might miss
 risk_veto_triggers:
   - "pip install"
   - "pip3 install"
   - "npm install"
+  - "yarn add"
+  - "pnpm add"
+  - "go get"
+  - "cargo add"
   - "curl |"
   - "wget |"
   - "| bash"
   - "| sh"
   - "chmod +x"
+  - "rm -rf"
+  - "dd if="
 
-# Complexity: steps, uncertainty, scope. Single category capped ~10 so one word doesn't force complex.
 complexity_weights:
+  create_basic:
+    weight: 1
+    keywords: ["create a script", "create a simple script", "write a script", "create a file", "quick script"]
+  parse_basic:
+    weight: 1
+    keywords: ["parse json", "parse this json", "parse csv", "read file and print", "read file and count"]
+  unit_test_basic:
+    weight: 1
+    keywords: ["add test", "basic test", "test for"]
   io_basic:
     weight: 1
-    keywords: ["print", "prints", "echo", "log", "say", "hello", "fmt", "console", "write-host", "display", "show", "stdout", "output"]
+    keywords: ["print", "prints", "echo", "log", "say", "hello", "fmt", "console", "write-host", "display", "show", "stdout", "output", "puts"]
   logic_basic:
     weight: 2
-    keywords: ["math", "sum", "count", "calculate", "fizzbuzz", "loop", "iterate", "sort", "reverse", "basic", "simple", "minimal", "script"]
+    keywords: ["math", "sum", "count", "calculate", "fizzbuzz", "loop", "iterate", "sort", "reverse", "basic", "simple", "minimal", "script", "factorial", "fibonacci"]
   query_basic:
     weight: 2
-    keywords: ["what is", "how do i", "example of", "syntax for"]
+    keywords: ["what is", "how do i", "example of", "syntax for", "quick example", "minimal example", "starter code"]
   data_manipulation:
     weight: 5
-    keywords: ["parse", "json", "csv", "yaml", "xml", "regex", "base64", "convert", "transform", "map", "filter"]
+    keywords: ["parse", "json", "csv", "yaml", "xml", "regex", "base64", "convert", "transform", "map", "filter", "reduce", "serialize", "deserialize"]
   local_persistence:
     weight: 8
-    keywords: ["file", "directory", "folder", "read file", "write file", "save", "load", "mkdir", "path", "disk"]
+    keywords: ["file", "directory", "folder", "read file", "write file", "save", "load", "mkdir", "path", "disk", "filesystem"]
   networking:
     weight: 8
-    keywords: ["http", "request", "api", "rest", "client", "server", "port", "socket", "url", "curl", "wget", "endpoint", "fetch", "get", "post"]
+    keywords: ["http", "request", "api", "rest", "client", "server", "port", "socket", "url", "curl", "wget", "endpoint", "fetch", "get", "post", "websocket"]
   os_system:
     weight: 8
-    keywords: ["process", "thread", "exec", "shell", "env", "variable", "systemd", "cron", "service", "daemon", "signal"]
+    keywords: ["process", "thread", "exec", "shell", "env", "variable", "systemd", "cron", "service", "daemon", "signal", "subprocess", "spawn"]
+  web_ui_basic:
+    weight: 6
+    keywords: ["button", "form", "input", "checkbox", "dropdown", "modal", "css", "style", "layout", "responsive"]
+  api_consumer:
+    weight: 7
+    keywords: ["call api", "api call", "rest api", "fetch data", "webhook", "oauth", "bearer token", "rate limit"]
   scope_expansion:
     weight: 10
-    keywords: ["architecture", "design", "refactor", "integrate", "whole", "entire", "all files", "across", "restructure"]
+    keywords: ["architecture", "design", "refactor", "integrate", "whole", "entire", "all files", "across", "restructure", "migrate", "multi-file", "monorepo"]
+  distributed_systems:
+    weight: 12
+    keywords: ["microservices", "distributed", "messaging", "queue", "event-driven", "saga", "eventual consistency", "replication", "sharding"]
+  stateful_logic:
+    weight: 10
+    keywords: ["state machine", "workflow", "pipeline", "orchestration", "batch job", "cron job", "scheduled task"]
+  testing_suite:
+    weight: 8
+    keywords: ["test suite", "unit test", "integration test", "e2e", "coverage", "mock", "fixture", "pytest", "jest", "unittest"]
+  devops_ci:
+    weight: 10
+    keywords: ["ci pipeline", "jenkins", "github actions", "gitlab ci", "circleci", "drone", "tekton"]
+  education_platform:
+    weight: 10
+    keywords: ["lms", "learning management", "scorm", "course builder"]
 
-# Risk: destructive, secrets, compliance. Can veto trivial/small → complex.
 risk_weights:
   destructive:
     weight: 20
-    keywords: ["delete", "wipe", "drop", "remove", "format", "truncate", "rotate keys"]
+    keywords: ["delete", "wipe", "drop", "remove", "format", "truncate", "rotate keys", "purge", "destroy", "overwrite"]
   security_governance:
     weight: 25
-    keywords: ["auth", "login", "password", "token", "secret", "credentials", "vault", "encrypt", "decrypt", "fips", "tls", "ssl", "certificate", "audit"]
+    keywords: ["auth", "login", "password", "token", "secret", "credentials", "vault", "encrypt", "decrypt", "fips", "tls", "ssl", "certificate", "audit", "key rotation"]
+  pii_handling:
+    weight: 18
+    keywords: ["pii", "personal data", "sensitive data", "ssn", "credit card", "payment info", "user data", "gdpr"]
+  financial:
+    weight: 18
+    keywords: ["transaction", "payment", "ledger", "accounting", "money", "currency", "bank", "pci", "sox"]
+  production_deploy:
+    weight: 15
+    keywords: ["production", "prod", "deploy", "rollout", "release", "ci/cd", "pipeline"]
+  safety_critical:
+    weight: 20
+    keywords: ["autopilot", "flight control", "abs brake", "airbag", "do-178", "do-178c", "iso 26262"]
 
-# Domain: RAG gravity only. Never escalates complexity.
 domain_keywords:
   cloud_infra:
     domain: cloud
-    keywords: ["aws", "s3", "lambda", "ec2", "gcp", "azure", "cloud", "bucket", "vpc", "terraform"]
+    keywords: ["aws", "s3", "lambda", "ec2", "gcp", "azure", "cloud", "bucket", "vpc", "terraform", "pulumi"]
   orchestration:
     domain: kubernetes
-    keywords: ["k8s", "kubernetes", "openshift", "oc ", "kubectl", "pod", "deployment", "helm", "istio", "scc", "ingress", "manifest", "cluster"]
+    keywords: ["k8s", "kubernetes", "openshift", "oc ", "kubectl", "pod", "deployment", "helm", "istio", "ingress", "manifest", "cluster", "namespace"]
   persistence_engines:
     domain: databases
-    keywords: ["sql", "database", "db", "postgres", "redis", "mongo", "query", "table", "schema", "migrate"]
+    keywords: ["sql", "database", "db", "postgres", "redis", "mongo", "query", "table", "schema", "migrate", "cassandra", "dynamodb"]
+  networking_infra:
+    domain: networking
+    keywords: ["dns", "load balancer", "vpc", "subnet", "firewall", "nginx", "envoy"]
+  hpc:
+    domain: hpc
+    keywords: ["gpu", "cuda", "mpi", "slurm", "cluster compute", "parallel", "distributed training"]
+  web_frontend:
+    domain: web_frontend
+    keywords: ["react", "vue", "svelte", "angular", "next", "nuxt", "tailwind", "component"]
+  web_backend:
+    domain: web_backend
+    keywords: ["fastapi", "flask", "django", "express", "spring", "gin", "actix"]
+  mobile:
+    domain: mobile
+    keywords: ["ios", "android", "swift", "kotlin", "react native", "flutter", "mobile app"]
+  embedded:
+    domain: embedded
+    keywords: ["arduino", "raspberry pi", "microcontroller", "iot", "embedded", "firmware"]
+  gamedev:
+    domain: gamedev
+    keywords: ["unity", "unreal", "game engine", "sprite", "physics", "collision"]
+  ml_ops:
+    domain: ml_ops
+    keywords: ["tensorflow", "pytorch", "mlflow", "model serving", "inference", "training"]
+  bioinformatics:
+    domain: bioinformatics
+    keywords: ["fasta", "sam", "bam", "vcf", "genome", "alignment", "blast"]
+  geospatial:
+    domain: geospatial
+    keywords: ["gis", "shapefile", "geojson", "postgis", "coordinates", "lat", "lon"]
+  audio_video:
+    domain: creative_media
+    keywords: ["ffmpeg", "video", "audio", "stream", "encode", "decode"]
+  procedural:
+    domain: procedural
+    keywords: ["procedural", "noise", "fractal", "l-system", "generative"]
+  home_automation:
+    domain: home_automation
+    keywords: ["home assistant", "smart home", "hue", "zigbee", "homekit"]
+  personal_finance:
+    domain: personal_finance
+    keywords: ["budget", "expense", "investment", "portfolio", "tax", "401k"]
+  nutrition:
+    domain: nutrition
+    keywords: ["calories", "macro", "recipe", "meal plan", "nutrition"]
+  aerospace:
+    domain: aerospace
+    keywords: ["avionics", "fcc", "faa", "flight"]
+  automotive:
+    domain: automotive
+    keywords: ["can bus", "ecu", "adas", "lidar"]
+  edtech:
+    domain: edtech
+    keywords: ["canvas", "moodle", "blackboard", "lms"]
 
 pairings:
-  # Risk pairings (add to risk_score)
   - keywords: ["delete", "database"]
     extra_weight: 15
     axis: risk
@@ -84,6 +181,46 @@ pairings:
     axis: risk
   - keywords: ["wipe", "cluster"]
     extra_weight: 20
+    axis: risk
+  - keywords: ["public", "api"]
+    extra_weight: 10
+    axis: risk
+  - keywords: ["credential", "log"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["pii", "export"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["public", "patient"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["learn", "code", "flashcards"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["learn", "code", "brief"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["microservices", "deploy"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["multi-file", "refactor"]
+    extra_weight: 12
+    axis: complexity
+  - keywords: ["api", "integrate"]
+    extra_weight: 8
+    axis: complexity
+  - keywords: ["safety", "critical"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["flight", "control"]
+    extra_weight: 20
+    axis: risk
+  # Domain-pairing multipliers (immediate complex escalation)
+  - keywords: ["public", "patient"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["public", "phi"]
+    extra_weight: 50
     axis: risk
 
 overrides:
@@ -94,28 +231,32 @@ overrides:
     - "/strict"
     - "@plan"
   force_teach:
-    - "explain"
-    - "teach"
-    - "how does it work"
-    - "how does that work"
-    - "why did"
-    - "why do"
-    - "why would"
-    - "walk me through"
-    - "i'm learning"
-    - "learning how"
-    - "learning to"
-    - "what does this do"
-    - "what does that mean"
-    - "what does this code do"
-    - "what does the code"
-    - "can you explain"
+    - explain
+    - teach
+    - how does it work
+    - how does that work
+    - why did
+    - why do
+    - why would
+    - walk me through
+    - i'm learning
+    - learning how
+    - learning to
+    - how can i learn
+    - learn 
+    - what does this do
+    - what does that mean
+    - what does this code do
+    - what does the code
+    - can you explain
   force_pro_advanced:
-    - "plan first"
-    - "break it down"
-    - "break this down"
-    - "step-by-step plan"
-    - "execution plan"
-    - "I need a plan"
-    - "need a plan"
-    - "full planning"
+    - plan first
+    - break it down
+    - break this down
+    - step-by-step plan
+    - execution plan
+    - I need a plan
+    - need a plan
+    - full planning
+    - scope: 
+    - /reclassify

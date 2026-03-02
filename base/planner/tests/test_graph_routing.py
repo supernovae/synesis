@@ -284,6 +284,7 @@ class TestRespondNode:
             "generated_code": "print('hi')",
             "code_explanation": "Prints greeting.",
             "target_language": "python",
+            "interaction_mode": "teach",
             "learners_corner": {
                 "pattern": "Procedural",
                 "why": "Simple output, no abstraction needed.",

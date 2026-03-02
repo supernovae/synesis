@@ -283,8 +283,12 @@ class ScoringEngine:
             if domain and isinstance(domain, str) and domain.strip() and domain.strip() not in active_domains:
                 active_domains.append(domain.strip())
 
-        # 5. Density tax on complexity
-        if len(hits_by_category) >= self._density_threshold:
+        # 5. Density tax on complexity (exclude trivial anchors: weight<=2)
+        complexity_categories = [
+            c for c in hits_by_category
+            if c in self._complexity_patterns and self._complexity_patterns[c][0] > 2
+        ]
+        if len(complexity_categories) >= self._density_threshold:
             complexity_score += self._density_tax
             hits.append(f"density_tax(+{self._density_tax})")
             score_breakdown["density_tax"] = self._density_tax

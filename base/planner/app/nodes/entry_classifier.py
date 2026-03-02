@@ -18,7 +18,15 @@ from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
 
 TaskSize = Literal["trivial", "small", "complex"]
+WorkerPersona = Literal["Minimalist", "Senior", "Architect"]
 MessageOrigin = Literal["end_user", "ui_helper", "system_internal", "tool_log"]
+
+# Persona Tier: Decouples engineering rigor from general utility
+_TASK_SIZE_TO_PERSONA: dict[TaskSize, WorkerPersona] = {
+    "trivial": "Minimalist",
+    "small": "Senior",
+    "complex": "Architect",
+}
 
 # Language detection (ordered: more specific first) — keep in code or move to YAML later
 _LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -129,15 +137,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     bypass_planner = task_size == "trivial" and not manual_override
     requires_clarification = task_size == "complex"
 
-    # plan_required
+    # plan_required: ONLY true for Architect (complex) tasks. Minimalist/Senior skip planning.
     if manual_override:
         plan_required = True
-    elif task_size == "trivial":
-        plan_required = policy.plan_required_for_trivial
-    elif task_size == "small":
-        plan_required = policy.plan_required_for_small
-    else:
+    elif task_size == "complex":
         plan_required = True
+    else:
+        plan_required = False
 
     # clarification_budget
     clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
@@ -146,8 +152,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     if interaction_mode == "teach":
         clarification_budget = min(clarification_budget, 1)
 
-    # worker_prompt_tier: trivial=minimal, small=defensive, full=JCS
+    # worker_persona: Minimalist | Senior | Architect. worker_prompt_tier kept for backward compat.
+    worker_persona: WorkerPersona = _TASK_SIZE_TO_PERSONA.get(task_size, "Senior")
     if force_pro_advanced or task_size == "complex":
+        worker_persona = "Architect"
         worker_prompt_tier = "full"
     elif task_size == "trivial":
         worker_prompt_tier = "trivial"
@@ -169,9 +177,14 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             escalation_reason = "task_size_small"
 
+    # task_description: needed for Planner when bypassing Supervisor (complex→planner)
+    task_description = (last_content or "").strip()[:1000] if last_content else ""
+
     out: dict[str, Any] = {
         "message_origin": message_origin,
         "task_size": task_size,
+        "worker_persona": worker_persona,
+        "task_description": task_description,
         "target_language": target_language,
         "bypass_supervisor": bypass_supervisor,
         "bypass_planner": bypass_planner,
@@ -208,21 +221,18 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         bypass_supervisor = task_size == "trivial"
         bypass_planner = task_size == "trivial"
         requires_clarification = task_size == "complex"
-        if task_size == "trivial":
-            plan_required = policy.plan_required_for_trivial
-        elif task_size == "small":
-            plan_required = policy.plan_required_for_small
-        else:
-            plan_required = True
+        plan_required = True if (manual_override or task_size == "complex") else False
         clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
         if interaction_mode == "teach":
             clarification_budget = min(clarification_budget, 1)
+        worker_persona = _TASK_SIZE_TO_PERSONA.get(task_size, "Senior")
         worker_prompt_tier = "trivial" if task_size == "trivial" else ("small" if task_size == "small" else "full")
         out["bypass_supervisor"] = bypass_supervisor
         out["bypass_planner"] = bypass_planner
         out["requires_clarification"] = requires_clarification
         out["plan_required"] = plan_required
         out["clarification_budget"] = clarification_budget
+        out["worker_persona"] = worker_persona
         out["worker_prompt_tier"] = worker_prompt_tier
         out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
 

@@ -1,0 +1,40 @@
+# Synesis EdTech Plugin
+# Focus: LMS, SCORM, course builders, learning analytics.
+# Extends master's education_platform complexity and edtech domain.
+
+complexity_weights:
+  lms_integration:
+    weight: 10
+    keywords:
+      - scorm
+      - xapi
+      - tin can
+      - cmi5
+      - lti
+      - lms integration
+  learning_analytics:
+    weight: 8
+    keywords:
+      - learning analytics
+      - completion tracking
+      - engagement metrics
+      - course analytics
+
+domain_keywords:
+  lms_platforms:
+    domain: edtech
+    keywords:
+      - canvas
+      - moodle
+      - blackboard
+      - d2l
+      - brightspace
+      - edx
+      - coursera
+  authoring:
+    domain: edtech
+    keywords:
+      - articulate
+      - captivate
+      - storyline
+      - h5p

@@ -135,23 +135,27 @@ class TestEducationalMode:
 class TestWorkerPromptTier:
     """Progressive prompt: trivial=minimal, small=defensive, full=JCS."""
 
-    def test_trivial_sets_tier_trivial(self):
+    def test_trivial_sets_tier_trivial_and_persona_minimalist(self):
         state = {"messages": [{"content": "hello world in python"}]}
         out = entry_classifier_node(state)
         assert out.get("worker_prompt_tier") == "trivial"
+        assert out.get("worker_persona") == "Minimalist"
 
-    def test_small_sets_tier_small(self):
+    def test_small_sets_tier_small_and_persona_senior(self):
         """Parse json + file I/O → small tier (data_manipulation + local_persistence)."""
         state = {"messages": [{"content": "parse this json file and save to disk"}]}
         out = entry_classifier_node(state)
         assert out.get("worker_prompt_tier") == "small"
+        assert out.get("worker_persona") == "Senior"
 
-    def test_complex_sets_tier_full(self):
+    def test_complex_sets_tier_full_and_persona_architect(self):
         """Complex task → full tier; scope_expansion may need tuning for architecture prompts."""
         state = {"messages": [{"content": "design the architecture for our microservices migration"}]}
         out = entry_classifier_node(state)
         # scope_expansion may yield small; full tier requires task_size=complex
         assert out.get("worker_prompt_tier") in ("small", "full")
+        if out.get("task_size") == "complex":
+            assert out.get("worker_persona") == "Architect"
 
     @pytest.mark.parametrize(
         "prompt",
@@ -169,6 +173,7 @@ class TestWorkerPromptTier:
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("worker_prompt_tier") == "full", f'Expected worker_prompt_tier=full for pro shortcut "{prompt}"'
+        assert out.get("worker_persona") == "Architect", f'Expected worker_persona=Architect for pro shortcut "{prompt}"'
 
 
 class TestExplainabilityPhase1:

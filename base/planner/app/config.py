@@ -92,6 +92,17 @@ class Settings(BaseSettings):
     rag_critic_arch_enabled: bool = True
     rag_critic_license_enabled: bool = True
 
+    @field_validator("rag_critic_arch_enabled", "rag_critic_license_enabled", mode="before")
+    @classmethod
+    def _coerce_bool(cls, v: object) -> bool:
+        """Coerce overlay typos (e.g. 'none', 'debug') to bool."""
+        if isinstance(v, bool):
+            return v
+        s = str(v).lower().strip() if v else ""
+        if s in ("false", "no", "0", "off", "none", ""):
+            return False
+        return True
+
     # Sandbox execution
     sandbox_enabled: bool = True
     sandbox_namespace: str = "synesis-sandbox"

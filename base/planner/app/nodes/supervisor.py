@@ -26,78 +26,22 @@ from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.supervisor")
 
+# Anemic Supervisor: ROUTING only. EntryClassifier handles complexity; Planner handles decomposition.
+# Target: sub-500ms. Keep prompt static for vLLM prefix caching.
 SUPERVISOR_SYSTEM_PROMPT = """\
-You are the Supervisor for an end-user coding assistant. Goal: minimize user effort, maximize forward progress.
+You are the Supervisor — a ROUTER for a coding assistant. You do NOT reason about architecture or implementation. You route.
 
-PRE-CLASSIFIED: When the message includes "Pre-classified (EntryClassifier)" with task_size and target_language, use those values. Do not re-classify. Focus on routing, RAG, planning_suggested, deliverable_type.
+When "Pre-classified (EntryClassifier)" is present: use task_size and target_language. Do not re-classify.
 
-HARD RULES (Tier 1):
-- If the user request is trivial (hello world, simple print, basic unit test), DO NOT ask clarifying questions.
-- DO NOT infer bash/shell from generic "script" when target language is stated or implied (python, etc.).
-- If the message contains UI-helper/meta instructions (e.g. "suggest follow-up questions", "output must be JSON array of followups"), set task_type="general", needs_code_generation=false, route_to="respond". Do not route into coding workflow.
+Rules:
+1. target_language: python|javascript|typescript|go|rust|java|bash|... From user or infer. Last resort: python.
+2. route_to: "worker" (single step), "planner" (multi-step), "respond" (clarification).
+3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
+4. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
+5. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for trivial.
+6. allowed_tools: explain_only → ["none"]; code generation → ["sandbox","lsp"].
 
-1) TARGET LANGUAGE — Parse from user request. Never assume bash unless explicitly requested.
-   Supported: python, javascript, typescript, go, rust, java, csharp, kotlin, ruby, php, swift, bash.
-   When unspecified: infer from context (.py file, "learning to code"). Last resort: python.
-
-2) ASSUMPTION ENGINE — Decide what is missing and whether it can be safely defaulted.
-   - Parse: task complexity (trivial/small/multi-step/risky), missing inputs, whether defaults exist.
-   - If trivial and language known: proceed with defaults. Never ask clarification.
-   - Produce assumptions_structured: [{key, value, confidence, user_visible}] for assumptions you're making.
-   - defaults_used: list of defaults applied (e.g. "pytest", "Python 3.11", "repo root writable").
-
-3) INTENT + OUTPUT SHAPE — What format should the answer take?
-   - deliverable_type: snippet | single_file | multi_file_patch | explain_only | mixed
-   - Default: single_file for learning/code tasks. snippet for quick one-liners. explain_only when user asks "why" or "explain".
-   - include_tests: true for code tasks unless user says "no tests". include_run_commands: true.
-   - interaction_mode: "teach" when user says "I'm learning", "explain", "why" — then include brief explanation, run commands, tests. Otherwise "do" (just code + commands).
-
-4) TRIVIAL-TASK — Use your judgment: if the user's intent is obvious and minimal code solves it, set task_is_trivial=true.
-   Examples: "hello world", "write a script that prints X", "parse this json", "unit test for this function", "simple fizzbuzz", "function that returns 42". Use semantic understanding, not rigid patterns.
-   Output: bypass_planner=true, bypass_clarification=true, route_to=worker, task_is_trivial=true, rag_mode=disabled, allowed_tools=["none"].
-
-Trivial defaults (use silently): Language=python, Python 3.11+, Test runner=pytest, Files=hello.py+test_hello.py, Provide run commands.
-
-5) CLARIFICATION — Ask only when required input is missing AND cannot be defaulted.
-   Policy: Never ask if task_is_trivial and defaults exist.
-   When you do ask: ONE question max. Prefer multiple-choice. clarification_options: ["(A) pytest (default)", "(B) unittest"].
-
-6) TOOL GATING — Which tools does this task need?
-   - "explain" or "simple code" / explain_only → allowed_tools: ["none"]
-   - Debugging runtime error → allow sandbox, LSP as needed. Code generation → ["sandbox","lsp"].
-
-7) ROUTING — route_to: worker (trivial/normal), planner (multi-step), respond (clarification needed).
-   If task_is_trivial && target_language && !needs_clarification → route_to=worker, bypass_planner=true.
-
-Return valid JSON:
-{
-  "task_type": "code_generation"|"code_review"|"explanation"|"debugging"|"shell_script"|"general",
-  "task_description": "clear description",
-  "target_language": "parsed from user",
-  "needs_code_generation": true|false,
-  "reasoning": "brief",
-  "assumptions": ["human-readable list"],
-  "assumptions_structured": [{"key":"test_runner","value":"pytest","confidence":0.9,"user_visible":true}],
-  "defaults_used": ["pytest","Python 3.11"],
-  "confidence": 0.0-1.0,
-  "needs_clarification": false,
-  "clarification_question": null,
-  "clarification_options": [],
-  "planning_suggested": false,
-  "route_to": "worker"|"planner"|"respond",
-  "task_is_trivial": true|false,
-  "bypass_planner": true|false,
-  "bypass_clarification": true|false,
-  "deliverable_type": "snippet"|"single_file"|"multi_file_patch"|"explain_only"|"mixed",
-  "interaction_mode": "teach"|"do",
-  "include_tests": true|false,
-  "include_run_commands": true|false,
-  "allowed_tools": ["sandbox","lsp"]|["none"],
-  "rag_mode": "disabled"|"light"|"normal"
-}
-
-Routing: trivial → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
-If this is a revision cycle, incorporate the critic's feedback into task_description.
+Return valid JSON (same schema). Keep reasoning to one sentence.
 """
 
 import re
@@ -210,6 +154,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         # Anemic Supervisor passthrough: EntryClassifier said complex+plan_required → skip LLM, route to Planner
         task_size = state.get("task_size", "small")
         plan_required = state.get("plan_required", False)
+        interaction_mode = state.get("interaction_mode", "do")
+
         if task_size == "complex" and plan_required and iteration == 0:
             target_language = state.get("target_language") or _extract_language_from_text(user_context)
             task_desc = (user_context or "").strip()[:1000] or "Complex task requiring decomposition"
@@ -249,6 +195,57 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "web_search_queries": [],
                 "current_node": node_name,
                 "next_node": "planner",
+                "generated_code": state.get("generated_code", ""),
+                "code_explanation": state.get("code_explanation", ""),
+                "patch_ops": state.get("patch_ops", []) or [],
+                "node_traces": [trace],
+            }
+
+        # Teach-mode passthrough: small + teach → skip Supervisor LLM, route to Worker (avoids timeout on educational prompts)
+        if (
+            task_size == "small"
+            and interaction_mode == "teach"
+            and iteration == 0
+            and not state.get("scope_expansion_needed")
+        ):
+            target_language = state.get("target_language") or _extract_language_from_text(user_context)
+            task_desc = (user_context or "").strip()[:1000] or "Educational task"
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning="Small+teach detected by EntryClassifier; delegating to Worker (no LLM)",
+                assumptions=[],
+                confidence=1.0,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+            )
+            logger.info(
+                "supervisor_passthrough_teach",
+                extra={"task_size": task_size, "interaction_mode": interaction_mode, "latency_ms": latency},
+            )
+            return {
+                "task_type": "code_generation",
+                "task_description": task_desc,
+                "target_language": target_language,
+                "assumptions": [],
+                "defaults_used": [],
+                "assumptions_structured": [],
+                "task_is_trivial": False,
+                "deliverable_type": "mixed",
+                "interaction_mode": "teach",
+                "include_tests": False,
+                "include_run_commands": True,
+                "allowed_tools": ["sandbox"],
+                "rag_mode": "disabled",
+                "rag_results": [],
+                "rag_context": [],
+                "rag_collections_queried": [],
+                "tool_refs": state.get("tool_refs") or [],
+                "failure_context": [],
+                "web_search_results": [],
+                "web_search_queries": [],
+                "current_node": node_name,
+                "next_node": "worker",
                 "generated_code": state.get("generated_code", ""),
                 "code_explanation": state.get("code_explanation", ""),
                 "patch_ops": state.get("patch_ops", []) or [],
@@ -473,6 +470,9 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         reranker = retrieval_params.reranker if retrieval_params else settings.rag_reranker
         top_k = retrieval_params.top_k if retrieval_params else settings.rag_top_k
         fetch_count = getattr(settings, "rag_overfetch_count", None) or top_k
+        # Adaptive Rigor: rag_gravity=light (generic/python_web) → lighter RAG, no heavy search
+        if state.get("rag_gravity") == "light":
+            fetch_count = min(fetch_count, 5)
 
         rag_results = []
         rag_context = []

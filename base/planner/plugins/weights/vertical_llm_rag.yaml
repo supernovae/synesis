@@ -1,0 +1,61 @@
+# Synesis LLM RAG Vertical
+# RAG pipelines, retrieval, embeddings, chunking. For users building with LLMs.
+# Critic: retrieval correctness, chunk boundaries, source attribution.
+
+complexity_weights:
+  rag_pipeline:
+    weight: 10
+    keywords:
+      - rag
+      - retrieval
+      - retrieval-augmented
+      - embed
+      - embedding
+      - vector store
+      - chroma
+      - pinecone
+      - qdrant
+      - faiss
+  chunking_strategy:
+    weight: 8
+    keywords:
+      - chunk
+      - chunking
+      - splitter
+      - overlap
+      - token limit
+      - semantic split
+  reranking:
+    weight: 10
+    keywords:
+      - rerank
+      - cross-encoder
+      - hybrid search
+      - bm25
+      - sparse
+  rag_architecture:
+    weight: 12
+    keywords:
+      - multi-index
+      - document pipeline
+      - ingestion
+      - sync pipeline
+      - source attribution
+
+domain_keywords:
+  llm_rag:
+    domain: llm_rag
+    keywords:
+      - langchain
+      - llama-index
+      - haystack
+      - retrieval
+      - rag
+
+pairings:
+  - keywords: [rag, production]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [embedding, delete]
+    extra_weight: 15
+    axis: risk

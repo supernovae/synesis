@@ -61,20 +61,40 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     # Preserve EntryClassifier-seeded active_domain_refs (Sovereign Intersection)
     existing_domains = state.get("active_domain_refs") or []
 
-    # Trivial or RAG disabled: no-op, use generic
+    # Trivial or RAG disabled: no-op, use generic. Skip heavy RAG (common knowledge).
     if task_size == "trivial" or rag_mode == "disabled":
         return {
             "platform_context": "generic",
+            "rag_gravity": "light",
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
         }
 
-    # Complex: EntryClassifier already escalated; skip advisor LLM (anemic advisor)
-    # Supervisor will passthrough to Planner; no need for domain classification here
+    # Complex: EntryClassifier already escalated; skip advisor LLM (anemic advisor).
+    # Infer platform_context from active_domain_refs for Sovereign Persona injection.
     if task_size == "complex":
+        platform_context = "generic"
+        if existing_domains:
+            _domain_to_platform = {
+                "healthcare_compliance": "healthcare",
+                "fintech_compliance": "fintech",
+                "industrial": "industrial",
+                "secops_hardening": "openshift",
+                "kubernetes": "kubernetes",
+                "llm_rag": "rag",
+                "llm_prompting": "prompting",
+                "llm_evaluation": "eval",
+                "ai_governance": "llm safety",
+            }
+            for d in existing_domains:
+                key = (d or "").strip().lower()
+                if key in _domain_to_platform:
+                    platform_context = _domain_to_platform[key]
+                    break
         return {
-            "platform_context": "generic",
+            "platform_context": platform_context,
+            "rag_gravity": "normal",
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
@@ -83,6 +103,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     if not getattr(settings, "advisor_enabled", True):
         return {
             "platform_context": "generic",
+            "rag_gravity": "light",
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
@@ -108,6 +129,8 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     except Exception as e:
         logger.warning("strategic_advisor_error", extra={"error": str(e)[:100]})
 
+    # Adaptive Rigor: generic/python_web = common knowledge; skip Strategic Pivot / heavy RAG
+    rag_gravity = "light" if platform_context in ("generic", "python_web") else "normal"
     latency_ms = (time.monotonic() - start) * 1000
     trace = NodeTrace(
         node_name=node_name,
@@ -122,6 +145,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     # Keep EntryClassifier deterministic domains; LLM platform_context complements them
     return {
         "platform_context": platform_context,
+        "rag_gravity": rag_gravity,
         "active_domain_refs": existing_domains,
         "advisory_message": "",
         "current_node": node_name,

@@ -1,0 +1,105 @@
+# Synesis Scientific Vertical
+# Bioinformatics, Physics Simulation, GIS/Geospatial, ML-Ops.
+# Sovereign RAG for research compute and data pipelines.
+
+complexity_weights:
+  bioinformatics_pipeline:
+    weight: 12
+    keywords:
+      - samtools
+      - bcftools
+      - gatk
+      - bwa
+      - bowtie
+      - hisat
+      - star
+      - rnaseq
+      - chip-seq
+      - variant calling
+  physics_simulation:
+    weight: 12
+    keywords:
+      - monte carlo
+      - finite element
+      - fem
+      - cfd
+      - molecular dynamics
+      - lattice
+      - particle
+      - n-body
+  geospatial_analysis:
+    weight: 10
+    keywords:
+      - postgis
+      - gdal
+      - raster
+      - vector
+      - reprojection
+      - spatial index
+      - buffering
+      - overlay
+  ml_pipeline:
+    weight: 12
+    keywords:
+      - mlflow
+      - kubeflow
+      - sagemaker
+      - vertex ai
+      - feature store
+      - model registry
+      - a/b test
+      - drift detection
+
+risk_weights:
+  clinical_data:
+    weight: 20
+    domain: bioinformatics
+    keywords:
+      - patient sample
+      - clinical trial
+      - de-identification
+      - irb
+      - consent
+
+domain_keywords:
+  genomics:
+    domain: bioinformatics
+    keywords:
+      - genome
+      - exome
+      - rnaseq
+      - microbiome
+      - metagenomics
+      - single cell
+      - crispr
+  earth_science:
+    domain: geospatial
+    keywords:
+      - landsat
+      - sentinel
+      - modis
+      - lidar
+      - dem
+      - ndvi
+  ml_platforms:
+    domain: ml_ops
+    keywords:
+      - mlflow
+      - wandb
+      - neptune
+      - dvc
+      - comet
+
+pairings:
+  - keywords: [patient, public]
+    extra_weight: 35
+    axis: risk
+  - keywords: [genome, cloud]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [model, production]
+    extra_weight: 15
+    axis: risk
+  - keywords: [gpu, quota]
+    extra_weight: 10
+    axis: complexity

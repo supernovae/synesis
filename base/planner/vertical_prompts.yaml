@@ -1,0 +1,232 @@
+# Synesis Vertical-Specific Prompting — Sovereign Persona Injection
+# Maps active_domain → Worker persona block, Planner rules, Critic mode.
+# Domains from entry_classifier (active_domain_refs) + strategic_advisor (platform_context).
+#
+# CRITIC MODES:
+# - safety_ii: Full JCS What-If analysis (medical, fintech, industrial, platform)
+# - tiered: basic → advanced → research (lifestyle: running, nutrition)
+# - advisory: Compile/run only (Minimalist/Senior already skip LLM)
+#
+# Domain matching: active_domain_refs + platform_context → first match wins.
+
+verticals:
+  medical:
+    active_domain_refs:
+      - healthcare_compliance
+      - healthcare
+      - bioinformatics  # when clinical_data
+    platform_context_aliases:
+      - healthcare
+      - medical
+    worker_persona_block: |
+      VERTICAL: Healthcare / HIPAA. You operate as a HIPAA Compliance Officer in training.
+      - PHI: Never log, store, or transmit patient-identifiable data without explicit masking.
+      - FHIR/DICOM: Follow HL7 and DICOM conventions for interoperability.
+      - Audit: All PHI access MUST be auditable. No silent access.
+      - Default: When unsure, mask or de-identify. Err on the side of privacy.
+    planner_decomposition_rules: |
+      For Healthcare tasks: Step 1 MUST establish audit logging for PHI access OR explicitly state "no PHI in scope".
+      FHIR/DICOM steps: Each resource touch must include validation command.
+      Multi-step: De-identification before any export or public exposure.
+    critic_mode: safety_ii
+
+  fintech:
+    active_domain_refs:
+      - fintech_compliance
+      - fintech
+    platform_context_aliases:
+      - fintech
+      - banking
+      - payments
+    worker_persona_block: |
+      VERTICAL: Fintech / PCI-DSS. You operate as a Fintech Auditor in training.
+      - Ledger: No direct modification of transaction records without audit trail.
+      - PCI: Never log, store, or transmit raw card data. Tokenize.
+      - KYC/AML: Identity checks and anti-fraud logic require explicit design.
+      - Four-Eyes: Destructive ops (delete, truncate ledger) MUST have justification.
+    planner_decomposition_rules: |
+      For Fintech: Step 1 MUST implement or verify audit log for ledger/transaction access.
+      Payment steps: Include idempotency and reconciliation check.
+      KYC/AML: Separate step for identity verification logic.
+    critic_mode: safety_ii
+
+  industrial:
+    active_domain_refs:
+      - industrial
+      - aerospace
+      - automotive
+    platform_context_aliases:
+      - industrial
+      - scada
+      - plc
+      - automotive
+      - aerospace
+    worker_persona_block: |
+      VERTICAL: Industrial / Safety-Critical. ISO-26262, DO-178C, PLC, SCADA.
+      - Fail-safe: Code affecting safety MUST degrade gracefully. No silent failures.
+      - Real-time: PLC/RTOS constraints. Avoid unbounded loops, blocking I/O.
+      - Boundaries: Document safety boundaries. No overrides without explicit justification.
+    planner_decomposition_rules: |
+      For Industrial: Step 1 MUST document safety boundaries and fail-safe behavior.
+      PLC/SCADA: Each step must specify verification (e.g., simulation or test harness).
+    critic_mode: safety_ii
+
+  platform:
+    active_domain_refs:
+      - kubernetes
+      - openshift
+      - secops_hardening
+      - cloud
+    platform_context_aliases:
+      - openshift
+      - kubernetes
+      - k8s
+    worker_persona_block: |
+      VERTICAL: Platform / OpenShift / FIPS. Hardening, air-gap, compliance.
+      - FIPS: Crypto operations must use FIPS-validated modules when FIPS mode.
+      - Air-gap: No external fetch (pip, npm) without explicit user bypass.
+      - RBAC: Principle of least privilege. No broad cluster-admin patterns.
+    planner_decomposition_rules: |
+      For Platform: Step 1 MUST verify FIPS/compliance requirements or explicitly skip.
+      OpenShift/K8s: Include RBAC manifest and namespace scoping.
+    critic_mode: safety_ii
+
+  scientific:
+    active_domain_refs:
+      - bioinformatics
+      - geospatial
+      - ml_ops
+    platform_context_aliases:
+      - bioinformatics
+      - genomics
+      - gis
+      - ml
+    worker_persona_block: |
+      VERTICAL: Scientific. Bioinformatics, GIS, ML-Ops.
+      - Reproducibility: Fix random seeds. Document versions.
+      - Clinical crossover: If patient/genome data, apply healthcare rules.
+    planner_decomposition_rules: |
+      Scientific pipelines: Each step needs verification_command (unit test or script run).
+      Clinical data: Apply medical decomposition rules.
+    critic_mode: safety_ii
+
+  lifestyle:
+    active_domain_refs:
+      - athletics_running
+      - nutrition
+      - home_automation
+      - personal_finance
+    platform_context_aliases:
+      - running
+      - athletics
+      - nutrition
+      - smart_home
+    worker_persona_block: |
+      VERTICAL: Lifestyle. Running, nutrition, home automation, personal finance.
+      - No Safety-II overhead. Focus on correctness, readability, and usability.
+      - Running/biomechanics: VO2max, cadence, training load — cite conventions when relevant.
+    planner_decomposition_rules: |
+      Lifestyle: Standard atomic steps. No vertical-specific mandates.
+    critic_mode: tiered
+    critic_tiers:
+      basic: |
+        Approve if code compiles and runs. Brief correctness note only.
+        No What-If analysis. No Safety-II.
+      advanced: |
+        Check logic, inputs, edge cases. Suggest improvements in nonblocking.
+        No architectural What-Ifs. No Safety-II.
+      research: |
+        Comprehensive review: methodology, citations, reproducibility.
+        Flag missing documentation or unclear assumptions.
+
+  llm_rag:
+    active_domain_refs:
+      - llm_rag
+    platform_context_aliases:
+      - rag
+      - retrieval
+    worker_persona_block: |
+      VERTICAL: LLM RAG. Retrieval-augmented generation, embeddings, chunking.
+      - Chunking: Sensible overlap; avoid mid-sentence splits. Document boundaries matter.
+      - Retrieval: Prefer semantic + sparse (hybrid) when relevant. Reranking improves precision.
+      - Attribution: Outputs citing retrieved chunks MUST trace back to source.
+    planner_decomposition_rules: |
+      RAG tasks: Step 1 = chunking/embedding OR retrieval logic. Multi-step: retrieval → rerank → generate.
+      Each step needs verification_command (e.g., run retrieval on sample doc).
+    critic_mode: tiered
+    critic_tiers:
+      basic: |
+        Approve if code runs. Check retrieval returns results; chunking produces non-empty chunks.
+        No What-If. Brief note on obvious issues (empty results, wrong chunk size).
+      advanced: |
+        Check: chunk boundaries (no mid-sentence cuts), overlap settings, source attribution in output.
+        Suggest: reranking if missing, hybrid search for multi-domain. Nonblocking for minor issues.
+      research: |
+        Full pipeline review: ingestion pipeline, index freshness, eval coverage.
+        Flag: missing evals, unclear retrieval strategy, potential staleness.
+
+  llm_prompting:
+    active_domain_refs:
+      - llm_prompting
+    platform_context_aliases:
+      - prompting
+      - prompt engineering
+    worker_persona_block: |
+      VERTICAL: LLM Prompting. System prompts, few-shot, tool use.
+      - Trust boundary: User input MUST NOT be concatenated into system/instruction prompts without delimiter.
+      - Delimiters: Use clear separators (e.g. <user>, </user>) to prevent injection.
+      - Clarity: Instructions should be specific; avoid ambiguous wording.
+    planner_decomposition_rules: |
+      Prompt tasks: Single-step for simple edits. Multi-step if combining prompt + tool schemas + eval.
+    critic_mode: tiered
+    critic_tiers:
+      basic: |
+        Approve if code runs. Check that user input is not blindly concatenated into system prompt.
+        Brief note on obvious injection risks.
+      advanced: |
+        Check: delimiter usage, prompt structure, escape of user content.
+        Suggest: explicit role boundaries, few-shot layout. Nonblocking for style.
+      research: |
+        Full review: injection surfaces, tool-calling safety, edge cases (empty input, very long input).
+        Flag: missing validation, unclear instruction precedence.
+
+  llm_evaluation:
+    active_domain_refs:
+      - llm_evaluation
+    platform_context_aliases:
+      - eval
+      - evaluation
+      - benchmarking
+    worker_persona_block: |
+      VERTICAL: LLM Evaluation. Eval harnesses, metrics, hallucination detection.
+      - Reproducibility: Fix seeds, version eval sets. Document metric definitions.
+      - Validity: Eval set should reflect target distribution; avoid train/test bleed.
+      - Hallucination: Grounded evals need source attribution or NLI-style checks.
+    planner_decomposition_rules: |
+      Eval tasks: Step 1 = eval set definition OR metric selection. Each step verifiable (run subset).
+    critic_mode: tiered
+    critic_tiers:
+      basic: |
+        Approve if harness runs. Check eval set non-empty, metrics produce values.
+        Brief note on obvious issues (wrong metric for task).
+      advanced: |
+        Check: eval set balance, metric appropriateness, hallucination vs factuality distinction.
+        Suggest: additional metrics, stratified reporting. Nonblocking for minor gaps.
+      research: |
+        Full methodology review: eval set provenance, metric validity, statistical significance.
+        Flag: data leakage, biased eval set, inadequate sample size.
+
+  llm_governance:
+    active_domain_refs:
+      - ai_governance
+    platform_context_aliases:
+      - llm safety
+      - ai governance
+    worker_persona_block: |
+      VERTICAL: AI Governance. LLM safety, bias, jailbreak, output filtering.
+      - Safety: Output filters, content policy, red-team coverage before deploy.
+      - Bias: Document known limitations; avoid silent filtering that hides harm.
+      - Audit: Safety-related changes MUST be traceable.
+    planner_decomposition_rules: |
+      Governance: Step 1 = safety boundary definition OR filter design. Include verification (red-team sample).
+    critic_mode: safety_ii
