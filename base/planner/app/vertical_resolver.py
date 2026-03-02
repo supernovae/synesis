@@ -13,8 +13,10 @@ logger = logging.getLogger("synesis.vertical_resolver")
 
 _PLANNER_ROOT = Path(__file__).parent.parent
 _VERTICAL_PROMPTS_PATH = _PLANNER_ROOT / "vertical_prompts.yaml"
+_INTENT_PROMPTS_PATH = _PLANNER_ROOT / "intent_prompts.yaml"
 
 _cached_config: dict[str, Any] | None = None
+_cached_intent_config: dict[str, Any] | None = None
 
 
 def _load_vertical_prompts() -> dict[str, Any]:
@@ -111,7 +113,38 @@ def get_critic_tier_prompt(vertical: str, tier: str) -> str:
     return (tiers.get(tier) or "").strip()
 
 
+def _load_intent_prompts() -> dict[str, Any]:
+    global _cached_intent_config
+    if _cached_intent_config is not None:
+        return _cached_intent_config
+    try:
+        import yaml
+
+        if _INTENT_PROMPTS_PATH.exists():
+            with open(_INTENT_PROMPTS_PATH) as f:
+                raw = yaml.safe_load(f)
+            _cached_intent_config = raw or {}
+        else:
+            _cached_intent_config = {}
+    except Exception as e:
+        logger.warning("intent_prompts_load_failed path=%s error=%s", _INTENT_PROMPTS_PATH, e)
+        _cached_intent_config = {}
+    return _cached_intent_config
+
+
+def get_intent_critic_block(intent_class: str) -> str:
+    """Return intent-specific critic behavior overlay. Drives hallucination/schema/tone checks."""
+    config = _load_intent_prompts()
+    intent_classes = config.get("intent_classes") or {}
+    ic_data = intent_classes.get(intent_class) if intent_class else None
+    if not isinstance(ic_data, dict):
+        return ""
+    block = ic_data.get("critic_behavior_block", "")
+    return (block or "").strip()
+
+
 def clear_cache() -> None:
     """Reset cached config. Use in tests."""
-    global _cached_config
+    global _cached_config, _cached_intent_config
     _cached_config = None
+    _cached_intent_config = None

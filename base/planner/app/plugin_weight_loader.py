@@ -96,6 +96,7 @@ def load_config_with_plugins(
     complexity_weights = dict(merged.get("complexity_weights", {}))
     risk_weights = dict(merged.get("risk_weights", {}))
     domain_keywords = dict(merged.get("domain_keywords", {}))
+    intent_classes = dict(merged.get("intent_classes", {}))
     master_pairings = list(merged.get("pairings", []))
     master_overrides = dict(merged.get("overrides", {}))
     master_thresholds = dict(merged.get("thresholds", {}))
@@ -131,12 +132,15 @@ def load_config_with_plugins(
             master_thresholds = _merge_thresholds(master_thresholds, plug["thresholds"])
         if plug.get("risk_veto_triggers"):
             risk_veto_triggers.extend(plug["risk_veto_triggers"])
+        if plug.get("intent_classes"):
+            intent_classes = _merge_weights(intent_classes, plug["intent_classes"])
         logger.debug("plugin_loaded path=%s", pf)
 
     return {
         "complexity_weights": complexity_weights,
         "risk_weights": risk_weights,
         "domain_keywords": domain_keywords,
+        "intent_classes": intent_classes,
         "pairings": master_pairings,
         "overrides": master_overrides,
         "thresholds": master_thresholds,

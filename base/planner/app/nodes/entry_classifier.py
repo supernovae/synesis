@@ -201,6 +201,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     if active_domains:
         out["active_domain_refs"] = active_domains
 
+    out["intent_class"] = analysis.get("intent_class", "code")
     # Phase 1: explainability — classification_reasons and score_breakdown for /why
     out["classification_reasons"] = analysis.get("classification_reasons") or []
     out["score_breakdown"] = analysis.get("score_breakdown") or {}

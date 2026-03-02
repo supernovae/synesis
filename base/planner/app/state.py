@@ -110,6 +110,7 @@ class GraphState(TypedDict, total=False):
     evidence_queries_tried: list[str]
     evidence_results_tried: list[str]
     evidence_fingerprints_tried: list[str]
+    retry: dict[str, Any]  # critic policy: attempt, failures, decisions, diversification_history, etc.
     node_traces: list[Any]
     current_node: str
     next_node: str
@@ -122,6 +123,7 @@ class GraphState(TypedDict, total=False):
     pending_question_continue: bool
     pending_question_source: str
     task_size: str
+    intent_class: str  # knowledge|writing|code|debugging|review|planning|data_transform|...
     bypass_supervisor: bool
     escalation_reason: str  # why routed to Supervisor/Planner (e.g. task_size_small, risk_veto)
     message_origin: str
@@ -340,6 +342,9 @@ class SynesisState(BaseModel):
     evidence_queries_tried: list[str] = Field(default_factory=list)
     evidence_results_tried: list[str] = Field(default_factory=list)  # result_hash, artifact_hashes
     evidence_fingerprints_tried: list[str] = Field(default_factory=list)  # result_fingerprint from Sandbox
+
+    # Critic policy engine (§critic_policy_spec): monotonic retry state
+    retry: dict[str, Any] = Field(default_factory=dict)  # attempt, max_attempts, failures, used_evidence_ids, decisions, diversification_history, escalations, constraints
 
     node_traces: list[NodeTrace] = Field(default_factory=list)
 

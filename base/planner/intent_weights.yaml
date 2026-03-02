@@ -223,6 +223,27 @@ pairings:
     extra_weight: 50
     axis: risk
 
+# Intent classes: first match wins. Drives critic behavior overlay (hallucination, schema, tone, etc).
+intent_classes:
+  debugging:
+    keywords: [fix, debug, error, trace, why does it fail, stack trace, diagnose, troubleshoot]
+  review:
+    keywords: [review, validate, audit, check, assess, code review, security audit]
+  planning:
+    keywords: [plan, strategy, design, architecture, break down, decompose]
+  knowledge:
+    keywords: [explain, what is, how does, why does, define, describe, tell me about]
+  writing:
+    keywords: [write, draft, compose, email, blog, article, content]
+  data_transform:
+    keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
+  tool_orchestrated:
+    keywords: [search and, fetch and, multi-step]
+  personal_guidance:
+    keywords: [how can i, improve my, optimize my, help me with]
+  creative_ideation:
+    keywords: [brainstorm, ideas for, suggest, creative]
+
 overrides:
   force_manual:
     - "[STRICT]"

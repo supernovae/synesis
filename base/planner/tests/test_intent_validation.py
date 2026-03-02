@@ -226,6 +226,18 @@ class TestExplainabilityPhase1:
             "Domain should be detected for RAG"
         )
 
+    def test_intent_class_emitted_for_keyword_match(self):
+        """Intent class drives critic overlay; first match wins."""
+        state = {"messages": [{"content": "explain how decorators work in Python"}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "knowledge"
+        state2 = {"messages": [{"content": "fix the error in this function"}]}
+        out2 = entry_classifier_node(state2)
+        assert out2.get("intent_class") == "debugging"
+        state3 = {"messages": [{"content": "parse this json and save to csv"}]}
+        out3 = entry_classifier_node(state3)
+        assert out3.get("intent_class") == "data_transform"
+
 
 class TestRiskVeto:
     """Risk veto blocks trivial when pip install, curl | bash, etc."""

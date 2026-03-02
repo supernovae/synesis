@@ -17,6 +17,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..config import settings
+from ..critic_policy import (
+    build_evidence_needed_query_plan,
+    check_evidence_gate,
+    retry_state_updates,
+    should_force_pass,
+)
 from ..llm_telemetry import get_llm_http_client
 from ..rag_client import SYNESIS_CATALOG, discover_collections, retrieve_context
 from ..schemas import CriticOut
@@ -323,6 +329,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
         from ..vertical_resolver import (
             get_critic_mode,
             get_critic_tier_prompt,
+            get_intent_critic_block,
             resolve_active_vertical,
         )
 
@@ -469,6 +476,13 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
 """
                 logger.debug("critic_tiered_mode", extra={"vertical": active_vertical, "tier": effective_tier})
 
+        # Intent-aware overlay: hallucination (Knowledge), schema (Data Transform), tone (Writing), etc.
+        intent_class = state.get("intent_class", "code")
+        intent_block = get_intent_critic_block(intent_class)
+        if intent_block:
+            critic_prompt = f"{critic_prompt}\n\n## Intent Class: {intent_class}\n{intent_block}"
+            logger.debug("critic_intent_overlay", extra={"intent_class": intent_class})
+
         messages = [
             SystemMessage(content=critic_prompt),
             HumanMessage(content=prompt),
@@ -511,35 +525,22 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
         approved = parsed.approved
         blocking_issues = getattr(parsed, "blocking_issues", []) or []
 
-        # Evidence gate: approved=false requires at least one blocking_issue with sandbox/lsp evidence
-        if not approved and blocking_issues:
-            has_evidence = False
-            for bi in blocking_issues:
-                refs = getattr(bi, "evidence_refs", []) if not isinstance(bi, dict) else bi.get("evidence_refs", [])
-                for ref in refs or []:
-                    ref_type = (
-                        ref.get("ref_type", "") if isinstance(ref, dict) else getattr(ref, "ref_type", "")
-                    )
-                    if ref_type in ("lsp", "sandbox"):
-                        has_evidence = True
-                        break
-                if has_evidence:
-                    break
-            if not has_evidence:
-                logger.info(
-                    "critic_evidence_gate",
-                    extra={"reason": "approved=false without sandbox/lsp evidence_refs; overriding to approved"},
-                )
-                approved = True
-                revision = getattr(parsed, "revision_feedback", "") or ""
-                parsed = parsed.model_copy(
-                    update={
-                        "approved": True,
-                        "revision_feedback": (
-                            revision + " [Evidence gate: blocking required sandbox/lsp refs; proceeding.]"
-                        ).strip()[:500],
-                    }
-                )
+        # Policy engine: evidence gate (§critic_policy_spec)
+        approved, has_valid_evidence = check_evidence_gate(approved, blocking_issues)
+        if approved and not has_valid_evidence and blocking_issues:
+            logger.info(
+                "critic_evidence_gate",
+                extra={"reason": "approved=false without sandbox/lsp evidence_refs; overriding to approved"},
+            )
+            revision = getattr(parsed, "revision_feedback", "") or ""
+            parsed = parsed.model_copy(
+                update={
+                    "approved": True,
+                    "revision_feedback": (
+                        revision + " [Evidence gate: blocking required sandbox/lsp refs; proceeding.]"
+                    ).strip()[:500],
+                }
+            )
 
         what_ifs_raw = parsed.what_if_analyses or []
         what_ifs = []
@@ -554,7 +555,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                     )
                 )
 
-        at_max_iterations = iteration + 1 >= max_iterations
+        at_max_iterations = should_force_pass(iteration + 1, max_iterations)
         dark_debt_signal = None
         if at_max_iterations:
             if not approved:
@@ -652,6 +653,28 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
         # §7.8: When Critic routes to Supervisor, Supervisor may only ask clarification—not re-plan.
         if critic_should_continue or parsed.need_more_evidence:
             result["supervisor_clarification_only"] = True
+        # Policy engine: monotonic retry state (§critic_policy_spec)
+        if critic_should_continue and not is_evidence_only:
+            fids = state.get("failure_ids_seen") or []
+            retry_delta = retry_state_updates(
+                state,
+                "RETRY",
+                critic_continue_reason or "needs_revision",
+                failure_type=state.get("failure_type"),
+                failure_id=fids[-1] if fids else None,
+            )
+            if retry_delta.get("retry"):
+                result["retry"] = {**state.get("retry", {}), **retry_delta["retry"]}
+        elif approved:
+            retry_delta = retry_state_updates(state, "PASS", "approved")
+            if retry_delta.get("retry"):
+                result["retry"] = {**state.get("retry", {}), **retry_delta["retry"]}
+        # needs_more_evidence: emit retrieval query plan (no tool calls)
+        if parsed.need_more_evidence:
+            result["evidence_needed"] = build_evidence_needed_query_plan(
+                getattr(parsed, "evidence_gap", None),
+                state.get("intent_class", "code"),
+            )
         return result
 
     except Exception as e:

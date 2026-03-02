@@ -193,6 +193,7 @@ class ScoringEngine:
                 "complexity_score": 0,
                 "risk_score": 0,
                 "domain_hints": [],
+                "intent_class": "code",
                 "manual_override": False,
                 "interaction_mode": "do",
                 "force_pro_advanced": False,
@@ -210,6 +211,7 @@ class ScoringEngine:
                 "complexity_score": 0,
                 "risk_score": 99,
                 "domain_hints": [],
+                "intent_class": "planning",
                 "manual_override": True,
                 "interaction_mode": "teach" if self._check_override(t, "force_teach") else "do",
                 "force_pro_advanced": True,
@@ -319,6 +321,21 @@ class ScoringEngine:
         else:
             task_size = "complex"
 
+        # 8. Intent class (first match wins; drives critic behavior overlay)
+        intent_class = "code"  # default
+        intent_classes = self._config.get("intent_classes") or {}
+        for ic_name, ic_data in intent_classes.items():
+            if not isinstance(ic_data, dict):
+                continue
+            keywords = ic_data.get("keywords", [])
+            for kw in keywords:
+                if re.search(rf"\b{re.escape(str(kw))}\b", t_lower):
+                    intent_class = ic_name
+                    hits.append(f"intent:{ic_name}")
+                    break
+            if intent_class != "code":
+                break
+
         score = complexity_score + risk_score
         return {
             "task_size": task_size,
@@ -326,6 +343,7 @@ class ScoringEngine:
             "complexity_score": complexity_score,
             "risk_score": risk_score,
             "domain_hints": domain_hints,
+            "intent_class": intent_class,
             "manual_override": False,
             "interaction_mode": interaction_mode,
             "force_pro_advanced": force_pro_advanced,

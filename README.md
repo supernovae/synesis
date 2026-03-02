@@ -42,9 +42,9 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
   └── else ──► Supervisor
 ```
 
-**Flow:** Entry → Domain Aligner → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Domain Aligner enables domain-aware RAG; Context Curator flags knowledge gaps. Trivial tasks never bypass the Patch Integrity Gate. Use `[STRICT]` or `/plan` to force the Supervisor path even for trivial tasks. See [docs/USERGUIDE.md](docs/USERGUIDE.md) for trigger words and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
+**Flow:** Entry → Domain Aligner → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Domain Aligner enables domain-aware RAG; Context Curator flags knowledge gaps. Trivial tasks never bypass the Patch Integrity Gate. Use `[STRICT]` or `/plan` to force the Supervisor path even for trivial tasks. See [docs/workflow.md](docs/workflow.md) for the full graph and routing logic, [docs/nodes.md](docs/nodes.md) for node flow with prompts. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. Trigger words in [intent_weights.yaml](base/planner/intent_weights.yaml).
 
-**Performance:** Prefix caching (Supervisor/Critic), guided JSON decoding, persistent HTTP client, and state refs+cache reduce latency and payload size between nodes. See [docs/WORKFLOW.md § Performance and State Payload Optimization](docs/WORKFLOW.md#performance-and-state-payload-optimization).
+**Performance:** Prefix caching (Supervisor/Critic), guided JSON decoding, persistent HTTP client, and state refs+cache reduce latency and payload size between nodes. See [docs/workflow.md § Performance and State Payload Optimization](docs/workflow.md#performance-and-state-payload-optimization).
 
 **Supporting services:**
 
