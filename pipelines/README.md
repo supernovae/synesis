@@ -49,11 +49,11 @@ Requires kfp (`uv add kfp` or `pip install kfp`) and `oc` logged in. Python comp
 
 ## Deploy
 
-After download completes, deploy manager and executor in the **same namespace** as the PVCs:
+After download completes, run `./scripts/deploy.sh dev` to apply all model deployments (supervisor-critic + executor) in the same namespace as the PVCs. Or apply manually:
 
 ```bash
-oc apply -n $NS -f base/model-serving/blackwell/deployment-vllm-manager.yaml
-oc apply -n $NS -f base/model-serving/blackwell/deployment-vllm-executor.yaml
+oc apply -n $NS -f base/model-serving/deployment-vllm-supervisor-critic.yaml
+oc apply -n $NS -f base/model-serving/deployment-vllm-executor.yaml
 ```
 
 ## Files

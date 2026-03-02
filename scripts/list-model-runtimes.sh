@@ -20,5 +20,5 @@ echo "=== In synesis-models ==="
 oc get servingruntimes -n synesis-models 2>/dev/null || echo "  (none)"
 
 echo ""
-echo "Synesis deploy.sh creates ServingRuntimes: synesis-supervisor, synesis-executor, synesis-critic"
-echo "(from vllm-spyre-x86 and vllm-cuda templates). InferenceService runtime field matches these names."
+echo "Synesis GPU models: Deployments synesis-supervisor-critic-predictor, synesis-executor-predictor"
+echo "Summarizer: InferenceService synesis-summarizer (vllm-cpu runtime)"

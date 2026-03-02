@@ -1,20 +1,39 @@
-# Synesis Manager — Qwen3.5-35B-A3B-Text (Supervisor + Planner + Critic)
+# Synesis Supervisor + Critic — one model serves both roles
 #
-# One model instance serves all three roles via different prompts and inference params.
-# Loads from PVC (no OCI). Pipeline downloads to modelcar-build-pvc; deploy in same namespace.
+# Same model instance, different inference params per request (e.g. temperature for
+# supervisor vs critic). Planner/client sets temp and prompt per role.
+# Loads from PVC (pipeline downloads to modelcar-build-pvc).
 #
-# Prerequisites: modelcar-build-pvc in synesis-models, model downloaded via manager pipeline.
+# Topology: 2× L40S — this uses 1 GPU; Executor uses the other.
+# Flexible to 2-4 GPUs: nodeSelector can target L40S; scaling documented.
+#
+# Prerequisites: modelcar-build-pvc in synesis-models, model via manager pipeline.
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: synesis-manager-predictor
+  name: synesis-supervisor-predictor
   namespace: synesis-models
   labels:
-    app.kubernetes.io/name: synesis-manager
+    app.kubernetes.io/name: synesis-supervisor-critic
 spec:
   selector:
-    app: synesis-manager
+    app: synesis-supervisor-critic
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-critic-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-supervisor-critic
+spec:
+  selector:
+    app: synesis-supervisor-critic
   ports:
     - name: http
       port: 8080
@@ -23,21 +42,21 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: synesis-manager-predictor
+  name: synesis-supervisor-critic-predictor
   namespace: synesis-models
   labels:
-    app.kubernetes.io/name: synesis-manager
+    app.kubernetes.io/name: synesis-supervisor-critic
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: synesis-manager
+      app: synesis-supervisor-critic
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: synesis-manager
+        app: synesis-supervisor-critic
     spec:
       imagePullPolicy: IfNotPresent
       volumes:
@@ -48,10 +67,8 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 8Gi
-        - name: vllm-sockets
-          emptyDir: {}
       containers:
-        - name: vllm-manager
+        - name: vllm-supervisor-critic
           image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
           imagePullPolicy: IfNotPresent
           command:
@@ -61,7 +78,7 @@ spec:
           args:
             - --port=8080
             - --model=/mnt/models
-            - --served-model-name=synesis-manager
+            - --served-model-name=synesis-supervisor
             - --tensor-parallel-size=1
             - --max-model-len=32768
             - --gpu-memory-utilization=0.15
@@ -82,8 +99,6 @@ spec:
               readOnly: true
             - name: shm
               mountPath: /dev/shm
-            - name: vllm-sockets
-              mountPath: /tmp/vllm
       nodeSelector:
         nvidia.com/gpu.product: NVIDIA-L40S
       tolerations:

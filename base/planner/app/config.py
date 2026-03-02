@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     executor_model_url: str = "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
     executor_model_name: str = "synesis-executor"
     critic_model_url: str = "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
-    critic_model_name: str = "synesis-critic"
+    critic_model_name: str = "synesis-supervisor"
     # Strategic Advisor: fast LLM for platform/domain classification (default: supervisor)
     advisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
     advisor_model_name: str = "synesis-supervisor"

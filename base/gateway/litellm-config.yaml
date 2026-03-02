@@ -44,9 +44,10 @@ data:
           max_tokens: 8192
           temperature: 0.2
 
+      # Critic shares backend with supervisor (same model); lower temp for safety review
       - model_name: synesis-critic
         litellm_params:
-          model: openai/synesis-critic
+          model: openai/synesis-supervisor
           api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096

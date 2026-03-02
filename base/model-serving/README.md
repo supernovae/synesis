@@ -1,120 +1,54 @@
-# Model Serving (OpenShift AI 3+)
+# Model Serving
 
-Synesis ships **InferenceService** manifests for the JCS pipeline models. `./scripts/deploy.sh` applies them when a DataScienceCluster has `kserve: Managed`. Manifests include ODH dashboard labels, display names, **Generative AI** model type, and **Add as AI asset endpoint** (for GenAI Playground testing).
+Synesis uses two GPU deployments that split across 2× L40S on a single G6e server. Models load from PVC (pipelines download to PV).
 
-## Blackwell / PVC (Manager + Executor)
+## Topology (2–4 GPUs)
 
-For **ROSA with GPU nodes**, use pipelines to download models to PVC and deploy with `scripts/apply-blackwell-deployments.sh`. Models load from PV directly. See [docs/BLACKWELL_ARCHITECTURE.md](../../docs/BLACKWELL_ARCHITECTURE.md) and [docs/BLACKWELL_DEPLOYMENT.md](../../docs/BLACKWELL_DEPLOYMENT.md).
+| Deployment                 | Roles              | GPU | nodeSelector   | PVC                    |
+|---------------------------|--------------------|-----|----------------|------------------------|
+| synesis-supervisor-critic | Supervisor, Critic | 1   | NVIDIA-L40S    | modelcar-build-pvc     |
+| synesis-executor          | Executor           | 1   | NVIDIA-L40S    | executor-build-pvc     |
 
----
+**Supervisor + Critic**: One model instance serves both roles. Same weights; different inference params (e.g. temperature) per request. Planner sets temp per call.
 
-## Important: Use RHOAI Built-in vLLM Only
-
-**Do not use Docker Hub vLLM images.** Custom vLLM containers from Docker Hub failed on RHOAI v2 due to Python path issues. Always use **RHOAI or llm-on-openshift vLLM images** (e.g. `quay.io/rh-aiservices-bu/*`).
+**Flexible scaling**:
+- **2 GPUs (default)**: Supervisor-critic on GPU 0, Executor on GPU 1
+- **4 GPUs**: Adjust replicas or nodeSelector; document in `docs/GPU_TOPOLOGY.md`
+- **Future (Blackwell)**: Single high-end GPU can host all models; parameterize when available
 
 ## Prerequisites
 
-- **OpenShift AI 3.x** (fast or stable channel)
-- **Single-model serving** enabled (KServe)
-- **NVIDIA GPU** for all models — supervisor/critic use Red Hat catalog Qwen3-8B-FP8-dynamic (1 GPU, 8Gi each); executor uses Qwen3-Coder-30B-A3B-FP8
-- **HuggingFace token** (recommended): `./scripts/bootstrap.sh --hf-token` to avoid rate limiting
+- OpenShift/ROSA with GPU node pool (`nvidia.com/gpu.product: NVIDIA-L40S`)
+- Models on PVC: `./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`
+- Summarizer (optional, CPU): InferenceService with `connection-summarizer`
 
-## Deploying Models
+## Deploying
 
-**Primary**: `./scripts/bootstrap.sh --hf-token` (once), then `./scripts/deploy.sh dev` applies everything. Manifests match ODH dashboard-created format (verified against cluster).
+`./scripts/deploy.sh dev` applies everything:
 
-**What deploy.sh creates:**
-- **Connection secrets** (ODH URI): synesis-executor, synesis-summarizer (hf:// Qwen3-Coder-30B, Qwen2.5-0.5B)
-- **ServingRuntimes**: synesis-executor, synesis-supervisor-critic (vLLM CUDA, speculative), vllm-cpu (summarizer)
-- **InferenceServices**: synesis-supervisor, synesis-executor, synesis-critic, synesis-summarizer (optional)
-  - Supervisor/critic: `RedHatAI/Qwen3-8B-FP8-dynamic` from HuggingFace (1 GPU, 8Gi each; OCI registry has sigstore 500 issues)
-  - Executor: `Qwen3-Coder-30B-A3B-Instruct-FP8` from HuggingFace (~48Gi GPU; 30B MoE, ~30GB VRAM)
+- **Deployments**: `synesis-supervisor-critic-predictor`, `synesis-executor-predictor` (PVC, L40S)
+- **Services**: `synesis-supervisor-predictor`, `synesis-critic-predictor` (both → supervisor-critic), `synesis-executor-predictor`
+- **Summarizer** (InferenceService, vllm-cpu): `synesis-summarizer` (hf://)
 
-**Ports:** All models use port 8080. Planner, gateway, and supervisor config point at these URLs.
+Verify:
 
-**GPU scheduling:** Supervisor and critic use `nodeSelector: nvidia.com/gpu.product=NVIDIA-A10G` (g5.xlarge, 24GB); executor uses `nvidia.com/gpu.product=NVIDIA-L40S` (g6e.4xlarge, 48GB). Adjust nodeSelectors if your instance types differ.
-
-**Deployment strategy:** We use `Recreate` (not `RollingUpdate`) so apply-triggered restarts don't require N+1 GPU capacity. RHOAI 3 can restart pods even when the spec is unchanged.
-
-**Migrating from dashboard-created deployments:** If you have `synesis-supervisor-qwen3-14b`, `synesis-executor-qwen3-coder-next`, or `critic` from the wizard, delete them before deploy to avoid duplicates: `oc delete inferenceservice synesis-supervisor-qwen3-14b synesis-executor-qwen3-coder-next critic -n synesis-models`
-
-**AI asset / Playground**: Models include `dashboard.opendatahub.io/add-as-ai-asset: "true"` so they appear on **AI assets endpoints** and can be added to the GenAI Playground. If that annotation is not supported on your version, use the dashboard **Edit** on the deployment and check **Add as AI asset endpoint** manually.
-
-## Troubleshooting
-
-### "Specified runtime does not support specified framework/version"
-
-The vLLM CPU runtime (`vllm-cpu`) declares `supportedModelFormats: pytorch`, so it rejects `modelFormat: vLLM`. Use the vLLM CUDA runtime (synesis-executor) with the Red Hat catalog OCI model `Qwen3-8B-FP8-dynamic` for supervisor/critic instead.
-
-### Speculative decoding: ngram only (draft model not supported)
-
-The RHOAI vLLM image does not support draft-model speculative decoding. We use ngram speculative decoding instead (no extra model, minimal overhead): `prompt_lookup_max=4`, `num_speculative_tokens=5`. Best gains on code/repetitive output (executor); supervisor/critic see modest benefit with low risk.
-
-### Summarizer: HFValidationError "Repo id must be in the form 'repo_name'..."
-
-vLLM has a bug (issues #13485, #13707) where local paths like `/mnt/models/` get passed to HuggingFace APIs. The vllm-cpu runtime workaround: load directly from HF repo ID (`Qwen/Qwen2.5-0.5B-Instruct`) instead of `/mnt/models/`. See `serving-runtime-vllm-cpu.yaml` comments.
-
-### "Waiting for runtime to become available" / Deployments show Failed
-
-Deploy.sh creates the ServingRuntime and InferenceServices. Verify:
 ```bash
-oc get servingruntimes -n synesis-models
-oc get inferenceservice -n synesis-models
+oc get pods -n synesis-models
+oc get deployment synesis-supervisor-critic-predictor synesis-executor-predictor -n synesis-models
 ```
-If runtimes exist but InferenceServices fail, check pod logs: `oc logs -n synesis-models -l component=model-server --tail=50`. For executor OOM or vLLM errors, see `docs/VLLM_RECIPES.md` and [vLLM Qwen3 recipes](https://docs.vllm.ai/projects/recipes/en/latest/Qwen/).
-
-### Dashboard Edit shows "mandatory fields missing"
-
-When editing a deployment created via YAML, the dashboard may show:
-- **Create connection to this location** — Not needed for `hf://` models; optional HF_TOKEN from `bootstrap.sh --hf-token`.
-- **Model type: Generative AI** — Our manifests set `opendatahub.io/model-type: genai`.
-- **Serving runtime** — Must match an enabled runtime. Use `./scripts/list-model-runtimes.sh` to see available names.
-
-If the dashboard rejects the deployment, ensure the `runtime` name exists. Supervisor/critic use the same vLLM CUDA runtime as the executor (synesis-executor).
-
-### URI connection type (Model Registry) for dashboard wizard
-
-When deploying via the **dashboard Deploy model wizard** (not deploy.sh), the wizard may require a connection for the model location. To use HuggingFace:
-
-1. **Settings → Environment setup → Connection types**
-2. Ensure **URI** connection type is enabled (categories: `model registry`, `URI`).
-3. When creating a connection, select **URI** type and set:
-   - **Name**: e.g. `huggingface-uri`
-   - **URL**: `https://huggingface.co` (or leave default if the type provides it)
-   - **HF_TOKEN** (or equivalent): your HuggingFace token (avoids throttling)
-
-Deploy.sh creates ODH-style connection secrets (connection-*.yaml) and uses `storageUri: hf://` plus optional `synesis-hf-token` from `bootstrap.sh --hf-token`.
-
-### Via the OpenShift AI Dashboard (alternative)
-
-If you prefer manual deployment or `deploy.sh` skips model serving (no kserve Managed):
-
-1. Create or select a **Data Science Project** (use `synesis-models` to keep models in the Synesis namespace).
-2. Click **Deploy model**.
-3. In the wizard:
-   - **Model location**: URI / HuggingFace; create a connection first if prompted (category: model registry, URI)
-   - **Serving runtime**: Select **vllm-cuda-runtime-template** (GPU) for all models; use catalog Qwen3-8B-FP8-dynamic for supervisor/critic
-   - **Hardware profile**: Choose your GPU node profile for executor
-   - **Model deployment name**: `synesis-supervisor`, `synesis-executor`, `synesis-critic`
-
-4. Use `hf://` URIs from `models.yaml`: `Qwen/Qwen3-14B`, `Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8`.
-
-The manifests in `base/model-serving/` follow this structure. Check **Settings → Serving runtimes** for the exact `runtime` name on your cluster.
 
 ## Configuring Synesis
 
-After models are deployed (via `deploy.sh` or dashboard), Synesis expects three predictors: **synesis-supervisor** (also used by planner), **synesis-executor**, **synesis-critic**.
+Planner, gateway, and supervisor config use these endpoints:
 
-1. **Planner env vars** (`base/planner/deployment.yaml` or ConfigMap):
-   - `SYNESIS_SUPERVISOR_MODEL_URL` → `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1`
-   - `SYNESIS_PLANNER_MODEL_URL` → `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1` (planner shares Supervisor)
-   - `SYNESIS_EXECUTOR_MODEL_URL` → `http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1`
-   - `SYNESIS_CRITIC_MODEL_URL` → `http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1`
-   - `SYNESIS_SUMMARIZER_MODEL_URL` → `http://synesis-summarizer-predictor.synesis-models.svc.cluster.local:8080/v1` (optional; pivot history + Tier 3 manifest summarization)
+- **Supervisor / Planner**: `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1`
+- **Critic**: `http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1` (same backend as supervisor)
+- **Executor**: `http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1`
 
-2. **Supervisor config** (`base/supervisor/configmap.yaml`): Health monitor circuit breakers for synesis-supervisor, synesis-planner, synesis-executor, synesis-critic. Override endpoints if your deployment names differ.
+Model name for critic: `synesis-supervisor` (same model; planner sets temperature per role).
 
-3. **LiteLLM** (`base/gateway/litellm-config.yaml`): `synesis-agent` routes to the planner orchestrator; individual models are listed for direct access. Update `api_base` if deployment names differ.
+## Troubleshooting
 
-Example service URL pattern:
-`http://<inference-service-name>-predictor.<namespace>.svc.cluster.local:8080/v1`
+- **No nodes available**: Ensure nodeSelector matches your GPU nodes (`oc get nodes -l nvidia.com/gpu.product=NVIDIA-L40S`)
+- **OOM on Executor**: Use NVFP4 pipeline or reduce `--max-model-len`
+- **ImagePullBackOff**: Create `imagePullSecrets` if needed for registry access

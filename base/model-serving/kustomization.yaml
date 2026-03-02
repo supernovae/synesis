@@ -10,16 +10,13 @@ labels:
 
 resources:
   - namespace.yaml
-  # ODH URI connections for hf:// models
-  - connection-executor.yaml
+  # ODH URI connection for summarizer (hf://)
   - connection-summarizer.yaml
-  # ServingRuntimes: executor (MoE, no prefix cache) | supervisor/critic (dense 8B, prefix cache)
-  - serving-runtime-executor.yaml
-  - serving-runtime-supervisor-critic.yaml
-  # Summarizer (0.5B on CPU) — no GPU; schedules on any node so 8B/30B get full GPU
+  # Summarizer (0.5B on CPU) — no GPU; schedules on any node
   - serving-runtime-vllm-cpu.yaml
-  - inference-service-supervisor.yaml
-  - inference-service-executor.yaml
-  - inference-service-critic.yaml
   - inference-service-summarizer.yaml
+  # Supervisor+Critic: one model, two roles (different temps per request). 1 GPU.
+  - deployment-vllm-supervisor-critic.yaml
+  # Executor: code gen. 1 GPU. Both L40S, split across 2-4 GPUs as needed.
+  - deployment-vllm-executor.yaml
   - route-executor.yaml

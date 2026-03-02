@@ -177,12 +177,12 @@ check_rhoai_webhook() {
 discover_runtimes() {
     if [[ "$ISVC_SKIP" == "true" ]]; then return 0; fi
 
-    local names
-    names=$(oc get servingruntimes -n synesis-models -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
-    if [[ -n "$names" ]]; then
-        log "  ServingRuntimes in synesis-models: $names"
-        for r in synesis-supervisor synesis-executor synesis-critic; do
-            echo "$names" | grep -q "$r" || log "  WARNING: $r not found (deploy creates it)"
+    local deploys
+    deploys=$(oc get deployments -n synesis-models -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [[ -n "$deploys" ]]; then
+        log "  Model deployments in synesis-models: $deploys"
+        for r in synesis-supervisor-critic-predictor synesis-executor-predictor; do
+            echo "$deploys" | grep -q "$r" || log "  WARNING: $r not found (deploy creates it)"
         done
     fi
 }
@@ -364,17 +364,18 @@ log ""
 log "Model serving status (synesis-models namespace):"
 if [[ "$ISVC_SKIP" == "true" ]]; then
     log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
-    log "  Models must be deployed manually via OpenShift AI dashboard."
+    log "  Summarizer and model deployments must be applied manually."
 else
-    if oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | head -5 | grep -q .; then
+    if oc get deployment synesis-supervisor-critic-predictor -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
         log ""
-        oc get inferenceservice -n synesis-models 2>/dev/null
+        oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-supervisor-critic,synesis-executor)' 2>/dev/null || true
+        oc get inferenceservice -n synesis-models 2>/dev/null || true
         log ""
-        log "  Deployed models: synesis-supervisor, synesis-executor, synesis-critic"
-        log "  Planner uses synesis-supervisor. Wait for PredictorReady before using."
+        log "  Model topology: supervisor+critic (1 GPU) + executor (1 GPU) on L40S"
+        log "  Planner uses supervisor/critic (shared) + executor. Wait for pods Ready."
     else
-        log "  No InferenceServices found yet (webhook may not be ready, or apply failed)"
-        log "  Check: oc get servingruntimes -n synesis-models (deploy creates synesis-supervisor, -executor, -critic)"
+        log "  Model deployments may not be ready yet."
+        log "  Check: oc get pods -n synesis-models"
         log "  Then retry: ./scripts/deploy.sh $ENV"
     fi
 fi

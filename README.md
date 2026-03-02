@@ -172,7 +172,7 @@ done
 
 **Model endpoints:** If you deployed models with different names than `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`, patch the planner env vars and supervisor config. See `base/model-serving/README.md`.
 
-**Blackwell / PVC:** For ROSA with **G6e.4xlarge** (2× L40S, 96 GB VRAM): DeepSeek-R1-Distill-70B executor (INT4) and Qwen3.5-35B manager. Pipelines download to PVC (`./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`). Deploy with `scripts/apply-blackwell-deployments.sh`. See [pipelines/README.md](pipelines/README.md) and [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
+**GPU / PVC:** For ROSA with **G6e.4xlarge** (2× L40S): Pipelines download to PVC (`./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`). Deploy with `./scripts/deploy.sh dev`. See [pipelines/README.md](pipelines/README.md) and [docs/GPU_TOPOLOGY.md](docs/GPU_TOPOLOGY.md).
 
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
