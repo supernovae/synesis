@@ -211,8 +211,11 @@ STATUS_COMPLEX: dict[str, str] = {
 }
 
 
-def _status_for_node(node: str, task_size: str) -> str:
+def _status_for_node(node: str, task_size: str, deliverable_type: str = "") -> str:
     """Return tier-matched status message for Open WebUI."""
+    # explain_only (plans, documents) → "Creating your plan…" instead of "Generating code…"
+    if node == "worker" and deliverable_type == "explain_only":
+        return "Creating your plan…"
     if task_size == "trivial" and node in STATUS_TRIVIAL:
         return STATUS_TRIVIAL[node]
     if task_size == "small" and node in STATUS_SMALL:
@@ -572,17 +575,34 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     result = chunk
                     node = chunk.get("current_node", "")
                     task_size = chunk.get("task_size", "")
+                    deliverable_type = chunk.get("deliverable_type", "")
+                    # Plan steps as "thinking" for explain_only (marathon plan, meal plan, etc.)
+                    exec_plan = chunk.get("execution_plan") or {}
+                    steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
+                    emitted_steps = False
+                    if (
+                        node == "planner"
+                        and deliverable_type == "explain_only"
+                        and steps
+                    ):
+                        for s in steps:
+                            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+                            if act:
+                                yield _sse_status_chunk({
+                                    "type": "status",
+                                    "data": {"description": act, "done": False, "hidden": False},
+                                })
+                                emitted_steps = True
                     if node:
-                        desc = _status_for_node(node, task_size or "")
+                        desc = _status_for_node(node, task_size or "", deliverable_type or "")
+                        # Skip generic planner message when we already showed step-by-step thinking
+                        if emitted_steps and node == "planner":
+                            desc = ""
                         if desc:
                             yield _sse_status_chunk({
-                            "type": "status",
-                            "data": {
-                                "description": desc,
-                                "done": False,
-                                "hidden": False,
-                            },
-                        })
+                                "type": "status",
+                                "data": {"description": desc, "done": False, "hidden": False},
+                            })
             except Exception as e:
                 logger.exception("graph_execution_error")
                 yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"

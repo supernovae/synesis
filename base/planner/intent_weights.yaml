@@ -162,6 +162,9 @@ domain_keywords:
   nutrition:
     domain: nutrition
     keywords: ["calories", "macro", "recipe", "meal plan", "nutrition"]
+  athletics_running:
+    domain: athletics_running
+    keywords: ["marathon", "running", "training plan", "vo2max", "taper", "interval", "5k", "10k", "half marathon"]
   aerospace:
     domain: aerospace
     keywords: ["avionics", "fcc", "faa", "flight"]
@@ -230,7 +233,7 @@ intent_classes:
   review:
     keywords: [review, validate, audit, check, assess, code review, security audit]
   planning:
-    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan]
+    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, generate a plan, marathon plan, create a plan]
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about]
   writing:

@@ -179,9 +179,20 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # EntryClassifier sets plan_required=false for trivial/small; skip approval for those
         plan_required = state.get("plan_required", True)
         needs_approval = plan_required and settings.require_plan_approval and len(steps) > 0
+
+        # Defensive: planning/personal_guidance + lifestyle → skip approval, treat as explain_only.
+        # Auto-continue to Worker so user gets the plan instead of "reply to proceed".
+        intent_class = state.get("intent_class", "code")
+        if needs_approval and intent_class in ("planning", "personal_guidance") and active_vertical == "lifestyle":
+            needs_approval = False
+            logger.info(
+                "planner_skip_approval_explain_only",
+                extra={"intent_class": intent_class, "vertical": active_vertical},
+            )
+
         next_node = "respond" if needs_approval else "worker"
 
-        return {
+        out: dict[str, Any] = {
             "execution_plan": plan,
             "touched_files": touched_files,
             "plan_pending_approval": needs_approval,
@@ -189,6 +200,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
+        if not needs_approval and intent_class in ("planning", "personal_guidance") and active_vertical == "lifestyle":
+            out["deliverable_type"] = "explain_only"
+            out["allowed_tools"] = ["none"]
+            out["target_language"] = "markdown"
+        return out
 
     except Exception as e:
         latency = (time.monotonic() - start) * 1000

@@ -611,6 +611,34 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
                 )
 
+        # Override: planning/personal_guidance + lifestyle → worker explain_only, never Planner.
+        # Prevents Planner producing code-oriented "execution plan" and "reply to proceed" for text plans.
+        intent_class = state.get("intent_class", "code")
+        if next_node == "planner" and intent_class in ("planning", "personal_guidance"):
+            try:
+                from ..vertical_resolver import resolve_active_vertical
+
+                vertical = resolve_active_vertical(
+                    state.get("active_domain_refs"),
+                    state.get("platform_context"),
+                )
+                if vertical == "lifestyle":
+                    next_node = "worker"
+                    needs_code = True
+                    parsed = parsed.model_copy(
+                        update={
+                            "deliverable_type": "explain_only",
+                            "allowed_tools": ["none"],
+                            "target_language": "markdown",
+                        }
+                    )
+                    logger.info(
+                        "supervisor_override_planner_to_explain_only",
+                        extra={"intent_class": intent_class, "vertical": vertical},
+                    )
+            except Exception as e:
+                logger.warning("supervisor_explain_only_override_skipped", extra={"error": str(e)[:80]})
+
         # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.
         # Prevents "no output to show" when user asks for training plan, nutrition plan, etc.
         task_desc = (parsed.task_description or user_context or "").strip()
