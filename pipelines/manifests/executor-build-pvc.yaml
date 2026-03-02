@@ -1,7 +1,8 @@
-# PVC for executor pipeline — quant output + Buildah build.
-# 70B quantized ~40–60GiB; use 150Gi to be safe.
-#
-#   sed "s/NAMESPACE/<ds-project>/" pipelines/manifests/executor-build-pvc.yaml | oc apply -f -
+# PVC for executor model — download pipeline writes to /data/executor-model; deployment mounts same PVC.
+# 32B INT4 ~20GiB. 50Gi = model + download cache headroom.
+# Create in same namespace as pipeline runs AND deployment:
+#   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
+#   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/executor-build-pvc.yaml | oc apply -f -
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -10,7 +11,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: gp3-high  # 16K IOPS, 1 GiB/s — apply storage-class-gp3-high.yaml first
   resources:
     requests:
-      storage: 150Gi
-  # storageClassName: gp3   # Uncomment for ROSA
+      storage: 50Gi  # 32B INT4 ~20GB + buffer

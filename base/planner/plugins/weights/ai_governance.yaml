@@ -1,10 +1,12 @@
 # Synesis AI Governance Plugin
 # Focus: Blackwell/black-box risks of OpenShift AI, LLM safety.
-weights:
+risk_weights:
   ai_safety:
     weight: 15
     domain: ai_governance
     keywords: ["llm_safety", "llm safety", "bias", "hallucination", "adversarial", "jailbreak", "red-team", "red team"]
+
+complexity_weights:
   compute_infra:
     weight: 12
     keywords: ["gpu", "nvidia", "blackwell", "cuda", "vllm", "tgi", "inference"]
@@ -14,6 +16,8 @@ weights:
 
 pairings:
   - keywords: ["gpu", "quota"]
-    extra_weight: 10  # Resource management escalation
+    extra_weight: 10
+    axis: complexity
   - keywords: ["hallucination", "audit"]
-    extra_weight: 15  # Triggers Fact-Check logic in Critic
+    extra_weight: 15
+    axis: risk

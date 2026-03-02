@@ -4,36 +4,30 @@ Deployments for Synesis on ROSA HCP. **G6e.4xlarge** (2× L40S, 96 GB total VRAM
 
 ## Topology (G6e)
 
-- **Executor**: DeepSeek-R1-Distill-70B **NVFP4** (~40GB) — GPU 0; FP8 won't fit 48GB
-- **Manager**: Qwen3.5-35B-A3B-Text (~18GB) — GPU 1; Supervisor + Planner + Critic (same model)
+- **Executor**: DeepSeek-R1-Distill-Qwen-32B **INT4** (~20GB + KV cache) — GPU 0; fits single L40S 48GB
+- **Manager**: Qwen3.5-35B-A3B-Text (~70GB) — GPU 1; Supervisor + Planner + Critic (same model)
 - **Planner**: Co-located on same node for UDS
 
-See [MODEL_SELECTION.md](../../../docs/MODEL_SELECTION.md) and [NVFP4_PIPELINE_ECR.md](../../../docs/NVFP4_PIPELINE_ECR.md) for NVFP4 pipeline (in-cluster, no jump host) and multi-GPU options.
+Models load from **PVC** (no OCI). Pipelines download to PVC; deployments mount the same PVC. Faster than OCI pull on worker nodes (recommended by support).
 
 ## Prerequisites
 
-1. Mirror models to ECR: `./scripts/mirror-models-to-ecr.sh`
-2. ECR_REGISTRY set (e.g. `123456789012.dkr.ecr.us-east-1.amazonaws.com`)
+1. **PVCs** created in the deployment namespace (same as pipeline runs):
+   - `modelcar-build-pvc` (120Gi) — manager
+   - `executor-build-pvc` (50Gi) — executor
+2. **Models downloaded** via pipelines: `./scripts/run-pipelines.sh manager` and `./scripts/run-pipelines.sh executor`
 3. GPU node pool with `nvidia.com/gpu.product: NVIDIA-L40S` (or adjust nodeSelector)
 
 ## Deploy
 
 ```bash
-export ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com
-# Create ECR pull secret first (see docs/BLACKWELL_DEPLOYMENT.md)
-./scripts/apply-blackwell-deployments.sh
-```
-
-Or manually:
-
-```bash
-export ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com
-export EXECUTOR_IMAGE_TAG=executor   # or executor-nvfp4 for NVFP4
-oc create namespace synesis-models 2>/dev/null || true
+export NS=synesis-models   # must match where PVCs and pipeline runs live
+oc create namespace $NS 2>/dev/null || true
 oc create namespace synesis-planner 2>/dev/null || true
-oc apply -n synesis-models -f pvc-vllm-sockets.yaml
-envsubst < deployment-vllm-executor.yaml | oc apply -n synesis-models -f -
-envsubst < deployment-vllm-manager.yaml | oc apply -n synesis-models -f -
+
+oc apply -n $NS -f pvc-vllm-sockets.yaml 2>/dev/null || true
+oc apply -n $NS -f deployment-vllm-manager.yaml
+oc apply -n $NS -f deployment-vllm-executor.yaml
 oc apply -n synesis-planner -f deployment-planner-gpu.yaml
 ```
 

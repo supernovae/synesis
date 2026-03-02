@@ -1,6 +1,6 @@
 # Synesis SecOps Hardening Plugin
 # Focus: Government-grade security standards and system-level lock-down.
-weights:
+risk_weights:
   security_standards:
     weight: 15
     domain: secops_hardening
@@ -14,6 +14,8 @@ weights:
 
 pairings:
   - keywords: ["fips", "openshift"]
-    extra_weight: 20  # Ensures cluster is in FIPS mode
+    extra_weight: 20
+    axis: risk
   - keywords: ["selinux", "disable"]
-    extra_weight: 50  # Hard block for weakening OS security
+    extra_weight: 50
+    axis: risk

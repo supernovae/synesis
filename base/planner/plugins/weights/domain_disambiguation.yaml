@@ -1,22 +1,28 @@
 # Domain disambiguation — composite triggers for ambiguous keywords.
 # "Cluster" can mean K8s, DB, or healthcare. Pair with context.
+# extra_weight: 0 — domain only, no score contribution.
 pairings:
-  # Kubernetes / OpenShift
   - keywords: ["cluster", "pod"]
     domain: kubernetes
+    extra_weight: 0
   - keywords: ["cluster", "kubectl"]
     domain: kubernetes
+    extra_weight: 0
   - keywords: ["cluster", "deployment"]
     domain: kubernetes
-  # Healthcare / epidemiology
+    extra_weight: 0
   - keywords: ["cluster", "patient"]
     domain: healthcare_compliance
+    extra_weight: 0
   - keywords: ["cluster", "outbreak"]
     domain: healthcare_compliance
-  # Databases
+    extra_weight: 0
   - keywords: ["cluster", "shard"]
     domain: databases
+    extra_weight: 0
   - keywords: ["cluster", "replica"]
     domain: databases
+    extra_weight: 0
   - keywords: ["cluster", "postgres"]
     domain: databases
+    extra_weight: 0

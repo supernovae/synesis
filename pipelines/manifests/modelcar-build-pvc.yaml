@@ -1,8 +1,9 @@
-# PVC for manager pipeline — download task writes model, Buildah reads it.
-# Create in DS project before running manager:
-#   DS_PROJECT=synesis  # or your project
-#   sed "s/NAMESPACE/$DS_PROJECT/" pipelines/manifests/modelcar-build-pvc.yaml | oc apply -f -
-# To expand existing PVC: many storage classes support resize; otherwise delete and recreate.
+# PVC for manager model — download pipeline writes to /data/models; deployment mounts same PVC.
+# Manager: nightmedia/Qwen3.5-35B-A3B-Text ~70GB. 120Gi = model + download cache headroom.
+# Create in same namespace as pipeline runs AND deployment (e.g. synesis-models or your DS project):
+#   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
+#   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/modelcar-build-pvc.yaml | oc apply -f -
+# Expand: gp3-high supports resize. Or delete + recreate if needed.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,7 +12,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: gp3-high  # 16K IOPS, 1 GiB/s — apply storage-class-gp3-high.yaml first
   resources:
     requests:
-      storage: 400Gi  # Handles both 0.5B validation and 35B model comfortably
-  # storageClassName: gp3   # Uncomment for ROSA (gp3)
+      storage: 120Gi  # 35B model ~70GB + buffer

@@ -1,26 +1,25 @@
 # PIPELINE DEFINITION
-# Name: synesis-manager-modelcar
-# Description: Manager: download model to PVC. Load from PV at runtime (no OCI).
+# Name: synesis-executor-int4
+# Description: Executor: download INT4 model to PVC. Load from PV at runtime (no OCI).
 # Inputs:
-#    model_name: str [Default: 'manager']
-#    model_repo: str [Default: 'nightmedia/Qwen3.5-35B-A3B-Text']
-#    pvc_name: str [Default: 'modelcar-build-pvc']
+#    model_repo: str [Default: 'dwetzel/DeepSeek-R1-Distill-Qwen-32B-GPTQ-INT4']
+#    pvc_name: str [Default: 'executor-build-pvc']
 components:
-  comp-download-model:
-    executorLabel: exec-download-model
+  comp-download-executor-model:
+    executorLabel: exec-download-executor-model
     inputDefinitions:
       parameters:
         model_repo:
           parameterType: STRING
 deploymentSpec:
   executors:
-    exec-download-model:
+    exec-download-executor-model:
       container:
         args:
         - --executor_input
         - '{{$}}'
         - --function_to_execute
-        - download_model
+        - download_executor_model
         command:
         - sh
         - -c
@@ -36,53 +35,51 @@ deploymentSpec:
 
           '
         - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
-          \ *\n\ndef download_model(model_repo: str):\n    \"\"\"Download HuggingFace\
-          \ model to PVC. Streams to disk, ~6Gi memory.\"\"\"\n    import subprocess\n\
-          \n    subprocess.run(\n        [\"uv\", \"pip\", \"install\", \"-q\", \"\
-          huggingface_hub[hf_transfer]\"],\n        check=True,\n    )\n\n    import\
-          \ os\n\n    out = \"/data/models\"\n    if os.path.isfile(os.path.join(out,\
-          \ \"config.json\")):\n        print(\"Model already on PVC, skipping download\"\
-          )\n        return\n    os.makedirs(out, exist_ok=True)\n    from huggingface_hub\
-          \ import snapshot_download\n\n    print(\"Downloading\", model_repo, \"\
-          ->\", out)\n    snapshot_download(\n        repo_id=model_repo,\n      \
-          \  local_dir=out,\n        token=os.environ.get(\"HF_TOKEN\") or None,\n\
-          \    )\n    print(\"Done\")\n\n"
+          \ *\n\ndef download_executor_model(model_repo: str):\n    \"\"\"Download\
+          \ pre-quantized INT4 model from HuggingFace to PVC. No GPU needed.\"\"\"\
+          \n    import subprocess\n\n    subprocess.run(\n        [\"uv\", \"pip\"\
+          , \"install\", \"-q\", \"huggingface_hub[hf_transfer]\"],\n        check=True,\n\
+          \    )\n\n    import os\n\n    out = \"/data/executor-model\"  # Must be\
+          \ inline \u2014 KFP serializes component without module constants\n    if\
+          \ os.path.isfile(os.path.join(out, \"config.json\")):\n        print(\"\
+          Model already on PVC, skipping download\")\n        return\n    os.makedirs(out,\
+          \ exist_ok=True)\n    from huggingface_hub import snapshot_download\n\n\
+          \    print(\"Downloading\", model_repo, \"->\", out)\n    snapshot_download(\n\
+          \        repo_id=model_repo,\n        local_dir=out,\n        token=os.environ.get(\"\
+          HF_TOKEN\") or None,\n    )\n    print(\"Done\")\n\n"
         image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:model-pvc-download
         resources:
           cpuRequest: 1.0
-          memoryLimit: 6.442450944
+          memoryLimit: 8.589934592
           memoryRequest: 4.294967296
           resourceCpuRequest: 1000m
-          resourceMemoryLimit: 6Gi
+          resourceMemoryLimit: 8Gi
           resourceMemoryRequest: 4Gi
 pipelineInfo:
-  description: 'Manager: download model to PVC. Load from PV at runtime (no OCI).'
-  name: synesis-manager-modelcar
+  description: 'Executor: download INT4 model to PVC. Load from PV at runtime (no
+    OCI).'
+  name: synesis-executor-int4
 root:
   dag:
     tasks:
-      download-model:
+      download-executor-model:
         cachingOptions: {}
         componentRef:
-          name: comp-download-model
+          name: comp-download-executor-model
         inputs:
           parameters:
             model_repo:
               componentInputParameter: model_repo
         taskInfo:
-          name: download-model
+          name: download-executor-model
   inputDefinitions:
     parameters:
-      model_name:
-        defaultValue: manager
-        isOptional: true
-        parameterType: STRING
       model_repo:
-        defaultValue: nightmedia/Qwen3.5-35B-A3B-Text
+        defaultValue: dwetzel/DeepSeek-R1-Distill-Qwen-32B-GPTQ-INT4
         isOptional: true
         parameterType: STRING
       pvc_name:
-        defaultValue: modelcar-build-pvc
+        defaultValue: executor-build-pvc
         isOptional: true
         parameterType: STRING
 schemaVersion: 2.1.0
@@ -92,7 +89,7 @@ platforms:
   kubernetes:
     deploymentSpec:
       executors:
-        exec-download-model:
+        exec-download-executor-model:
           pvcMount:
           - componentInputParameter: pvc_name
             mountPath: /data

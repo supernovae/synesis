@@ -1,14 +1,12 @@
 """PluginWeightLoader — merge core + industry-specific YAMLs at startup.
 
-Drop industry "Rules of Law" into plugins/weights/*.yaml and Synesis
-automatically absorbs them. Supports Sovereign Intersection: when two
-high-gravity verticals (e.g. HIPAA + K8s) are detected, both domains
-are tracked for RAG/Context Curator coordination.
+v3 format: complexity_weights, risk_weights, domain_keywords (domain never escalates).
+Supports ontology.v3 namespacing.
 
 Merge rules:
-  - weights: later plugins override same category names
-  - pairings: append (plugins add risk multipliers + domain disambiguators)
-  - overrides: per-key merge (force_manual, force_teach, etc.)
+  - complexity_weights / risk_weights / domain_keywords: merged per axis
+  - pairings: append; axis: risk|complexity
+  - overrides: per-key merge
   - thresholds: later overrides
 """
 
@@ -16,6 +14,7 @@ from __future__ import annotations
 
 import glob
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +39,14 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
 
 
+def _extract_ontology(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract ontology.v3 if present; else return raw."""
+    ont = raw.get("ontology")
+    if isinstance(ont, dict) and "v3" in ont:
+        return dict(ont["v3"])
+    return raw
+
+
 def _merge_overrides(base: dict[str, list[str]], overlay: dict[str, list[str]]) -> dict[str, list[str]]:
     """Merge override dicts: overlay extends base per key."""
     result = dict(base)
@@ -58,11 +65,18 @@ def _merge_thresholds(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str
     return result
 
 
+def _merge_weights(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Merge weight dicts: later overlay overwrites same category names."""
+    result = dict(base)
+    result.update(overlay)
+    return result
+
+
 def load_config_with_plugins(
     core_path: Path | None = None,
     plugin_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Load core config and merge all plugin YAMLs. Returns unified config."""
+    """Load core config and merge all plugin YAMLs. Returns unified config with split axes."""
     if core_path is None:
         for name in ("intent_weights.yaml", "entry_classifier_weights.yaml"):
             p = _PLANNER_ROOT / name
@@ -76,45 +90,55 @@ def load_config_with_plugins(
     if not plugin_dir_path.is_absolute():
         plugin_dir_path = _PLANNER_ROOT / plugin_dir_path
 
-    # 1. Load core
-    merged: dict[str, Any] = _load_yaml(Path(core_path)) if core_path else {}
-    if not merged:
-        merged = {
-            "thresholds": {"trivial_max": 4, "small_max": 15, "density_threshold": 3, "density_tax": 10, "educational_discount": 10},
-            "pairings": [],
-            "weights": {"io_basic": {"weight": 1, "keywords": ["print", "hello"]}, "logic_basic": {"weight": 2, "keywords": ["basic", "simple"]}},
-            "overrides": {"force_manual": ["[STRICT]", "/plan"], "force_teach": ["explain", "teach"], "force_pro_advanced": ["plan first"]},
-        }
+    raw = _load_yaml(Path(core_path)) if core_path else {}
+    merged = _extract_ontology(raw)
 
-    master_weights = dict(merged.get("weights", {}))
+    complexity_weights = dict(merged.get("complexity_weights", {}))
+    risk_weights = dict(merged.get("risk_weights", {}))
+    domain_keywords = dict(merged.get("domain_keywords", {}))
     master_pairings = list(merged.get("pairings", []))
     master_overrides = dict(merged.get("overrides", {}))
     master_thresholds = dict(merged.get("thresholds", {}))
+    risk_veto_triggers = list(merged.get("risk_veto_triggers", []))
 
-    # 2. Load and merge plugins (sorted for deterministic order)
+    # Filter plugins by compose.enabled_plugins or SYNESIS_ENTRY_CLASSIFIER_PLUGINS
+    enabled = merged.get("compose", {}).get("enabled_plugins")
+    if enabled is None:
+        env_plugins = os.environ.get("SYNESIS_ENTRY_CLASSIFIER_PLUGINS")
+        enabled = env_plugins.split(",") if env_plugins else None
+
     plugin_files = sorted(glob.glob(str(plugin_dir_path / "*.yaml")))
     for pf in plugin_files:
-        # Skip core-like names
         if "intent_weights" in pf or "entry_classifier_weights" in pf:
+            continue
+        plug_name = Path(pf).stem
+        if enabled is not None and plug_name not in enabled:
             continue
         plug = _load_yaml(Path(pf))
         if not plug:
             continue
-        # Merge weights (update)
-        master_weights.update(plug.get("weights", {}))
-        # Extend pairings
+        plug = _extract_ontology(plug)
+        if plug.get("complexity_weights"):
+            complexity_weights = _merge_weights(complexity_weights, plug["complexity_weights"])
+        if plug.get("risk_weights"):
+            risk_weights = _merge_weights(risk_weights, plug["risk_weights"])
+        if plug.get("domain_keywords"):
+            domain_keywords = _merge_weights(domain_keywords, plug["domain_keywords"])
         master_pairings.extend(plug.get("pairings", []))
-        # Merge overrides
         if plug.get("overrides"):
             master_overrides = _merge_overrides(master_overrides, plug["overrides"])
-        # Merge thresholds
         if plug.get("thresholds"):
             master_thresholds = _merge_thresholds(master_thresholds, plug["thresholds"])
+        if plug.get("risk_veto_triggers"):
+            risk_veto_triggers.extend(plug["risk_veto_triggers"])
         logger.debug("plugin_loaded path=%s", pf)
 
     return {
-        "weights": master_weights,
+        "complexity_weights": complexity_weights,
+        "risk_weights": risk_weights,
+        "domain_keywords": domain_keywords,
         "pairings": master_pairings,
         "overrides": master_overrides,
         "thresholds": master_thresholds,
+        "risk_veto_triggers": risk_veto_triggers,
     }

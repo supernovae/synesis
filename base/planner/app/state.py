@@ -121,6 +121,7 @@ class GraphState(TypedDict, total=False):
     pending_question_source: str
     task_size: str
     bypass_supervisor: bool
+    escalation_reason: str  # why routed to Supervisor/Planner (e.g. task_size_small, risk_veto)
     message_origin: str
     plan_pending_approval: bool
     # Worker/Gate

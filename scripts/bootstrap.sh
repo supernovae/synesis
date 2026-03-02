@@ -291,6 +291,29 @@ create_namespaces() {
 }
 
 # ---------------------------------------------------------------------------
+# Model PVCs (Manager + Executor)
+#
+# Pipelines download models to PVC; deployments mount same PVC. Same namespace
+# for PVCs, pipeline runs, and deployments. Requires gp3-high StorageClass
+# (cluster-admin applies once).
+# ---------------------------------------------------------------------------
+create_model_pvcs() {
+    log "Creating model PVCs in synesis-models..."
+
+    # StorageClass: cluster-admin applies once; skip if not privileged
+    if oc apply -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" 2>/dev/null; then
+        log "  StorageClass gp3-high applied (or already exists)"
+    else
+        warn "Could not apply gp3-high StorageClass (need cluster-admin)."
+        warn "  Run: oc apply -f pipelines/manifests/storage-class-gp3-high.yaml"
+    fi
+
+    sed "s/NAMESPACE/synesis-models/" "$PROJECT_ROOT/pipelines/manifests/modelcar-build-pvc.yaml" | oc apply -f -
+    sed "s/NAMESPACE/synesis-models/" "$PROJECT_ROOT/pipelines/manifests/executor-build-pvc.yaml" | oc apply -f -
+    log "  modelcar-build-pvc (120Gi), executor-build-pvc (50Gi) ready"
+}
+
+# ---------------------------------------------------------------------------
 # GHCR pull secrets for private container images
 #
 # When Synesis images are in a private GHCR repo, OpenShift needs credentials
@@ -414,6 +437,10 @@ main() {
     log "--- Namespaces ---"
     create_namespaces
 
+    log ""
+    log "--- Model PVCs (Manager + Executor) ---"
+    create_model_pvcs
+
     if [[ "$SKIP_GHCR_CREDS" != "true" ]]; then
         log ""
         log "--- GHCR Pull Secrets (private images) ---"
@@ -492,10 +519,11 @@ main() {
     log "=== Bootstrap complete ==="
     log ""
     log "Next steps:"
-    log "  1. Build images (if not done):  ./scripts/build-images.sh --push"
-    log "  2. Deploy:                      ./scripts/deploy.sh dev"
-    log "  3. If models fail:             ./scripts/list-model-runtimes.sh"
-    log "  4. Load RAG corpus (optional): ./scripts/load-language-pack.sh bash && ./scripts/index-domain.sh"
+    log "  1. Download models to PVC:      ./scripts/run-pipelines.sh manager && ./scripts/run-pipelines.sh executor"
+    log "  2. Build images (if not done): ./scripts/build-images.sh --push"
+    log "  3. Deploy:                     ./scripts/deploy.sh dev"
+    log "  4. If models fail:             ./scripts/list-model-runtimes.sh"
+    log "  5. Load RAG corpus (optional):  ./scripts/load-language-pack.sh bash && ./scripts/index-domain.sh"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

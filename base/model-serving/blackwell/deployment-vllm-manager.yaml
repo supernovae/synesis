@@ -1,9 +1,9 @@
 # Synesis Manager — Qwen3.5-35B-A3B-Text (Supervisor + Planner + Critic)
 #
 # One model instance serves all three roles via different prompts and inference params.
-# No LoRA required; add --lora-modules when adapters are trained (see LORA_TRAINING_GUIDE).
+# Loads from PVC (no OCI). Pipeline downloads to modelcar-build-pvc; deploy in same namespace.
 #
-# Prerequisites: ECR image synesis-models:manager
+# Prerequisites: modelcar-build-pvc in synesis-models, model downloaded via manager pipeline.
 ---
 apiVersion: v1
 kind: Service
@@ -40,25 +40,16 @@ spec:
         app: synesis-manager
     spec:
       imagePullPolicy: IfNotPresent
-      # Optional: uncomment if nodes lack ECR pull via IAM (e.g. cross-account)
-      # imagePullSecrets:
-      #   - name: ecr-pull-secret
       volumes:
         - name: model-store
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: modelcar-build-pvc
         - name: shm
           emptyDir:
             medium: Memory
             sizeLimit: 8Gi
         - name: vllm-sockets
           emptyDir: {}
-      initContainers:
-        - name: fetch-model
-          image: ${ECR_REGISTRY}/${ECR_REPO}:manager
-          command: ["/bin/sh", "-c", "cp -a /models/. /model/"]
-          volumeMounts:
-            - name: model-store
-              mountPath: /model
       containers:
         - name: vllm-manager
           image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
@@ -87,6 +78,7 @@ spec:
           volumeMounts:
             - name: model-store
               mountPath: /mnt/models
+              subPath: models
               readOnly: true
             - name: shm
               mountPath: /dev/shm

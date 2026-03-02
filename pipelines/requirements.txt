@@ -1,2 +1,4 @@
 # Kubeflow Pipelines SDK for compiling and running pipelines
+# kfp 2.16.0 requires kubernetes<31; kubernetes 35.x causes executor failures
 kfp[kubernetes]>=2.6.0
+kubernetes>=8.0.0,<31

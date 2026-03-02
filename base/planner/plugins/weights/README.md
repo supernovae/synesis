@@ -2,50 +2,66 @@
 
 Drop industry-specific "Rules of Law" YAML files here. Synesis absorbs them at startup.
 
+## Format (v3)
+
+Use `complexity_weights`, `risk_weights`, and `domain_keywords`. Domain never escalates complexity.
+
+### complexity_weights
+
+Steps, scope, technical complexity. Single category capped ~10.
+
+```yaml
+complexity_weights:
+  interop_standards:
+    weight: 12
+    keywords: ["hl7", "fhir", "emr", "ehr"]
+```
+
+### risk_weights
+
+Destructive ops, secrets, compliance. Can veto trivial → complex.
+
+```yaml
+risk_weights:
+  phi_identifiers:
+    weight: 15
+    domain: healthcare_compliance
+    keywords: ["phi", "patient", "hipaa"]
+```
+
+### domain_keywords
+
+RAG gravity only. Never contributes to score.
+
+```yaml
+domain_keywords:
+  healthcare_systems:
+    domain: healthcare_compliance
+    keywords: ["epic", "cerner", "meditech"]
+```
+
+### pairings
+
+```yaml
+pairings:
+  - keywords: ["phi", "public"]
+    extra_weight: 40
+    axis: risk   # or complexity
+  - keywords: ["cluster", "pod"]
+    domain: kubernetes
+    extra_weight: 0   # domain-only, no score
+```
+
 ## Merge Rules
 
-- **weights**: Later plugins override same category names.
+- **complexity_weights / risk_weights / domain_keywords**: Later plugins override same category names.
 - **pairings**: Append (plugins add risk multipliers + domain disambiguators).
-- **overrides**: Per-key merge (force_manual, force_teach, etc.).
+- **overrides**: Per-key merge.
 - **thresholds**: Later overrides.
-
-## Format
-
-### Weights (category + domain)
-
-```yaml
-weights:
-  compliance_healthcare:
-    weight: 25
-    domain: healthcare_compliance   # When hit, add to active_domains for RAG
-    keywords: ["phi", "hipaa", "hl7", "fhir", "emr", "phr", "ehr", "patient data", "pii health"]
-```
-
-### Pairings (risk multipliers)
-
-```yaml
-pairings:
-  - keywords: ["delete", "database"]
-    extra_weight: 15
-```
-
-### Domain Disambiguation (composite triggers)
-
-Resolve ambiguous words via keyword combos. E.g. "cluster" alone is ambiguous; pair with context:
-
-```yaml
-pairings:
-  - keywords: ["cluster", "pod"]
-    domain: kubernetes      # K8s cluster
-  - keywords: ["cluster", "patient"]
-    domain: healthcare_compliance
-  - keywords: ["cluster", "shard", "replica"]
-    domain: databases
-```
 
 ## Sovereign Intersection
 
-When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains are tracked. The Context Curator retrieves RAG from both indices; the Critic audits K8s manifests for HIPAA "Least Privilege" violations.
+When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains are tracked. The Context Curator retrieves RAG from both indices.
 
 ## Example Plugins
 

@@ -1,9 +1,8 @@
 # Synesis Running & Athletics Plugin
 # Focus: Biomechanics, training load, cardiovascular metrics.
-weights:
+complexity_weights:
   training_metrics:
     weight: 8
-    domain: athletics_running
     keywords: ["vo2 max", "cadence", "hrv", "pace", "zone 2", "anaerobic", "aerobic"]
   biomechanics:
     weight: 12
@@ -12,8 +11,15 @@ weights:
     weight: 10
     keywords: ["interval", "fartlek", "taper", "marathon", "ultra", "recovery"]
 
+domain_keywords:
+  athletics:
+    domain: athletics_running
+    keywords: ["vo2 max", "cadence", "marathon", "ultra", "taper", "fartlek"]
+
 pairings:
   - keywords: ["injury", "pain"]
-    extra_weight: 20  # Escalation: Switch to Medical/Safety advisory mode
+    extra_weight: 20
+    axis: risk
   - keywords: ["marathon", "taper"]
-    extra_weight: 10  # Triggers Planning for specific race events
+    extra_weight: 10
+    axis: complexity

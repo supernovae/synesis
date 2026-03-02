@@ -21,15 +21,23 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, model_validator
 
+import re
+
 from .config import settings
 from .conversation_memory import memory
+from .entry_classifier_engine import get_scoring_engine
 from .graph import graph
 from .injection_scanner import reduce_context_on_injection, scan_user_input
 from .message_filter import is_ui_helper_message
+from .pending_drift import pending_reply_diverges
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .nodes.entry_classifier import detect_language_deterministic
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
+
+# /why and /reclassify command patterns
+_WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
+_RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(trivial|small|complex)\s*$", re.IGNORECASE)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -44,11 +52,17 @@ logger = logging.getLogger("synesis.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .intent_config_linter import lint_intent_config
+
     logger.info(
         "Synesis planner starting build=%s port=%s",
         settings.build_version,
         settings.port,
     )
+    issues = lint_intent_config()
+    if issues:
+        for msg in issues:
+            logger.warning("intent_config: %s", msg)
     yield
     logger.info("Synesis planner shutting down")
 
@@ -124,6 +138,7 @@ class ChatCompletionResponse(BaseModel):
     model: str = "synesis-agent"
     choices: list[Choice]
     usage: Usage
+    run_id: str | None = None  # For feedback association (echo in POST /v1/feedback)
 
 
 def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request) -> str:
@@ -184,6 +199,7 @@ def _extract_content_and_metrics(
     result: dict,
     user_id: str,
     last_user_content: str,
+    run_id: str = "",
 ) -> tuple[str, int]:
     """Extract response content from graph result; store in memory; return (content, total_tokens)."""
     messages = result.get("messages", [])
@@ -239,6 +255,20 @@ def _extract_content_and_metrics(
         if lang:
             memory.set_last_active_language(user_id, lang)
 
+    # Store run context for feedback association (Phase 5)
+    if run_id:
+        from .feedback_store import store_run_context
+
+        store_run_context(
+            run_id=run_id,
+            user_id=user_id,
+            message_snippet=(last_user_content or "")[:200],
+            response_snippet=(content or "")[:200],
+            classification_reasons=result.get("classification_reasons") or [],
+            score_breakdown=result.get("score_breakdown") or {},
+            task_size=result.get("task_size") or "",
+        )
+
     total_tokens = 0
     for trace in result.get("node_traces", []) or []:
         if hasattr(trace, "tokens_used"):
@@ -259,6 +289,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         raise HTTPException(status_code=400, detail="No user messages provided")
 
     last_user_content = user_messages[-1].content if user_messages else ""
+    task_size_override: str | None = None
 
     # Retrieve conversation history for this user
     conversation_history: list[str] = []
@@ -322,6 +353,79 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             usage=Usage(),
         )
 
+    # B) /why — explain classification of previous user message (no graph run)
+    if _WHY_PATTERN.match(last_user_content or ""):
+        text_to_explain = ""
+        for m in reversed(request.messages):
+            if m.role == "user" and m.content and m.content != last_user_content:
+                text_to_explain = m.content.strip()
+                break
+        if not text_to_explain:
+            text_to_explain = last_user_content or "(no previous message)"
+        engine = get_scoring_engine()
+        analysis = engine.analyze(text_to_explain)
+        reasons = analysis.get("classification_reasons") or []
+        breakdown = analysis.get("score_breakdown") or {}
+        task_size = analysis.get("task_size", "small")
+        score = analysis.get("score", 0)
+        complexity = analysis.get("complexity_score", 0)
+        risk = analysis.get("risk_score", 0)
+        lines = [
+            f"**Classification:** `{task_size}` (score={score})",
+            f"**Axes:** complexity={complexity} | risk={risk}",
+            "",
+            "**Reasons:**",
+            *([f"- {r}" for r in reasons] if reasons else ["- (no keyword hits)"]),
+            "",
+            "**Score breakdown:**",
+            *([f"- {k}: {v:+d}" for k, v in sorted(breakdown.items())] if breakdown else ["- (empty)"]),
+        ]
+        content = "\n".join(lines)
+        logger.info("why_command", extra={"user_id": user_id, "score": score, "task_size": task_size})
+        return ChatCompletionResponse(
+            choices=[
+                Choice(
+                    message=ChatMessage(role="assistant", content=content),
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(),
+        )
+
+    # C) /reclassify — force task_size override for previous message (run graph with override)
+    reclassify_match = _RECLASSIFY_PATTERN.match(last_user_content or "")
+    if reclassify_match:
+        override_val = reclassify_match.group(1).lower()
+        # Use previous user message as the actual task
+        prev_content = ""
+        for m in reversed(request.messages):
+            if m.role == "user" and m.content and m.content.strip() != (last_user_content or "").strip():
+                prev_content = m.content.strip()
+                break
+        if prev_content:
+            task_size_override = override_val
+            last_user_content = prev_content
+            user_messages = [HumanMessage(content=prev_content)]
+            logger.info(
+                "reclassify_override",
+                extra={"user_id": user_id, "override": task_size_override, "original_preview": prev_content[:60]},
+            )
+        else:
+            # No previous message — return hint
+            logger.info("reclassify_no_prev", extra={"user_id": user_id})
+            return ChatCompletionResponse(
+                choices=[
+                    Choice(
+                        message=ChatMessage(
+                            role="assistant",
+                            content="`/reclassify` applies to your previous message. Send a task first, then use `/reclassify small` or `/reclassify complex` to override its classification.",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=Usage(),
+            )
+
     # IDE/agent coordination: scan for prompt injection in user + conversation
     injection_detected = False
     injection_scan_result: dict[str, object] = {}
@@ -353,6 +457,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     initial_state: dict[str, Any] = {
         "messages": user_messages,
         "task_description": (last_user_content or "").strip()[:500],
+        "task_size_override": task_size_override,
         "last_user_content": (last_user_content or "").strip()[:500],
         "max_iterations": settings.max_iterations,
         "injection_detected": injection_detected,
@@ -384,6 +489,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 if pending:
                     pending["source_node"] = "worker"
 
+        if pending:
+            # Task drift: reply diverges from pending (new requirements, different direction)
+            if pending_reply_diverges(pending, last_user_content):
+                logger.info(
+                    "pending_drift_detected",
+                    extra={"user_id": user_id, "reply_len": len(last_user_content or "")},
+                )
+                pending = None
         if pending:
             source_node = pending.get("source_node", "worker")
             context = pending.get("context", pending)
@@ -457,7 +570,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 "data": {"description": "", "done": True, "hidden": False},
             })
             content, total_tokens = _extract_content_and_metrics(
-                result, user_id, last_user_content
+                result, user_id, last_user_content, run_id=run_id
             )
             yield _sse_chunk(
                 {
@@ -470,6 +583,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             "finish_reason": None,
                         }
                     ],
+                    "run_id": run_id,
                 }
             )
             yield _sse_chunk(
@@ -477,6 +591,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "id": chat_id,
                     "object": "chat.completion.chunk",
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "run_id": run_id,
                 }
             )
             yield "data: [DONE]\n\n"
@@ -502,7 +617,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         raise HTTPException(status_code=500, detail=detail) from e
 
     content, total_tokens = _extract_content_and_metrics(
-        result, user_id, last_user_content
+        result, user_id, last_user_content, run_id=run_id
     )
 
     latency_ms = (time.monotonic() - start) * 1000
@@ -529,6 +644,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             )
         ],
         usage=Usage(total_tokens=total_tokens),
+        run_id=run_id,
     )
 
 
@@ -543,6 +659,79 @@ async def list_models():
                 "owned_by": "synesis",
                 "permission": [],
             }
+        ],
+    }
+
+
+class FeedbackSubmitRequest(BaseModel):
+    """Feedback from Open WebUI or webhook — thumbs up/down with association."""
+
+    message_id: str = Field(..., description="Client message ID (e.g. from Open WebUI)")
+    run_id: str = Field(..., description="Synesis run_id from response")
+    vote: str = Field(..., description="up or down")
+    user_id: str = ""
+    model: str = ""
+
+
+@app.post("/v1/feedback")
+async def feedback_submit(req: FeedbackSubmitRequest):
+    """Store thumbs up/down for tuning. Associates with run context (classification_reasons, etc.)."""
+    from .feedback_store import FeedbackEntry, get_feedback_store, get_run_context_cache
+
+    cache = get_run_context_cache()
+    ctx = cache.get(req.run_id)
+    store = get_feedback_store()
+    if req.vote.lower() not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="vote must be 'up' or 'down'")
+    entry = FeedbackEntry(
+        message_id=req.message_id,
+        run_id=req.run_id,
+        vote=req.vote.lower(),
+        user_id=req.user_id or (ctx.get("user_id", "") if ctx else ""),
+        model=req.model or "synesis-agent",
+        message_snippet=ctx.get("message_snippet", "") if ctx else "",
+        response_snippet=ctx.get("response_snippet", "") if ctx else "",
+        classification_reasons=ctx.get("classification_reasons", []) if ctx else [],
+        score_breakdown=ctx.get("score_breakdown", {}) if ctx else {},
+        task_size=ctx.get("task_size", "") if ctx else "",
+        timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    store.store(entry)
+    logger.info(
+        "feedback_stored",
+        extra={"message_id": req.message_id[:16], "run_id": req.run_id[:8], "vote": req.vote},
+    )
+    return {"status": "stored", "run_id": req.run_id}
+
+
+@app.get("/v1/feedback")
+async def feedback_list(
+    vote: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """List stored feedback for admin/tuning. Filter by vote=up|down."""
+    from .feedback_store import get_feedback_store
+
+    store = get_feedback_store()
+    entries = store.list_entries(vote=vote, limit=limit, offset=offset)
+    return {
+        "object": "list",
+        "data": [
+            {
+                "message_id": e.message_id,
+                "run_id": e.run_id,
+                "vote": e.vote,
+                "user_id": e.user_id,
+                "model": e.model,
+                "message_snippet": e.message_snippet,
+                "response_snippet": e.response_snippet,
+                "classification_reasons": e.classification_reasons,
+                "score_breakdown": e.score_breakdown,
+                "task_size": e.task_size,
+                "timestamp": e.timestamp,
+            }
+            for e in entries
         ],
     }
 

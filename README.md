@@ -172,7 +172,7 @@ done
 
 **Model endpoints:** If you deployed models with different names than `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`, patch the planner env vars and supervisor config. See `base/model-serving/README.md`.
 
-**Blackwell / ECR (ModelCar):** For ROSA with **G6e.4xlarge** (2× L40S, 96 GB VRAM): DeepSeek-R1-Distill-70B executor (NVFP4) and Qwen3.5-35B manager. Build via Data Science Pipelines (`./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`), or use `scripts/mirror-models-to-ecr.sh` on a jump host. Deploy with `scripts/apply-blackwell-deployments.sh`. G7e (Blackwell RTX 6000) not yet on ROSA; when available, migration is straightforward. See [pipelines/README.md](pipelines/README.md) and [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
+**Blackwell / PVC:** For ROSA with **G6e.4xlarge** (2× L40S, 96 GB VRAM): DeepSeek-R1-Distill-70B executor (INT4) and Qwen3.5-35B manager. Pipelines download to PVC (`./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`). Deploy with `scripts/apply-blackwell-deployments.sh`. See [pipelines/README.md](pipelines/README.md) and [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
 
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
@@ -331,11 +331,10 @@ synesis/
 │   └── build-images.yml       # GitHub Actions CI for container images
 ├── scripts/
 │   ├── bootstrap.sh           # Cluster preparation
-│   ├── bootstrap-pipelines.sh # Data Science Pipelines: ECR repo, buildah-ecr image, PVCs
+│   ├── bootstrap-pipelines.sh # Data Science Pipelines: ECR + model-pvc-download, hf-hub-secret, PVCs
 │   ├── build-images.sh        # Build + push all 10 custom container images
 │   ├── deploy.sh              # Kustomize apply
-│   ├── mint-ecr-credentials.sh # Fresh AWS creds for pipeline ECR push
-│   ├── run-pipelines.sh       # Invoke manager/executor ModelCar pipelines (KFP)
+│   ├── run-pipelines.sh       # Invoke manager/executor pipelines (KFP)
 │   ├── install-rag-stack.sh   # Milvus + embedder + indexers (standalone or pre-deploy)
 │   ├── load-language-pack.sh  # RAG ingestion trigger
 │   ├── index-code.sh          # Code repository indexer trigger

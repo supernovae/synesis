@@ -141,6 +141,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # clarification_budget
     clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
+    # Teach mode: must not increase interrogation (Phase 4 item 8)
+    interaction_mode = analysis.get("interaction_mode", "do")
+    if interaction_mode == "teach":
+        clarification_budget = min(clarification_budget, 1)
 
     # worker_prompt_tier: trivial=minimal, small=defensive, full=JCS
     if force_pro_advanced or task_size == "complex":
@@ -149,6 +153,21 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         worker_prompt_tier = "trivial"
     else:
         worker_prompt_tier = "small"
+
+    # escalation_reason: set whenever routing to Supervisor (Phase 4 item 9)
+    escalation_reason = ""
+    reasons = analysis.get("classification_reasons") or []
+    if not bypass_supervisor:
+        if manual_override:
+            escalation_reason = "manual_override"
+        elif any("risk_veto" in r for r in reasons):
+            escalation_reason = "risk_veto"
+        elif any("length_veto" in r for r in reasons):
+            escalation_reason = "length_veto"
+        elif task_size == "complex":
+            escalation_reason = "task_size_complex"
+        else:
+            escalation_reason = "task_size_small"
 
     out: dict[str, Any] = {
         "message_origin": message_origin,
@@ -159,14 +178,52 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "requires_clarification": requires_clarification,
         "plan_required": plan_required,
         "clarification_budget": clarification_budget,
-        "interaction_mode": analysis.get("interaction_mode", "do"),
+        "interaction_mode": interaction_mode,
         "intent_classifier_source": "deterministic",
         "worker_prompt_tier": worker_prompt_tier,
+        "escalation_reason": escalation_reason,
     }
     # Sovereign intersection: deterministic domains from EntryClassifier seed active_domain_refs
     active_domains = analysis.get("active_domains") or []
     if active_domains:
         out["active_domain_refs"] = active_domains
+
+    # Phase 1: explainability — classification_reasons and score_breakdown for /why
+    out["classification_reasons"] = analysis.get("classification_reasons") or []
+    out["score_breakdown"] = analysis.get("score_breakdown") or {}
+    out["classification_score"] = analysis.get("score", 0)
+    # Phase 2: split axes — complexity/risk/domain (domain never escalates)
+    out["complexity_score"] = analysis.get("complexity_score", 0)
+    out["risk_score"] = analysis.get("risk_score", 0)
+    out["domain_hints"] = analysis.get("domain_hints") or []
+
+    # task_size_override: /reclassify small|complex forces override (log for tuning)
+    task_size_override = state.get("task_size_override")
+    if task_size_override in ("trivial", "small", "complex"):
+        task_size = task_size_override  # type: ignore[assignment]
+        out["task_size"] = task_size
+        out["reclassify_override"] = task_size_override
+        # Recompute downstream fields for overridden task_size
+        bypass_supervisor = task_size == "trivial"
+        bypass_planner = task_size == "trivial"
+        requires_clarification = task_size == "complex"
+        if task_size == "trivial":
+            plan_required = policy.plan_required_for_trivial
+        elif task_size == "small":
+            plan_required = policy.plan_required_for_small
+        else:
+            plan_required = True
+        clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
+        if interaction_mode == "teach":
+            clarification_budget = min(clarification_budget, 1)
+        worker_prompt_tier = "trivial" if task_size == "trivial" else ("small" if task_size == "small" else "full")
+        out["bypass_supervisor"] = bypass_supervisor
+        out["bypass_planner"] = bypass_planner
+        out["requires_clarification"] = requires_clarification
+        out["plan_required"] = plan_required
+        out["clarification_budget"] = clarification_budget
+        out["worker_prompt_tier"] = worker_prompt_tier
+        out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
 
     # Trivial fast-path fields — skip when manual_override (user wants Supervisor path)
     if task_size == "trivial" and not manual_override:

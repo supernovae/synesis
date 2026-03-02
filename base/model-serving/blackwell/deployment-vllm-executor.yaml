@@ -1,11 +1,9 @@
-# Synesis Executor — G6e (2× L40S) / G7e (Blackwell)
+# Synesis Executor — G6e (L40S) / G7e (Blackwell)
 #
-# G6e: Use executor-nvfp4 (FP8 ~70GB won't fit single 48GB). NVFP4 ~40GB on GPU 0.
-# G7e: executor (FP8) or executor-nvfp4, tp=1, fits single 96 GB.
-# Planner: SYNESIS_EXECUTOR_THINKING_PARAM=thinking (R1).
-# UDS: add --uds=/tmp/vllm/executor.sock and use shared PVC.
+# Loads from PVC (no OCI). Pipeline downloads to executor-build-pvc; deploy in same namespace.
+# 32B INT4 ~20GB fits single L40S with KV cache.
 #
-# Prerequisites: ECR synesis-models:executor-nvfp4 (G6e) or :executor (G7e). See docs/BLACKWELL_ARCHITECTURE.md.
+# Prerequisites: executor-build-pvc in synesis-models, model downloaded via executor pipeline.
 ---
 apiVersion: v1
 kind: Service
@@ -44,23 +42,14 @@ spec:
       imagePullPolicy: IfNotPresent
       volumes:
         - name: model-store
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: executor-build-pvc
         - name: shm
           emptyDir:
             medium: Memory
             sizeLimit: 32Gi
         - name: vllm-sockets
           emptyDir: {}
-      # Optional: uncomment if nodes lack ECR pull via IAM (e.g. cross-account)
-      # imagePullSecrets:
-      #   - name: ecr-pull-secret
-      initContainers:
-        - name: fetch-model
-          image: ${ECR_REGISTRY}/${ECR_REPO}:${EXECUTOR_IMAGE_TAG}
-          command: ["/bin/sh", "-c", "cp -a /models/. /model/"]
-          volumeMounts:
-            - name: model-store
-              mountPath: /model
       containers:
         - name: vllm-executor
           image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
@@ -95,6 +84,7 @@ spec:
           volumeMounts:
             - name: model-store
               mountPath: /mnt/models
+              subPath: executor-model
               readOnly: true
             - name: shm
               mountPath: /dev/shm
