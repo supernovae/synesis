@@ -39,7 +39,7 @@ patches:
         path: /spec/replicas
         value: 2
       - op: replace
-        path: /spec/template/spec/containers/0/env/45/value
+        path: /spec/template/spec/containers/0/env/49/value
         value: "warning"
 
   # Scale SearXNG for HA in prod

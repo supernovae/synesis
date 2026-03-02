@@ -26,7 +26,7 @@ patches:
       name: synesis-planner
     patch: |
       - op: replace
-        path: /spec/template/spec/containers/0/env/45/value
+        path: /spec/template/spec/containers/0/env/49/value
         value: "info"
 
   # Set Route domain for staging

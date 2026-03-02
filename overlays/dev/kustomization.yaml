@@ -19,16 +19,16 @@ resources:
 
 patches:
   # Set debug logging, reduce resources, disable FlashRank on planner (avoids OOM in dev)
-  # SYNESIS_RAG_RERANKER=env[14], SYNESIS_LOG_LEVEL=env[48]
+  # SYNESIS_RAG_RERANKER=env[20], SYNESIS_LOG_LEVEL=env[49]
   - target:
       kind: Deployment
       name: synesis-planner
     patch: |
       - op: replace
-        path: /spec/template/spec/containers/0/env/14/value
+        path: /spec/template/spec/containers/0/env/20/value
         value: "none"
       - op: replace
-        path: /spec/template/spec/containers/0/env/48/value
+        path: /spec/template/spec/containers/0/env/49/value
         value: "debug"
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/cpu

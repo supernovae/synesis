@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     planner_model_uds: str = ""
     executor_model_uds: str = ""
     critic_model_uds: str = ""
+    advisor_model_uds: str = ""  # Advisor uses supervisor model; same socket when co-located
 
     # RAG / Milvus (service from milvus-standalone.yaml or LlamaStack)
     milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"

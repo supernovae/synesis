@@ -50,6 +50,10 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 32Gi
+        - name: vllm-sockets
+          hostPath:
+            path: /var/lib/synesis/vllm-sockets
+            type: DirectoryOrCreate
       containers:
         - name: vllm-executor
           image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
@@ -85,6 +89,22 @@ spec:
               readOnly: true
             - name: shm
               mountPath: /dev/shm
+            - name: vllm-sockets
+              mountPath: /var/lib/synesis/vllm-sockets
+        # UDS proxy: Planner connects via socket to avoid OVN; forwards to vLLM
+        - name: uds-proxy
+          image: alpine/socat:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/lib/synesis/vllm-sockets
+              chmod 777 /var/lib/synesis/vllm-sockets
+              exec socat UNIX-LISTEN:/var/lib/synesis/vllm-sockets/executor.sock,fork,reuseaddr,mode=777 TCP:127.0.0.1:8080
+          volumeMounts:
+            - name: vllm-sockets
+              mountPath: /var/lib/synesis/vllm-sockets
       nodeSelector:
         nvidia.com/gpu.product: NVIDIA-L40S
       tolerations:

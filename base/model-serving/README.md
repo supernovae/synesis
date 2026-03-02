@@ -37,9 +37,13 @@ oc get pods -n synesis-models
 oc get deployment synesis-supervisor-critic-predictor synesis-executor-predictor -n synesis-models
 ```
 
-## Configuring Synesis
+## UDS (Unix Domain Socket)
 
-Planner, gateway, and supervisor config use these endpoints:
+When planner is co-located with models on the same GPU node, it uses UDS instead of HTTP for lower latency and no OVN traffic. Each vLLM pod has a socat sidecar listening on `/var/lib/synesis/vllm-sockets/*.sock`; planner mounts the same hostPath. See [docs/UDS_SETUP.md](../../docs/UDS_SETUP.md).
+
+## Configuring Synesis (HTTP fallback)
+
+When UDS is not used, planner and gateway use these endpoints:
 
 - **Supervisor / Planner**: `http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1`
 - **Critic**: `http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1` (same backend as supervisor)
