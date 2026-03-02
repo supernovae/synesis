@@ -1,0 +1,188 @@
+# Approach + Dark Debt + How I Got Here — Universal across taxonomies
+#
+# Maps (intent_class × vertical × task_size) → approach semantics, dark-debt categories,
+# and "How I got here" evidence sources. Enables:
+# - "Approach: one-shot tip" vs "Approach: 12-week training plan" (running)
+# - "Dark debt: gave quick answer; no periodization" (lifestyle)
+# - "How I got here: RAG ✓ · assumptions: fitness_level" (knowledge, running)
+#
+# Fallback: intent=code, vertical=generic uses existing code-centric semantics.
+
+# ---------------------------------------------------------------------------
+# Approach types — what we chose to do. task_size influences; vertical adds labels.
+# ---------------------------------------------------------------------------
+approach_types:
+  # Code-centric (current behavior)
+  code:
+    direct_snippet: "Single file/snippet; no decomposition"
+    direct_with_tests: "Code + tests; no multi-step plan"
+    decomposed_plan: "Planner produced steps; Worker executed"
+  # Knowledge
+  knowledge:
+    retrieval_augmented: "RAG-grounded answer; citations from retrieved chunks"
+    direct_answer: "Direct answer; no RAG (trivial or disabled)"
+    synthesized: "Combined multiple sources; may have gaps"
+  # Writing
+  writing:
+    direct_draft: "Single-pass draft"
+    structured_outline: "Outline → sections (if planning suggested)"
+  # Planning
+  planning:
+    step_decomposition: "Planner decomposed; steps with verification"
+    quick_steps: "Brief step list; no full plan"
+  # Lifestyle (running, nutrition, home_automation, personal_finance)
+  lifestyle:
+    direct_tip: "Quick one-shot answer (trivial/small)"
+    quick_answer: "Single answer; no periodization/plan"
+    structured_plan: "Multi-week plan (training, nutrition, budget)"
+  # Debugging
+  debugging:
+    minimal_fix: "Targeted fix at failure point"
+    refactor: "Broader restructuring"
+  # Personal guidance
+  personal_guidance:
+    direct_answer: "Direct answer; general tips only"
+    direct_tip: "Quick tip; no full plan or prescription"
+  # Creative
+  creative_ideation:
+    direct_ideas: "Immediate ideas; no elaboration"
+    structured_exploration: "Structured exploration (if complex)"
+
+# ---------------------------------------------------------------------------
+# Dark debt categories — what we're carrying / what we didn't do.
+# Per vertical; some shared across verticals.
+# ---------------------------------------------------------------------------
+dark_debt_categories:
+  # Code/safety_ii (current)
+  code_generic:
+    failure_at_max: "Forced approval at max iterations; failure pattern unresolved"
+    stages_incomplete: "Lint/security/LSP not all passed"
+    architecture_risk: "What-If risks without mitigation"
+    integrity_override: "Patch integrity overridden; may regress"
+  # Lifestyle / running
+  lifestyle_running:
+    quick_answer_no_plan: "Gave quick tip; did not build training plan"
+    assumptions_fitness: "Assumed fitness level; not personalized"
+    missing_periodization: "No taper/periodization in answer"
+    citation_gap: "Convention (e.g. VDOT) not cited"
+  # Lifestyle / nutrition
+  lifestyle_nutrition:
+    quick_answer_no_plan: "Quick answer; no meal plan or macro breakdown"
+    assumptions_diet: "Assumed dietary restrictions"
+    citation_gap: "Nutrition guideline not cited"
+  # Knowledge
+  knowledge:
+    incomplete_citations: "Key claims not fully cited to RAG"
+    rag_confidence_low: "RAG max score below threshold; possible gap"
+    synthesized_uncertain: "Synthesized from multiple sources; certainty unclear"
+  # Planning
+  planning:
+    underspecified_steps: "Steps lack verification_command"
+    unverifiable: "Some steps not verifiable"
+  # Medical / compliance
+  medical:
+    phi_assumptions: "PHI handling assumptions not verified"
+    audit_gap: "Audit logging not explicit"
+  # Personal guidance
+  personal_guidance:
+    advice_boundary: "General tips only; no prescription/diagnosis"
+    citation_recommendation: "Recommendation not fully grounded"
+
+# ---------------------------------------------------------------------------
+# (intent_class × vertical) → approach semantics + dark_debt applicability
+# Fallback: vertical=generic or missing → code_generic / code approach
+# ---------------------------------------------------------------------------
+intent_vertical_mapping:
+  code:
+    generic: { approach: direct_snippet, dark_debt: code_generic }
+    medical: { approach: direct_with_tests, dark_debt: [code_generic, medical] }
+    fintech: { approach: direct_with_tests, dark_debt: [code_generic] }
+    industrial: { approach: direct_with_tests, dark_debt: code_generic }
+    platform: { approach: direct_with_tests, dark_debt: code_generic }
+    scientific: { approach: direct_with_tests, dark_debt: code_generic }
+    lifestyle: { approach: direct_snippet, dark_debt: [code_generic, lifestyle_running] }
+    llm_rag: { approach: direct_with_tests, dark_debt: code_generic }
+    llm_prompting: { approach: direct_with_tests, dark_debt: code_generic }
+    llm_evaluation: { approach: direct_with_tests, dark_debt: code_generic }
+    llm_governance: { approach: direct_with_tests, dark_debt: code_generic }
+  knowledge:
+    generic: { approach: retrieval_augmented, dark_debt: knowledge }
+    medical: { approach: retrieval_augmented, dark_debt: [knowledge, medical] }
+    lifestyle: { approach: [retrieval_augmented, direct_answer], dark_debt: [knowledge, lifestyle_running] }
+    llm_rag: { approach: retrieval_augmented, dark_debt: knowledge }
+  writing:
+    generic: { approach: direct_draft, dark_debt: [] }
+  planning:
+    generic: { approach: step_decomposition, dark_debt: planning }
+    lifestyle: { approach: [quick_steps, structured_plan], dark_debt: [planning, lifestyle_running] }
+  debugging:
+    generic: { approach: minimal_fix, dark_debt: code_generic }
+  data_transform:
+    generic: { approach: direct_snippet, dark_debt: code_generic }
+  tool_orchestrated:
+    generic: { approach: decomposed_plan, dark_debt: code_generic }
+  personal_guidance:
+    generic: { approach: direct_answer, dark_debt: personal_guidance }
+    lifestyle: { approach: direct_tip, dark_debt: [personal_guidance, lifestyle_running] }
+  creative_ideation:
+    generic: { approach: direct_ideas, dark_debt: [] }
+    lifestyle: { approach: direct_ideas, dark_debt: [] }
+
+# ---------------------------------------------------------------------------
+# How I got here — evidence sources per (intent × vertical)
+# ---------------------------------------------------------------------------
+how_i_got_here_sources:
+  code:
+    evidence: [sandbox, lsp, lint, security, rag]
+    strategy_key: revision_strategy
+    uncertain_key: [what_if_analyses, residual_risks]
+  knowledge:
+    evidence: [rag]
+    strategy_key: null
+    uncertain_key: [residual_risks, knowledge_gap_message]
+  writing:
+    evidence: [rag]
+    strategy_key: null
+    uncertain_key: [residual_risks]
+  planning:
+    evidence: [rag, execution_plan]
+    strategy_key: null
+    uncertain_key: [residual_risks, execution_plan]
+  lifestyle:
+    evidence: [rag]
+    strategy_key: null
+    uncertain_key: [residual_risks, assumptions]
+  personal_guidance:
+    evidence: [rag]
+    strategy_key: null
+    uncertain_key: [residual_risks]
+  debugging:
+    evidence: [sandbox, lsp, lint, security]
+    strategy_key: revision_strategy
+    uncertain_key: [residual_risks]
+  creative_ideation:
+    evidence: [rag]
+    strategy_key: null
+    uncertain_key: []
+
+# ---------------------------------------------------------------------------
+# Common relationships — shared patterns across taxonomies
+# ---------------------------------------------------------------------------
+common_relationships:
+  # task_size → approach modifier
+  task_size_modifiers:
+    trivial: "direct or quick; no plan"
+    small: "single answer or minimal decomposition"
+    complex: "decomposed plan or structured output"
+  # When plan_required (complex + Architect)
+  plan_required:
+    approach: decomposed_plan
+    dark_debt_if_forced: [underspecified_steps, architecture_risk]
+  # When RAG confidence low
+  rag_confidence_low:
+    dark_debt: rag_confidence_low
+    surface_in_how_i_got_here: true
+  # When max_iterations forced pass
+  max_iterations_forced:
+    dark_debt: failure_at_max
+    append: [stages_incomplete, architecture_risk]

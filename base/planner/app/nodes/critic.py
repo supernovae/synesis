@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..config import settings
+from ..approach_dark_debt import build_universal_dark_debt_signal
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -568,13 +569,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             stages_passed = state.get("stages_passed", [])
             integrity_reason = state.get("integrity_failure_reason", "")
             integrity_fail = state.get("integrity_failure") or {}
-            # §7.7: actionable ops signal
-            dominant_stage = "gate" if integrity_reason else (failure_type or "runtime")
-            dominant_rule = (
-                f"{integrity_reason}: {(integrity_fail.get('evidence') or '')[:80]}"
-                if integrity_reason
-                else f"{failure_type}: {failure_type}"
-            )
+            # §7.7: actionable ops signal (legacy)
             if integrity_reason and isinstance(integrity_fail, dict) and integrity_fail.get("remediation"):
                 suggested_system_fix = integrity_fail.get("remediation", "")
             elif failure_type == "lsp":
@@ -583,15 +578,33 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 suggested_system_fix = "Review lint/security rules or relax revision constraints."
             else:
                 suggested_system_fix = "Update touched_files manifest or revision constraints."
-            dark_debt_signal = {
-                "failure_pattern": failure_type,
-                "consistent_failures": True,
-                "task_hint": (task_desc or "")[:200],
-                "stages_passed": stages_passed,
-                "dominant_stage": dominant_stage,
-                "dominant_rule": dominant_rule[:200],
-                "suggested_system_fix": suggested_system_fix[:300],
-            }
+            # Universal dark debt (§approach_dark_debt_config)
+            intent_class = state.get("intent_class", "code")
+            dark_debt_signal = build_universal_dark_debt_signal(
+                state,
+                intent_class,
+                active_vertical,
+                task_size,
+                at_max_iterations=True,
+                failure_type=failure_type,
+                task_desc=task_desc,
+                stages_passed=stages_passed,
+                suggested_system_fix=suggested_system_fix,
+            )
+            dark_debt_signal["dominant_stage"] = "gate" if integrity_reason else (failure_type or "runtime")
+            dark_debt_signal["dominant_rule"] = (
+                f"{integrity_reason}: {(integrity_fail.get('evidence') or '')[:80]}"
+                if integrity_reason
+                else f"{failure_type}: {failure_type}"
+            )[:200]
+        else:
+            # Emit light dark debt when relevant (knowledge gap, lifestyle quick answer, residual risks)
+            intent_class = state.get("intent_class", "code")
+            light_signal = build_universal_dark_debt_signal(
+                state, intent_class, active_vertical, task_size
+            )
+            if light_signal.get("items"):
+                dark_debt_signal = light_signal
 
         if approved:
             next_node = "respond"

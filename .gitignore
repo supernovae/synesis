@@ -64,5 +64,4 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Docs (fast-changing; add back when stabilized)
-docs/
+# docs/ — tracked; workflow, nodes, TAXONOMY
