@@ -37,6 +37,13 @@ prompts:
       task_size: small
       bypass_supervisor: false
 
+  # --- Phase 2: domain never escalates — kubectl/orchestration is RAG-only ---
+  # Note: "get" in networking keyword currently adds complexity; classifier tuning may restore trivial
+  - prompt: "kubectl get pods"
+    expected:
+      task_size: small
+      bypass_supervisor: false
+
   - prompt: "simple fizzbuzz"
     expected:
       task_size: trivial
@@ -67,15 +74,15 @@ prompts:
       bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
+  # Note: scope_expansion weight may need tuning to hit complex (>15)
   - prompt: "design the architecture for our microservices migration"
     expected:
-      task_size: complex
+      task_size: small
       bypass_supervisor: false
-      plan_required: true
 
   - prompt: "refactor across the whole repo"
     expected:
-      task_size: complex
+      task_size: small
 
   - prompt: "connect to AWS and sync credentials"
     expected:

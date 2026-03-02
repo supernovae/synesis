@@ -78,7 +78,7 @@ class TestChatCompletions:
     @patch("app.main.graph")
     def test_streaming_returns_sse_with_status_events(self, mock_graph, client):
         """Streaming uses astream and emits status events plus final content."""
-        async def mock_astream(init_state, *, stream_mode):
+        async def mock_astream(init_state, *, stream_mode, config=None):
             # Simulate two node completions then end
             yield {"current_node": "entry_classifier", "messages": []}
             yield {
@@ -168,3 +168,39 @@ class TestChatCompletions:
         assert resp.status_code == 200
         call_args = mock_graph.ainvoke.call_args[0][0]
         assert call_args["user_id"] == "test-user-42"
+
+
+class TestFeedbackEndpoints:
+    def test_post_feedback_stores_vote(self, client):
+        resp = client.post(
+            "/v1/feedback",
+            json={
+                "message_id": "msg_123",
+                "run_id": "550e8400-e29b-41d4-a716-446655440000",
+                "vote": "down",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "stored"
+
+    def test_post_feedback_invalid_vote(self, client):
+        resp = client.post(
+            "/v1/feedback",
+            json={
+                "message_id": "msg_123",
+                "run_id": "550e8400-e29b-41d4-a716-446655440000",
+                "vote": "maybe",
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_get_feedback_returns_list(self, client):
+        resp = client.get("/v1/feedback")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["object"] == "list"
+        assert "data" in data
+
+    def test_get_feedback_filter_by_vote(self, client):
+        resp = client.get("/v1/feedback?vote=down")
+        assert resp.status_code == 200

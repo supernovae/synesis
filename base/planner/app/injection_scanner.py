@@ -33,6 +33,7 @@ _INJECTION_PATTERNS = [
     re.compile(r"\[INST\]\s*", re.IGNORECASE),  # Llama chat template
     re.compile(r"<\/?s(?:ystem)?>", re.IGNORECASE),  # XML-style role tags
     re.compile(r"ignore\s+the\s+above", re.IGNORECASE),
+    re.compile(r"ignore\s+above\b", re.IGNORECASE),
     re.compile(r"follow\s+these\s+instructions?\s+instead", re.IGNORECASE),
     re.compile(r"output\s+(?:only|just)\s+the\s+following", re.IGNORECASE),
     re.compile(r"print\s+(?:exactly|only)\s+this\s*:", re.IGNORECASE),
