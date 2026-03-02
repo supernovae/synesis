@@ -64,4 +64,5 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# docs/ — tracked; workflow, nodes, TAXONOMY
+# Docs (local only; not published)
+docs/
