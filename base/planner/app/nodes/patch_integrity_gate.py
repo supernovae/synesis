@@ -632,6 +632,31 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             "failure_ids_seen": state.get("failure_ids_seen", []) or [],
         }
 
+    # Explain-only / text output: plans, documents, training plans — bypass sandbox, go to respond
+    # (Do NOT use allowed_tools==["none"] — trivial uses that but still runs sandbox)
+    deliverable_type = state.get("deliverable_type", "single_file")
+    if deliverable_type == "explain_only":
+        logger.info("gate_explain_only_bypass", extra={"deliverable_type": deliverable_type})
+        return {
+            "current_node": node_name,
+            "integrity_passed": True,
+            "next_node": "respond",
+            "generated_code": state.get("generated_code", ""),
+            "code_explanation": state.get("code_explanation", ""),
+            "patch_ops": state.get("patch_ops", []) or [],
+            "task_description": state.get("task_description", ""),
+            "failure_ids_seen": state.get("failure_ids_seen", []) or [],
+            "node_traces": [
+                NodeTrace(
+                    node_name=node_name,
+                    reasoning="Explain-only output; bypassing sandbox",
+                    confidence=1.0,
+                    outcome=NodeOutcome.SUCCESS,
+                    latency_ms=0,
+                )
+            ],
+        }
+
     # Workspace boundary (Session-Scoped Allowlist)
     failure = check_workspace_boundary(files_touched, patch_ops, target_workspace)
     if failure:

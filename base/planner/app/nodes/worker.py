@@ -687,6 +687,18 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             system_prompt = f"{system_prompt}\n\n{vertical_block}"
             logger.debug("worker_vertical_injection", extra={"vertical": active_vertical})
 
+        # Explain-only: plans, documents, training plans — produce markdown in code field, no execution
+        deliverable_type = state.get("deliverable_type", "single_file")
+        if deliverable_type == "explain_only":
+            explain_block = (
+                "\n\n## OUTPUT MODE: Explain-Only (no code execution)\n"
+                "The user wants a plan, document, or explanation — NOT executable code. "
+                "Put your full response as markdown in the 'code' field. Use headings, lists, and structure. "
+                "No Python/bash/script — the output will be displayed directly."
+            )
+            system_prompt = f"{system_prompt}{explain_block}"
+            logger.debug("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
+
         logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)
         messages = [
             SystemMessage(content=system_prompt),

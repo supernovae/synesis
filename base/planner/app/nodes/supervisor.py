@@ -34,12 +34,13 @@ You are the Supervisor — a ROUTER for a coding assistant. You do NOT reason ab
 When "Pre-classified (EntryClassifier)" is present: use task_size and target_language. Do not re-classify.
 
 Rules:
-1. target_language: python|javascript|typescript|go|rust|java|bash|... From user or infer. Last resort: python.
-2. route_to: "worker" (single step), "planner" (multi-step), "respond" (clarification).
+1. target_language: python|javascript|typescript|go|rust|java|bash|markdown|... From user or infer. Last resort: python. Use "markdown" for plans, documents, explanations.
+2. route_to: "worker" (single step or text output), "planner" (multi-step code), "respond" (clarification only).
 3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
 4. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
-5. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for trivial.
-6. allowed_tools: explain_only → ["none"]; code generation → ["sandbox","lsp"].
+5. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, deliverable_type=explain_only, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
+6. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for trivial.
+7. allowed_tools: explain_only → ["none"]; code generation → ["sandbox","lsp"].
 
 Return valid JSON (same schema). Keep reasoning to one sentence.
 """
@@ -201,6 +202,66 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [trace],
             }
 
+        # Taxonomy-driven explain_only passthrough: planning/personal_guidance + lifestyle → text output, no code
+        # Uses Entry Classifier intent_class + domain; no need to declare every non-programming question
+        intent_class = state.get("intent_class", "code")
+        if intent_class in ("planning", "personal_guidance") and iteration == 0:
+            try:
+                from ..vertical_resolver import resolve_active_vertical
+
+                vertical = resolve_active_vertical(
+                    state.get("active_domain_refs"),
+                    state.get("platform_context"),
+                )
+                if vertical == "lifestyle":
+                    task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
+                    latency = (time.monotonic() - start) * 1000
+                    trace = NodeTrace(
+                        node_name=node_name,
+                        reasoning=f"Taxonomy: intent_class={intent_class}, vertical=lifestyle → explain_only (no LLM)",
+                        assumptions=[],
+                        confidence=1.0,
+                        outcome=NodeOutcome.SUCCESS,
+                        latency_ms=latency,
+                    )
+                    logger.info(
+                        "supervisor_passthrough_explain_only",
+                        extra={"intent_class": intent_class, "vertical": vertical, "latency_ms": latency},
+                    )
+                    return {
+                        "task_type": "general",
+                        "task_description": task_desc,
+                        "target_language": "markdown",
+                        "assumptions": [],
+                        "defaults_used": [],
+                        "assumptions_structured": [],
+                        "task_is_trivial": False,
+                        "deliverable_type": "explain_only",
+                        "interaction_mode": state.get("interaction_mode", "do"),
+                        "include_tests": False,
+                        "include_run_commands": False,
+                        "allowed_tools": ["none"],
+                        "rag_mode": "normal",
+                        "needs_code_generation": True,
+                        "rag_results": [],
+                        "rag_context": [],
+                        "rag_collections_queried": [],
+                        "tool_refs": state.get("tool_refs") or [],
+                        "failure_context": state.get("failure_context", []),
+                        "web_search_results": state.get("web_search_results", []),
+                        "web_search_queries": state.get("web_search_queries", []),
+                        "current_node": node_name,
+                        "next_node": "worker",
+                        "generated_code": state.get("generated_code", ""),
+                        "code_explanation": state.get("code_explanation", ""),
+                        "patch_ops": state.get("patch_ops", []) or [],
+                        "node_traces": [trace],
+                        "active_domain_refs": state.get("active_domain_refs"),
+                        "platform_context": state.get("platform_context"),
+                    }
+            except Exception as e:
+                logger.warning("supervisor_explain_only_passthrough_skipped", extra={"error": str(e)[:100]})
+
         # Teach-mode passthrough: small + teach → skip Supervisor LLM, route to Worker (avoids timeout on educational prompts)
         if (
             task_size == "small"
@@ -273,10 +334,15 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         if state.get("intent_classifier_source") == "deterministic":
             task_size = state.get("task_size", "small")
             target_lang = state.get("target_language", "python")
+            intent_class = state.get("intent_class", "code")
+            active_refs = state.get("active_domain_refs") or []
+            refs_str = ", ".join(str(r) for r in active_refs[:5]) if active_refs else "none"
             intent_envelope_block = (
                 f"\n\n## Pre-classified (EntryClassifier)\n"
-                f"task_size={task_size}, target_language={target_lang}. "
-                f"Use these; do not re-classify language or task_size. "
+                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, active_domain_refs=[{refs_str}]. "
+                f"Use these; do not re-classify. "
+                f"When intent_class is planning or personal_guidance with lifestyle domains (athletics_running, nutrition, etc.), "
+                f"use deliverable_type=explain_only, route_to=worker, allowed_tools=[\"none\"] — produce text/plan, not code. "
                 f"Focus on: routing, RAG, planning_suggested, deliverable_type."
             )
 
@@ -544,6 +610,25 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 next_node = (
                     "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
                 )
+
+        # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.
+        # Prevents "no output to show" when user asks for training plan, nutrition plan, etc.
+        task_desc = (parsed.task_description or user_context or "").strip()
+        if next_node == "respond" and not needs_code and len(task_desc) > 20:
+            logger.info(
+                "supervisor_override_substantive_to_worker",
+                extra={"task_desc_preview": task_desc[:80], "reason": "substantive_non_code"},
+            )
+            next_node = "worker"
+            needs_code = True
+            target_language = "markdown"
+            parsed = parsed.model_copy(
+                update={
+                    "deliverable_type": "explain_only",
+                    "allowed_tools": ["none"],
+                    "target_language": "markdown",
+                }
+            )
 
         # Query failure knowledge base (skip for trivial - no failure context needed)
         failure_context: list[str] = []

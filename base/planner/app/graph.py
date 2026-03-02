@@ -395,7 +395,11 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             ):
                 parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if display_code:
-            if patch_ops and not code:
+            deliverable_type = state.get("deliverable_type", "single_file")
+            if deliverable_type == "explain_only":
+                # Plans, documents, training plans — display as markdown (no code fence)
+                parts.append(display_code)
+            elif patch_ops and not code:
                 parts.append(display_code)
             else:
                 parts.append(f"```{lang}\n{display_code}\n```")
@@ -578,7 +582,7 @@ graph_builder.add_conditional_edges(
 graph_builder.add_conditional_edges(
     "patch_integrity_gate",
     route_after_patch_integrity_gate,
-    {"context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "sandbox": "sandbox"},
+    {"context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "sandbox": "sandbox", "respond": "respond"},
 )
 
 

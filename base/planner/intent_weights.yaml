@@ -230,7 +230,7 @@ intent_classes:
   review:
     keywords: [review, validate, audit, check, assess, code review, security audit]
   planning:
-    keywords: [plan, strategy, design, architecture, break down, decompose]
+    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan]
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about]
   writing:

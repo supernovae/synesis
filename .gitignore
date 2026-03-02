@@ -64,5 +64,8 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Docs (local only; not published)
-docs/
+# Docs: track key reference docs (nodes, workflow, taxonomy); ignore internal/plans
+docs/*
+!docs/nodes.md
+!docs/workflow.md
+!docs/TAXONOMY.md
