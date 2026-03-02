@@ -1,5 +1,5 @@
 # PVC for manager model — download pipeline writes to /data/models; deployment mounts same PVC.
-# Manager: nightmedia/Qwen3.5-35B-A3B-Text ~70GB. 120Gi = model + download cache headroom.
+# Manager: Qwen/Qwen2.5-32B-Instruct-AWQ ~19GB. 120Gi = model + download cache headroom.
 # Create in same namespace as pipeline runs AND deployment (e.g. synesis-models or your DS project):
 #   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
 #   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/modelcar-build-pvc.yaml | oc apply -f -

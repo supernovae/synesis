@@ -3,7 +3,7 @@
 #
 # Usage:
 #   export KFP_HOST=https://<pipelines-route>   # from oc get route -n <ds-project>
-#   export DS_PROJECT=synesis-models           # same ns as PVCs + deployments
+#   export DS_PROJECT=synesis-models           # REQUIRED: same ns as PVCs + deployments
 #   # Auth (required for 401): oc login, then token is auto-detected via oc whoami -t
 #   #   Or: export KFP_TOKEN=$(oc whoami -t)
 #
@@ -17,6 +17,9 @@
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Force synesis-models so pipelines use same PVCs as deployments (overrides any DS_PROJECT in env)
+export DS_PROJECT=synesis-models
 
 # Prefer uv so kfp + kubernetes extras are available: uv run --with "kfp[kubernetes]"
 if command -v uv &>/dev/null; then

@@ -54,7 +54,7 @@ def _patch_yaml_deps(path: str) -> None:
     with open(path) as f:
         content = f.read()
     uv_bootstrap = (
-        '- "\\nuv venv /opt/venv && . /opt/venv/bin/activate && '
+        '- "\\nuv venv /tmp/venv && . /tmp/venv/bin/activate && '
         'uv pip install -q \\"kfp==2.16.0\\" \\"kubernetes>=8.0.0,<31\\" && '
         'exec \\"$0\\" \\"$@\\"\\n"'
     )

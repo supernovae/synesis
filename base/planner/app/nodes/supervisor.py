@@ -207,6 +207,54 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             if last_user:
                 user_context = last_user.content
 
+        # Anemic Supervisor passthrough: EntryClassifier said complex+plan_required → skip LLM, route to Planner
+        task_size = state.get("task_size", "small")
+        plan_required = state.get("plan_required", False)
+        if task_size == "complex" and plan_required and iteration == 0:
+            target_language = state.get("target_language") or _extract_language_from_text(user_context)
+            task_desc = (user_context or "").strip()[:1000] or "Complex task requiring decomposition"
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning="Protocol/system complexity detected by EntryClassifier; delegating to Planner (no LLM)",
+                assumptions=[],
+                confidence=1.0,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+            )
+            logger.info(
+                "supervisor_passthrough_complex",
+                extra={"task_size": task_size, "latency_ms": latency},
+            )
+            return {
+                "task_type": "code_generation",
+                "task_description": task_desc,
+                "target_language": target_language,
+                "assumptions": [],
+                "defaults_used": [],
+                "assumptions_structured": [],
+                "task_is_trivial": False,
+                "deliverable_type": "multi_file_patch",
+                "interaction_mode": state.get("interaction_mode", "do"),
+                "include_tests": True,
+                "include_run_commands": True,
+                "allowed_tools": ["sandbox", "lsp"],
+                "rag_mode": "normal",
+                "rag_results": [],
+                "rag_context": [],
+                "rag_collections_queried": [],
+                "tool_refs": state.get("tool_refs") or [],
+                "failure_context": [],
+                "web_search_results": [],
+                "web_search_queries": [],
+                "current_node": node_name,
+                "next_node": "planner",
+                "generated_code": state.get("generated_code", ""),
+                "code_explanation": state.get("code_explanation", ""),
+                "patch_ops": state.get("patch_ops", []) or [],
+                "node_traces": [trace],
+            }
+
         clarification_answer_block = ""
         user_answer_to_clarification = state.get("user_answer_to_clarification", "")
         if user_answer_to_clarification:

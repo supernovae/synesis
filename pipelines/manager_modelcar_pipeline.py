@@ -54,7 +54,7 @@ def _patch_yaml_deps(path: str) -> None:
         content = f.read()
 
     uv_bootstrap = (
-        '- "\\nuv venv /opt/venv && . /opt/venv/bin/activate && '
+        '- "\\nuv venv /tmp/venv && . /tmp/venv/bin/activate && '
         'uv pip install -q \\"kfp==2.16.0\\" \\"kubernetes>=8.0.0,<31\\" && '
         'exec \\"$0\\" \\"$@\\"\\n"'
     )
@@ -78,7 +78,7 @@ def _patch_yaml_deps(path: str) -> None:
     description="Manager: download model to PVC. Load from PV at runtime (no OCI).",
 )
 def manager_modelcar_pipeline(
-    model_repo: str = "nightmedia/Qwen3.5-35B-A3B-Text",
+    model_repo: str = "Qwen/Qwen2.5-32B-Instruct-AWQ",
     model_name: str = "manager",
     pvc_name: str = "modelcar-build-pvc",
 ):

@@ -78,10 +78,11 @@ spec:
           args:
             - --port=8080
             - --model=/mnt/models
+            - --quantization=awq
             - --served-model-name=synesis-supervisor
             - --tensor-parallel-size=1
             - --max-model-len=32768
-            - --gpu-memory-utilization=0.15
+            - --gpu-memory-utilization=0.72
             - --enable-prefix-caching
           resources:
             limits:

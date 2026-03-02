@@ -1,0 +1,49 @@
+# Synesis Protocol & System-Build Plugin
+# Sovereign Veto: These terms imply architectural complexity → Planner path.
+# Drop-in: No code changes; ScoringEngine merges at startup.
+# See plugins/weights/README.md for format.
+
+# Protocol triggers — immediate escalation to complex (weight > small_max=15)
+complexity_weights:
+  protocol_fediverse:
+    weight: 25
+    keywords:
+      - fediverse
+      - activitypub
+      - mastodon
+      - toots
+      - webfinger
+      - actor.json
+      - inbox
+      - outbox
+      - jrd
+  protocol_auth:
+    weight: 20
+    keywords:
+      - oauth
+      - oidc
+      - oauth2
+      - openid connect
+  protocol_rpc:
+    weight: 18
+    keywords:
+      - grpc
+      - protobuf
+      - thrift
+  external_api:
+    weight: 15
+    keywords:
+      - stripe api
+      - twilio
+      - external api
+      - third-party api
+      - third party api
+  system_build:
+    weight: 12
+    keywords:
+      - build an app
+      - build a client
+      - build a server
+      - web application
+      - test suite
+      - compliance suite

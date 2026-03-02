@@ -26,7 +26,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: planner
-          image: synesis-planner:latest
+          image: ghcr.io/supernovae/synesis/planner:latest
           imagePullPolicy: Always
           ports:
             - name: http
@@ -129,6 +129,8 @@ spec:
               value: "http://lsp-gateway.synesis-lsp.svc:8000"
             - name: SYNESIS_LSP_TIMEOUT_SECONDS
               value: "30"
+            - name: SYNESIS_NODE_TIMEOUT_SECONDS
+              value: "180"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
           resources:

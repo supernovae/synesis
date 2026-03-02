@@ -28,7 +28,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: monitor
-          image: synesis-planner:latest
+          image: ghcr.io/supernovae/synesis/planner:latest
           command:
             - python
             - -m

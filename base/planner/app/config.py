@@ -140,7 +140,7 @@ class Settings(BaseSettings):
     # Graph behavior
     max_iterations: int = 3
     require_plan_approval: bool = True
-    node_timeout_seconds: float = 90.0  # Critic can be verbose; was 60s, caused timeouts on fibonacci
+    node_timeout_seconds: float = 180.0  # Supervisor/critic/planner LLM calls; complex tasks need >90s
     critic_max_tokens: int = 4096  # CriticOut can exceed 2048 with what_if_analyses + assessment
     critic_stop_sequence: str = ""  # e.g. '],"nonblocking":' to stop after blocking_issues (saves 30-40s)
 

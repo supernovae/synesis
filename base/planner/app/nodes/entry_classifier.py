@@ -196,6 +196,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["complexity_score"] = analysis.get("complexity_score", 0)
     out["risk_score"] = analysis.get("risk_score", 0)
     out["domain_hints"] = analysis.get("domain_hints") or []
+    out["current_node"] = "entry_classifier"
 
     # task_size_override: /reclassify small|complex forces override (log for tuning)
     task_size_override = state.get("task_size_override")

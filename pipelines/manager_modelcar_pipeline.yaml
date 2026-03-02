@@ -3,7 +3,7 @@
 # Description: Manager: download model to PVC. Load from PV at runtime (no OCI).
 # Inputs:
 #    model_name: str [Default: 'manager']
-#    model_repo: str [Default: 'nightmedia/Qwen3.5-35B-A3B-Text']
+#    model_repo: str [Default: 'Qwen/Qwen2.5-32B-Instruct-AWQ']
 #    pvc_name: str [Default: 'modelcar-build-pvc']
 components:
   comp-download-model:
@@ -24,7 +24,7 @@ deploymentSpec:
         command:
         - sh
         - -c
-        - "\nuv venv /opt/venv && . /opt/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
+        - "\nuv venv /tmp/venv && . /tmp/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)
@@ -78,7 +78,7 @@ root:
         isOptional: true
         parameterType: STRING
       model_repo:
-        defaultValue: nightmedia/Qwen3.5-35B-A3B-Text
+        defaultValue: Qwen/Qwen2.5-32B-Instruct-AWQ
         isOptional: true
         parameterType: STRING
       pvc_name:

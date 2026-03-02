@@ -23,7 +23,7 @@ deploymentSpec:
         command:
         - sh
         - -c
-        - "\nuv venv /opt/venv && . /opt/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
+        - "\nuv venv /tmp/venv && . /tmp/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
         - sh
         - -ec
         - 'program_path=$(mktemp -d)

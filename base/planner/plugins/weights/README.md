@@ -67,6 +67,7 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 
 | Plugin | Focus |
 |--------|-------|
+| `domain_protocols.yaml` | Fediverse, ActivityPub, OAuth, gRPC — protocol triggers escalate to Planner |
 | `compliance_healthcare.yaml` | PHI identifiers, HL7/FHIR/DICOM interop, Epic/Cerner — phi+public escalation |
 | `compliance_fintech.yaml` | Ledger, PCI-DSS, SOX, KYC/AML — Four-Eyes on ledger updates, PCI+s3 |
 | `secops_hardening.yaml` | FIPS, CIS-benchmark, STIGs, SELinux — selinux+disable hard block |
@@ -74,3 +75,4 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 | `domain_audio_synthesis.yaml` | Oscillators, LFO, modular, DAW, latency — audio synthesis & routing |
 | `domain_running.yaml` | VO2max, biomechanics, marathon taper — injury+pain medical advisory |
 | `domain_disambiguation.yaml` | Composite triggers (cluster+pod, cluster+patient) |
+| `domain_protocols.yaml` | Fediverse, ActivityPub, OAuth, gRPC — sovereign veto to Planner |

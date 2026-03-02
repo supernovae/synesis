@@ -193,6 +193,8 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     "critic": "Reviewing…",
     "respond": "Finishing…",
 }
+# When EntryClassifier/StrategicAdvisor flags complex, show immediate feedback (progressive disclosure)
+COMPLEX_TASK_STATUS = "Complex task detected. Building execution plan…"
 
 
 def _extract_content_and_metrics(
@@ -544,11 +546,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
                     result = chunk
                     node = chunk.get("current_node", "")
+                    task_size = chunk.get("task_size", "")
                     if node and node in NODE_STATUS_MESSAGES:
+                        desc = NODE_STATUS_MESSAGES[node]
+                        if task_size == "complex" and node in ("entry_classifier", "strategic_advisor"):
+                            desc = COMPLEX_TASK_STATUS
                         yield _sse_status_chunk({
                             "type": "status",
                             "data": {
-                                "description": NODE_STATUS_MESSAGES[node],
+                                "description": desc,
                                 "done": False,
                                 "hidden": False,
                             },

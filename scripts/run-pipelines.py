@@ -11,6 +11,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINES_DIR = REPO_ROOT / "pipelines"
 
+# Pipelines run in synesis-models so they use the same PVCs as deployments.
+# DSPA may live in a different namespace (e.g. synesis); we discover KFP_HOST from there.
+PIPELINE_NAMESPACE = "synesis-models"
+DSPA_NAMESPACES = ("synesis", "synesis-models")  # Try in order when discovering KFP host
+
 
 def compile_pipeline(name: str, ecr_uri: str | None = None) -> Path:
     """Compile pipeline to YAML. Pass ECR_URI to use model-pvc-download image."""
@@ -78,12 +83,12 @@ def run_pipeline(
         raise FileNotFoundError(f"Compiled pipeline not found: {yaml_path}")
 
     resolved_token = get_kfp_token(token)
-    ns = os.environ.get("DS_PROJECT", "synesis-models")
-    c = client.Client(host=host, existing_token=resolved_token, namespace=ns)
+    c = client.Client(host=host, existing_token=resolved_token, namespace=PIPELINE_NAMESPACE)
+    print(f"Submitting run to namespace: {PIPELINE_NAMESPACE}", file=sys.stderr)
 
     if name == "manager":
         args = {
-            "model_repo": os.environ.get("MODEL_REPO", "nightmedia/Qwen3.5-35B-A3B-Text"),
+            "model_repo": os.environ.get("MODEL_REPO", "Qwen/Qwen2.5-32B-Instruct-AWQ"),
             "model_name": "manager",
             "pvc_name": os.environ.get("MODELCAR_PVC", "modelcar-build-pvc"),
         }
@@ -135,28 +140,31 @@ def main() -> None:
     ap.add_argument(
         "--ds-project",
         default=os.environ.get("DS_PROJECT"),
-        help="Data Science project namespace (where pipelines run)",
+        help="(Unused) Pipelines always run in synesis-models for PVC consistency",
     )
     args = ap.parse_args()
 
     host = args.host
     if not host:
-        ds_project = args.ds_project or os.environ.get("DS_PROJECT")
-        if ds_project:
+        # DSPA may be in synesis (where it's installed) or synesis-models
+        for dspa_ns in DSPA_NAMESPACES:
             try:
                 r = subprocess.run(
-                    ["oc", "get", "dspa", "-n", ds_project, "-o", "jsonpath={.items[0].status.components.apiServer.externalUrl}"],
+                    ["oc", "get", "dspa", "-n", dspa_ns, "-o", "jsonpath={.items[0].status.components.apiServer.externalUrl}"],
                     capture_output=True, text=True, check=False
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     host = r.stdout.strip()
-                if not host:
-                    r = subprocess.run(
-                        ["oc", "get", "route", "-n", ds_project, "-o", "jsonpath={.items[0].spec.host}"],
-                        capture_output=True, text=True, check=False
-                    )
-                    if r.returncode == 0 and r.stdout.strip():
-                        host = f"https://{r.stdout.strip()}"
+                    print(f"Using KFP host from DSPA in {dspa_ns}", file=sys.stderr)
+                    break
+                r = subprocess.run(
+                    ["oc", "get", "route", "-n", dspa_ns, "-o", "jsonpath={.items[0].spec.host}"],
+                    capture_output=True, text=True, check=False
+                )
+                if r.returncode == 0 and r.stdout.strip():
+                    host = f"https://{r.stdout.strip()}"
+                    print(f"Using KFP host from route in {dspa_ns}", file=sys.stderr)
+                    break
             except Exception:
                 pass
         if not host:

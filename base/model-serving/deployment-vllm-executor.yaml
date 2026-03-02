@@ -63,8 +63,8 @@ spec:
             - --tensor-parallel-size=1
             - --model=/mnt/models
             - --served-model-name=synesis-executor
-            - --max-model-len=32768
-            - --gpu-memory-utilization=0.55
+            - --max-model-len=20480
+            - --gpu-memory-utilization=0.72
             - --enable-prefix-caching
             - --enable-chunked-prefill
             - --trust-remote-code

@@ -214,9 +214,10 @@ else
 fi
 
 build_manifests() {
+    local output
+    output=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
     if [[ "$ISVC_SKIP" == "true" ]]; then
-        kustomize build "$OVERLAY_DIR" 2>/dev/null \
-            | python3 -c "
+        echo "$output" | python3 -c "
 import sys
 docs = sys.stdin.read().split('---')
 for doc in docs:
@@ -224,8 +225,18 @@ for doc in docs:
         print('---')
         print(doc)
 "
+    elif [[ "$ENV" == "dev" ]]; then
+        # Exclude CronJobs and Jobs in dev — use deploy-jobs.sh to deploy them
+        echo "$output" | python3 -c "
+import sys
+docs = sys.stdin.read().split('---')
+for doc in docs:
+    if 'kind: CronJob' not in doc and 'kind: Job' not in doc:
+        print('---')
+        print(doc)
+"
     else
-        kustomize build "$OVERLAY_DIR" 2>/dev/null
+        echo "$output"
     fi
 }
 
@@ -260,16 +271,19 @@ migrate_stale_selectors() {
             fi
         done
 
-        # Jobs: template labels are immutable, delete any synesis jobs
-        local jobs
-        jobs=$(oc get jobs -n "$ns" -l app.kubernetes.io/part-of=synesis \
-            --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
-        for job in $jobs; do
-            [[ -z "$job" ]] && continue
-            log "  Deleting job/$job -n $ns (immutable template)"
-            oc delete job "$job" -n "$ns" --ignore-not-found 2>/dev/null || true
-            deleted=$((deleted + 1))
-        done
+        # Jobs: only migrate when we're applying jobs (staging/prod). In dev, jobs are
+        # managed by deploy-jobs.sh — don't delete them here.
+        if [[ "$ENV" != "dev" ]]; then
+            local jobs
+            jobs=$(oc get jobs -n "$ns" -l app.kubernetes.io/part-of=synesis \
+                --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
+            for job in $jobs; do
+                [[ -z "$job" ]] && continue
+                log "  Deleting job/$job -n $ns (immutable template)"
+                oc delete job "$job" -n "$ns" --ignore-not-found 2>/dev/null || true
+                deleted=$((deleted + 1))
+            done
+        fi
     done
 
     if [[ $deleted -gt 0 ]]; then
@@ -294,6 +308,24 @@ apply_manifests() {
 }
 
 migrate_stale_selectors
+
+# -----------------------------------------------------------------------
+# Ensure model PVCs exist (supervisor-critic + executor load from PV).
+# Bootstrap creates these; deploy creates them if missing so model pods can schedule.
+# -----------------------------------------------------------------------
+ensure_model_pvcs() {
+    oc create namespace synesis-models 2>/dev/null || true
+    for pvc in modelcar-build-pvc executor-build-pvc; do
+        if ! oc get pvc "$pvc" -n synesis-models &>/dev/null; then
+            log "Creating $pvc (required for supervisor-critic and executor)"
+            if [[ -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" ]]; then
+                oc apply -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" 2>/dev/null || true
+            fi
+            sed "s/NAMESPACE/synesis-models/" "$PROJECT_ROOT/pipelines/manifests/${pvc}.yaml" 2>/dev/null | oc apply -f - || true
+        fi
+    done
+}
+ensure_model_pvcs
 
 log ""
 log "Applying manifests to cluster..."
@@ -369,10 +401,23 @@ else
     if oc get deployment synesis-supervisor-critic-predictor -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
         log ""
         oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-supervisor-critic,synesis-executor)' 2>/dev/null || true
+        oc get pods -n synesis-models -l 'app in (synesis-supervisor-critic,synesis-executor)' 2>/dev/null || true
         oc get inferenceservice -n synesis-models 2>/dev/null || true
         log ""
         log "  Model topology: supervisor+critic (1 GPU) + executor (1 GPU) on L40S"
         log "  Planner uses supervisor/critic (shared) + executor. Wait for pods Ready."
+        # If model pods are Pending, print actionable hints
+        pending=$(oc get pods -n synesis-models --no-headers 2>/dev/null \
+            | grep -E "supervisor-critic|executor" | grep -E "Pending|ContainerCreating" || true)
+        if [[ -n "$pending" ]]; then
+            log ""
+            log "  WARNING: Model pods Pending. Common causes:"
+            log "    - No PVC: oc get pvc -n synesis-models (need modelcar-build-pvc, executor-build-pvc)"
+            log "    - PVC not bound: check StorageClass gp3-high exists"
+            log "    - No GPU nodes: oc get nodes -l nvidia.com/gpu.product=NVIDIA-L40S"
+            log "    - Models not downloaded: ./scripts/run-pipelines.sh manager && ./scripts/run-pipelines.sh executor"
+            log "  Inspect: oc describe pod -n synesis-models -l app=synesis-supervisor-critic"
+        fi
     else
         log "  Model deployments may not be ready yet."
         log "  Check: oc get pods -n synesis-models"

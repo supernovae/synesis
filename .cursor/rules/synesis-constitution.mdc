@@ -1,0 +1,42 @@
+---
+description: Synesis system constitution — delegation, anemic supervisor, evidence-gated critique
+globs: base/planner/**/*.py,base/planner/plugins/weights/*.yaml
+alwaysApply: false
+---
+
+# Synesis System Constitution
+
+Sovereign engineering via Spec-Driven Governance. When modifying the planner graph, supervisor, or entry classifier, follow these invariants.
+
+## 1. Delegation First
+
+If a task involves a **protocol** (ActivityPub, OAuth, gRPC), **multiple files**, or **system architecture**, the Supervisor MUST delegate to the Planner. Never "fast-path" complex system builds through the Worker.
+
+- **Protocol triggers** live in `plugins/weights/domain_protocols.yaml` — fediverse, activitypub, oauth, etc.
+- When EntryClassifier sets `task_size=complex` and `plan_required=True`, Supervisor uses **passthrough** (no LLM, <1ms) and routes directly to Planner.
+
+## 2. Deterministic Triage
+
+Use the EntryClassifier (regex + YAML weights) to bypass the LLM for trivial tasks (print X, hello world).
+
+- Trivial: `task_size=trivial`, `bypass_supervisor=True` → context_curator → Worker
+- Complex: `task_size=complex`, `plan_required=True` → Supervisor passthrough → Planner
+
+## 3. Anemic Supervisor
+
+The Supervisor node **allocates resources** (RAG, tools) and **routes**. It does NOT solve code.
+
+- When complex is pre-classified, Supervisor returns immediately with `next_node=planner` — no LLM call.
+- When small/ambiguous, Supervisor may invoke the LLM for routing only; heavy reasoning belongs in Planner.
+
+## 4. Evidence-Gated Critique
+
+No critique or "Learner's Corner" can exist without a `ToolRef` (LSP, Sandbox, or RAG hash). The Critic must cite evidence.
+
+## 5. Code Style (Tier 2)
+
+Python 3.11+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two-Phase Commit.
+
+## Adding New Protocols
+
+Drop keywords into `plugins/weights/domain_protocols.yaml`. No code changes. High weight (15–25) forces `task_size=complex`.

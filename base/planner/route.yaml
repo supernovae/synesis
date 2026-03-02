@@ -11,6 +11,8 @@ metadata:
     app.kubernetes.io/part-of: synesis
   annotations:
     haproxy.router.openshift.io/timeout: 300s
+    # Disable buffering for SSE so status phases reach Open WebUI in real time (if supported by router)
+    haproxy.router.openshift.io/disable_buffer: "true"
 spec:
   host: synesis-planner.apps.openshiftdemo.dev
   tls:
