@@ -24,11 +24,6 @@ spec:
     spec:
       imagePullSecrets:
         - name: ghcr-pull-secret
-      volumes:
-        - name: vllm-sockets
-          hostPath:
-            path: /var/lib/synesis/vllm-sockets
-            type: DirectoryOrCreate
       containers:
         - name: planner
           image: ghcr.io/supernovae/synesis/planner:latest
@@ -37,36 +32,21 @@ spec:
             - name: http
               containerPort: 8000
               protocol: TCP
-          volumeMounts:
-            - name: vllm-sockets
-              mountPath: /var/lib/synesis/vllm-sockets
           env:
             - name: SYNESIS_SUPERVISOR_MODEL_URL
-              value: "http://localhost/v1"
-            - name: SYNESIS_SUPERVISOR_MODEL_UDS
-              value: "/var/lib/synesis/vllm-sockets/supervisor.sock"
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_PLANNER_MODEL_URL
-              value: "http://localhost/v1"
-            - name: SYNESIS_PLANNER_MODEL_UDS
-              value: "/var/lib/synesis/vllm-sockets/supervisor.sock"
+              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_PLANNER_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_EXECUTOR_MODEL_URL
-              value: "http://localhost/v1"
-            - name: SYNESIS_EXECUTOR_MODEL_UDS
-              value: "/var/lib/synesis/vllm-sockets/executor.sock"
+              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_EXECUTOR_MODEL_NAME
               value: "synesis-executor"
             - name: SYNESIS_CRITIC_MODEL_URL
-              value: "http://localhost/v1"
-            - name: SYNESIS_CRITIC_MODEL_UDS
-              value: "/var/lib/synesis/vllm-sockets/supervisor.sock"
-            - name: SYNESIS_ADVISOR_MODEL_URL
-              value: "http://localhost/v1"
-            - name: SYNESIS_ADVISOR_MODEL_UDS
-              value: "/var/lib/synesis/vllm-sockets/supervisor.sock"
+              value: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_CRITIC_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_SUMMARIZER_MODEL_URL
@@ -172,11 +152,3 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
-      # Co-locate with GPU models for UDS/low-latency; no GPU requested
-      nodeSelector:
-        nvidia.com/gpu.product: NVIDIA-L40S
-      tolerations:
-        - effect: NoSchedule
-          key: nvidia.com/gpu
-          operator: Equal
-          value: "true"

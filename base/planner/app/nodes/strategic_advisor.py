@@ -70,6 +70,16 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": node_name,
         }
 
+    # Complex: EntryClassifier already escalated; skip advisor LLM (anemic advisor)
+    # Supervisor will passthrough to Planner; no need for domain classification here
+    if task_size == "complex":
+        return {
+            "platform_context": "generic",
+            "active_domain_refs": existing_domains,
+            "advisory_message": "",
+            "current_node": node_name,
+        }
+
     if not getattr(settings, "advisor_enabled", True):
         return {
             "platform_context": "generic",
