@@ -1,6 +1,6 @@
 # Blackwell / G6e Deployment
 
-Deployments for Synesis on ROSA HCP. **G6e.4xlarge** (2× L40S, 96 GB) is the current target; G7e when available.
+Deployments for Synesis on ROSA HCP. **G6e.4xlarge** (2× L40S, 96 GB total VRAM) is the current target. G7e (Blackwell RTX 6000) is not yet available on ROSA; when it lands, migration is straightforward.
 
 ## Topology (G6e)
 

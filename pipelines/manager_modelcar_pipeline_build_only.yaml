@@ -1,6 +1,6 @@
 # PIPELINE DEFINITION
-# Name: synesis-manager-modelcar-split-build-only
-# Description: Build only — assumes model already on PVC (resume after failed build)
+# Name: synesis-manager-modelcar-build-only
+# Description: Build only — model already on PVC (resume after failed build)
 # Inputs:
 #    pvc_name: str [Default: 'modelcar-build-pvc']
 components:
@@ -24,9 +24,8 @@ deploymentSpec:
           resourceMemoryLimit: 56Gi
           resourceMemoryRequest: 8Gi
 pipelineInfo:
-  description: "Build only \u2014 assumes model already on PVC (resume after failed\
-    \ build)"
-  name: synesis-manager-modelcar-split-build-only
+  description: "Build only \u2014 model already on PVC (resume after failed build)"
+  name: synesis-manager-modelcar-build-only
 root:
   dag:
     tasks:

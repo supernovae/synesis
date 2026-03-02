@@ -42,7 +42,7 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
   └── else ──► Supervisor
 ```
 
-**Flow:** Entry → Domain Aligner → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Domain Aligner enables domain-aware RAG; Context Curator flags knowledge gaps. Trivial tasks never bypass the Patch Integrity Gate. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and improvements. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
+**Flow:** Entry → Domain Aligner → Supervisor → (Planner? | Worker) → Worker (Executor LLM) → Sandbox → Critic → Respond. Domain Aligner enables domain-aware RAG; Context Curator flags knowledge gaps. Trivial tasks never bypass the Patch Integrity Gate. Use `[STRICT]` or `/plan` to force the Supervisor path even for trivial tasks. See [docs/USERGUIDE.md](docs/USERGUIDE.md) for trigger words and [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph. Plan approval and needs_input surface questions via Respond; the next user message resumes at Worker. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the full graph and routing logic.
 
 **Performance:** Prefix caching (Supervisor/Critic), guided JSON decoding, persistent HTTP client, and state refs+cache reduce latency and payload size between nodes. See [docs/WORKFLOW.md § Performance and State Payload Optimization](docs/WORKFLOW.md#performance-and-state-payload-optimization).
 
@@ -172,7 +172,7 @@ done
 
 **Model endpoints:** If you deployed models with different names than `synesis-supervisor`, `synesis-planner`, `synesis-executor`, `synesis-critic`, patch the planner env vars and supervisor config. See `base/model-serving/README.md`.
 
-**Blackwell / ECR (ModelCar):** For ROSA with G7e (RTX 6000), DeepSeek-R1-Distill-70B executor and Qwen3.5-35B manager: build via `scripts/mirror-models-to-ecr.sh`, then deploy with `scripts/apply-blackwell-deployments.sh`. See [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
+**Blackwell / ECR (ModelCar):** For ROSA with **G6e.4xlarge** (2× L40S, 96 GB VRAM): DeepSeek-R1-Distill-70B executor (NVFP4) and Qwen3.5-35B manager. Build via Data Science Pipelines (`./scripts/bootstrap-pipelines.sh` then `./scripts/run-pipelines.sh manager` / `executor` / `all`), or use `scripts/mirror-models-to-ecr.sh` on a jump host. Deploy with `scripts/apply-blackwell-deployments.sh`. G7e (Blackwell RTX 6000) not yet on ROSA; when available, migration is straightforward. See [pipelines/README.md](pipelines/README.md) and [docs/BLACKWELL_DEPLOYMENT.md](docs/BLACKWELL_DEPLOYMENT.md).
 
 **LiteLLM API key:** Auto-generated on first deploy. The deploy script creates a
 random key, stores it in a cluster Secret, and prints it at the end. LiteLLM OSS
@@ -331,8 +331,11 @@ synesis/
 │   └── build-images.yml       # GitHub Actions CI for container images
 ├── scripts/
 │   ├── bootstrap.sh           # Cluster preparation
+│   ├── bootstrap-pipelines.sh # Data Science Pipelines: ECR repo, buildah-ecr image, PVCs
 │   ├── build-images.sh        # Build + push all 10 custom container images
 │   ├── deploy.sh              # Kustomize apply
+│   ├── mint-ecr-credentials.sh # Fresh AWS creds for pipeline ECR push
+│   ├── run-pipelines.sh       # Invoke manager/executor ModelCar pipelines (KFP)
 │   ├── install-rag-stack.sh   # Milvus + embedder + indexers (standalone or pre-deploy)
 │   ├── load-language-pack.sh  # RAG ingestion trigger
 │   ├── index-code.sh          # Code repository indexer trigger

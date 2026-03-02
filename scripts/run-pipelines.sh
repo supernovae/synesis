@@ -8,12 +8,10 @@
 #   #   Or: export KFP_TOKEN=$(oc whoami -t)
 #
 #   ./scripts/run-pipelines.sh manager
-#   ./scripts/run-pipelines.sh manager --validate   # 0.5B model, fast validation
-#   ./scripts/run-pipelines.sh manager-split              # Download→build, avoids OOM (needs PVC)
-#   ./scripts/run-pipelines.sh manager-split-build-only   # Resume build (skip re-download)
-#   ./scripts/run-pipelines.sh executor-split             # Quant→copy→build (needs executor PVC)
-#   ./scripts/run-pipelines.sh executor-split-build-only  # Resume executor build
+#   ./scripts/run-pipelines.sh manager --validate   # 0.5B model, fast end-to-end test
+#   ./scripts/run-pipelines.sh manager-build-only  # Resume build (skip re-download)
 #   ./scripts/run-pipelines.sh executor
+#   ./scripts/run-pipelines.sh executor-build-only # Resume executor build
 #   ./scripts/run-pipelines.sh all
 #
 # Prerequisites: pip install kfp, oc logged in, hf-hub-secret in DS project

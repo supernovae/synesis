@@ -1,4 +1,4 @@
-# PVC for split executor pipeline — quant output + Kaniko build.
+# PVC for executor pipeline — quant output + Buildah build.
 # 70B quantized ~40–60GiB; use 150Gi to be safe.
 #
 #   sed "s/NAMESPACE/<ds-project>/" pipelines/manifests/executor-build-pvc.yaml | oc apply -f -

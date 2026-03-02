@@ -6,6 +6,10 @@
 
 set -e
 
+# With privileged containers we can use overlay (fast). Fallback to vfs if unprivileged.
+export BUILDAH_ISOLATION=chroot
+export BUILDAH_DRIVER="${BUILDAH_DRIVER:-overlay}"
+
 # Support both formats
 if [ -n "$1" ] && case "$1" in *::*::*) true ;; *) false ;; esac; then
   ECR_URI="${1%%::*}"
@@ -14,7 +18,21 @@ if [ -n "$1" ] && case "$1" in *::*::*) true ;; *) false ;; esac; then
   MODEL_NAME="${rest#*::}"
   export ECR_URI IMAGE_TAG MODEL_NAME
 elif [ $# -ge 3 ]; then
-  export ECR_URI="$1" && export IMAGE_TAG="$2" && export MODEL_NAME="$3"
+  # DSPA may pass args in arbitrary order; detect by format.
+  for a in "$1" "$2" "$3"; do
+    case "$a" in
+      *dkr.ecr*) ECR_URI="$a" ;;
+      *-*|executor*) IMAGE_TAG="$a" ;;  # tag: manager-0.5b, executor-nvfp4
+      *) MODEL_NAME="$a" ;;               # model: summarizer, manager
+    esac
+  done
+  if [ -z "${ECR_URI:-}" ]; then
+    export ECR_URI="$1" IMAGE_TAG="${2:-manager}" MODEL_NAME="${3:-manager}"
+  else
+    IMAGE_TAG="${IMAGE_TAG:-manager}"
+    MODEL_NAME="${MODEL_NAME:-manager}"
+    export ECR_URI IMAGE_TAG MODEL_NAME
+  fi
 elif [ -n "$1" ] && case "$1" in *dkr.ecr*) true ;; *) false ;; esac; then
   export ECR_URI="$1" IMAGE_TAG="manager" MODEL_NAME="manager"
 fi
@@ -44,9 +62,9 @@ if [ ! -d "${CONTEXT_DIR}/models" ]; then
   exit 1
 fi
 
-# Logical layering: metadata first (one layer), then model shards ~20GB each.
-# ECR max 50GB; 20GB = manageable, benefits parallel pull on deploy.
-MAX_LAYER_GB=20
+# Logical layering: metadata first, then model shards. 10GB = universal (ECR Public, GHCR).
+# ECR Private allows ~50GB; we use 10GB for compatibility.
+MAX_LAYER_GB=10
 MAX_LAYER_BYTES=$((MAX_LAYER_GB * 1024 * 1024 * 1024))
 
 cd "$CONTEXT_DIR"
@@ -56,7 +74,7 @@ METADATA=$(find models -type f \( \
   -o -name 'generation_config.json' -o -name 'special_tokens_map.json' \
   -o -name '*.model' -o -name '*.py' -o -name '*.tiktoken' -o -name 'merges.txt' \
   -o -name 'vocab.json' \) -print 2>/dev/null | tr '\n' ' ')
-# Layers 2+: model data (safetensors, bin) — group to 20GB
+# Layers 2+: model data (safetensors, bin) — group to MAX_LAYER_GB
 SHARDS=$(find models -type f \( -name '*.safetensors' -o -name '*.bin' \) -print0 2>/dev/null | xargs -0 du -b 2>/dev/null | sort -rn | awk -v max="$MAX_LAYER_BYTES" '
   { size=$1; path=$2; if (path=="") next }
   total+size > max && total>0 { print group; group=""; total=0 }
@@ -98,11 +116,18 @@ REGISTRY="${ECR_URI%%/*}"
 TOKEN=$(aws ecr get-login-password --region "$AWS_REGION")
 echo "{\"auths\":{\"${REGISTRY}\":{\"username\":\"AWS\",\"password\":\"${TOKEN}\"}}}" > "$DOCKER_CFG/config.json"
 
-# Buildah build and push. --layers=false to avoid caching (we want fresh); storage in tmp
-buildah bud --build-arg "MODEL_NAME=${MODEL_NAME}" \
+# Build phase
+buildah bud --isolation=chroot --storage-driver="${BUILDAH_DRIVER:-overlay}" --build-arg "MODEL_NAME=${MODEL_NAME}" \
   -f "$DOCKERFILE" \
   -t "$DEST" \
   "$CONTEXT_DIR"
-buildah push "$DEST" "docker://$DEST"
 
+# Push phase (build + push in same run; no tar intermediary for large models)
+echo "Pushing to ECR: $DEST"
+# Ensure Buildah uses ECR auth; DOCKER_CONFIG not always honored for push
+aws ecr get-login-password --region "$AWS_REGION" | buildah login --username AWS --password-stdin "$REGISTRY"
+buildah push "$DEST" "docker://$DEST"
 echo "Pushed $DEST"
+echo "Cleaning up PVC after successful push..."
+rm -rf "${CONTEXT_DIR}/models"
+echo "PVC cleanup done"

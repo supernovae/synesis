@@ -1,80 +1,225 @@
 # PIPELINE DEFINITION
 # Name: synesis-manager-modelcar
-# Description: Build Manager ModelCar (HF download during build), push to ECR
+# Description: Build Manager ModelCar: download to PVC, Buildah build+push to ECR (10GB layers)
 # Inputs:
 #    ecr_uri: str [Default: '123456789012.dkr.ecr.us-east-1.amazonaws.com/synesis-models']
 #    image_tag: str [Default: 'manager']
-#    kaniko_image: str [Default: '660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr']
 #    model_name: str [Default: 'manager']
 #    model_repo: str [Default: 'nightmedia/Qwen3.5-35B-A3B-Text']
+#    pvc_name: str [Default: 'modelcar-build-pvc']
 components:
-  comp-build-and-push-manager-modelcar:
-    executorLabel: exec-build-and-push-manager-modelcar
+  comp-build-and-push-modelcar:
+    executorLabel: exec-build-and-push-modelcar
     inputDefinitions:
       parameters:
+        buildah_image:
+          parameterType: STRING
         ecr_uri:
           parameterType: STRING
         image_tag:
-          defaultValue: manager
-          isOptional: true
-          parameterType: STRING
-        kaniko_image:
-          defaultValue: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
-          isOptional: true
           parameterType: STRING
         model_name:
-          defaultValue: manager
-          isOptional: true
           parameterType: STRING
+        pvc_name:
+          parameterType: STRING
+  comp-download-model:
+    executorLabel: exec-download-model
+    inputDefinitions:
+      parameters:
         model_repo:
           parameterType: STRING
 deploymentSpec:
   executors:
-    exec-build-and-push-manager-modelcar:
+    exec-build-and-push-modelcar:
       container:
         args:
-        - '{{$.inputs.parameters[''model_repo'']}}'
-        - '{{$.inputs.parameters[''model_name'']}}'
-        - '{{$.inputs.parameters[''ecr_uri'']}}'
-        - '{{$.inputs.parameters[''image_tag'']}}'
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - build_and_push_modelcar
         command:
         - sh
-        - /usr/local/bin/ecr-login-and-kaniko-modelcar.sh
-        image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef build_and_push_modelcar(\n    model_name: str,\n    ecr_uri:\
+          \ str,\n    image_tag: str,\n    pvc_name: str,\n    buildah_image: str,\n\
+          ):\n    \"\"\"Build ModelCar via a Job with runAsUser:0. Workaround for\
+          \ uid_map in OpenShift.\"\"\"\n    import subprocess\n    import sys\n \
+          \   import time\n\n    subprocess.run([sys.executable, \"-m\", \"pip\",\
+          \ \"install\", \"-q\", \"kubernetes\"], check=True)\n    from kubernetes\
+          \ import client, config\n\n    try:\n        config.load_incluster_config()\n\
+          \    except config.ConfigException:\n        config.load_kube_config()\n\
+          \    core_api = client.CoreV1Api()\n\n    namespace = open(\"/var/run/secrets/kubernetes.io/serviceaccount/namespace\"\
+          ).read().strip()\n    job_name = f\"modelcar-build-{int(time.time())}\"\n\
+          \n    env = [\n        client.V1EnvVar(name=\"BUILDAH_ISOLATION\", value=\"\
+          chroot\"),\n        client.V1EnvVar(name=\"BUILDAH_DRIVER\", value=\"overlay\"\
+          ),\n        client.V1EnvVar(name=\"AWS_ACCESS_KEY_ID\", value_from=client.V1EnvVarSource(\n\
+          \            secret_key_ref=client.V1SecretKeySelector(name=\"aws-ecr-credentials\"\
+          , key=\"AWS_ACCESS_KEY_ID\"),\n        )),\n        client.V1EnvVar(name=\"\
+          AWS_SECRET_ACCESS_KEY\", value_from=client.V1EnvVarSource(\n           \
+          \ secret_key_ref=client.V1SecretKeySelector(name=\"aws-ecr-credentials\"\
+          , key=\"AWS_SECRET_ACCESS_KEY\"),\n        )),\n    ]\n    try:\n      \
+          \  core_api.read_namespaced_secret(\"aws-ecr-session-token\", namespace)\n\
+          \        env.append(client.V1EnvVar(name=\"AWS_SESSION_TOKEN\", value_from=client.V1EnvVarSource(\n\
+          \            secret_key_ref=client.V1SecretKeySelector(name=\"aws-ecr-session-token\"\
+          , key=\"AWS_SESSION_TOKEN\"),\n        )))\n    except client.exceptions.ApiException:\n\
+          \        pass\n\n    job = client.V1Job(\n        metadata=client.V1ObjectMeta(name=job_name,\
+          \ namespace=namespace),\n        spec=client.V1JobSpec(\n            ttl_seconds_after_finished=300,\n\
+          \            backoff_limit=0,\n            template=client.V1PodTemplateSpec(\n\
+          \                metadata=client.V1ObjectMeta(\n                    labels={\"\
+          app\": \"modelcar-build\"},\n                ),\n                spec=client.V1PodSpec(\n\
+          \                    restart_policy=\"Never\",\n                    service_account_name=\"\
+          pipeline-runner-dspa\",\n                    security_context=client.V1PodSecurityContext(run_as_user=0),\n\
+          \                    containers=[\n                        client.V1Container(\n\
+          \                            name=\"buildah\",\n                       \
+          \     image=buildah_image,\n                            image_pull_policy=\"\
+          Always\",\n                            security_context=client.V1SecurityContext(\n\
+          \                                run_as_user=0,\n                      \
+          \          privileged=True,\n                            ),\n          \
+          \                  command=[\"sh\", \"-c\"],\n                         \
+          \   args=[\n                                \"export CONTEXT_DIR=/data &&\
+          \ \"\n                                \"exec /usr/local/bin/ecr-login-and-buildah-modelcar-pvc.sh\
+          \ \\\"$1\\\" \\\"$2\\\" \\\"$3\\\"\",\n                                image_tag,\n\
+          \                                model_name,\n                         \
+          \       ecr_uri,\n                            ],\n                     \
+          \       env=env,\n                            volume_mounts=[\n        \
+          \                        client.V1VolumeMount(name=\"pvc\", mount_path=\"\
+          /data\"),\n                                client.V1VolumeMount(name=\"\
+          buildah-storage\", mount_path=\"/var/lib/containers\"),\n              \
+          \              ],\n                            resources=client.V1ResourceRequirements(\n\
+          \                                requests={\"cpu\": \"2000m\", \"memory\"\
+          : \"16Gi\"},\n                                limits={\"memory\": \"72Gi\"\
+          },\n                            ),\n                        ),\n       \
+          \             ],\n                    volumes=[\n                      \
+          \  client.V1Volume(\n                            name=\"pvc\",\n       \
+          \                     persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(claim_name=pvc_name),\n\
+          \                        ),\n                        client.V1Volume(\n\
+          \                            name=\"buildah-storage\",\n               \
+          \             empty_dir=client.V1EmptyDirVolumeSource(size_limit=\"80Gi\"\
+          ),\n                        ),\n                    ],\n               \
+          \ ),\n            ),\n        ),\n    )\n\n    batch_api = client.BatchV1Api()\n\
+          \n    batch_api.create_namespaced_job(namespace=namespace, body=job)\n \
+          \   print(f\"Created Job {job_name} in {namespace}\")\n\n    # Wait for\
+          \ completion\n    while True:\n        j = batch_api.read_namespaced_job(name=job_name,\
+          \ namespace=namespace)\n        if j.status.succeeded is not None and j.status.succeeded\
+          \ > 0:\n            print(\"Build Job succeeded\")\n            break\n\
+          \        if j.status.failed is not None and j.status.failed > 0:\n     \
+          \       pods = core_api.list_namespaced_pod(\n                namespace=namespace,\n\
+          \                label_selector=f\"job-name={job_name}\",\n            )\n\
+          \            for pod in pods.items:\n                if pod.status.phase\
+          \ == \"Failed\":\n                    try:\n                        logs\
+          \ = core_api.read_namespaced_pod_log(\n                            name=pod.metadata.name,\n\
+          \                            namespace=namespace,\n                    \
+          \        container=\"buildah\",\n                        )\n           \
+          \             print(\"Build Job failed. Pod logs:\\n\", logs)\n        \
+          \            except client.exceptions.ApiException as e:\n             \
+          \           print(f\"Build Job failed. Could not fetch logs: {e}\")\n  \
+          \                      print(f\"Manually inspect: kubectl logs -n {namespace}\
+          \ {pod.metadata.name} -c buildah\")\n            raise RuntimeError(f\"\
+          Build Job failed. Job: {job_name}\")\n        time.sleep(5)\n\n"
+        image: python:3.12-slim
+    exec-download-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.16.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_model(model_repo: str):\n    \"\"\"Download HuggingFace\
+          \ model to PVC. Lightweight \u2014 ~8Gi memory.\"\"\"\n    import subprocess\n\
+          \    import sys\n\n    subprocess.run(\n        [sys.executable, \"-m\"\
+          , \"pip\", \"install\", \"-q\", \"huggingface_hub[hf_transfer]\"],\n   \
+          \     check=True,\n    )\n\n    import os\n\n    out = \"/data/models\"\n\
+          \    if os.path.isfile(os.path.join(out, \"config.json\")):\n        print(\"\
+          Model already on PVC, skipping download\")\n        return\n    os.makedirs(out,\
+          \ exist_ok=True)\n    from huggingface_hub import snapshot_download\n\n\
+          \    print(\"Downloading\", model_repo, \"->\", out)\n    snapshot_download(\n\
+          \        repo_id=model_repo,\n        local_dir=out,\n        token=os.environ.get(\"\
+          HF_TOKEN\") or None,\n    )\n    print(\"Done\")\n\n"
+        image: python:3.12-slim
         resources:
-          cpuLimit: 8.0
-          cpuRequest: 4.0
-          memoryLimit: 51.539607552
-          memoryRequest: 17.179869184
-          resourceCpuLimit: 8000m
-          resourceCpuRequest: 4000m
-          resourceMemoryLimit: 48Gi
-          resourceMemoryRequest: 16Gi
+          cpuRequest: 1.0
+          memoryLimit: 8.589934592
+          memoryRequest: 4.294967296
+          resourceCpuRequest: 1000m
+          resourceMemoryLimit: 8Gi
+          resourceMemoryRequest: 4Gi
 pipelineInfo:
-  description: Build Manager ModelCar (HF download during build), push to ECR
+  description: 'Build Manager ModelCar: download to PVC, Buildah build+push to ECR
+    (10GB layers)'
   name: synesis-manager-modelcar
 root:
   dag:
     tasks:
-      build-and-push-manager-modelcar:
+      build-and-push-modelcar:
         cachingOptions:
           enableCache: true
         componentRef:
-          name: comp-build-and-push-manager-modelcar
+          name: comp-build-and-push-modelcar
+        dependentTasks:
+        - download-model
         inputs:
           parameters:
+            buildah_image:
+              runtimeValue:
+                constant: '{{$.inputs.parameters[''pipelinechannel--ecr_uri'']}}:buildah-ecr'
             ecr_uri:
               componentInputParameter: ecr_uri
             image_tag:
               componentInputParameter: image_tag
-            kaniko_image:
-              componentInputParameter: kaniko_image
             model_name:
               componentInputParameter: model_name
+            pipelinechannel--ecr_uri:
+              componentInputParameter: ecr_uri
+            pvc_name:
+              componentInputParameter: pvc_name
+        taskInfo:
+          name: build-and-push-modelcar
+      download-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-download-model
+        inputs:
+          parameters:
             model_repo:
               componentInputParameter: model_repo
         taskInfo:
-          name: build-and-push-manager-modelcar
+          name: download-model
   inputDefinitions:
     parameters:
       ecr_uri:
@@ -85,16 +230,16 @@ root:
         defaultValue: manager
         isOptional: true
         parameterType: STRING
-      kaniko_image:
-        defaultValue: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:kaniko-ecr
-        isOptional: true
-        parameterType: STRING
       model_name:
         defaultValue: manager
         isOptional: true
         parameterType: STRING
       model_repo:
         defaultValue: nightmedia/Qwen3.5-35B-A3B-Text
+        isOptional: true
+        parameterType: STRING
+      pvc_name:
+        defaultValue: modelcar-build-pvc
         isOptional: true
         parameterType: STRING
 schemaVersion: 2.1.0
@@ -104,27 +249,13 @@ platforms:
   kubernetes:
     deploymentSpec:
       executors:
-        exec-build-and-push-manager-modelcar:
-          imagePullPolicy: Always
+        exec-download-model:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: /data
+            pvcNameParameter:
+              componentInputParameter: pvc_name
           secretAsEnv:
-          - keyToEnv:
-            - envVar: AWS_ACCESS_KEY_ID
-              secretKey: AWS_ACCESS_KEY_ID
-            - envVar: AWS_SECRET_ACCESS_KEY
-              secretKey: AWS_SECRET_ACCESS_KEY
-            optional: false
-            secretName: aws-ecr-credentials
-            secretNameParameter:
-              runtimeValue:
-                constant: aws-ecr-credentials
-          - keyToEnv:
-            - envVar: AWS_SESSION_TOKEN
-              secretKey: AWS_SESSION_TOKEN
-            optional: true
-            secretName: aws-ecr-session-token
-            secretNameParameter:
-              runtimeValue:
-                constant: aws-ecr-session-token
           - keyToEnv:
             - envVar: HF_TOKEN
               secretKey: HF_TOKEN

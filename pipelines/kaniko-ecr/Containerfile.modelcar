@@ -1,6 +1,0 @@
-FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
-COPY . /models
-WORKDIR /models
-LABEL org.opencontainers.image.title="Synesis ModelCar (NVFP4)"
-LABEL com.redhat.rhaiis.modelcar="true"
-ENV MODEL_PATH=/models

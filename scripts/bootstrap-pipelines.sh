@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Bootstrap Synesis pipelines: ECR repo, kaniko-ecr image, hf-hub-secret
+# Bootstrap Synesis pipelines: ECR repo, buildah-ecr image, hf-hub-secret
 # =============================================================================
 #
-# Run once before invoking pipelines. Ensures ECR repo exists, kaniko-ecr is
+# Run once before invoking pipelines. Ensures ECR repo exists, buildah-ecr is
 # built and pushed, and hf-hub-secret is created in your Data Science project.
 #
 # Usage:
@@ -64,8 +64,15 @@ oc apply -f "$REPO_ROOT/pipelines/manifests/buildah-scc.yaml"
 if [[ -n "$DS_PROJECT" ]]; then
   log "Granting buildah-capabilities SCC to pipeline-runner-dspa in $DS_PROJECT"
   oc adm policy add-scc-to-user buildah-capabilities -z pipeline-runner-dspa -n "$DS_PROJECT" 2>/dev/null || true
+  log "Granting anyuid SCC (required for Buildah Job runAsUser:0)"
+  oc adm policy add-scc-to-user anyuid -z pipeline-runner-dspa -n "$DS_PROJECT" 2>/dev/null || true
+  log "Granting privileged SCC (required for Buildah uid_map in strict environments)"
+  oc adm policy add-scc-to-user privileged -z pipeline-runner-dspa -n "$DS_PROJECT" 2>/dev/null || true
+  log "Applying pipeline-runner Job RBAC (ModelCar build workaround)"
+  sed "s/NAMESPACE/$DS_PROJECT/g" "$REPO_ROOT/pipelines/manifests/pipeline-runner-job-rbac.yaml" | oc apply -f -
 else
   log "DS_PROJECT not set; grant manually: oc adm policy add-scc-to-user buildah-capabilities -z pipeline-runner-dspa -n <ds-project>"
+  log "Apply Job RBAC manually: sed \"s/NAMESPACE/<ds-project>/\" $REPO_ROOT/pipelines/manifests/pipeline-runner-job-rbac.yaml | oc apply -f -"
 fi
 
 # 4. Create hf-hub-secret in DS project (avoids rate limiting)

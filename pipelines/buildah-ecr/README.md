@@ -1,6 +1,6 @@
 # Buildah-ECR: Red Hat stack for ModelCar builds
 
-Buildah + AWS CLI for building OCI ModelCar images and pushing to ECR. Replaces Kaniko with a fully Red Hat stack.
+Buildah + AWS CLI for building OCI ModelCar images and pushing to ECR. Red Hat stack; 10GB layer splitting for universal registry compatibility.
 
 ## Features
 
@@ -26,5 +26,5 @@ export ECR_URI=660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry
 
 ## Used by
 
-- Manager split pipeline: `ecr-login-and-buildah-modelcar-pvc.sh`
-- Executor split pipeline: `ecr-login-and-buildah.sh`
+- Manager pipeline: `ecr-login-and-buildah-modelcar-pvc.sh` (download → build+push → ECR, PVC cleanup)
+- Executor pipeline: `ecr-login-and-buildah.sh`

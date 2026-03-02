@@ -1,0 +1,30 @@
+# RBAC for pipeline-runner-dspa to create Jobs (ModelCar build workaround for uid_map).
+# Apply in DS project: oc apply -f pipelines/manifests/pipeline-runner-job-rbac.yaml
+# Edit NAMESPACE first, or: sed "s/NAMESPACE/<ds-project>/" ... | oc apply -f -
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeline-runner-jobs
+  namespace: NAMESPACE
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-runner-jobs
+  namespace: NAMESPACE
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeline-runner-jobs
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-runner-dspa
+    namespace: NAMESPACE

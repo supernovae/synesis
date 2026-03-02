@@ -1,7 +1,8 @@
-# PVC for split manager pipeline — download task writes model, Kaniko reads it.
-# Create in DS project before running manager-split:
+# PVC for manager pipeline — download task writes model, Buildah reads it.
+# Create in DS project before running manager:
 #   DS_PROJECT=synesis  # or your project
 #   sed "s/NAMESPACE/$DS_PROJECT/" pipelines/manifests/modelcar-build-pvc.yaml | oc apply -f -
+# To expand existing PVC: many storage classes support resize; otherwise delete and recreate.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -12,5 +13,5 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 100Gi
+      storage: 400Gi  # Handles both 0.5B validation and 35B model comfortably
   # storageClassName: gp3   # Uncomment for ROSA (gp3)

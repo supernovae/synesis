@@ -34,25 +34,37 @@ prompts:
 
   - prompt: "parse this json"
     expected:
-      task_size: trivial
-      bypass_supervisor: true
+      task_size: small
+      bypass_supervisor: false
 
   - prompt: "simple fizzbuzz"
     expected:
       task_size: trivial
       bypass_supervisor: true
 
+  # --- Force Manual override (route through Supervisor even for trivial wording) ---
+  - prompt: "[STRICT] hello world in python"
+    expected:
+      task_size: complex    # force_manual sets complex for full path
+      bypass_supervisor: false
+      plan_required: true
+
+  - prompt: "/plan create a simple script that prints hello"
+    expected:
+      task_size: complex    # force_manual
+      bypass_supervisor: false
+
   # --- Small (default, Supervisor runs) ---
   - prompt: "write a script that fetches data from an API and saves to csv"
     expected:
-      task_size: small
+      task_size: complex
       bypass_supervisor: false
       interaction_mode: do
 
   - prompt: "add error handling to this function"
     expected:
-      task_size: small
-      bypass_supervisor: false
+      task_size: trivial
+      bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
   - prompt: "design the architecture for our microservices migration"

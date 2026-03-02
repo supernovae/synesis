@@ -6,6 +6,9 @@
 
 set -e
 
+export BUILDAH_ISOLATION=chroot
+export BUILDAH_DRIVER="${BUILDAH_DRIVER:-overlay}"
+
 MODEL_CONTEXT="${1:-${MODEL_CONTEXT:-/data/executor-model}}"
 ECR_URI="${2:-${ECR_URI:?ECR_URI required}}"
 IMAGE_TAG="${3:-${IMAGE_TAG:-executor-nvfp4}}"
@@ -24,9 +27,9 @@ if echo "$MODEL_CONTEXT" | grep -q '^s3://'; then
   exit 1
 fi
 
-# Generate Dockerfile with logical layering (~20GB per layer)
+# Generate Dockerfile with logical layering. 10GB = universal (ECR Public, GHCR).
 GENERATED_DF="${MODEL_CONTEXT}/Dockerfile.generated"
-MAX_LAYER_GB=20
+MAX_LAYER_GB=10
 MAX_LAYER_BYTES=$((MAX_LAYER_GB * 1024 * 1024 * 1024))
 
 cd "$MODEL_CONTEXT"
@@ -65,7 +68,7 @@ OTHER=$(find . -type f ! -name 'Dockerfile*' ! -name 'config.json' ! -name 'toke
   echo "ENV MODEL_PATH=/models"
 } > "$GENERATED_DF"
 
-buildah bud -f "$GENERATED_DF" -t "$DEST" "$MODEL_CONTEXT"
+buildah bud --isolation=chroot --storage-driver="${BUILDAH_DRIVER:-overlay}" -f "$GENERATED_DF" -t "$DEST" "$MODEL_CONTEXT"
 buildah push "$DEST" "docker://$DEST"
 
 echo "Pushed $DEST"
