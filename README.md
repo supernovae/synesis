@@ -303,7 +303,7 @@ synesis/
 │   │   │   ├── apispec/       # OpenAPI/Swagger endpoint chunking
 │   │   │   ├── architecture/  # Whitepapers + cloud design patterns (PDF/HTML/MD)
 │   │   │   ├── license/       # OSS license compliance (SPDX, Fedora)
-│   │   │   └── sop/           # OpenShift/Red Hat runbooks from GitHub
+│   │   │   └── domain/        # Domain knowledge: OpenShift/Red Hat runbooks from GitHub
 │   │   └── language-packs/
 │   │       ├── bash/          # Shell scripting corpus
 │   │       └── _template/     # Template for new languages

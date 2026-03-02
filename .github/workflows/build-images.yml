@@ -53,7 +53,7 @@ jobs:
             context: base/planner/bge-reranker
           - name: ingestor
             dockerfile: base/rag/ingestion/Dockerfile
-            context: base/rag/ingestion
+            context: base/rag
           - name: indexer-code
             dockerfile: base/rag/indexers/code/Dockerfile
             context: base/rag

@@ -507,7 +507,7 @@ main() {
         if "$PROJECT_ROOT/scripts/index-domain.sh" 2>/dev/null; then
             log "  SOP runbooks (OpenShift/Red Hat) indexed"
         else
-            warn "index-sop failed (indexer-domain image may not be built/pushed)"
+            warn "index-domain failed (indexer-domain image may not be built/pushed)"
         fi
     else
         log ""

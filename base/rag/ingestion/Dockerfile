@@ -2,7 +2,7 @@ FROM registry.access.redhat.com/ubi9/python-311:1
 
 WORKDIR /opt/app-root/src
 
-COPY requirements.txt .
+COPY ingestion/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ingestion/app/ ./app/
