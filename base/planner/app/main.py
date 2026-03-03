@@ -438,21 +438,39 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     last_user_content = user_messages[-1].content if user_messages else ""
     task_size_override: str | None = None
 
+    # A) UI-helper filter: reject follow-up suggestions, title/tag generators EARLY
+    # Must run before pivot detection to prevent UI meta-requests from triggering
+    # false context pivots and flushing conversation memory.
+    if is_ui_helper_message(last_user_content):
+        logger.info("message_filter_ui_helper", extra={"user_id": user_id})
+        return ChatCompletionResponse(
+            choices=[
+                Choice(
+                    message=ChatMessage(
+                        role="assistant",
+                        content="[UI helper request; no coding task to process.]",
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=Usage(),
+        )
+
     # Retrieve conversation history (scoped by conversation_id when provided)
     conversation_history: list[str] = []
     if settings.memory_enabled:
         conversation_history = memory.get_history(memory_scope)
 
     # Context-stability: detect pivot from language OR user context (documents vs code, domain switch)
-    # Uses classifier output — no regex explosion; same logic as Entry Classifier
+    # Only meaningful when there IS prior conversation history to pivot from.
     current_lang = detect_language_deterministic(last_user_content)
     last_lang = memory.get_last_active_language(memory_scope) if settings.memory_enabled else None
-    lang_pivot = bool(last_lang and current_lang != last_lang)
+    lang_pivot = bool(last_lang and current_lang != last_lang and conversation_history)
 
     last_ctx = memory.get_last_context(memory_scope) if settings.memory_enabled else None
     context_pivot = False
     pivot_to_label = ""
-    if last_ctx:
+    if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
         curr_output_type = current_analysis.get("output_type", "code")
@@ -531,22 +549,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         memory_scope,
         extra={"user_id": user_id, "conversation_id": conversation_id},
     )
-
-    # A) UI-helper filter: reject follow-up suggestions, title/tag generators before Supervisor
-    if is_ui_helper_message(last_user_content):
-        logger.info("message_filter_ui_helper", extra={"user_id": user_id})
-        return ChatCompletionResponse(
-            choices=[
-                Choice(
-                    message=ChatMessage(
-                        role="assistant",
-                        content="[UI helper request; no coding task to process.]",
-                    ),
-                    finish_reason="stop",
-                )
-            ],
-            usage=Usage(),
-        )
 
     # B) /why — explain classification of previous user message (no graph run)
     if _WHY_PATTERN.match(last_user_content or ""):
