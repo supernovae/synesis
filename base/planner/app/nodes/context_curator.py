@@ -601,6 +601,31 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     # max_retrieval for future retrieval_budget_chars cap (~4 chars/token)
     _ = settings.max_retrieval_tokens or 0
 
+    # Cache check: inject verified reference from failfast_cache on exact match
+    from ..failfast_cache import cache as failfast_cache
+
+    cache_entry = failfast_cache.get(task_desc, target_lang) if task_desc else None
+    if cache_entry and cache_entry.outcome == "success" and cache_entry.code:
+        verified_text = (
+            f"[VERIFIED CACHE HIT] A previous identical task succeeded with this result:\n"
+            f"```\n{cache_entry.code[:2048]}\n```"
+        )
+        rag_results.insert(
+            0,
+            type(
+                "_CacheResult",
+                (),
+                {
+                    "text": verified_text,
+                    "source": "failfast_cache",
+                    "collection": "",
+                    "rerank_score": 1.0,
+                    "rrf_score": 1.0,
+                },
+            )(),
+        )
+        logger.info("context_curator_cache_hit", extra={"task_hash": cache_entry.task_hash})
+
     # Tier 2: Fetch organization standards (skip when rag_mode=disabled for trivial tasks)
     org_standards: list[ContextChunk] = []
     arch_colls = [SYNESIS_CATALOG]

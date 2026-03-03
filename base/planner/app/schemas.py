@@ -651,5 +651,8 @@ class CriticOut(BaseModel):
     nonblocking: list[dict[str, Any]] = Field(default_factory=list)
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
+    # Sandbox escalation: critic requests sandbox verification for risky code
+    needs_testing: bool = False
+
     # Postmortem (max_iterations): weak signal for system brittleness aggregation
     carried_uncertainties_signal: dict[str, Any] | None = None  # approach_dark_debt: known unknowns we surface

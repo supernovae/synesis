@@ -45,9 +45,10 @@ from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 from .streaming_events import StatusQueueCallback
 
-# /why and /reclassify command patterns
+# /why, /reclassify, and /test command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
 _RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(trivial|small|complex)\s*$", re.IGNORECASE)
+_TEST_PATTERN = re.compile(r"^\s*\/test\s*$", re.IGNORECASE)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -757,6 +758,34 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 usage=Usage(),
             )
 
+    # D) /test — force sandbox execution for previous message
+    force_sandbox = False
+    if _TEST_PATTERN.match(last_user_content or ""):
+        prev_content = ""
+        for m in reversed(request.messages):
+            if m.role == "user" and m.content and m.content.strip() != (last_user_content or "").strip():
+                prev_content = m.content.strip()
+                break
+        if prev_content:
+            force_sandbox = True
+            last_user_content = prev_content
+            user_messages = [HumanMessage(content=prev_content)]
+            logger.info("test_command", extra={"user_id": user_id, "preview": prev_content[:60]})
+        else:
+            logger.info("test_no_prev", extra={"user_id": user_id})
+            return ChatCompletionResponse(
+                choices=[
+                    Choice(
+                        message=ChatMessage(
+                            role="assistant",
+                            content="`/test` runs your previous code through the sandbox. Send a coding task first, then use `/test`.",
+                        ),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=Usage(),
+            )
+
     # IDE/agent coordination: scan for prompt injection in user + conversation
     injection_detected = False
     injection_scan_result: dict[str, object] = {}
@@ -808,6 +837,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "sandbox_minutes_used": 0.0,
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
+        "force_sandbox": force_sandbox,
     }
 
     # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
@@ -907,7 +937,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
-                stream_content = False
+                stream_content = True
                 extractor = StreamingCodeExtractor()
                 content_streamed = False
                 sent_role = False
@@ -926,15 +956,16 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         lg_node = meta.get("langgraph_node", "")
 
                         # ── Node started → status SSE ──
-                        if kind == "on_chain_start" and name in _KNOWN_NODES:
-                            desc = _status_for_node(name, task_size_val, deliverable_val)
+                        if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
+                            node_label = name if name in _KNOWN_NODES else lg_node
+                            desc = _status_for_node(node_label, task_size_val, deliverable_val)
                             if desc:
                                 yield _sse_status_chunk(
                                     {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}
                                 )
 
                         # ── Node ended → accumulate state, emit plan steps ──
-                        elif kind == "on_chain_end" and name in _KNOWN_NODES:
+                        elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             output = event.get("data", {}).get("output")
                             if isinstance(output, dict):
                                 for k, v in output.items():
@@ -948,10 +979,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     task_size_val = output["task_size"]
                                 if "deliverable_type" in output:
                                     deliverable_val = output["deliverable_type"]
-
-                                # Decide token-streaming mode after supervisor
-                                if name == "supervisor" and output.get("deliverable_type") == "explain_only":
-                                    stream_content = True
 
                                 # Emit planner reasoning + plan steps as status
                                 if name == "planner":

@@ -104,6 +104,7 @@ class GraphState(TypedDict, total=False):
     critic_approved: bool
     critic_should_continue: bool
     critic_continue_reason: str | None
+    critic_needs_testing: bool
     residual_risks: list[dict[str, Any]]
     need_more_evidence: bool
     iteration_count: int
@@ -145,6 +146,7 @@ class GraphState(TypedDict, total=False):
     message_origin: str
     plan_pending_approval: bool
     # Worker/Gate
+    force_sandbox: bool
     stop_reason: str
     stop_reason_explanation: str
     integrity_passed: bool

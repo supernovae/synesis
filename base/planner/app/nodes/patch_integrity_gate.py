@@ -620,7 +620,10 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         for p in (patch_ops or [])
     )
     if not code.strip() and not has_patch_ops:
-        next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
+        if state.get("force_sandbox"):
+            next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
+        else:
+            next_after_pass = "critic"  # noqa: S105
         return {
             "current_node": node_name,
             "integrity_passed": True,
@@ -792,7 +795,23 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.warning("patch_integrity_failed", extra={"category": failure.category})
         return _gate_fail(node_name, failure, state)
 
-    next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
+    # Speedy linter: ast.parse() for Python to catch syntax errors without sandbox
+    if (language or "").lower() in ("python", "py") and code.strip():
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            failure = IntegrityFailure(
+                category="path",
+                evidence=f"Syntax error at line {e.lineno}: {e.msg}",
+                remediation="Fix the Python syntax error and regenerate.",
+            )
+            logger.warning("patch_integrity_failed", extra={"category": "syntax", "detail": str(e)[:120]})
+            return _gate_fail(node_name, failure, state)
+
+    if state.get("force_sandbox"):
+        next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
+    else:
+        next_after_pass = "critic"  # noqa: S105
     return {
         "current_node": node_name,
         "integrity_passed": True,

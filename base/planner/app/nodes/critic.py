@@ -738,6 +738,26 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
         evidence_count = state.get("evidence_experiments_count", 0)
         if not approved:
             record_critic_rejection()
+
+        # Cache critic-approved results for instant recall on repeat tasks
+        if approved:
+            _code = state.get("generated_code", "")
+            _task_desc = state.get("task_description", "")
+            _lang = state.get("target_language", "python")
+            if _code and _task_desc:
+                try:
+                    from ..failfast_cache import cache as failfast_cache
+
+                    failfast_cache.put(
+                        _task_desc,
+                        _lang,
+                        "success",
+                        _code,
+                        explanation=state.get("code_explanation", ""),
+                    )
+                except Exception as _cache_err:
+                    logger.debug("critic_cache_store_failed: %s", _cache_err)
+
         result: dict[str, Any] = {
             "what_if_analyses": what_ifs,
             "critic_feedback": parsed.revision_feedback or parsed.overall_assessment or "",
@@ -745,6 +765,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             "critic_response_truncated": is_truncated,
             "critic_should_continue": critic_should_continue,
             "critic_continue_reason": critic_continue_reason,
+            "critic_needs_testing": getattr(parsed, "needs_testing", False),
             "need_more_evidence": parsed.need_more_evidence or False,
             "residual_risks": getattr(parsed, "residual_risks", []) or [],
             "current_node": node_name,

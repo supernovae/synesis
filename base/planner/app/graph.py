@@ -175,10 +175,12 @@ def route_after_critic(state: dict[str, Any]) -> str:
     """Explicit: Respond unless need_more_evidence or (not approved & should_continue). Supervisor routes to worker."""
     if state.get("error"):
         return "respond"
-    if state.get("critic_approved", True) and not state.get("need_more_evidence"):
-        return "respond"
     iteration = state.get("iteration_count", 0)
     max_iter = state.get("max_iterations", settings.max_iterations)
+    if state.get("critic_approved", True) and not state.get("need_more_evidence"):
+        if state.get("critic_needs_testing") and iteration < max_iter:
+            return "sandbox"
+        return "respond"
     if iteration >= max_iter:
         return "respond"
     need_evidence = state.get("need_more_evidence", False)
@@ -629,7 +631,9 @@ graph_builder.add_conditional_edges(
     route_after_sandbox,
     {"critic": "critic", "context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "respond": "respond"},
 )
-graph_builder.add_conditional_edges("critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor"})
+graph_builder.add_conditional_edges(
+    "critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor", "sandbox": "sandbox"}
+)
 graph_builder.add_edge("respond", END)
 
 graph = graph_builder.compile()
