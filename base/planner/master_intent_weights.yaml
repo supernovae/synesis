@@ -698,5 +698,5 @@ overrides:
     - I need a plan
     - need a plan
     - full planning
-    - scope: 
+    - "scope:" 
     - /reclassify
