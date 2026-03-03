@@ -67,6 +67,7 @@ def resolve_taxonomy_metadata(
     complexity = float(node_cfg.get("complexity", 0.5))
     persona = str(node_cfg.get("persona", "Helpful Assistant"))
     depth_instructions = str(node_cfg.get("depth_instructions", "")).strip()
+    worker_explain_tone = str(node_cfg.get("worker_explain_tone", "")).strip()
     required_elements = list(node_cfg.get("required_elements") or ["Direct Answer"])
     required_bullets = len(required_elements)
 
@@ -92,6 +93,7 @@ def resolve_taxonomy_metadata(
         "required_bullets": required_bullets,
         "required_elements": required_elements,
         "depth_instructions": depth_instructions,
+        "worker_explain_tone": worker_explain_tone,
         "taxonomy_key": key,
     }
 
@@ -113,6 +115,13 @@ def get_planner_system_prompt_append(metadata: dict[str, Any]) -> str:
     if not parts:
         return ""
     return "\n\n" + " ".join(parts)
+
+
+def get_worker_explain_tone(metadata: dict[str, Any]) -> str:
+    """Return domain-specific explain-only tone from taxonomy config, or empty string for default."""
+    if not metadata:
+        return ""
+    return (metadata.get("worker_explain_tone") or "").strip()
 
 
 def get_executor_depth_block(metadata: dict[str, Any]) -> str:

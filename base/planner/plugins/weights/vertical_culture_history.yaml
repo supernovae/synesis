@@ -1,0 +1,50 @@
+# Synesis Culture, History & Lifestyle Plugin
+# Focus: History, geography, travel, music, art, philosophy, parenting, pets.
+
+complexity_weights:
+  historical_analysis:
+    weight: 8
+    keywords: ["primary source", "historiography", "periodization", "causation", "historical context"]
+  music_theory:
+    weight: 8
+    keywords: ["chord progression", "key signature", "time signature", "counterpoint", "harmony", "music theory"]
+  art_technique:
+    weight: 6
+    keywords: ["composition", "perspective", "color theory", "chiaroscuro", "impasto", "glazing"]
+
+domain_keywords:
+  history:
+    domain: history
+    keywords: ["history", "historical", "ancient", "medieval", "renaissance", "industrial revolution", "world war", "civil war", "dynasty", "empire", "archaeology", "artifact", "civilization"]
+  geography:
+    domain: geography
+    keywords: ["geography", "continent", "country", "capital", "population", "climate", "topography", "map", "latitude", "longitude"]
+  travel:
+    domain: travel
+    keywords: ["travel", "itinerary", "vacation", "trip", "flight", "hotel", "destination", "backpacking", "sightseeing", "passport", "visa", "luggage"]
+  music:
+    domain: music
+    keywords: ["music", "song", "album", "artist", "band", "genre", "guitar", "piano", "drums", "concert", "playlist", "lyrics", "instrument"]
+  art:
+    domain: art
+    keywords: ["art", "painting", "sculpture", "drawing", "sketch", "gallery", "museum", "artist", "canvas", "watercolor", "oil painting", "digital art", "illustration"]
+  philosophy:
+    domain: philosophy
+    keywords: ["philosophy", "ethics", "metaphysics", "epistemology", "existentialism", "stoicism", "logic", "moral", "socrates", "plato", "aristotle"]
+  parenting:
+    domain: parenting
+    keywords: ["parenting", "baby", "toddler", "child", "kids", "children", "newborn", "pregnancy", "breastfeeding", "potty training", "bedtime routine", "school", "homework help", "family"]
+  pets:
+    domain: pets
+    keywords: ["pet", "dog", "cat", "puppy", "kitten", "veterinarian", "vet", "pet food", "grooming", "training", "breed", "adoption", "aquarium", "fish tank", "reptile", "hamster", "rabbit"]
+  automotive:
+    domain: automotive_hobby
+    keywords: ["car", "truck", "suv", "jeep", "wrangler", "engine", "transmission", "oil change", "tire", "brake", "horsepower", "mpg", "towing", "off road", "4x4"]
+
+pairings:
+  - keywords: ["travel", "safety"]
+    extra_weight: 10
+    axis: risk
+  - keywords: ["pet", "sick"]
+    extra_weight: 10
+    axis: risk

@@ -268,9 +268,14 @@ intent_classes:
       - training schedule
       - schedule
       - study plan
-    # document output; science + lifestyle + business + hobbies
+    # document output; science + lifestyle + business + hobbies + education + culture
     document_domains:
       - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
       - nutrition
       - home_automation
       - personal_finance
@@ -299,14 +304,41 @@ intent_classes:
       - social_science
       - environmental_science
       - neuroscience
+      - education
+      - language_learning
+      - test_prep
+      - cooking
+      - baking
+      - food_science
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - parenting
+      - pets
+      - automotive_hobby
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about, pivot, pivot to, switch to, switch mode, document mode]
     inherently_document: true  # explanations are always text; pivot/switch = user context change
+  education:
+    keywords: [study, vocabulary, quiz, flashcard, fill in the blank, practice, drill, lesson, teach me, test me, tutor, learning exercise]
+    inherently_document: true
   writing:
     keywords: [write, draft, compose, email, blog, article, content, essay, report, summary]
     # blog/essay/report; script = code
     document_domains:
       - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
       - nutrition
       - home_automation
       - personal_finance
@@ -335,9 +367,28 @@ intent_classes:
       - chemistry
       - social_science
       - environmental_science
+      - education
+      - language_learning
+      - test_prep
+      - cooking
+      - baking
+      - food_science
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - parenting
+      - pets
+      - automotive_hobby
   # Explicit code intents — trigger code path (with coding client or when matched)
   code_generation:
-    keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print, add test, write code, write a script, go script, rust program]
+    keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print statement, println, console.log, add test, write code, write a script, go script, rust program]
   data_transform:
     keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
   tool_orchestrated:
@@ -351,6 +402,11 @@ intent_classes:
     # guidance as text; no code steps
     document_domains:
       - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
       - nutrition
       - home_automation
       - personal_finance
@@ -376,6 +432,25 @@ intent_classes:
       - physics
       - mathematics
       - social_science
+      - education
+      - language_learning
+      - test_prep
+      - cooking
+      - baking
+      - food_science
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - parenting
+      - pets
+      - automotive_hobby
   creative_ideation:
     keywords: [brainstorm, ideas for, suggest, creative]
     inherently_document: true  # ideas/suggestions are always text

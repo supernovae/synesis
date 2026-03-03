@@ -1,0 +1,48 @@
+# Synesis Fitness & Athletics Plugin
+# Focus: Running, strength training, yoga, cycling, swimming, general fitness.
+# Extends the original athletics_running domain with broader fitness coverage.
+
+complexity_weights:
+  training_metrics:
+    weight: 8
+    keywords: ["vo2 max", "cadence", "hrv", "pace", "zone 2", "anaerobic", "aerobic", "rpe", "heart rate zone", "mhr"]
+  biomechanics:
+    weight: 12
+    keywords: ["pronation", "supination", "strike", "gait", "offset", "drop", "form check", "range of motion"]
+  programming:
+    weight: 10
+    keywords: ["interval", "fartlek", "taper", "marathon", "ultra", "recovery", "periodization", "deload", "mesocycle", "progressive overload"]
+  strength:
+    weight: 8
+    keywords: ["squat", "deadlift", "bench press", "overhead press", "snatch", "clean and jerk", "kettlebell", "barbell", "dumbbell"]
+
+domain_keywords:
+  athletics:
+    domain: athletics_running
+    keywords: ["vo2 max", "cadence", "marathon", "ultra", "taper", "fartlek", "training plan", "training schedule", "running plan", "running", "runner", "5k", "10k", "half marathon"]
+  fitness_general:
+    domain: fitness_general
+    keywords: ["workout", "exercise", "fitness", "gym", "personal trainer", "warm up", "cool down", "stretching", "flexibility", "cardio", "hiit", "crossfit", "calisthenics"]
+  yoga_pilates:
+    domain: yoga_pilates
+    keywords: ["yoga", "pilates", "asana", "vinyasa", "downward dog", "sun salutation", "flexibility", "core strength"]
+  cycling:
+    domain: cycling
+    keywords: ["cycling", "bike", "bicycle", "peloton", "ftp", "watts per kg", "cadence rpm", "indoor cycling", "spin class"]
+  swimming:
+    domain: swimming
+    keywords: ["swimming", "swim", "freestyle", "backstroke", "butterfly", "breaststroke", "lap swim", "pool workout"]
+  strength_training:
+    domain: strength_training
+    keywords: ["weightlifting", "powerlifting", "bodybuilding", "strength training", "resistance training", "hypertrophy", "one rep max", "1rm"]
+
+pairings:
+  - keywords: ["injury", "pain"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["marathon", "taper"]
+    extra_weight: 10
+    axis: complexity
+  - keywords: ["deadlift", "form"]
+    extra_weight: 8
+    axis: complexity

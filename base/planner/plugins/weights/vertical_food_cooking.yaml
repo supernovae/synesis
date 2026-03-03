@@ -1,0 +1,26 @@
+# Synesis Food & Cooking Plugin
+# Focus: Recipes, meal planning, baking, food science, nutrition tracking.
+
+complexity_weights:
+  food_science:
+    weight: 8
+    keywords: ["fermentation", "emulsification", "maillard reaction", "gluten development", "tempering chocolate", "sous vide"]
+  meal_planning:
+    weight: 6
+    keywords: ["meal prep", "weekly meal plan", "grocery list", "batch cooking", "macros", "calorie counting"]
+
+domain_keywords:
+  cooking:
+    domain: cooking
+    keywords: ["recipe", "ingredient", "cook", "cooking", "bake", "baking", "roast", "grill", "saute", "simmer", "stir fry", "meal prep", "kitchen", "oven", "stovetop", "instant pot", "air fryer", "slow cooker"]
+  baking:
+    domain: baking
+    keywords: ["sourdough", "bread", "pastry", "cake", "cookies", "pie", "dough", "yeast", "flour", "frosting", "fondant"]
+  food_science:
+    domain: food_science
+    keywords: ["fermentation", "kombucha", "kimchi", "pickling", "curing", "smoking", "dehydrating", "canning", "food safety", "temperature danger zone"]
+
+pairings:
+  - keywords: ["allergy", "ingredient"]
+    extra_weight: 10
+    axis: risk

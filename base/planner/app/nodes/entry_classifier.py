@@ -236,10 +236,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["intent_class"] = analysis.get("intent_class", "code")
     out["output_type"] = analysis.get("output_type", "code")  # document → explain_only; taxonomy-driven
 
-    # Defensive: knowledge-style questions (what is, how does, explain) must never get code path
+    # Defensive: knowledge/educational-style messages must never get code path
     _knowledge_style = re.compile(
         r"^(what is|what are|how much|how many|when did|who was|who is|"
-        r"explain |define |describe |tell me about|why does|why do |how does |how do )",
+        r"explain |define |describe |tell me about|why does|why do |how does |how do |"
+        r"help me (study|learn|practice|review|understand)|"
+        r"i ('m |am )?(studying|learning|practicing)|"
+        r"teach me|quiz me|test me on)",
         re.IGNORECASE,
     )
     if _knowledge_style.match((last_content or "").strip()):

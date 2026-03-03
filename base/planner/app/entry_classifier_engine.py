@@ -362,7 +362,25 @@ class ScoringEngine:
                 if intent_class != "general":
                     break
 
-        # 9. Output type: document by default. Code when code intent OR document_domains intent with no domain overlap.
+        # 8b. Complexity exemption: io_basic/query_basic keywords ("print", "show",
+        # "what is") inflate complexity for non-code queries. Subtract them.
+        if intent_class not in code_intents:
+            exempted = False
+            for exempt_cat in ("io_basic", "query_basic"):
+                if exempt_cat in score_breakdown:
+                    discount = score_breakdown[exempt_cat]
+                    complexity_score = max(0, complexity_score - discount)
+                    hits.append(f"complexity_exempt:{exempt_cat}(-{discount})")
+                    exempted = True
+            if exempted:
+                if complexity_score <= self._trivial_max:
+                    task_size = "trivial"
+                elif complexity_score <= self._small_max:
+                    task_size = "small"
+
+        # 9. Output type: document by default. Code only for code intents.
+        # Non-code intents (writing, planning, personal_guidance) default to document
+        # even without a domain match -- "write a sentence" is text, not code.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
         if ic_data.get("inherently_document"):
             output_type = "document"
@@ -370,6 +388,9 @@ class ScoringEngine:
         elif intent_class in code_intents:
             output_type = "code"
             hits.append("output:code")
+        elif intent_class == "general":
+            output_type = "document"
+            hits.append("output:document(default)")
         else:
             doc_domains = ic_data.get("document_domains") or []
             dom_set = {str(d).strip().lower() for d in doc_domains}
@@ -378,14 +399,12 @@ class ScoringEngine:
                 output_type = "document"
                 hits.append("output:document")
             else:
-                # No match (general) or document_domains intent with no overlap
-                if intent_class == "general" and doc_domains:
-                    output_type = "code"  # writing/planning without domain overlap → code
-                elif intent_class == "general":
-                    output_type = "document"  # truly ambiguous → document
-                    hits.append("output:document(default)")
-                else:
-                    output_type = "code"
+                output_type = "document"
+                hits.append("output:document(intent_noncode)")
+
+        # 10. Surface taxonomy gaps: log when nothing matched
+        if intent_class == "general" and not active_domains:
+            hits.append("surfaced_gap:no_intent_no_domain")
 
         score = complexity_score + risk_score
         return {

@@ -1,0 +1,39 @@
+# Synesis Health & Wellness Plugin
+# Focus: General health, mental wellness, sleep, meditation, physical therapy.
+# Note: Risk weight for medical advice to encourage appropriate disclaimers.
+
+complexity_weights:
+  clinical_knowledge:
+    weight: 10
+    keywords: ["diagnosis", "differential diagnosis", "contraindication", "drug interaction", "dosage", "side effects"]
+  therapy_modalities:
+    weight: 8
+    keywords: ["cbt", "cognitive behavioral", "dbt", "emdr", "exposure therapy", "psychotherapy", "counseling"]
+
+risk_weights:
+  medical_advice:
+    weight: 15
+    domain: health
+    keywords: ["diagnosis", "prescribe", "medication", "dosage", "symptoms of", "treatment for", "side effects"]
+
+domain_keywords:
+  health:
+    domain: health
+    keywords: ["health", "wellness", "symptoms", "remedy", "vitamin", "supplement", "hydration", "immune system", "blood pressure", "cholesterol", "first aid"]
+  mental_health:
+    domain: mental_health
+    keywords: ["anxiety", "depression", "stress", "mindfulness", "meditation", "therapy", "mental health", "self care", "journaling", "gratitude", "breathing exercise", "coping"]
+  sleep:
+    domain: sleep
+    keywords: ["sleep", "insomnia", "sleep hygiene", "circadian rhythm", "melatonin", "nap", "sleep schedule", "rem", "deep sleep"]
+  physical_therapy:
+    domain: physical_therapy
+    keywords: ["physical therapy", "pt exercises", "rehabilitation", "mobility", "stretching", "foam rolling", "posture", "ergonomics"]
+
+pairings:
+  - keywords: ["chest", "pain"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["suicidal", "thoughts"]
+    extra_weight: 50
+    axis: risk

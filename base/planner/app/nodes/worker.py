@@ -38,6 +38,22 @@ Respond with valid JSON only:
 Be concise and clear. Use markdown formatting. No Python/bash/script. The "code" field is displayed directly as text.
 """
 
+_EXPLAIN_JSON_FORMAT = """\
+
+Respond with valid JSON only:
+{
+  "code": "your full response as markdown (headings, lists, structure). Put everything here — no code blocks.",
+  "explanation": "brief note on approach (1 sentence)"
+}
+Be concise and clear. Use markdown formatting. The "code" field is displayed directly as text.
+"""
+
+
+def _build_explain_prompt_with_tone(tone: str) -> str:
+    """Build an explain-only system prompt with a domain-specific tone preamble."""
+    return f"{tone}{_EXPLAIN_JSON_FORMAT}"
+
+
 WORKER_PROMPT_TRIVIAL = """\
 You are a code assistant. Produce minimal correct code for the user's request.
 
@@ -725,7 +741,15 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         # Explain-only: document-centric prompt (no code bias); keep vertical block when present
         deliverable_type = state.get("deliverable_type", "single_file")
         if deliverable_type == "explain_only":
-            system_prompt = WORKER_PROMPT_EXPLAIN_ONLY
+            from ..taxonomy_prompt_factory import get_worker_explain_tone
+
+            tone = get_worker_explain_tone(state.get("taxonomy_metadata") or {})
+            if tone:
+                system_prompt = _build_explain_prompt_with_tone(tone)
+                taxonomy_key = (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")
+                logger.info("worker_taxonomy_tone", extra={"taxonomy_key": taxonomy_key})
+            else:
+                system_prompt = WORKER_PROMPT_EXPLAIN_ONLY
             if vertical_block:
                 system_prompt = f"{system_prompt}\n\n{vertical_block}"
             if taxonomy_depth:

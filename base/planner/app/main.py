@@ -948,6 +948,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 first_content_logged = False
                 token_count_estimate = 0
                 t_start = time.monotonic()
+                # Diagnostic counters for reasoning vs content tokens
+                _diag_stream_events = 0
+                _diag_reasoning_chunks = 0
+                _diag_content_chunks = 0
+                _diag_empty_chunks = 0
+                _diag_first_reasoning_ms: int | None = None
+                _diag_first_content_ms: int | None = None
+                _reasoning_buf = ""
+                _last_reasoning_status = ""
 
                 try:
                     async for event in graph.astream_events(
@@ -1026,11 +1035,72 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                     }
                                                 )
 
-                        # ── Token streaming from worker LLM (explain_only) ──
+                        # ── Token streaming from worker LLM ──
                         elif kind == "on_chat_model_stream" and lg_node == "worker" and stream_content:
                             chunk_obj = event.get("data", {}).get("chunk")
-                            if chunk_obj and hasattr(chunk_obj, "content") and chunk_obj.content:
-                                for fragment in extractor.feed(chunk_obj.content):
+                            if not chunk_obj:
+                                continue
+                            _diag_stream_events += 1
+                            elapsed_now = int((time.monotonic() - t_start) * 1000)
+
+                            # Extract reasoning_content (DeepSeek R1 thinking tokens)
+                            rc = ""
+                            if hasattr(chunk_obj, "additional_kwargs"):
+                                rc = (chunk_obj.additional_kwargs or {}).get("reasoning_content", "")
+                            if rc:
+                                _diag_reasoning_chunks += 1
+                                if _diag_first_reasoning_ms is None:
+                                    _diag_first_reasoning_ms = elapsed_now
+                                    logger.info(
+                                        "sse_first_reasoning_token",
+                                        extra={"elapsed_ms": elapsed_now, "node": lg_node},
+                                    )
+                                _reasoning_buf += rc
+                                # Extract headline-like phrases for live status updates
+                                while "\n" in _reasoning_buf:
+                                    line, _reasoning_buf = _reasoning_buf.split("\n", 1)
+                                    line = line.strip()
+                                    if not line or len(line) < 5:
+                                        continue
+                                    # Pick lines that look like headings or key points
+                                    is_heading = (
+                                        line.startswith("#")
+                                        or line.startswith("**")
+                                        or line.startswith("- ")
+                                        or (line[0].isupper() and line.endswith(":"))
+                                        or (line[0].isdigit() and ". " in line[:5])
+                                    )
+                                    if is_heading and line != _last_reasoning_status:
+                                        _last_reasoning_status = line
+                                        short = line.lstrip("#*- ").strip().rstrip(":")
+                                        if short and len(short) > 3:
+                                            thinking_phases.append(f"  \u2192 {short}")
+                                            yield _sse_status_chunk(
+                                                {
+                                                    "type": "status",
+                                                    "data": {
+                                                        "description": f"Thinking: {short[:80]}",
+                                                        "done": False,
+                                                        "hidden": False,
+                                                    },
+                                                }
+                                            )
+
+                            # Extract actual content tokens (the JSON answer)
+                            content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""
+                            if content_tok:
+                                _diag_content_chunks += 1
+                                if _diag_first_content_ms is None:
+                                    _diag_first_content_ms = elapsed_now
+                                    logger.info(
+                                        "sse_first_content_token",
+                                        extra={
+                                            "elapsed_ms": elapsed_now,
+                                            "reasoning_chunks": _diag_reasoning_chunks,
+                                            "node": lg_node,
+                                        },
+                                    )
+                                for fragment in extractor.feed(content_tok):
                                     if not fragment:
                                         continue
                                     if not thinking_block_emitted and thinking_phases:
@@ -1059,9 +1129,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         first_content_logged = True
                                         logger.info(
                                             "sse_first_content_delta",
-                                            extra={"elapsed_ms": int((time.monotonic() - t_start) * 1000)},
+                                            extra={"elapsed_ms": elapsed_now},
                                         )
                                     yield _sse_content_delta(chat_id, delta, run_id=run_id)
+                            elif not rc:
+                                _diag_empty_chunks += 1
 
                 except Exception as e:
                     logger.exception("graph_execution_error")
@@ -1121,6 +1193,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "elapsed_ms": total_elapsed_ms,
                         "streamed": content_streamed,
                         "token_count_estimate": token_count_estimate,
+                        "stream_events": _diag_stream_events,
+                        "reasoning_chunks": _diag_reasoning_chunks,
+                        "content_chunks": _diag_content_chunks,
+                        "empty_chunks": _diag_empty_chunks,
+                        "first_reasoning_ms": _diag_first_reasoning_ms,
+                        "first_content_ms": _diag_first_content_ms,
                     },
                 )
 

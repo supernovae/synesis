@@ -648,6 +648,9 @@ intent_classes:
     keywords: [plan, strategy, design, architecture, break down, decompose]
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about]
+  education:
+    keywords: [study, vocabulary, quiz, flashcard, fill in the blank, practice, drill, lesson, teach me, test me, tutor, learning exercise]
+    inherently_document: true
   writing:
     keywords: [write, draft, compose, email, blog, article, content]
   data_transform:
