@@ -324,7 +324,7 @@ class ScoringEngine:
         else:
             task_size = "complex"
 
-        # 8. Intent class (first match wins). DEFAULT: general → document. Code only when code intent matches.
+        # 8. Intent class (first match wins). Code intents checked first so "hello world" → code not conversation.
         intent_classes = self._config.get("intent_classes") or {}
         code_intents = {
             "debugging",
@@ -336,8 +336,9 @@ class ScoringEngine:
             "documentation",
         }
         intent_class = "general"  # no match = discussion/document
+        # First pass: code intents (so "hello world" matches code_generation, not conversation.hello)
         for ic_name, ic_data in intent_classes.items():
-            if not isinstance(ic_data, dict):
+            if ic_name not in code_intents or not isinstance(ic_data, dict):
                 continue
             keywords = ic_data.get("keywords", [])
             for kw in keywords:
@@ -347,6 +348,19 @@ class ScoringEngine:
                     break
             if intent_class != "general":
                 break
+        # Second pass: non-code intents (conversation, knowledge, planning, etc.)
+        if intent_class == "general":
+            for ic_name, ic_data in intent_classes.items():
+                if ic_name in code_intents or not isinstance(ic_data, dict):
+                    continue
+                keywords = ic_data.get("keywords", [])
+                for kw in keywords:
+                    if re.search(rf"\b{re.escape(str(kw))}\b", t_lower):
+                        intent_class = ic_name
+                        hits.append(f"intent:{ic_name}")
+                        break
+                if intent_class != "general":
+                    break
 
         # 9. Output type: document by default. Code when code intent OR document_domains intent with no domain overlap.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}

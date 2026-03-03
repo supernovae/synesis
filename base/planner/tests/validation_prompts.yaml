@@ -82,7 +82,7 @@ prompts:
 
   - prompt: "refactor across the whole repo"
     expected:
-      task_size: small
+      task_size: complex  # broad scope triggers complexity
 
   - prompt: "connect to AWS and sync credentials"
     expected:
@@ -116,7 +116,7 @@ prompts:
   # --- Language detection ---
   - prompt: "hello world"
     expected:
-      target_language: python  # default when unspecified
+      target_language: infer  # classifier defers to Supervisor; trivial block uses DEFAULT_LANGUAGE
 
   - prompt: "write a go script that prints hi"
     expected:

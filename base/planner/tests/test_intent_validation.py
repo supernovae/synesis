@@ -245,19 +245,27 @@ class TestOutputTypeCoverage:
         [
             "explain how marathon taper works",
             "what is VO2max",
-            "what is the speed of light",
             "tell me about zone 2 training",
             "define fartlek",
             "describe how cadence affects running economy",
         ],
     )
     def test_knowledge_inherently_document(self, prompt: str):
-        """knowledge intent → output_type=document (inherently_document)."""
+        """knowledge intent → output_type=document. plan_required=False for non-deep-dive domains."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
         assert out.get("output_type") == "document"
         assert out.get("plan_required") is False
+
+    def test_knowledge_physics_deep_dive_requires_plan(self):
+        """Physics deep-dive (taxonomy) → plan_required=True for structured bullets."""
+        state = {"messages": [{"content": "what is the speed of light"}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "knowledge"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is True
+        assert "physics" in (out.get("active_domain_refs") or [])
 
     @pytest.mark.parametrize(
         "prompt",
