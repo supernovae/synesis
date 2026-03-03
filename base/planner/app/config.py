@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     worker_thinking_mode_enabled: bool = True
     executor_thinking_param: str = "enable_thinking"
 
+    # Model capability tier: "small" (8B), "medium" (30B), "large" (70B+).
+    # When "large", taxonomy prompt shaping is disabled — the model handles tone/depth natively.
+    model_capability_tier: Literal["small", "medium", "large"] = "small"
+
     # Web search (SearXNG)
     web_search_enabled: bool = True
     web_search_url: str = "http://searxng.synesis-search.svc.cluster.local:8080"

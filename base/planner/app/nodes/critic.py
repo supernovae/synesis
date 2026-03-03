@@ -756,6 +756,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             "critic_needs_testing": getattr(parsed, "needs_testing", False),
             "need_more_evidence": parsed.need_more_evidence or False,
             "residual_risks": getattr(parsed, "residual_risks", []) or [],
+            "critic_nonblocking": getattr(parsed, "nonblocking", []) or [],
             "current_node": node_name,
             "next_node": next_node,
             "iteration_count": iteration + 1 if not is_evidence_only else iteration,

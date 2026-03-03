@@ -1086,7 +1086,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                 }
                                             )
 
-                            # Extract actual content tokens (the JSON answer)
+                            # Extract actual content tokens
                             content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""
                             if content_tok:
                                 _diag_content_chunks += 1
@@ -1100,7 +1100,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "node": lg_node,
                                         },
                                     )
-                                for fragment in extractor.feed(content_tok):
+                                # Explain-only: stream raw markdown tokens directly (no JSON extractor)
+                                if deliverable_val == "explain_only":
+                                    fragments = [content_tok]
+                                else:
+                                    fragments = extractor.feed(content_tok)
+                                for fragment in fragments:
                                     if not fragment:
                                         continue
                                     if not thinking_block_emitted and thinking_phases:

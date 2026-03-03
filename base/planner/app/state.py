@@ -106,6 +106,7 @@ class GraphState(TypedDict, total=False):
     critic_continue_reason: str | None
     critic_needs_testing: bool
     residual_risks: list[dict[str, Any]]
+    critic_nonblocking: list[dict[str, Any]]
     need_more_evidence: bool
     iteration_count: int
     max_iterations: int

@@ -458,6 +458,18 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 summary = build_decision_summary(state)
                 if summary:
                     parts.append(f"\n---\n**How I got here**\n{summary}")
+        # Critic nonblocking suggestions: surface as collapsible section for code responses
+        critic_nonblocking = state.get("critic_nonblocking") or []
+        if critic_nonblocking and state.get("deliverable_type") != "explain_only":
+            suggestion_lines = []
+            for item in critic_nonblocking[:5]:
+                desc = item.get("description", str(item)) if isinstance(item, dict) else str(item)
+                desc = desc.strip()
+                if desc:
+                    suggestion_lines.append(f"- {desc}")
+            if suggestion_lines:
+                suggestions_md = "\n".join(suggestion_lines)
+                parts.append(f"\n<details>\n<summary>Suggestions</summary>\n\n{suggestions_md}\n\n</details>")
         # Carried uncertainties: what we're carrying (§approach_dark_debt_config) — any persona when relevant
         carried = state.get("carried_uncertainties_signal") or {}
         debt_items = carried.get("items") or []
@@ -581,6 +593,14 @@ def route_after_worker(state: dict[str, Any]) -> str:
     if stop_reason == "needs_scope_expansion":
         return "supervisor"  # §8.5: Supervisor asks user or triggers Planner to update manifest
     if stop_reason:
+        return "respond"
+    # Explain-only fast path: skip patch_integrity_gate entirely.
+    # High-complexity science domains route to critic for depth check; everything else goes direct.
+    if state.get("deliverable_type") == "explain_only":
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
+        complexity = float(taxonomy_metadata.get("complexity_score", 0))
+        if complexity > 0.6 and taxonomy_metadata.get("required_elements"):
+            return "critic"
         return "respond"
     return "patch_integrity_gate"
 

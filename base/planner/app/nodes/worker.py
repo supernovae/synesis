@@ -26,32 +26,27 @@ logger = logging.getLogger("synesis.worker")
 # Adaptive Rigor: Cognitive sliding scale. Trivial=Minimalist, Small=Helpful Senior, Full=Architect.
 # JCS terminology and Regress-Reason live only in Full tier.
 
-# Document-first: plans, discussions, explanations — no code framing
+# Document-first: plans, discussions, explanations — no code framing.
+# Direct markdown output (no JSON wrapper) for faster streaming and fewer parsing failures.
 WORKER_PROMPT_EXPLAIN_ONLY = """\
 You are a helpful assistant. The user wants a plan, explanation, or discussion — NOT executable code.
 
-Respond with valid JSON only:
-{
-  "code": "your full response as markdown (headings, lists, structure). Put everything here — no code blocks.",
-  "explanation": "brief note on approach (1 sentence)"
-}
-Be concise and clear. Use markdown formatting. No Python/bash/script. The "code" field is displayed directly as text.
+Respond directly in markdown. Use headings, lists, and structure for clarity.
+Be concise and clear. No Python/bash/script code blocks unless the user explicitly asks.
+If you are not confident about a specific fact, say so briefly. Do not invent citations.
 """
 
-_EXPLAIN_JSON_FORMAT = """\
+_EXPLAIN_MARKDOWN_SUFFIX = """
 
-Respond with valid JSON only:
-{
-  "code": "your full response as markdown (headings, lists, structure). Put everything here — no code blocks.",
-  "explanation": "brief note on approach (1 sentence)"
-}
-Be concise and clear. Use markdown formatting. The "code" field is displayed directly as text.
+Respond directly in markdown. Use headings, lists, and structure for clarity.
+Be concise and clear. No code blocks unless the user explicitly asks.
+If you are not confident about a specific fact, say so briefly. Do not invent citations.
 """
 
 
 def _build_explain_prompt_with_tone(tone: str) -> str:
     """Build an explain-only system prompt with a domain-specific tone preamble."""
-    return f"{tone}{_EXPLAIN_JSON_FORMAT}"
+    return f"{tone}{_EXPLAIN_MARKDOWN_SUFFIX}"
 
 
 WORKER_PROMPT_TRIVIAL = """\
@@ -741,7 +736,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         # Explain-only: document-centric prompt (no code bias); keep vertical block when present
         deliverable_type = state.get("deliverable_type", "single_file")
         if deliverable_type == "explain_only":
-            from ..taxonomy_prompt_factory import get_worker_explain_tone
+            from ..taxonomy_prompt_factory import get_discovery_prompt, get_worker_explain_tone
 
             tone = get_worker_explain_tone(state.get("taxonomy_metadata") or {})
             if tone:
@@ -754,6 +749,9 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 system_prompt = f"{system_prompt}\n\n{vertical_block}"
             if taxonomy_depth:
                 system_prompt = f"{system_prompt}{taxonomy_depth}"
+            discovery = get_discovery_prompt(state.get("taxonomy_metadata") or {})
+            if discovery:
+                system_prompt = f"{system_prompt}\n\n{discovery}"
             logger.info("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
 
         logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)
@@ -774,6 +772,41 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             logger.debug("worker_thinking_mode_enabled", extra={"task_size": task_size, "param": thinking_param})
 
         response = await llm_to_use.ainvoke(messages)
+
+        # Explain-only: direct markdown output — skip JSON parsing entirely
+        if deliverable_type == "explain_only":
+            raw_md = (response.content or "").strip()
+            tokens_used = response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning="Direct markdown (explain_only)",
+                assumptions=[],
+                confidence=0.9,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+                tokens_used=tokens_used,
+            )
+            logger.info(
+                "worker_completed code_len=%d patch_ops=0",
+                len(raw_md),
+                extra={"confidence": 0.9, "iteration": iteration, "latency_ms": latency},
+            )
+            return {
+                "generated_code": raw_md,
+                "code_explanation": "",
+                "files_touched": [],
+                "unified_diff": None,
+                "patch_ops": [],
+                "code_ref": {},
+                "regressions_intended": [],
+                "regression_justification": "",
+                "current_node": node_name,
+                "node_traces": [trace],
+                "token_budget_remaining": token_budget - tokens_used,
+                "task_description": state.get("task_description", ""),
+                "failure_ids_seen": state.get("failure_ids_seen", []) or [],
+            }
 
         try:
             parsed = validate_with_repair(response.content, ExecutorOut)

@@ -68,6 +68,7 @@ def resolve_taxonomy_metadata(
     persona = str(node_cfg.get("persona", "Helpful Assistant"))
     depth_instructions = str(node_cfg.get("depth_instructions", "")).strip()
     worker_explain_tone = str(node_cfg.get("worker_explain_tone", "")).strip()
+    discovery_prompt = str(node_cfg.get("discovery_prompt", "")).strip()
     required_elements = list(node_cfg.get("required_elements") or ["Direct Answer"])
     required_bullets = len(required_elements)
 
@@ -94,6 +95,7 @@ def resolve_taxonomy_metadata(
         "required_elements": required_elements,
         "depth_instructions": depth_instructions,
         "worker_explain_tone": worker_explain_tone,
+        "discovery_prompt": discovery_prompt,
         "taxonomy_key": key,
     }
 
@@ -117,16 +119,33 @@ def get_planner_system_prompt_append(metadata: dict[str, Any]) -> str:
     return "\n\n" + " ".join(parts)
 
 
+def _is_large_model() -> bool:
+    """Check if model_capability_tier is 'large' — skip taxonomy injection for large models."""
+    try:
+        from .config import settings
+
+        return getattr(settings, "model_capability_tier", "small") == "large"
+    except Exception:
+        return False
+
+
 def get_worker_explain_tone(metadata: dict[str, Any]) -> str:
     """Return domain-specific explain-only tone from taxonomy config, or empty string for default."""
-    if not metadata:
+    if not metadata or _is_large_model():
         return ""
     return (metadata.get("worker_explain_tone") or "").strip()
 
 
+def get_discovery_prompt(metadata: dict[str, Any]) -> str:
+    """Return domain-specific discovery/enrichment prompt, or empty string."""
+    if not metadata or _is_large_model():
+        return ""
+    return (metadata.get("discovery_prompt") or "").strip()
+
+
 def get_executor_depth_block(metadata: dict[str, Any]) -> str:
     """Return block to inject into Worker/Executor prompt. Taxonomy-aware."""
-    if not metadata:
+    if not metadata or _is_large_model():
         return ""
     depth = (metadata.get("depth_instructions") or "").strip()
     if not depth:
