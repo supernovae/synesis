@@ -986,7 +986,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 if "deliverable_type" in output:
                                     deliverable_val = output["deliverable_type"]
 
-                                # Emit planner reasoning + plan steps as status
+                                # Emit planner reasoning + plan steps as status + thinking
                                 if name == "planner":
                                     exec_plan = output.get("execution_plan") or {}
                                     if isinstance(exec_plan, dict):
@@ -1003,6 +1003,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             reasoning = str(exec_plan.get("reasoning", "")).strip()
                                         if reasoning:
                                             short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
+                                            thinking_phases.append(f"\n\n**Plan:** {short}")
                                             yield _sse_status_chunk(
                                                 {
                                                     "type": "status",
@@ -1013,9 +1014,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                     },
                                                 }
                                             )
-                                        for s in exec_plan.get("steps", []):
+                                        steps = exec_plan.get("steps", [])
+                                        for i, s in enumerate(steps, 1):
                                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
                                             if act:
+                                                thinking_phases.append(f"{i}. {act}")
                                                 yield _sse_status_chunk(
                                                     {
                                                         "type": "status",
@@ -1033,7 +1036,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     if not thinking_block_emitted and thinking_phases:
                                         thinking_block_emitted = True
                                         elapsed_s = time.monotonic() - t_start
-                                        phases_text = " ".join(thinking_phases)
+                                        phases_text = "\n".join(thinking_phases)
                                         thinking_html = (
                                             f'<details type="thinking" done="true">\n'
                                             f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
@@ -1098,7 +1101,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     thinking_prefix = ""
                     if not thinking_block_emitted and thinking_phases:
                         elapsed_s = time.monotonic() - t_start
-                        phases_text = " ".join(thinking_phases)
+                        phases_text = "\n".join(thinking_phases)
                         thinking_prefix = (
                             f'<details type="thinking" done="true">\n'
                             f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
