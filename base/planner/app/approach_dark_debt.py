@@ -1,7 +1,7 @@
-"""Approach + Dark Debt + How I Got Here — universal across taxonomies.
+"""Approach + Carried Uncertainties + How I Got Here — universal across taxonomies.
 
 Resolves (intent_class × vertical × task_size) → approach semantics,
-dark-debt categories, and "How I got here" evidence sources.
+carried-uncertainties categories, and "How I got here" evidence sources.
 See approach_dark_debt_config.yaml.
 """
 
@@ -78,22 +78,22 @@ def get_approach_semantics(
     }
 
 
-def get_dark_debt_categories(
+def get_carried_uncertainties_categories(
     intent_class: str,
     vertical: str,
 ) -> list[str]:
-    """Return applicable dark_debt category keys for (intent × vertical)."""
+    """Return applicable carried_uncertainties category keys for (intent × vertical)."""
     cfg = _load_config()
     mapping = cfg.get("intent_vertical_mapping") or {}
     intent_map = mapping.get(intent_class) or mapping.get("code") or {}
     vert_cfg = intent_map.get(vertical) or intent_map.get("generic") or {}
     if isinstance(vert_cfg, dict):
-        dark_debt = vert_cfg.get("dark_debt")
+        carried = vert_cfg.get("carried_uncertainties")
     else:
-        dark_debt = ["code_generic"]
-    if isinstance(dark_debt, str):
-        return [dark_debt]
-    return list(dark_debt) if isinstance(dark_debt, list) else ["code_generic"]
+        carried = ["code_generic"]
+    if isinstance(carried, str):
+        return [carried]
+    return list(carried) if isinstance(carried, list) else ["code_generic"]
 
 
 def get_how_i_got_here_sources(intent_class: str) -> dict[str, Any]:
@@ -103,7 +103,7 @@ def get_how_i_got_here_sources(intent_class: str) -> dict[str, Any]:
     return sources.get(intent_class) or sources.get("code") or {"evidence": ["sandbox", "lsp", "rag"], "strategy_key": "revision_strategy", "uncertain_key": ["what_if_analyses", "residual_risks"]}
 
 
-def build_universal_dark_debt_signal(
+def build_universal_carried_uncertainties_signal(
     state: dict[str, Any],
     intent_class: str,
     vertical: str,
@@ -115,8 +115,8 @@ def build_universal_dark_debt_signal(
     stages_passed: list[str] | None = None,
     suggested_system_fix: str | None = None,
 ) -> dict[str, Any]:
-    """Build taxonomy-aware dark_debt_signal. Usable by critic and respond."""
-    cats = get_dark_debt_categories(intent_class, vertical)
+    """Build taxonomy-aware carried_uncertainties_signal. Usable by critic and respond."""
+    cats = get_carried_uncertainties_categories(intent_class, vertical)
     approach = get_approach_semantics(intent_class, vertical, task_size)
     items: list[dict[str, Any]] = []
 

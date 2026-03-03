@@ -1,11 +1,12 @@
-# Approach + Dark Debt + How I Got Here — Universal across taxonomies
+# Approach + Carried Uncertainties + How I Got Here — Universal across taxonomies
 #
-# Maps (intent_class × vertical × task_size) → approach semantics, dark-debt categories,
+# Maps (intent_class × vertical × task_size) → approach semantics, carried-uncertainties categories,
 # and "How I got here" evidence sources. Enables:
 # - "Approach: one-shot tip" vs "Approach: 12-week training plan" (running)
-# - "Dark debt: gave quick answer; no periodization" (lifestyle)
+# - "What I'm carrying: gave quick answer; no periodization" (lifestyle)
 # - "How I got here: RAG ✓ · assumptions: fitness_level" (knowledge, running)
 #
+# Carried uncertainties = known unknowns we surface ("you don't know what you don't know").
 # Fallback: intent=code, vertical=generic uses existing code-centric semantics.
 
 # ---------------------------------------------------------------------------
@@ -49,10 +50,10 @@ approach_types:
     structured_exploration: "Structured exploration (if complex)"
 
 # ---------------------------------------------------------------------------
-# Dark debt categories — what we're carrying / what we didn't do.
+# Carried uncertainties — what we're carrying / known unknowns we surface.
 # Per vertical; some shared across verticals.
 # ---------------------------------------------------------------------------
-dark_debt_categories:
+carried_uncertainties_categories:
   # Code/safety_ii (current)
   code_generic:
     failure_at_max: "Forced approval at max iterations; failure pattern unresolved"
@@ -89,44 +90,44 @@ dark_debt_categories:
     citation_recommendation: "Recommendation not fully grounded"
 
 # ---------------------------------------------------------------------------
-# (intent_class × vertical) → approach semantics + dark_debt applicability
+# (intent_class × vertical) → approach semantics + carried_uncertainties applicability
 # Fallback: vertical=generic or missing → code_generic / code approach
 # ---------------------------------------------------------------------------
 intent_vertical_mapping:
   code:
-    generic: { approach: direct_snippet, dark_debt: code_generic }
-    medical: { approach: direct_with_tests, dark_debt: [code_generic, medical] }
-    fintech: { approach: direct_with_tests, dark_debt: [code_generic] }
-    industrial: { approach: direct_with_tests, dark_debt: code_generic }
-    platform: { approach: direct_with_tests, dark_debt: code_generic }
-    scientific: { approach: direct_with_tests, dark_debt: code_generic }
-    lifestyle: { approach: direct_snippet, dark_debt: [code_generic, lifestyle_running] }
-    llm_rag: { approach: direct_with_tests, dark_debt: code_generic }
-    llm_prompting: { approach: direct_with_tests, dark_debt: code_generic }
-    llm_evaluation: { approach: direct_with_tests, dark_debt: code_generic }
-    llm_governance: { approach: direct_with_tests, dark_debt: code_generic }
+    generic: { approach: direct_snippet, carried_uncertainties: code_generic }
+    medical: { approach: direct_with_tests, carried_uncertainties: [code_generic, medical] }
+    fintech: { approach: direct_with_tests, carried_uncertainties: [code_generic] }
+    industrial: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    platform: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    scientific: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    lifestyle: { approach: direct_snippet, carried_uncertainties: [code_generic, lifestyle_running] }
+    llm_rag: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    llm_prompting: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    llm_evaluation: { approach: direct_with_tests, carried_uncertainties: code_generic }
+    llm_governance: { approach: direct_with_tests, carried_uncertainties: code_generic }
   knowledge:
-    generic: { approach: retrieval_augmented, dark_debt: knowledge }
-    medical: { approach: retrieval_augmented, dark_debt: [knowledge, medical] }
-    lifestyle: { approach: [retrieval_augmented, direct_answer], dark_debt: [knowledge, lifestyle_running] }
-    llm_rag: { approach: retrieval_augmented, dark_debt: knowledge }
+    generic: { approach: retrieval_augmented, carried_uncertainties: knowledge }
+    medical: { approach: retrieval_augmented, carried_uncertainties: [knowledge, medical] }
+    lifestyle: { approach: [retrieval_augmented, direct_answer], carried_uncertainties: [knowledge, lifestyle_running] }
+    llm_rag: { approach: retrieval_augmented, carried_uncertainties: knowledge }
   writing:
-    generic: { approach: direct_draft, dark_debt: [] }
+    generic: { approach: direct_draft, carried_uncertainties: [] }
   planning:
-    generic: { approach: step_decomposition, dark_debt: planning }
-    lifestyle: { approach: [quick_steps, structured_plan], dark_debt: [planning, lifestyle_running] }
+    generic: { approach: step_decomposition, carried_uncertainties: planning }
+    lifestyle: { approach: [quick_steps, structured_plan], carried_uncertainties: [planning, lifestyle_running] }
   debugging:
-    generic: { approach: minimal_fix, dark_debt: code_generic }
+    generic: { approach: minimal_fix, carried_uncertainties: code_generic }
   data_transform:
-    generic: { approach: direct_snippet, dark_debt: code_generic }
+    generic: { approach: direct_snippet, carried_uncertainties: code_generic }
   tool_orchestrated:
-    generic: { approach: decomposed_plan, dark_debt: code_generic }
+    generic: { approach: decomposed_plan, carried_uncertainties: code_generic }
   personal_guidance:
-    generic: { approach: direct_answer, dark_debt: personal_guidance }
-    lifestyle: { approach: direct_tip, dark_debt: [personal_guidance, lifestyle_running] }
+    generic: { approach: direct_answer, carried_uncertainties: personal_guidance }
+    lifestyle: { approach: direct_tip, carried_uncertainties: [personal_guidance, lifestyle_running] }
   creative_ideation:
-    generic: { approach: direct_ideas, dark_debt: [] }
-    lifestyle: { approach: direct_ideas, dark_debt: [] }
+    generic: { approach: direct_ideas, carried_uncertainties: [] }
+    lifestyle: { approach: direct_ideas, carried_uncertainties: [] }
 
 # ---------------------------------------------------------------------------
 # How I got here — evidence sources per (intent × vertical)
@@ -166,6 +167,36 @@ how_i_got_here_sources:
     uncertain_key: []
 
 # ---------------------------------------------------------------------------
+# Pivot summary — taxonomy-aware prompts for context pivot summarization
+# pivot_type: language (Python→JS) | output_type (code↔document) | domain
+# ---------------------------------------------------------------------------
+pivot_summary_prompts:
+  language:
+    template: |
+      Summarize in 1-2 sentences what the user accomplished in {from_era}.
+      Conversation:
+      {conversation}
+      Reply with only the summary, no preamble.
+  output_type:
+    template: |
+      Summarize in 1-2 sentences what the user discussed or worked on in the previous {from_era} context.
+      {domain_suffix}
+      Conversation:
+      {conversation}
+      Reply with only the summary, no preamble.
+    domain_suffix_by_vertical:
+      scientific: "Focus on concepts, data, or methodology discussed."
+      lifestyle: "Focus on goals, plans, or advice exchanged."
+      medical: "Focus on concepts or workflows (do not mention PHI)."
+      generic: ""
+  domain:
+    template: |
+      Summarize what the user worked on in the previous context ({domain_hint}).
+      Conversation:
+      {conversation}
+      Reply with only the summary, no preamble.
+
+# ---------------------------------------------------------------------------
 # Common relationships — shared patterns across taxonomies
 # ---------------------------------------------------------------------------
 common_relationships:
@@ -177,12 +208,12 @@ common_relationships:
   # When plan_required (complex + Architect)
   plan_required:
     approach: decomposed_plan
-    dark_debt_if_forced: [underspecified_steps, architecture_risk]
+    carried_uncertainties_if_forced: [underspecified_steps, architecture_risk]
   # When RAG confidence low
   rag_confidence_low:
-    dark_debt: rag_confidence_low
+    carried_uncertainties: rag_confidence_low
     surface_in_how_i_got_here: true
   # When max_iterations forced pass
   max_iterations_forced:
-    dark_debt: failure_at_max
+    carried_uncertainties: failure_at_max
     append: [stages_incomplete, architecture_risk]

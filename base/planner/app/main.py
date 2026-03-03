@@ -393,14 +393,29 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         run_id_pre = str(uuid.uuid4())
         if settings.pivot_summary_enabled and conversation_history:
             interaction_mode = "do"
-            # For context-only pivot, use output_type as "era" label so summary is meaningful
-            from_era = last_lang or (last_ctx[0] if last_ctx else "unknown")
-            to_era = current_lang or (curr_output_type if last_ctx else "unknown")
-            if context_pivot and last_ctx:
-                from_era = last_ctx[0]
+            # Determine pivot_type and era labels for taxonomy-aware summarizer
+            if lang_pivot:
+                pivot_type = "language"
+                from_era = last_lang or "unknown"
+                to_era = current_lang or "unknown"
+                active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
+            elif context_pivot and last_ctx and curr_output_type != last_output_type:
+                pivot_type = "output_type"
+                from_era = last_output_type
                 to_era = curr_output_type
+                active_domain_refs_for_summary = last_ctx[1]
+            else:
+                pivot_type = "domain"
+                from_era = ", ".join(sorted(last_domains)[:3]) if last_ctx and last_domains else "previous"
+                to_era = ", ".join(sorted(curr_domains)[:3]) if curr_domains else "current"
+                active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
             pivot_summary = await summarize_pivot_history(
-                conversation_history, from_era, to_era, interaction_mode
+                conversation_history,
+                from_era,
+                to_era,
+                interaction_mode,
+                pivot_type=pivot_type,
+                active_domain_refs=active_domain_refs_for_summary,
             )
             if context_pivot and pivot_to_label:
                 pivot_summary = (pivot_summary + " " if pivot_summary else "") + f"Context: {pivot_to_label}."

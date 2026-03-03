@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..config import settings
-from ..approach_dark_debt import build_universal_dark_debt_signal
+from ..approach_dark_debt import build_universal_carried_uncertainties_signal
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -557,7 +557,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 )
 
         at_max_iterations = should_force_pass(iteration + 1, max_iterations)
-        dark_debt_signal = None
+        carried_uncertainties_signal = None
         if at_max_iterations:
             if not approved:
                 logger.warning(
@@ -578,9 +578,9 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 suggested_system_fix = "Review lint/security rules or relax revision constraints."
             else:
                 suggested_system_fix = "Update touched_files manifest or revision constraints."
-            # Universal dark debt (§approach_dark_debt_config)
+            # Universal carried uncertainties (§approach_dark_debt_config)
             intent_class = state.get("intent_class", "code")
-            dark_debt_signal = build_universal_dark_debt_signal(
+            carried_uncertainties_signal = build_universal_carried_uncertainties_signal(
                 state,
                 intent_class,
                 active_vertical,
@@ -591,20 +591,20 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 stages_passed=stages_passed,
                 suggested_system_fix=suggested_system_fix,
             )
-            dark_debt_signal["dominant_stage"] = "gate" if integrity_reason else (failure_type or "runtime")
-            dark_debt_signal["dominant_rule"] = (
+            carried_uncertainties_signal["dominant_stage"] = "gate" if integrity_reason else (failure_type or "runtime")
+            carried_uncertainties_signal["dominant_rule"] = (
                 f"{integrity_reason}: {(integrity_fail.get('evidence') or '')[:80]}"
                 if integrity_reason
                 else f"{failure_type}: {failure_type}"
             )[:200]
         else:
-            # Emit light dark debt when relevant (knowledge gap, lifestyle quick answer, residual risks)
+            # Emit light carried uncertainties when relevant (knowledge gap, lifestyle quick answer, residual risks)
             intent_class = state.get("intent_class", "code")
-            light_signal = build_universal_dark_debt_signal(
+            light_signal = build_universal_carried_uncertainties_signal(
                 state, intent_class, active_vertical, task_size
             )
             if light_signal.get("items"):
-                dark_debt_signal = light_signal
+                carried_uncertainties_signal = light_signal
 
         if approved:
             next_node = "respond"
@@ -661,8 +661,8 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             "code_explanation": state.get("code_explanation", ""),
             "patch_ops": state.get("patch_ops", []) or [],
         }
-        if dark_debt_signal:
-            result["dark_debt_signal"] = dark_debt_signal
+        if carried_uncertainties_signal:
+            result["carried_uncertainties_signal"] = carried_uncertainties_signal
         # §7.8: When Critic routes to Supervisor, Supervisor may only ask clarification—not re-plan.
         if critic_should_continue or parsed.need_more_evidence:
             result["supervisor_clarification_only"] = True

@@ -1,0 +1,106 @@
+# Prompt Taxonomy — Links router taxonomy (intent × vertical × task_size) → prompt components
+#
+# Purpose: Drive summarizer style, depth, and future prompt selection from taxonomy without
+# infinite prompts. Components are composable; router_to_prompt selects which apply.
+#
+# SEEDING: To add a new vertical (e.g. astronomy, physics):
+#   1. Add vertical to vertical_prompts.yaml (active_domain_refs, persona, critic_mode)
+#   2. Add to router_to_prompt.by_vertical below with vertical-specific biases
+#   3. Add domain_suffix_by_vertical in approach_dark_debt_config.yaml pivot_summary_prompts
+#   Inheritance: by_vertical overrides by_intent overrides default.
+
+# ---------------------------------------------------------------------------
+# Prompt component definitions — reusable building blocks
+# ---------------------------------------------------------------------------
+prompt_components:
+  summary_depth:
+    trivial: "1-2 sentences; no methodology"
+    small: "Brief; key decisions only"
+    complex: "Concepts, methodology, limitations"
+  summary_domain_focus:
+    scientific: "concepts, data, methodology"
+    lifestyle: "goals, plans, advice"
+    medical: "concepts, workflows (no PHI)"
+    llm_rag: "retrieval strategy, chunking, attribution"
+    generic: ""
+  evidence_emphasis:
+    code: [sandbox, lsp, lint, security]
+    knowledge: [rag]
+    lifestyle: [rag, assumptions]
+    planning: [rag, execution_plan]
+    scientific: [rag, sandbox]  # reproducibility focus
+  critic_mode:
+    safety_ii: "Full What-If; compliance-first"
+    tiered: "basic → advanced → research by task_size"
+    advisory: "Compile/run only"
+
+# ---------------------------------------------------------------------------
+# Router → prompt: (intent × vertical × task_size) → selected components
+# Resolution order: by_vertical[vertical] ∩ by_intent[intent] ∩ by_task_size[task_size] → default
+# ---------------------------------------------------------------------------
+router_to_prompt:
+  default:
+    summary_depth: small
+    summary_domain_focus: generic
+    evidence_emphasis: code  # fallback for code
+  by_intent:
+    knowledge:
+      summary_depth: small
+      summary_domain_focus: generic  # vertical overrides
+      evidence_emphasis: knowledge
+    writing:
+      summary_depth: small
+      summary_domain_focus: generic
+    planning:
+      summary_depth: small
+      evidence_emphasis: planning
+    code:
+      summary_depth: trivial
+      evidence_emphasis: code
+    debugging:
+      summary_depth: trivial
+      evidence_emphasis: code
+    personal_guidance:
+      summary_depth: small
+      evidence_emphasis: lifestyle
+  by_vertical:
+    scientific:
+      summary_domain_focus: scientific
+      summary_depth: complex  # richer summaries for science
+      evidence_emphasis: scientific
+    lifestyle:
+      summary_domain_focus: lifestyle
+      summary_depth: small
+    medical:
+      summary_domain_focus: medical
+      summary_depth: small
+    fintech:
+      summary_domain_focus: generic  # reuse generic; add domain_suffix in approach_dark_debt if needed
+    llm_rag:
+      summary_domain_focus: llm_rag
+      summary_depth: small
+    llm_prompting:
+      summary_depth: small
+    llm_evaluation:
+      summary_depth: small
+    llm_governance:
+      summary_depth: small
+    # industrial, platform: inherit default
+  by_task_size:
+    trivial:
+      summary_depth: trivial
+    small:
+      summary_depth: small
+    complex:
+      summary_depth: complex
+
+# ---------------------------------------------------------------------------
+# Vertical → domain_suffix alias (for pivot summarizer)
+# Maps canonical vertical to key in approach_dark_debt pivot_summary_prompts.domain_suffix_by_vertical.
+# Keeps a single source for suffix text; this just links vertical → which suffix to use.
+# ---------------------------------------------------------------------------
+vertical_to_summary_suffix_key:
+  scientific: scientific
+  lifestyle: lifestyle
+  medical: medical
+  generic: generic

@@ -457,9 +457,9 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 summary = build_decision_summary(state)
                 if summary:
                     parts.append(f"\n---\n**How I got here**\n{summary}")
-        # Dark debt: what we're carrying (§approach_dark_debt_config) — any persona when relevant
-        dark_debt = state.get("dark_debt_signal") or {}
-        debt_items = dark_debt.get("items") or []
+        # Carried uncertainties: what we're carrying (§approach_dark_debt_config) — any persona when relevant
+        carried = state.get("carried_uncertainties_signal") or {}
+        debt_items = carried.get("items") or []
         if debt_items:
             debt_lines = [f"- {item.get('description', '')[:120]}" for item in debt_items[:3] if item.get("description")]
             if debt_lines:

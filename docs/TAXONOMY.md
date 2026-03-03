@@ -295,10 +295,10 @@ To reach "the 95%" for new verticals:
 
 ## 9. Approach + Dark Debt + How I Got Here (Universal)
 
-**File:** `approach_dark_debt_config.yaml` — Maps (intent × vertical × task_size) → approach semantics, dark-debt categories, and evidence sources.
+**File:** `approach_dark_debt_config.yaml` — Maps (intent × vertical × task_size) → approach semantics, carried-uncertainties categories, and evidence sources.
 
 - **Approach:** What we chose to do — e.g. "Quick one-shot answer" (lifestyle trivial) vs "12-week training plan" (lifestyle complex); "RAG-grounded answer" (knowledge).
-- **Dark debt:** What we're carrying — e.g. "Quick answer given; ask for full plan if needed" (lifestyle); "Forced approval at max iterations" (code); "RAG confidence low" (knowledge).
+- **Carried uncertainties:** What we're carrying (known unknowns we surface) — e.g. "Quick answer given; ask for full plan if needed" (lifestyle); "Forced approval at max iterations" (code); "RAG confidence low" (knowledge).
 - **How I got here:** Taxonomy-aware decision summary — code uses lint/sandbox/LSP/strategy; knowledge uses RAG; lifestyle uses RAG and assumptions.
 
 Surfaced in respond as **How I got here** (Architect) and **What I'm carrying** (any persona when relevant).
@@ -311,7 +311,7 @@ The critic follows a **policy engine spec** (`base/planner/critic_policy_spec.js
 
 - **Evidence gating:** Blocking issues MUST cite sandbox or LSP evidence; no speculation.
 - **Monotonic retry:** `state.retry` accumulates failures, decisions, diversification history; never loses prior state.
-- **Fail-fast:** At `max_iterations`, force PASS (degraded) and emit `dark_debt_signal`.
+- **Fail-fast:** At `max_iterations`, force PASS (degraded) and emit `carried_uncertainties_signal`.
 - **needs_more_evidence:** Emit retrieval query plan; route to Supervisor; do not call tools.
 
 Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `retry_state_updates`, `should_force_pass`, etc.
@@ -378,8 +378,10 @@ Existing indexers (domain, architecture, code) use their own domain extraction (
 
 ## 13. See Also
 
+- [TAXONOMY_CANONICAL.md](TAXONOMY_CANONICAL.md) — Canonical domains, verticals, seeding
+- [prompt_taxonomy.yaml](../base/planner/prompt_taxonomy.yaml) — Router → prompt components
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
-- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + dark debt (universal)
+- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — Active config (may symlink to master)
 - [master_intent_weights.yaml](../base/planner/master_intent_weights.yaml) — Full sovereign catalog
 - [vertical_prompts.yaml](../base/planner/vertical_prompts.yaml) — Sovereign persona injection

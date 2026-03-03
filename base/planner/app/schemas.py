@@ -652,4 +652,4 @@ class CriticOut(BaseModel):
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
     # Postmortem (max_iterations): weak signal for system brittleness aggregation
-    dark_debt_signal: dict[str, Any] | None = None  # {module_path?, failure_pattern, consistent_failures}
+    carried_uncertainties_signal: dict[str, Any] | None = None  # approach_dark_debt: known unknowns we surface

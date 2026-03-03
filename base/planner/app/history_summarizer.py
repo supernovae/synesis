@@ -1,17 +1,20 @@
 """Context pivot: summarize previous era before flushing, archive to L2.
 
-When user pivots languages (Python→JS→shell), we optionally:
+When user pivots languages (Python→JS→shell), output_type (code↔document),
+or domain, we optionally:
 1. Summarize the "old era" via a tiny micro model (Qwen 0.5B, CPU)
 2. Archive raw history to L2 (durable store)
 3. Replace flushed history with a compact summary for smooth UX
 
 Uses summarizer_model_url when configured; otherwise falls back to stub.
+Taxonomy-aware: pivot_summary_prompts in approach_dark_debt_config.yaml.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from .config import settings
@@ -20,6 +23,28 @@ from .llm_telemetry import get_llm_http_client
 logger = logging.getLogger("synesis.history_summarizer")
 
 _summarizer_llm: Any = "__unset__"
+_pivot_prompts_cache: dict[str, Any] | None = None
+
+
+def _load_pivot_prompts() -> dict[str, Any]:
+    """Load pivot_summary_prompts from approach_dark_debt_config.yaml."""
+    global _pivot_prompts_cache
+    if _pivot_prompts_cache is not None:
+        return _pivot_prompts_cache
+    try:
+        import yaml
+
+        path = Path(__file__).parent.parent / "approach_dark_debt_config.yaml"
+        if path.exists():
+            with open(path) as f:
+                raw = yaml.safe_load(f) or {}
+            _pivot_prompts_cache = raw.get("pivot_summary_prompts") or {}
+        else:
+            _pivot_prompts_cache = {}
+    except Exception as e:
+        logger.debug("pivot_prompts_load_failed %s", e)
+        _pivot_prompts_cache = {}
+    return _pivot_prompts_cache
 
 
 def _get_summarizer_llm():
@@ -52,48 +77,112 @@ def _get_summarizer_llm():
 
 def _stub_pivot_summary(
     history: list[str],
-    last_lang: str,
-    current_lang: str,
+    from_era: str,
+    to_era: str,
+    pivot_type: str = "language",
     interaction_mode: str = "do",
 ) -> str:
     """Fallback when micro model unavailable."""
     if not history:
         return ""
     turn_count = len(history)
-    stub = f"Completed {turn_count} turn(s) in {last_lang}."
-    if interaction_mode == "teach":
+    if pivot_type == "language":
+        stub = f"Completed {turn_count} turn(s) in {from_era}."
+    elif pivot_type == "output_type":
+        stub = f"Completed {turn_count} turn(s) in {from_era} context."
+    else:
+        stub = f"Completed {turn_count} turn(s) in previous context."
+    if interaction_mode == "teach" and pivot_type == "language":
         stub += (
-            f" [Mentor: We're moving from {last_lang} to {current_lang}. "
+            f" [Mentor: We're moving from {from_era} to {to_era}. "
             "Same intent may use different tools—e.g. Python json vs Shell jq.]"
         )
     return stub
 
 
+def _build_pivot_prompt(
+    pivot_type: str,
+    from_era: str,
+    combined: str,
+    active_domain_refs: list[str] | None,
+) -> str:
+    """Build prompt from pivot_summary_prompts config or fallback."""
+    prompts = _load_pivot_prompts()
+    cfg = prompts.get(pivot_type) if pivot_type in prompts else None
+
+    domain_suffix = ""
+    if pivot_type == "output_type" and cfg and isinstance(cfg, dict):
+        vert = "generic"
+        if active_domain_refs:
+            try:
+                from .vertical_resolver import resolve_active_vertical
+
+                vert = resolve_active_vertical(active_domain_refs, None)
+            except Exception:
+                pass
+        # Use prompt_taxonomy to resolve vertical → suffix key (enables aliasing, e.g. astronomy→scientific)
+        try:
+            from .prompt_taxonomy import get_summary_domain_suffix_key
+
+            suffix_key = get_summary_domain_suffix_key(vert)
+        except Exception:
+            suffix_key = vert
+        suffixes = cfg.get("domain_suffix_by_vertical") or {}
+        domain_suffix = (suffixes.get(suffix_key) or suffixes.get("generic") or "").strip()
+        if domain_suffix:
+            domain_suffix = domain_suffix + "\n\n"
+
+    template = None
+    if cfg and isinstance(cfg, dict):
+        template = cfg.get("template", "").strip()
+
+    if template:
+        return template.format(
+            from_era=from_era,
+            conversation=combined,
+            domain_suffix=domain_suffix,
+            domain_hint=", ".join((active_domain_refs or [])[:3]) or "general",
+        ).strip()
+
+    # Fallback when config missing — pivot-type aware (avoid code bias for document)
+    if pivot_type == "output_type":
+        base = f"Summarize in 1-2 sentences what the user discussed or worked on in the previous {from_era} context."
+    elif pivot_type == "language":
+        base = f"Summarize in 1-2 sentences what the user accomplished in {from_era}."
+    else:
+        base = f"Summarize what the user worked on in the previous context ({from_era})."
+    return f"{base}\n\nConversation:\n{combined}\n\nReply with only the summary, no preamble."
+
+
 async def summarize_pivot_history(
     history: list[str],
-    last_lang: str,
-    current_lang: str,
+    from_era: str,
+    to_era: str,
     interaction_mode: str = "do",
+    *,
+    pivot_type: str = "language",
+    active_domain_refs: list[str] | None = None,
 ) -> str:
     """Summarize the pre-pivot history in 1-2 sentences.
 
-    Uses micro model (Qwen 0.5B, SmolLM, etc.) when summarizer_model_url
-    is configured. Falls back to stub on error or when not deployed.
+    Taxonomy-aware: uses pivot_summary_prompts from approach_dark_debt_config.yaml.
+    pivot_type: language (Python→JS) | output_type (code↔document) | domain
+    Uses micro model when summarizer_model_url configured; falls back to stub.
     """
     if not history:
         return ""
 
     llm = _get_summarizer_llm()
     if llm is None:
-        return _stub_pivot_summary(history, last_lang, current_lang, interaction_mode)
+        return _stub_pivot_summary(
+            history, from_era, to_era, pivot_type, interaction_mode
+        )
 
     # Truncate to fit micro model context (~1k tokens)
     combined = "\n".join(history[-5:])[:2000]
 
-    prompt = (
-        f"Summarize in 1-2 sentences what the user accomplished in {last_lang}.\n\n"
-        f"Conversation:\n{combined}\n\n"
-        "Reply with only the summary, no preamble."
+    prompt = _build_pivot_prompt(
+        pivot_type, from_era, combined, active_domain_refs
     )
 
     try:
@@ -105,14 +194,14 @@ async def summarize_pivot_history(
         )
         summary = (response.content or "").strip()
         if summary:
-            if interaction_mode == "teach":
+            if interaction_mode == "teach" and pivot_type == "language":
                 summary += (
-                    f" [Mentor: We're moving from {last_lang} to {current_lang}. "
+                    f" [Mentor: We're moving from {from_era} to {to_era}. "
                     "Same intent may use different tools—e.g. Python json vs Shell jq.]"
                 )
             logger.debug(
                 "pivot_summary_from_model",
-                extra={"last_lang": last_lang, "current_lang": current_lang},
+                extra={"from_era": from_era, "to_era": to_era, "pivot_type": pivot_type},
             )
             return summary
     except asyncio.TimeoutError:
@@ -120,7 +209,9 @@ async def summarize_pivot_history(
     except Exception as e:
         logger.debug("pivot_summarizer_error %s", e)
 
-    return _stub_pivot_summary(history, last_lang, current_lang, interaction_mode)
+    return _stub_pivot_summary(
+        history, from_era, to_era, pivot_type, interaction_mode
+    )
 
 
 async def summarize_text(text: str, max_tokens: int = 400) -> str:

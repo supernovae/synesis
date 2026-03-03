@@ -349,7 +349,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 
 **Evidence Gate Logic (code):** If `approved=false` but no blocking_issue has sandbox/lsp evidence_refs, override to `approved=true`.
 
-**Critic Policy Engine** (`critic_policy.py`): Scoring, evidence gating, retry controller, monotonic `state.retry`. At max iterations, force PASS and emit universal `dark_debt_signal` via `build_universal_dark_debt_signal` (approach_dark_debt).
+**Critic Policy Engine** (`critic_policy.py`): Scoring, evidence gating, retry controller, monotonic `state.retry`. At max iterations, force PASS and emit universal `carried_uncertainties_signal` via `build_universal_carried_uncertainties_signal` (approach_dark_debt).
 
 **Output Schema:** `CriticOut` — what_if_analyses, approved, blocking_issues, evidence_refs, etc.
 
@@ -368,7 +368,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 
 **Taxonomy-aware (all personas):**
 - **How I got here** (Architect only): `decision_summary.build_decision_summary` — approach label, strategy, evidence checked, uncertain items. Uses `approach_dark_debt_config.yaml` for intent × vertical.
-- **What I'm carrying** (any persona when relevant): `dark_debt_signal.items` — e.g. "Quick answer given; ask for full plan if needed" (lifestyle), "Forced approval at max iterations" (code), "RAG confidence low" (knowledge).
+- **What I'm carrying** (any persona when relevant): `carried_uncertainties_signal.items` — e.g. "Quick answer given; ask for full plan if needed" (lifestyle), "Forced approval at max iterations" (code), "RAG confidence low" (knowledge).
 
 ---
 
@@ -396,7 +396,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 
 - [workflow.md](workflow.md) — Routing logic and graph flow
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, approach/dark debt, critic policy
-- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + dark debt mappings
+- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — EntryClassifier weights
 - [schemas.py](../base/planner/app/schemas.py) — SupervisorOut, PlannerOut, ExecutorOut, CriticOut

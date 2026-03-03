@@ -66,7 +66,7 @@
   },
   "escalation_policy": {
     "trigger": "Repeated RETRY with same failure_pattern; at max_attempts",
-    "action": "Append to escalations; set dark_debt_signal",
+    "action": "Append to escalations; set carried_uncertainties_signal",
     "mode_escalation": "tiered basic->advanced when iteration>0; no thrashing (do not downgrade)"
   },
   "monotonicity_invariants": [
@@ -85,7 +85,7 @@
       "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "worker_persona", "execution_exit_code", "execution_lint_passed", "execution_security_passed"],
       "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "need_more_evidence", "iteration_count", "next_node"],
       "decision_logic": "advisory_bypass -> PASS if exit ok; else evidence_gate on LLM output; RETRY if not approved and attempt<max",
-      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append dark_debt"]
+      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append carried_uncertainties"]
     }
   },
   "examples": [
@@ -114,7 +114,7 @@
       "scenario": "Max iterations reached, force PASS",
       "initial_state": {"iteration_count": 3, "max_iterations": 3, "critic_approved": false},
       "decision": "PASS (forced)",
-      "state_diff": {"critic_approved": true, "dark_debt_signal": {"failure_pattern": "runtime"}},
+      "state_diff": {"critic_approved": true, "carried_uncertainties_signal": {"failure_pattern": "runtime"}},
       "outcome": "PASS forced; route to respond with degraded note"
     }
   ]
