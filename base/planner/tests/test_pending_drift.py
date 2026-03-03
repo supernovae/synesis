@@ -1,6 +1,6 @@
 """Tests for pending_reply_diverges — avoid wrong resume when reply is a new question."""
 
-from ..app.pending_drift import pending_reply_diverges
+from app.pending_drift import pending_reply_diverges
 
 
 def test_knowledge_style_diverges():
