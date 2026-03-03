@@ -27,6 +27,8 @@ spec:
     - args:
         - --model
         - Qwen/Qwen2.5-0.5B-Instruct
+        - --served-model-name
+        - "{{.Name}}"
         - --download-dir
         - /tmp/models-cache
         - --port
