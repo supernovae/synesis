@@ -943,6 +943,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 sent_role = False
                 task_size_val = ""
                 deliverable_val = ""
+                thinking_phases: list[str] = []
+                thinking_block_emitted = False
+                first_content_logged = False
+                token_count_estimate = 0
+                t_start = time.monotonic()
 
                 try:
                     async for event in graph.astream_events(
@@ -955,11 +960,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         meta = event.get("metadata", {})
                         lg_node = meta.get("langgraph_node", "")
 
-                        # ── Node started → status SSE ──
+                        # ── Node started → status SSE + accumulate thinking phases ──
                         if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             node_label = name if name in _KNOWN_NODES else lg_node
                             desc = _status_for_node(node_label, task_size_val, deliverable_val)
                             if desc:
+                                thinking_phases.append(desc)
                                 yield _sse_status_chunk(
                                     {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}
                                 )
@@ -1024,11 +1030,34 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 for fragment in extractor.feed(chunk_obj.content):
                                     if not fragment:
                                         continue
+                                    if not thinking_block_emitted and thinking_phases:
+                                        thinking_block_emitted = True
+                                        elapsed_s = time.monotonic() - t_start
+                                        phases_text = " ".join(thinking_phases)
+                                        thinking_html = (
+                                            f'<details type="thinking" done="true">\n'
+                                            f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
+                                            f"{phases_text}\n"
+                                            f"</details>\n\n"
+                                        )
+                                        yield _sse_content_delta(
+                                            chat_id,
+                                            {"role": "assistant", "content": thinking_html},
+                                            run_id=run_id,
+                                        )
+                                        sent_role = True
                                     delta: dict[str, str] = {"content": fragment}
                                     if not sent_role:
                                         delta["role"] = "assistant"
                                         sent_role = True
                                     content_streamed = True
+                                    token_count_estimate += 1
+                                    if not first_content_logged:
+                                        first_content_logged = True
+                                        logger.info(
+                                            "sse_first_content_delta",
+                                            extra={"elapsed_ms": int((time.monotonic() - t_start) * 1000)},
+                                        )
                                     yield _sse_content_delta(chat_id, delta, run_id=run_id)
 
                 except Exception as e:
@@ -1066,11 +1095,31 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         model=request.model,
                     )
                     record_chat_success(time.monotonic() - start)
+                    thinking_prefix = ""
+                    if not thinking_block_emitted and thinking_phases:
+                        elapsed_s = time.monotonic() - t_start
+                        phases_text = " ".join(thinking_phases)
+                        thinking_prefix = (
+                            f'<details type="thinking" done="true">\n'
+                            f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
+                            f"{phases_text}\n"
+                            f"</details>\n\n"
+                        )
                     yield _sse_content_delta(
                         chat_id,
-                        {"role": "assistant", "content": content},
+                        {"role": "assistant", "content": thinking_prefix + content},
                         run_id=run_id,
                     )
+
+                total_elapsed_ms = int((time.monotonic() - t_start) * 1000)
+                logger.info(
+                    "sse_stream_complete",
+                    extra={
+                        "elapsed_ms": total_elapsed_ms,
+                        "streamed": content_streamed,
+                        "token_count_estimate": token_count_estimate,
+                    },
+                )
 
                 yield _sse_chunk(
                     {

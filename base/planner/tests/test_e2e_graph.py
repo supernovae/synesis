@@ -56,7 +56,7 @@ def trivial_initial_state():
 
 
 @patch("app.nodes.executor.settings")
-@patch("app.nodes.critic.critic_structured_llm")
+@patch("app.nodes.critic.critic_llm")
 @patch("app.nodes.worker.worker_llm")
 @patch("app.nodes.context_curator.retrieve_context")
 @patch("app.nodes.critic.discover_collections")
@@ -65,28 +65,16 @@ async def test_graph_reaches_respond_trivial_path(
     mock_discover,
     mock_retrieve,
     mock_worker_llm,
-    mock_critic_structured_llm,
+    mock_critic_llm,
     mock_sandbox_settings,
     trivial_initial_state,
 ):
     """Trivial path reaches respond with code in the final message."""
-    from app.schemas import CriticOut
-
     mock_retrieve.return_value = []
     mock_discover.return_value = []
     mock_worker_llm.ainvoke = AsyncMock(return_value=AIMessage(content=EXECUTOR_OUT_JSON))
-    mock_critic_structured_llm.ainvoke = AsyncMock(
-        return_value=CriticOut(
-            what_if_analyses=[],
-            overall_assessment="Acceptable.",
-            approved=True,
-            revision_feedback="",
-            confidence=0.9,
-            reasoning="Simple script, low risk.",
-            should_continue=False,
-            need_more_evidence=False,
-        )
-    )
+    critic_json = '{"what_if_analyses":[],"overall_assessment":"Acceptable.","approved":true,"revision_feedback":"","confidence":0.9,"reasoning":"Simple script, low risk.","should_continue":false,"need_more_evidence":false}'
+    mock_critic_llm.ainvoke = AsyncMock(return_value=AIMessage(content=critic_json))
     mock_sandbox_settings.sandbox_enabled = False
     mock_sandbox_settings.sandbox_warm_pool_enabled = False
     mock_sandbox_settings.max_sandbox_minutes = 60.0  # Avoid MagicMock in sandbox_node checks

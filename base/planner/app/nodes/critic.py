@@ -27,7 +27,6 @@ from ..critic_policy import (
 )
 from ..llm_telemetry import get_llm_http_client
 from ..rag_client import SYNESIS_CATALOG, discover_collections, retrieve_context
-from ..schemas import CriticOut
 from ..state import NodeOutcome, NodeTrace, WhatIfAnalysis
 from ..validator import validate_critic_with_repair
 from ..web_search import format_search_results, search_client
@@ -81,13 +80,6 @@ critic_llm = ChatOpenAI(
     max_tokens=settings.critic_max_tokens,
     http_client=get_llm_http_client(uds_path=settings.critic_model_uds or None),
     model_kwargs=_model_kwargs,
-)
-
-# Guided JSON decoding: pass CriticOut schema to vLLM for constrained output
-critic_structured_llm = critic_llm.with_structured_output(
-    CriticOut,
-    method="json_schema",
-    include_raw=False,
 )
 
 
@@ -352,12 +344,13 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
                 f"## Executor Response (markdown)\n{generated_code[:8000]}"
             )
             try:
-                doc_parsed = await critic_structured_llm.ainvoke(
+                doc_response = await critic_llm.ainvoke(
                     [
                         SystemMessage(content=doc_system),
                         HumanMessage(content=doc_prompt),
                     ]
                 )
+                doc_parsed, _ = validate_critic_with_repair(doc_response.content)
             except Exception as doc_err:
                 logger.warning("critic_document_depth_failed", extra={"error": str(doc_err)[:200]})
                 doc_parsed = None
@@ -581,42 +574,37 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             HumanMessage(content=prompt),
         ]
 
-        response = None
         is_truncated = False
+        response = await critic_llm.ainvoke(messages)
         try:
-            parsed = await critic_structured_llm.ainvoke(messages)
-        except Exception as struct_err:
-            logger.warning(f"Critic structured output failed: {struct_err}, falling back to raw parse")
-            response = await critic_llm.ainvoke(messages)
-            try:
-                parsed, is_truncated = validate_critic_with_repair(response.content)
-                if is_truncated:
-                    logger.warning(
-                        "critic_response_truncated",
-                        extra={"detail": "First N blocking_issues preserved; nonblocking may be omitted"},
-                    )
-            except ValueError as e:
-                latency = (time.monotonic() - start) * 1000
-                trace = NodeTrace(
-                    node_name=node_name,
-                    reasoning=f"Schema validation failed: {e}",
-                    confidence=0.0,
-                    outcome=NodeOutcome.ERROR,
-                    latency_ms=latency,
+            parsed, is_truncated = validate_critic_with_repair(response.content)
+            if is_truncated:
+                logger.warning(
+                    "critic_response_truncated",
+                    extra={"detail": "First N blocking_issues preserved; nonblocking may be omitted"},
                 )
-                logger.warning("critic_schema_validation_failed", extra={"error": str(e)[:200]})
-                return {
-                    "critic_approved": True,
-                    "critic_feedback": f"Critic output validation failed: {e}",
-                    "critic_should_continue": False,
-                    "critic_continue_reason": None,
-                    "current_node": node_name,
-                    "next_node": "respond",
-                    "generated_code": state.get("generated_code", ""),
-                    "code_explanation": state.get("code_explanation", ""),
-                    "patch_ops": state.get("patch_ops", []) or [],
-                    "node_traces": [trace],
-                }
+        except ValueError as e:
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning=f"Schema validation failed: {e}",
+                confidence=0.0,
+                outcome=NodeOutcome.ERROR,
+                latency_ms=latency,
+            )
+            logger.warning("critic_schema_validation_failed", extra={"error": str(e)[:200]})
+            return {
+                "critic_approved": True,
+                "critic_feedback": f"Critic output validation failed: {e}",
+                "critic_should_continue": False,
+                "critic_continue_reason": None,
+                "current_node": node_name,
+                "next_node": "respond",
+                "generated_code": state.get("generated_code", ""),
+                "code_explanation": state.get("code_explanation", ""),
+                "patch_ops": state.get("patch_ops", []) or [],
+                "node_traces": [trace],
+            }
 
         approved = parsed.approved
         blocking_issues = getattr(parsed, "blocking_issues", []) or []

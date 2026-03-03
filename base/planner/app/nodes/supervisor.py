@@ -124,13 +124,6 @@ supervisor_llm = ChatOpenAI(
     http_client=get_llm_http_client(uds_path=settings.supervisor_model_uds or None),
 )
 
-# Guided JSON decoding: pass SupervisorOut schema to vLLM for constrained output
-supervisor_structured_llm = supervisor_llm.with_structured_output(
-    SupervisorOut,
-    method="json_schema",
-    include_raw=False,
-)
-
 
 async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
@@ -380,75 +373,29 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             ),
         ]
 
-        response = None
+        response = await supervisor_llm.ainvoke(prompt_messages)
         try:
-            parsed = await supervisor_structured_llm.ainvoke(prompt_messages)
-        except Exception as e:
-            logger.warning(f"Supervisor structured output failed: {e}, falling back to raw parse")
-            response = await supervisor_llm.ainvoke(prompt_messages)
-            try:
-                parsed = parse_and_validate(response.content, SupervisorOut)
-            except Exception as parse_err:
-                logger.warning(f"Supervisor schema validation failed: {parse_err}, using fallback parse")
-                import json
-
-                content = response.content
-                json_start = content.find("{")
-                json_end = content.rfind("}") + 1
-                if json_start >= 0 and json_end > json_start:
-                    try:
-                        data = json.loads(content[json_start:json_end])
-                    except json.JSONDecodeError:
-                        data = {}
-                else:
-                    data = {}
-
-                if data:
-                    parsed = SupervisorOut(
-                        task_type=TaskType(data.get("task_type", "general")),
-                        task_description=data.get("task_description", ""),
-                        target_language=data.get("target_language") or _extract_language_from_text(user_context),
-                        needs_code_generation=data.get("needs_code_generation", True),
-                        reasoning=data.get("reasoning", ""),
-                        assumptions=data.get("assumptions", []),
-                        confidence=data.get("confidence", 0.5),
-                        needs_clarification=data.get("needs_clarification", False),
-                        clarification_question=data.get("clarification_question"),
-                        clarification_options=data.get("clarification_options", []),
-                        planning_suggested=data.get("planning_suggested", False),
-                        route_to=data.get("route_to"),
-                        task_is_trivial=data.get("task_is_trivial", False),
-                        bypass_planner=data.get("bypass_planner", False),
-                        bypass_clarification=data.get("bypass_clarification", False),
-                        deliverable_type=data.get("deliverable_type", "single_file"),
-                        interaction_mode=data.get("interaction_mode", "do"),
-                        include_tests=data.get("include_tests", True),
-                        include_run_commands=data.get("include_run_commands", True),
-                        allowed_tools=data.get("allowed_tools") or ["sandbox", "lsp"],
-                        assumptions_structured=data.get("assumptions_structured") or [],
-                        defaults_used=data.get("defaults_used") or [],
-                        rag_mode=data.get("rag_mode") or ("disabled" if data.get("task_is_trivial") else "normal"),
-                    )
-                else:
-                    # Fallback: document-first. Assume discussion when parse fails (avoid code bias).
-                    user_msg = user_context if user_context else ""
-                    parsed = SupervisorOut(
-                        task_type=TaskType.GENERAL,
-                        task_description=user_msg or "Respond to user",
-                        target_language="markdown",
-                        needs_code_generation=True,  # Worker produces content; explain_only
-                        needs_clarification=False,
-                        route_to="worker",
-                        task_is_trivial=True,
-                        bypass_planner=True,
-                        bypass_clarification=True,
-                        deliverable_type="explain_only",
-                        interaction_mode="do",
-                        rag_mode="disabled",
-                        allowed_tools=["none"],
-                        reasoning="Fallback: schema parse failed, document-first response",
-                        confidence=0.5,
-                    )
+            parsed = parse_and_validate(response.content, SupervisorOut)
+        except Exception as parse_err:
+            logger.warning(f"Supervisor schema validation failed: {parse_err}, using fallback parse")
+            user_msg = user_context if user_context else ""
+            parsed = SupervisorOut(
+                task_type=TaskType.GENERAL,
+                task_description=user_msg or "Respond to user",
+                target_language="markdown",
+                needs_code_generation=True,
+                needs_clarification=False,
+                route_to="worker",
+                task_is_trivial=True,
+                bypass_planner=True,
+                bypass_clarification=True,
+                deliverable_type="explain_only",
+                interaction_mode="do",
+                rag_mode="disabled",
+                allowed_tools=["none"],
+                reasoning="Fallback: schema parse failed, document-first response",
+                confidence=0.5,
+            )
 
         task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
         # Step 3: Prefer EntryClassifier's language when pre-classified; "infer" = let LLM decide (from prompt)

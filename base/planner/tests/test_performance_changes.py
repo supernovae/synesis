@@ -117,18 +117,16 @@ class TestContextRefsResolver:
         assert result == ["", "ok"]
 
 
-class TestGuidedOutputFallback:
-    """Supervisor and critic fall back to raw parse when structured output fails."""
+class TestFreeGenerationParsing:
+    """Supervisor and critic use free generation + parse_and_validate (no guided decoding)."""
 
-    @patch("app.nodes.supervisor.supervisor_structured_llm")
     @patch("app.nodes.supervisor.supervisor_llm")
     @pytest.mark.asyncio
-    async def test_supervisor_fallback_on_structured_failure(self, mock_raw_llm, mock_structured_llm):
-        """When structured output raises, supervisor falls back to raw parse."""
+    async def test_supervisor_parses_free_generation(self, mock_raw_llm):
+        """Supervisor uses free generation and parse_and_validate for routing."""
         from app.nodes.supervisor import supervisor_node
         from langchain_core.messages import AIMessage, HumanMessage
 
-        mock_structured_llm.ainvoke = AsyncMock(side_effect=RuntimeError("vLLM down"))
         raw_json = '{"task_type":"code_generation","task_description":"hello","target_language":"python","route_to":"worker","task_is_trivial":true,"bypass_planner":true,"bypass_clarification":true,"rag_mode":"disabled","allowed_tools":["none"]}'
         mock_raw_llm.ainvoke = AsyncMock(return_value=AIMessage(content=raw_json))
 
@@ -146,18 +144,14 @@ class TestGuidedOutputFallback:
         mock_raw_llm.ainvoke.assert_called_once()
 
     @patch("app.nodes.critic.discover_collections")
-    @patch("app.nodes.critic.critic_structured_llm")
     @patch("app.nodes.critic.critic_llm")
     @pytest.mark.asyncio
-    async def test_critic_fallback_on_structured_failure(
-        self, mock_critic_llm, mock_critic_structured_llm, mock_discover_collections
-    ):
-        """When structured output raises, critic falls back to raw parse."""
+    async def test_critic_parses_free_generation(self, mock_critic_llm, mock_discover_collections):
+        """Critic uses free generation and validate_critic_with_repair."""
         mock_discover_collections.return_value = []
         from app.nodes.critic import critic_node
         from langchain_core.messages import AIMessage
 
-        mock_critic_structured_llm.ainvoke = AsyncMock(side_effect=RuntimeError("vLLM down"))
         raw_json = '{"what_if_analyses":[],"overall_assessment":"OK","approved":true,"confidence":0.9,"reasoning":"low risk","should_continue":false,"need_more_evidence":false}'
         mock_critic_llm.ainvoke = AsyncMock(return_value=AIMessage(content=raw_json))
 
