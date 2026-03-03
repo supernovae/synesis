@@ -16,9 +16,9 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from ..api_metrics import record_critic_rejection
 from ..approach_dark_debt import build_universal_carried_uncertainties_signal
 from ..config import settings
-from ..api_metrics import record_critic_rejection
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,

@@ -20,8 +20,8 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from langchain_core.messages import HumanMessage
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, model_validator
 
 from .api_metrics import (
@@ -849,7 +849,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             content, _ = _extract_content_and_metrics(
                 result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
             )
-            record_chat_success((time.monotonic() - start))
+            record_chat_success(time.monotonic() - start)
             yield _sse_chunk(
                 {
                     "id": chat_id,
@@ -890,7 +890,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         result = await graph.ainvoke(initial_state, config=config)
     except Exception as e:
         logger.exception("graph_execution_error")
-        record_chat_error((time.monotonic() - start))
+        record_chat_error(time.monotonic() - start)
         err_msg = str(e)[:200]  # Truncate for response
         detail = f"Graph execution failed: {err_msg}. Check planner logs and admin status page for model health."
         raise HTTPException(status_code=500, detail=detail) from e
