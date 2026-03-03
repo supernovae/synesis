@@ -12,8 +12,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 PVC_NAME="${1:-modelcar-build-pvc}"
 NS="${SYNESIS_NS:-synesis-models}"
 JOB_NAME="synesis-cleanup-${PVC_NAME}-$(date +%s)"
