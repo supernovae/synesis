@@ -1,7 +1,5 @@
 """Tests for pending_reply_diverges — avoid wrong resume when reply is a new question."""
 
-import pytest
-
 from ..app.pending_drift import pending_reply_diverges
 
 

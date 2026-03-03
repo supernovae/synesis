@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -27,10 +28,8 @@ class StatusQueueCallback(AsyncCallbackHandler):
         self._queue = queue
 
     def _put(self, desc: str) -> None:
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             self._queue.put_nowait(desc)
-        except asyncio.QueueFull:
-            pass
 
     def on_chain_start(
         self,

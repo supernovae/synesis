@@ -16,8 +16,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..config import settings
 from ..approach_dark_debt import build_universal_carried_uncertainties_signal
+from ..config import settings
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -351,17 +351,19 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
                 f"## Executor Response (markdown)\n{generated_code[:8000]}"
             )
             try:
-                doc_parsed = await critic_structured_llm.ainvoke([
-                    SystemMessage(content=doc_system),
-                    HumanMessage(content=doc_prompt),
-                ])
+                doc_parsed = await critic_structured_llm.ainvoke(
+                    [
+                        SystemMessage(content=doc_system),
+                        HumanMessage(content=doc_prompt),
+                    ]
+                )
             except Exception as doc_err:
                 logger.warning("critic_document_depth_failed", extra={"error": str(doc_err)[:200]})
                 doc_parsed = None
             if doc_parsed:
                 # Document path: skip evidence gate (no sandbox/lsp; taxonomy assessment is the evidence)
                 doc_approved = doc_parsed.approved
-                doc_blocking = getattr(doc_parsed, "blocking_issues", []) or []
+                _ = getattr(doc_parsed, "blocking_issues", []) or []  # doc_blocking; reserved for future use
                 # If critic says not approved but blocking_issues lack refs, still honor the decision (document path)
                 doc_next = "respond" if doc_approved else "supervisor"
                 latency = (time.monotonic() - start) * 1000
@@ -443,7 +445,9 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
             advisory_approved = (exit_code in (0, None)) and lint_passed and security_passed
             return {
                 "critic_approved": advisory_approved,
-                "critic_feedback": "Advisory mode: no What-If analysis" if advisory_approved else "Advisory: execution or checks failed",
+                "critic_feedback": "Advisory mode: no What-If analysis"
+                if advisory_approved
+                else "Advisory: execution or checks failed",
                 "critic_should_continue": not advisory_approved,
                 "critic_continue_reason": None if advisory_approved else "advisory_reject",
                 "what_if_analyses": [],
@@ -539,11 +543,7 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
         )
 
         # Adaptive Rigor: Gentle / Full / Tiered (lifestyle, llm_rag, llm_prompting, llm_evaluation)
-        critic_prompt = (
-            CRITIC_SYSTEM_PROMPT_GENTLE
-            if task_size in ("trivial", "small")
-            else CRITIC_SYSTEM_PROMPT
-        )
+        critic_prompt = CRITIC_SYSTEM_PROMPT_GENTLE if task_size in ("trivial", "small") else CRITIC_SYSTEM_PROMPT
         if critic_mode == "tiered" and tier:
             effective_tier = "advanced" if task_size == "small" else "research"
             tier_guide = get_critic_tier_prompt(active_vertical, effective_tier)
@@ -587,7 +587,10 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
             try:
                 parsed, is_truncated = validate_critic_with_repair(response.content)
                 if is_truncated:
-                    logger.warning("critic_response_truncated", extra={"message": "First N blocking_issues preserved; nonblocking may be omitted"})
+                    logger.warning(
+                        "critic_response_truncated",
+                        extra={"message": "First N blocking_issues preserved; nonblocking may be omitted"},
+                    )
             except ValueError as e:
                 latency = (time.monotonic() - start) * 1000
                 trace = NodeTrace(
@@ -688,9 +691,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
         else:
             # Emit light carried uncertainties when relevant (knowledge gap, lifestyle quick answer, residual risks)
             intent_class = state.get("intent_class", "code")
-            light_signal = build_universal_carried_uncertainties_signal(
-                state, intent_class, active_vertical, task_size
-            )
+            light_signal = build_universal_carried_uncertainties_signal(state, intent_class, active_vertical, task_size)
             if light_signal.get("items"):
                 carried_uncertainties_signal = light_signal
 

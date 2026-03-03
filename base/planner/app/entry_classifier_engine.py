@@ -55,7 +55,14 @@ def _load_config_with_plugins(core_path: Path | None, plugin_dir: Path) -> dict[
 def _builtin_fallback() -> dict[str, Any]:
     """Minimal built-in config when YAML missing."""
     return {
-        "thresholds": {"trivial_max": 4, "small_max": 15, "density_threshold": 3, "density_tax": 10, "educational_discount": 10, "risk_high": 15},
+        "thresholds": {
+            "trivial_max": 4,
+            "small_max": 15,
+            "density_threshold": 3,
+            "density_tax": 10,
+            "educational_discount": 10,
+            "risk_high": 15,
+        },
         "pairings": [],
         "complexity_weights": {
             "io_basic": {"weight": 1, "keywords": ["print", "hello"]},
@@ -154,10 +161,7 @@ class ScoringEngine:
         if not text or not self._risk_veto_triggers:
             return False
         t_lower = (text or "").strip()[:800].lower()
-        for trigger in self._risk_veto_triggers:
-            if trigger and trigger.lower() in t_lower:
-                return True
-        return False
+        return any(trigger and trigger.lower() in t_lower for trigger in self._risk_veto_triggers)
 
     def _check_override(self, text: str, override_name: str) -> bool:
         """Check if any trigger in override list matches."""
@@ -287,8 +291,7 @@ class ScoringEngine:
 
         # 5. Density tax on complexity (exclude trivial anchors: weight<=2)
         complexity_categories = [
-            c for c in hits_by_category
-            if c in self._complexity_patterns and self._complexity_patterns[c][0] > 2
+            c for c in hits_by_category if c in self._complexity_patterns and self._complexity_patterns[c][0] > 2
         ]
         if len(complexity_categories) >= self._density_threshold:
             complexity_score += self._density_tax
@@ -323,7 +326,15 @@ class ScoringEngine:
 
         # 8. Intent class (first match wins). DEFAULT: general → document. Code only when code intent matches.
         intent_classes = self._config.get("intent_classes") or {}
-        code_intents = {"debugging", "review", "code_generation", "data_transform", "tool_orchestrated", "migration", "documentation"}
+        code_intents = {
+            "debugging",
+            "review",
+            "code_generation",
+            "data_transform",
+            "tool_orchestrated",
+            "migration",
+            "documentation",
+        }
         intent_class = "general"  # no match = discussion/document
         for ic_name, ic_data in intent_classes.items():
             if not isinstance(ic_data, dict):

@@ -78,6 +78,7 @@ class TestChatCompletions:
     @patch("app.main.graph")
     def test_streaming_returns_sse_with_status_events(self, mock_graph, client):
         """Streaming uses astream and emits status events plus final content."""
+
         async def mock_astream(init_state, *, stream_mode, config=None):
             # Simulate two node completions then end
             yield {"current_node": "entry_classifier", "messages": []}

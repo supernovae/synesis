@@ -50,7 +50,7 @@ def index_spec(
     name = spec_cfg["name"]
     url = spec_cfg["url"]
     collection = spec_cfg["collection"]
-    description = spec_cfg.get("description", "")
+    _ = spec_cfg.get("description", "")  # reserved for future use
     domain = _domain_from_collection(collection)
 
     logger.info(f"Fetching spec: {name} from {url} -> {SYNESIS_CATALOG}")

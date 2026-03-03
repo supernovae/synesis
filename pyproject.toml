@@ -23,6 +23,8 @@ select = [
 ]
 ignore = [
     "E501",   # line length handled by formatter
+    "RUF002",  # × (MULTIPLICATION SIGN) in docstrings is intentional for "intent x vertical"
+    "RUF003",  # EN DASH in comments/docs is intentional (e.g. "0.0–1.0", "Tier1–4")
     "S101",   # allow assert in non-test code (used in state validation)
     "S104",   # binding to all interfaces is intentional for containers
     "S108",   # hardcoded /tmp is fine in containers with emptyDir mounts

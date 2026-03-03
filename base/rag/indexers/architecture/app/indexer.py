@@ -94,13 +94,15 @@ def index_document(
         if cid in existing_ids:
             skipped += 1
             continue
-        raw_entities.append((
-            cid,
-            chunk.text,
-            f"doc:{name} section:{chunk.section}",
-            chunk.section,
-            ",".join(chunk.tags),
-        ))
+        raw_entities.append(
+            (
+                cid,
+                chunk.text,
+                f"doc:{name} section:{chunk.section}",
+                chunk.section,
+                ",".join(chunk.tags),
+            )
+        )
 
     if skipped:
         logger.info(f"  Skipped {skipped} unchanged section chunks")

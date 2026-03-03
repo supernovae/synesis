@@ -134,7 +134,7 @@ domain_keywords:
     domain: pulumi
     keywords:
       - pulumi
-      - @pulumi
+      - "@pulumi"
       - stack
       - project
   shell_bash:

@@ -19,7 +19,7 @@ from ..config import settings
 from ..failure_store import query_similar_failures
 from ..history_summarizer import summarize_text
 from ..injection_scanner import reduce_context_on_injection, scan_text
-from ..rag_client import retrieve_context, SYNESIS_CATALOG
+from ..rag_client import SYNESIS_CATALOG, retrieve_context
 from ..schemas import (
     ConflictWarning,
     ContextChunk,
@@ -53,6 +53,7 @@ def _get_tiktoken_encoder():
     if _tiktoken_encoder == "__unset__":
         try:
             import tiktoken
+
             _tiktoken_encoder = tiktoken.get_encoding("cl100k_base")
         except Exception:
             _tiktoken_encoder = None
@@ -267,7 +268,9 @@ def _build_pinned_context(
             prefs.append(f"Deliverable: {session_preferences['deliverable_type']}")
         if session_preferences.get("interaction_mode") == "teach":
             if is_document:
-                prefs.append("Interaction mode: teach — include Learner's Corner (concepts, why, pitfalls, trade-offs), no code execution")
+                prefs.append(
+                    "Interaction mode: teach — include Learner's Corner (concepts, why, pitfalls, trade-offs), no code execution"
+                )
             else:
                 prefs.append("Interaction mode: teach — include 2-4 line explanation, run commands, and tests")
         elif session_preferences.get("interaction_mode") == "do":
@@ -534,7 +537,9 @@ async def _apply_tier_caps(pinned: list[ContextChunk]) -> list[ContextChunk]:
                         ),
                     )
                 ]
-                logger.debug("tier3_summarized", extra={"from_tokens": t3_tokens, "to_tokens": _estimate_tokens(summary)})
+                logger.debug(
+                    "tier3_summarized", extra={"from_tokens": t3_tokens, "to_tokens": _estimate_tokens(summary)}
+                )
         except Exception as e:
             logger.debug("tier3_summarize_failed %s", e)
 
@@ -593,8 +598,8 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     iteration = state.get("iteration_count", 0)
     execution_result = state.get("execution_result", "")
     rag_collections = state.get("rag_collections_queried", []) or [f"{target_lang}_v1"]
-    max_retrieval = settings.max_retrieval_tokens or 0  # 0 = no cap from retrieval budget
-    retrieval_budget_chars = max_retrieval * 4 if max_retrieval else 0  # ~4 chars/token
+    # max_retrieval for future retrieval_budget_chars cap (~4 chars/token)
+    _ = settings.max_retrieval_tokens or 0
 
     # Tier 2: Fetch organization standards (skip when rag_mode=disabled for trivial tasks)
     org_standards: list[ContextChunk] = []

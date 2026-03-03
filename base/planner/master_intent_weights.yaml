@@ -380,7 +380,7 @@ domain_keywords:
       - k8s
       - kubernetes
       - openshift
-      - oc 
+      - oc
       - kubectl
       - pod
       - deployment
@@ -683,7 +683,7 @@ overrides:
     - learning how
     - learning to
     - how can i learn
-    - learn 
+    - learn
     - what does this do
     - what does that mean
     - what does this code do
@@ -698,5 +698,5 @@ overrides:
     - I need a plan
     - need a plan
     - full planning
-    - "scope:" 
+    - "scope:"
     - /reclassify

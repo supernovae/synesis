@@ -11,10 +11,11 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Any
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,17 +23,15 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, model_validator
 
-import re
-
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
 from .graph import graph
+from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_user_input
 from .message_filter import is_ui_helper_message
-from .pending_drift import pending_reply_diverges
-from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .nodes.entry_classifier import detect_language_deterministic
+from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 from .streaming_events import StatusQueueCallback
@@ -206,11 +205,13 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
         intent = chunk.get("intent_class", "")
         output_type = chunk.get("output_type", "")
         plan_req = chunk.get("plan_required", False)
-        out.append((
-            "entry_classifier",
-            "Router (Entry Classifier)",
-            f"task_size={task_size} intent={intent} output_type={output_type} plan_required={plan_req}",
-        ))
+        out.append(
+            (
+                "entry_classifier",
+                "Router (Entry Classifier)",
+                f"task_size={task_size} intent={intent} output_type={output_type} plan_required={plan_req}",
+            )
+        )
 
     elif node == "strategic_advisor":
         ctx = chunk.get("platform_context", "")
@@ -225,7 +226,7 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     elif node == "planner":
         exec_plan = chunk.get("execution_plan") or {}
         steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
-        lines = [f"{i+1}. {s.get('action', s) if isinstance(s, dict) else s}" for i, s in enumerate(steps)]
+        lines = [f"{i + 1}. {s.get('action', s) if isinstance(s, dict) else s}" for i, s in enumerate(steps)]
         out.append(("planner", "Execution Plan", "\n".join(lines) if lines else "(no steps)"))
 
     elif node == "worker":
@@ -749,10 +750,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         except asyncio.QueueEmpty:
                             break
                         if cb_desc:
-                            yield _sse_status_chunk({
-                                "type": "status",
-                                "data": {"description": cb_desc, "done": False, "hidden": False},
-                            })
+                            yield _sse_status_chunk(
+                                {
+                                    "type": "status",
+                                    "data": {"description": cb_desc, "done": False, "hidden": False},
+                                }
+                            )
 
                     result = chunk
                     node = chunk.get("current_node", "")
@@ -776,28 +779,34 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             reasoning = str(exec_plan.get("reasoning", "")).strip()
                         if reasoning:
                             short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
-                            yield _sse_status_chunk({
-                                "type": "status",
-                                "data": {"description": f"Plan: {short}", "done": False, "hidden": False},
-                            })
+                            yield _sse_status_chunk(
+                                {
+                                    "type": "status",
+                                    "data": {"description": f"Plan: {short}", "done": False, "hidden": False},
+                                }
+                            )
                             emitted_plan = True
                         for s in steps:
                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
                             if act:
-                                yield _sse_status_chunk({
-                                    "type": "status",
-                                    "data": {"description": act, "done": False, "hidden": False},
-                                })
+                                yield _sse_status_chunk(
+                                    {
+                                        "type": "status",
+                                        "data": {"description": act, "done": False, "hidden": False},
+                                    }
+                                )
                                 emitted_plan = True
                     if node:
                         desc = _status_for_node(node, task_size or "", deliverable_type or "")
                         if emitted_plan and node == "planner":
                             desc = ""
                         if desc:
-                            yield _sse_status_chunk({
-                                "type": "status",
-                                "data": {"description": desc, "done": False, "hidden": False},
-                            })
+                            yield _sse_status_chunk(
+                                {
+                                    "type": "status",
+                                    "data": {"description": desc, "done": False, "hidden": False},
+                                }
+                            )
                     # Debug chatter: emit plan/router/critic/executor outputs as labeled blocks (stream_debug_chatter)
                     if getattr(settings, "stream_debug_chatter", False) and chunk:
                         for n, label, content in _format_debug_chatter(chunk):
@@ -815,11 +824,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 return
 
             # Stop status animation before streaming content (Open WebUI done=true)
-            yield _sse_status_chunk({
-                "type": "status",
-                "data": {"description": "", "done": True, "hidden": False},
-            })
-            content, total_tokens = _extract_content_and_metrics(
+            yield _sse_status_chunk(
+                {
+                    "type": "status",
+                    "data": {"description": "", "done": True, "hidden": False},
+                }
+            )
+            content, _ = _extract_content_and_metrics(
                 result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope
             )
             yield _sse_chunk(

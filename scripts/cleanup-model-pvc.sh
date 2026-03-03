@@ -13,7 +13,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 PVC_NAME="${1:-modelcar-build-pvc}"
 NS="${SYNESIS_NS:-synesis-models}"

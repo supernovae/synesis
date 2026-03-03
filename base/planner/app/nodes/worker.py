@@ -426,7 +426,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         revision_strategies_tried = state.get("revision_strategies_tried", [])
         revision_constraints = state.get("revision_constraints", {})
 
-        # Prefix-aware order: pinned (Tier1–4) first, then RAG. See docs/performance.md.
+        # Prefix-aware order: pinned (Tier1-4) first, then RAG. See docs/performance.md.
         context_pack = state.get("context_pack")
         pack = (
             context_pack
@@ -717,7 +717,10 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         taxonomy_depth = get_executor_depth_block(state.get("taxonomy_metadata") or {})
         if taxonomy_depth:
             system_prompt = f"{system_prompt}{taxonomy_depth}"
-            logger.debug("worker_taxonomy_depth_injection", extra={"taxonomy_key": (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")})
+            logger.debug(
+                "worker_taxonomy_depth_injection",
+                extra={"taxonomy_key": (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")},
+            )
 
         # Explain-only: document-centric prompt (no code bias); keep vertical block when present
         deliverable_type = state.get("deliverable_type", "single_file")
@@ -739,11 +742,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         task_size = state.get("task_size", "small")
         llm_to_use = worker_llm
         thinking_param = getattr(settings, "executor_thinking_param", "enable_thinking") or ""
-        if (
-            task_size == "complex"
-            and getattr(settings, "worker_thinking_mode_enabled", True)
-            and thinking_param
-        ):
+        if task_size == "complex" and getattr(settings, "worker_thinking_mode_enabled", True) and thinking_param:
             llm_to_use = worker_llm.bind(
                 extra_body={"chat_template_kwargs": {thinking_param: True}},
                 temperature=0.6,

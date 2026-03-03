@@ -173,7 +173,9 @@ class TestWorkerPromptTier:
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("worker_prompt_tier") == "full", f'Expected worker_prompt_tier=full for pro shortcut "{prompt}"'
-        assert out.get("worker_persona") == "Architect", f'Expected worker_persona=Architect for pro shortcut "{prompt}"'
+        assert out.get("worker_persona") == "Architect", (
+            f'Expected worker_persona=Architect for pro shortcut "{prompt}"'
+        )
 
 
 class TestExplainabilityPhase1:
@@ -219,12 +221,8 @@ class TestExplainabilityPhase1:
         state = {"messages": [{"content": "kubectl get pods"}]}
         out = entry_classifier_node(state)
         # Domain never escalates to complex; 'get' in networking may yield small
-        assert out.get("task_size") != "complex", (
-            "Domain keywords (kubectl) must not escalate to complex"
-        )
-        assert out.get("domain_hints") or out.get("active_domain_refs"), (
-            "Domain should be detected for RAG"
-        )
+        assert out.get("task_size") != "complex", "Domain keywords (kubectl) must not escalate to complex"
+        assert out.get("domain_hints") or out.get("active_domain_refs"), "Domain should be detected for RAG"
 
     def test_intent_class_emitted_for_keyword_match(self):
         """Intent class drives critic overlay; first match wins."""
@@ -349,9 +347,7 @@ class TestRiskVeto:
         """'hello world pip install' must not be trivial."""
         state = {"messages": [{"content": "hello world pip install requests"}]}
         out = entry_classifier_node(state)
-        assert out.get("task_size") == "small", (
-            f"pip install must veto trivial; got {out.get('task_size')}"
-        )
+        assert out.get("task_size") == "small", f"pip install must veto trivial; got {out.get('task_size')}"
         assert "risk_veto" in str(out.get("classification_reasons", []))
 
 

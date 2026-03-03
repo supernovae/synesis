@@ -85,7 +85,7 @@ router_to_prompt:
       summary_depth: small
     llm_governance:
       summary_depth: small
-    # industrial, platform: inherit default
+      # industrial, platform: inherit default
   by_task_size:
     trivial:
       summary_depth: trivial

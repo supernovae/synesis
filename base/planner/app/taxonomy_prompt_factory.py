@@ -48,11 +48,10 @@ def resolve_taxonomy_metadata(
     """
     cfg = _load_config()
     taxonomies = {k: v for k, v in (cfg or {}).items() if isinstance(v, dict) and "path" in v}
-    deep_dive_domains = set(cfg.get("deep_dive_domains") or [])
 
     # Pick first matching domain
     key = "generic"
-    for ref in (active_domain_refs or []):
+    for ref in active_domain_refs or []:
         r = str(ref).strip().lower()
         if r in taxonomies:
             key = r
@@ -134,12 +133,8 @@ def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[
     deep_dive = set(cfg.get("deep_dive_domains") or [])
     complexity = float(metadata.get("complexity_score", 0.5))
     key = metadata.get("taxonomy_key", "")
-    if key in deep_dive and complexity > 0.6:
-        return True
     refs = {str(r).lower() for r in (active_domain_refs or [])}
-    if refs & deep_dive and complexity > 0.6:
-        return True
-    return False
+    return bool(key in deep_dive and complexity > 0.6) or bool(refs & deep_dive and complexity > 0.6)
 
 
 def get_critic_depth_prompt_block(metadata: dict[str, Any]) -> str:

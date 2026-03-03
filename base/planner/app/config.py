@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_url_protocol(cls, v: str) -> str:
         return ensure_url_protocol(v) if isinstance(v, str) else v
+
     embedder_model: str = "all-MiniLM-L6-v2"
     rag_top_k: int = 5
     rag_overfetch_count: int = 30  # Over-fetch for excluded telemetry (Q1.3); Curator trims to top_k
@@ -99,9 +100,7 @@ class Settings(BaseSettings):
         if isinstance(v, bool):
             return v
         s = str(v).lower().strip() if v else ""
-        if s in ("false", "no", "0", "off", "none", ""):
-            return False
-        return True
+        return s not in ("false", "no", "0", "off", "none", "")
 
     # Sandbox execution
     sandbox_enabled: bool = True

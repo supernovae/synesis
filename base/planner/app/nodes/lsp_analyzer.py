@@ -20,8 +20,8 @@ import httpx
 
 from ..config import settings
 from ..schemas import make_tool_ref
-from ..url_utils import ensure_url_protocol
 from ..state import NodeOutcome, NodeTrace
+from ..url_utils import ensure_url_protocol
 
 logger = logging.getLogger("synesis.lsp_analyzer")
 

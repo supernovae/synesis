@@ -205,7 +205,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     # task_description: when pending continue, include original for downstream (Worker needs full context)
     if state.get("pending_question_continue") and state.get("task_description"):
         orig = (state.get("task_description") or "").strip()[:600]
-        task_description = f"{orig} {last_content or ''}".strip()[:1000] if orig else (last_content or "").strip()[:1000]
+        task_description = (
+            f"{orig} {last_content or ''}".strip()[:1000] if orig else (last_content or "").strip()[:1000]
+        )
     else:
         task_description = (last_content or "").strip()[:1000] if last_content else ""
 
@@ -281,7 +283,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         bypass_supervisor = task_size == "trivial"
         bypass_planner = task_size == "trivial"
         requires_clarification = task_size == "complex"
-        plan_required = True if (manual_override or task_size == "complex" or force_pro_advanced) else False
+        plan_required = bool(manual_override or task_size == "complex" or force_pro_advanced)
         clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
         if interaction_mode == "teach":
             clarification_budget = min(clarification_budget, 1)

@@ -47,9 +47,7 @@ def with_debug_node_timing(func):
 
         start = time.monotonic()
         coro_or_result = func(state)
-        result = (
-            await coro_or_result if asyncio.iscoroutine(coro_or_result) else coro_or_result
-        )
+        result = await coro_or_result if asyncio.iscoroutine(coro_or_result) else coro_or_result
         latency_ms = (time.monotonic() - start) * 1000
         node_name = func.__name__.replace("_node", "")
         # Prefer latency from node's own trace if present
@@ -462,9 +460,11 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         carried = state.get("carried_uncertainties_signal") or {}
         debt_items = carried.get("items") or []
         if debt_items:
-            debt_lines = [f"- {item.get('description', '')[:120]}" for item in debt_items[:3] if item.get("description")]
+            debt_lines = [
+                f"- {item.get('description', '')[:120]}" for item in debt_items[:3] if item.get("description")
+            ]
             if debt_lines:
-                parts.append(f"\n---\n**What I'm carrying**\n" + "\n".join(debt_lines))
+                parts.append("\n---\n**What I'm carrying**\n" + "\n".join(debt_lines))
         # Budget Alert (Q1.3): high-score docs excluded for token limit
         context_pack = state.get("context_pack")
         if context_pack:
@@ -598,7 +598,13 @@ graph_builder.add_conditional_edges(
 graph_builder.add_conditional_edges(
     "patch_integrity_gate",
     route_after_patch_integrity_gate,
-    {"context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "sandbox": "sandbox", "respond": "respond", "critic": "critic"},
+    {
+        "context_curator": "context_curator",
+        "lsp_analyzer": "lsp_analyzer",
+        "sandbox": "sandbox",
+        "respond": "respond",
+        "critic": "critic",
+    },
 )
 
 

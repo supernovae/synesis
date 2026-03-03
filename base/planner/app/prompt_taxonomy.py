@@ -46,8 +46,6 @@ def get_prompt_components(
     """
     cfg = _load_config()
     router = cfg.get("router_to_prompt") or {}
-    components = cfg.get("prompt_components") or {}
-
     default = router.get("default") or {}
     by_intent = router.get("by_intent") or {}
     by_vertical = router.get("by_vertical") or {}

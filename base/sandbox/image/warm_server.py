@@ -125,8 +125,8 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
                 sys.stderr.write(
                     f"[warm-server] execute FAILED exit={ec} lang={language} err={err[:100]!r} "
                     f"lint_ok={lint.get('passed', True)} sec_ok={sec.get('passed', True)} "
-                    f"lint_out={str(lint.get('output',''))[:150]!r} "
-                    f"exec_out={str(execo.get('output','') or '')[:150]!r}\n"
+                    f"lint_out={str(lint.get('output', ''))[:150]!r} "
+                    f"exec_out={str(execo.get('output', '') or '')[:150]!r}\n"
                 )
             else:
                 sys.stderr.write(f"[warm-server] execute OK lang={language} filename={filename}\n")

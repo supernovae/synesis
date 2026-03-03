@@ -15,10 +15,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..config import settings
-from ..llm_telemetry import get_llm_http_client
 from ..failfast_cache import cache as failfast_cache
 from ..failure_store import query_similar_failures
 from ..injection_scanner import scan_and_filter_rag_context
+from ..llm_telemetry import get_llm_http_client
 from ..rag_client import retrieve_context, select_collections_for_task
 from ..schemas import SupervisorOut, make_tool_ref, parse_and_validate
 from ..state import NodeOutcome, NodeTrace, RetrievalParams, TaskType
@@ -331,7 +331,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 f"\n\n## Pre-classified (EntryClassifier)\n"
                 f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, output_type={output_type}, active_domain_refs=[{refs_str}]. "
                 f"Use these; do not re-classify. "
-                f"When output_type=document, use deliverable_type=explain_only, route_to=worker, allowed_tools=[\"none\"] — produce text/plan, not code. "
+                f'When output_type=document, use deliverable_type=explain_only, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
                 f"Focus on: routing, RAG, planning_suggested, deliverable_type."
             )
 
@@ -507,7 +507,9 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 confidence=parsed.confidence,
                 outcome=NodeOutcome.SUCCESS,
                 latency_ms=latency,
-                tokens_used=response.usage_metadata.get("total_tokens", 0) if (response and response.usage_metadata) else 0,
+                tokens_used=response.usage_metadata.get("total_tokens", 0)
+                if (response and response.usage_metadata)
+                else 0,
             )
             logger.info("supervisor_clarification_request", extra={"question": parsed.clarification_question[:80]})
             return {

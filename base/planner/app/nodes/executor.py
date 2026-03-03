@@ -21,11 +21,11 @@ from typing import Any
 
 from ..config import settings
 from ..failfast_cache import cache as failfast_cache
-from ..url_utils import ensure_url_protocol
 from ..failure_store import compute_failure_id, store_failure
 from ..revision_constraints import REVISION_CONSTRAINTS, STRATEGY_CANDIDATES_BY_FAILURE
 from ..schemas import make_tool_ref
 from ..state import NodeOutcome, NodeTrace
+from ..url_utils import ensure_url_protocol
 
 _background_tasks: set[asyncio.Task] = set()
 
@@ -499,9 +499,7 @@ async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
 
     trivial = state.get("task_size") == "trivial" or state.get("task_is_trivial", False)
     try:
-        result = await _execute_warm_pool(
-            code, language, filename, request_id=request_id, trivial=trivial
-        )
+        result = await _execute_warm_pool(code, language, filename, request_id=request_id, trivial=trivial)
         if result is not None:
             used_warm_pool = True
         else:
@@ -547,11 +545,7 @@ async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
             # Warm pool parse failures put stdout/stderr at top level
             raw_stdout = str(result.get("stdout", ""))[:400]
             raw_stderr = str(result.get("stderr", ""))[:400]
-            failure_type_log = (
-                "lint"
-                if not lint_passed
-                else ("security" if not security_passed else "runtime")
-            )
+            failure_type_log = "lint" if not lint_passed else ("security" if not security_passed else "runtime")
             exec_out_display = exec_out or raw_stdout or raw_stderr
             logger.warning(
                 "sandbox_failure_detail exit_code=%s lint_ok=%s sec_ok=%s type=%s exec_out=%s",

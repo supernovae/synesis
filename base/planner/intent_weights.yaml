@@ -240,14 +240,101 @@ intent_classes:
   review:
     keywords: [review, validate, audit, check, assess, code review, security audit]
   planning:
-    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, business plan, marketing plan, sales plan, go-to-market, gtm plan, financial plan, hiking plan, trip plan, gear list, trail plan, garden plan, 3d print plan, generate a plan, marathon plan, create a plan, training schedule, schedule, study plan]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, astronomy, physics, mathematics, chemistry, social_science, environmental_science, neuroscience]  # document output; science + lifestyle + business + hobbies
+    keywords:
+      - plan
+      - strategy
+      - design
+      - architecture
+      - break down
+      - decompose
+      - training plan
+      - meal plan
+      - budget plan
+      - business plan
+      - marketing plan
+      - sales plan
+      - go-to-market
+      - gtm plan
+      - financial plan
+      - hiking plan
+      - trip plan
+      - gear list
+      - trail plan
+      - garden plan
+      - 3d print plan
+      - generate a plan
+      - marathon plan
+      - create a plan
+      - training schedule
+      - schedule
+      - study plan
+    # document output; science + lifestyle + business + hobbies
+    document_domains:
+      - athletics_running
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - astronomy
+      - physics
+      - mathematics
+      - chemistry
+      - social_science
+      - environmental_science
+      - neuroscience
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about, pivot, pivot to, switch to, switch mode, document mode]
     inherently_document: true  # explanations are always text; pivot/switch = user context change
   writing:
     keywords: [write, draft, compose, email, blog, article, content, essay, report, summary]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, creative_media, astronomy, physics, mathematics, chemistry, social_science, environmental_science]  # blog/essay/report; script = code
+    # blog/essay/report; script = code
+    document_domains:
+      - athletics_running
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - creative_media
+      - astronomy
+      - physics
+      - mathematics
+      - chemistry
+      - social_science
+      - environmental_science
   # Explicit code intents — trigger code path (with coding client or when matched)
   code_generation:
     keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print, add test, write code]
@@ -261,7 +348,34 @@ intent_classes:
     keywords: [generate docs, document, readme, api docs, openapi spec]
   personal_guidance:
     keywords: [how can i, improve my, optimize my, help me with]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, astronomy, physics, mathematics, social_science]  # guidance as text; no code steps
+    # guidance as text; no code steps
+    document_domains:
+      - athletics_running
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - astronomy
+      - physics
+      - mathematics
+      - social_science
   creative_ideation:
     keywords: [brainstorm, ideas for, suggest, creative]
     inherently_document: true  # ideas/suggestions are always text
@@ -286,7 +400,7 @@ overrides:
     - learning how
     - learning to
     - how can i learn
-    - learn 
+    - learn
     - what does this do
     - what does that mean
     - what does this code do

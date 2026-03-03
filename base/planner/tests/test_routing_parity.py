@@ -10,7 +10,6 @@ import inspect
 
 import pytest
 
-
 # Nodes that set next_node, and the router that consumes it (outgoing edge).
 # Format: (node_module, node_func_name, router_func_name)
 NEXT_NODE_PRODUCERS_AND_ROUTERS = [
@@ -82,9 +81,7 @@ class TestRoutingParity:
     @pytest.mark.parametrize("node_module,node_func,router_name", NEXT_NODE_PRODUCERS_AND_ROUTERS)
     def test_router_reads_routing_signal(self, node_module: str, node_func: str, router_name: str):
         """Router for each next_node producer must read the routing signal."""
-        assert _node_sets_next_node(node_module, node_func), (
-            f"{node_module}.{node_func} should set next_node"
-        )
+        assert _node_sets_next_node(node_module, node_func), f"{node_module}.{node_func} should set next_node"
         required = ROUTER_MUST_READ.get(router_name)
         assert required, f"Add {router_name} to ROUTER_MUST_READ with expected substring"
         source = _get_router_source(router_name)

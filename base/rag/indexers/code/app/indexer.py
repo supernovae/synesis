@@ -25,6 +25,7 @@ import subprocess
 from pathlib import Path
 
 import yaml
+from pymilvus import DataType, FieldSchema
 
 from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .github_extractor import extract_pr_patterns
@@ -207,9 +208,7 @@ def index_language(
                     skipped += 1
                     continue
                 tags = f"symbol:{chunk.symbol_name[:64]} type:{chunk.symbol_type[:32]} license:{repo_license[:32]}"
-                code_entities.append(
-                    (cid, chunk.text, f"repo:{repo_name} path:{chunk.file_path}", tags)
-                )
+                code_entities.append((cid, chunk.text, f"repo:{repo_name} path:{chunk.file_path}", tags))
 
         if skipped:
             logger.info(f"  Skipped {skipped} unchanged code chunks")

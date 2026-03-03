@@ -26,7 +26,7 @@ class TaxonomyNode(TypedDict, total=False):
     """
 
     path: str  # e.g. "Science > Physics"
-    complexity_score: float  # 0.0–1.0
+    complexity_score: float  # 0.0-1.0
     persona_instructions: str  # Persona label + depth guidance
     required_bullets: int  # Derived from len(required_elements)
     required_elements: list[str]  # e.g. ["Theoretical Basis", "Mathematical Context"]
@@ -364,7 +364,9 @@ class SynesisState(BaseModel):
     evidence_fingerprints_tried: list[str] = Field(default_factory=list)  # result_fingerprint from Sandbox
 
     # Critic policy engine (§critic_policy_spec): monotonic retry state
-    retry: dict[str, Any] = Field(default_factory=dict)  # attempt, max_attempts, failures, used_evidence_ids, decisions, diversification_history, escalations, constraints
+    retry: dict[str, Any] = Field(
+        default_factory=dict
+    )  # attempt, max_attempts, failures, used_evidence_ids, decisions, diversification_history, escalations, constraints
 
     node_traces: list[NodeTrace] = Field(default_factory=list)
 

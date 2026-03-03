@@ -14,13 +14,13 @@ import yaml
 
 from .catalog_schema import SYNESIS_CATALOG, catalog_entity, ensure_synesis_catalog
 from .github_fetcher import fetch_all_markdown
-from .markdown_parser import parse_markdown
 from .indexer_base import (
     EmbedClient,
     MilvusWriter,
     ProgressTracker,
     chunk_id_hash,
 )
+from .markdown_parser import parse_markdown
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("synesis.indexer.domain")
@@ -30,7 +30,7 @@ def _domain_from_collection(collection: str) -> str:
     """Extract domain from collection name (e.g. domain_openshift -> openshift)."""
     for prefix in ("domain_", "sop_"):
         if collection.startswith(prefix):
-            return collection[len(prefix):].strip("_") or "generalist"
+            return collection[len(prefix) :].strip("_") or "generalist"
     return "generalist"
 
 
@@ -77,9 +77,7 @@ def index_repo(
             cid = chunk_id_hash(chunk.text, f"{doc_name}:{chunk.section}")
             if cid in existing_ids:
                 continue
-            chunks_to_embed.append(
-                (cid, chunk.text, doc_name, chunk.section, ",".join(chunk.tags), domain)
-            )
+            chunks_to_embed.append((cid, chunk.text, doc_name, chunk.section, ",".join(chunk.tags), domain))
 
     if not chunks_to_embed:
         progress.log_source(repo, 0)
@@ -140,7 +138,7 @@ def main() -> None:
 
     logger.info(f"Loaded {len(repos)} GitHub repos from {sources_path}")
     for r in repos:
-        logger.info(f"  - {r['repo']}/{r.get('path','')} -> {r.get('collection','')}")
+        logger.info(f"  - {r['repo']}/{r.get('path', '')} -> {r.get('collection', '')}")
 
     if args.dry_run:
         logger.info("Dry run complete")

@@ -60,16 +60,13 @@ def _repair_truncated_json(content: str) -> tuple[str, bool]:
         return content, False
 
     # Truncation: ends with partial token or unclosed structure
-    is_truncated = False
-    last_char = content[-1] if content else ""
-
     for suffix in (
         ',"nonblocking":[],"residual_risks":[]}',  # stopped after blocking_issues
         '],"nonblocking":[]}',  # stopped mid-structure
-        "]}",   # inside array, e.g. blocking_issues
-        "}",    # inside object
-        "]",    # array only
-        '"',    # unclosed string
+        "]}",  # inside array, e.g. blocking_issues
+        "}",  # inside object
+        "]",  # array only
+        '"',  # unclosed string
     ):
         try:
             repaired = content + suffix
@@ -154,7 +151,10 @@ def validate_critic_with_repair(raw: str) -> tuple[CriticOut, bool]:
             elif attempt == 1:
                 extracted, is_truncated = _repair_truncated_json(extracted or raw)
                 if is_truncated:
-                    logger.info("critic_truncation_repaired", extra={"message": "Auto-closed; first N blocking_issues preserved"})
+                    logger.info(
+                        "critic_truncation_repaired",
+                        extra={"message": "Auto-closed; first N blocking_issues preserved"},
+                    )
             else:
                 raise ValueError(f"Critic schema validation failed: {e}") from e
     raise ValueError("Critic schema validation failed")

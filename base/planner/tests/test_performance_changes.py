@@ -6,7 +6,6 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from app.llm_telemetry import get_llm_http_client
 
 
@@ -50,8 +49,8 @@ class TestDebugNodeTiming:
     @pytest.mark.asyncio
     async def test_node_timing_uses_trace_latency_when_available(self, caplog):
         """When node returns node_traces with latency_ms, that value is logged."""
-        from app.state import NodeTrace, NodeOutcome
         from app.graph import with_debug_node_timing
+        from app.state import NodeOutcome, NodeTrace
 
         trace = NodeTrace(
             node_name="test_node",
@@ -124,13 +123,10 @@ class TestGuidedOutputFallback:
     @patch("app.nodes.supervisor.supervisor_structured_llm")
     @patch("app.nodes.supervisor.supervisor_llm")
     @pytest.mark.asyncio
-    async def test_supervisor_fallback_on_structured_failure(
-        self, mock_raw_llm, mock_structured_llm
-    ):
+    async def test_supervisor_fallback_on_structured_failure(self, mock_raw_llm, mock_structured_llm):
         """When structured output raises, supervisor falls back to raw parse."""
-        from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
         from app.nodes.supervisor import supervisor_node
-        from app.schemas import SupervisorOut
+        from langchain_core.messages import AIMessage, HumanMessage
 
         mock_structured_llm.ainvoke = AsyncMock(side_effect=RuntimeError("vLLM down"))
         raw_json = '{"task_type":"code_generation","task_description":"hello","target_language":"python","route_to":"worker","task_is_trivial":true,"bypass_planner":true,"bypass_clarification":true,"rag_mode":"disabled","allowed_tools":["none"]}'
@@ -158,8 +154,8 @@ class TestGuidedOutputFallback:
     ):
         """When structured output raises, critic falls back to raw parse."""
         mock_discover_collections.return_value = []
-        from langchain_core.messages import AIMessage
         from app.nodes.critic import critic_node
+        from langchain_core.messages import AIMessage
 
         mock_critic_structured_llm.ainvoke = AsyncMock(side_effect=RuntimeError("vLLM down"))
         raw_json = '{"what_if_analyses":[],"overall_assessment":"OK","approved":true,"confidence":0.9,"reasoning":"low risk","should_continue":false,"need_more_evidence":false}'

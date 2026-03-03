@@ -59,10 +59,7 @@ def get_approach_semantics(
         else:
             approach = approach[0] if approach else "direct_snippet"
     approach_types_map = (
-        approach_types.get(intent_class)
-        or approach_types.get(vertical)
-        or approach_types.get("code")
-        or {}
+        approach_types.get(intent_class) or approach_types.get(vertical) or approach_types.get("code") or {}
     )
     label = (
         approach_types_map.get(approach, str(approach).replace("_", " "))
@@ -100,7 +97,15 @@ def get_how_i_got_here_sources(intent_class: str) -> dict[str, Any]:
     """Return evidence keys and uncertain keys for 'How I got here'."""
     cfg = _load_config()
     sources = cfg.get("how_i_got_here_sources") or {}
-    return sources.get(intent_class) or sources.get("code") or {"evidence": ["sandbox", "lsp", "rag"], "strategy_key": "revision_strategy", "uncertain_key": ["what_if_analyses", "residual_risks"]}
+    return (
+        sources.get(intent_class)
+        or sources.get("code")
+        or {
+            "evidence": ["sandbox", "lsp", "rag"],
+            "strategy_key": "revision_strategy",
+            "uncertain_key": ["what_if_analyses", "residual_risks"],
+        }
+    )
 
 
 def build_universal_carried_uncertainties_signal(
@@ -122,57 +127,67 @@ def build_universal_carried_uncertainties_signal(
 
     # Legacy code-centric (at max iterations)
     if at_max_iterations and "code_generic" in cats:
-        items.append({
-            "category": "failure_at_max",
-            "description": f"Forced approval at max iterations; failure pattern: {failure_type or 'runtime'}",
-            "severity": "high",
-            "vertical": vertical,
-            "intent_class": intent_class,
-        })
-        if stages_passed is not None and stages_passed:
-            items.append({
-                "category": "stages_incomplete",
-                "description": f"Stages passed: {', '.join(stages_passed)}",
-                "severity": "medium",
+        items.append(
+            {
+                "category": "failure_at_max",
+                "description": f"Forced approval at max iterations; failure pattern: {failure_type or 'runtime'}",
+                "severity": "high",
                 "vertical": vertical,
                 "intent_class": intent_class,
-            })
+            }
+        )
+        if stages_passed is not None and stages_passed:
+            items.append(
+                {
+                    "category": "stages_incomplete",
+                    "description": f"Stages passed: {', '.join(stages_passed)}",
+                    "severity": "medium",
+                    "vertical": vertical,
+                    "intent_class": intent_class,
+                }
+            )
 
     # Knowledge gaps
     knowledge_gap = (state.get("knowledge_gap_message") or "").strip()
     if knowledge_gap and "knowledge" in cats:
-        items.append({
-            "category": "rag_confidence_low",
-            "description": knowledge_gap[:200],
-            "severity": "medium",
-            "vertical": vertical,
-            "intent_class": intent_class,
-        })
+        items.append(
+            {
+                "category": "rag_confidence_low",
+                "description": knowledge_gap[:200],
+                "severity": "medium",
+                "vertical": vertical,
+                "intent_class": intent_class,
+            }
+        )
 
     # Lifestyle: quick answer when plan might have been expected (only when we have other signal)
     if vertical == "lifestyle" and task_size in ("trivial", "small"):
         plan_required = state.get("plan_required", False)
         has_plan = bool(state.get("execution_plan"))
         if not plan_required and not has_plan and ("lifestyle_running" in cats or "lifestyle_nutrition" in cats):
-            items.append({
-                "category": "quick_answer_no_plan",
-                "description": "Quick answer given; ask for a full plan (e.g. training program) if you need one",
-                "severity": "low",
-                "vertical": vertical,
-                "intent_class": intent_class,
-            })
+            items.append(
+                {
+                    "category": "quick_answer_no_plan",
+                    "description": "Quick answer given; ask for a full plan (e.g. training program) if you need one",
+                    "severity": "low",
+                    "vertical": vertical,
+                    "intent_class": intent_class,
+                }
+            )
 
     # Residual risks (generic)
     residual = state.get("residual_risks") or []
     for r in residual[:2]:
         if isinstance(r, dict) and r.get("scenario"):
-            items.append({
-                "category": "architecture_risk",
-                "description": str(r.get("scenario", ""))[:150],
-                "severity": "low",
-                "vertical": vertical,
-                "intent_class": intent_class,
-            })
+            items.append(
+                {
+                    "category": "architecture_risk",
+                    "description": str(r.get("scenario", ""))[:150],
+                    "severity": "low",
+                    "vertical": vertical,
+                    "intent_class": intent_class,
+                }
+            )
 
     out: dict[str, Any] = {
         "approach_taken": approach,

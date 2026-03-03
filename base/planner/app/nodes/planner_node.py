@@ -77,7 +77,19 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         latency = (time.monotonic() - start) * 1000
         logger.info("planner_skipped_output_type_document", extra={"output_type": "document", "latency_ms": latency})
         return {
-            "execution_plan": {"steps": [{"id": 1, "action": "Produce document/plan", "dependencies": [], "files": [], "verification_command": ""}], "open_questions": [], "assumptions": []},
+            "execution_plan": {
+                "steps": [
+                    {
+                        "id": 1,
+                        "action": "Produce document/plan",
+                        "dependencies": [],
+                        "files": [],
+                        "verification_command": "",
+                    }
+                ],
+                "open_questions": [],
+                "assumptions": [],
+            },
             "touched_files": [],
             "plan_pending_approval": False,
             "deliverable_type": "explain_only",
@@ -202,9 +214,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Explicit planning session (@plan, /plan, "lets plan"): always show plan, ask to proceed
         planning_session_requested = state.get("planning_session_requested", False)
         plan_required = state.get("plan_required", True)
-        needs_approval = (
-            (planning_session_requested and len(steps) > 0)
-            or (plan_required and settings.require_plan_approval and len(steps) > 0)
+        needs_approval = (planning_session_requested and len(steps) > 0) or (
+            plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
         # Defensive: output_type=document (taxonomy-driven) → skip approval unless explicit planning request

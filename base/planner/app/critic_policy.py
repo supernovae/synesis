@@ -33,8 +33,12 @@ def tool_refs_to_evidence(tool_refs: list[dict[str, Any]]) -> list[EvidenceObjec
     evidence_id = {tool}_{request_id[:8]}
     """
     out: list[EvidenceObject] = []
-    for tr in (tool_refs or []):
-        t = tr if isinstance(tr, dict) else (getattr(tr, "model_dump", lambda: {})() if hasattr(tr, "model_dump") else {})
+    for tr in tool_refs or []:
+        t = (
+            tr
+            if isinstance(tr, dict)
+            else (getattr(tr, "model_dump", lambda: {})() if hasattr(tr, "model_dump") else {})
+        )
         tool = t.get("tool", "unknown")
         req_id = (t.get("request_id") or "")[:8]
         if not req_id:
@@ -168,7 +172,7 @@ def select_diversification_strategy(
 ) -> str | None:
     """Pick next revision strategy not yet tried. Deterministic."""
     tried = set(revision_strategies_tried or [])
-    for cand in (strategy_candidates or []):
+    for cand in strategy_candidates or []:
         name = cand.get("name") or cand.get("strategy") if isinstance(cand, dict) else str(cand)
         if name and name not in tried:
             return name

@@ -124,7 +124,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
         platform_context = _normalize_domain(raw)
         if platform_context == "generic" and raw:
             logger.debug("strategic_advisor_raw", extra={"raw": raw[:80]})
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("strategic_advisor_timeout", extra={"task_preview": task_desc[:60]})
     except Exception as e:
         logger.warning("strategic_advisor_error", extra={"error": str(e)[:100]})

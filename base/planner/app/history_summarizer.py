@@ -174,16 +174,12 @@ async def summarize_pivot_history(
 
     llm = _get_summarizer_llm()
     if llm is None:
-        return _stub_pivot_summary(
-            history, from_era, to_era, pivot_type, interaction_mode
-        )
+        return _stub_pivot_summary(history, from_era, to_era, pivot_type, interaction_mode)
 
     # Truncate to fit micro model context (~1k tokens)
     combined = "\n".join(history[-5:])[:2000]
 
-    prompt = _build_pivot_prompt(
-        pivot_type, from_era, combined, active_domain_refs
-    )
+    prompt = _build_pivot_prompt(pivot_type, from_era, combined, active_domain_refs)
 
     try:
         from langchain_core.messages import HumanMessage
@@ -204,14 +200,12 @@ async def summarize_pivot_history(
                 extra={"from_era": from_era, "to_era": to_era, "pivot_type": pivot_type},
             )
             return summary
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("pivot_summarizer_timeout")
     except Exception as e:
         logger.debug("pivot_summarizer_error %s", e)
 
-    return _stub_pivot_summary(
-        history, from_era, to_era, pivot_type, interaction_mode
-    )
+    return _stub_pivot_summary(history, from_era, to_era, pivot_type, interaction_mode)
 
 
 async def summarize_text(text: str, max_tokens: int = 400) -> str:
@@ -246,7 +240,7 @@ async def summarize_text(text: str, max_tokens: int = 400) -> str:
             timeout=10.0,
         )
         return (response.content or "").strip() or text[:1500]
-    except (asyncio.TimeoutError, Exception) as e:
+    except (TimeoutError, Exception) as e:
         logger.debug("summarize_text_error %s", e)
         words = text.strip().split()
         target = max(1, (max_tokens * 3) // 4)

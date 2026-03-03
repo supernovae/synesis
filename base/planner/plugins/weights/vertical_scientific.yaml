@@ -159,17 +159,6 @@ complexity_weights:
       - a/b test
       - drift detection
 
-risk_weights:
-  clinical_data:
-    weight: 20
-    domain: bioinformatics
-    keywords:
-      - patient sample
-      - clinical trial
-      - de-identification
-      - irb
-      - consent
-
 domain_keywords:
   astronomy:
     domain: astronomy

@@ -74,9 +74,7 @@ async def test_graph_reaches_respond_trivial_path(
 
     mock_retrieve.return_value = []
     mock_discover.return_value = []
-    mock_worker_llm.ainvoke = AsyncMock(
-        return_value=AIMessage(content=EXECUTOR_OUT_JSON)
-    )
+    mock_worker_llm.ainvoke = AsyncMock(return_value=AIMessage(content=EXECUTOR_OUT_JSON))
     mock_critic_structured_llm.ainvoke = AsyncMock(
         return_value=CriticOut(
             what_if_analyses=[],

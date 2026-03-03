@@ -212,12 +212,14 @@ def index_licenses(
                     skipped += 1
                     continue
                 ft_tags = f"spdx:{spdx_id} fulltext:true " + tags[:400]
-                raw_entities.append((
-                    ft_cid,
-                    chunk_text[:8192],
-                    f"license:{spdx_id}:fulltext:{i}"[:512],
-                    ft_tags[:512],
-                ))
+                raw_entities.append(
+                    (
+                        ft_cid,
+                        chunk_text[:8192],
+                        f"license:{spdx_id}:fulltext:{i}"[:512],
+                        ft_tags[:512],
+                    )
+                )
 
     if skipped:
         logger.info(f"Skipped {skipped} unchanged license chunks")

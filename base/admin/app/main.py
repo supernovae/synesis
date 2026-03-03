@@ -291,7 +291,16 @@ async def knowledge_gaps_list(
     gaps = _safe_query(
         collection=KNOWLEDGE_BACKLOG_COLLECTION,
         filter_expr=filter_expr,
-        output_fields=["chunk_id", "query", "task_description", "collections_queried", "max_score", "platform_context", "timestamp", "language"],
+        output_fields=[
+            "chunk_id",
+            "query",
+            "task_description",
+            "collections_queried",
+            "max_score",
+            "platform_context",
+            "timestamp",
+            "language",
+        ],
         limit=page_size,
         offset=offset,
     )
@@ -332,7 +341,16 @@ async def api_knowledge_gaps(limit: int = Query(50, ge=1, le=200)):
     """JSON API for knowledge gaps (Open WebUI Functions, dashboards)."""
     gaps = _safe_query(
         collection=KNOWLEDGE_BACKLOG_COLLECTION,
-        output_fields=["chunk_id", "query", "task_description", "collections_queried", "max_score", "platform_context", "timestamp", "language"],
+        output_fields=[
+            "chunk_id",
+            "query",
+            "task_description",
+            "collections_queried",
+            "max_score",
+            "platform_context",
+            "timestamp",
+            "language",
+        ],
         limit=limit,
     )
     return {"gaps": gaps, "total": len(gaps)}

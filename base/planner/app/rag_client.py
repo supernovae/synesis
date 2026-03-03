@@ -26,8 +26,8 @@ import httpx
 from rank_bm25 import BM25Okapi
 
 from .config import settings
-from .url_utils import ensure_url_protocol
 from .state import RetrievalResult
+from .url_utils import ensure_url_protocol
 
 logger = logging.getLogger("synesis.rag")
 
@@ -369,7 +369,7 @@ def select_collections_for_task(
         if refs:
             # Milvus expr: domain in ["a","b"] — taxonomy IDs must match catalog domain field
             escaped = [f'"{r}"' for r in refs[:10]]  # cap to avoid expr length limits
-            domain_filter = f'domain in [{",".join(escaped)}]'
+            domain_filter = f"domain in [{','.join(escaped)}]"
     return [SYNESIS_CATALOG], domain_filter
 
 

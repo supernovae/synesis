@@ -59,7 +59,4 @@ def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
         return True
 
     # Reply 2x+ task length with drift signals
-    if task_desc and len(reply) >= 2 * len(task_desc) and len(reply) > 150:
-        return True
-
-    return False
+    return bool(task_desc and len(reply) >= 2 * len(task_desc) and len(reply) > 150)

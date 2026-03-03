@@ -57,7 +57,11 @@ def build_decision_summary(state: dict[str, Any]) -> str | None:
         approach = get_approach_semantics(intent_class, vertical, state.get("task_size", ""))
         approach_label = approach.get("label", "")
     except ImportError:
-        sources = {"evidence": ["sandbox", "lsp", "rag"], "strategy_key": "revision_strategy", "uncertain_key": ["what_if_analyses", "residual_risks"]}
+        sources = {
+            "evidence": ["sandbox", "lsp", "rag"],
+            "strategy_key": "revision_strategy",
+            "uncertain_key": ["what_if_analyses", "residual_risks"],
+        }
 
     revision_strategy = state.get("revision_strategy", "")
     strategy_candidates = state.get("strategy_candidates", [])
