@@ -60,7 +60,7 @@ Synesis uses a **multi-phase JCS (Joint Cognitive System)** pipeline: four LLMs 
 
 1. **Joint Cognitive System (JCS):** The LLM is a teammate, not a replacement. The Critic enriches understanding through "What-If" analysis instead of binary pass/fail. Clarification and plan approval reduce guesswork.
 2. **Erlang/OTP Supervision:** Every node returns a typed response or crashes and gets caught. Circuit breakers, timeouts, and dead-letter queues ensure graceful degradation.
-3. **Observability:** Every node outputs its reasoning, assumptions, and confidence level. Prometheus metrics and Grafana dashboards track system health.
+3. **Observability:** Every node outputs its reasoning, assumptions, and confidence level. Prometheus metrics and Perses dashboards (Cluster Observability Operator) track system health.
 
 ### Models
 
@@ -322,7 +322,7 @@ synesis/
 │   │   ├── pvc.yaml           # 5Gi for user data + chat history
 │   │   └── network-policy.yaml # WebUI -> LiteLLM only
 │   ├── supervisor/            # Erlang-style health monitoring
-│   └── observability/         # Prometheus + Grafana
+│   └── observability/         # Prometheus + Perses (COO)
 ├── overlays/
 │   ├── dev/                   # Reduced resources, debug logging
 │   ├── staging/               # Mirrors prod topology
@@ -378,7 +378,7 @@ Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus colle
 
 ### Resilience
 
-If Milvus or the embedder service goes down, the pipeline automatically degrades to **BM25-only** from cached chunks. No external dependency is needed for BM25 -- it runs entirely in the planner's memory. This means retrieval continues even during vector service outages, and the Grafana dashboard tracks fallback events so you can monitor service health.
+If Milvus or the embedder service goes down, the pipeline automatically degrades to **BM25-only** from cached chunks. No external dependency is needed for BM25 -- it runs entirely in the planner's memory. This means retrieval continues even during vector service outages, and the Perses dashboard tracks fallback events so you can monitor service health.
 
 ### Per-Request Control
 
@@ -421,7 +421,7 @@ All retrieval settings are environment variables (prefixed `SYNESIS_`):
 
 ### Observability
 
-Three Prometheus metrics and Grafana panels track retrieval health:
+Three Prometheus metrics and Perses panels track retrieval health:
 
 - **Retrieval Source Distribution**: Pie chart showing proportion of results from vector, BM25, or both retrievers -- useful for understanding which retriever is winning and whether your RAG corpus works better with semantic or keyword search.
 - **Re-ranker Latency (p50/p95)**: Time series of cross-encoder re-ranking latency by re-ranker type.
@@ -558,13 +558,31 @@ oc port-forward svc/synesis-admin 8080:8080 -n synesis-planner
 # Open http://localhost:8080/admin/failures/stats
 ```
 
-### Observability
+### Observability (COO + Perses)
 
-Three new Grafana panels track sandbox health:
+Synesis provides a **Perses dashboard** for the Cluster Observability Operator (COO). Red Hat deprecated Grafana in favor of Perses; dashboards are deployed as `PersesDashboard` CRs in the `perses-dev` namespace.
 
-- **Sandbox Execution Success/Failure**: Rate of successful vs failed sandbox executions over time.
-- **Sandbox Latency by Language (p95)**: Execution time distribution per language -- helps identify languages with slow linters or large runtimes.
-- **Sandbox Failure Types**: Pie chart of failure categories (lint, security, runtime, timeout) -- reveals whether failures are mostly code quality issues or actual bugs.
+**Prerequisites:**
+- Cluster Observability Operator installed with Perses enabled (`UIPlugin` with `monitoring.perses.enabled: true`)
+- User workload monitoring enabled (Prometheus scraping Synesis ServiceMonitors)
+- Perses datasource pointing to Thanos/Prometheus
+
+**Deploy:** The observability overlay includes `perses-datasource.yaml` and `perses-dashboard-synesis.yaml`. Apply with your environment overlay:
+
+```bash
+oc apply -k overlays/dev  # or staging/prod
+```
+
+**View:** Observe → Dashboards (Perses) in the OpenShift console. Select **Synesis - LLM Assistant Overview**.
+
+**Panels include:**
+- **Planner Request Latency** (p95/p50), **Service Health**, **Circuit Breaker State**
+- **Critic Rejection Rate**, **Token Throughput**
+- **Retrieval Source Distribution**, **Re-ranker Latency**, **BM25 Fallback Rate**
+- **Sandbox Execution Success/Failure**, **Sandbox Latency by Language**, **Sandbox Failure Types**
+- **LSP Analysis Latency**, **LSP Diagnostics by Severity**
+
+A legacy Grafana ConfigMap (`grafana_dashboard: "1"`) is still included for clusters using the Grafana Operator.
 
 ## Conversation Memory
 
@@ -708,7 +726,7 @@ The LSP Gateway container is larger than most Synesis services because it includ
 
 ### Observability
 
-Four Grafana panels track LSP health:
+Four Perses panels track LSP health:
 
 - **LSP Analysis Latency (p50/p95)**: Time series by language -- identifies slow engines.
 - **LSP Diagnostics by Severity**: Rate of errors vs warnings found by each language.

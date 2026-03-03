@@ -1,0 +1,451 @@
+# Synesis LLM Assistant dashboard for Cluster Observability Operator (COO) + Perses.
+# Deploy with: oc apply -f base/observability/perses-dashboard-synesis.yaml
+#
+# Prerequisites:
+# - COO installed with Perses enabled (Observe > Dashboards (Perses) in OpenShift console)
+# - PersesDatasource named "prometheus-datasource" pointing to Thanos/Prometheus
+#   (COO or user workload monitoring). Create in same namespace as this dashboard.
+# - ServiceMonitors for synesis-planner, synesis-health-monitor, synesis-gateway
+#
+# Namespace: Use perses-dev (COO default) or align with your Perses instance.
+apiVersion: perses.dev/v1alpha1
+kind: PersesDashboard
+metadata:
+  name: synesis-overview
+  namespace: perses-dev
+  labels:
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: synesis
+spec:
+  display:
+    name: Synesis - LLM Assistant Overview
+    description: Planner, RAG, sandbox, LSP, and critic metrics
+  duration: 1h
+  refreshInterval: 30s
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Request & Health
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: "#/spec/panels/latency"
+          - x: 12
+            y: 0
+            width: 6
+            height: 6
+            content:
+              $ref: "#/spec/panels/service-health"
+          - x: 18
+            y: 0
+            width: 6
+            height: 6
+            content:
+              $ref: "#/spec/panels/circuit-breaker"
+    - kind: Grid
+      spec:
+        display:
+          title: Critic & Tokens
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: "#/spec/panels/critic-rejections"
+          - x: 12
+            y: 0
+            width: 12
+            height: 6
+            content:
+              $ref: "#/spec/panels/token-throughput"
+    - kind: Grid
+      spec:
+        display:
+          title: RAG Retrieval
+        items:
+          - x: 0
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/retrieval-source"
+          - x: 8
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/reranker-latency"
+          - x: 16
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/bm25-fallback"
+    - kind: Grid
+      spec:
+        display:
+          title: Sandbox
+        items:
+          - x: 0
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/sandbox-executions"
+          - x: 8
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/sandbox-latency"
+          - x: 16
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/sandbox-failures"
+    - kind: Grid
+      spec:
+        display:
+          title: LSP
+        items:
+          - x: 0
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/lsp-latency"
+          - x: 8
+            y: 0
+            width: 8
+            height: 6
+            content:
+              $ref: "#/spec/panels/lsp-diagnostics"
+  panels:
+    latency:
+      kind: Panel
+      spec:
+        display:
+          name: Planner Request Latency (p95/p50)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            unit: s
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.95, rate(synesis_chat_duration_seconds_bucket[5m]))
+                  seriesNameFormat: p95
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.50, rate(synesis_chat_duration_seconds_bucket[5m]))
+                  seriesNameFormat: p50
+    service-health:
+      kind: Panel
+      spec:
+        display:
+          name: Service Health
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: synesis_service_health
+                  seriesNameFormat: "{{service}}"
+    circuit-breaker:
+      kind: Panel
+      spec:
+        display:
+          name: Circuit Breaker State
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: synesis_circuit_breaker_state
+                  seriesNameFormat: "{{service}}"
+    critic-rejections:
+      kind: Panel
+      spec:
+        display:
+          name: Critic Rejection Rate
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_critic_rejections_total[5m])
+                  seriesNameFormat: rejections/sec
+    token-throughput:
+      kind: Panel
+      spec:
+        display:
+          name: Token Throughput
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_tokens_total[5m])
+                  seriesNameFormat: "{{model}} tokens/sec"
+    retrieval-source:
+      kind: Panel
+      spec:
+        display:
+          name: Retrieval Source Distribution
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(synesis_retrieval_source_total) by (source)
+                  seriesNameFormat: "{{source}}"
+    reranker-latency:
+      kind: Panel
+      spec:
+        display:
+          name: Re-ranker Latency (p95/p50)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            unit: s
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))
+                  seriesNameFormat: "{{reranker}} p95"
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.50, rate(synesis_reranker_duration_seconds_bucket[5m]))
+                  seriesNameFormat: "{{reranker}} p50"
+    bm25-fallback:
+      kind: Panel
+      spec:
+        display:
+          name: BM25 Fallback Rate
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_bm25_fallback_total[5m])
+                  seriesNameFormat: fallbacks/sec
+    sandbox-executions:
+      kind: Panel
+      spec:
+        display:
+          name: Sandbox Execution Success/Failure
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_sandbox_executions_total{outcome="success"}[5m])
+                  seriesNameFormat: success/sec
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_sandbox_executions_total{outcome="failure"}[5m])
+                  seriesNameFormat: failure/sec
+    sandbox-latency:
+      kind: Panel
+      spec:
+        display:
+          name: Sandbox Latency by Language (p95)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            unit: s
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.95, rate(synesis_sandbox_duration_seconds_bucket[5m]))
+                  seriesNameFormat: "{{language}} p95"
+    sandbox-failures:
+      kind: Panel
+      spec:
+        display:
+          name: Sandbox Failure Types
+        plugin:
+          kind: StatChart
+          spec:
+            calculation: last
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: sum(synesis_sandbox_failures_by_type_total) by (error_type)
+                  seriesNameFormat: "{{error_type}}"
+    lsp-latency:
+      kind: Panel
+      spec:
+        display:
+          name: LSP Analysis Latency (p95/p50)
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            unit: s
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.95, rate(synesis_lsp_analysis_duration_seconds_bucket[5m]))
+                  seriesNameFormat: "{{language}} p95"
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: histogram_quantile(0.50, rate(synesis_lsp_analysis_duration_seconds_bucket[5m]))
+                  seriesNameFormat: "{{language}} p50"
+    lsp-diagnostics:
+      kind: Panel
+      spec:
+        display:
+          name: LSP Diagnostics by Severity
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              mode: list
+              position: bottom
+            queries:
+              - kind: TimeSeriesQuery
+                spec:
+                  plugin:
+                    kind: PrometheusTimeSeriesQuery
+                    spec:
+                      datasource:
+                        kind: PrometheusDatasource
+                        name: prometheus-datasource
+                      query: rate(synesis_lsp_diagnostics_count[5m])
+                  seriesNameFormat: "{{language}} {{severity}}"
