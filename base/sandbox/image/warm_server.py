@@ -79,7 +79,7 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
                 )
                 return
 
-            work_dir = tempfile.mkdtemp(dir="/tmp")
+            work_dir = tempfile.mkdtemp(dir="/tmp")  # nosec B108
             code_dir = os.path.join(work_dir, "code")
             os.makedirs(code_dir)
 

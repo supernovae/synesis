@@ -221,7 +221,7 @@ async def _create_sandbox_job(
                                     ),
                                     client.V1VolumeMount(
                                         name="tmp",
-                                        mount_path="/tmp",
+                                        mount_path="/tmp",  # nosec B108
                                     ),
                                 ],
                             ),

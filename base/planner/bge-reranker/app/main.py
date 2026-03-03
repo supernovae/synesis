@@ -20,12 +20,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("synesis.bge-reranker")
 
 MODEL_NAME = os.environ.get("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+MODEL_REVISION = os.environ.get("BGE_RERANKER_REVISION", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
 
-logger.info(f"Loading {MODEL_NAME} on {DEVICE} with dtype={DTYPE}")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, torch_dtype=DTYPE).to(DEVICE).eval()
+logger.info(f"Loading {MODEL_NAME} rev={MODEL_REVISION} on {DEVICE} with dtype={DTYPE}")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, torch_dtype=DTYPE).to(DEVICE).eval()
 logger.info("Model loaded")
 
 app = FastAPI(title="Synesis BGE Reranker", version="0.1.0")

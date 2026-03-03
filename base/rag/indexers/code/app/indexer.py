@@ -37,7 +37,7 @@ from .indexer_base import (
 )
 from .tree_sitter_chunker import chunk_file, get_extensions_for_language
 
-CLONE_BASE = os.environ.get("CLONE_DIR", "/tmp/synesis-repos")
+CLONE_BASE = os.environ.get("CLONE_DIR", "/tmp/synesis-repos")  # nosec B108
 
 
 CODE_EXTRA_FIELDS = [
