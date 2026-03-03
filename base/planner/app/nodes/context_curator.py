@@ -199,7 +199,7 @@ def _build_pinned_context(
 
     # Tier 1: Global policy (hardcoded) — taxonomy-aware: document vs code
     if is_document:
-        t1 = "Respond with valid JSON. Include code (markdown content), explanation. No code execution."
+        t1 = "Respond directly in markdown. No JSON wrapper. No code execution."
         t2 = f"Target language: {target_language}. Produce formatted text only. No sandbox, no code execution, no bash."
     else:
         t1 = "Respond with valid JSON. Include code, explanation, reasoning, assumptions, confidence, edge_cases_considered, needs_input, needs_input_question, stop_reason."
