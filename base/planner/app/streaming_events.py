@@ -39,6 +39,8 @@ class StatusQueueCallback(AsyncCallbackHandler):
         run_id: Any = None,
         **kwargs: Any,
     ) -> None:
+        if not serialized:
+            return
         name = ""
         if "id" in serialized:
             rid = serialized["id"]

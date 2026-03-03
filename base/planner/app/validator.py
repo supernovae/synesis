@@ -118,7 +118,7 @@ def validate_with_repair(raw: str, model: type[T]) -> T:
                 logger.warning("schema_repair_attempt", extra={"error": str(e)[:200]})
             elif attempt == 1:
                 extracted, _ = _repair_truncated_json(extracted or raw)
-                logger.info("schema_truncation_repaired", extra={"message": "Auto-closed truncated JSON"})
+                logger.info("schema_truncation_repaired", extra={"detail": "Auto-closed truncated JSON"})
             else:
                 raise ValueError(f"Schema validation failed after repair: {e}") from e
     raise ValueError("Schema validation failed")  # unreachable
@@ -153,7 +153,7 @@ def validate_critic_with_repair(raw: str) -> tuple[CriticOut, bool]:
                 if is_truncated:
                     logger.info(
                         "critic_truncation_repaired",
-                        extra={"message": "Auto-closed; first N blocking_issues preserved"},
+                        extra={"detail": "Auto-closed; first N blocking_issues preserved"},
                     )
             else:
                 raise ValueError(f"Critic schema validation failed: {e}") from e

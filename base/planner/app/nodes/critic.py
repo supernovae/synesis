@@ -593,7 +593,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 if is_truncated:
                     logger.warning(
                         "critic_response_truncated",
-                        extra={"message": "First N blocking_issues preserved; nonblocking may be omitted"},
+                        extra={"detail": "First N blocking_issues preserved; nonblocking may be omitted"},
                     )
             except ValueError as e:
                 latency = (time.monotonic() - start) * 1000
