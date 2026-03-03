@@ -19,10 +19,18 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field, model_validator
 
+from .api_metrics import (
+    record_chat_error,
+    record_chat_success,
+    record_graph_iterations,
+    record_node_confidence,
+    record_tokens,
+)
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
@@ -321,6 +329,7 @@ def _extract_content_and_metrics(
     last_user_content: str,
     run_id: str = "",
     memory_scope: str | None = None,
+    model: str = "synesis-agent",
 ) -> tuple[str, int]:
     """Extract response content from graph result; store in memory; return (content, total_tokens).
     memory_scope: key for conversation-scoped memory (user_id or user_id:conversation_id)."""
@@ -403,7 +412,13 @@ def _extract_content_and_metrics(
     for trace in result.get("node_traces", []) or []:
         if hasattr(trace, "tokens_used"):
             total_tokens += trace.tokens_used
+        node_name = trace.get("node_name", "") if isinstance(trace, dict) else getattr(trace, "node_name", "")
+        confidence = trace.get("confidence", 0) if isinstance(trace, dict) else getattr(trace, "confidence", 0) or 0
+        if node_name:
+            record_node_confidence(node_name, confidence)
 
+    record_graph_iterations(result.get("iteration_count", 1))
+    record_tokens(model, total_tokens)
     return content, total_tokens
 
 
@@ -814,6 +829,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 yield _sse_debug_chatter_event(n, label, content)
             except Exception as e:
                 logger.exception("graph_execution_error")
+                record_chat_error(time.monotonic() - start)
                 yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
@@ -831,8 +847,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 }
             )
             content, _ = _extract_content_and_metrics(
-                result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope
+                result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
             )
+            record_chat_success((time.monotonic() - start))
             yield _sse_chunk(
                 {
                     "id": chat_id,
@@ -873,15 +890,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         result = await graph.ainvoke(initial_state, config=config)
     except Exception as e:
         logger.exception("graph_execution_error")
+        record_chat_error((time.monotonic() - start))
         err_msg = str(e)[:200]  # Truncate for response
         detail = f"Graph execution failed: {err_msg}. Check planner logs and admin status page for model health."
         raise HTTPException(status_code=500, detail=detail) from e
 
     content, total_tokens = _extract_content_and_metrics(
-        result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope
+        result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
     )
 
     latency_ms = (time.monotonic() - start) * 1000
+    record_chat_success(latency_ms / 1000)
     logger.info(
         "request_completed",
         extra={
@@ -1026,3 +1045,12 @@ async def health():
 @app.get("/health/readiness")
 async def readiness():
     return {"status": "ready"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics for retrieval, executor, web search, etc."""
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )

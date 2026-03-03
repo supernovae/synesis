@@ -19,15 +19,24 @@ data:
       "liveNow": false,
       "panels": [
         {
-          "title": "Request Latency (p95)",
+          "title": "Planner Request Latency (p95)",
           "type": "timeseries",
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
           "targets": [
             {
-              "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{namespace=~\"synesis.*\"}[5m]))",
-              "legendFormat": "{{namespace}}/{{handler}}"
+              "expr": "histogram_quantile(0.95, rate(synesis_chat_duration_seconds_bucket[5m]))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.50, rate(synesis_chat_duration_seconds_bucket[5m]))",
+              "legendFormat": "p50"
             }
-          ]
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
         },
         {
           "title": "Service Health",

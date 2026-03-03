@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from ..approach_dark_debt import build_universal_carried_uncertainties_signal
 from ..config import settings
+from ..api_metrics import record_critic_rejection
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -390,6 +391,7 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
                     ],
                 }
                 if not doc_approved:
+                    record_critic_rejection()
                     result["supervisor_clarification_only"] = True  # Passthrough to Worker for revision
                 return result
             # Fallback on error: approve (degraded) and continue
@@ -443,6 +445,8 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
             lint_passed = state.get("execution_lint_passed", True)
             security_passed = state.get("execution_security_passed", True)
             advisory_approved = (exit_code in (0, None)) and lint_passed and security_passed
+            if not advisory_approved:
+                record_critic_rejection()
             return {
                 "critic_approved": advisory_approved,
                 "critic_feedback": "Advisory mode: no What-If analysis"
@@ -732,6 +736,8 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
         # §7.3: needs_evidence increments evidence_experiments_count, not iteration_count
         is_evidence_only = critic_continue_reason == "needs_evidence"
         evidence_count = state.get("evidence_experiments_count", 0)
+        if not approved:
+            record_critic_rejection()
         result: dict[str, Any] = {
             "what_if_analyses": what_ifs,
             "critic_feedback": parsed.revision_feedback or parsed.overall_assessment or "",
