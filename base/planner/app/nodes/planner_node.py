@@ -55,7 +55,7 @@ planner_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.planner_model_name,
     temperature=0.2,
-    max_tokens=2048,
+    max_tokens=1024,  # 1-5 steps ~200-600 tokens; 2048 was overkill and slowed generation
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 
@@ -70,6 +70,23 @@ def _build_context_block(rag_context: list[str]) -> str:
 async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
+
+    # Short-circuit: output_type=document should not reach Planner (plan_required=false). If we do, skip
+    # the code decomposition LLM — Planner is for code steps only, not document plans.
+    if state.get("output_type") == "document":
+        latency = (time.monotonic() - start) * 1000
+        logger.info("planner_skipped_output_type_document", extra={"output_type": "document", "latency_ms": latency})
+        return {
+            "execution_plan": {"steps": [{"id": 1, "action": "Produce document/plan", "dependencies": [], "files": [], "verification_command": ""}], "open_questions": [], "assumptions": []},
+            "touched_files": [],
+            "plan_pending_approval": False,
+            "deliverable_type": "explain_only",
+            "allowed_tools": ["none"],
+            "target_language": "markdown",
+            "current_node": node_name,
+            "next_node": "worker",
+            "node_traces": [],
+        }
 
     try:
         task_desc = state.get("task_description", "")
@@ -180,15 +197,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         plan_required = state.get("plan_required", True)
         needs_approval = plan_required and settings.require_plan_approval and len(steps) > 0
 
-        # Defensive: planning/personal_guidance + lifestyle → skip approval, treat as explain_only.
-        # Auto-continue to Worker so user gets the plan instead of "reply to proceed".
-        intent_class = state.get("intent_class", "code")
-        if needs_approval and intent_class in ("planning", "personal_guidance") and active_vertical == "lifestyle":
+        # Defensive: output_type=document → skip approval (taxonomy-driven; document tasks should not reach Planner normally)
+        if needs_approval and state.get("output_type") == "document":
             needs_approval = False
-            logger.info(
-                "planner_skip_approval_explain_only",
-                extra={"intent_class": intent_class, "vertical": active_vertical},
-            )
+            logger.info("planner_skip_approval_output_type_document", extra={"output_type": "document"})
 
         next_node = "respond" if needs_approval else "worker"
 
@@ -200,7 +212,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
-        if not needs_approval and intent_class in ("planning", "personal_guidance") and active_vertical == "lifestyle":
+        if not needs_approval and state.get("output_type") == "document":
             out["deliverable_type"] = "explain_only"
             out["allowed_tools"] = ["none"]
             out["target_language"] = "markdown"

@@ -667,10 +667,6 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         # On revision (iteration > 0), upgrade to small so model gets execution feedback context
         tier = state.get("worker_prompt_tier", "small")
         persona = state.get("worker_persona", "")
-        if iteration > 0 and (tier == "trivial" or persona == "Minimalist"):
-            tier = "small"
-            persona = "Senior"
-        system_prompt = _get_worker_system_prompt(tier, persona)
 
         # Sovereign Persona Injection: append vertical-specific block when active_domain matches
         from ..vertical_resolver import (
@@ -682,6 +678,17 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             active_domain_refs=state.get("active_domain_refs"),
             platform_context=state.get("platform_context"),
         )
+
+        # Taxonomy-driven: lifestyle vertical → Senior, not Architect. Safety-II/JCS only for architecture/complex code.
+        if active_vertical == "lifestyle" and persona == "Architect":
+            persona = "Senior"
+            tier = "small"
+            logger.debug("worker_persona_vertical_override", extra={"vertical": "lifestyle", "persona": "Senior"})
+        if iteration > 0 and (tier == "trivial" or persona == "Minimalist"):
+            tier = "small"
+            persona = "Senior"
+        system_prompt = _get_worker_system_prompt(tier, persona)
+
         vertical_block = get_worker_persona_block(active_vertical)
         if vertical_block:
             system_prompt = f"{system_prompt}\n\n{vertical_block}"

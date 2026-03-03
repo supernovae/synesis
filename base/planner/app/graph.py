@@ -250,6 +250,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "assumptions": state.get("assumptions", []),
                     "failure_context": state.get("failure_context", []),
                     "web_search_results": state.get("web_search_results", []),
+                    "output_type": state.get("output_type"),
+                    "deliverable_type": state.get("deliverable_type"),
                 },
                 "execution_plan": execution_plan,
                 "task_description": state.get("task_description", ""),
@@ -259,6 +261,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "assumptions": state.get("assumptions", []),
                 "failure_context": state.get("failure_context", []),
                 "web_search_results": state.get("web_search_results", []),
+                "output_type": state.get("output_type"),
+                "deliverable_type": state.get("deliverable_type"),
             },
         )
         steps = execution_plan.get("steps", [])
@@ -288,10 +292,18 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "turn_id": str(state.get("iteration_count", 0)),
                 "source_node": "supervisor",
                 "question": clarification_question,
-                "context": {},
+                "context": {
+                    "task_description": state.get("task_description", ""),
+                    "target_language": state.get("target_language", "python"),
+                    "rag_context": state.get("rag_context", []),
+                    "output_type": state.get("output_type"),
+                    "deliverable_type": state.get("deliverable_type"),
+                },
                 "task_description": state.get("task_description", ""),
                 "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
+                "output_type": state.get("output_type"),
+                "deliverable_type": state.get("deliverable_type"),
             },
         )
         return {
@@ -326,6 +338,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "rag_context": state.get("rag_context", []),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
+            "output_type": state.get("output_type"),
+            "deliverable_type": state.get("deliverable_type"),
         }
         memory.store_pending_question(
             user_id,

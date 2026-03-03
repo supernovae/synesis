@@ -130,3 +130,36 @@ prompts:
   - prompt: "suggest 3-5 follow-up questions"
     expected:
       message_origin: ui_helper
+
+  # --- output_type=document (taxonomy-driven: skip Planner, Worker produces markdown) ---
+  # inherently_document: knowledge, creative_ideation
+  - prompt: "explain how marathon taper works"
+    expected:
+      intent_class: knowledge
+      output_type: document
+      plan_required: false
+  - prompt: "brainstorm names for a running app"
+    expected:
+      intent_class: creative_ideation
+      output_type: document
+      plan_required: false
+  # document_domains: planning, personal_guidance, writing + lifestyle
+  - prompt: "create a marathon training plan for intermediate runner"
+    expected:
+      intent_class: planning
+      output_type: document
+      plan_required: false
+  - prompt: "how can I improve my running form"
+    expected:
+      intent_class: personal_guidance
+      output_type: document
+      plan_required: false
+  - prompt: "write a blog post about marathon training"
+    expected:
+      intent_class: writing
+      output_type: document
+      plan_required: false
+  # code intents stay code
+  - prompt: "write a python script to parse json"
+    expected:
+      output_type: code

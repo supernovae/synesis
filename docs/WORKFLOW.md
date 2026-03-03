@@ -79,6 +79,7 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 | `message_origin == "ui_helper"` | `respond` |
 | `task_size == "trivial"` and `bypass_supervisor` | `context_curator` |
 | `task_size == "complex"` and `plan_required` | `planner` (bypass Supervisor) |
+| **Taxonomy:** `output_type=document` (from intent_classes[].document_domains) → `plan_required=false`; Supervisor passthrough → Worker explain_only. Planner is for code decomposition only. |
 | else | `supervisor` |
 
 ### After Supervisor
@@ -90,7 +91,7 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 | `next_node == "worker"` | `context_curator` |
 | else | `respond` |
 
-**Taxonomy-driven passthrough:** When `intent_class` ∈ (planning, personal_guidance) and vertical = lifestyle (from `active_domain_refs`), Supervisor skips LLM and routes to worker with `deliverable_type=explain_only`. Produces text/plans (training plan, meal plan) — no code execution.
+**Taxonomy-driven passthrough:** When `output_type=document` (from intent_classes[].document_domains in taxonomy), Supervisor skips LLM and routes to worker with `deliverable_type=explain_only`. No lifestyle-specific bias — config-driven.
 
 ### After Planner
 
@@ -142,8 +143,8 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 
 ## Key Invariants
 
-1. **Anemic Supervisor**: Routing only. No architecture reasoning. Sub-500ms target. Passthrough for complex (EntryClassifier), small+teach, and **planning/personal_guidance + lifestyle** (taxonomy-driven explain_only).
-2. **Taxonomy-Driven Routing**: Entry Classifier outputs `intent_class`, `active_domain_refs`. Supervisor receives these and uses them for deterministic passthrough (explain_only) and LLM prompt guidance. No need to declare every non-programming question.
+1. **Anemic Supervisor**: Routing only. No architecture reasoning. Sub-500ms target. Passthrough for complex (EntryClassifier), small+teach, and **output_type=document** (taxonomy-driven explain_only).
+2. **Taxonomy-Driven Routing**: Entry Classifier outputs `intent_class`, `output_type`, `active_domain_refs`. `output_type` comes from intent_classes[].document_domains — config-driven, not per-query if/else. Planner is for code decomposition; document output skips Planner.
 3. **Atomic Planner**: Each step max 3 files. Every step must have `verification_command`. Protocol tasks (Fediverse, ActivityPub): first step = discovery/WebFinger only.
 4. **Evidence-Gated Critic**: `approved=false` requires at least one `blocking_issue` with sandbox/lsp `evidence_refs`. No blocking on speculation.
 5. **Progressive Worker Prompts**: trivial (minimal), small (defensive), full (JCS). EntryClassifier sets `worker_persona` (Minimalist | Senior | Architect) and `worker_prompt_tier`.
@@ -164,6 +165,22 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 - **Full Critic** (Architect only): Full JCS analysis with What-Ifs. Evidence-gated blocking.
 - **Strategic Advisor**: When domain is `generic` or `python_web`, set `rag_gravity=light`. Skip Strategic Pivot (entity extraction RAG on retries). No heavy RAG for common knowledge.
 - **Status Events**: EntryClassifier, Supervisor, Planner, Worker emit tier-matched `type: "status"` SSE events for Open WebUI.
+
+## Planner: When, Why, and Performance
+
+**When Planner runs:** Only for `task_size=complex` + `plan_required` (code tasks: multi-step, protocol-heavy). Taxonomy sets `output_type=document` when intent+domain maps to document output (intent_weights `document_domains`) → `plan_required=false` → Supervisor passthrough → Worker explain_only. No per-vertical if/else.
+
+**Why Planner can feel slow:**
+- Uses same model as Supervisor (e.g. Qwen3-14B). Each Planner call is a full LLM inference.
+- Prompt: system (atomic rules) + task + assumptions + RAG context (up to 5 chunks) + domain decomposition rules from `vertical_prompts.yaml`.
+- Output: JSON plan with steps, touched_files, reasoning. `max_tokens=1024` (sufficient for 1–5 steps).
+
+**Taxonomy shaping:** `vertical_prompts.yaml` injects `planner_decomposition_rules` per vertical. For lifestyle: "Standard atomic steps. No vertical-specific mandates." For medical/fintech/industrial: Step 1 audit/safety rules. Planner prompt is built in `planner_node.py` via `get_planner_decomposition_rules(active_vertical)`.
+
+**Performance levers:**
+1. **Routing:** Taxonomy sets `output_type=document` for (intent, domain) → `plan_required=false`; document tasks never hit Planner.
+2. **max_tokens:** 1024 vs 2048 reduces generation time.
+3. **Dedicated smaller model:** If available, a 3B/7B model for Planner could cut latency (atomic decomposition is simpler than code generation).
 
 ## Performance and State Payload Optimization
 

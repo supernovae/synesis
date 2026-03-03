@@ -541,6 +541,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "rag_context",
                     "execution_plan",
                     "assumptions",
+                    "output_type",
+                    "deliverable_type",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
@@ -556,6 +558,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "assumptions",
                     "failure_context",
                     "web_search_results",
+                    "output_type",
+                    "deliverable_type",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]

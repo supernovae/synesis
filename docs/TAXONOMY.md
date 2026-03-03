@@ -181,20 +181,27 @@ To reach "the 95%" for new verticals:
 
 ---
 
-## 7. Taxonomy-Driven Explain-Only Routing
+## 7. Taxonomy-Driven Output Type (Document vs Code)
 
-For non-programming questions (training plans, meal plans, budgets, etc.), the Entry Classifier emits `intent_class` (e.g. planning, personal_guidance) and `active_domain_refs` (e.g. athletics_running, nutrition). The Supervisor receives these and applies **deterministic passthrough** — no LLM call for routing.
+The taxonomy determines **output_type** (document or code). Document → skip Planner; Worker produces markdown directly.
 
-| Condition | Action |
-|-----------|--------|
-| `intent_class` ∈ (planning, personal_guidance) **and** vertical = lifestyle | Skip Supervisor LLM; route to Worker with `deliverable_type=explain_only`, `allowed_tools=["none"]`, `target_language=markdown` |
-| Else | Normal Supervisor LLM routing |
+| Mechanism | Intents | Meaning |
+|-----------|---------|---------|
+| `inherently_document: true` | knowledge, creative_ideation | Always document (explanations, ideas). No domain check. |
+| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → document. planning/writing + lifestyle = document. |
 
-**Flow:** Entry Classifier → Supervisor (passthrough) → Context Curator → Worker (produces markdown) → Patch Integrity Gate (bypass sandbox) → Respond.
+| Intent | Config | Example |
+|--------|--------|---------|
+| knowledge | inherently_document | "explain marathon taper", "what is VO2max" |
+| creative_ideation | inherently_document | "brainstorm names", "suggest workouts" |
+| planning | document_domains | "marathon plan", "meal plan", "budget plan" |
+| personal_guidance | document_domains | "how can I improve running", "optimize nutrition" |
+| writing | document_domains | "write blog about marathon", "draft email about nutrition" |
+| debugging, review, data_transform, tool_orchestrated | (default code) | — |
 
-**Intent envelope:** When the Supervisor LLM runs, the pre-classified block includes `intent_class` and `active_domain_refs` so it can route planning/personal_guidance + lifestyle requests to `respond` or to Worker with explain_only. Fallback: if `next_node=respond` but `needs_code=false` and task length > 20 chars, force `next_node=worker` with explain_only.
+**Flow:** Entry Classifier (engine sets output_type from config) → plan_required=false when document → Supervisor (passthrough when output_type=document) → Context Curator → Worker (produces markdown) → Patch Integrity Gate (bypass sandbox) → Respond.
 
-**No explicit listing:** The fix relies on the taxonomy (intent + domain), not enumerating every question type. New lifestyle planning questions (e.g. meditation plan, study schedule) are covered when their keywords match `intent_weights` and domain plugins.
+**Planner is for code decomposition only.** Document output (plans, explanations, guidance, drafts, ideas) is produced directly by Worker. Safety-II/JCS applies to architecture/complex code; lifestyle vertical uses Senior persona (not Architect).
 
 ---
 

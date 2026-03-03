@@ -119,6 +119,14 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             last_content = str(m["content"])
             break
 
+    # Pending continue: user replying to clarification/plan — analyze original task + reply so "4 week
+    # training plan" inherits domain from "marathon plan" (athletics_running → output_type=document)
+    text_to_analyze = last_content
+    if state.get("pending_question_continue") and state.get("task_description"):
+        orig = (state.get("task_description") or "").strip()[:500]
+        if orig:
+            text_to_analyze = f"{orig} {last_content or ''}".strip()[:800]
+
     message_origin = _classify_message_origin(last_content)
     target_language = _detect_language(last_content)
     policy = get_defaults_policy()
@@ -126,7 +134,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     # ScoringEngine from YAML (entry_classifier_weights.yaml)
     config_path = _weights_path()
     engine = get_scoring_engine(config_path)
-    analysis = engine.analyze(last_content)
+    analysis = engine.analyze(text_to_analyze)
 
     task_size: TaskSize = analysis["task_size"]
     manual_override = analysis.get("manual_override", False)
@@ -177,8 +185,12 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             escalation_reason = "task_size_small"
 
-    # task_description: needed for Planner when bypassing Supervisor (complex→planner)
-    task_description = (last_content or "").strip()[:1000] if last_content else ""
+    # task_description: when pending continue, include original for downstream (Worker needs full context)
+    if state.get("pending_question_continue") and state.get("task_description"):
+        orig = (state.get("task_description") or "").strip()[:600]
+        task_description = f"{orig} {last_content or ''}".strip()[:1000] if orig else (last_content or "").strip()[:1000]
+    else:
+        task_description = (last_content or "").strip()[:1000] if last_content else ""
 
     out: dict[str, Any] = {
         "message_origin": message_origin,
@@ -202,6 +214,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["active_domain_refs"] = active_domains
 
     out["intent_class"] = analysis.get("intent_class", "code")
+    out["output_type"] = analysis.get("output_type", "code")  # document → explain_only; taxonomy-driven
     # Phase 1: explainability — classification_reasons and score_breakdown for /why
     out["classification_reasons"] = analysis.get("classification_reasons") or []
     out["score_breakdown"] = analysis.get("score_breakdown") or {}
@@ -236,6 +249,14 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["worker_persona"] = worker_persona
         out["worker_prompt_tier"] = worker_prompt_tier
         out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
+
+    # Taxonomy-driven: output_type=document (intent + document_domains) → skip Planner; Supervisor passthrough → Worker explain_only
+    if analysis.get("output_type") == "document":
+        out["plan_required"] = False
+    # Pending continue: preserve output_type=document from restored state (user reply may not re-trigger domain)
+    elif state.get("pending_question_continue") and state.get("output_type") == "document":
+        out["output_type"] = "document"
+        out["plan_required"] = False
 
     # Trivial fast-path fields — skip when manual_override (user wants Supervisor path)
     if task_size == "trivial" and not manual_override:

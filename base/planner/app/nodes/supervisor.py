@@ -202,65 +202,54 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [trace],
             }
 
-        # Taxonomy-driven explain_only passthrough: planning/personal_guidance + lifestyle → text output, no code
-        # Uses Entry Classifier intent_class + domain; no need to declare every non-programming question
-        intent_class = state.get("intent_class", "code")
-        if intent_class in ("planning", "personal_guidance") and iteration == 0:
-            try:
-                from ..vertical_resolver import resolve_active_vertical
-
-                vertical = resolve_active_vertical(
-                    state.get("active_domain_refs"),
-                    state.get("platform_context"),
-                )
-                if vertical == "lifestyle":
-                    task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
-                    latency = (time.monotonic() - start) * 1000
-                    trace = NodeTrace(
-                        node_name=node_name,
-                        reasoning=f"Taxonomy: intent_class={intent_class}, vertical=lifestyle → explain_only (no LLM)",
-                        assumptions=[],
-                        confidence=1.0,
-                        outcome=NodeOutcome.SUCCESS,
-                        latency_ms=latency,
-                    )
-                    logger.info(
-                        "supervisor_passthrough_explain_only",
-                        extra={"intent_class": intent_class, "vertical": vertical, "latency_ms": latency},
-                    )
-                    return {
-                        "task_type": "general",
-                        "task_description": task_desc,
-                        "target_language": "markdown",
-                        "assumptions": [],
-                        "defaults_used": [],
-                        "assumptions_structured": [],
-                        "task_is_trivial": False,
-                        "deliverable_type": "explain_only",
-                        "interaction_mode": state.get("interaction_mode", "do"),
-                        "include_tests": False,
-                        "include_run_commands": False,
-                        "allowed_tools": ["none"],
-                        "rag_mode": "normal",
-                        "needs_code_generation": True,
-                        "rag_results": [],
-                        "rag_context": [],
-                        "rag_collections_queried": [],
-                        "tool_refs": state.get("tool_refs") or [],
-                        "failure_context": state.get("failure_context", []),
-                        "web_search_results": state.get("web_search_results", []),
-                        "web_search_queries": state.get("web_search_queries", []),
-                        "current_node": node_name,
-                        "next_node": "worker",
-                        "generated_code": state.get("generated_code", ""),
-                        "code_explanation": state.get("code_explanation", ""),
-                        "patch_ops": state.get("patch_ops", []) or [],
-                        "node_traces": [trace],
-                        "active_domain_refs": state.get("active_domain_refs"),
-                        "platform_context": state.get("platform_context"),
-                    }
-            except Exception as e:
-                logger.warning("supervisor_explain_only_passthrough_skipped", extra={"error": str(e)[:100]})
+        # Taxonomy-driven explain_only passthrough: output_type=document from intent_classes[].document_domains
+        # Planner is for code decomposition; document output goes straight to Worker with explain_only
+        if state.get("output_type") == "document" and iteration == 0:
+            task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning="Taxonomy: output_type=document → explain_only (no LLM)",
+                assumptions=[],
+                confidence=1.0,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+            )
+            logger.info(
+                "supervisor_passthrough_explain_only",
+                extra={"output_type": "document", "latency_ms": latency},
+            )
+            return {
+                "task_type": "general",
+                "task_description": task_desc,
+                "target_language": "markdown",
+                "assumptions": [],
+                "defaults_used": [],
+                "assumptions_structured": [],
+                "task_is_trivial": False,
+                "deliverable_type": "explain_only",
+                "interaction_mode": state.get("interaction_mode", "do"),
+                "include_tests": False,
+                "include_run_commands": False,
+                "allowed_tools": ["none"],
+                "rag_mode": "normal",
+                "needs_code_generation": True,
+                "rag_results": [],
+                "rag_context": [],
+                "rag_collections_queried": [],
+                "tool_refs": state.get("tool_refs") or [],
+                "failure_context": state.get("failure_context", []),
+                "web_search_results": state.get("web_search_results", []),
+                "web_search_queries": state.get("web_search_queries", []),
+                "current_node": node_name,
+                "next_node": "worker",
+                "generated_code": state.get("generated_code", ""),
+                "code_explanation": state.get("code_explanation", ""),
+                "patch_ops": state.get("patch_ops", []) or [],
+                "node_traces": [trace],
+                "active_domain_refs": state.get("active_domain_refs"),
+                "platform_context": state.get("platform_context"),
+            }
 
         # Teach-mode passthrough: small + teach → skip Supervisor LLM, route to Worker (avoids timeout on educational prompts)
         if (
@@ -337,12 +326,12 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             intent_class = state.get("intent_class", "code")
             active_refs = state.get("active_domain_refs") or []
             refs_str = ", ".join(str(r) for r in active_refs[:5]) if active_refs else "none"
+            output_type = state.get("output_type", "code")
             intent_envelope_block = (
                 f"\n\n## Pre-classified (EntryClassifier)\n"
-                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, active_domain_refs=[{refs_str}]. "
+                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, output_type={output_type}, active_domain_refs=[{refs_str}]. "
                 f"Use these; do not re-classify. "
-                f"When intent_class is planning or personal_guidance with lifestyle domains (athletics_running, nutrition, etc.), "
-                f"use deliverable_type=explain_only, route_to=worker, allowed_tools=[\"none\"] — produce text/plan, not code. "
+                f"When output_type=document, use deliverable_type=explain_only, route_to=worker, allowed_tools=[\"none\"] — produce text/plan, not code. "
                 f"Focus on: routing, RAG, planning_suggested, deliverable_type."
             )
 
@@ -611,33 +600,21 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
                 )
 
-        # Override: planning/personal_guidance + lifestyle → worker explain_only, never Planner.
-        # Prevents Planner producing code-oriented "execution plan" and "reply to proceed" for text plans.
-        intent_class = state.get("intent_class", "code")
-        if next_node == "planner" and intent_class in ("planning", "personal_guidance"):
-            try:
-                from ..vertical_resolver import resolve_active_vertical
-
-                vertical = resolve_active_vertical(
-                    state.get("active_domain_refs"),
-                    state.get("platform_context"),
-                )
-                if vertical == "lifestyle":
-                    next_node = "worker"
-                    needs_code = True
-                    parsed = parsed.model_copy(
-                        update={
-                            "deliverable_type": "explain_only",
-                            "allowed_tools": ["none"],
-                            "target_language": "markdown",
-                        }
-                    )
-                    logger.info(
-                        "supervisor_override_planner_to_explain_only",
-                        extra={"intent_class": intent_class, "vertical": vertical},
-                    )
-            except Exception as e:
-                logger.warning("supervisor_explain_only_override_skipped", extra={"error": str(e)[:80]})
+        # Override: output_type=document → worker explain_only, never Planner. Taxonomy-driven.
+        if next_node == "planner" and state.get("output_type") == "document":
+            next_node = "worker"
+            needs_code = True
+            parsed = parsed.model_copy(
+                update={
+                    "deliverable_type": "explain_only",
+                    "allowed_tools": ["none"],
+                    "target_language": "markdown",
+                }
+            )
+            logger.info(
+                "supervisor_override_planner_to_explain_only",
+                extra={"output_type": "document"},
+            )
 
         # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.
         # Prevents "no output to show" when user asks for training plan, nutrition plan, etc.

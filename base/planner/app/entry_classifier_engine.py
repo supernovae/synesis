@@ -336,6 +336,22 @@ class ScoringEngine:
             if intent_class != "code":
                 break
 
+        # 9. Output type from taxonomy: document = no Planner (code decomposition); Worker produces markdown.
+        # inherently_document: intent always produces text (explanations, ideas). document_domains: intent + domain → document.
+        output_type = "code"
+        ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
+        if ic_data.get("inherently_document"):
+            output_type = "document"
+            hits.append("output:document(inherent)")
+        else:
+            doc_domains = ic_data.get("document_domains") or []
+            if doc_domains:
+                dom_set = {str(d).strip().lower() for d in doc_domains}
+                refs = {str(a).strip().lower() for a in active_domains}
+                if refs & dom_set:
+                    output_type = "document"
+                    hits.append("output:document")
+
         score = complexity_score + risk_score
         return {
             "task_size": task_size,
@@ -344,6 +360,7 @@ class ScoringEngine:
             "risk_score": risk_score,
             "domain_hints": domain_hints,
             "intent_class": intent_class,
+            "output_type": output_type,
             "manual_override": False,
             "interaction_mode": interaction_mode,
             "force_pro_advanced": force_pro_advanced,

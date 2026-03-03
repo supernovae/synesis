@@ -227,25 +227,33 @@ pairings:
     axis: risk
 
 # Intent classes: first match wins. Drives critic behavior overlay (hallucination, schema, tone, etc).
+# output_type: document = Planner skipped; Worker produces markdown. Code = Planner (if complex), Sandbox.
+# inherently_document: true = intent always produces text (explanations, ideas); no domain check.
+# document_domains: intent + these domains → document. Used when intent is mixed (e.g. planning, writing).
 intent_classes:
   debugging:
     keywords: [fix, debug, error, trace, why does it fail, stack trace, diagnose, troubleshoot]
   review:
     keywords: [review, validate, audit, check, assess, code review, security audit]
   planning:
-    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, generate a plan, marathon plan, create a plan]
+    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, generate a plan, marathon plan, create a plan, training schedule, schedule]
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance]  # document output; Planner is for code decomposition
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about]
+    inherently_document: true  # explanations are always text
   writing:
     keywords: [write, draft, compose, email, blog, article, content]
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance, creative_media]  # blog/email about lifestyle; script = code
   data_transform:
     keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
   tool_orchestrated:
     keywords: [search and, fetch and, multi-step]
   personal_guidance:
     keywords: [how can i, improve my, optimize my, help me with]
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance]  # guidance as text; no code steps
   creative_ideation:
     keywords: [brainstorm, ideas for, suggest, creative]
+    inherently_document: true  # ideas/suggestions are always text
 
 overrides:
   force_manual:

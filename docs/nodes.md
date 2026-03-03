@@ -28,7 +28,7 @@ respond (no LLM) → END
 
 **Source:** `app/nodes/entry_classifier.py`
 
-**Output:** `task_size`, `target_language`, `worker_persona`, `worker_prompt_tier`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `active_domain_refs`, etc.
+**Output:** `task_size`, `target_language`, `worker_persona`, `worker_prompt_tier`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `output_type`, `active_domain_refs`, etc. `output_type` from intent_classes[].document_domains — taxonomy-driven.
 
 **Persona Tier:** Maps `task_size` → `worker_persona`: trivial → Minimalist, small → Senior, complex → Architect. `plan_required` is true only when persona is Architect (or manual override).
 
@@ -70,9 +70,9 @@ Examples: openshift, kubernetes, python_web, embedded_garmin, synthesizer_music,
 **Taxonomy-Driven Passthroughs (no LLM):**
 - **Complex + plan_required:** Skip to Planner.
 - **Small + teach:** Skip to Worker.
-- **Planning/Personal Guidance + lifestyle vertical:** Skip to Worker with `deliverable_type=explain_only`, `allowed_tools=["none"]` — produces text/plans (training plan, meal plan, etc.), not code. Uses `intent_class` and `active_domain_refs` from Entry Classifier; no need to declare every non-programming question.
+- **output_type=document:** From intent_classes[].document_domains (taxonomy). Skip LLM; route to Worker with `deliverable_type=explain_only`. No per-vertical if/else.
 
-**Pre-classified envelope:** When Entry Classifier ran, Supervisor prompt includes `intent_class`, `active_domain_refs`, `task_size`, `target_language`. For planning/personal_guidance + lifestyle domains, LLM must use `deliverable_type=explain_only`, `route_to=worker`.
+**Pre-classified envelope:** When Entry Classifier ran, Supervisor prompt includes `intent_class`, `output_type`, `active_domain_refs`, `task_size`, `target_language`. When `output_type=document`, LLM must use `deliverable_type=explain_only`, `route_to=worker`.
 
 **System Prompt:**
 
@@ -96,7 +96,7 @@ Return valid JSON (same schema). Keep reasoning to one sentence.
 **Passthrough (no LLM):**
 - `task_size == "complex"` and `plan_required` → skip LLM, `next_node="planner"`.
 - `task_size == "small"` and `interaction_mode == "teach"` → skip LLM, `next_node="worker"`.
-- `intent_class` in (planning, personal_guidance) and `vertical == "lifestyle"` → skip LLM, `next_node="worker"` with `deliverable_type=explain_only`.
+- `output_type=document` (taxonomy) → skip LLM, `next_node="worker"` with `deliverable_type=explain_only`.
 
 **Output Schema:** `SupervisorOut` — task_type, task_description, target_language, route_to, assumptions, rag_mode, etc.
 
@@ -108,7 +108,9 @@ Return valid JSON (same schema). Keep reasoning to one sentence.
 
 **Source:** `app/nodes/planner_node.py`
 
-**Mantra:** Atomic Planner — one step = max 3 files, verification_command required.
+**When it runs:** Only for `task_size=complex` + `plan_required` (code tasks). Trivial/small bypass. `output_type=document` (taxonomy) → `plan_required=false` → never hit Planner.
+
+**Mantra:** Atomic Planner — one step = max 3 files, verification_command required. `max_tokens=1024` (1–5 steps).
 
 **System Prompt:**
 
@@ -162,7 +164,7 @@ Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions i
 
 **Source:** `app/nodes/worker.py`
 
-**Persona selection:** `worker_persona` from EntryClassifier (takes precedence over `worker_prompt_tier`): Minimalist | Senior | Architect. Minimalist and Senior prompts are stripped of JCS/Safety-II jargon.
+**Persona selection:** `worker_persona` from EntryClassifier (takes precedence over `worker_prompt_tier`): Minimalist | Senior | Architect. **Vertical override:** lifestyle → Senior (not Architect); Safety-II/JCS only for architecture/complex code.
 
 **Explain-only mode:** When `deliverable_type=explain_only` (training plan, meal plan, etc.), Worker produces markdown in the `code` field instead of executable code. Injected block instructs: "Put your full response as markdown. No Python/bash — output displayed directly."
 

@@ -239,6 +239,108 @@ class TestExplainabilityPhase1:
         assert out3.get("intent_class") == "data_transform"
 
 
+class TestOutputTypeCoverage:
+    """output_type=document → skip Planner; Worker produces markdown. Taxonomy-driven."""
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "explain how marathon taper works",
+            "what is VO2max",
+            "tell me about zone 2 training",
+            "define fartlek",
+            "describe how cadence affects running economy",
+        ],
+    )
+    def test_knowledge_inherently_document(self, prompt: str):
+        """knowledge intent → output_type=document (inherently_document)."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "knowledge"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is False
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "brainstorm names for a running app",
+            "suggest 5 workouts for a beginner",
+            "ideas for a nutrition tracking feature",
+            "creative ways to motivate marathon training",
+        ],
+    )
+    def test_creative_ideation_inherently_document(self, prompt: str):
+        """creative_ideation intent → output_type=document (inherently_document)."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "creative_ideation"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is False
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "create a marathon training plan for intermediate runner",
+            "generate a meal plan for weight loss",
+            "I need a budget plan for saving",
+            "training schedule for 4 week 5k prep",
+        ],
+    )
+    def test_planning_document_domains(self, prompt: str):
+        """planning + lifestyle domain → output_type=document."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "planning"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is False
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "how can I improve my running form",
+            "optimize my nutrition for recovery",
+            "help me with my marathon pacing",
+        ],
+    )
+    def test_personal_guidance_document_domains(self, prompt: str):
+        """personal_guidance + lifestyle domain → output_type=document."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "personal_guidance"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is False
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "write a blog post about marathon training",
+            "draft an email about my nutrition goals",
+            "compose an article on zone 2 running",
+        ],
+    )
+    def test_writing_document_domains(self, prompt: str):
+        """writing + lifestyle/creative domain → output_type=document."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") == "writing"
+        assert out.get("output_type") == "document"
+        assert out.get("plan_required") is False
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "write a python script to parse json",
+            "fix the bug in this function",
+            "parse this csv and save to database",
+        ],
+    )
+    def test_code_intents_stay_code(self, prompt: str):
+        """Code intents → output_type=code; plan_required per task_size."""
+        state = {"messages": [{"content": prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("output_type") == "code"
+
+
 class TestRiskVeto:
     """Risk veto blocks trivial when pip install, curl | bash, etc."""
 

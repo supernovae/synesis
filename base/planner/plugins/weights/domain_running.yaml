@@ -14,7 +14,7 @@ complexity_weights:
 domain_keywords:
   athletics:
     domain: athletics_running
-    keywords: ["vo2 max", "cadence", "marathon", "ultra", "taper", "fartlek"]
+    keywords: ["vo2 max", "cadence", "marathon", "ultra", "taper", "fartlek", "training plan", "training schedule", "running plan", "running", "runner"]
 
 pairings:
   - keywords: ["injury", "pain"]
