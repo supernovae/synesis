@@ -115,6 +115,9 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     user: str | None = None
     retrieval: RetrievalOptions | None = None
+    # Conversation scope: when provided, memory/history/pending are isolated per conversation.
+    # Prevents context drift when user has multiple chats. Accept from body or X-Conversation-Id header.
+    conversation_id: str | None = None
 
     model_config = {"extra": "ignore"}  # Open WebUI sends frequency_penalty, etc.
 
@@ -163,6 +166,22 @@ def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request)
         return hashlib.sha256(token.encode()).hexdigest()[:16]
 
     return "anonymous"
+
+
+def _resolve_conversation_id(request_body: ChatCompletionRequest, http_request: Request) -> str | None:
+    """Resolve conversation scope: request body > X-Conversation-Id header > None.
+    When present, memory (history, pending plans) is scoped per conversation — avoids drift across chats."""
+    if request_body.conversation_id and request_body.conversation_id.strip():
+        return request_body.conversation_id.strip()[:128]
+    header = (http_request.headers.get("x-conversation-id") or http_request.headers.get("x-chat-id") or "").strip()
+    return header[:128] if header else None
+
+
+def _memory_scope_key(user_id: str, conversation_id: str | None) -> str:
+    """Key for conversation-scoped memory. When conversation_id present, isolates per chat."""
+    if not conversation_id:
+        return user_id
+    return f"{user_id}:{conversation_id}"
 
 
 def _sse_chunk(data: dict) -> str:
@@ -241,8 +260,11 @@ def _extract_content_and_metrics(
     user_id: str,
     last_user_content: str,
     run_id: str = "",
+    memory_scope: str | None = None,
 ) -> tuple[str, int]:
-    """Extract response content from graph result; store in memory; return (content, total_tokens)."""
+    """Extract response content from graph result; store in memory; return (content, total_tokens).
+    memory_scope: key for conversation-scoped memory (user_id or user_id:conversation_id)."""
+    scope = memory_scope or user_id
     messages = result.get("messages", [])
     last_message = messages[-1] if messages else None
     content = last_message.content if last_message else "No response generated."
@@ -288,17 +310,17 @@ def _extract_content_and_metrics(
 
     if settings.memory_enabled:
         if last_user_content:
-            memory.store_turn(user_id, "user", last_user_content)
+            memory.store_turn(scope, "user", last_user_content)
         if content:
-            memory.store_turn(user_id, "assistant", content)
+            memory.store_turn(scope, "assistant", content)
         # Update last_active_language and last_context for next turn's pivot detection
         lang = result.get("target_language", "python")
         if lang in ("", "infer"):
             lang = "markdown" if result.get("deliverable_type") == "explain_only" else "python"
         if lang:
-            memory.set_last_active_language(user_id, lang)
+            memory.set_last_active_language(scope, lang)
         memory.set_last_context(
-            user_id,
+            scope,
             result.get("output_type", "code"),
             result.get("active_domain_refs") or [],
         )
@@ -330,6 +352,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     start = time.monotonic()
 
     user_id = _resolve_user_id(request, http_request)
+    conversation_id = _resolve_conversation_id(request, http_request)
+    memory_scope = _memory_scope_key(user_id, conversation_id)
 
     user_messages = [HumanMessage(content=m.content) for m in request.messages if m.role == "user"]
 
@@ -339,18 +363,18 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     last_user_content = user_messages[-1].content if user_messages else ""
     task_size_override: str | None = None
 
-    # Retrieve conversation history for this user
+    # Retrieve conversation history (scoped by conversation_id when provided)
     conversation_history: list[str] = []
     if settings.memory_enabled:
-        conversation_history = memory.get_history(user_id)
+        conversation_history = memory.get_history(memory_scope)
 
     # Context-stability: detect pivot from language OR user context (documents vs code, domain switch)
     # Uses classifier output — no regex explosion; same logic as Entry Classifier
     current_lang = detect_language_deterministic(last_user_content)
-    last_lang = memory.get_last_active_language(user_id) if settings.memory_enabled else None
+    last_lang = memory.get_last_active_language(memory_scope) if settings.memory_enabled else None
     lang_pivot = bool(last_lang and current_lang != last_lang)
 
-    last_ctx = memory.get_last_context(user_id) if settings.memory_enabled else None
+    last_ctx = memory.get_last_context(memory_scope) if settings.memory_enabled else None
     context_pivot = False
     pivot_to_label = ""
     if last_ctx:
@@ -386,8 +410,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         conversation_history = [f"[system]: Previous era: {pivot_summary}"] if pivot_summary else []
         user_messages = [HumanMessage(content=last_user_content)]  # only current request
         if settings.memory_enabled:
-            memory.clear_user_history(user_id)
-            memory.set_last_active_language(user_id, current_lang)
+            memory.clear_user_history(memory_scope)
+            memory.set_last_active_language(memory_scope, current_lang)
         logger.info(
             "context_pivot",
             extra={
@@ -548,6 +572,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "iteration_count": 0,
         "retrieval_params": retrieval_params,
         "user_id": user_id,
+        "memory_scope": memory_scope,
         "conversation_history": conversation_history,
         "is_pivot": is_pivot,
         "last_active_language": last_lang or "",
@@ -558,16 +583,16 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "evidence_experiments_count": 0,
     }
 
-    # Unified pending question: plan approval, needs_input, or clarification
+    # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
     if settings.memory_enabled:
-        pending = memory.get_and_clear_pending_question(user_id)
+        pending = memory.get_and_clear_pending_question(memory_scope)
         if not pending:
             # Backward compat: migrate from legacy stores
-            pending = memory.get_and_clear_pending_plan(user_id)
+            pending = memory.get_and_clear_pending_plan(memory_scope)
             if pending:
                 pending["source_node"] = "planner"
             else:
-                pending = memory.get_and_clear_pending_needs_input(user_id)
+                pending = memory.get_and_clear_pending_needs_input(memory_scope)
                 if pending:
                     pending["source_node"] = "worker"
 
@@ -676,7 +701,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 "data": {"description": "", "done": True, "hidden": False},
             })
             content, total_tokens = _extract_content_and_metrics(
-                result, user_id, last_user_content, run_id=run_id
+                result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope
             )
             yield _sse_chunk(
                 {
@@ -723,7 +748,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         raise HTTPException(status_code=500, detail=detail) from e
 
     content, total_tokens = _extract_content_and_metrics(
-        result, user_id, last_user_content, run_id=run_id
+        result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope
     )
 
     latency_ms = (time.monotonic() - start) * 1000
@@ -731,11 +756,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "request_completed",
         extra={
             "user_id": user_id,
+            "conversation_id": conversation_id,
             "latency_ms": latency_ms,
             "iterations": result.get("iteration_count", 0),
             "total_tokens": total_tokens,
             "has_error": bool(result.get("error")),
-            "memory_turns": memory.get_turn_count(user_id) if settings.memory_enabled else 0,
+            "memory_turns": memory.get_turn_count(memory_scope) if settings.memory_enabled else 0,
         },
     )
 

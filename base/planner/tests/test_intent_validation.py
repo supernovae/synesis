@@ -247,6 +247,7 @@ class TestOutputTypeCoverage:
         [
             "explain how marathon taper works",
             "what is VO2max",
+            "what is the speed of light",
             "tell me about zone 2 training",
             "define fartlek",
             "describe how cadence affects running economy",

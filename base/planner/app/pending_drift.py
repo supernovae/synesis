@@ -21,12 +21,19 @@ _CONFIRM_PATTERN = re.compile(
     r"^(yes|yep|ok|okay|sure|proceed|go ahead|sounds good|looks good|correct|approved|fine|good)[\s\!\.]*$",
     re.IGNORECASE,
 )
+# Knowledge-style: clearly a new question, not a reply to plan/approval
+_KNOWLEDGE_STYLE = re.compile(
+    r"^(what is|what are|what was|how much|how many|when did|who was|who is|"
+    r"explain |define |describe |tell me about|why does|why do |how does |how do )",
+    re.IGNORECASE,
+)
 
 
 def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
     """Return True if reply likely diverges from pending task — treat as new task.
 
     Heuristics:
+    - reply starts with knowledge-style phrase (what is, how does, explain) → drift
     - expected_answer_types includes "confirm" and reply is long non-confirm → drift
     - reply contains strong drift phrases (forget that, instead, scratch that) → drift
     - reply 2x+ task length with drift phrases → drift
@@ -34,6 +41,10 @@ def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
     reply = (reply or "").strip()
     if not reply:
         return False
+
+    # Knowledge-style questions are clearly new requests, not plan approval
+    if _KNOWLEDGE_STYLE.match(reply):
+        return True
 
     task_desc = (pending.get("task_description") or "").strip()
     expected = pending.get("expected_answer_types") or []

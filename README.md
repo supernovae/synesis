@@ -577,13 +577,18 @@ Synesis maintains per-user conversation history so the system can understand ref
    - A SHA256 hash of the `Authorization: Bearer <key>` header (auto-derived)
    - `"anonymous"` if neither is available
 
-2. **L1 in-memory store**: The last 20 turns (configurable) per user are stored in-memory in the planner process. When a new request arrives, the user's conversation history is retrieved and injected into the supervisor prompt so it can resolve references and maintain continuity.
+2. **Conversation scope (recommended)**: To avoid context drift across multiple chats, pass a `conversation_id` so memory is isolated per conversation:
+   - Request body: `"conversation_id": "chat-abc123"`
+   - Header: `X-Conversation-Id: chat-abc123` or `X-Chat-Id: chat-abc123`
+   - When present, history, pending plans, and pivot state are scoped per conversation. New chat = no stale context from other chats.
 
-3. **Turn storage**: After each request completes, both the user's message and the assistant's response are stored as turns in the memory.
+3. **L1 in-memory store**: The last 20 turns (configurable) per user (or per user+conversation when scoped) are stored in-memory. When a new request arrives, the conversation history is retrieved and injected into the supervisor prompt so it can resolve references and maintain continuity.
 
-4. **Pending plan / needs_input**: When the Planner surfaces a plan for approval or the Worker asks a question (`needs_input`), the context is stored. On the user's next message, it is restored and the Entry node routes directly to the Worker (skipping Supervisor/Planner).
+4. **Turn storage**: After each request completes, both the user's message and the assistant's response are stored as turns in the memory.
 
-5. **Eviction**: Users are tracked in LRU order. Inactive users (default 4h TTL) are cleaned up lazily. When the max user limit (default 5000) is reached, the least recently active user is evicted.
+5. **Pending plan / needs_input**: When the Planner surfaces a plan for approval or the Worker asks a question (`needs_input`), the context is stored. On the user's next message, it is restored and the Entry node routes directly to the Worker (skipping Supervisor/Planner).
+
+6. **Eviction**: Users are tracked in LRU order. Inactive users (default 4h TTL) are cleaned up lazily. When the max user limit (default 5000) is reached, the least recently active user is evicted.
 
 ### Passing the `user` Field
 
@@ -601,6 +606,26 @@ curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
 ```
 
 If you don't pass `user`, the system derives an ID from your API key -- so each unique key gets its own conversation history automatically.
+
+### Conversation Scoping (Open WebUI, Multi-Chat Clients)
+
+Clients with multiple conversations per user (e.g. Open WebUI with multiple chats) should pass `conversation_id` so each chat has isolated memory. Without it, pending plans and history from one chat can bleed into another:
+
+```bash
+# Body
+curl -X POST .../v1/chat/completions -d '{
+  "model": "synesis-agent",
+  "conversation_id": "chat-xyz789",
+  "messages": [{"role": "user", "content": "What is the speed of light?"}]
+}'
+
+# Or via header (useful when the client proxies and can add headers)
+curl -X POST .../v1/chat/completions \
+  -H "X-Conversation-Id: chat-xyz789" \
+  -d '{"model": "synesis-agent", "messages": [...]}'
+```
+
+Open WebUI users: If your setup forwards requests to Synesis, configure the proxy to add `X-Conversation-Id` from the active chat ID when available.
 
 ### Configuration
 

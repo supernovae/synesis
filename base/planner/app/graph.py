@@ -224,6 +224,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     execution_plan = state.get("execution_plan", {})
     plan_pending_approval = state.get("plan_pending_approval", False)
     user_id = state.get("user_id", "anonymous")
+    memory_scope = state.get("memory_scope") or user_id
 
     # EntryClassifier routed UI-helper here (defensive; normally filtered in main.py)
     if state.get("message_origin") == "ui_helper" and not code and not error:
@@ -286,7 +287,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         if clarification_options:
             content += "\n\nOptions:\n" + "\n".join(f"- {opt}" for opt in clarification_options)
         memory.store_pending_question(
-            user_id,
+            memory_scope,
             {
                 "run_id": state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
@@ -342,7 +343,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "deliverable_type": state.get("deliverable_type"),
         }
         memory.store_pending_question(
-            user_id,
+            memory_scope,
             {
                 "run_id": state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),

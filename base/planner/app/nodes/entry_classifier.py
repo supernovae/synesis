@@ -281,6 +281,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     if analysis.get("output_type") == "document" and out.get("output_type") != "code":
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
+        # Clear stale execution_plan when not resuming pending — avoid injecting wrong plan steps (e.g. marathon)
+        if not state.get("pending_question_continue"):
+            out["execution_plan"] = {}
     # Pending continue: preserve output_type=document from restored state
     elif state.get("pending_question_continue") and state.get("output_type") == "document":
         out["output_type"] = "document"
