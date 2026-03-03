@@ -19,10 +19,27 @@ logger = logging.getLogger("synesis.validator")
 
 T = TypeVar("T", bound=BaseModel)
 
+# Matches escaped-backslash pairs (\\) OR a single backslash NOT followed by a
+# valid JSON escape character.  The callback keeps \\ as-is and doubles the
+# backslash for anything else so json.loads sees a literal backslash.
+_INVALID_ESCAPE_RE = re.compile(r'\\\\|\\(?!["\\/bfnrtu])')
+
+
+def _fix_invalid_escapes(s: str) -> str:
+    """Replace invalid JSON escape sequences (e.g. ``\\s``, ``\\a`` from LaTeX)."""
+
+    def _repl(m: re.Match) -> str:
+        if m.group(0) == "\\\\":
+            return "\\\\"
+        return "\\\\" + m.group(0)[1]
+
+    return _INVALID_ESCAPE_RE.sub(_repl, s)
+
 
 def _repair_json(raw: str) -> str:
-    """Rule-based repair: fix common JSON issues (truncation, trailing comma)."""
+    """Rule-based repair: fix common JSON issues (invalid escapes, truncation, trailing comma)."""
     content = raw.strip()
+    content = _fix_invalid_escapes(content)
     # Try to extract object
     start = content.find("{")
     if start < 0:
@@ -55,7 +72,7 @@ def _repair_truncated_json(content: str) -> tuple[str, bool]:
 
     If Expecting ',' delimiter or unclosed brace, append ]} or } and return (repaired, True).
     """
-    content = content.rstrip()
+    content = _fix_invalid_escapes(content.rstrip())
     if not content:
         return content, False
 
