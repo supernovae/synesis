@@ -16,6 +16,22 @@ from langchain_core.callbacks import AsyncCallbackHandler
 
 logger = logging.getLogger("synesis.streaming")
 
+KNOWN_NODE_NAMES: frozenset[str] = frozenset(
+    {
+        "entry_classifier",
+        "strategic_advisor",
+        "supervisor",
+        "planner",
+        "context_curator",
+        "worker",
+        "patch_integrity_gate",
+        "sandbox",
+        "lsp_analyzer",
+        "critic",
+        "respond",
+    }
+)
+
 
 class StatusQueueCallback(AsyncCallbackHandler):
     """Emits status descriptions to an async queue for Open WebUI.

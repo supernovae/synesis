@@ -16,7 +16,7 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, ClassVar
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -213,6 +213,18 @@ def _sse_chunk(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _sse_content_delta(chat_id: str, delta: dict, run_id: str = "") -> str:
+    """Format a single content-delta SSE chunk (OpenAI streaming format)."""
+    payload: dict[str, Any] = {
+        "id": chat_id,
+        "object": "chat.completion.chunk",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+    }
+    if run_id:
+        payload["run_id"] = run_id
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 def _sse_debug_chatter_event(node: str, label: str, content: str) -> str:
     """Format debug_chatter event for plan/router/critic/executor outputs. Open WebUI can render as labeled block."""
     return f"event: debug_chatter\ndata: {json.dumps({'node': node, 'label': label, 'content': content})}\n\n"
@@ -336,6 +348,109 @@ def _status_for_node(node: str, task_size: str, deliverable_type: str = "") -> s
     if task_size == "complex" and node in STATUS_COMPLEX:
         return STATUS_COMPLEX[node]
     return NODE_STATUS_MESSAGES.get(node, "")
+
+
+class _ExtractorState:
+    SCANNING = 0
+    IN_VALUE = 1
+    DONE = 2
+
+
+class StreamingCodeExtractor:
+    """Incremental JSON extractor for the ``"code"`` field value.
+
+    Feed raw LLM tokens (which form a JSON object) and receive decoded
+    string fragments from the ``code`` field as they arrive.  The extractor
+    handles standard JSON string escapes (``\\n``, ``\\"``, ``\\\\``,
+    ``\\uXXXX``, etc.).  If the token stream never enters the ``code``
+    field the caller falls back to the post-loop ``_extract_content_and_metrics``
+    path.
+    """
+
+    def __init__(self) -> None:
+        self._state = _ExtractorState.SCANNING
+        self._buf = ""
+        self._escape = False
+
+    # Compile once; matches `"code"` followed by optional whitespace + colon + optional whitespace + opening quote.
+    _KEY_RE = re.compile(r'"code"\s*:\s*"')
+
+    def feed(self, token: str) -> list[str]:
+        """Return decoded content fragments (may be empty)."""
+        if self._state == _ExtractorState.DONE:
+            return []
+
+        out: list[str] = []
+        self._buf += token
+
+        if self._state == _ExtractorState.SCANNING:
+            m = self._KEY_RE.search(self._buf)
+            if m is None:
+                if len(self._buf) > 4096:
+                    self._buf = self._buf[-256:]
+                return []
+            self._buf = self._buf[m.end() :]
+            self._state = _ExtractorState.IN_VALUE
+
+        if self._state == _ExtractorState.IN_VALUE:
+            decoded, remaining = self._decode_value(self._buf)
+            self._buf = remaining
+            if decoded:
+                out.append(decoded)
+
+        return out
+
+    _SIMPLE_ESCAPES: ClassVar[dict[str, str]] = {
+        "n": "\n",
+        "t": "\t",
+        "r": "\r",
+        "\\": "\\",
+        '"': '"',
+        "/": "/",
+        "b": "\b",
+        "f": "\f",
+    }
+
+    def _decode_value(self, s: str) -> tuple[str, str]:
+        """Decode JSON string content, return (decoded_text, leftover_buffer)."""
+        out: list[str] = []
+        i = 0
+        while i < len(s):
+            if self._escape:
+                self._escape = False
+                ch = s[i]
+                if ch in self._SIMPLE_ESCAPES:
+                    out.append(self._SIMPLE_ESCAPES[ch])
+                    i += 1
+                elif ch == "u":
+                    if i + 4 < len(s):
+                        hex_str = s[i + 1 : i + 5]
+                        try:
+                            out.append(chr(int(hex_str, 16)))
+                        except ValueError:
+                            out.append(f"\\u{hex_str}")
+                        i += 5
+                    else:
+                        return "".join(out), "\\" + s[i:]
+                else:
+                    out.append(ch)
+                    i += 1
+                continue
+
+            ch = s[i]
+            if ch == "\\":
+                if i + 1 >= len(s):
+                    return "".join(out), s[i:]
+                self._escape = True
+                i += 1
+            elif ch == '"':
+                self._state = _ExtractorState.DONE
+                return "".join(out), ""
+            else:
+                out.append(ch)
+                i += 1
+
+        return "".join(out), ""
 
 
 def _extract_content_and_metrics(
@@ -765,155 +880,312 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             initial_state["pending_question_source"] = source_node if source_node != "planner" else "worker"
 
     if request.stream:
-        # Streaming: run graph with progressive status events, then emit final content
-        # StatusQueueCallback emits debug/tracing bullets as nodes run (Planner, Worker, Sandbox, etc.)
         chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
-        status_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=128)
-        status_callback = StatusQueueCallback(status_queue)
 
-        async def sse_generator() -> object:
-            # Immediate feedback so Open WebUI shows activity before first graph chunk
-            yield _sse_status_chunk(
-                {"type": "status", "data": {"description": "Processing…", "done": False, "hidden": False}}
+        if settings.streaming_events_enabled:
+            # ── astream_events(v2): token-level streaming + inline node status ──
+
+            _KNOWN_NODES = frozenset(
+                {
+                    "entry_classifier",
+                    "strategic_advisor",
+                    "supervisor",
+                    "planner",
+                    "context_curator",
+                    "worker",
+                    "patch_integrity_gate",
+                    "sandbox",
+                    "lsp_analyzer",
+                    "critic",
+                    "respond",
+                }
             )
 
-            result = None
-            heartbeat_task = None
-            try:
-                config = {
-                    "recursion_limit": 50,
-                    "callbacks": [status_callback],
-                }
+            async def sse_generator() -> object:
+                yield _sse_status_chunk(
+                    {"type": "status", "data": {"description": "Processing…", "done": False, "hidden": False}}
+                )
 
-                async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
-                    """Emit periodic keep-alive so proxies and Open WebUI see activity."""
-                    while True:
-                        await asyncio.sleep(interval)
-                        with contextlib.suppress(asyncio.QueueFull):
-                            queue.put_nowait("")
+                accumulated_state: dict[str, Any] = dict(initial_state)
+                stream_content = False
+                extractor = StreamingCodeExtractor()
+                content_streamed = False
+                sent_role = False
+                task_size_val = ""
+                deliverable_val = ""
 
-                heartbeat_task = asyncio.create_task(_heartbeat(status_queue))
+                try:
+                    async for event in graph.astream_events(
+                        initial_state,
+                        version="v2",
+                        config={"recursion_limit": 50},
+                    ):
+                        kind = event["event"]
+                        name = event.get("name", "")
+                        meta = event.get("metadata", {})
+                        lg_node = meta.get("langgraph_node", "")
 
-                async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
-                    # Drain callback queue first (status from on_chain_start as nodes run)
-                    while True:
-                        try:
-                            cb_desc = status_queue.get_nowait()
-                        except asyncio.QueueEmpty:
-                            break
-                        if cb_desc:
-                            yield _sse_status_chunk(
-                                {
-                                    "type": "status",
-                                    "data": {"description": cb_desc, "done": False, "hidden": False},
-                                }
-                            )
+                        # ── Node started → status SSE ──
+                        if kind == "on_chain_start" and name in _KNOWN_NODES:
+                            desc = _status_for_node(name, task_size_val, deliverable_val)
+                            if desc:
+                                yield _sse_status_chunk(
+                                    {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}
+                                )
 
-                    result = chunk
-                    node = chunk.get("current_node", "")
-                    task_size = chunk.get("task_size", "")
-                    deliverable_type = chunk.get("deliverable_type", "")
-                    # Planner: emit topic (reasoning) + plan steps for ALL outputs (not just explain_only)
-                    exec_plan = chunk.get("execution_plan") or {}
-                    steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
-                    emitted_plan = False
-                    if node == "planner" and isinstance(exec_plan, dict):
-                        node_traces = chunk.get("node_traces", []) or []
-                        reasoning = ""
-                        for t in node_traces:
-                            if isinstance(t, dict) and t.get("reasoning"):
-                                reasoning = str(t["reasoning"]).strip()
+                        # ── Node ended → accumulate state, emit plan steps ──
+                        elif kind == "on_chain_end" and name in _KNOWN_NODES:
+                            output = event.get("data", {}).get("output")
+                            if isinstance(output, dict):
+                                for k, v in output.items():
+                                    if k == "messages":
+                                        if name == "respond":
+                                            accumulated_state["messages"] = v
+                                    else:
+                                        accumulated_state[k] = v
+
+                                if "task_size" in output:
+                                    task_size_val = output["task_size"]
+                                if "deliverable_type" in output:
+                                    deliverable_val = output["deliverable_type"]
+
+                                # Decide token-streaming mode after supervisor
+                                if name == "supervisor" and output.get("deliverable_type") == "explain_only":
+                                    stream_content = True
+
+                                # Emit planner reasoning + plan steps as status
+                                if name == "planner":
+                                    exec_plan = output.get("execution_plan") or {}
+                                    if isinstance(exec_plan, dict):
+                                        reasoning = ""
+                                        node_traces = output.get("node_traces", []) or []
+                                        for t in node_traces:
+                                            if isinstance(t, dict) and t.get("reasoning"):
+                                                reasoning = str(t["reasoning"]).strip()
+                                                break
+                                            if hasattr(t, "reasoning") and t.reasoning:
+                                                reasoning = str(t.reasoning).strip()
+                                                break
+                                        if not reasoning and exec_plan.get("reasoning"):
+                                            reasoning = str(exec_plan.get("reasoning", "")).strip()
+                                        if reasoning:
+                                            short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
+                                            yield _sse_status_chunk(
+                                                {
+                                                    "type": "status",
+                                                    "data": {
+                                                        "description": f"Plan: {short}",
+                                                        "done": False,
+                                                        "hidden": False,
+                                                    },
+                                                }
+                                            )
+                                        for s in exec_plan.get("steps", []):
+                                            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+                                            if act:
+                                                yield _sse_status_chunk(
+                                                    {
+                                                        "type": "status",
+                                                        "data": {"description": act, "done": False, "hidden": False},
+                                                    }
+                                                )
+
+                        # ── Token streaming from worker LLM (explain_only) ──
+                        elif kind == "on_chat_model_stream" and lg_node == "worker" and stream_content:
+                            chunk_obj = event.get("data", {}).get("chunk")
+                            if chunk_obj and hasattr(chunk_obj, "content") and chunk_obj.content:
+                                for fragment in extractor.feed(chunk_obj.content):
+                                    if not fragment:
+                                        continue
+                                    delta: dict[str, str] = {"content": fragment}
+                                    if not sent_role:
+                                        delta["role"] = "assistant"
+                                        sent_role = True
+                                    content_streamed = True
+                                    yield _sse_content_delta(chat_id, delta, run_id=run_id)
+
+                except Exception as e:
+                    logger.exception("graph_execution_error")
+                    record_chat_error(time.monotonic() - start)
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                if not accumulated_state.get("messages"):
+                    yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+
+                # Stop status animation
+                yield _sse_status_chunk({"type": "status", "data": {"description": "", "done": True, "hidden": False}})
+
+                if content_streamed:
+                    _extract_content_and_metrics(
+                        accumulated_state,
+                        user_id,
+                        last_user_content,
+                        run_id=run_id,
+                        memory_scope=memory_scope,
+                        model=request.model,
+                    )
+                    record_chat_success(time.monotonic() - start)
+                else:
+                    content, _ = _extract_content_and_metrics(
+                        accumulated_state,
+                        user_id,
+                        last_user_content,
+                        run_id=run_id,
+                        memory_scope=memory_scope,
+                        model=request.model,
+                    )
+                    record_chat_success(time.monotonic() - start)
+                    yield _sse_content_delta(
+                        chat_id,
+                        {"role": "assistant", "content": content},
+                        run_id=run_id,
+                    )
+
+                yield _sse_chunk(
+                    {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "run_id": run_id,
+                    }
+                )
+                yield "data: [DONE]\n\n"
+
+        else:
+            # ── Fallback: buffered astream(values) + StatusQueueCallback ──
+
+            status_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=128)
+            status_callback = StatusQueueCallback(status_queue)
+
+            async def sse_generator() -> object:
+                yield _sse_status_chunk(
+                    {"type": "status", "data": {"description": "Processing…", "done": False, "hidden": False}}
+                )
+
+                result = None
+                heartbeat_task = None
+                try:
+                    config = {
+                        "recursion_limit": 50,
+                        "callbacks": [status_callback],
+                    }
+
+                    async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
+                        """Emit periodic keep-alive so proxies and Open WebUI see activity."""
+                        while True:
+                            await asyncio.sleep(interval)
+                            with contextlib.suppress(asyncio.QueueFull):
+                                queue.put_nowait("")
+
+                    heartbeat_task = asyncio.create_task(_heartbeat(status_queue))
+
+                    async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
+                        while True:
+                            try:
+                                cb_desc = status_queue.get_nowait()
+                            except asyncio.QueueEmpty:
                                 break
-                            if hasattr(t, "reasoning") and t.reasoning:
-                                reasoning = str(t.reasoning).strip()
-                                break
-                        if not reasoning and exec_plan.get("reasoning"):
-                            reasoning = str(exec_plan.get("reasoning", "")).strip()
-                        if reasoning:
-                            short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
-                            yield _sse_status_chunk(
-                                {
-                                    "type": "status",
-                                    "data": {"description": f"Plan: {short}", "done": False, "hidden": False},
-                                }
-                            )
-                            emitted_plan = True
-                        for s in steps:
-                            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
-                            if act:
+                            if cb_desc:
                                 yield _sse_status_chunk(
                                     {
                                         "type": "status",
-                                        "data": {"description": act, "done": False, "hidden": False},
+                                        "data": {"description": cb_desc, "done": False, "hidden": False},
+                                    }
+                                )
+
+                        result = chunk
+                        node = chunk.get("current_node", "")
+                        task_size = chunk.get("task_size", "")
+                        deliverable_type = chunk.get("deliverable_type", "")
+                        exec_plan = chunk.get("execution_plan") or {}
+                        steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
+                        emitted_plan = False
+                        if node == "planner" and isinstance(exec_plan, dict):
+                            node_traces = chunk.get("node_traces", []) or []
+                            reasoning = ""
+                            for t in node_traces:
+                                if isinstance(t, dict) and t.get("reasoning"):
+                                    reasoning = str(t["reasoning"]).strip()
+                                    break
+                                if hasattr(t, "reasoning") and t.reasoning:
+                                    reasoning = str(t.reasoning).strip()
+                                    break
+                            if not reasoning and exec_plan.get("reasoning"):
+                                reasoning = str(exec_plan.get("reasoning", "")).strip()
+                            if reasoning:
+                                short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
+                                yield _sse_status_chunk(
+                                    {
+                                        "type": "status",
+                                        "data": {"description": f"Plan: {short}", "done": False, "hidden": False},
                                     }
                                 )
                                 emitted_plan = True
-                    if node:
-                        desc = _status_for_node(node, task_size or "", deliverable_type or "")
-                        if emitted_plan and node == "planner":
-                            desc = ""
-                        if desc:
-                            yield _sse_status_chunk(
-                                {
-                                    "type": "status",
-                                    "data": {"description": desc, "done": False, "hidden": False},
-                                }
-                            )
-                    # Debug chatter: emit plan/router/critic/executor outputs as labeled blocks (stream_debug_chatter)
-                    if getattr(settings, "stream_debug_chatter", False) and chunk:
-                        for n, label, content in _format_debug_chatter(chunk):
-                            if content:
-                                yield _sse_debug_chatter_event(n, label, content)
-            except Exception as e:
-                logger.exception("graph_execution_error")
-                record_chat_error(time.monotonic() - start)
-                yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
-            finally:
-                if heartbeat_task:
-                    heartbeat_task.cancel()
+                            for s in steps:
+                                act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+                                if act:
+                                    yield _sse_status_chunk(
+                                        {
+                                            "type": "status",
+                                            "data": {"description": act, "done": False, "hidden": False},
+                                        }
+                                    )
+                                    emitted_plan = True
+                        if node:
+                            desc = _status_for_node(node, task_size or "", deliverable_type or "")
+                            if emitted_plan and node == "planner":
+                                desc = ""
+                            if desc:
+                                yield _sse_status_chunk(
+                                    {
+                                        "type": "status",
+                                        "data": {"description": desc, "done": False, "hidden": False},
+                                    }
+                                )
+                        if getattr(settings, "stream_debug_chatter", False) and chunk:
+                            for n, label, content in _format_debug_chatter(chunk):
+                                if content:
+                                    yield _sse_debug_chatter_event(n, label, content)
+                except Exception as e:
+                    logger.exception("graph_execution_error")
+                    record_chat_error(time.monotonic() - start)
+                    yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                finally:
+                    if heartbeat_task:
+                        heartbeat_task.cancel()
 
-            if not result:
-                yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
-                yield "data: [DONE]\n\n"
-                return
+                if not result:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
 
-            # Stop status animation before streaming content (Open WebUI done=true)
-            yield _sse_status_chunk(
-                {
-                    "type": "status",
-                    "data": {"description": "", "done": True, "hidden": False},
-                }
-            )
-            content, _ = _extract_content_and_metrics(
-                result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
-            )
-            record_chat_success(time.monotonic() - start)
-            yield _sse_chunk(
-                {
-                    "id": chat_id,
-                    "object": "chat.completion.chunk",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": content},
-                            "finish_reason": None,
-                        }
-                    ],
-                    "run_id": run_id,
-                }
-            )
-            yield _sse_chunk(
-                {
-                    "id": chat_id,
-                    "object": "chat.completion.chunk",
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                    "run_id": run_id,
-                }
-            )
-            yield "data: [DONE]\n\n"
+                yield _sse_status_chunk({"type": "status", "data": {"description": "", "done": True, "hidden": False}})
+                content, _ = _extract_content_and_metrics(
+                    result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
+                )
+                record_chat_success(time.monotonic() - start)
+                yield _sse_content_delta(
+                    chat_id,
+                    {"role": "assistant", "content": content},
+                    run_id=run_id,
+                )
+                yield _sse_chunk(
+                    {
+                        "id": chat_id,
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "run_id": run_id,
+                    }
+                )
+                yield "data: [DONE]\n\n"
 
         return StreamingResponse(
             sse_generator(),
