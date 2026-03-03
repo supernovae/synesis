@@ -9,6 +9,7 @@ changes for new languages/frameworks. See docs/USERGUIDE.md for user triggers.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -16,6 +17,8 @@ from typing import Any, Literal
 
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
+
+logger = logging.getLogger("synesis.entry_classifier")
 
 TaskSize = Literal["trivial", "small", "complex"]
 WorkerPersona = Literal["Minimalist", "Senior", "Architect"]
@@ -229,9 +232,29 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
 
     out["intent_class"] = analysis.get("intent_class", "code")
     out["output_type"] = analysis.get("output_type", "code")  # document → explain_only; taxonomy-driven
+
+    # Defensive: knowledge-style questions (what is, how does, explain) must never get code path
+    _knowledge_style = re.compile(
+        r"^(what is|what are|how much|how many|when did|who was|who is|"
+        r"explain |define |describe |tell me about|why does|why do |how does |how do )",
+        re.IGNORECASE,
+    )
+    if _knowledge_style.match((last_content or "").strip()):
+        out["output_type"] = "document"
+        out["intent_class"] = "knowledge"
+        out["target_language"] = "markdown"
+        logger.info(
+            "entry_classifier_knowledge_override",
+            extra={
+                "intent_class": "knowledge",
+                "output_type": "document",
+                "preview": (last_content or "")[:60],
+            },
+        )
     # target_language: document→markdown; explicit lang→use it; else infer (Supervisor infers from prompt)
-    output_type = analysis.get("output_type", "code")
-    if output_type == "document":
+    # Use out["output_type"] so knowledge_override is respected
+    eff_output_type = out.get("output_type", "code")
+    if eff_output_type == "document":
         out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
         out["target_language"] = _detect_language(last_content)
@@ -273,12 +296,18 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
 
     # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
-    if state.get("coding_client_detected") and analysis.get("intent_class") == "general" and analysis.get("output_type") == "document":
+    # Never override knowledge-style questions (what is, how does) to code
+    if (
+        state.get("coding_client_detected")
+        and out.get("intent_class") != "knowledge"
+        and analysis.get("intent_class") == "general"
+        and analysis.get("output_type") == "document"
+    ):
         out["output_type"] = "code"
         out["intent_class"] = "code"
 
     # Taxonomy-driven: output_type=document → skip Planner; Supervisor passthrough → Worker explain_only
-    if analysis.get("output_type") == "document" and out.get("output_type") != "code":
+    if out.get("output_type") == "document":
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
         # Clear stale execution_plan when not resuming pending — avoid injecting wrong plan steps (e.g. marathon)
@@ -311,4 +340,16 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         if out.get("interaction_mode") != "teach":
             out["interaction_mode"] = "do"
 
+    # Diagnostic: trace taxonomy decisions for debugging document vs code path
+    logger.info(
+        "entry_classifier_result",
+        extra={
+            "intent_class": out.get("intent_class"),
+            "output_type": out.get("output_type"),
+            "deliverable_type": out.get("deliverable_type"),
+            "task_size": out.get("task_size"),
+            "target_language": out.get("target_language"),
+            "preview": (last_content or "")[:80],
+        },
+    )
     return out

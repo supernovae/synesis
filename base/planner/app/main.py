@@ -435,10 +435,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # Log task payload for debugging empty-task issues (proxy/request transformation)
     _task_preview = (last_user_content or "")[:80]
     logger.info(
-        "chat_request task_len=%d preview=%r",
+        "chat_request task_len=%d preview=%r memory_scope=%s",
         len(last_user_content or ""),
         _task_preview,
-        extra={"user_id": user_id},
+        memory_scope,
+        extra={"user_id": user_id, "conversation_id": conversation_id},
     )
 
     # A) UI-helper filter: reject follow-up suggestions, title/tag generators before Supervisor
@@ -597,6 +598,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     pending["source_node"] = "worker"
 
         if pending:
+            logger.info(
+                "pending_restored",
+                extra={
+                    "user_id": user_id,
+                    "memory_scope": memory_scope,
+                    "source_node": pending.get("source_node"),
+                    "pending_output_type": pending.get("output_type"),
+                },
+            )
             # Task drift: reply diverges from pending (new requirements, different direction)
             if pending_reply_diverges(pending, last_user_content):
                 logger.info(

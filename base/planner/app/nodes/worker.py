@@ -716,7 +716,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             system_prompt = WORKER_PROMPT_EXPLAIN_ONLY
             if vertical_block:
                 system_prompt = f"{system_prompt}\n\n{vertical_block}"
-            logger.debug("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
+            logger.info("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
 
         logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)
         messages = [
