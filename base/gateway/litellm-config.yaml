@@ -61,3 +61,4 @@ data:
 
     general_settings:
       master_key: "sk-synesis-change-me"
+      forward_client_headers_to_llm_api: true

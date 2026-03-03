@@ -57,6 +57,8 @@ spec:
               value: "false"
             - name: ENABLE_COMMUNITY_SHARING
               value: "false"
+            - name: ENABLE_FORWARD_USER_INFO_HEADERS
+              value: "true"
             - name: SAFE_MODE
               value: "true"
             - name: CODE_EXECUTION_ENGINE

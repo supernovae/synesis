@@ -50,7 +50,11 @@ class StatusQueueCallback(AsyncCallbackHandler):
                 name = str(rid)
         name = name or serialized.get("name", "")
         n = str(name).lower()
-        if "planner" in n:
+        if "entry_classifier" in n:
+            self._put("Analyzing request…")
+        elif "strategic_advisor" in n or "domain_aligner" in n:
+            self._put("Detecting domain…")
+        elif "planner" in n:
             self._put("Building execution plan…")
         elif "worker" in n:
             self._put("Generating code…")
@@ -64,6 +68,8 @@ class StatusQueueCallback(AsyncCallbackHandler):
             self._put("Gathering context…")
         elif "supervisor" in n:
             self._put("Planning…")
+        elif "respond" in n:
+            self._put("Finishing…")
 
     def on_tool_start(
         self,

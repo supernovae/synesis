@@ -8,6 +8,7 @@ Supervisor -> Worker -> Critic pipeline. Direct to planner; no proxy required.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -37,7 +38,7 @@ from .entry_classifier_engine import get_scoring_engine
 from .graph import graph
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_user_input
-from .message_filter import is_ui_helper_message
+from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
@@ -61,6 +62,7 @@ logger = logging.getLogger("synesis.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from .entry_classifier_engine import get_scoring_engine
     from .intent_config_linter import lint_intent_config
 
     logger.info(
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
         settings.build_version,
         settings.port,
     )
+    get_scoring_engine()
     issues = lint_intent_config()
     if issues:
         for msg in issues:
@@ -92,17 +95,19 @@ app.add_middleware(
 
 
 class ChatMessage(BaseModel):
-    """OpenAI-compatible message; content can be str or array of parts (multimodal)."""
+    """OpenAI-compatible message; content can be str, null, or array of parts (multimodal/tool)."""
 
     role: str
-    content: str
+    content: str = ""
 
     @model_validator(mode="before")
     @classmethod
     def normalize_content(cls, data: object) -> object:
-        if isinstance(data, dict) and "content" in data:
-            c = data["content"]
-            if isinstance(c, list):
+        if isinstance(data, dict):
+            c = data.get("content")
+            if c is None:
+                data = {**data, "content": ""}
+            elif isinstance(c, list):
                 texts = [x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text"]
                 data = {**data, "content": " ".join(texts).strip() or ""}
         return data
@@ -120,15 +125,19 @@ class ChatCompletionRequest(BaseModel):
     model: str = "synesis-agent"
     messages: list[ChatMessage]
     temperature: float = 0.2
-    max_tokens: int = 4096
+    max_tokens: int | None = None
+    max_completion_tokens: int | None = None
     stream: bool = False
     user: str | None = None
     retrieval: RetrievalOptions | None = None
-    # Conversation scope: when provided, memory/history/pending are isolated per conversation.
-    # Prevents context drift when user has multiple chats. Accept from body or X-Conversation-Id header.
     conversation_id: str | None = None
 
     model_config = {"extra": "ignore"}  # Open WebUI sends frequency_penalty, etc.
+
+    @property
+    def effective_max_tokens(self) -> int:
+        """Prefer max_completion_tokens (OpenAI spec); fall back to max_tokens."""
+        return self.max_completion_tokens or self.max_tokens or 4096
 
 
 class Choice(BaseModel):
@@ -165,24 +174,30 @@ def _is_coding_client(http_request: Request) -> bool:
 
 
 def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request) -> str:
-    """Resolve user identity: request.user > API key hash > anonymous."""
+    """Resolve user identity: Open WebUI header > request body > API key hash > anonymous."""
+    owui_user = (http_request.headers.get("x-openwebui-user-id") or "").strip()
+    if owui_user:
+        return owui_user[:128]
     if request_body.user:
         return request_body.user.strip()[:128]
-
     auth = http_request.headers.get("authorization", "")
     if auth.startswith("Bearer ") and len(auth) > 7:
         token = auth[7:]
         return hashlib.sha256(token.encode()).hexdigest()[:16]
-
     return "anonymous"
 
 
 def _resolve_conversation_id(request_body: ChatCompletionRequest, http_request: Request) -> str | None:
-    """Resolve conversation scope: request body > X-Conversation-Id header > None.
+    """Resolve conversation scope: body > Open WebUI header > generic headers > None.
     When present, memory (history, pending plans) is scoped per conversation — avoids drift across chats."""
     if request_body.conversation_id and request_body.conversation_id.strip():
         return request_body.conversation_id.strip()[:128]
-    header = (http_request.headers.get("x-conversation-id") or http_request.headers.get("x-chat-id") or "").strip()
+    header = (
+        http_request.headers.get("x-openwebui-chat-id")
+        or http_request.headers.get("x-conversation-id")
+        or http_request.headers.get("x-chat-id")
+        or ""
+    ).strip()
     return header[:128] if header else None
 
 
@@ -441,15 +456,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # A) UI-helper filter: reject follow-up suggestions, title/tag generators EARLY
     # Must run before pivot detection to prevent UI meta-requests from triggering
     # false context pivots and flushing conversation memory.
-    if is_ui_helper_message(last_user_content):
-        logger.info("message_filter_ui_helper", extra={"user_id": user_id})
+    ui_helper_type = classify_ui_helper_type(last_user_content)
+    if ui_helper_type is not None:
+        logger.info("message_filter_ui_helper", extra={"user_id": user_id, "helper_type": ui_helper_type})
+        if ui_helper_type == "title":
+            helper_content = "New Chat"
+        elif ui_helper_type == "tags" or ui_helper_type == "follow_ups":
+            helper_content = "[]"
+        else:
+            helper_content = ""
         return ChatCompletionResponse(
             choices=[
                 Choice(
-                    message=ChatMessage(
-                        role="assistant",
-                        content="[UI helper request; no coding task to process.]",
-                    ),
+                    message=ChatMessage(role="assistant", content=helper_content),
                     finish_reason="stop",
                 )
             ],
@@ -753,12 +772,28 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         status_callback = StatusQueueCallback(status_queue)
 
         async def sse_generator() -> object:
+            # Immediate feedback so Open WebUI shows activity before first graph chunk
+            yield _sse_status_chunk(
+                {"type": "status", "data": {"description": "Processing…", "done": False, "hidden": False}}
+            )
+
             result = None
+            heartbeat_task = None
             try:
                 config = {
                     "recursion_limit": 50,
                     "callbacks": [status_callback],
                 }
+
+                async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
+                    """Emit periodic keep-alive so proxies and Open WebUI see activity."""
+                    while True:
+                        await asyncio.sleep(interval)
+                        with contextlib.suppress(asyncio.QueueFull):
+                            queue.put_nowait("")
+
+                heartbeat_task = asyncio.create_task(_heartbeat(status_queue))
+
                 async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
                     # Drain callback queue first (status from on_chain_start as nodes run)
                     while True:
@@ -835,6 +870,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"
                 yield "data: [DONE]\n\n"
                 return
+            finally:
+                if heartbeat_task:
+                    heartbeat_task.cancel()
 
             if not result:
                 yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
@@ -871,6 +909,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "id": chat_id,
                     "object": "chat.completion.chunk",
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     "run_id": run_id,
                 }
             )

@@ -26,7 +26,11 @@ DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
 
 logger.info(f"Loading {MODEL_NAME} rev={MODEL_REVISION} on {DEVICE} with dtype={DTYPE}")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, torch_dtype=DTYPE).to(DEVICE).eval()
+model = (
+    AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, torch_dtype=DTYPE)
+    .to(DEVICE)
+    .eval()
+)
 logger.info("Model loaded")
 
 app = FastAPI(title="Synesis BGE Reranker", version="0.1.0")
