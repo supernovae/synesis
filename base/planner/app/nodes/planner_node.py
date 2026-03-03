@@ -56,6 +56,7 @@ planner_llm = ChatOpenAI(
     model=settings.planner_model_name,
     temperature=0.2,
     max_tokens=1024,  # 1-5 steps ~200-600 tokens; 2048 was overkill and slowed generation
+    streaming=True,  # vLLM/LangChain streaming; enables astream_events token/plan capture
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 
@@ -71,9 +72,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
 
-    # Short-circuit: output_type=document should not reach Planner (plan_required=false). If we do, skip
-    # the code decomposition LLM — Planner is for code steps only, not document plans.
-    if state.get("output_type") == "document":
+    # Short-circuit: output_type=document WITHOUT plan_required (taxonomy didn't request structured bullets)
+    if state.get("output_type") == "document" and not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
         logger.info("planner_skipped_output_type_document", extra={"output_type": "document", "latency_ms": latency})
         return {
@@ -117,6 +117,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         if decomposition_rules:
             domain_rules_block = f"\n\n## Domain-Specific Rules ({active_vertical})\n{decomposition_rules}\n"
 
+        # Taxonomy-Driven Contextual Injection: append depth/required_elements from taxonomy_metadata
+        from ..taxonomy_prompt_factory import get_planner_system_prompt_append
+
+        taxonomy_append = get_planner_system_prompt_append(state.get("taxonomy_metadata") or {})
+        system_prompt = PLANNER_SYSTEM_PROMPT + taxonomy_append
+
         prompt = (
             f"## Task\nLanguage: {target_lang}\n{task_desc}\n"
             f"## Supervisor assumptions\n{assumptions_str}"
@@ -125,7 +131,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         messages = [
-            SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+            SystemMessage(content=system_prompt),
             HumanMessage(content=prompt),
         ]
 
@@ -193,12 +199,16 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         steps = plan.get("steps", [])
-        # EntryClassifier sets plan_required=false for trivial/small; skip approval for those
+        # Explicit planning session (@plan, /plan, "lets plan"): always show plan, ask to proceed
+        planning_session_requested = state.get("planning_session_requested", False)
         plan_required = state.get("plan_required", True)
-        needs_approval = plan_required and settings.require_plan_approval and len(steps) > 0
+        needs_approval = (
+            (planning_session_requested and len(steps) > 0)
+            or (plan_required and settings.require_plan_approval and len(steps) > 0)
+        )
 
-        # Defensive: output_type=document → skip approval (taxonomy-driven; document tasks should not reach Planner normally)
-        if needs_approval and state.get("output_type") == "document":
+        # Defensive: output_type=document (taxonomy-driven) → skip approval unless explicit planning request
+        if needs_approval and state.get("output_type") == "document" and not planning_session_requested:
             needs_approval = False
             logger.info("planner_skip_approval_output_type_document", extra={"output_type": "document"})
 

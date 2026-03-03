@@ -147,6 +147,7 @@ worker_llm = ChatOpenAI(
     model=settings.executor_model_name,
     temperature=0.2,
     max_tokens=4096,
+    streaming=True,  # vLLM streaming; enables astream_events token capture for Open WebUI
     http_client=get_llm_http_client(uds_path=settings.executor_model_uds or None),
 )
 
@@ -710,12 +711,22 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             system_prompt = f"{system_prompt}\n\n{vertical_block}"
             logger.debug("worker_vertical_injection", extra={"vertical": active_vertical})
 
+        # Taxonomy-Driven Contextual Injection: append depth_instructions when complexity > 0.7
+        from ..taxonomy_prompt_factory import get_executor_depth_block
+
+        taxonomy_depth = get_executor_depth_block(state.get("taxonomy_metadata") or {})
+        if taxonomy_depth:
+            system_prompt = f"{system_prompt}{taxonomy_depth}"
+            logger.debug("worker_taxonomy_depth_injection", extra={"taxonomy_key": (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")})
+
         # Explain-only: document-centric prompt (no code bias); keep vertical block when present
         deliverable_type = state.get("deliverable_type", "single_file")
         if deliverable_type == "explain_only":
             system_prompt = WORKER_PROMPT_EXPLAIN_ONLY
             if vertical_block:
                 system_prompt = f"{system_prompt}\n\n{vertical_block}"
+            if taxonomy_depth:
+                system_prompt = f"{system_prompt}{taxonomy_depth}"
             logger.info("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
 
         logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)

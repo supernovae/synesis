@@ -112,13 +112,14 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
     if state.get("message_origin") == "ui_helper":
         return "respond"
 
+    # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
+    if state.get("plan_required"):
+        if state.get("task_size") in ("complex", "small") or state.get("output_type") == "document":
+            return "planner"
+
     # Trivial fast path: skip Supervisor, go straight to context curator → Worker
     if state.get("task_size") == "trivial" and state.get("bypass_supervisor"):
         return "context_curator"
-
-    # Complex + plan_required: bypass Supervisor entirely, go direct to Planner (atomic decomposition)
-    if state.get("task_size") == "complex" and state.get("plan_required"):
-        return "planner"
 
     return "supervisor"
 
@@ -597,7 +598,7 @@ graph_builder.add_conditional_edges(
 graph_builder.add_conditional_edges(
     "patch_integrity_gate",
     route_after_patch_integrity_gate,
-    {"context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "sandbox": "sandbox", "respond": "respond"},
+    {"context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "sandbox": "sandbox", "respond": "respond", "critic": "critic"},
 )
 
 

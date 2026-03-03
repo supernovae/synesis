@@ -12,6 +12,7 @@ from app.graph import (
     route_after_critic,
     route_after_entry_classifier,
     route_after_patch_integrity_gate,
+    route_after_planner,
     route_after_sandbox,
     route_after_supervisor,
     route_after_worker,
@@ -80,6 +81,31 @@ class TestRouteAfterPatchIntegrityGate:
     def test_default_pass_routes_to_sandbox(self):
         state = {}
         assert route_after_patch_integrity_gate(state) == "sandbox"
+
+
+class TestRouteAfterPlanner:
+    """Planner never ends the graph — always continues to context_curator or respond."""
+
+    def test_no_approval_routes_to_context_curator(self):
+        """Default: plan auto-proceeds to context_curator → worker."""
+        state = {"plan_pending_approval": False}
+        assert route_after_planner(state) == "context_curator"
+
+    def test_plan_approval_routes_to_respond(self):
+        """When plan needs approval, surface to user; user replies to continue."""
+        state = {"plan_pending_approval": True}
+        assert route_after_planner(state) == "respond"
+
+    def test_missing_plan_pending_defaults_to_continue(self):
+        """Missing plan_pending_approval treated as False → context_curator."""
+        state = {}
+        assert route_after_planner(state) == "context_curator"
+
+    def test_never_returns_planner(self):
+        """Invariant: we never 'end' at planner; always context_curator or respond."""
+        for pending in (True, False):
+            out = route_after_planner({"plan_pending_approval": pending})
+            assert out in ("context_curator", "respond"), f"plan_pending={pending} → {out}"
 
 
 class TestRouteAfterSupervisor:

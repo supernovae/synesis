@@ -151,7 +151,8 @@ class Settings(BaseSettings):
 
     # Graph behavior
     max_iterations: int = 3
-    require_plan_approval: bool = True
+    require_plan_approval: bool = False  # Plan auto-proceeds to executor; set True for human-in-loop approval
+    stream_debug_chatter: bool = False  # Emit plan/router/critic/executor outputs as labeled SSE events (dev mode)
     node_timeout_seconds: float = 180.0  # Supervisor/critic/planner LLM calls; complex tasks need >90s
     critic_max_tokens: int = 4096  # CriticOut can exceed 2048 with what_if_analyses + assessment
     critic_stop_sequence: str = ""  # e.g. '],"nonblocking":' to stop after blocking_issues (saves 30-40s)
@@ -247,6 +248,9 @@ class Settings(BaseSettings):
 
     # JCS UX: Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
+
+    # Streaming: use astream_events(v2) for richer status; Open WebUI status + plan bullets
+    streaming_events_enabled: bool = True  # astream_events(version='v2') when True
 
     # DefaultsPolicy YAML override path (optional; /etc/synesis/defaults.yaml)
     defaults_policy_path: str = ""

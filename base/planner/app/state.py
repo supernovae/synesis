@@ -19,12 +19,28 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class TaxonomyNode(TypedDict, total=False):
+    """Taxonomy-driven metadata for contextual injection. Set by Entry Classifier + TaxonomyResolver.
+
+    Flows through all nodes; Planner/Executor/Critic use it to shape prompts and verify depth.
+    """
+
+    path: str  # e.g. "Science > Physics"
+    complexity_score: float  # 0.0–1.0
+    persona_instructions: str  # Persona label + depth guidance
+    required_bullets: int  # Derived from len(required_elements)
+    required_elements: list[str]  # e.g. ["Theoretical Basis", "Mathematical Context"]
+    depth_instructions: str  # Appended to prompt when complexity > 0.7
+    taxonomy_key: str  # e.g. "physics", "general_greeting"
+
+
 class GraphState(TypedDict, total=False):
     """Typed schema for LangGraph StateGraph. All keys optional for partial updates.
 
     Mirrors SynesisState + routing-only keys. Used by graph.py for schema enforcement.
     """
 
+    taxonomy_metadata: dict[str, Any]  # TaxonomyNode — topic tree for session until pivot
     messages: Annotated[list[BaseMessage], add_messages]
     user_id: str
     conversation_history: list[str]
@@ -217,6 +233,10 @@ class SynesisState(BaseModel):
     """
 
     messages: Annotated[list[BaseMessage], add_messages] = Field(default_factory=list)
+
+    # Taxonomy-Driven Contextual Injection (§TAXONOMY_DRIVEN_INJECTION)
+    # Set by Entry Classifier + TaxonomyResolver; flows to Planner/Executor/Critic
+    taxonomy_metadata: dict[str, Any] = Field(default_factory=dict)  # TaxonomyNode
 
     # User identity and conversation memory
     user_id: str = "anonymous"

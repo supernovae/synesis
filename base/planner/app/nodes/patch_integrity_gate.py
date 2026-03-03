@@ -632,15 +632,26 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             "failure_ids_seen": state.get("failure_ids_seen", []) or [],
         }
 
-    # Explain-only / text output: plans, documents, training plans — bypass sandbox, go to respond
-    # (Do NOT use allowed_tools==["none"] — trivial uses that but still runs sandbox)
+    # Explain-only / text output: plans, documents, training plans — bypass sandbox
+    # When taxonomy_metadata indicates high complexity (e.g. physics, astronomy), route to critic for science-depth check
     deliverable_type = state.get("deliverable_type", "single_file")
     if deliverable_type == "explain_only":
-        logger.info("gate_explain_only_bypass", extra={"deliverable_type": deliverable_type})
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
+        complexity = float(taxonomy_metadata.get("complexity_score", 0))
+        route_to_critic = complexity > 0.6 and bool(taxonomy_metadata.get("required_elements"))
+        next_node = "critic" if route_to_critic else "respond"
+        logger.info(
+            "gate_explain_only_bypass",
+            extra={
+                "deliverable_type": deliverable_type,
+                "next_node": next_node,
+                "taxonomy_depth_check": route_to_critic,
+            },
+        )
         return {
             "current_node": node_name,
             "integrity_passed": True,
-            "next_node": "respond",
+            "next_node": next_node,
             "generated_code": state.get("generated_code", ""),
             "code_explanation": state.get("code_explanation", ""),
             "patch_ops": state.get("patch_ops", []) or [],
@@ -649,7 +660,7 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
-                    reasoning="Explain-only output; bypassing sandbox",
+                    reasoning=f"Explain-only output; bypassing sandbox → {next_node}",
                     confidence=1.0,
                     outcome=NodeOutcome.SUCCESS,
                     latency_ms=0,

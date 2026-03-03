@@ -322,6 +322,94 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
+        # Taxonomy-driven document depth check: when explain_only + high complexity, validate science depth
+        deliverable_type = state.get("deliverable_type", "single_file")
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
+        taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
+        is_document_taxonomy_path = (
+            deliverable_type == "explain_only"
+            and taxonomy_complexity > 0.6
+            and bool(taxonomy_metadata.get("required_elements"))
+        )
+        if is_document_taxonomy_path:
+            from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
+
+            depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
+            doc_system = f"""You are a science-depth Critic for document/knowledge responses.
+
+{depth_block}
+
+Evaluate the Executor's response (markdown) below. Does it meet the required depth for this domain?
+- approved=true only if the response adequately covers the required_elements and shows scientific/technical rigor.
+- If depth is insufficient (missing or superficial sections), set approved=false and add blocking_issues describing which required_elements were weak or missing. Use evidence_refs with ref_type="spec" and id="taxonomy_depth" when blocking.
+- Put minor suggestions in nonblocking.
+
+Respond with valid JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
+            doc_prompt = (
+                f"## Task\n{task_desc}\n\n"
+                f"## Taxonomy\nRequired elements: {taxonomy_metadata.get('required_elements', [])}\n\n"
+                f"## Executor Response (markdown)\n{generated_code[:8000]}"
+            )
+            try:
+                doc_parsed = await critic_structured_llm.ainvoke([
+                    SystemMessage(content=doc_system),
+                    HumanMessage(content=doc_prompt),
+                ])
+            except Exception as doc_err:
+                logger.warning("critic_document_depth_failed", extra={"error": str(doc_err)[:200]})
+                doc_parsed = None
+            if doc_parsed:
+                # Document path: skip evidence gate (no sandbox/lsp; taxonomy assessment is the evidence)
+                doc_approved = doc_parsed.approved
+                doc_blocking = getattr(doc_parsed, "blocking_issues", []) or []
+                # If critic says not approved but blocking_issues lack refs, still honor the decision (document path)
+                doc_next = "respond" if doc_approved else "supervisor"
+                latency = (time.monotonic() - start) * 1000
+                result = {
+                    "what_if_analyses": [],
+                    "critic_feedback": doc_parsed.revision_feedback or doc_parsed.overall_assessment or "",
+                    "critic_approved": doc_approved,
+                    "critic_should_continue": not doc_approved,
+                    "critic_continue_reason": "needs_depth_revision" if not doc_approved else None,
+                    "residual_risks": getattr(doc_parsed, "residual_risks", []) or [],
+                    "current_node": node_name,
+                    "next_node": doc_next,
+                    "generated_code": state.get("generated_code", ""),
+                    "code_explanation": state.get("code_explanation", ""),
+                    "patch_ops": state.get("patch_ops", []) or [],
+                    "node_traces": [
+                        NodeTrace(
+                            node_name=node_name,
+                            reasoning=doc_parsed.reasoning or f"Taxonomy depth check: approved={doc_approved}",
+                            confidence=doc_parsed.confidence,
+                            outcome=NodeOutcome.SUCCESS if doc_approved else NodeOutcome.NEEDS_REVISION,
+                            latency_ms=latency,
+                        )
+                    ],
+                }
+                if not doc_approved:
+                    result["supervisor_clarification_only"] = True  # Passthrough to Worker for revision
+                return result
+            # Fallback on error: approve (degraded) and continue
+            return {
+                "critic_approved": True,
+                "critic_feedback": "Taxonomy depth check failed; proceeding (degraded)",
+                "current_node": node_name,
+                "next_node": "respond",
+                "generated_code": state.get("generated_code", ""),
+                "code_explanation": state.get("code_explanation", ""),
+                "patch_ops": state.get("patch_ops", []) or [],
+                "node_traces": [
+                    NodeTrace(
+                        node_name=node_name,
+                        reasoning="Document depth check errored; approved by default",
+                        confidence=0.5,
+                        outcome=NodeOutcome.SUCCESS,
+                        latency_ms=(time.monotonic() - start) * 1000,
+                    )
+                ],
+            }
+
         # Advisory Mode: non-Architect personas skip What-If LLM. Approve if code compiles/runs.
         # Exception: lifestyle vertical with tiered critic may use basic tier (also Advisory-like).
         worker_persona = (state.get("worker_persona") or "").strip()

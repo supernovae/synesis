@@ -1,0 +1,92 @@
+# Taxonomy-Driven Contextual Injection
+# Maps taxonomy keys (domain / intent-domain combo) to TaxonomyNode metadata.
+# Used by TaxonomyPromptFactory to shape Planner and Executor prompts.
+# Keys align with active_domain_refs from Entry Classifier (physics, astronomy, etc.)
+#
+# Schema per key:
+#   path: Human-readable tree path (e.g. "Science > Physics")
+#   complexity: 0.0–1.0 — drives required_bullets, depth_instructions
+#   persona: Worker/Planner persona label
+#   depth_instructions: Append to system prompt when complexity > 0.7
+#   required_elements: Bullet structure — Planner must produce steps for these (or Worker uses as outline)
+
+physics:
+  path: "Science > Physics"
+  complexity: 0.9
+  persona: "Academic Researcher"
+  depth_instructions: "Provide a response with scientific rigor. Mention c as a constant and its implications in relativity. Use first principles; avoid over-simplification."
+  required_elements:
+    - "Theoretical Basis"
+    - "Mathematical Context"
+    - "Real-world Implications"
+    - "Historical Context"
+    - "Key Constants & Formulas"
+
+astronomy:
+  path: "Science > Astronomy"
+  complexity: 0.85
+  persona: "Academic Researcher"
+  depth_instructions: "Use observational and theoretical context. Cite relevant constants and scales (e.g. parsec, redshift)."
+  required_elements:
+    - "Observational Basis"
+    - "Theoretical Framework"
+    - "Scales & Units"
+    - "Current Research Context"
+
+mathematics:
+  path: "Science > Mathematics"
+  complexity: 0.8
+  persona: "Academic Researcher"
+  depth_instructions: "Define terms precisely. Use formal notation where helpful. Avoid hand-waving."
+  required_elements:
+    - "Definition"
+    - "Mathematical Context"
+    - "Applications"
+
+chemistry:
+  path: "Science > Chemistry"
+  complexity: 0.8
+  persona: "Academic Researcher"
+  depth_instructions: "Use correct chemical notation. Mention relevant constants (Avogadro, R). Avoid over-simplification."
+  required_elements:
+    - "Chemical Context"
+    - "Molecular/Structural Basis"
+    - "Practical Implications"
+
+bioinformatics:
+  path: "Science > Bioinformatics"
+  complexity: 0.85
+  persona: "Academic Researcher"
+  depth_instructions: "Cite standards (FASTA, BAM). Note clinical crossover when relevant. Use first-principles where appropriate."
+  required_elements:
+    - "Biological Context"
+    - "Methodological Basis"
+    - "Data & Standards"
+    - "Applications"
+
+general_greeting:
+  path: "General > Social"
+  complexity: 0.1
+  persona: "Friendly Assistant"
+  depth_instructions: "Be concise and polite. Don't over-explain."
+  required_elements:
+    - "Warm Greeting"
+    - "Direct Answer"
+
+# Fallback when no domain match
+generic:
+  path: "General"
+  complexity: 0.5
+  persona: "Helpful Assistant"
+  depth_instructions: ""
+  required_elements:
+    - "Direct Answer"
+
+# Document-only deep-dive triggers (knowledge questions in these domains)
+# Used when output_type=document + active_domain matches → plan_required=true for structured bullets
+deep_dive_domains:
+  - physics
+  - astronomy
+  - mathematics
+  - chemistry
+  - bioinformatics

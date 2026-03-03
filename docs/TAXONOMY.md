@@ -260,9 +260,9 @@ To reach "the 95%" for new verticals:
 
 **No match (general)** → document. **Coding client + general** → code (Cursor/Claude Code session assumes code).
 
-**Flow:** Entry Classifier (engine, coding_client override) → plan_required=false when document → Supervisor passthrough → Worker (explain_only uses document-centric prompt) → Respond.
+**Flow:** Entry Classifier (engine, coding_client override) → when document: if domain in `deep_dive_domains` and `complexity > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain_only) → Respond.
 
-**Planner is for code decomposition only.** Worker explain_only uses a document-focused prompt with no code bias.
+**Planner** serves code decomposition and document deep-dive (physics, astronomy, mathematics, etc.). Worker explain_only uses a document-focused prompt; when Planner ran for document, Worker receives `taxonomy_metadata` depth block.
 
 ---
 
@@ -376,8 +376,23 @@ Existing indexers (domain, architecture, code) use their own domain extraction (
 
 ---
 
-## 13. See Also
+## 13. taxonomy_metadata and Taxonomy Prompt Config
 
+**Purpose:** Router (Entry Classifier) labels topic complexity; `TaxonomyPromptFactory` shapes prompts for Planner and Executor without adding new LLMs. Config-driven depth and structure.
+
+**File:** `base/planner/taxonomy_prompt_config.yaml` — Maps taxonomy keys (physics, astronomy, mathematics, etc.) to `path`, `complexity`, `persona`, `depth_instructions`, `required_elements`. `deep_dive_domains` list: document questions in these domains get `plan_required=true` when `complexity > 0.6`.
+
+**State:** `taxonomy_metadata` (TaxonomyNode) flows through graph: `path`, `complexity_score`, `persona_instructions`, `required_bullets`, `required_elements`, `depth_instructions`, `taxonomy_key`. High-complexity domains trigger Planner with 5 detailed bullets; low complexity uses 1–2.
+
+**Flow:** Entry Classifier → `resolve_taxonomy_metadata()` → `taxonomy_metadata` in state. Planner appends `required_elements` + `depth_instructions` when complexity > 0.7. Worker appends `get_executor_depth_block()`.
+
+See [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) for design, flow, and usage.
+
+---
+
+## 14. See Also
+
+- [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) — Taxonomy metadata, Planner deep-dive, depth block injection
 - [TAXONOMY_CANONICAL.md](TAXONOMY_CANONICAL.md) — Canonical domains, verticals, seeding
 - [prompt_taxonomy.yaml](../base/planner/prompt_taxonomy.yaml) — Router → prompt components
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec

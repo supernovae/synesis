@@ -7,6 +7,7 @@ Supervisor -> Worker -> Critic pipeline. Direct to planner; no proxy required.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -34,6 +35,7 @@ from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .nodes.entry_classifier import detect_language_deterministic
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
+from .streaming_events import StatusQueueCallback
 
 # /why and /reclassify command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
@@ -187,6 +189,63 @@ def _memory_scope_key(user_id: str, conversation_id: str | None) -> str:
 def _sse_chunk(data: dict) -> str:
     """Format JSON as SSE data line."""
     return f"data: {json.dumps(data)}\n\n"
+
+
+def _sse_debug_chatter_event(node: str, label: str, content: str) -> str:
+    """Format debug_chatter event for plan/router/critic/executor outputs. Open WebUI can render as labeled block."""
+    return f"event: debug_chatter\ndata: {json.dumps({'node': node, 'label': label, 'content': content})}\n\n"
+
+
+def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
+    """Extract (node, label, content) for debug chatter from a graph chunk."""
+    out: list[tuple[str, str, str]] = []
+    node = chunk.get("current_node", "")
+
+    if node == "entry_classifier":
+        task_size = chunk.get("task_size", "")
+        intent = chunk.get("intent_class", "")
+        output_type = chunk.get("output_type", "")
+        plan_req = chunk.get("plan_required", False)
+        out.append((
+            "entry_classifier",
+            "Router (Entry Classifier)",
+            f"task_size={task_size} intent={intent} output_type={output_type} plan_required={plan_req}",
+        ))
+
+    elif node == "strategic_advisor":
+        ctx = chunk.get("platform_context", "")
+        domain = chunk.get("active_domain_refs") or []
+        out.append(("strategic_advisor", "Router (Strategic Advisor)", f"platform={ctx} domains={domain}"))
+
+    elif node == "supervisor":
+        next_n = chunk.get("next_node", "")
+        route = chunk.get("supervisor_route_reasoning", "")[:150]
+        out.append(("supervisor", "Router (Supervisor)", f"next_node={next_n} {route}"))
+
+    elif node == "planner":
+        exec_plan = chunk.get("execution_plan") or {}
+        steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
+        lines = [f"{i+1}. {s.get('action', s) if isinstance(s, dict) else s}" for i, s in enumerate(steps)]
+        out.append(("planner", "Execution Plan", "\n".join(lines) if lines else "(no steps)"))
+
+    elif node == "worker":
+        code = (chunk.get("generated_code") or "")[:800]
+        expl = (chunk.get("code_explanation") or "")[:200]
+        if code or expl:
+            out.append(("worker", "Executor", f"{expl}\n\n```\n{code}\n```" if code else expl))
+
+    elif node == "critic":
+        approved = chunk.get("critic_approved", True)
+        feedback = (chunk.get("critic_feedback") or "")[:300]
+        what_ifs = chunk.get("what_if_analyses") or []
+        summary = f"approved={approved}"
+        if feedback:
+            summary += f" | {feedback}"
+        if what_ifs:
+            summary += f" | {len(what_ifs)} what-if(s)"
+        out.append(("critic", "Critic", summary))
+
+    return out
 
 
 def _sse_status_chunk(data: dict) -> str:
@@ -670,27 +729,58 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     if request.stream:
         # Streaming: run graph with progressive status events, then emit final content
+        # StatusQueueCallback emits debug/tracing bullets as nodes run (Planner, Worker, Sandbox, etc.)
         chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+        status_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=128)
+        status_callback = StatusQueueCallback(status_queue)
 
         async def sse_generator() -> object:
             result = None
             try:
-                # recursion_limit: allow ~3 sandbox retries + critic/supervisor; default 25 can hit mid-loop
-                config = {"recursion_limit": 50}
+                config = {
+                    "recursion_limit": 50,
+                    "callbacks": [status_callback],
+                }
                 async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
+                    # Drain callback queue first (status from on_chain_start as nodes run)
+                    while True:
+                        try:
+                            cb_desc = status_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        if cb_desc:
+                            yield _sse_status_chunk({
+                                "type": "status",
+                                "data": {"description": cb_desc, "done": False, "hidden": False},
+                            })
+
                     result = chunk
                     node = chunk.get("current_node", "")
                     task_size = chunk.get("task_size", "")
                     deliverable_type = chunk.get("deliverable_type", "")
-                    # Plan steps as "thinking" for explain_only (marathon plan, meal plan, etc.)
+                    # Planner: emit topic (reasoning) + plan steps for ALL outputs (not just explain_only)
                     exec_plan = chunk.get("execution_plan") or {}
                     steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
-                    emitted_steps = False
-                    if (
-                        node == "planner"
-                        and deliverable_type == "explain_only"
-                        and steps
-                    ):
+                    emitted_plan = False
+                    if node == "planner" and isinstance(exec_plan, dict):
+                        node_traces = chunk.get("node_traces", []) or []
+                        reasoning = ""
+                        for t in node_traces:
+                            if isinstance(t, dict) and t.get("reasoning"):
+                                reasoning = str(t["reasoning"]).strip()
+                                break
+                            if hasattr(t, "reasoning") and t.reasoning:
+                                reasoning = str(t.reasoning).strip()
+                                break
+                        if not reasoning and exec_plan.get("reasoning"):
+                            reasoning = str(exec_plan.get("reasoning", "")).strip()
+                        if reasoning:
+                            short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
+                            yield _sse_status_chunk({
+                                "type": "status",
+                                "data": {"description": f"Plan: {short}", "done": False, "hidden": False},
+                            })
+                            emitted_plan = True
                         for s in steps:
                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
                             if act:
@@ -698,17 +788,21 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     "type": "status",
                                     "data": {"description": act, "done": False, "hidden": False},
                                 })
-                                emitted_steps = True
+                                emitted_plan = True
                     if node:
                         desc = _status_for_node(node, task_size or "", deliverable_type or "")
-                        # Skip generic planner message when we already showed step-by-step thinking
-                        if emitted_steps and node == "planner":
+                        if emitted_plan and node == "planner":
                             desc = ""
                         if desc:
                             yield _sse_status_chunk({
                                 "type": "status",
                                 "data": {"description": desc, "done": False, "hidden": False},
                             })
+                    # Debug chatter: emit plan/router/critic/executor outputs as labeled blocks (stream_debug_chatter)
+                    if getattr(settings, "stream_debug_chatter", False) and chunk:
+                        for n, label, content in _format_debug_chatter(chunk):
+                            if content:
+                                yield _sse_debug_chatter_event(n, label, content)
             except Exception as e:
                 logger.exception("graph_execution_error")
                 yield f"event: error\ndata: {json.dumps({'error': str(e)[:200]})}\n\n"

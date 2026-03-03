@@ -79,7 +79,8 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 | `message_origin == "ui_helper"` | `respond` |
 | `task_size == "trivial"` and `bypass_supervisor` | `context_curator` |
 | `task_size == "complex"` and `plan_required` | `planner` (bypass Supervisor) |
-| **Taxonomy:** `output_type=document` (from intent_classes[].document_domains) → `plan_required=false`; Supervisor passthrough → Worker explain_only. Planner is for code decomposition only. |
+| **Taxonomy:** `output_type=document` + `plan_required=true` (when domain in `deep_dive_domains`, complexity > 0.6) → `planner` for structured bullets; then context_curator → worker. |
+| **Taxonomy:** `output_type=document` + `plan_required=false` → Supervisor passthrough → Worker explain_only (no Planner). Planner is for code decomposition and document deep-dive. |
 | else | `supervisor` |
 
 ### After Supervisor
@@ -97,8 +98,16 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 
 | Condition | Next Node |
 |-----------|-----------|
-| `plan_pending_approval` | `respond` |
-| else | `context_curator` |
+| `plan_pending_approval` | `respond` (surface plan; user replies to proceed) |
+| else | `context_curator` → worker (plan auto-proceeds) |
+
+**Invariant:** Planner never ends the graph. Plans auto-proceed unless user explicitly requested a planning session.
+
+| Condition | Behavior |
+|-----------|----------|
+| `@plan`, `/plan`, "lets plan", "plan first", "I need a plan" | **Planning session**: show plan, ask to proceed (user replies to continue) |
+| Normal complex/small + `require_plan_approval=False` (default) | Auto-proceed to executor |
+| `require_plan_approval=True` | Always ask for approval before execution |
 
 ### After Worker
 
@@ -144,7 +153,7 @@ Synesis implements a **Joint Cognitive System (JCS)** with distinct roles: Entry
 ## Key Invariants
 
 1. **Anemic Supervisor**: Routing only. No architecture reasoning. Sub-500ms target. Passthrough for complex (EntryClassifier), small+teach, and **output_type=document** (taxonomy-driven explain_only).
-2. **Taxonomy-Driven Routing**: Entry Classifier outputs `intent_class`, `output_type`, `active_domain_refs`. `output_type` comes from intent_classes[].document_domains — config-driven, not per-query if/else. Planner is for code decomposition; document output skips Planner.
+2. **Taxonomy-Driven Routing**: Entry Classifier outputs `intent_class`, `output_type`, `active_domain_refs`, `taxonomy_metadata`. `output_type` from intent_classes[].document_domains. **Document deep-dive:** when domain in `deep_dive_domains` (e.g. physics, astronomy) and `complexity > 0.6`, `plan_required=true` → Planner produces structured bullets; Worker receives taxonomy depth block. Simple document → `plan_required=false` → Supervisor passthrough → Worker explain_only.
 3. **Atomic Planner**: Each step max 3 files. Every step must have `verification_command`. Protocol tasks (Fediverse, ActivityPub): first step = discovery/WebFinger only.
 4. **Evidence-Gated Critic**: `approved=false` requires at least one `blocking_issue` with sandbox/lsp `evidence_refs`. No blocking on speculation.
 5. **Progressive Worker Prompts**: trivial (minimal), small (defensive), full (JCS). EntryClassifier sets `worker_persona` (Minimalist | Senior | Architect) and `worker_prompt_tier`.
@@ -168,7 +177,7 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 
 ## Planner: When, Why, and Performance
 
-**When Planner runs:** Only for `task_size=complex` + `plan_required` (code tasks: multi-step, protocol-heavy). Taxonomy sets `output_type=document` when intent+domain maps to document output (intent_weights `document_domains`) → `plan_required=false` → Supervisor passthrough → Worker explain_only. No per-vertical if/else.
+**When Planner runs:** (1) Code: `task_size=complex` + `plan_required` (multi-step, protocol-heavy). (2) Document deep-dive: `output_type=document` + domain in `deep_dive_domains` + `complexity > 0.6` → `plan_required=true` → Planner with `required_elements` and `depth_instructions` from `taxonomy_prompt_config.yaml`. Simple document → `plan_required=false` → Supervisor passthrough → Worker explain_only.
 
 **Why Planner can feel slow:**
 - Uses same model as Supervisor (e.g. Qwen3-14B). Each Planner call is a full LLM inference.
@@ -182,6 +191,19 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 2. **max_tokens:** 1024 vs 2048 reduces generation time.
 3. **Dedicated smaller model:** If available, a 3B/7B model for Planner could cut latency (atomic decomposition is simpler than code generation).
 
+## Debug Chatter (Development)
+
+When `SYNESIS_STREAM_DEBUG_CHATTER=true`, the streaming SSE pipeline emits `event: debug_chatter` blocks with labeled outputs from Router (Entry Classifier, Strategic Advisor, Supervisor), Planner, Executor (Worker), and Critic. Open WebUI (or any client) can render these as distinct blocks (e.g., italic/gray with node label) to surface internal reasoning during development.
+
+| Event   | Label                 | Content                                           |
+|---------|-----------------------|---------------------------------------------------|
+| Router  | Entry Classifier      | task_size, intent, output_type, plan_required     |
+| Router  | Strategic Advisor     | platform, domains                                 |
+| Router  | Supervisor            | next_node, routing reasoning                     |
+| Planner | Execution Plan       | Step list                                        |
+| Worker  | Executor             | Explanation + code snippet                       |
+| Critic  | Critic               | approved, feedback, what-if count                 |
+
 ## Performance and State Payload Optimization
 
 - **Prefix caching**: Supervisor and Critic share synesis-supervisor-critic runtime with `--enable-prefix-caching`. Static system prompts maximize cache hit.
@@ -193,6 +215,7 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 
 - [nodes.md](nodes.md) — Node flow with full prompts per role
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, approach/dark debt, critic policy
+- [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) — Taxonomy metadata, Planner deep-dive, depth block injection
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
 - [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + dark debt mappings
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — EntryClassifier complexity/risk weights

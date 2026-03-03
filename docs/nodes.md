@@ -28,9 +28,11 @@ respond (no LLM) → END
 
 **Source:** `app/nodes/entry_classifier.py`
 
-**Output:** `task_size`, `target_language`, `worker_persona`, `worker_prompt_tier`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `output_type`, `active_domain_refs`, etc. `output_type` from intent_classes[].document_domains — taxonomy-driven.
+**Output:** `task_size`, `target_language`, `worker_persona`, `worker_prompt_tier`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `output_type`, `active_domain_refs`, `taxonomy_metadata`, etc. `output_type` from intent_classes[].document_domains — taxonomy-driven.
 
-**Persona Tier:** Maps `task_size` → `worker_persona`: trivial → Minimalist, small → Senior, complex → Architect. `plan_required` is true only when persona is Architect (or manual override).
+**Taxonomy-Driven Injection:** After classification, calls `resolve_taxonomy_metadata()` from `TaxonomyPromptFactory` to set `taxonomy_metadata` (path, complexity_score, persona_instructions, required_bullets, required_elements, depth_instructions). For `output_type=document`, when `should_plan_for_document()` (domain in `deep_dive_domains`, complexity > 0.6), sets `plan_required=true` and `rag_mode="normal"` for deep-dive domains (physics, astronomy, etc.).
+
+**Persona Tier:** Maps `task_size` → `worker_persona`: trivial → Minimalist, small → Senior, complex → Architect. `plan_required` is true when persona is Architect (code) or when document deep-dive applies.
 
 **Prompts:** None (rules + `intent_weights.yaml`).
 
@@ -108,7 +110,9 @@ Return valid JSON (same schema). Keep reasoning to one sentence.
 
 **Source:** `app/nodes/planner_node.py`
 
-**When it runs:** Only for `task_size=complex` + `plan_required` (code tasks). Trivial/small bypass. `output_type=document` (taxonomy) → `plan_required=false` → never hit Planner.
+**When it runs:** (1) Code: `task_size=complex` + `plan_required`. (2) Document deep-dive: `output_type=document` + `plan_required=true` (domain in `deep_dive_domains`). Short-circuit only when `output_type=document` and `plan_required=false`.
+
+**Taxonomy-Driven Injection:** When `plan_required=true`, uses `get_planner_system_prompt_append(metadata)` to append `required_elements` and `depth_instructions` when complexity > 0.7. Planner prompt includes "Your plan MUST include these sections: …" for document tasks.
 
 **Mantra:** Atomic Planner — one step = max 3 files, verification_command required. `max_tokens=1024` (1–5 steps).
 
@@ -168,9 +172,9 @@ Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions i
 
 **Explain-only mode:** When `deliverable_type=explain_only` (training plan, meal plan, etc.), Worker produces markdown in the `code` field instead of executable code. Injected block instructs: "Put your full response as markdown. No Python/bash — output displayed directly."
 
-**Sovereign Persona Injection:** When `active_domain_refs` or `platform_context` resolve to a vertical (medical, fintech, industrial, platform, scientific, lifestyle), the corresponding block from `vertical_prompts.yaml` is appended to the system prompt (e.g., "HIPAA Compliance Officer" for medical).
-
 **Sovereign Persona Injection:** When `active_domain_refs` or `platform_context` maps to a vertical (medical, fintech, industrial, platform, scientific, lifestyle), the corresponding block from `vertical_prompts.yaml` is appended. E.g. fintech → "Fintech Auditor" block, medical → "HIPAA Compliance Officer" block.
+
+**Taxonomy-Driven Depth Block:** When `taxonomy_metadata` is present, calls `get_executor_depth_block(metadata)` and appends the taxonomy depth block to the system prompt. Shapes response depth for physics, astronomy, mathematics, etc.
 
 ### WORKER_PROMPT_TRIVIAL
 
@@ -310,6 +314,8 @@ When stop_reason is set, leave code empty.
 - **Full Critic** (Architect, safety_ii verticals): Full JCS analysis with What-Ifs.
 - **Intent Class overlay** (`intent_prompts.yaml`): Knowledge → hallucination-sensitive; Debugging → evidence-required; Review → strict; Data Transform → schema-enforcing; Personal Guidance → safety gate. See INTENT_TAXONOMY.md.
 
+**Taxonomy-Driven Depth Check:** When `deliverable_type=explain_only` and `taxonomy_metadata` (complexity > 0.6), Critic runs a science-depth validation. Uses `get_critic_depth_prompt_block(metadata)` to evaluate whether the Executor's markdown response meets required_elements and scientific rigor. If insufficient → `approved=false`, `critic_continue_reason=needs_depth_revision` → Supervisor → Worker revision. Evidence gate is skipped for document path (taxonomy assessment is the evidence).
+
 **Mantra:** Evidence-Gated Critic. No blocking on feeling or speculation.
 
 **System Prompt:**
@@ -396,6 +402,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 
 - [workflow.md](workflow.md) — Routing logic and graph flow
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, approach/dark debt, critic policy
+- [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) — Taxonomy metadata, Planner deep-dive, depth block injection
 - [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — EntryClassifier weights

@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
+from ..taxonomy_prompt_factory import resolve_taxonomy_metadata, should_plan_for_document
 
 logger = logging.getLogger("synesis.entry_classifier")
 
@@ -162,10 +163,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     bypass_planner = task_size == "trivial" and not manual_override
     requires_clarification = task_size == "complex"
 
-    # plan_required: ONLY true for Architect (complex) tasks. Minimalist/Senior skip planning.
-    if manual_override:
-        plan_required = True
-    elif task_size == "complex":
+    # plan_required: Architect (complex) tasks; also when user explicitly requests planning (@plan, /plan, "lets plan")
+    planning_session_requested = manual_override or force_pro_advanced
+    if manual_override or task_size == "complex" or force_pro_advanced:
         plan_required = True
     else:
         plan_required = False
@@ -219,6 +219,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
         "plan_required": plan_required,
+        "planning_session_requested": planning_session_requested,  # @plan, /plan, "lets plan" → show plan, ask to proceed
         "clarification_budget": clarification_budget,
         "interaction_mode": interaction_mode,
         "intent_classifier_source": "deterministic",
@@ -280,7 +281,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         bypass_supervisor = task_size == "trivial"
         bypass_planner = task_size == "trivial"
         requires_clarification = task_size == "complex"
-        plan_required = True if (manual_override or task_size == "complex") else False
+        plan_required = True if (manual_override or task_size == "complex" or force_pro_advanced) else False
         clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
         if interaction_mode == "teach":
             clarification_budget = min(clarification_budget, 1)
@@ -306,12 +307,26 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["output_type"] = "code"
         out["intent_class"] = "code"
 
-    # Taxonomy-driven: output_type=document → skip Planner; Supervisor passthrough → Worker explain_only
+    # Taxonomy-Driven Contextual Injection: resolve taxonomy_metadata from active_domain_refs + task_size
+    taxonomy_metadata = resolve_taxonomy_metadata(
+        active_domain_refs=out.get("active_domain_refs") or [],
+        task_size=out.get("task_size", "small"),
+        intent_class=out.get("intent_class", "code"),
+        complexity_score=out.get("complexity_score", 0.5) or 0.5,
+    )
+    out["taxonomy_metadata"] = taxonomy_metadata
+
+    # Taxonomy-driven: output_type=document → usually skip Planner; BUT high-depth domains (physics, etc.) or explicit planning session
     if out.get("output_type") == "document":
-        out["plan_required"] = False
-        out["rag_mode"] = "disabled"
+        deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
+        if deep_dive or planning_session_requested:
+            out["plan_required"] = True  # Route to Planner for required_elements or @plan/lets plan
+            out["rag_mode"] = "normal" if deep_dive else "disabled"
+        else:
+            out["plan_required"] = False
+            out["rag_mode"] = "disabled"
         # Clear stale execution_plan when not resuming pending — avoid injecting wrong plan steps (e.g. marathon)
-        if not state.get("pending_question_continue"):
+        if not state.get("pending_question_continue") and not out.get("plan_required"):
             out["execution_plan"] = {}
     # Pending continue: preserve output_type=document from restored state
     elif state.get("pending_question_continue") and state.get("output_type") == "document":
