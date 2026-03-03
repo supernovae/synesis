@@ -138,7 +138,10 @@ async def check_service(client: httpx.AsyncClient, svc: ServiceConfig) -> bool:
         return False
 
     try:
-        url = f"{svc.endpoint.rstrip('/')}{svc.health_path}"
+        base = svc.endpoint.rstrip("/")
+        if "/v1" in base:
+            base = base[: base.index("/v1")]
+        url = f"{base}{svc.health_path}"
         resp = await client.get(url, timeout=svc.timeout_seconds)
         healthy = resp.status_code < 500
         if healthy:

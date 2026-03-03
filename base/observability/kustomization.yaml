@@ -9,6 +9,7 @@ labels:
 
 resources:
   - service-monitor.yaml
+  - service-monitor-models.yaml
   # Perses (COO) - Red Hat's dashboard stack; Grafana deprecated in favor of Perses
   - perses-namespace.yaml
   - perses-datasource.yaml

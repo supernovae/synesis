@@ -16,6 +16,8 @@ metadata:
   namespace: synesis-models
   labels:
     app.kubernetes.io/name: synesis-supervisor-critic
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
 spec:
   selector:
     app: synesis-supervisor-critic
@@ -31,6 +33,8 @@ metadata:
   namespace: synesis-models
   labels:
     app.kubernetes.io/name: synesis-supervisor-critic
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
 spec:
   selector:
     app: synesis-supervisor-critic
@@ -93,6 +97,26 @@ spec:
               cpu: "2"
               memory: 8Gi
               nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
           volumeMounts:
             - name: model-store
               mountPath: /mnt/models
