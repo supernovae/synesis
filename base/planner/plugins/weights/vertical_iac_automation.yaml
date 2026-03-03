@@ -1,0 +1,172 @@
+# Synesis IaC & Automation Vertical
+# Terraform, Ansible, Pulumi, Chef, Puppet, Salt. Shell: bash, zsh, ksh, powershell.
+# For routing, planning, critic strategy within infrastructure-as-code and ops automation.
+
+complexity_weights:
+  terraform_basic:
+    weight: 6
+    keywords:
+      - terraform init
+      - terraform plan
+      - terraform apply
+      - terraform destroy
+      - .tf file
+      - terraform fmt
+  terraform_module:
+    weight: 10
+    keywords:
+      - terraform module
+      - terraform workspace
+      - terraform state
+      - backend s3
+      - remote state
+      - terragrunt
+      - terraform cloud
+  ansible_basic:
+    weight: 6
+    keywords:
+      - ansible playbook
+      - ansible ad-hoc
+      - ansible vault
+      - ansible-galaxy
+  ansible_orchestration:
+    weight: 12
+    keywords:
+      - ansible roles
+      - ansible inventory
+      - ansible tower
+      - ansible awx
+      - ansible molecule
+      - handler
+      - block
+      - when condition
+  pulumi:
+    weight: 10
+    keywords:
+      - pulumi
+      - pulumi stack
+      - infrastructure as code
+  config_mgmt:
+    weight: 10
+    keywords:
+      - chef
+      - puppet
+      - saltstack
+      - salt formula
+      - chef recipe
+      - puppet manifest
+  shell_scripting:
+    weight: 6
+    keywords:
+      - bash script
+      - shell script
+      - zsh script
+      - korn shell
+      - ksh
+      - sh script
+      - set -euo pipefail
+      - trap
+      - source
+  powershell:
+    weight: 8
+    keywords:
+      - powershell
+      - pwsh
+      - .ps1
+      - get-childitem
+      - invoke-restmethod
+      - az cli
+      - aws cli script
+  scripting_orchestration:
+    weight: 12
+    keywords:
+      - multi-script
+      - makefile
+      - justfile
+      - npm script
+      - package.json scripts
+      - gradle task
+      - rake task
+      - invoke task
+
+risk_weights:
+  iac_destructive:
+    weight: 18
+    keywords:
+      - terraform destroy
+      - ansible wipe
+      - rm -rf in playbook
+      - drop database in script
+      - truncate
+  iac_state_risk:
+    weight: 12
+    keywords:
+      - terraform state rm
+      - force unlock
+      - state conflict
+      - concurrent apply
+
+domain_keywords:
+  terraform:
+    domain: terraform
+    keywords:
+      - terraform
+      - tf
+      - hcl
+      - provider
+      - resource
+      - data source
+      - variable
+      - output
+      - module
+  ansible:
+    domain: ansible
+    keywords:
+      - ansible
+      - playbook
+      - yaml inventory
+      - ansible.cfg
+      - host_vars
+      - group_vars
+      - become
+      - gather_facts
+  pulumi:
+    domain: pulumi
+    keywords:
+      - pulumi
+      - @pulumi
+      - stack
+      - project
+  shell_bash:
+    domain: shell_bash
+    keywords:
+      - bash
+      - sh
+      - zsh
+      - ksh
+      - korn
+      - bourne
+      - dash
+      - ash
+  powershell:
+    domain: powershell
+    keywords:
+      - powershell
+      - pwsh
+      - .ps1
+      - cmdlet
+      - pipeline
+
+pairings:
+  - keywords: [terraform, production]
+    extra_weight: 15
+    axis: risk
+  - keywords: [ansible, production]
+    extra_weight: 12
+    axis: risk
+  - keywords: [terraform, state]
+    extra_weight: 8
+    axis: complexity
+  - keywords: [ansible, multi]
+    extra_weight: 10
+    axis: complexity

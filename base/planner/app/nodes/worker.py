@@ -26,6 +26,18 @@ logger = logging.getLogger("synesis.worker")
 # Adaptive Rigor: Cognitive sliding scale. Trivial=Minimalist, Small=Helpful Senior, Full=Architect.
 # JCS terminology and Regress-Reason live only in Full tier.
 
+# Document-first: plans, discussions, explanations — no code framing
+WORKER_PROMPT_EXPLAIN_ONLY = """\
+You are a helpful assistant. The user wants a plan, explanation, or discussion — NOT executable code.
+
+Respond with valid JSON only:
+{
+  "code": "your full response as markdown (headings, lists, structure). Put everything here — no code blocks.",
+  "explanation": "brief note on approach (1 sentence)"
+}
+Be concise and clear. Use markdown formatting. No Python/bash/script. The "code" field is displayed directly as text.
+"""
+
 WORKER_PROMPT_TRIVIAL = """\
 You are a code assistant. Produce minimal correct code for the user's request.
 
@@ -394,7 +406,11 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                         if idx >= 0:
                             task_desc = text[idx + len(prefix) :].strip().split("\n")[0][:500]
                             break
-        target_lang = state.get("target_language", "python")
+        raw_lang = state.get("target_language", "python")
+        if raw_lang in ("", "infer"):
+            target_lang = "markdown" if state.get("deliverable_type") == "explain_only" else "python"
+        else:
+            target_lang = raw_lang
         from ..context_resolver import get_resolved_rag_context
 
         rag_context = get_resolved_rag_context(state)
@@ -694,16 +710,12 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             system_prompt = f"{system_prompt}\n\n{vertical_block}"
             logger.debug("worker_vertical_injection", extra={"vertical": active_vertical})
 
-        # Explain-only: plans, documents, training plans — produce markdown in code field, no execution
+        # Explain-only: document-centric prompt (no code bias); keep vertical block when present
         deliverable_type = state.get("deliverable_type", "single_file")
         if deliverable_type == "explain_only":
-            explain_block = (
-                "\n\n## OUTPUT MODE: Explain-Only (no code execution)\n"
-                "The user wants a plan, document, or explanation — NOT executable code. "
-                "Put your full response as markdown in the 'code' field. Use headings, lists, and structure. "
-                "No Python/bash/script — the output will be displayed directly."
-            )
-            system_prompt = f"{system_prompt}{explain_block}"
+            system_prompt = WORKER_PROMPT_EXPLAIN_ONLY
+            if vertical_block:
+                system_prompt = f"{system_prompt}\n\n{vertical_block}"
             logger.debug("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
 
         logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)

@@ -28,16 +28,20 @@ _TASK_SIZE_TO_PERSONA: dict[TaskSize, WorkerPersona] = {
     "complex": "Architect",
 }
 
-# Language detection (ordered: more specific first) — keep in code or move to YAML later
+# Language detection (ordered: more specific first). Shell variants, IaC, programming languages.
 _LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"\btypescript\b", re.IGNORECASE), "typescript"),
+    (re.compile(r"\btypescript\b|\.ts\b|\.tsx\b", re.IGNORECASE), "typescript"),
     (re.compile(r"\bjavascript\b|\.js\b|\.jsx\b|\.mjs\b", re.IGNORECASE), "javascript"),
     (re.compile(r"\bpython\b|\.py\b|pytest\b|pip\b|fastapi\b|learning\s+python", re.IGNORECASE), "python"),
     (re.compile(r"\bgolang\b|\bgo\s+(?:lang|code|script)\b|\.go\b", re.IGNORECASE), "go"),
     (re.compile(r"\brust\b|\.rs\b", re.IGNORECASE), "rust"),
-    (re.compile(r"\bjava\b(?!\s+script)|\.java\b", re.IGNORECASE), "java"),
+    (re.compile(r"\bjava\b(?!\s+script)|\bkotlin\b|\.java\b|\.kt\b", re.IGNORECASE), "java"),
     (re.compile(r"\bc#\b|csharp\b|\.cs\b", re.IGNORECASE), "csharp"),
-    (re.compile(r"\bbash\b|shell\b|\.sh\b|sh script", re.IGNORECASE), "bash"),
+    (re.compile(r"\bswift\b|\.swift\b", re.IGNORECASE), "swift"),
+    (re.compile(r"\bruby\b|\.rb\b", re.IGNORECASE), "ruby"),
+    (re.compile(r"\bphp\b|\.php\b", re.IGNORECASE), "php"),
+    (re.compile(r"\bpowershell\b|pwsh\b|\.ps1\b", re.IGNORECASE), "powershell"),
+    (re.compile(r"\bbash\b|zsh\b|ksh\b|korn\s*shell\b|\.sh\b|sh script", re.IGNORECASE), "bash"),
 ]
 
 # UI helper (already filtered in main.py; double-check for graph routing)
@@ -48,6 +52,17 @@ _UI_HELPER_PATTERNS = [
 ]
 
 DEFAULT_LANGUAGE = "python"
+INFER_LANGUAGE = "infer"  # No language detected; let Supervisor infer from prompt (avoids python injection)
+# When no language mentioned: let Supervisor infer from prompt (markdown for plans/documents, else best guess)
+TARGET_LANGUAGE_INFER = "infer"
+
+
+def _language_explicitly_mentioned(text: str) -> bool:
+    """True if user explicitly mentioned a programming language. Used to avoid defaulting to python."""
+    if not text or not text.strip():
+        return False
+    t = text.strip()[:800]
+    return any(pat.search(t) for pat, _ in _LANGUAGE_PATTERNS)
 
 
 def _weights_path() -> Path:
@@ -80,14 +95,14 @@ def _classify_message_origin(text: str) -> MessageOrigin:
 
 
 def _detect_language(text: str) -> str:
-    """Best-effort language from user request."""
+    """Best-effort language from user request. Returns INFER_LANGUAGE when no match (Supervisor infers from prompt)."""
     if not text or not text.strip():
-        return DEFAULT_LANGUAGE
+        return INFER_LANGUAGE
     t = text.strip()[:800]
     for pat, lang in _LANGUAGE_PATTERNS:
         if pat.search(t):
             return lang
-    return DEFAULT_LANGUAGE
+    return INFER_LANGUAGE
 
 
 def _trivial_wants_tests(text: str) -> bool:
@@ -128,7 +143,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             text_to_analyze = f"{orig} {last_content or ''}".strip()[:800]
 
     message_origin = _classify_message_origin(last_content)
-    target_language = _detect_language(last_content)
     policy = get_defaults_policy()
 
     # ScoringEngine from YAML (entry_classifier_weights.yaml)
@@ -197,7 +211,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "task_size": task_size,
         "worker_persona": worker_persona,
         "task_description": task_description,
-        "target_language": target_language,
+        "target_language": "",  # set below from output_type and language detection
         "bypass_supervisor": bypass_supervisor,
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
@@ -215,6 +229,14 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
 
     out["intent_class"] = analysis.get("intent_class", "code")
     out["output_type"] = analysis.get("output_type", "code")  # document → explain_only; taxonomy-driven
+    # target_language: document→markdown; explicit lang→use it; else infer (Supervisor infers from prompt)
+    output_type = analysis.get("output_type", "code")
+    if output_type == "document":
+        out["target_language"] = "markdown"
+    elif _language_explicitly_mentioned(last_content):
+        out["target_language"] = _detect_language(last_content)
+    else:
+        out["target_language"] = TARGET_LANGUAGE_INFER
     # Phase 1: explainability — classification_reasons and score_breakdown for /why
     out["classification_reasons"] = analysis.get("classification_reasons") or []
     out["score_breakdown"] = analysis.get("score_breakdown") or {}
@@ -250,26 +272,39 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["worker_prompt_tier"] = worker_prompt_tier
         out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
 
-    # Taxonomy-driven: output_type=document (intent + document_domains) → skip Planner; Supervisor passthrough → Worker explain_only
-    if analysis.get("output_type") == "document":
+    # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
+    if state.get("coding_client_detected") and analysis.get("intent_class") == "general" and analysis.get("output_type") == "document":
+        out["output_type"] = "code"
+        out["intent_class"] = "code"
+
+    # Taxonomy-driven: output_type=document → skip Planner; Supervisor passthrough → Worker explain_only
+    if analysis.get("output_type") == "document" and out.get("output_type") != "code":
         out["plan_required"] = False
-    # Pending continue: preserve output_type=document from restored state (user reply may not re-trigger domain)
+        out["rag_mode"] = "disabled"
+    # Pending continue: preserve output_type=document from restored state
     elif state.get("pending_question_continue") and state.get("output_type") == "document":
         out["output_type"] = "document"
         out["plan_required"] = False
+        out["rag_mode"] = "disabled"
 
-    # Trivial fast-path fields — skip when manual_override (user wants Supervisor path)
+    # Trivial fast-path: branch on output_type. Document → explain_only; code → single_file + sandbox.
     if task_size == "trivial" and not manual_override:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
-        out["touched_files"] = _trivial_touched_files(last_content, target_language)
-        out["defaults_used"] = policy.get_defaults_used(target_language)
-        out["deliverable_type"] = "single_file"
-        out["include_tests"] = _trivial_wants_tests(last_content)
-        out["include_run_commands"] = True
-        out["task_type"] = "code_generation"
-        out["allowed_tools"] = ["sandbox"]
+        if out.get("output_type") == "document":
+            out["deliverable_type"] = "explain_only"
+            out["task_type"] = "general"
+            out["allowed_tools"] = ["none"]
+        else:
+            eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
+            out["touched_files"] = _trivial_touched_files(last_content, eff_lang)
+            out["defaults_used"] = policy.get_defaults_used(eff_lang)
+            out["deliverable_type"] = "single_file"
+            out["include_tests"] = _trivial_wants_tests(last_content)
+            out["include_run_commands"] = True
+            out["task_type"] = "code_generation"
+            out["allowed_tools"] = ["sandbox"]
         if out.get("interaction_mode") != "teach":
             out["interaction_mode"] = "do"
 

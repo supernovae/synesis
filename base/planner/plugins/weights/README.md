@@ -96,6 +96,8 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 | `vertical_industrial.yaml` | ISO, Industrial IoT, OT/SCADA | ot_integration, manufacturing_workflow | industrial_safety, iso_compliance | industrial_platforms |
 | `vertical_creative.yaml` | Video, Digital Art, Procedural Gen | video_processing, procedural_generation | — | creative_media, procedural |
 | `vertical_lifestyle.yaml` | Nutrition, Home Auto, Personal Finance | nutrition_tracking, home_automation, personal_finance | — | nutrition, smart_home, finance |
+| `vertical_business_commerce.yaml` | Business, Sales, Marketing, Budgets, Finance, Accounting | business_strategy, sales_crm, marketing_analytics, budget_business, business_finance | financial_sensitive, budget_override | business, sales, marketing, budget, personal_finance, business_finance, accounting, markets |
+| `vertical_hobbies_activities.yaml` | Outdoors, Making, Collecting, Tabletop, Recreation | hiking_backpacking, three_d_printing, woodworking, board_games, fishing, gardening | power_tools, outdoor_safety | outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, hobbies_general |
 | `domain_audio_synthesis.yaml` | Oscillators, LFO, modular, DAW | signal_flow, synthesis_types, gear_specific | — | audio_synthesis |
 | `domain_running.yaml` | VO2max, biomechanics, marathon taper | training_metrics, biomechanics, programming | injury+pain pairing | athletics |
 | `domain_disambiguation.yaml` | cluster+pod vs cluster+patient | — | — | kubernetes, healthcare, databases |
@@ -104,6 +106,8 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 | `vertical_llm_rag.yaml` | RAG, retrieval, chunking | rag_pipeline, chunking_strategy | — | llm_rag |
 | `vertical_llm_prompting.yaml` | Prompt engineering, tool use | prompt_design, tool_use | prompt_injection | llm_prompting |
 | `vertical_llm_evaluation.yaml` | Eval, benchmarks, hallucination | eval_harness, hallucination | — | llm_evaluation |
+| `vertical_iac_automation.yaml` | Terraform, Ansible, Pulumi, shell, PowerShell | terraform_module, ansible_orchestration, shell_scripting | iac_destructive | terraform, ansible, shell_bash, powershell |
+| `vertical_programming_slc.yaml` | Languages, SLC phases, dependency mgmt | requirements_phase, design_phase, maintenance_phase | — | python, javascript, go, rust, java, etc. |
 | `ai_governance.yaml` | LLM safety, fine-tuning | compute_infra, model_mgmt | ai_safety | ai_governance |
 
 **Sovereign intersection:** When two verticals are detected (e.g. HIPAA + K8s), both domains are tracked. Context Curator retrieves RAG from both indices.

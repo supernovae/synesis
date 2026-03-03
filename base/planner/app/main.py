@@ -141,6 +141,17 @@ class ChatCompletionResponse(BaseModel):
     run_id: str | None = None  # For feedback association (echo in POST /v1/feedback)
 
 
+def _is_coding_client(http_request: Request) -> bool:
+    """Detect Cursor, Claude Code, or other coding IDE/agent. Enables code bias for ambiguous requests."""
+    ua = (http_request.headers.get("user-agent") or "").lower()
+    x_client = (http_request.headers.get("x-client") or "").lower()
+    x_app = (http_request.headers.get("x-app") or "").lower()
+    for needle in ("cursor", "claude.code", "claude-code", "vscode", "codeium", "windsurf"):
+        if needle in ua or needle in x_client or needle in x_app:
+            return True
+    return False
+
+
 def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request) -> str:
     """Resolve user identity: request.user > API key hash > anonymous."""
     if request_body.user:
@@ -280,10 +291,17 @@ def _extract_content_and_metrics(
             memory.store_turn(user_id, "user", last_user_content)
         if content:
             memory.store_turn(user_id, "assistant", content)
-        # Update last_active_language for next turn's context-stability check
+        # Update last_active_language and last_context for next turn's pivot detection
         lang = result.get("target_language", "python")
+        if lang in ("", "infer"):
+            lang = "markdown" if result.get("deliverable_type") == "explain_only" else "python"
         if lang:
             memory.set_last_active_language(user_id, lang)
+        memory.set_last_context(
+            user_id,
+            result.get("output_type", "code"),
+            result.get("active_domain_refs") or [],
+        )
 
     # Store run context for feedback association (Phase 5)
     if run_id:
@@ -326,18 +344,43 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if settings.memory_enabled:
         conversation_history = memory.get_history(user_id)
 
-    # Context-stability: detect language pivot (Python→JS→shell) to avoid contaminated history
+    # Context-stability: detect pivot from language OR user context (documents vs code, domain switch)
+    # Uses classifier output — no regex explosion; same logic as Entry Classifier
     current_lang = detect_language_deterministic(last_user_content)
     last_lang = memory.get_last_active_language(user_id) if settings.memory_enabled else None
-    is_pivot = bool(last_lang and current_lang != last_lang)
+    lang_pivot = bool(last_lang and current_lang != last_lang)
+
+    last_ctx = memory.get_last_context(user_id) if settings.memory_enabled else None
+    context_pivot = False
+    pivot_to_label = ""
+    if last_ctx:
+        engine = get_scoring_engine()
+        current_analysis = engine.analyze(last_user_content[:800])
+        curr_output_type = current_analysis.get("output_type", "code")
+        curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
+        last_output_type, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
+        context_pivot = curr_output_type != last_output_type or bool(curr_domains.symmetric_difference(last_domains))
+        if curr_output_type != last_output_type:
+            pivot_to_label = f"{last_output_type}→{curr_output_type}"
+
+    is_pivot = lang_pivot or context_pivot
     pivot_summary = ""
     if is_pivot:
-        run_id_pre = str(uuid.uuid4())  # for archive
+        run_id_pre = str(uuid.uuid4())
         if settings.pivot_summary_enabled and conversation_history:
-            interaction_mode = "do"  # Entry classifier sets later; mentor note needs it
+            interaction_mode = "do"
+            # For context-only pivot, use output_type as "era" label so summary is meaningful
+            from_era = last_lang or (last_ctx[0] if last_ctx else "unknown")
+            to_era = current_lang or (curr_output_type if last_ctx else "unknown")
+            if context_pivot and last_ctx:
+                from_era = last_ctx[0]
+                to_era = curr_output_type
             pivot_summary = await summarize_pivot_history(
-                conversation_history, last_lang, current_lang, interaction_mode
+                conversation_history, from_era, to_era, interaction_mode
             )
+            if context_pivot and pivot_to_label:
+                pivot_summary = (pivot_summary + " " if pivot_summary else "") + f"Context: {pivot_to_label}."
+        if conversation_history:
             archive_to_l2(run_id_pre, user_id, conversation_history)
         # Flush contaminated history — user switched task domain
         conversation_history = [f"[system]: Previous era: {pivot_summary}"] if pivot_summary else []
@@ -346,8 +389,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             memory.clear_user_history(user_id)
             memory.set_last_active_language(user_id, current_lang)
         logger.info(
-            "context_pivot lang_switch",
-            extra={"user_id": user_id, "from": last_lang, "to": current_lang},
+            "context_pivot",
+            extra={
+                "user_id": user_id,
+                "lang_pivot": lang_pivot,
+                "context_pivot": context_pivot,
+                "from_lang": last_lang,
+                "to_lang": current_lang,
+                "pivot_to": pivot_to_label,
+            },
         )
 
     retrieval_params = None
@@ -483,11 +533,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     user_messages[-1] = HumanMessage(content=last_user_content)
 
     run_id = str(uuid.uuid4())
+    coding_client = _is_coding_client(http_request)
     # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
     initial_state: dict[str, Any] = {
         "messages": user_messages,
         "task_description": (last_user_content or "").strip()[:500],
         "task_size_override": task_size_override,
+        "coding_client_detected": coding_client,
         "last_user_content": (last_user_content or "").strip()[:500],
         "max_iterations": settings.max_iterations,
         "injection_detected": injection_detected,

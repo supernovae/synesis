@@ -1,8 +1,128 @@
 # Synesis Scientific Vertical
-# Bioinformatics, Physics Simulation, GIS/Geospatial, ML-Ops.
-# Sovereign RAG for research compute and data pipelines.
+# Bioinformatics, Physics, Astronomy, Math, Chemistry, Earth Science, Social Studies.
+# Sovereign RAG for research compute, data pipelines, and academic workflows.
 
 complexity_weights:
+  astronomy_analysis:
+    weight: 10
+    keywords:
+      - telescope
+      - spectroscopy
+      - redshift
+      - stellar
+      - planetary
+      - cosmology
+      - hubble
+      - jwst
+      - light curve
+      - photometry
+      - astrometry
+      - orbital mechanics
+  physics_general:
+    weight: 10
+    keywords:
+      - thermodynamics
+      - quantum mechanics
+      - relativity
+      - electromagnetism
+      - classical mechanics
+      - statistical mechanics
+      - wave equation
+      - schrodinger
+      - maxwell equations
+  physics_numerical:
+    weight: 12
+    keywords:
+      - monte carlo
+      - finite element
+      - fem
+      - cfd
+      - molecular dynamics
+      - lattice
+      - particle simulation
+      - n-body
+      - numerical integration
+  math_numerical:
+    weight: 10
+    keywords:
+      - linear algebra
+      - eigenvalue
+      - matrix
+      - optimization
+      - gradient descent
+      - numerical methods
+      - ode
+      - pde
+      - fourier
+      - fft
+  math_symbolic:
+    weight: 8
+    keywords:
+      - sympy
+      - mathematica
+      - symbolic math
+      - calculus
+      - derivative
+      - integral
+  statistics_analysis:
+    weight: 10
+    keywords:
+      - regression
+      - hypothesis test
+      - p-value
+      - confidence interval
+      - bayesian
+      - time series
+      - survival analysis
+      - anova
+  chemistry_compute:
+    weight: 10
+    keywords:
+      - molecular structure
+      - docking
+      - cheminformatics
+      - rdkit
+      - reaction
+      - stoichiometry
+      - spectroscopy
+  social_science:
+    weight: 8
+    keywords:
+      - survey data
+      - census
+      - correlation
+      - regression social
+      - qualitative analysis
+      - ethnography
+      - network analysis
+  environmental_science:
+    weight: 10
+    keywords:
+      - climate model
+      - carbon cycle
+      - biodiversity
+      - ecosystem
+      - watershed
+      - pollution
+      - sustainability
+  neuroscience:
+    weight: 12
+    keywords:
+      - fmri
+      - eeg
+      - neural
+      - brain
+      - cognitive
+      - neuroimaging
+  materials_science:
+    weight: 10
+    keywords:
+      - density functional
+      - dft
+      - crystal structure
+      - alloy
+      - polymer
+      - molecular dynamics
   bioinformatics_pipeline:
     weight: 12
     keywords:
@@ -16,17 +136,6 @@ complexity_weights:
       - rnaseq
       - chip-seq
       - variant calling
-  physics_simulation:
-    weight: 12
-    keywords:
-      - monte carlo
-      - finite element
-      - fem
-      - cfd
-      - molecular dynamics
-      - lattice
-      - particle
-      - n-body
   geospatial_analysis:
     weight: 10
     keywords:
@@ -62,6 +171,93 @@ risk_weights:
       - consent
 
 domain_keywords:
+  astronomy:
+    domain: astronomy
+    keywords:
+      - astronomy
+      - astrophysics
+      - telescope
+      - star
+      - galaxy
+      - planet
+      - exoplanet
+      - cosmology
+      - stellar
+      - redshift
+      - spectroscopy
+      - hubble
+      - jwst
+      - james webb
+  physics:
+    domain: physics
+    keywords:
+      - physics
+      - thermodynamics
+      - quantum
+      - relativity
+      - electromagnetism
+      - mechanics
+      - simulation
+  mathematics:
+    domain: mathematics
+    keywords:
+      - math
+      - mathematics
+      - linear algebra
+      - calculus
+      - statistics
+      - probability
+      - optimization
+      - numerical
+      - sympy
+  chemistry:
+    domain: chemistry
+    keywords:
+      - chemistry
+      - molecular
+      - reaction
+      - stoichiometry
+      - rdkit
+      - cheminformatics
+  social_science:
+    domain: social_science
+    keywords:
+      - sociology
+      - economics
+      - political science
+      - psychology
+      - anthropology
+      - history
+      - survey
+      - census
+      - qualitative
+      - ethnography
+  environmental:
+    domain: environmental_science
+    keywords:
+      - environmental
+      - climate
+      - ecology
+      - biodiversity
+      - sustainability
+      - conservation
+  neuroscience:
+    domain: neuroscience
+    keywords:
+      - neuroscience
+      - fmri
+      - eeg
+      - cognitive
+      - brain
+      - neural imaging
+  materials:
+    domain: materials_science
+    keywords:
+      - materials science
+      - dft
+      - crystal
+      - alloy
+      - polymer
   genomics:
     domain: bioinformatics
     keywords:
@@ -81,6 +277,8 @@ domain_keywords:
       - lidar
       - dem
       - ndvi
+      - gis
+      - geographic
   ml_platforms:
     domain: ml_ops
     keywords:
@@ -89,6 +287,25 @@ domain_keywords:
       - neptune
       - dvc
       - comet
+
+risk_weights:
+  clinical_data:
+    weight: 20
+    domain: bioinformatics
+    keywords:
+      - patient sample
+      - clinical trial
+      - de-identification
+      - irb
+      - consent
+  survey_pii:
+    weight: 15
+    domain: social_science
+    keywords:
+      - survey pii
+      - identifiable survey
+      - human subjects
+      - irb exempt
 
 pairings:
   - keywords: [patient, public]
@@ -102,4 +319,10 @@ pairings:
     axis: risk
   - keywords: [gpu, quota]
     extra_weight: 10
+    axis: complexity
+  - keywords: [survey, identifiable]
+    extra_weight: 15
+    axis: risk
+  - keywords: [astronomy, data]
+    extra_weight: 8
     axis: complexity

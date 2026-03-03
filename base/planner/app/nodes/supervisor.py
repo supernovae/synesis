@@ -34,7 +34,7 @@ You are the Supervisor — a ROUTER for a coding assistant. You do NOT reason ab
 When "Pre-classified (EntryClassifier)" is present: use task_size and target_language. Do not re-classify.
 
 Rules:
-1. target_language: python|javascript|typescript|go|rust|java|bash|markdown|... From user or infer. Last resort: python. Use "markdown" for plans, documents, explanations.
+1. target_language: python|javascript|typescript|go|rust|java|bash|markdown|... Infer from user message. When target_language=infer: use "markdown" for plans, documents, explanations, how-tos; use "python" only when user clearly asks for code. Work from the prompt, do not assume code.
 2. route_to: "worker" (single step or text output), "planner" (multi-step code), "respond" (clarification only).
 3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
 4. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
@@ -232,7 +232,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "include_tests": False,
                 "include_run_commands": False,
                 "allowed_tools": ["none"],
-                "rag_mode": "normal",
+                "rag_mode": "disabled",  # Document plans need no code-repo RAG; avoids CloudWatch/AWS junk
                 "needs_code_generation": True,
                 "rag_results": [],
                 "rag_context": [],
@@ -430,32 +430,40 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                         rag_mode=data.get("rag_mode") or ("disabled" if data.get("task_is_trivial") else "normal"),
                     )
                 else:
-                    # Truncated or empty: infer from user message and proceed (avoid clarification loop)
+                    # Fallback: document-first. Assume discussion when parse fails (avoid code bias).
                     user_msg = user_context if user_context else ""
                     parsed = SupervisorOut(
-                        task_type=TaskType.CODE_GENERATION,
-                        task_description=user_msg or "Generate code as requested",
-                        target_language=_extract_language_from_text(user_msg),
-                        needs_code_generation=True,
+                        task_type=TaskType.GENERAL,
+                        task_description=user_msg or "Respond to user",
+                        target_language="markdown",
+                        needs_code_generation=True,  # Worker produces content; explain_only
                         needs_clarification=False,
                         route_to="worker",
                         task_is_trivial=True,
                         bypass_planner=True,
                         bypass_clarification=True,
-                        deliverable_type="single_file",
+                        deliverable_type="explain_only",
                         interaction_mode="do",
                         rag_mode="disabled",
                         allowed_tools=["none"],
-                        reasoning="Fallback: schema parse failed, proceeding with inferred task",
+                        reasoning="Fallback: schema parse failed, document-first response",
                         confidence=0.5,
                     )
 
         task_type = parsed.task_type.value if isinstance(parsed.task_type, TaskType) else str(parsed.task_type)
-        # Step 3: Prefer EntryClassifier's language when pre-classified
-        if state.get("intent_classifier_source") == "deterministic" and state.get("target_language"):
-            target_language = state.get("target_language", "python")
+        # Step 3: Prefer EntryClassifier's language when pre-classified; "infer" = let LLM decide (from prompt)
+        # When infer: use parsed (LLM saw full prompt); never fall back to _extract (defaults to python)
+        state_tlang = (state.get("target_language") or "").strip()
+        if state.get("intent_classifier_source") == "deterministic" and state_tlang and state_tlang != "infer":
+            target_language = state_tlang
+        elif state_tlang == "infer":
+            target_language = (parsed.target_language or "").strip() or "markdown"
+            if target_language == "infer":
+                target_language = "markdown"
         else:
             target_language = (parsed.target_language or "").strip() or _extract_language_from_text(user_context)
+            if target_language in ("", "infer"):
+                target_language = "markdown"
         needs_code = parsed.needs_code_generation
 
         # Policy: EntryClassifier sets clarification_budget; Supervisor must obey (0 = never ask)
@@ -539,7 +547,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         if needs_code and rag_mode != "disabled":
             task_desc = parsed.task_description or user_context
-            rag_collections = select_collections_for_task(
+            rag_collections, rag_domain_filter = select_collections_for_task(
                 task_type=task_type,
                 target_language=target_language,
                 task_description=task_desc,
@@ -552,6 +560,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             rag_params = {
                 "query": task_desc[:500],
                 "collections": rag_collections,
+                "domain_filter": rag_domain_filter or None,
                 "top_k": fetch_count,
                 "strategy": strategy,
                 "reranker": reranker,
@@ -562,6 +571,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 top_k=fetch_count,
                 strategy=strategy,
                 reranker=reranker,
+                domain_filter=rag_domain_filter or "",
             )
             rag_result_summary = {
                 "count": len(rag_results),

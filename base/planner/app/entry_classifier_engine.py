@@ -321,9 +321,10 @@ class ScoringEngine:
         else:
             task_size = "complex"
 
-        # 8. Intent class (first match wins; drives critic behavior overlay)
-        intent_class = "code"  # default
+        # 8. Intent class (first match wins). DEFAULT: general → document. Code only when code intent matches.
         intent_classes = self._config.get("intent_classes") or {}
+        code_intents = {"debugging", "review", "code_generation", "data_transform", "tool_orchestrated", "migration", "documentation"}
+        intent_class = "general"  # no match = discussion/document
         for ic_name, ic_data in intent_classes.items():
             if not isinstance(ic_data, dict):
                 continue
@@ -333,24 +334,33 @@ class ScoringEngine:
                     intent_class = ic_name
                     hits.append(f"intent:{ic_name}")
                     break
-            if intent_class != "code":
+            if intent_class != "general":
                 break
 
-        # 9. Output type from taxonomy: document = no Planner (code decomposition); Worker produces markdown.
-        # inherently_document: intent always produces text (explanations, ideas). document_domains: intent + domain → document.
-        output_type = "code"
+        # 9. Output type: document by default. Code when code intent OR document_domains intent with no domain overlap.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
         if ic_data.get("inherently_document"):
             output_type = "document"
             hits.append("output:document(inherent)")
+        elif intent_class in code_intents:
+            output_type = "code"
+            hits.append("output:code")
         else:
             doc_domains = ic_data.get("document_domains") or []
-            if doc_domains:
-                dom_set = {str(d).strip().lower() for d in doc_domains}
-                refs = {str(a).strip().lower() for a in active_domains}
-                if refs & dom_set:
-                    output_type = "document"
-                    hits.append("output:document")
+            dom_set = {str(d).strip().lower() for d in doc_domains}
+            refs = {str(a).strip().lower() for a in active_domains}
+            if doc_domains and refs & dom_set:
+                output_type = "document"
+                hits.append("output:document")
+            else:
+                # No match (general) or document_domains intent with no overlap
+                if intent_class == "general" and doc_domains:
+                    output_type = "code"  # writing/planning without domain overlap → code
+                elif intent_class == "general":
+                    output_type = "document"  # truly ambiguous → document
+                    hits.append("output:document(default)")
+                else:
+                    output_type = "code"
 
         score = complexity_score + risk_score
         return {

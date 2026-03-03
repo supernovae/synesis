@@ -110,7 +110,7 @@ class SupervisorOut(BaseModel):
 
     task_type: TaskType = TaskType.GENERAL
     task_description: str = ""
-    target_language: str = "python"  # Parsed from user request; normalized name
+    target_language: str = "markdown"  # Parsed from user request; document-first default
     needs_code_generation: bool = True
     reasoning: str = ""
     assumptions: list[str] = Field(default_factory=list)  # Human-readable, backward compat
@@ -136,14 +136,14 @@ class SupervisorOut(BaseModel):
     bypass_planner: bool = False
     bypass_clarification: bool = False
 
-    # Intent + output shape
-    deliverable_type: str = "single_file"  # snippet | single_file | multi_file_patch | explain_only | mixed
+    # Intent + output shape (document-first: explain_only default)
+    deliverable_type: str = "explain_only"  # snippet | single_file | multi_file_patch | explain_only | mixed
     interaction_mode: str = "do"  # teach | do
     include_tests: bool = True
     include_run_commands: bool = True
 
-    # Tool gating
-    allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])  # none | lsp | sandbox | ...
+    # Tool gating (document-first: none until code path)
+    allowed_tools: list[str] = Field(default_factory=lambda: ["none"])  # none | lsp | sandbox | ...
 
     # RAG mode: disabled for trivial (no irrelevant snippets), light | normal for complex
     rag_mode: str = "normal"  # disabled | light | normal

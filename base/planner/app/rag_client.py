@@ -356,10 +356,21 @@ def select_collections_for_task(
     task_description: str = "",
     platform_context: str | None = None,
     active_domain_refs: list[str] | None = None,
-) -> list[str]:
-    """Return synesis_catalog only. Metadata (domain, indexer_source) drives retrieval gravity."""
+) -> tuple[list[str], str]:
+    """Return (collections, domain_filter). Taxonomy-aligned: active_domain_refs → Milvus filter.
+
+    Indexers tag chunks with domain= taxonomy IDs (e.g. athletics_running, music_piano).
+    When active_domain_refs present, filter to those domains for targeted retrieval.
+    """
     _ensure_synesis_catalog()
-    return [SYNESIS_CATALOG]
+    domain_filter = ""
+    if active_domain_refs:
+        refs = [str(r).strip() for r in active_domain_refs if r and str(r).strip()]
+        if refs:
+            # Milvus expr: domain in ["a","b"] — taxonomy IDs must match catalog domain field
+            escaped = [f'"{r}"' for r in refs[:10]]  # cap to avoid expr length limits
+            domain_filter = f'domain in [{",".join(escaped)}]'
+    return [SYNESIS_CATALOG], domain_filter
 
 
 # ---------------------------------------------------------------------------
@@ -383,8 +394,9 @@ async def _vector_search(
     query: str,
     collection: str,
     top_k: int,
+    filter_expr: str = "",
 ) -> list[dict[str, Any]]:
-    """Semantic vector search via Milvus. Gracefully returns [] on missing/empty/unloaded collection."""
+    """Semantic vector search via Milvus. filter_expr: taxonomy-aligned domain filter (e.g. domain in ["athletics_running"])."""
     from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
@@ -396,24 +408,22 @@ async def _vector_search(
         return []
 
     query_vector = await _embed_text(query)
+    search_params = {
+        "collection_name": collection,
+        "data": [query_vector],
+        "limit": top_k,
+        "output_fields": ["text", "source", "chunk_id"],
+    }
+    if filter_expr:
+        search_params["filter"] = filter_expr
 
     try:
-        results = client.search(
-            collection_name=collection,
-            data=[query_vector],
-            limit=top_k,
-            output_fields=["text", "source", "chunk_id"],
-        )
+        results = client.search(**search_params)
     except MilvusException as e:
         if _NOT_LOADED in str(e).lower():
             if _ensure_collection_loaded(client, collection):
                 try:
-                    results = client.search(
-                        collection_name=collection,
-                        data=[query_vector],
-                        limit=top_k,
-                        output_fields=["text", "source", "chunk_id"],
-                    )
+                    results = client.search(**search_params)
                 except Exception as retry_e:
                     logger.warning(f"Vector search retry failed for '{collection}': {retry_e}")
                     return []
@@ -642,6 +652,7 @@ async def retrieve_context(
     strategy: str | None = None,
     reranker: str | None = None,
     collections: list[str] | None = None,
+    domain_filter: str = "",
 ) -> list[RetrievalResult]:
     """Retrieve relevant document chunks using the configured strategy.
 
@@ -673,6 +684,7 @@ async def retrieve_context(
                 coll,
                 top_k,
                 strategy,
+                domain_filter=domain_filter,
             )
             for r in coll_results:
                 r["_collection"] = coll
@@ -728,8 +740,9 @@ async def _retrieve_single_collection(
     collection: str,
     top_k: int,
     strategy: str,
+    domain_filter: str = "",
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Retrieve from a single collection, returning (merged_results, fallback_to_bm25)."""
+    """Retrieve from a single collection. domain_filter applied to vector search (taxonomy-aligned)."""
     fetch_k = top_k * 4
     vector_results: list[dict[str, Any]] = []
     bm25_results: list[dict[str, Any]] = []
@@ -737,7 +750,7 @@ async def _retrieve_single_collection(
 
     if strategy in ("hybrid", "vector"):
         try:
-            vector_results = await _vector_search(query, collection, fetch_k)
+            vector_results = await _vector_search(query, collection, fetch_k, filter_expr=domain_filter)
         except Exception as e:
             logger.warning(f"Vector search failed for '{collection}': {e}")
             if strategy == "hybrid":

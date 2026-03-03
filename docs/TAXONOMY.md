@@ -92,10 +92,20 @@ Trivial requests (hello world, simple scripts) must stay on the fast path.
 
 | Vertical | Complexity | Risk | Domain | Plugin |
 |----------|------------|------|--------|--------|
+| Astronomy | astronomy_analysis | — | telescope, spectroscopy, cosmology, stellar | vertical_scientific |
+| Physics | physics_general, physics_numerical | — | thermodynamics, quantum, fem, cfd | vertical_scientific |
+| Mathematics | math_numerical, math_symbolic | — | linear algebra, sympy, optimization | vertical_scientific |
+| Statistics | statistics_analysis | — | regression, bayesian, time series | vertical_scientific |
+| Chemistry | chemistry_compute | — | molecular, rdkit, cheminformatics | vertical_scientific |
+| Social Studies | social_science | survey_pii | sociology, economics, psychology, survey | vertical_scientific |
+| Environmental | environmental_science | — | climate, ecology, biodiversity | vertical_scientific |
+| Neuroscience | neuroscience | — | fmri, eeg, cognitive | vertical_scientific |
+| Materials Science | materials_science | — | dft, crystal, alloy | vertical_scientific |
 | Bioinformatics | bioinformatics_pipeline | clinical_data | fasta, sam, gatk | vertical_scientific |
-| Physics Simulation | physics_simulation | — | monte carlo, fem, cfd | vertical_scientific |
 | GIS / Geospatial | geospatial_analysis | — | postgis, gdal | vertical_scientific |
 | ML-Ops | ml_pipeline | model+production pairing | mlflow, sagemaker | vertical_scientific |
+
+Planning, writing, personal_guidance with these domains → document output (study plans, essays, reports).
 
 ### 3.5 Creative
 
@@ -125,6 +135,50 @@ Trivial requests (hello world, simple scripts) must stay on the fast path.
 | AI Governance | compute_infra, model_mgmt | ai_safety | llm safety | ai_governance |
 | SecOps / Hardening | — | security_standards | fips, stig | secops_hardening |
 
+### 3.8 Business & Commerce
+
+Aligned with markets: SMB, enterprise, startup, B2B, B2C, consumer. Planning, writing, personal_guidance in these domains → document output (business plans, budgets, marketing strategy, financial reports).
+
+| Vertical | Complexity | Risk | Domain | Plugin |
+|----------|------------|------|--------|--------|
+| **Business Strategy** | business_strategy, business_operations | — | business, markets | vertical_business_commerce |
+| **Sales** | sales_crm, sales_forecasting | — | sales, crm | vertical_business_commerce |
+| **Marketing** | marketing_campaign, marketing_analytics | — | marketing | vertical_business_commerce |
+| **Budgets (Personal)** | budget_personal | — | budget | vertical_business_commerce |
+| **Budgets (Business)** | budget_business | budget_override | budget | vertical_business_commerce |
+| **Personal Finance** | personal_finance | financial_sensitive | personal_finance | vertical_business_commerce, vertical_lifestyle |
+| **Business Finance / FP&A** | business_finance | financial_sensitive | business_finance | vertical_business_commerce |
+| **Accounting** | accounting | financial_sensitive | accounting | vertical_business_commerce |
+
+**Market alignment:** `domain_keywords.markets` → SMB, enterprise, startup, SaaS, ecommerce, marketplace. RAG routing for business ops distinct from `compliance_fintech` (PCI, SOX, ledger transactions).
+
+### 3.9 Hobbies & Activities
+
+Broad coverage from outdoors to making to obscure interests. `domain_running` covers athletics (marathon, vo2max). Planning, writing, personal_guidance in these domains → document output (trip plans, gear guides, project how-tos).
+
+| Vertical | Complexity | Risk | Domain | Plugin |
+|----------|------------|------|--------|--------|
+| **Outdoors** (Hiking, Camping, Paddling) | hiking_backpacking, camping_outdoors, paddling | outdoor_safety | outdoors | vertical_hobbies_activities |
+| **Fishing** | fishing | — | fishing | vertical_hobbies_activities |
+| **Climbing** | climbing | — | outdoors | vertical_hobbies_activities |
+| **Skiing / Snowsports** | skiing_snowsports | outdoor_safety | recreation | vertical_hobbies_activities |
+| **Cycling** (Mountain, Gravel, Touring) | cycling_outdoor | — | recreation | vertical_hobbies_activities |
+| **Gardening** | gardening | — | gardening | vertical_hobbies_activities |
+| **3D Printing** | three_d_printing | — | three_d_printing | vertical_hobbies_activities |
+| **Woodworking** | woodworking | power_tools | woodworking | vertical_hobbies_activities |
+| **Metalworking / Welding** | metalworking | power_tools | hobbies_making | vertical_hobbies_activities |
+| **Electronics Hobby** | electronics_hobby | — | hobbies_making | vertical_hobbies_activities |
+| **Sewing / Crafts** | sewing_crafts | — | hobbies_making | vertical_hobbies_activities |
+| **Pottery / Ceramics** | pottery_ceramics | — | hobbies_making | vertical_hobbies_activities |
+| **Collecting** | collecting | — | hobbies_collecting | vertical_hobbies_activities |
+| **Board Games / TTRPG** | board_games | — | board_games | vertical_hobbies_activities |
+| **Photography** (hobby) | photography_hobby | — | photography_hobby | vertical_hobbies_activities |
+| **Aquariums** | aquariums | — | aquariums | vertical_hobbies_activities |
+| **Drones / FPV** | drones | — | recreation | vertical_hobbies_activities |
+| **Other** (Golf, Ham Radio, Genealogy, Homebrewing, etc.) | golf, ham_radio, genealogy, homebrewing | — | recreation, hobbies_general | vertical_hobbies_activities |
+
+**Catch-all:** `hobbies_general` routes obscure interests (hobby, pastime, leisure). RAG can retrieve from broad collections when specific domain not indexed.
+
 ---
 
 ## 4. Plugin Catalog (Modular Depth)
@@ -142,6 +196,8 @@ Plugins add **niche** keywords. The master covers **generic** baseline.
 | **vertical_industrial** | ISO, OT/SCADA | ot_integration | industrial_safety, iso_compliance | industrial_platforms |
 | **vertical_creative** | Video, Art, Procedural | video_processing, procedural_generation | — | creative_media |
 | **vertical_lifestyle** | Nutrition, Home, Finance | nutrition_tracking, home_automation | — | smart_home, finance_tools |
+| **vertical_business_commerce** | Business, Sales, Marketing, Budgets, Finance, Accounting | business_strategy, sales_crm, marketing_analytics, budget_business, business_finance | financial_sensitive, budget_override | business, sales, marketing, budget, personal_finance, business_finance, accounting, markets |
+| **vertical_hobbies_activities** | Outdoors, Making, Collecting, Tabletop, Recreation | hiking_backpacking, three_d_printing, woodworking, board_games, etc. | power_tools, outdoor_safety | outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, hobbies_general |
 | **domain_protocols** | Fediverse, OAuth, gRPC | protocol_fediverse, protocol_auth, protocol_rpc | — | — |
 | **domain_audio_synthesis** | Oscillators, Modular | signal_flow, synthesis_types | — | audio_synthesis |
 | **domain_running** | VO2max, Taper | training_metrics | injury+pain | athletics |
@@ -183,25 +239,30 @@ To reach "the 95%" for new verticals:
 
 ## 7. Taxonomy-Driven Output Type (Document vs Code)
 
-The taxonomy determines **output_type** (document or code). Document → skip Planner; Worker produces markdown directly.
+**Design: document-first.** Default to discussions, plans, explanations. Code path only when taxonomy or coding client signals code.
 
 | Mechanism | Intents | Meaning |
 |-----------|---------|---------|
-| `inherently_document: true` | knowledge, creative_ideation | Always document (explanations, ideas). No domain check. |
-| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → document. planning/writing + lifestyle = document. |
+| `inherently_document: true` | conversation, knowledge, creative_ideation | Always document (greetings, explanations, ideas). |
+| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → document. |
+| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code path. |
+| **Coding client** | (header detection) | Cursor, Claude Code, etc. send `User-Agent`/`X-Client`. Ambiguous (general) → code bias. |
 
 | Intent | Config | Example |
 |--------|--------|---------|
+| conversation | inherently_document | "hi", "what can you do", "thanks" |
 | knowledge | inherently_document | "explain marathon taper", "what is VO2max" |
 | creative_ideation | inherently_document | "brainstorm names", "suggest workouts" |
 | planning | document_domains | "marathon plan", "meal plan", "budget plan" |
 | personal_guidance | document_domains | "how can I improve running", "optimize nutrition" |
 | writing | document_domains | "write blog about marathon", "draft email about nutrition" |
-| debugging, review, data_transform, tool_orchestrated | (default code) | — |
+| debugging, review, code_generation, data_transform, tool_orchestrated | code | "fix this bug", "write a script", "parse json" |
 
-**Flow:** Entry Classifier (engine sets output_type from config) → plan_required=false when document → Supervisor (passthrough when output_type=document) → Context Curator → Worker (produces markdown) → Patch Integrity Gate (bypass sandbox) → Respond.
+**No match (general)** → document. **Coding client + general** → code (Cursor/Claude Code session assumes code).
 
-**Planner is for code decomposition only.** Document output (plans, explanations, guidance, drafts, ideas) is produced directly by Worker. Safety-II/JCS applies to architecture/complex code; lifestyle vertical uses Senior persona (not Architect).
+**Flow:** Entry Classifier (engine, coding_client override) → plan_required=false when document → Supervisor passthrough → Worker (explain_only uses document-centric prompt) → Respond.
+
+**Planner is for code decomposition only.** Worker explain_only uses a document-focused prompt with no code bias.
 
 ---
 
@@ -257,7 +318,65 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 
 ---
 
-## 11. See Also
+## 11. Coverage Gaps & 95% Strategy
+
+### Missing Classifications (Now Addressed)
+
+| Gap | Plugin / Addition | Purpose |
+|-----|-------------------|---------|
+| **IaC / Automation** | `vertical_iac_automation.yaml` | Terraform (basic vs module/state), Ansible (playbook vs roles), Pulumi, Chef, Puppet. Shell: bash, zsh, ksh, PowerShell. Complexity tiers for `terraform plan` (6) vs `terraform module + state` (10). |
+| **Programming languages** | `vertical_programming_slc.yaml` | Python, JS/TS, Go, Rust, Java, C#, Ruby, PHP, Elixir, Perl, Lua, Scala, Haskell. Ecosystem terms: pip, npm, cargo, maven, etc. RAG routing to language-specific collections. |
+| **Shell variants** | Entry classifier + IaC plugin | zsh, ksh, korn shell, PowerShell (.ps1, pwsh) in language detection. domain: shell_bash, powershell. |
+| **SLC phases** | vertical_programming_slc | requirements_phase, design_phase, testing_phase, deployment_phase, maintenance_phase, documentation_artifact. Enables phase-aware routing (e.g. design → document; implement → code). |
+| **Migration / Documentation** | intent_classes | `migration` (migrate, upgrade, deprecate, version bump), `documentation` (generate docs, readme, api docs). Code intents for artifact generation. |
+
+### Complexity Interpretation
+
+| User says | Intended | Taxonomy behavior |
+|-----------|----------|-------------------|
+| "terraform plan" | Small (single command) | terraform_basic (6) → small ✓ |
+| "terraform module for vpc" | Small–complex | terraform_module (10) + scope → small or complex ✓ |
+| "ansible playbook for 50 hosts" | Complex | ansible_orchestration (12) + multi → complex ✓ |
+| "bash script to backup db" | Small | shell_scripting (6) + local_persistence (8) → small ✓ |
+| "simple hello world" | Trivial | io_basic (1), create_basic (1) → trivial ✓ |
+| "migrate from Python 2 to 3" | Complex | maintenance_phase (10) + migration intent → complex ✓ |
+
+**Density tax:** 3+ complexity categories → +10. Prevents single keyword from dominating; reflects real multi-faceted tasks.
+
+**Risk veto:** Any risk ≥15 → force complex. Security, destructive, production deploy never trivial.
+
+### How Taxonomy Improves Nodes
+
+| Node | Use |
+|------|-----|
+| **Critic** | vertical_programming_slc → migration/dependency risks; vertical_iac_automation → state safety, idempotency |
+| **Router / Supervisor** | domain_keywords → route to correct RAG; code_intents → code path; SLC phases → design doc vs implementation |
+| **Planner** | SLC phases → step ordering (design before implement); IaC → terraform plan before apply |
+| **Executor** | language + ecosystem domain → correct runner (pytest, jest, go test); shell variant → bash vs pwsh |
+
+---
+
+## 12. Taxonomy-RAG Alignment
+
+**Principle:** Taxonomy domain IDs = catalog `domain` field = RAG filter. Single source of truth.
+
+| Layer | Convention |
+|-------|------------|
+| **Taxonomy** | `domain_keywords.athletics` → `domain: athletics_running`. Add `music` with subdomains `music_piano`, `music_synthesizer` as separate entries. |
+| **Indexers** | Tag chunks with `domain=<taxonomy_id>` when upserting. `sources.yaml` or indexer config: use taxonomy domain IDs (e.g. `domain: music_piano`). |
+| **RAG client** | `select_collections_for_task` builds `domain in ["athletics_running", "music"]` from `active_domain_refs`. Milvus vector search applies filter. |
+
+**Adding a new vertical (e.g. music):**
+1. Add `domain_keywords.music_piano` in a plugin with `domain: music_piano`, keywords like `piano`, `keyboard`.
+2. Add `domain_keywords.music_synthesizer` with `domain: music_synthesizer`, keywords like `synth`, `oscillator`.
+3. Index music docs with `domain="music_piano"` or `domain="music_synthesizer"` in catalog schema.
+4. RAG will filter by `active_domain_refs` when user query matches.
+
+Existing indexers (domain, architecture, code) use their own domain extraction (e.g. `domain_openshift` → `openshift`). Align by configuring indexer `domain` to match a taxonomy ID where applicable.
+
+---
+
+## 13. See Also
 
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
 - [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + dark debt (universal)

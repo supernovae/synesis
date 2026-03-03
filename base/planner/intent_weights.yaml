@@ -231,26 +231,37 @@ pairings:
 # inherently_document: true = intent always produces text (explanations, ideas); no domain check.
 # document_domains: intent + these domains → document. Used when intent is mixed (e.g. planning, writing).
 intent_classes:
+  # First: greetings, meta, ambiguous → document. Must stay first (first match wins).
+  conversation:
+    keywords: [hi, hello, hey, howdy, what's up, what can you do, how does this work, thanks, ok, got it, cool]
+    inherently_document: true
   debugging:
     keywords: [fix, debug, error, trace, why does it fail, stack trace, diagnose, troubleshoot]
   review:
     keywords: [review, validate, audit, check, assess, code review, security audit]
   planning:
-    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, generate a plan, marathon plan, create a plan, training schedule, schedule]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance]  # document output; Planner is for code decomposition
+    keywords: [plan, strategy, design, architecture, break down, decompose, training plan, meal plan, budget plan, business plan, marketing plan, sales plan, go-to-market, gtm plan, financial plan, hiking plan, trip plan, gear list, trail plan, garden plan, 3d print plan, generate a plan, marathon plan, create a plan, training schedule, schedule, study plan]
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, astronomy, physics, mathematics, chemistry, social_science, environmental_science, neuroscience]  # document output; science + lifestyle + business + hobbies
   knowledge:
-    keywords: [explain, what is, how does, why does, define, describe, tell me about]
-    inherently_document: true  # explanations are always text
+    keywords: [explain, what is, how does, why does, define, describe, tell me about, pivot, pivot to, switch to, switch mode, document mode]
+    inherently_document: true  # explanations are always text; pivot/switch = user context change
   writing:
-    keywords: [write, draft, compose, email, blog, article, content]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance, creative_media]  # blog/email about lifestyle; script = code
+    keywords: [write, draft, compose, email, blog, article, content, essay, report, summary]
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, creative_media, astronomy, physics, mathematics, chemistry, social_science, environmental_science]  # blog/essay/report; script = code
+  # Explicit code intents — trigger code path (with coding client or when matched)
+  code_generation:
+    keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print, add test, write code]
   data_transform:
     keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
   tool_orchestrated:
     keywords: [search and, fetch and, multi-step]
+  migration:
+    keywords: [migrate, upgrade, deprecate, version bump, breaking change, port from, convert to]
+  documentation:
+    keywords: [generate docs, document, readme, api docs, openapi spec]
   personal_guidance:
     keywords: [how can i, improve my, optimize my, help me with]
-    document_domains: [athletics_running, nutrition, home_automation, personal_finance]  # guidance as text; no code steps
+    document_domains: [athletics_running, nutrition, home_automation, personal_finance, business, sales, marketing, budget, business_finance, accounting, outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, photography_hobby, aquariums, hobbies_general, astronomy, physics, mathematics, social_science]  # guidance as text; no code steps
   creative_ideation:
     keywords: [brainstorm, ideas for, suggest, creative]
     inherently_document: true  # ideas/suggestions are always text
