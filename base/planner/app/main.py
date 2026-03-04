@@ -1079,9 +1079,29 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             _diag_stream_events += 1
                             elapsed_now = int((time.monotonic() - t_start) * 1000)
 
-                            # Extract reasoning_content (DeepSeek R1 thinking tokens)
+                            if _diag_stream_events == 1:
+                                _ak = getattr(chunk_obj, "additional_kwargs", {}) or {}
+                                logger.info(
+                                    "sse_first_worker_chunk_diag",
+                                    extra={
+                                        "elapsed_ms": elapsed_now,
+                                        "content_sample": (chunk_obj.content or "")[:80],
+                                        "has_reasoning_attr": hasattr(chunk_obj, "reasoning_content"),
+                                        "reasoning_attr_val": (getattr(chunk_obj, "reasoning_content", None) or "")[:80],
+                                        "ak_keys": sorted(_ak.keys())[:10],
+                                        "ak_reasoning": (_ak.get("reasoning_content", "") or "")[:80],
+                                        "chunk_type": type(chunk_obj).__name__,
+                                    },
+                                )
+
+                            # Extract reasoning_content (DeepSeek R1 thinking tokens).
+                            # Check multiple locations: langchain-openai >= 0.3.14 puts it
+                            # on the chunk directly; older versions may put it in additional_kwargs;
+                            # some versions drop it entirely (langchain-ai/langchain#34706).
                             rc = ""
-                            if hasattr(chunk_obj, "additional_kwargs"):
+                            if hasattr(chunk_obj, "reasoning_content") and chunk_obj.reasoning_content:
+                                rc = chunk_obj.reasoning_content
+                            elif hasattr(chunk_obj, "additional_kwargs"):
                                 rc = (chunk_obj.additional_kwargs or {}).get("reasoning_content", "")
                             if rc:
                                 _diag_reasoning_chunks += 1

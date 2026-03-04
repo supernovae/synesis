@@ -86,7 +86,7 @@ spec:
             - --served-model-name=synesis-supervisor
             - --tensor-parallel-size=1
             - --max-model-len=32768
-            - --gpu-memory-utilization=0.72
+            - --gpu-memory-utilization=0.90
             - --enable-prefix-caching
           resources:
             limits:

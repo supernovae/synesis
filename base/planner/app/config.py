@@ -129,9 +129,10 @@ class Settings(BaseSettings):
     memory_ttl_seconds: float = 14400.0
 
     # Worker: Thinking Mode for complex tasks (deliberate reasoning, higher latency).
-    # executor_thinking_param: "enable_thinking" (Qwen3), "thinking" (DeepSeek-V3), "" (DeepSeek-Coder-V2 or disabled)
+    # executor_thinking_param: "enable_thinking" (Qwen3), "thinking" (DeepSeek-V3),
+    # "" (R1-Distill / DeepSeek-Coder — R1-Distill always thinks via <think> tags, no param needed)
     worker_thinking_mode_enabled: bool = True
-    executor_thinking_param: str = "enable_thinking"
+    executor_thinking_param: str = ""
 
     # Model capability tier: "small" (8B), "medium" (30B), "large" (70B+).
     # When "large", taxonomy prompt shaping is disabled — the model handles tone/depth natively.
