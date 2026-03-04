@@ -120,7 +120,8 @@ supervisor_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.supervisor_model_name,
     temperature=0.0,
-    max_tokens=1536,
+    max_completion_tokens=1536,
+    use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.supervisor_model_uds or None),
 )
 

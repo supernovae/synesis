@@ -65,7 +65,8 @@ def _get_summarizer_llm():
             api_key="not-needed",
             model=getattr(settings, "summarizer_model_name", "synesis-summarizer"),
             temperature=0.1,
-            max_tokens=150,
+            max_completion_tokens=150,
+            use_responses_api=False,
             http_client=get_llm_http_client(),
         )
         return _summarizer_llm

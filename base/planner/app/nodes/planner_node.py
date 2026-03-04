@@ -55,8 +55,9 @@ planner_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.planner_model_name,
     temperature=0.2,
-    max_tokens=1024,  # 1-5 steps ~200-600 tokens; 2048 was overkill and slowed generation
-    streaming=True,  # vLLM/LangChain streaming; enables astream_events token/plan capture
+    max_completion_tokens=1024,
+    streaming=True,
+    use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 

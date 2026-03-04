@@ -157,8 +157,9 @@ worker_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.executor_model_name,
     temperature=0.2,
-    max_tokens=4096,
-    streaming=True,  # vLLM streaming; enables astream_events token capture for Open WebUI
+    max_completion_tokens=4096,
+    streaming=True,
+    use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.executor_model_uds or None),
 )
 

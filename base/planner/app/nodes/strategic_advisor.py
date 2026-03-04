@@ -44,7 +44,8 @@ advisor_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.advisor_model_name,
     temperature=0.0,
-    max_tokens=15,
+    max_completion_tokens=15,
+    use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.advisor_model_uds or None),
 )
 

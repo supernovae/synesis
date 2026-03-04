@@ -77,7 +77,8 @@ critic_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.critic_model_name,
     temperature=0.1,
-    max_tokens=settings.critic_max_tokens,
+    max_completion_tokens=settings.critic_max_tokens,
+    use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.critic_model_uds or None),
     model_kwargs=_model_kwargs,
 )
