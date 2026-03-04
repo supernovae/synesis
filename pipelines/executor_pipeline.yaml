@@ -1,0 +1,159 @@
+# PIPELINE DEFINITION
+# Name: synesis-executor-fp8
+# Description: Executor: clean PVC, download FP8 model. Load from PV at runtime (no OCI).
+# Inputs:
+#    model_repo: str [Default: 'RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic']
+#    pvc_name: str [Default: 'executor-build-pvc']
+components:
+  comp-cleanup-executor-pvc:
+    executorLabel: exec-cleanup-executor-pvc
+  comp-download-executor-model:
+    executorLabel: exec-download-executor-model
+    inputDefinitions:
+      parameters:
+        model_repo:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-cleanup-executor-pvc:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - cleanup_executor_pvc
+        command:
+        - sh
+        - -c
+        - "\nuv venv /tmp/venv && . /tmp/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef cleanup_executor_pvc():\n    \"\"\"Remove old model files from\
+          \ PVC before downloading a new model.\"\"\"\n    import os\n    import shutil\n\
+          \n    model_dir = \"/data/executor-model\"\n    if os.path.isdir(model_dir):\n\
+          \        size_mb = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fns\
+          \ in os.walk(model_dir) for f in fns) / (\n            1024 * 1024\n   \
+          \     )\n        print(f\"Cleaning {model_dir} ({size_mb:.0f} MB)...\")\n\
+          \        shutil.rmtree(model_dir)\n        print(\"Cleanup complete\")\n\
+          \    else:\n        print(f\"{model_dir} does not exist, nothing to clean\"\
+          )\n    os.makedirs(model_dir, exist_ok=True)\n\n"
+        image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:model-pvc-download
+        resources:
+          cpuRequest: 0.5
+          memoryLimit: 0.536870912
+          memoryRequest: 0.268435456
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 512Mi
+          resourceMemoryRequest: 256Mi
+    exec-download-executor-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - download_executor_model
+        command:
+        - sh
+        - -c
+        - "\nuv venv /tmp/venv && . /tmp/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef download_executor_model(model_repo: str):\n    \"\"\"Download\
+          \ pre-quantized FP8 model from HuggingFace to PVC. No GPU needed.\"\"\"\n\
+          \    import subprocess\n\n    subprocess.run(\n        [\"uv\", \"pip\"\
+          , \"install\", \"-q\", \"huggingface_hub[hf_transfer]\"],\n        check=True,\n\
+          \    )\n\n    import os\n\n    out = \"/data/executor-model\"  # Must be\
+          \ inline \u2014 KFP serializes component without module constants\n    os.makedirs(out,\
+          \ exist_ok=True)\n    from huggingface_hub import snapshot_download\n\n\
+          \    print(\"Downloading\", model_repo, \"->\", out)\n    snapshot_download(\n\
+          \        repo_id=model_repo,\n        local_dir=out,\n        token=os.environ.get(\"\
+          HF_TOKEN\") or None,\n    )\n    print(\"Done\")\n\n"
+        image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:model-pvc-download
+        resources:
+          cpuRequest: 1.0
+          memoryLimit: 8.589934592
+          memoryRequest: 4.294967296
+          resourceCpuRequest: 1000m
+          resourceMemoryLimit: 8Gi
+          resourceMemoryRequest: 4Gi
+pipelineInfo:
+  description: 'Executor: clean PVC, download FP8 model. Load from PV at runtime (no
+    OCI).'
+  name: synesis-executor-fp8
+root:
+  dag:
+    tasks:
+      cleanup-executor-pvc:
+        cachingOptions: {}
+        componentRef:
+          name: comp-cleanup-executor-pvc
+        taskInfo:
+          name: cleanup-executor-pvc
+      download-executor-model:
+        cachingOptions: {}
+        componentRef:
+          name: comp-download-executor-model
+        dependentTasks:
+        - cleanup-executor-pvc
+        inputs:
+          parameters:
+            model_repo:
+              componentInputParameter: model_repo
+        taskInfo:
+          name: download-executor-model
+  inputDefinitions:
+    parameters:
+      model_repo:
+        defaultValue: RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic
+        isOptional: true
+        parameterType: STRING
+      pvc_name:
+        defaultValue: executor-build-pvc
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.16.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-cleanup-executor-pvc:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: /data
+            pvcNameParameter:
+              componentInputParameter: pvc_name
+        exec-download-executor-model:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: /data
+            pvcNameParameter:
+              componentInputParameter: pvc_name
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: HF_TOKEN
+              secretKey: HF_TOKEN
+            optional: true
+            secretName: hf-hub-secret
+            secretNameParameter:
+              runtimeValue:
+                constant: hf-hub-secret
