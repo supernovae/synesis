@@ -6,7 +6,7 @@
 #
 #   GPU 1 (L40S): synesis-supervisor-critic  — Deployment (PVC-based)
 #                 Serves supervisor, planner, and critic roles from one 8B
-#                 AWQ model. Two K8s Services route to the same pod:
+#                 FP8-dynamic model. Two K8s Services route to the same pod:
 #                   - synesis-supervisor-predictor (supervisor + planner)
 #                   - synesis-critic-predictor     (critic)
 #
@@ -28,25 +28,28 @@ models:
   supervisor_critic:
     name: "synesis-supervisor"
     served_model_name: "synesis-supervisor"
-    display_name: "Qwen3 8B AWQ (Supervisor / Planner / Critic)"
+    display_name: "Qwen3 8B FP8-dynamic (Supervisor / Planner / Critic)"
     role: "Routing, task planning, and Safety-II critic review"
     huggingface_repo: "RedHatAI/Qwen3-8B-FP8-dynamic"
-    quantization: "awq"
-    architecture: "dense"
+    quantization: "compressed-tensors"
+    architecture: "dense (8B, FP8 ≈ 8 GB weights)"
     deployment_type: "Deployment (PVC: modelcar-build-pvc, subPath: models)"
     requires_gpu: true
     min_vram_gb: 8
     context_length: 32768
     vllm_args:
-      - "--quantization=awq"
+      - "--generation-config=vllm"
       - "--enable-prefix-caching"
       - "--gpu-memory-utilization=0.90"
       - "--max-model-len=32768"
     notes: >
-      Single Deployment pod serves three logical roles via two K8s Services.
-      Planner calls route to synesis-supervisor-predictor; critic calls
-      route to synesis-critic-predictor. Both hit the same pod. Future:
-      LoRA adapters per role for specialized tuning.
+      FP8-dynamic quantized Qwen3-8B (RedHatAI, llm-compressor FP8_DYNAMIC
+      scheme). vLLM auto-detects compressed-tensors format from config.json
+      — no explicit --quantization flag needed. Native FP8 tensor core ops
+      on L40S (SM89/Ada). Prefix caching enabled for system prompt reuse
+      across supervisor/planner/critic roles. Single Deployment pod serves
+      three logical roles via two K8s Services. Future: LoRA adapters per
+      role for specialized tuning.
 
   # -------------------------------------------------------------------------
   # GPU 2: Executor (DeepSeek R1-Distill, Deployment)
@@ -121,7 +124,7 @@ models:
 # ============================================================================
 # Logical role -> physical model mapping
 # ============================================================================
-#   supervisor_model  -> synesis-supervisor-predictor  (Qwen3-8B AWQ, GPU 1)
+#   supervisor_model  -> synesis-supervisor-predictor  (Qwen3-8B FP8, GPU 1)
 #   planner_model     -> synesis-supervisor-predictor  (same model/endpoint)
 #   executor_model    -> synesis-executor-predictor    (R1-Distill-32B FP8, GPU 2)
 #   critic_model      -> synesis-critic-predictor      (same pod as supervisor)

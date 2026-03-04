@@ -180,7 +180,7 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 **When Planner runs:** (1) Code: `task_size=complex` + `plan_required` (multi-step, protocol-heavy). (2) Document deep-dive: `output_type=document` + domain in `deep_dive_domains` + `complexity > 0.6` → `plan_required=true` → Planner with `required_elements` and `depth_instructions` from `taxonomy_prompt_config.yaml`. Simple document → `plan_required=false` → Supervisor passthrough → Worker explain_only.
 
 **Why Planner can feel slow:**
-- Uses same model as Supervisor (Qwen3-8B AWQ). Each Planner call is a full LLM inference.
+- Uses same model as Supervisor (Qwen3-8B FP8-dynamic). Each Planner call is a full LLM inference.
 - Prompt: system (atomic rules) + task + assumptions + RAG context (up to 5 chunks) + domain decomposition rules from `vertical_prompts.yaml`.
 - Output: JSON plan with steps, touched_files, reasoning. `max_tokens=1024` (sufficient for 1–5 steps).
 

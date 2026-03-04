@@ -10,7 +10,7 @@ Download Manager and Executor models to PVC. **No OCI build/push.** Deployments 
 
 | Pipeline | Model | Steps | Runtime |
 |----------|-------|-------|---------|
-| **Manager** | Qwen2.5-32B-Instruct-AWQ | HF download → PVC | ~10–20 min |
+| **Manager** | Qwen3-8B-FP8-dynamic | HF download → PVC | ~5–10 min |
 | **Executor** | DeepSeek-R1-Distill-Qwen-32B FP8 | Clean PVC → HF download → PVC | ~10–20 min |
 
 ## Prerequisites

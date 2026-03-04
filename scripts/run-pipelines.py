@@ -89,7 +89,7 @@ def run_pipeline(
 
     if name == "manager":
         args = {
-            "model_repo": os.environ.get("MODEL_REPO", "Qwen/Qwen2.5-32B-Instruct-AWQ"),
+            "model_repo": os.environ.get("MODEL_REPO", "RedHatAI/Qwen3-8B-FP8-dynamic"),
             "model_name": "manager",
             "pvc_name": os.environ.get("MODELCAR_PVC", "modelcar-build-pvc"),
         }

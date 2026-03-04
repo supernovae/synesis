@@ -3,7 +3,7 @@
 # Description: Manager: download model to PVC. Load from PV at runtime (no OCI).
 # Inputs:
 #    model_name: str [Default: 'manager']
-#    model_repo: str [Default: 'Qwen/Qwen2.5-32B-Instruct-AWQ']
+#    model_repo: str [Default: 'RedHatAI/Qwen3-8B-FP8-dynamic']
 #    pvc_name: str [Default: 'modelcar-build-pvc']
 components:
   comp-download-model:
@@ -78,7 +78,7 @@ root:
         isOptional: true
         parameterType: STRING
       model_repo:
-        defaultValue: Qwen/Qwen2.5-32B-Instruct-AWQ
+        defaultValue: RedHatAI/Qwen3-8B-FP8-dynamic
         isOptional: true
         parameterType: STRING
       pvc_name:

@@ -21,6 +21,27 @@ UV_BASE = f"{_ECR}:model-pvc-download" if _ECR else "ghcr.io/astral-sh/uv:python
 
 
 @dsl.component(base_image=UV_BASE)
+def cleanup_manager_pvc():
+    """Remove old model files from PVC before downloading a new model."""
+    import os
+    import shutil
+
+    model_dir = "/data/models"
+    if os.path.isdir(model_dir):
+        size_mb = sum(
+            os.path.getsize(os.path.join(dp, f))
+            for dp, _, fns in os.walk(model_dir)
+            for f in fns
+        ) / (1024 * 1024)
+        print(f"Cleaning {model_dir} ({size_mb:.0f} MB)...")
+        shutil.rmtree(model_dir)
+        print("Cleanup complete")
+    else:
+        print(f"{model_dir} does not exist, nothing to clean")
+    os.makedirs(model_dir, exist_ok=True)
+
+
+@dsl.component(base_image=UV_BASE)
 def download_model(model_repo: str):
     """Download HuggingFace model to PVC. Streams to disk, ~6Gi memory."""
     import subprocess
@@ -33,9 +54,6 @@ def download_model(model_repo: str):
     import os
 
     out = "/data/models"
-    if os.path.isfile(os.path.join(out, "config.json")):
-        print("Model already on PVC, skipping download")
-        return
     os.makedirs(out, exist_ok=True)
     from huggingface_hub import snapshot_download
 
@@ -78,12 +96,24 @@ def _patch_yaml_deps(path: str) -> None:
     description="Manager: download model to PVC. Load from PV at runtime (no OCI).",
 )
 def manager_modelcar_pipeline(
-    model_repo: str = "Qwen/Qwen2.5-32B-Instruct-AWQ",
+    model_repo: str = "RedHatAI/Qwen3-8B-FP8-dynamic",
     model_name: str = "manager",
     pvc_name: str = "modelcar-build-pvc",
 ):
+    cleanup_task = cleanup_manager_pvc()
+    cleanup_task.set_caching_options(enable_caching=False)
+    kubernetes.mount_pvc(
+        cleanup_task,
+        pvc_name=pvc_name,
+        mount_path=PVC_MOUNT_PATH,
+    )
+    cleanup_task.set_cpu_request("500m")
+    cleanup_task.set_memory_request("256Mi")
+    cleanup_task.set_memory_limit("512Mi")
+
     download_task = download_model(model_repo=model_repo)
-    download_task.set_caching_options(enable_caching=False)  # PVC is external; cache can skip write
+    download_task.set_caching_options(enable_caching=False)
+    download_task.after(cleanup_task)
     kubernetes.mount_pvc(
         download_task,
         pvc_name=pvc_name,
