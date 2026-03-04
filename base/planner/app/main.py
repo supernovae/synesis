@@ -1366,6 +1366,133 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     content_streamed = True
                     sent_role = True
 
+                # ── Deferred direct stream for explain_only ──
+                # When the worker returns a direct_stream_request instead of
+                # calling langchain (which drops reasoning_content), we stream
+                # directly from the executor via the raw openai SDK. This
+                # preserves reasoning_content in the SSE delta so Open WebUI
+                # renders it natively in a collapsible Thinking UI.
+                _stream_req = accumulated_state.get("direct_stream_request")
+                if _stream_req and not content_streamed:
+                    try:
+                        import openai as _openai
+
+                        _aclient = _openai.AsyncOpenAI(
+                            base_url=settings.executor_model_url,
+                            api_key="not-needed",
+                        )
+                        _ds_full_content = ""
+                        _ds_reasoning_buf = ""
+                        _ds_in_reasoning = False
+                        _ds_first_content = False
+                        _ds_last_status = ""
+
+                        yield _sse_content_delta(chat_id, {"role": "assistant", "content": ""}, run_id=run_id)
+                        sent_role = True
+                        await asyncio.sleep(0)
+
+                        _ds_stream = await _aclient.chat.completions.create(
+                            model=settings.executor_model_name,
+                            stream=True,
+                            **_stream_req,
+                        )
+                        async for _ds_chunk in _ds_stream:
+                            if not _ds_chunk.choices:
+                                continue
+                            _ds_delta = _ds_chunk.choices[0].delta
+                            _ds_rc = getattr(_ds_delta, "reasoning_content", None) or ""
+                            _ds_ct = getattr(_ds_delta, "content", None) or ""
+
+                            if _ds_rc:
+                                _diag_reasoning_chunks += 1
+                                if not _ds_in_reasoning:
+                                    _ds_in_reasoning = True
+                                    _diag_first_reasoning_ms = int((time.monotonic() - t_start) * 1000)
+                                    logger.info(
+                                        "sse_first_reasoning_token",
+                                        extra={
+                                            "elapsed_ms": _diag_first_reasoning_ms,
+                                            "node": "worker",
+                                            "sample": _ds_rc[:120],
+                                            "source": "direct_stream",
+                                        },
+                                    )
+                                    yield _sse_status_chunk(
+                                        {
+                                            "type": "status",
+                                            "data": {
+                                                "description": "Thinking\u2026",
+                                                "done": False,
+                                                "hidden": False,
+                                            },
+                                        }
+                                    )
+                                    await asyncio.sleep(0)
+
+                                # Forward reasoning_content in SSE delta
+                                yield _sse_content_delta(chat_id, {"reasoning_content": _ds_rc}, run_id=run_id)
+
+                                # Extract heading lines for status events
+                                _ds_reasoning_buf += _ds_rc
+                                while "\n" in _ds_reasoning_buf:
+                                    _line, _ds_reasoning_buf = _ds_reasoning_buf.split("\n", 1)
+                                    _line = _line.strip()
+                                    if len(_line) < 5:
+                                        continue
+                                    _is_heading = (
+                                        _line.startswith("#")
+                                        or _line.startswith("**")
+                                        or _line.startswith("- ")
+                                        or (_line[0].isupper() and _line.endswith(":"))
+                                        or (_line[0].isdigit() and ". " in _line[:5])
+                                        or (len(_line) > 20 and _line[0].isupper())
+                                    )
+                                    if _is_heading and _line != _ds_last_status:
+                                        _ds_last_status = _line
+                                        _short = _line.lstrip("#*- ").strip().rstrip(":")
+                                        if _short and len(_short) > 3:
+                                            thinking_phases.append(f"  \u2192 {_short}")
+                                            yield _sse_status_chunk(
+                                                {
+                                                    "type": "status",
+                                                    "data": {
+                                                        "description": f"Thinking: {_short[:80]}",
+                                                        "done": False,
+                                                        "hidden": False,
+                                                    },
+                                                }
+                                            )
+                                            await asyncio.sleep(0)
+
+                            if _ds_ct:
+                                _diag_content_chunks += 1
+                                if not _ds_first_content:
+                                    _ds_first_content = True
+                                    _diag_first_content_ms = int((time.monotonic() - t_start) * 1000)
+                                    logger.info(
+                                        "sse_first_content_token",
+                                        extra={
+                                            "elapsed_ms": _diag_first_content_ms,
+                                            "reasoning_chunks": _diag_reasoning_chunks,
+                                            "node": "worker",
+                                            "source": "direct_stream",
+                                        },
+                                    )
+                                yield _sse_content_delta(chat_id, {"content": _ds_ct}, run_id=run_id)
+                                _ds_full_content += _ds_ct
+                                content_streamed = True
+                                token_count_estimate += 1
+
+                        accumulated_state["generated_code"] = _ds_full_content
+                    except Exception as e:
+                        logger.exception("direct_stream_error")
+                        yield _sse_content_delta(
+                            chat_id,
+                            {"content": f"\n\n*Error during direct stream: {str(e)[:200]}*"},
+                            run_id=run_id,
+                        )
+                        content_streamed = True
+
                 # If empty-chunk fallback detected thinking but no phases were extracted,
                 # add a generic timing phase so the thinking block still renders
                 if (

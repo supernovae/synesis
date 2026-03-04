@@ -766,6 +766,56 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         task_size = state.get("task_size", "small")
         _TOKEN_BUDGETS = {"trivial": 1024, "small": 2048, "complex": 4096}
         token_budget = _TOKEN_BUDGETS.get(task_size, 2048)
+        logger.debug("worker_token_budget", extra={"task_size": task_size, "budget": token_budget})
+
+        # Explain-only: bypass langchain LLM call and return a deferred stream
+        # request. The SSE generator will call the executor directly via the raw
+        # openai SDK, preserving reasoning_content that langchain-openai drops
+        # (langchain-ai/langchain#34706). Open WebUI v0.8.8+ renders
+        # reasoning_content natively in a collapsible Thinking UI.
+        if deliverable_type == "explain_only":
+            latency = (time.monotonic() - start) * 1000
+            trace = NodeTrace(
+                node_name=node_name,
+                reasoning="Deferred direct stream (explain_only)",
+                assumptions=[],
+                confidence=0.9,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+                tokens_used=0,
+            )
+            logger.info(
+                "worker_deferred_stream",
+                extra={
+                    "task_size": task_size,
+                    "token_budget": token_budget,
+                    "latency_ms": latency,
+                },
+            )
+            return {
+                "generated_code": "",
+                "direct_stream_request": {
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_completion_tokens": token_budget,
+                    "temperature": 0.2,
+                },
+                "code_explanation": "",
+                "files_touched": [],
+                "unified_diff": None,
+                "patch_ops": [],
+                "code_ref": {},
+                "regressions_intended": [],
+                "regression_justification": "",
+                "current_node": node_name,
+                "node_traces": [trace],
+                "token_budget_remaining": token_budget,
+                "task_description": state.get("task_description", ""),
+                "failure_ids_seen": state.get("failure_ids_seen", []) or [],
+            }
+
         llm_to_use = worker_llm.bind(max_completion_tokens=token_budget)
 
         # Thinking Mode: when task_size=complex, enable model-specific reasoning
@@ -776,44 +826,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 temperature=0.6,
             )
             logger.debug("worker_thinking_mode_enabled", extra={"task_size": task_size, "param": thinking_param})
-        logger.debug("worker_token_budget", extra={"task_size": task_size, "budget": token_budget})
 
         response = await llm_to_use.ainvoke(messages)
-
-        # Explain-only: direct markdown output — skip JSON parsing entirely
-        if deliverable_type == "explain_only":
-            raw_md = (response.content or "").strip()
-            tokens_used = response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0
-            latency = (time.monotonic() - start) * 1000
-            trace = NodeTrace(
-                node_name=node_name,
-                reasoning="Direct markdown (explain_only)",
-                assumptions=[],
-                confidence=0.9,
-                outcome=NodeOutcome.SUCCESS,
-                latency_ms=latency,
-                tokens_used=tokens_used,
-            )
-            logger.info(
-                "worker_completed code_len=%d patch_ops=0",
-                len(raw_md),
-                extra={"confidence": 0.9, "iteration": iteration, "latency_ms": latency},
-            )
-            return {
-                "generated_code": raw_md,
-                "code_explanation": "",
-                "files_touched": [],
-                "unified_diff": None,
-                "patch_ops": [],
-                "code_ref": {},
-                "regressions_intended": [],
-                "regression_justification": "",
-                "current_node": node_name,
-                "node_traces": [trace],
-                "token_budget_remaining": token_budget - tokens_used,
-                "task_description": state.get("task_description", ""),
-                "failure_ids_seen": state.get("failure_ids_seen", []) or [],
-            }
 
         try:
             parsed = validate_with_repair(response.content, ExecutorOut)

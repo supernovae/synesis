@@ -160,6 +160,7 @@ class GraphState(TypedDict, total=False):
     # Lighter payloads: refs + cache instead of duplicating full text
     context_cache: dict[str, str]  # content_hash -> text
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
+    direct_stream_request: dict[str, Any] | None  # deferred LLM call for explain_only (bypasses langchain)
 
 
 class Confidence(float):

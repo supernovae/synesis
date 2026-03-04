@@ -64,7 +64,9 @@ models:
     min_vram_gb: 38
     context_length: 20480
     vllm_args:
+      - "--generation-config=vllm"
       - "--kv-cache-dtype=fp8_e4m3"
+      - "--reasoning-parser=deepseek_r1"
       - "--enable-chunked-prefill"
       - "--gpu-memory-utilization=0.92"
       - "--max-model-len=20480"
@@ -73,12 +75,14 @@ models:
       scheme). Native FP8 tensor core ops on L40S (SM89/Ada) — no
       dequantization overhead vs GPTQ-INT4. FP8 E4M3 KV cache halves
       per-token KV memory vs FP16, allowing more context or concurrency.
-      Always produces <think>...</think> reasoning (architectural, not
-      parameter-controlled). The planner SSE pipeline parses <think> tags
-      from the content stream directly (--reasoning-parser removed because
-      langchain-openai drops the separated reasoning_content field).
-      Worker tiers max_completion_tokens by task complexity (trivial=1024,
-      small=2048, complex=4096) to limit thinking time on simple queries.
+      --reasoning-parser=deepseek_r1 separates reasoning into a
+      reasoning_content field in the streaming delta. The planner bypasses
+      langchain-openai (which drops reasoning_content — see langchain
+      #34706) and streams directly via the raw openai SDK for explain_only
+      requests, forwarding reasoning_content in the SSE delta. Open WebUI
+      v0.8.8+ natively renders reasoning_content in a collapsible Thinking
+      UI. Worker tiers max_completion_tokens by task complexity
+      (trivial=1024, small=2048, complex=4096) to limit thinking time.
 
   # -------------------------------------------------------------------------
   # CPU: Summarizer (KServe InferenceService)
