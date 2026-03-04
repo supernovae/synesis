@@ -21,7 +21,7 @@ _ECR = os.environ.get("ECR_URI")
 UV_BASE = f"{_ECR}:model-pvc-download" if _ECR else "ghcr.io/astral-sh/uv:python3.12-trixie-slim"
 
 
-@dsl.component(base_image="registry.redhat.io/ubi9/ubi-minimal:9.4")
+@dsl.component(base_image=UV_BASE)
 def cleanup_executor_pvc():
     """Remove old model files from PVC before downloading a new model."""
     import os
