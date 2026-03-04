@@ -600,7 +600,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # Only meaningful when there IS prior conversation history to pivot from.
     current_lang = detect_language_deterministic(last_user_content)
     last_lang = memory.get_last_active_language(memory_scope) if settings.memory_enabled else None
-    lang_pivot = bool(last_lang and current_lang != last_lang and conversation_history)
+    lang_pivot = bool(last_lang and current_lang != "infer" and current_lang != last_lang and conversation_history)
 
     last_ctx = memory.get_last_context(memory_scope) if settings.memory_enabled else None
     context_pivot = False
@@ -622,7 +622,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         # follow-ups, not topic switches. Skip domain-based pivot.
         is_short_followup = len(last_user_content.strip()) < _SHORT_FOLLOWUP_LIMIT
 
-        if output_type_changed:
+        if output_type_changed and not is_short_followup:
             context_pivot = True
             pivot_to_label = f"{last_output_type}→{curr_output_type}"
         elif domains_differ and not is_short_followup:
