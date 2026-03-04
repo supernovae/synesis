@@ -148,6 +148,13 @@ complexity_weights:
       - knitting
       - crochet
       - embroidery
+      - fiber arts
+      - macrame
+      - weaving
+      - felting
+      - cross stitch
+      - yarn
+      - pattern
   pottery_ceramics:
     weight: 7
     keywords:
@@ -361,6 +368,30 @@ domain_keywords:
       - interest
       - pastime
       - leisure
+  leatherworking:
+    domain: leatherworking
+    keywords:
+      - leatherwork
+      - leather craft
+      - tooling
+      - leather stitching
+      - tanning
+      - saddle making
+      - leather holster
+      - leather carving
+  cosplay_larp:
+    domain: cosplay_larp
+    keywords:
+      - cosplay
+      - costume
+      - prop making
+      - foam armor
+      - larp
+      - convention
+      - wig styling
+      - body paint
+      - eva foam
+      - worbla
 
 pairings:
   - keywords: [3d print, firmware]

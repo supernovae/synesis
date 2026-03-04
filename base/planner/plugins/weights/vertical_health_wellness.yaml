@@ -1,5 +1,5 @@
 # Synesis Health & Wellness Plugin
-# Focus: General health, mental wellness, sleep, meditation, physical therapy.
+# Focus: General health, mental wellness, sleep, physical therapy, skincare, weight management, first aid, aging.
 # Note: Risk weight for medical advice to encourage appropriate disclaimers.
 
 complexity_weights:
@@ -30,10 +30,26 @@ domain_keywords:
     domain: physical_therapy
     keywords: ["physical therapy", "pt exercises", "rehabilitation", "mobility", "stretching", "foam rolling", "posture", "ergonomics"]
 
+  skincare:
+    domain: skincare
+    keywords: ["skincare", "moisturizer", "sunscreen", "acne", "retinol", "serum", "cleanser", "exfoliate", "dermatology", "anti-aging", "hair care", "grooming", "skin routine", "spf", "toner", "eczema", "rosacea"]
+  weight_management:
+    domain: weight_management
+    keywords: ["weight loss", "weight gain", "bmi", "calorie deficit", "metabolism", "portion control", "body composition", "bulking", "cutting", "body fat", "scale", "waist measurement"]
+  first_aid:
+    domain: first_aid
+    keywords: ["first aid", "cpr", "wound", "burn", "choking", "bandage", "splint", "emergency medicine", "aed", "triage", "bleeding", "fracture", "concussion", "poison control"]
+  aging_senior:
+    domain: aging_senior
+    keywords: ["aging", "senior", "elderly", "retirement health", "mobility", "fall prevention", "dementia", "caregiver", "assisted living", "alzheimer", "geriatric", "bone density", "osteoporosis"]
+
 pairings:
   - keywords: ["chest", "pain"]
     extra_weight: 25
     axis: risk
   - keywords: ["suicidal", "thoughts"]
     extra_weight: 50
+    axis: risk
+  - keywords: ["overdose", "poison"]
+    extra_weight: 30
     axis: risk

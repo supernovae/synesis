@@ -1,6 +1,6 @@
 # Synesis Creative Media Vertical
-# Digital Art, Video Editing, Procedural Generation.
-# domain_audio_synthesis.yaml covers audio; this extends visual and procedural.
+# Digital Art, Video Editing, Procedural Generation, Illustration, Graphic Design, Crafts.
+# vertical_music_audio.yaml covers audio production; this covers visual and procedural.
 
 complexity_weights:
   video_processing:
@@ -67,6 +67,51 @@ domain_keywords:
       - img2img
       - inpainting
       - controlnet
+
+  illustration_animation:
+    domain: illustration
+    keywords:
+      - illustration
+      - animation
+      - storyboard
+      - character design
+      - concept art
+      - manga
+      - comic
+      - pixel art
+      - vector art
+      - motion graphics
+      - 2d animation
+      - stop motion
+  graphic_design:
+    domain: graphic_design
+    keywords:
+      - graphic design
+      - typography
+      - branding
+      - logo
+      - layout
+      - poster
+      - infographic
+      - figma
+      - canva
+      - adobe
+      - photoshop
+      - illustrator
+      - indesign
+  crafts_diy_art:
+    domain: crafts_diy_art
+    keywords:
+      - calligraphy
+      - lettering
+      - scrapbooking
+      - origami
+      - paper craft
+      - screen printing
+      - tie dye
+      - resin art
+      - printmaking
+      - linocut
 
 pairings:
   - keywords: [video, stream]

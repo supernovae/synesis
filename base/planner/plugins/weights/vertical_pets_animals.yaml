@@ -1,0 +1,119 @@
+# Synesis Pets & Animals Plugin
+# Focus: Pet care, dog training, cats, fish, reptiles, equestrian, birds.
+# Moved from vertical_culture_history.yaml for better organizational alignment.
+
+complexity_weights:
+  animal_health:
+    weight: 8
+    keywords:
+      - veterinary
+      - vaccination
+      - spay
+      - neuter
+      - dental cleaning
+      - parasite
+      - flea
+      - tick
+  training_behavior:
+    weight: 7
+    keywords:
+      - obedience
+      - crate training
+      - positive reinforcement
+      - clicker
+      - socialization
+      - separation anxiety
+
+risk_weights:
+  animal_emergency:
+    weight: 15
+    keywords:
+      - pet poison
+      - toxic food
+      - bloat
+      - seizure
+      - emergency vet
+
+domain_keywords:
+  pets:
+    domain: pets
+    keywords:
+      - pet
+      - dog
+      - cat
+      - puppy
+      - kitten
+      - veterinarian
+      - vet
+      - pet food
+      - grooming
+      - breed
+      - adoption
+      - shelter
+      - hamster
+      - rabbit
+      - guinea pig
+      - ferret
+      - reptile
+      - snake
+      - lizard
+      - turtle
+  dog_training:
+    domain: dog_training
+    keywords:
+      - dog training
+      - puppy training
+      - obedience
+      - leash training
+      - house training
+      - crate training
+      - clicker training
+      - agility
+      - therapy dog
+      - service dog
+  equestrian:
+    domain: equestrian
+    keywords:
+      - horse
+      - horseback riding
+      - equestrian
+      - dressage
+      - jumping
+      - stable
+      - farrier
+      - saddle
+      - bridle
+      - tack
+      - trail riding
+  birds_exotic:
+    domain: birds_exotic
+    keywords:
+      - bird
+      - parrot
+      - parakeet
+      - cockatiel
+      - aviary
+      - birdwatching
+      - birding
+      - feeder
+      - nest box
+  aquatic_pets:
+    domain: aquatic_pets
+    keywords:
+      - aquarium
+      - fish tank
+      - reef tank
+      - planted tank
+      - freshwater
+      - saltwater
+      - betta
+      - cichlid
+      - coral
+
+pairings:
+  - keywords: [pet, sick]
+    extra_weight: 10
+    axis: risk
+  - keywords: [horse, injury]
+    extra_weight: 12
+    axis: risk

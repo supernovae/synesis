@@ -80,35 +80,51 @@ pairings:
 
 When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains are tracked. The Context Curator retrieves RAG from both indices.
 
-## Plugin Catalog
+## Plugin Catalog (41 files)
 
-| Plugin | Focus | Complexity | Risk | Domain |
-|--------|-------|------------|------|--------|
-| `domain_protocols.yaml` | Fediverse, ActivityPub, OAuth, gRPC | protocol_fediverse, protocol_auth, system_build | — | — |
-| `compliance_healthcare.yaml` | PHI, HL7/FHIR, Epic/Cerner | interop_standards | phi_identifiers | healthcare_systems |
-| `compliance_fintech.yaml` | Ledger, PCI-DSS, SOX, KYC/AML | — | transaction_logic, fin_regulatory | fin_platforms |
-| `vertical_compliance_legal.yaml` | GDPR, CCPA, e-discovery | regulatory_workflow | gdpr_privacy, legal_sensitive | privacy_tools, legal_tech |
-| `secops_hardening.yaml` | FIPS, CIS, STIGs, SELinux | — | security_standards, os_hardening | — |
-| `ai_governance.yaml` | LLM safety, bias, Blackwell/GPU | compute_infra, model_mgmt | ai_safety | — |
-| `vertical_infrastructure.yaml` | Cloud, K8s, HPC, on-prem | cloud_native, k8s_ops, hpc_scheduling | cluster_destructive | aws, gcp, azure, observability |
-| `vertical_development.yaml` | Web, Systems, Mobile, Embedded, GameDev | systems_programming, mobile_native, gamedev_engine | — | rust, go, frontend, backend |
-| `vertical_scientific.yaml` | Bioinformatics, Physics, GIS, ML-Ops | bioinformatics_pipeline, physics_simulation, ml_pipeline | clinical_data | genomics, geospatial |
-| `vertical_industrial.yaml` | ISO, Industrial IoT, OT/SCADA | ot_integration, manufacturing_workflow | industrial_safety, iso_compliance | industrial_platforms |
-| `vertical_creative.yaml` | Video, Digital Art, Procedural Gen | video_processing, procedural_generation | — | creative_media, procedural |
-| `vertical_lifestyle.yaml` | Nutrition, Home Auto, Personal Finance | nutrition_tracking, home_automation, personal_finance | — | nutrition, smart_home, finance |
-| `vertical_business_commerce.yaml` | Business, Sales, Marketing, Budgets, Finance, Accounting | business_strategy, sales_crm, marketing_analytics, budget_business, business_finance | financial_sensitive, budget_override | business, sales, marketing, budget, personal_finance, business_finance, accounting, markets |
-| `vertical_hobbies_activities.yaml` | Outdoors, Making, Collecting, Tabletop, Recreation | hiking_backpacking, three_d_printing, woodworking, board_games, fishing, gardening | power_tools, outdoor_safety | outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, hobbies_general |
-| `domain_audio_synthesis.yaml` | Oscillators, LFO, modular, DAW | signal_flow, synthesis_types, gear_specific | — | audio_synthesis |
-| `domain_running.yaml` | VO2max, biomechanics, marathon taper | training_metrics, biomechanics, programming | injury+pain pairing | athletics |
-| `domain_disambiguation.yaml` | cluster+pod vs cluster+patient | — | — | kubernetes, healthcare, databases |
-| `vertical_aerospace_automotive.yaml` | DO-178C, ISO 26262, ADAS | flight_software, adas_stack | flight_safety, automotive_safety | avionics, vehicle_ecosystem |
-| `vertical_edtech.yaml` | LMS, SCORM, learning analytics | lms_integration | — | lms_platforms, authoring |
-| `vertical_llm_rag.yaml` | RAG, retrieval, chunking | rag_pipeline, chunking_strategy | — | llm_rag |
-| `vertical_llm_prompting.yaml` | Prompt engineering, tool use | prompt_design, tool_use | prompt_injection | llm_prompting |
-| `vertical_llm_evaluation.yaml` | Eval, benchmarks, hallucination | eval_harness, hallucination | — | llm_evaluation |
-| `vertical_iac_automation.yaml` | Terraform, Ansible, Pulumi, shell, PowerShell | terraform_module, ansible_orchestration, shell_scripting | iac_destructive | terraform, ansible, shell_bash, powershell |
-| `vertical_programming_slc.yaml` | Languages, SLC phases, dependency mgmt | requirements_phase, design_phase, maintenance_phase | — | python, javascript, go, rust, java, etc. |
-| `ai_governance.yaml` | LLM safety, fine-tuning | compute_infra, model_mgmt | ai_safety | ai_governance |
+**Compliance (4):** compliance_healthcare, compliance_fintech, compliance_ai_governance, compliance_secops
+
+**Technology (7):** vertical_infrastructure, vertical_development, vertical_programming_slc, vertical_iac_automation, vertical_industrial, vertical_aerospace_automotive, vertical_compliance_legal
+
+**AI/ML (3):** vertical_llm_rag, vertical_llm_prompting, vertical_llm_evaluation
+
+**Science (1):** vertical_scientific
+
+**Education (2):** vertical_education_learning, vertical_edtech
+
+**Business (1):** vertical_business_commerce (includes entrepreneurship, freelancing)
+
+**Health & Wellness (1):** vertical_health_wellness (includes skincare, first aid, aging)
+
+**Fitness & Sports (1):** vertical_fitness (includes martial arts, dance, team sports)
+
+**Food & Cooking (1):** vertical_food_cooking (includes beverages, dietary patterns, preservation)
+
+**Creative & Media (2):** vertical_creative (includes illustration, graphic design, crafts), vertical_music_audio (production, podcasting, DJ)
+
+**Culture & Humanities (1):** vertical_culture_history (includes film/TV, literature, theater, religion, linguistics)
+
+**Hobbies & Making (1):** vertical_hobbies_activities (includes leatherworking, cosplay)
+
+**Family & Pets (2):** vertical_parenting_family, vertical_pets_animals
+
+**Home & Living (1):** vertical_home_improvement (includes interior design, organization, smart home)
+
+**Automotive (1):** vertical_automotive (includes motorcycles, EVs)
+
+**Personal Development (1):** vertical_personal_development (career, productivity, leadership)
+
+**Gaming (1):** vertical_gaming (video games, game design, esports)
+
+**Writing (1):** vertical_writing_publishing (creative writing, publishing, journalism)
+
+**Lifestyle (4):** vertical_events_planning, vertical_fashion_style, vertical_relationships, vertical_sustainability
+
+**Finance & Legal (2):** vertical_real_estate, vertical_personal_legal
+
+**Safety (1):** vertical_safety_emergency
+
+**Domain (2):** domain_protocols, domain_disambiguation
 
 **Sovereign intersection:** When two verticals are detected (e.g. HIPAA + K8s), both domains are tracked. Context Curator retrieves RAG from both indices.
 

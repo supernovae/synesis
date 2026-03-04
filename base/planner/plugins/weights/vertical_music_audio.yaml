@@ -1,0 +1,45 @@
+# Synesis Music & Audio Production Plugin
+# Focus: Electronic music synthesis, music production, podcasting, DJ performance.
+# Covers the full audio creation pipeline from synthesis to mastering.
+
+complexity_weights:
+  signal_flow:
+    weight: 8
+    keywords: ["oscillator", "filter", "lfo", "envelope", "vca", "vcf", "adsr", "routing"]
+  synthesis_types:
+    weight: 10
+    keywords: ["fm synthesis", "subtractive", "wavetable", "granular", "additive", "modular"]
+  gear_specific:
+    weight: 12
+    keywords: ["eurorack", "midi", "cv/gate", "daw", "vst", "clock sync", "latency"]
+  production_mixing:
+    weight: 8
+    keywords: ["mixing", "mastering", "eq", "compressor", "reverb", "delay", "sidechain", "bus", "stem"]
+  recording:
+    weight: 7
+    keywords: ["recording", "microphone", "preamp", "audio interface", "condenser", "dynamic mic", "phantom power"]
+
+domain_keywords:
+  audio_synthesis:
+    domain: audio_synthesis
+    keywords: ["oscillator", "lfo", "modular", "daw", "eurorack", "synthesizer", "synth patch", "sound design"]
+  music_production:
+    domain: music_production
+    keywords: ["music production", "mixing", "mastering", "recording", "studio", "track", "beat", "sample", "loop", "ableton", "logic pro", "fl studio", "garageband", "pro tools", "reaper", "beatmaking", "arrangement"]
+  podcasting:
+    domain: podcasting
+    keywords: ["podcast", "podcasting", "episode", "microphone", "audio editing", "audacity", "anchor", "rss feed", "interview", "show notes", "podcast hosting", "audio quality"]
+  dj_performance:
+    domain: dj_performance
+    keywords: ["dj", "turntable", "beatmatching", "mixer", "live set", "live performance", "cdj", "serato", "traktor", "rekordbox", "transition", "cue point"]
+
+pairings:
+  - keywords: ["modular", "patch"]
+    extra_weight: 5
+    axis: complexity
+  - keywords: ["latency", "buffer"]
+    extra_weight: 10
+    axis: complexity
+  - keywords: ["production", "mastering"]
+    extra_weight: 6
+    axis: complexity

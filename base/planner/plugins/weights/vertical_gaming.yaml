@@ -1,0 +1,90 @@
+# Synesis Gaming Plugin
+# Focus: Video games, game design, esports, retro gaming, game streaming.
+
+complexity_weights:
+  game_development:
+    weight: 12
+    keywords:
+      - game engine
+      - unity
+      - unreal engine
+      - godot
+      - shader
+      - physics engine
+      - pathfinding
+      - procedural generation
+  game_design:
+    weight: 8
+    keywords:
+      - game mechanics
+      - level design
+      - narrative design
+      - game balance
+      - player progression
+      - monetization
+      - ux design games
+
+domain_keywords:
+  gaming:
+    domain: gaming
+    keywords:
+      - video game
+      - gaming
+      - ps5
+      - playstation
+      - xbox
+      - nintendo
+      - switch
+      - steam
+      - pc gaming
+      - rpg
+      - fps
+      - mmorpg
+      - minecraft
+      - fortnite
+      - zelda
+      - mario
+      - elden ring
+      - game review
+      - walkthrough
+      - game guide
+      - retro gaming
+      - emulator
+      - rom
+      - console
+      - controller
+  game_design:
+    domain: game_design
+    keywords:
+      - game design
+      - game development
+      - unity
+      - unreal engine
+      - godot
+      - level design
+      - game mechanics
+      - game jam
+      - indie game
+      - pixel art game
+      - game asset
+      - game testing
+  esports:
+    domain: esports
+    keywords:
+      - esports
+      - competitive gaming
+      - tournament
+      - twitch
+      - game streaming
+      - speedrun
+      - rank
+      - elo
+      - league of legends
+      - valorant
+      - counter-strike
+      - dota
+
+pairings:
+  - keywords: [game, multiplayer, server]
+    extra_weight: 8
+    axis: complexity

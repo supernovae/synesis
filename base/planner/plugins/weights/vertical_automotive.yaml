@@ -1,0 +1,86 @@
+# Synesis Automotive Plugin
+# Focus: Car maintenance, modifications, EVs, motorcycles, restoration.
+# Moved from vertical_culture_history.yaml for better organizational alignment.
+
+complexity_weights:
+  engine_mechanical:
+    weight: 10
+    keywords:
+      - engine rebuild
+      - timing belt
+      - head gasket
+      - turbo
+      - supercharger
+      - fuel injection
+      - compression ratio
+  ev_technology:
+    weight: 8
+    keywords:
+      - battery management
+      - regenerative braking
+      - range anxiety
+      - charging station
+      - level 2 charger
+      - dc fast charge
+
+domain_keywords:
+  automotive_hobby:
+    domain: automotive_hobby
+    keywords:
+      - car
+      - truck
+      - suv
+      - jeep
+      - wrangler
+      - engine
+      - transmission
+      - oil change
+      - tire
+      - brake
+      - horsepower
+      - mpg
+      - towing
+      - off road
+      - 4x4
+      - detailing
+      - restoration
+      - car wash
+      - garage
+      - car buying
+      - used car
+      - trade in
+  motorcycles:
+    domain: motorcycles
+    keywords:
+      - motorcycle
+      - motorbike
+      - harley
+      - sportbike
+      - cruiser
+      - adventure bike
+      - helmet
+      - riding gear
+      - lane splitting
+      - motorcycle maintenance
+  ev_vehicles:
+    domain: ev_vehicles
+    keywords:
+      - electric vehicle
+      - ev
+      - tesla
+      - charging
+      - hybrid
+      - plug-in hybrid
+      - range
+      - battery
+      - ev tax credit
+      - home charger
+      - supercharger
+
+pairings:
+  - keywords: [brake, failure]
+    extra_weight: 15
+    axis: risk
+  - keywords: [engine, rebuild]
+    extra_weight: 10
+    axis: complexity

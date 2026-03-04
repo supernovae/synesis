@@ -1,5 +1,5 @@
 # Synesis Food & Cooking Plugin
-# Focus: Recipes, meal planning, baking, food science, nutrition tracking.
+# Focus: Recipes, meal planning, baking, food science, beverages, dietary patterns, preservation.
 
 complexity_weights:
   food_science:
@@ -20,7 +20,20 @@ domain_keywords:
     domain: food_science
     keywords: ["fermentation", "kombucha", "kimchi", "pickling", "curing", "smoking", "dehydrating", "canning", "food safety", "temperature danger zone"]
 
+  beverages:
+    domain: beverages
+    keywords: ["coffee", "espresso", "tea", "cocktail", "wine", "beer", "bartending", "barista", "latte art", "brewing", "mocktail", "smoothie", "kombucha", "cold brew", "pour over", "french press", "whiskey", "spirits", "mixology"]
+  dietary_patterns:
+    domain: dietary_patterns
+    keywords: ["vegan", "vegetarian", "keto", "paleo", "gluten free", "whole30", "intermittent fasting", "fodmap", "allergen free", "plant based", "carnivore diet", "mediterranean diet", "dash diet", "low carb", "dairy free"]
+  food_preservation:
+    domain: food_preservation
+    keywords: ["canning", "fermenting", "pickling", "dehydrating", "smoking", "curing", "preserving", "sourdough", "kimchi", "sauerkraut", "jerky", "jam", "jelly", "vacuum seal", "freeze drying"]
+
 pairings:
   - keywords: ["allergy", "ingredient"]
     extra_weight: 10
+    axis: risk
+  - keywords: ["canning", "safety"]
+    extra_weight: 12
     axis: risk

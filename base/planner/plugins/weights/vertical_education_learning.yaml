@@ -23,6 +23,13 @@ domain_keywords:
     domain: test_prep
     keywords: ["sat prep", "gre prep", "gmat prep", "mcat prep", "bar exam", "cpa exam", "certification exam", "practice questions", "study schedule"]
 
+  study_skills:
+    domain: study_skills
+    keywords: ["study tips", "note taking", "spaced repetition", "anki", "flashcard strategy", "exam strategy", "cornell notes", "active recall", "pomodoro study", "mind map", "study group"]
+  homeschool:
+    domain: homeschool
+    keywords: ["homeschool", "homeschooling", "unschooling", "curriculum", "montessori", "waldorf", "classical education", "charlotte mason", "co-op", "home education"]
+
 pairings:
   - keywords: ["exam", "tomorrow"]
     extra_weight: 5

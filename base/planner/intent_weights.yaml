@@ -268,7 +268,19 @@ intent_classes:
       - training schedule
       - schedule
       - study plan
-    # document output; science + lifestyle + business + hobbies + education + culture
+      - wedding plan
+      - party plan
+      - career plan
+      - game plan
+      - safety plan
+      - renovation plan
+      - remodel plan
+      - fitness plan
+      - diet plan
+      - workout plan
+      - content plan
+      - event plan
+    # document output; science + lifestyle + business + hobbies + education + culture + all verticals
     document_domains:
       - athletics_running
       - fitness_general
@@ -276,6 +288,9 @@ intent_classes:
       - cycling
       - swimming
       - strength_training
+      - martial_arts
+      - dance
+      - team_sports
       - nutrition
       - home_automation
       - personal_finance
@@ -285,6 +300,8 @@ intent_classes:
       - budget
       - business_finance
       - accounting
+      - entrepreneurship
+      - freelancing
       - outdoors
       - fishing
       - gardening
@@ -297,6 +314,8 @@ intent_classes:
       - photography_hobby
       - aquariums
       - hobbies_general
+      - leatherworking
+      - cosplay_larp
       - astronomy
       - physics
       - mathematics
@@ -307,22 +326,81 @@ intent_classes:
       - education
       - language_learning
       - test_prep
+      - study_skills
+      - homeschool
       - cooking
       - baking
       - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
       - health
       - mental_health
       - sleep
       - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
       - history
       - geography
       - travel
       - music
       - art
       - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
       - parenting
+      - pregnancy
+      - child_development
+      - family_activities
       - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
       - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
+      - creative_media
   knowledge:
     keywords: [explain, what is, how does, why does, define, describe, tell me about, pivot, pivot to, switch to, switch mode, document mode]
     inherently_document: true  # explanations are always text; pivot/switch = user context change
@@ -339,6 +417,9 @@ intent_classes:
       - cycling
       - swimming
       - strength_training
+      - martial_arts
+      - dance
+      - team_sports
       - nutrition
       - home_automation
       - personal_finance
@@ -348,6 +429,8 @@ intent_classes:
       - budget
       - business_finance
       - accounting
+      - entrepreneurship
+      - freelancing
       - outdoors
       - fishing
       - gardening
@@ -360,6 +443,8 @@ intent_classes:
       - photography_hobby
       - aquariums
       - hobbies_general
+      - leatherworking
+      - cosplay_larp
       - creative_media
       - astronomy
       - physics
@@ -367,25 +452,84 @@ intent_classes:
       - chemistry
       - social_science
       - environmental_science
+      - neuroscience
       - education
       - language_learning
       - test_prep
+      - study_skills
+      - homeschool
       - cooking
       - baking
       - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
       - health
       - mental_health
       - sleep
       - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
       - history
       - geography
       - travel
       - music
       - art
       - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
       - parenting
+      - pregnancy
+      - child_development
+      - family_activities
       - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
       - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
   # Explicit code intents — trigger code path (with coding client or when matched)
   code_generation:
     keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print statement, println, console.log, add test, write code, write a script, go script, rust program]
@@ -407,6 +551,9 @@ intent_classes:
       - cycling
       - swimming
       - strength_training
+      - martial_arts
+      - dance
+      - team_sports
       - nutrition
       - home_automation
       - personal_finance
@@ -416,6 +563,8 @@ intent_classes:
       - budget
       - business_finance
       - accounting
+      - entrepreneurship
+      - freelancing
       - outdoors
       - fishing
       - gardening
@@ -428,29 +577,93 @@ intent_classes:
       - photography_hobby
       - aquariums
       - hobbies_general
+      - leatherworking
+      - cosplay_larp
       - astronomy
       - physics
       - mathematics
+      - chemistry
       - social_science
+      - environmental_science
+      - neuroscience
       - education
       - language_learning
       - test_prep
+      - study_skills
+      - homeschool
       - cooking
       - baking
       - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
       - health
       - mental_health
       - sleep
       - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
       - history
       - geography
       - travel
       - music
       - art
       - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
       - parenting
+      - pregnancy
+      - child_development
+      - family_activities
       - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
       - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
+      - creative_media
   creative_ideation:
     keywords: [brainstorm, ideas for, suggest, creative]
     inherently_document: true  # ideas/suggestions are always text

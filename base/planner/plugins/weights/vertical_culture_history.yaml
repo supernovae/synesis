@@ -1,5 +1,6 @@
-# Synesis Culture, History & Lifestyle Plugin
-# Focus: History, geography, travel, music, art, philosophy, parenting, pets.
+# Synesis Culture, History & Humanities Plugin
+# Focus: History, geography, travel, music, art, philosophy, film/TV, literature, theater, religion, linguistics.
+# Parenting, pets, and automotive moved to dedicated vertical files.
 
 complexity_weights:
   historical_analysis:
@@ -11,6 +12,12 @@ complexity_weights:
   art_technique:
     weight: 6
     keywords: ["composition", "perspective", "color theory", "chiaroscuro", "impasto", "glazing"]
+  literary_analysis:
+    weight: 7
+    keywords: ["narrative", "protagonist", "allegory", "symbolism", "literary criticism", "genre", "motif"]
+  film_analysis:
+    weight: 6
+    keywords: ["cinematography", "mise en scene", "montage", "auteur", "film noir", "screenplay structure"]
 
 domain_keywords:
   history:
@@ -31,20 +38,29 @@ domain_keywords:
   philosophy:
     domain: philosophy
     keywords: ["philosophy", "ethics", "metaphysics", "epistemology", "existentialism", "stoicism", "logic", "moral", "socrates", "plato", "aristotle"]
-  parenting:
-    domain: parenting
-    keywords: ["parenting", "baby", "toddler", "child", "kids", "children", "newborn", "pregnancy", "breastfeeding", "potty training", "bedtime routine", "school", "homework help", "family"]
-  pets:
-    domain: pets
-    keywords: ["pet", "dog", "cat", "puppy", "kitten", "veterinarian", "vet", "pet food", "grooming", "training", "breed", "adoption", "aquarium", "fish tank", "reptile", "hamster", "rabbit"]
-  automotive:
-    domain: automotive_hobby
-    keywords: ["car", "truck", "suv", "jeep", "wrangler", "engine", "transmission", "oil change", "tire", "brake", "horsepower", "mpg", "towing", "off road", "4x4"]
+  film_tv:
+    domain: film_tv
+    keywords: ["movie", "film", "tv show", "television", "streaming", "director", "actor", "actress", "cinema", "documentary", "series", "netflix", "anime", "screenplay", "sitcom", "drama series", "oscar", "emmy"]
+  literature:
+    domain: literature
+    keywords: ["book", "novel", "author", "fiction", "nonfiction", "poetry", "poem", "reading", "literary", "genre fiction", "book club", "bibliography", "classic literature", "bestseller", "memoir"]
+  theater:
+    domain: theater
+    keywords: ["theater", "theatre", "broadway", "musical", "play", "stage", "performing arts", "drama", "opera", "ballet", "monologue", "audition", "playwright", "choreography"]
+  religion_spirituality:
+    domain: religion_spirituality
+    keywords: ["religion", "spiritual", "buddhism", "christianity", "islam", "hinduism", "judaism", "prayer", "scripture", "theology", "interfaith", "faith", "worship", "meditation practice", "mindfulness practice", "zen", "taoism"]
+  linguistics:
+    domain: linguistics
+    keywords: ["etymology", "linguistics", "language history", "dialect", "syntax", "morphology", "phonetics", "semantics", "sociolinguistics", "pidgin", "creole", "grammar rules"]
 
 pairings:
   - keywords: ["travel", "safety"]
     extra_weight: 10
     axis: risk
-  - keywords: ["pet", "sick"]
-    extra_weight: 10
+  - keywords: ["religion", "conflict"]
+    extra_weight: 8
     axis: risk
+  - keywords: ["film", "production"]
+    extra_weight: 6
+    axis: complexity

@@ -181,50 +181,153 @@ Broad coverage from outdoors to making to obscure interests. `vertical_fitness` 
 
 ---
 
-## 4. Plugin Catalog (28 plugins)
+## 4. Plugin Catalog (41 plugins)
 
 Plugins add **niche** keywords. The master covers **generic** baseline. Files live in `base/planner/plugins/weights/`.
 
 ### Compliance (4)
 
-| Plugin | Focus | Complexity | Risk | Domain |
-|--------|-------|------------|------|--------|
-| **compliance_healthcare** | PHI, HL7/FHIR | interop_standards | phi_identifiers | healthcare_systems |
-| **compliance_fintech** | PCI, SOX, Ledger | — | transaction_logic, fin_regulatory | fin_platforms |
-| **compliance_ai_governance** | LLM safety, fine-tuning | compute_infra, model_mgmt | ai_safety | ai_governance |
-| **compliance_secops** | FIPS, CIS, STIG | — | security_standards | secops |
+| Plugin | Focus | Risk |
+|--------|-------|------|
+| **compliance_healthcare** | PHI, HL7/FHIR | phi_identifiers |
+| **compliance_fintech** | PCI, SOX, Ledger | transaction_logic |
+| **compliance_ai_governance** | LLM safety, fine-tuning | ai_safety |
+| **compliance_secops** | FIPS, CIS, STIG | security_standards |
 
-### Verticals (20)
+### Technology & Infrastructure (7)
 
-| Plugin | Focus | Key Categories |
-|--------|-------|----------------|
-| **vertical_infrastructure** | Cloud, K8s, HPC | cloud_native, k8s_ops, hpc_scheduling |
-| **vertical_development** | Systems, Mobile, Embedded | systems_programming, mobile_native |
-| **vertical_scientific** | Bio, Physics, GIS, ML | bioinformatics_pipeline, physics_simulation, ml_pipeline |
-| **vertical_industrial** | ISO, OT/SCADA | ot_integration, industrial_safety |
-| **vertical_creative** | Video, Art, Procedural | video_processing, procedural_generation |
-| **vertical_audio_synthesis** | Oscillators, Modular synth | signal_flow, synthesis_types |
-| **vertical_lifestyle** | Nutrition, Home, Finance | nutrition_tracking, home_automation |
-| **vertical_fitness** | Running, athletics, VO2max | training_metrics, injury+pain |
-| **vertical_business_commerce** | Business, Sales, Marketing, Budgets | business_strategy, sales_crm, marketing_analytics |
-| **vertical_hobbies_activities** | Outdoors, Making, Collecting, Tabletop | hiking_backpacking, three_d_printing, woodworking |
-| **vertical_compliance_legal** | GDPR, e-discovery | regulatory_workflow, gdpr_privacy |
-| **vertical_aerospace_automotive** | DO-178C, ISO 26262 | flight_software, adas_stack |
-| **vertical_edtech** | LMS, SCORM | lms_integration, learning_analytics |
-| **vertical_llm_rag** | RAG, retrieval, chunking | rag_pipeline, chunking_strategy |
-| **vertical_llm_prompting** | Prompt engineering, tool use | prompt_design, tool_use |
-| **vertical_llm_evaluation** | Eval, benchmarks | eval_harness, hallucination |
-| **vertical_programming_slc** | Languages, SLC phases | python, js, go, rust, testing_phase |
-| **vertical_iac_automation** | Terraform, Ansible, Shell | terraform_module, ansible_orchestration |
-| **vertical_education_learning** | Study, vocabulary, tutoring | education_study, vocabulary_practice |
-| **vertical_culture_history** | History, culture, arts | history_analysis, cultural_studies |
+| Plugin | Focus |
+|--------|-------|
+| **vertical_infrastructure** | Cloud (AWS/GCP/Azure), K8s, HPC, on-prem |
+| **vertical_development** | Web, Systems, Mobile, Embedded, GameDev |
+| **vertical_programming_slc** | 14 language ecosystems, SLC phases |
+| **vertical_iac_automation** | Terraform, Ansible, Pulumi, Shell |
+| **vertical_industrial** | ISO, Industrial IoT, OT/SCADA |
+| **vertical_aerospace_automotive** | DO-178C, ISO 26262, ADAS |
+| **vertical_compliance_legal** | GDPR, CCPA, e-discovery |
 
-### New verticals (added in taxonomy refactoring)
+### AI & ML (3)
 
-| Plugin | Focus | Key Categories |
-|--------|-------|----------------|
-| **vertical_health_wellness** | Health, medical Q&A, wellness | health_general, wellness_advice |
-| **vertical_food_cooking** | Recipes, cooking, meal prep | recipe_creation, cooking_technique |
+| Plugin | Focus |
+|--------|-------|
+| **vertical_llm_rag** | RAG, retrieval, chunking |
+| **vertical_llm_prompting** | Prompt engineering, tool use |
+| **vertical_llm_evaluation** | Eval, benchmarks, hallucination |
+
+### Education (2)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_education_learning** | Study, vocabulary, tutoring, study skills, homeschool |
+| **vertical_edtech** | LMS, SCORM, learning analytics |
+
+### Business & Commerce (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_business_commerce** | Business, Sales, Marketing, Budgets, Finance, Entrepreneurship, Freelancing |
+
+### Science (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_scientific** | Bio, Physics, Astronomy, Math, Chemistry, Earth Science, ML-Ops |
+
+### Health & Wellness (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_health_wellness** | Health, mental health, sleep, skincare, weight management, first aid, aging |
+
+### Fitness & Sports (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_fitness** | Running, strength, yoga, cycling, martial arts, dance, team sports |
+
+### Food & Cooking (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_food_cooking** | Recipes, baking, food science, beverages, dietary patterns, preservation |
+
+### Creative & Media (2)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_creative** | Video, digital art, procedural gen, illustration, graphic design, crafts |
+| **vertical_music_audio** | Synthesis, music production, podcasting, DJ performance |
+
+### Culture & Humanities (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_culture_history** | History, geography, travel, music, art, philosophy, film/TV, literature, theater, religion, linguistics |
+
+### Hobbies & Making (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_hobbies_activities** | Outdoors, making, collecting, tabletop, photography, leatherworking, cosplay |
+
+### Family & Pets (2)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_parenting_family** | Parenting, pregnancy, child development, family activities |
+| **vertical_pets_animals** | Dogs, cats, training, equestrian, birds, aquatic pets |
+
+### Home & Living (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_home_improvement** | DIY repair, renovation, interior design, organization, smart home |
+
+### Automotive (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_automotive** | Car maintenance, motorcycles, EVs, restoration |
+
+### Personal Development (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_personal_development** | Career, productivity, public speaking, leadership |
+
+### Entertainment (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_gaming** | Video games, game design, esports |
+
+### Writing & Publishing (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_writing_publishing** | Creative writing, self-publishing, journalism, blogging |
+
+### Lifestyle (4)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_events_planning** | Weddings, parties, event coordination |
+| **vertical_fashion_style** | Fashion, wardrobe, grooming |
+| **vertical_relationships** | Dating, marriage, communication skills |
+| **vertical_sustainability** | Green living, renewable energy |
+
+### Finance & Legal (2)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_real_estate** | Home buying/selling, mortgages |
+| **vertical_personal_legal** | Consumer legal, insurance, personal taxes |
+
+### Safety (1)
+
+| Plugin | Focus |
+|--------|-------|
+| **vertical_safety_emergency** | Emergency preparedness, home safety |
 
 ### Domain (2)
 

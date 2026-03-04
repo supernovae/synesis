@@ -221,6 +221,35 @@ domain_keywords:
       - saas
       - ecommerce
       - marketplace
+  entrepreneurship:
+    domain: entrepreneurship
+    keywords:
+      - startup
+      - founder
+      - pitch deck
+      - mvp
+      - bootstrapping
+      - venture capital
+      - angel investor
+      - business model canvas
+      - side hustle
+      - solopreneur
+      - incubator
+      - accelerator
+  freelancing:
+    domain: freelancing
+    keywords:
+      - freelance
+      - freelancer
+      - gig
+      - upwork
+      - fiverr
+      - contract work
+      - invoice
+      - client management
+      - portfolio
+      - remote work
+      - consulting
 
 pairings:
   - keywords: [budget, delete]

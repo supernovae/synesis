@@ -36,6 +36,16 @@ domain_keywords:
     domain: strength_training
     keywords: ["weightlifting", "powerlifting", "bodybuilding", "strength training", "resistance training", "hypertrophy", "one rep max", "1rm"]
 
+  martial_arts:
+    domain: martial_arts
+    keywords: ["martial arts", "karate", "judo", "bjj", "jiu jitsu", "boxing", "muay thai", "taekwondo", "mma", "self defense", "dojo", "sparring", "kata", "belt", "kickboxing", "wrestling", "krav maga"]
+  dance:
+    domain: dance
+    keywords: ["dance", "ballet", "hip hop dance", "salsa", "ballroom", "contemporary", "choreography", "zumba", "line dance", "tap dance", "jazz dance", "swing dance", "tango"]
+  team_sports:
+    domain: team_sports
+    keywords: ["soccer", "football", "basketball", "baseball", "volleyball", "hockey", "rugby", "cricket", "lacrosse", "coaching", "referee", "league", "tournament", "practice drills", "softball", "field hockey"]
+
 pairings:
   - keywords: ["injury", "pain"]
     extra_weight: 20
@@ -46,3 +56,6 @@ pairings:
   - keywords: ["deadlift", "form"]
     extra_weight: 8
     axis: complexity
+  - keywords: ["sparring", "injury"]
+    extra_weight: 15
+    axis: risk
