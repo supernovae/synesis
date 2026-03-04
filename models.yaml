@@ -64,7 +64,6 @@ models:
     min_vram_gb: 38
     context_length: 20480
     vllm_args:
-      - "--kv-cache-dtype=fp8_e5m2"
       - "--reasoning-parser=deepseek_r1"
       - "--enable-chunked-prefill"
       - "--gpu-memory-utilization=0.92"

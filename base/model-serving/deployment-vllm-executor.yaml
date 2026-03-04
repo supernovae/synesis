@@ -65,7 +65,6 @@ spec:
             - --tensor-parallel-size=1
             - --model=/mnt/models
             - --served-model-name=synesis-executor
-            - --kv-cache-dtype=fp8_e5m2
             - --max-model-len=20480
             - --gpu-memory-utilization=0.92
             - --enable-chunked-prefill
