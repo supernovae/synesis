@@ -73,10 +73,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
 
-    # Short-circuit: output_type=document WITHOUT plan_required (taxonomy didn't request structured bullets)
-    if state.get("output_type") == "document" and not state.get("plan_required"):
+    # Short-circuit: deliverable_type=explain_only WITHOUT plan_required (taxonomy didn't request structured bullets)
+    if state.get("deliverable_type") == "explain_only" and not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
-        logger.info("planner_skipped_output_type_document", extra={"output_type": "document", "latency_ms": latency})
+        logger.info("planner_skipped_deliverable_explain_only", extra={"deliverable_type": "explain_only", "latency_ms": latency})
         return {
             "execution_plan": {
                 "steps": [
@@ -219,10 +219,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Defensive: output_type=document (taxonomy-driven) → skip approval unless explicit planning request
-        if needs_approval and state.get("output_type") == "document" and not planning_session_requested:
+        # Defensive: deliverable_type=explain_only (taxonomy-driven) → skip approval unless explicit planning request
+        if needs_approval and state.get("deliverable_type") == "explain_only" and not planning_session_requested:
             needs_approval = False
-            logger.info("planner_skip_approval_output_type_document", extra={"output_type": "document"})
+            logger.info("planner_skip_approval_deliverable_explain_only", extra={"deliverable_type": "explain_only"})
 
         next_node = "respond" if needs_approval else "worker"
 
@@ -234,7 +234,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
-        if not needs_approval and state.get("output_type") == "document":
+        if not needs_approval and state.get("deliverable_type") == "explain_only":
             out["deliverable_type"] = "explain_only"
             out["allowed_tools"] = ["none"]
             out["target_language"] = "markdown"

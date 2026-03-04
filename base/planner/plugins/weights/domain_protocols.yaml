@@ -3,7 +3,7 @@
 # Drop-in: No code changes; ScoringEngine merges at startup.
 # See plugins/weights/README.md for format.
 
-# Protocol triggers — immediate escalation to complex (weight > small_max=15)
+# Protocol triggers — immediate escalation to complex (weight > medium_max=15)
 complexity_weights:
   protocol_fediverse:
     weight: 25

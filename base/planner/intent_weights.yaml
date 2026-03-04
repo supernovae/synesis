@@ -1,19 +1,27 @@
 # Synesis Universal Intent Ontology v4.1 — "The 95%" Router
 # Global Sovereign Catalog: 100+ industrial/creative/lifestyle verticals.
 # Split axes: complexity (tier) | risk (veto) | domain (RAG only).
-# Trivial < 5 | Small 5-15 | Complex > 15 | Risk >= 15 → veto to complex
+# Easy < 5 | Medium 5-15 | Hard > 15 | Risk >= 15 → veto to hard
 #
 # See master_intent_weights.yaml and docs/TAXONOMY.md.
 # Plugins in plugins/weights/*.yaml add vertical-specific depth.
 
 thresholds:
-  trivial_max: 4
-  small_max: 15
+  easy_max: 4
+  medium_max: 15
   density_threshold: 3
   density_tax: 10
   educational_discount: 10
   risk_high: 15
-  max_trivial_message_length: 200
+  max_easy_message_length: 200
+
+# Routing thresholds: normalized difficulty (0.0-1.0) determines routing.
+# These override the discrete task_size-based routing when the continuous
+# difficulty score is available.
+routing_thresholds:
+  bypass_supervisor_below: 0.2
+  plan_required_above: 0.7
+  critic_required_above: 0.6
 
 risk_veto_triggers:
   - "pip install"

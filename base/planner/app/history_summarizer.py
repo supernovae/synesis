@@ -1,6 +1,6 @@
 """Context pivot: summarize previous era before flushing, archive to L2.
 
-When user pivots languages (Python→JS→shell), output_type (code↔document),
+When user pivots languages (Python→JS→shell), deliverable_type (single_file↔explain_only),
 or domain, we optionally:
 1. Summarize the "old era" via a tiny micro model (Qwen 0.5B, CPU)
 2. Archive raw history to L2 (durable store)
@@ -89,7 +89,7 @@ def _stub_pivot_summary(
     turn_count = len(history)
     if pivot_type == "language":
         stub = f"Completed {turn_count} turn(s) in {from_era}."
-    elif pivot_type == "output_type":
+    elif pivot_type == "deliverable":
         stub = f"Completed {turn_count} turn(s) in {from_era} context."
     else:
         stub = f"Completed {turn_count} turn(s) in previous context."
@@ -112,7 +112,7 @@ def _build_pivot_prompt(
     cfg = prompts.get(pivot_type) if pivot_type in prompts else None
 
     domain_suffix = ""
-    if pivot_type == "output_type" and cfg and isinstance(cfg, dict):
+    if pivot_type == "deliverable" and cfg and isinstance(cfg, dict):
         vert = "generic"
         if active_domain_refs:
             try:
@@ -146,7 +146,7 @@ def _build_pivot_prompt(
         ).strip()
 
     # Fallback when config missing — pivot-type aware (avoid code bias for document)
-    if pivot_type == "output_type":
+    if pivot_type == "deliverable":
         base = f"Summarize in 1-2 sentences what the user discussed or worked on in the previous {from_era} context."
     elif pivot_type == "language":
         base = f"Summarize in 1-2 sentences what the user accomplished in {from_era}."
@@ -167,7 +167,7 @@ async def summarize_pivot_history(
     """Summarize the pre-pivot history in 1-2 sentences.
 
     Taxonomy-aware: uses pivot_summary_prompts from approach_dark_debt_config.yaml.
-    pivot_type: language (Python→JS) | output_type (code↔document) | domain
+    pivot_type: language (Python→JS) | deliverable (single_file↔explain_only) | domain
     Uses micro model when summarizer_model_url configured; falls back to stub.
     """
     if not history:

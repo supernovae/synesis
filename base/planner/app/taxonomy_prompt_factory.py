@@ -72,14 +72,16 @@ def resolve_taxonomy_metadata(
     required_elements = list(node_cfg.get("required_elements") or ["Direct Answer"])
     required_bullets = len(required_elements)
 
-    # Override complexity from scorer when available
-    if complexity_score and 0 <= complexity_score <= 1:
-        complexity = max(complexity, complexity_score)
+    # Override complexity from scorer when available.
+    # ScoringEngine emits raw int (0-50+); normalize to 0.0-1.0 (cap at 50).
+    if complexity_score and complexity_score > 0:
+        normalized = min(1.0, float(complexity_score) / 50.0)
+        complexity = max(complexity, normalized)
 
-    # task_size modifier: complex → boost, trivial → dampen
-    if task_size == "complex":
+    # task_size modifier: hard → boost, easy → dampen
+    if task_size == "hard":
         complexity = min(1.0, complexity + 0.1)
-    elif task_size == "trivial":
+    elif task_size == "easy":
         complexity = max(0.1, complexity - 0.2)
         required_bullets = min(required_bullets, 2)
 
@@ -154,7 +156,7 @@ def get_executor_depth_block(metadata: dict[str, Any]) -> str:
 
 
 def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[str]) -> bool:
-    """When output_type=document, should we route to Planner for structured bullets?"""
+    """When deliverable_type=explain_only, should we route to Planner for structured bullets?"""
     if not metadata:
         return False
     cfg = _load_config()

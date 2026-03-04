@@ -36,8 +36,8 @@ def _load_validation_prompts() -> list[dict]:
             pass
     # Inline fallback (subset) when yaml unavailable
     return [
-        {"prompt": "hello world in python", "expected": {"task_size": "trivial", "bypass_supervisor": True}},
-        {"prompt": "design the architecture for our microservices migration", "expected": {"task_size": "complex"}},
+        {"prompt": "hello world in python", "expected": {"task_size": "easy", "bypass_supervisor": True}},
+        {"prompt": "design the architecture for our microservices migration", "expected": {"task_size": "hard"}},
         {"prompt": "explain how this works", "expected": {"interaction_mode": "teach"}},
         {"prompt": "write a go script that prints hi", "expected": {"target_language": "go"}},
     ]
@@ -78,7 +78,7 @@ class TestEntryClassifierTrivialPath:
 
         state = {
             "messages": [{"content": "hello world"}],
-            "task_size": "trivial",
+            "task_size": "easy",
             "bypass_supervisor": True,
         }
         # EntryClassifier sets these; simulate
@@ -92,7 +92,7 @@ class TestEntryClassifierTrivialPath:
 
         state = {
             "messages": [{"content": "parse this json file and save to disk"}],
-            "task_size": "small",
+            "task_size": "medium",
             "bypass_supervisor": False,
         }
         out = entry_classifier_node(state)
@@ -138,23 +138,23 @@ class TestWorkerPromptTier:
     def test_trivial_sets_tier_trivial_and_persona_minimalist(self):
         state = {"messages": [{"content": "hello world in python"}]}
         out = entry_classifier_node(state)
-        assert out.get("worker_prompt_tier") == "trivial"
+        assert out.get("worker_prompt_tier") == "easy"
         assert out.get("worker_persona") == "Minimalist"
 
     def test_small_sets_tier_small_and_persona_senior(self):
-        """Parse json + file I/O → small tier (data_manipulation + local_persistence)."""
+        """Parse json + file I/O → medium tier (data_manipulation + local_persistence)."""
         state = {"messages": [{"content": "parse this json file and save to disk"}]}
         out = entry_classifier_node(state)
-        assert out.get("worker_prompt_tier") == "small"
+        assert out.get("worker_prompt_tier") == "medium"
         assert out.get("worker_persona") == "Senior"
 
     def test_complex_sets_tier_full_and_persona_architect(self):
-        """Complex task → full tier; scope_expansion may need tuning for architecture prompts."""
+        """Complex task → hard tier; scope_expansion may need tuning for architecture prompts."""
         state = {"messages": [{"content": "design the architecture for our microservices migration"}]}
         out = entry_classifier_node(state)
-        # scope_expansion may yield small; full tier requires task_size=complex
-        assert out.get("worker_prompt_tier") in ("small", "full")
-        if out.get("task_size") == "complex":
+        # scope_expansion may yield medium; hard tier requires task_size=hard
+        assert out.get("worker_prompt_tier") in ("medium", "hard")
+        if out.get("task_size") == "hard":
             assert out.get("worker_persona") == "Architect"
 
     @pytest.mark.parametrize(
@@ -169,10 +169,10 @@ class TestWorkerPromptTier:
         ],
     )
     def test_pro_user_shortcut_forces_full_tier(self, prompt: str):
-        """Pro users can jump to full JCS prompt via explicit signals."""
+        """Pro users can jump to hard JCS prompt via explicit signals."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
-        assert out.get("worker_prompt_tier") == "full", f'Expected worker_prompt_tier=full for pro shortcut "{prompt}"'
+        assert out.get("worker_prompt_tier") == "hard", f'Expected worker_prompt_tier=hard for pro shortcut "{prompt}"'
         assert out.get("worker_persona") == "Architect", (
             f'Expected worker_persona=Architect for pro shortcut "{prompt}"'
         )
@@ -203,11 +203,11 @@ class TestExplainabilityPhase1:
         """task_size_override in state overrides classifier result."""
         state = {
             "messages": [{"content": "design microservices migration architecture"}],
-            "task_size_override": "small",
+            "task_size_override": "medium",
         }
         out = entry_classifier_node(state)
-        assert out.get("task_size") == "small"
-        assert out.get("reclassify_override") == "small"
+        assert out.get("task_size") == "medium"
+        assert out.get("reclassify_override") == "medium"
 
     def test_empty_prompt_has_empty_reasons(self):
         """Empty prompt yields empty classification_reasons and score_breakdown."""
@@ -217,11 +217,11 @@ class TestExplainabilityPhase1:
         assert out.get("score_breakdown") == {}
 
     def test_domain_keywords_do_not_escalate(self):
-        """kubectl/orchestration is domain-only; must not force complex (only small from 'get')."""
+        """kubectl/orchestration is domain-only; must not force hard (only medium from 'get')."""
         state = {"messages": [{"content": "kubectl get pods"}]}
         out = entry_classifier_node(state)
-        # Domain never escalates to complex; 'get' in networking may yield small
-        assert out.get("task_size") != "complex", "Domain keywords (kubectl) must not escalate to complex"
+        # Domain never escalates to hard; 'get' in networking may yield medium
+        assert out.get("task_size") != "hard", "Domain keywords (kubectl) must not escalate to hard"
         assert out.get("domain_hints") or out.get("active_domain_refs"), "Domain should be detected for RAG"
 
     def test_intent_class_emitted_for_keyword_match(self):
@@ -238,7 +238,7 @@ class TestExplainabilityPhase1:
 
 
 class TestOutputTypeCoverage:
-    """output_type=document → skip Planner; Worker produces markdown. Taxonomy-driven."""
+    """deliverable_type=explain_only → skip Planner; Worker produces markdown. Taxonomy-driven."""
 
     @pytest.mark.parametrize(
         "prompt",
@@ -251,11 +251,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_knowledge_inherently_document(self, prompt: str):
-        """knowledge intent → output_type=document. plan_required=False for non-deep-dive domains."""
+        """knowledge intent → deliverable_type=explain_only. plan_required=False for non-deep-dive domains."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is False
 
     def test_knowledge_physics_deep_dive_requires_plan(self):
@@ -263,7 +263,7 @@ class TestOutputTypeCoverage:
         state = {"messages": [{"content": "what is the speed of light"}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is True
         assert "physics" in (out.get("active_domain_refs") or [])
 
@@ -277,11 +277,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_creative_ideation_inherently_document(self, prompt: str):
-        """creative_ideation intent → output_type=document (inherently_document)."""
+        """creative_ideation intent → deliverable_type=explain_only (inherently_document)."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "creative_ideation"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -294,11 +294,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_planning_document_domains(self, prompt: str):
-        """planning + lifestyle domain → output_type=document."""
+        """planning + lifestyle domain → deliverable_type=explain_only."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "planning"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -310,11 +310,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_personal_guidance_document_domains(self, prompt: str):
-        """personal_guidance + lifestyle domain → output_type=document."""
+        """personal_guidance + lifestyle domain → deliverable_type=explain_only."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "personal_guidance"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -326,11 +326,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_writing_document_domains(self, prompt: str):
-        """writing + lifestyle/creative domain → output_type=document."""
+        """writing + lifestyle/creative domain → deliverable_type=explain_only."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "writing"
-        assert out.get("output_type") == "document"
+        assert out.get("deliverable_type") == "explain_only"
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -342,10 +342,10 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_code_intents_stay_code(self, prompt: str):
-        """Code intents → output_type=code; plan_required per task_size."""
+        """Code intents → deliverable_type=single_file; plan_required per task_size."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
-        assert out.get("output_type") == "code"
+        assert out.get("deliverable_type") == "single_file"
 
 
 class TestRiskVeto:
@@ -355,7 +355,7 @@ class TestRiskVeto:
         """'hello world pip install' must not be trivial."""
         state = {"messages": [{"content": "hello world pip install requests"}]}
         out = entry_classifier_node(state)
-        assert out.get("task_size") == "small", f"pip install must veto trivial; got {out.get('task_size')}"
+        assert out.get("task_size") == "medium", f"pip install must veto trivial; got {out.get('task_size')}"
         assert "risk_veto" in str(out.get("classification_reasons", []))
 
 
@@ -377,7 +377,7 @@ class TestTeachModeAndEscalation:
         state = {"messages": [{"content": "parse json file"}]}
         out = entry_classifier_node(state)
         assert out.get("bypass_supervisor") is False
-        assert out.get("escalation_reason") in ("task_size_small", "task_size_complex")
+        assert out.get("escalation_reason") in ("task_size_medium", "task_size_hard")
 
     def test_length_veto_for_long_trivial_like_message(self):
         """Very long message that would score trivial gets length veto (max 200 chars)."""
@@ -385,7 +385,7 @@ class TestTeachModeAndEscalation:
         assert len(long_msg) > 200
         state = {"messages": [{"content": long_msg}]}
         out = entry_classifier_node(state)
-        assert out.get("task_size") == "small"
+        assert out.get("task_size") == "medium"
         assert "length_veto" in str(out.get("classification_reasons", []))
 
     """IntentEnvelope config linter runs and returns list of issues."""

@@ -14,9 +14,9 @@
 # ---------------------------------------------------------------------------
 prompt_components:
   summary_depth:
-    trivial: "1-2 sentences; no methodology"
-    small: "Brief; key decisions only"
-    complex: "Concepts, methodology, limitations"
+    easy: "1-2 sentences; no methodology"
+    medium: "Brief; key decisions only"
+    hard: "Concepts, methodology, limitations"
   summary_domain_focus:
     scientific: "concepts, data, methodology"
     lifestyle: "goals, plans, advice"
@@ -87,12 +87,12 @@ router_to_prompt:
       summary_depth: small
       # industrial, platform: inherit default
   by_task_size:
-    trivial:
-      summary_depth: trivial
-    small:
-      summary_depth: small
-    complex:
-      summary_depth: complex
+    easy:
+      summary_depth: easy
+    medium:
+      summary_depth: medium
+    hard:
+      summary_depth: hard
 
 # ---------------------------------------------------------------------------
 # Vertical → domain_suffix alias (for pivot summarizer)

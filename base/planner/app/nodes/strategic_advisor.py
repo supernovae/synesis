@@ -56,14 +56,14 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
 
     task_desc = (state.get("task_description") or "").strip()[:400]
-    task_size = state.get("task_size", "small")
+    task_size = state.get("task_size", "medium")
     rag_mode = state.get("rag_mode", "normal")
 
     # Preserve EntryClassifier-seeded active_domain_refs (Sovereign Intersection)
     existing_domains = state.get("active_domain_refs") or []
 
     # Trivial or RAG disabled: no-op, use generic. Skip heavy RAG (common knowledge).
-    if task_size == "trivial" or rag_mode == "disabled":
+    if task_size == "easy" or rag_mode == "disabled":
         return {
             "platform_context": "generic",
             "rag_gravity": "light",
@@ -74,7 +74,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Complex: EntryClassifier already escalated; skip advisor LLM (anemic advisor).
     # Infer platform_context from active_domain_refs for Sovereign Persona injection.
-    if task_size == "complex":
+    if task_size == "hard":
         platform_context = "generic"
         if existing_domains:
             _domain_to_platform = {

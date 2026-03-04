@@ -37,7 +37,7 @@ def _load_config() -> dict[str, Any]:
 def get_prompt_components(
     intent_class: str = "code",
     vertical: str = "generic",
-    task_size: str = "small",
+    task_size: str = "medium",
 ) -> dict[str, Any]:
     """Resolve prompt components for (intent × vertical × task_size).
 

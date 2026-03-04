@@ -47,7 +47,7 @@ from .streaming_events import StatusQueueCallback
 
 # /why, /reclassify, and /test command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
-_RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(trivial|small|complex)\s*$", re.IGNORECASE)
+_RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(easy|medium|hard)\s*$", re.IGNORECASE)
 _TEST_PATTERN = re.compile(r"^\s*\/test\s*$", re.IGNORECASE)
 
 logging.basicConfig(
@@ -239,13 +239,13 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     if node == "entry_classifier":
         task_size = chunk.get("task_size", "")
         intent = chunk.get("intent_class", "")
-        output_type = chunk.get("output_type", "")
+        deliverable_type = chunk.get("deliverable_type", "")
         plan_req = chunk.get("plan_required", False)
         out.append(
             (
                 "entry_classifier",
                 "Router (Entry Classifier)",
-                f"task_size={task_size} intent={intent} output_type={output_type} plan_required={plan_req}",
+                f"task_size={task_size} intent={intent} deliverable_type={deliverable_type} plan_required={plan_req}",
             )
         )
 
@@ -416,14 +416,14 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
 }
 
 # Tier-specific overrides for Adaptive Rigor UX
-STATUS_TRIVIAL: dict[str, str] = {
+STATUS_EASY: dict[str, str] = {
     "entry_classifier": "Analyzing…",
     "worker": "Generating your code…",
 }
-STATUS_SMALL: dict[str, str] = {
+STATUS_MEDIUM: dict[str, str] = {
     "worker": "Generating code…",
 }
-STATUS_COMPLEX: dict[str, str] = {
+STATUS_HARD: dict[str, str] = {
     "entry_classifier": "Complex task detected. Building execution plan…",
     "strategic_advisor": "Complex task detected. Building execution plan…",
     "planner": "Architecting solution…",
@@ -436,12 +436,12 @@ def _status_for_node(node: str, task_size: str, deliverable_type: str = "") -> s
     # explain_only (plans, documents) → "Creating your plan…" instead of "Generating code…"
     if node == "worker" and deliverable_type == "explain_only":
         return "Creating your plan…"
-    if task_size == "trivial" and node in STATUS_TRIVIAL:
-        return STATUS_TRIVIAL[node]
-    if task_size == "small" and node in STATUS_SMALL:
-        return STATUS_SMALL[node]
-    if task_size == "complex" and node in STATUS_COMPLEX:
-        return STATUS_COMPLEX[node]
+    if task_size == "easy" and node in STATUS_EASY:
+        return STATUS_EASY[node]
+    if task_size == "medium" and node in STATUS_MEDIUM:
+        return STATUS_MEDIUM[node]
+    if task_size == "hard" and node in STATUS_HARD:
+        return STATUS_HARD[node]
     return NODE_STATUS_MESSAGES.get(node, "")
 
 
@@ -615,7 +615,7 @@ def _extract_content_and_metrics(
             memory.set_last_active_language(scope, lang)
         memory.set_last_context(
             scope,
-            result.get("output_type", "code"),
+            result.get("deliverable_type", "single_file"),
             result.get("active_domain_refs") or [],
         )
 
@@ -704,11 +704,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
-        curr_output_type = current_analysis.get("output_type", "code")
+        curr_deliverable = current_analysis.get("deliverable_type", "single_file")
         curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
-        last_output_type, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
+        last_deliverable, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
 
-        output_type_changed = curr_output_type != last_output_type
+        deliverable_changed = curr_deliverable != last_deliverable
         domains_differ = bool(curr_domains.symmetric_difference(last_domains))
         domains_have_overlap = bool(curr_domains & last_domains)
 
@@ -716,11 +716,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         # follow-ups, not topic switches. Skip domain-based pivot.
         is_short_followup = len(last_user_content.strip()) < _SHORT_FOLLOWUP_LIMIT
 
-        if output_type_changed and not is_short_followup:
+        if deliverable_changed and not is_short_followup:
             context_pivot = True
-            pivot_to_label = f"{last_output_type}→{curr_output_type}"
+            pivot_to_label = f"{last_deliverable}→{curr_deliverable}"
         elif domains_differ and not is_short_followup:
-            # Guard 2: Same output_type — only hard-pivot when zero domain overlap.
+            # Guard 2: Same deliverable_type — only hard-pivot when zero domain overlap.
             if not domains_have_overlap:
                 context_pivot = True
             else:
@@ -733,8 +733,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 extra={
                     "reason": "short_followup" if is_short_followup else "domain_overlap",
                     "msg_len": len(last_user_content.strip()),
-                    "curr_output": curr_output_type,
-                    "last_output": last_output_type,
+                    "curr_deliverable": curr_deliverable,
+                    "last_deliverable": last_deliverable,
                     "overlap": sorted(curr_domains & last_domains)[:3],
                     "diff": sorted(curr_domains.symmetric_difference(last_domains))[:5],
                 },
@@ -752,10 +752,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 from_era = last_lang or "unknown"
                 to_era = current_lang or "unknown"
                 active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
-            elif context_pivot and last_ctx and curr_output_type != last_output_type:
-                pivot_type = "output_type"
-                from_era = last_output_type
-                to_era = curr_output_type
+            elif context_pivot and last_ctx and curr_deliverable != last_deliverable:
+                pivot_type = "deliverable"
+                from_era = last_deliverable
+                to_era = curr_deliverable
                 active_domain_refs_for_summary = last_ctx[1]
             else:
                 pivot_type = "domain"
@@ -823,7 +823,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         analysis = engine.analyze(text_to_explain)
         reasons = analysis.get("classification_reasons") or []
         breakdown = analysis.get("score_breakdown") or {}
-        task_size = analysis.get("task_size", "small")
+        task_size = analysis.get("task_size", "medium")
         score = analysis.get("score", 0)
         complexity = analysis.get("complexity_score", 0)
         risk = analysis.get("risk_score", 0)
@@ -986,7 +986,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "user_id": user_id,
                     "memory_scope": memory_scope,
                     "source_node": pending.get("source_node"),
-                    "pending_output_type": pending.get("output_type"),
+                    "pending_deliverable_type": pending.get("deliverable_type"),
                 },
             )
             # Task drift: reply diverges from pending (new requirements, different direction)
@@ -1010,7 +1010,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "rag_context",
                     "execution_plan",
                     "assumptions",
-                    "output_type",
                     "deliverable_type",
                 ):
                     if k in pending and pending[k] is not None:
@@ -1027,7 +1026,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "assumptions",
                     "failure_context",
                     "web_search_results",
-                    "output_type",
                     "deliverable_type",
                 ):
                     if k in pending and pending[k] is not None:
@@ -1073,6 +1071,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 thinking_phases: list[str] = []
                 thinking_block_emitted = False
                 first_content_logged = False
+                _last_status_desc = ""
                 token_count_estimate = 0
                 t_start = time.monotonic()
                 # Diagnostic counters for reasoning vs content tokens
@@ -1103,7 +1102,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             node_label = name if name in _KNOWN_NODES else lg_node
                             desc = _status_for_node(node_label, task_size_val, deliverable_val)
-                            if desc:
+                            if desc and desc != _last_status_desc:
+                                _last_status_desc = desc
                                 thinking_phases.append(desc)
                                 yield _sse_status_chunk(
                                     {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}

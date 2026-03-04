@@ -55,8 +55,8 @@ def lint_intent_config(core_path: Path | None = None, plugin_dir: Path | str | N
     th = cfg.get("thresholds") or {}
     if isinstance(th, dict):
         for name, default in (
-            ("trivial_max", 4),
-            ("small_max", 15),
+            ("easy_max", 4),
+            ("medium_max", 15),
             ("density_threshold", 3),
             ("density_tax", 10),
             ("educational_discount", 10),
@@ -67,7 +67,7 @@ def lint_intent_config(core_path: Path | None = None, plugin_dir: Path | str | N
                 issues.append(f"thresholds.{name} missing (expected int, default {default})")
             elif val is not None and not isinstance(val, (int, float)):
                 issues.append(f"thresholds.{name} must be numeric, got {type(val).__name__}")
-            elif val is not None and name in ("trivial_max", "small_max") and val < 0:
+            elif val is not None and name in ("easy_max", "medium_max") and val < 0:
                 issues.append(f"thresholds.{name} cannot be negative")
     else:
         issues.append("thresholds must be a dict")

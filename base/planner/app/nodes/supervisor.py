@@ -147,11 +147,11 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 user_context = last_user.content
 
         # Anemic Supervisor passthrough: EntryClassifier said complex+plan_required → skip LLM, route to Planner
-        task_size = state.get("task_size", "small")
+        task_size = state.get("task_size", "medium")
         plan_required = state.get("plan_required", False)
         interaction_mode = state.get("interaction_mode", "do")
 
-        if task_size == "complex" and plan_required and iteration == 0:
+        if task_size == "hard" and plan_required and iteration == 0:
             target_language = state.get("target_language") or _extract_language_from_text(user_context)
             task_desc = (user_context or "").strip()[:1000] or "Complex task requiring decomposition"
             latency = (time.monotonic() - start) * 1000
@@ -196,14 +196,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [trace],
             }
 
-        # Taxonomy-driven explain_only passthrough: output_type=document from intent_classes[].document_domains
-        # Planner is for code decomposition; document output goes straight to Worker with explain_only
-        if state.get("output_type") == "document" and iteration == 0:
+        # Taxonomy-driven explain_only passthrough: explain_only from intent_classes[].document_domains
+        # Planner is for code decomposition; explain_only goes straight to Worker
+        if state.get("deliverable_type") == "explain_only" and iteration == 0:
             task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
             latency = (time.monotonic() - start) * 1000
             trace = NodeTrace(
                 node_name=node_name,
-                reasoning="Taxonomy: output_type=document → explain_only (no LLM)",
+                reasoning="Taxonomy: deliverable_type=explain_only → passthrough (no LLM)",
                 assumptions=[],
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
@@ -211,7 +211,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             logger.info(
                 "supervisor_passthrough_explain_only",
-                extra={"output_type": "document", "latency_ms": latency},
+                extra={"deliverable_type": "explain_only", "latency_ms": latency},
             )
             return {
                 "task_type": "general",
@@ -247,7 +247,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Teach-mode passthrough: small + teach → skip Supervisor LLM, route to Worker (avoids timeout on educational prompts)
         if (
-            task_size == "small"
+            task_size == "medium"
             and interaction_mode == "teach"
             and iteration == 0
             and not state.get("scope_expansion_needed")
@@ -315,17 +315,17 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         # Step 3: When EntryClassifier pre-classified, Supervisor validates and uses — does not re-classify
         intent_envelope_block = ""
         if state.get("intent_classifier_source") == "deterministic":
-            task_size = state.get("task_size", "small")
+            task_size = state.get("task_size", "medium")
             target_lang = state.get("target_language", "python")
             intent_class = state.get("intent_class", "code")
             active_refs = state.get("active_domain_refs") or []
             refs_str = ", ".join(str(r) for r in active_refs[:5]) if active_refs else "none"
-            output_type = state.get("output_type", "code")
+            deliverable_type = state.get("deliverable_type", "single_file")
             intent_envelope_block = (
                 f"\n\n## Pre-classified (EntryClassifier)\n"
-                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, output_type={output_type}, active_domain_refs=[{refs_str}]. "
+                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, deliverable_type={deliverable_type}, active_domain_refs=[{refs_str}]. "
                 f"Use these; do not re-classify. "
-                f'When output_type=document, use deliverable_type=explain_only, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
+                f'When deliverable_type=explain_only, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
                 f"Focus on: routing, RAG, planning_suggested, deliverable_type."
             )
 
@@ -416,13 +416,13 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Policy: EntryClassifier sets clarification_budget; Supervisor must obey (0 = never ask)
         requires_clarification = state.get("requires_clarification", True)
-        task_size = state.get("task_size", "small")
+        task_size = state.get("task_size", "medium")
         clarification_budget = state.get("clarification_budget", 1)
         bypass_clarification = (
             getattr(parsed, "bypass_clarification", False)
             or (getattr(parsed, "task_is_trivial", False) and target_language)
             or not requires_clarification
-            or task_size in ("trivial", "small")
+            or task_size in ("easy", "medium")
             or clarification_budget == 0
         )
         if bypass_clarification and parsed.needs_clarification:
@@ -560,8 +560,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     "planner" if (needs_code and planning_suggested) else ("worker" if needs_code else "respond")
                 )
 
-        # Override: output_type=document → worker explain_only, never Planner. Taxonomy-driven.
-        if next_node == "planner" and state.get("output_type") == "document":
+        # Override: explain_only → worker, never Planner. Taxonomy-driven.
+        if next_node == "planner" and state.get("deliverable_type") == "explain_only":
             next_node = "worker"
             needs_code = True
             parsed = parsed.model_copy(
@@ -573,7 +573,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             logger.info(
                 "supervisor_override_planner_to_explain_only",
-                extra={"output_type": "document"},
+                extra={"deliverable_type": "explain_only"},
             )
 
         # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.

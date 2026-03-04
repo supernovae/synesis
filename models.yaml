@@ -84,8 +84,8 @@ models:
       #34706) and streams directly via the raw openai SDK for explain_only
       requests, forwarding reasoning_content in the SSE delta. Open WebUI
       v0.8.8+ natively renders reasoning_content in a collapsible Thinking
-      UI. Worker tiers max_completion_tokens by task complexity
-      (trivial=1024, small=2048, complex=4096) to limit thinking time.
+      UI. Worker tiers max_completion_tokens by continuous difficulty
+      (0.0–1.0); token budget scales with complexity_score.
 
   # -------------------------------------------------------------------------
   # CPU: Summarizer (KServe InferenceService)

@@ -17,7 +17,7 @@ The core `intent_weights.yaml` (v4) is a **Global Sovereign Catalog** covering 1
 | **Creative** | — | — | creative_media, procedural |
 | **Lifestyle** | — | — | home_automation, personal_finance, nutrition |
 
-**Routing logic:** Trivial <5 | Small 5–15 | Complex >15. Risk ≥15 vetoes to complex. Domain keywords only influence RAG retrieval, never complexity.
+**Routing logic:** Easy <5 | Medium 5–15 | Hard >15. Risk ≥15 vetoes to hard. Domain keywords only influence RAG retrieval, never complexity. Routing thresholds (bypass_supervisor_below, plan_required_above, critic_required_above) live in `routing_thresholds` section of `intent_weights.yaml`.
 
 ## Format (v3/v4)
 
@@ -128,13 +128,13 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 
 **Sovereign intersection:** When two verticals are detected (e.g. HIPAA + K8s), both domains are tracked. Context Curator retrieves RAG from both indices.
 
-## Trivial Fast-Path Protection
+## Easy Fast-Path Protection
 
-Trivial requests (hello world, simple scripts) stay on the fast path. Protected by:
+Easy requests (hello world, simple scripts) stay on the fast path. Protected by:
 
-- **Trivial anchors** (weight 1–2): `io_basic`, `logic_basic`, `query_basic` only
-- **Risk veto triggers** (substring match): `pip install`, `curl \|`, `\| bash`, `chmod +x`, etc. → block trivial
-- **Length veto**: Messages >200 chars rarely stay trivial
+- **Easy anchors** (weight 1–2): `io_basic`, `logic_basic`, `query_basic` only
+- **Risk veto triggers** (substring match): `pip install`, `curl \|`, `\| bash`, `chmod +x`, etc. → block easy
+- **Length veto**: Messages > `max_easy_message_length` (200 chars) rarely stay easy
 - **Density tax**: 3+ complexity categories hit → +10 complexity
 
 See `intent_weights.yaml` and `master_intent_weights.yaml` for the full catalog.

@@ -6,6 +6,8 @@
 #    model_repo: str [Default: 'RedHatAI/Qwen3-8B-FP8-dynamic']
 #    pvc_name: str [Default: 'modelcar-build-pvc']
 components:
+  comp-cleanup-manager-pvc:
+    executorLabel: exec-cleanup-manager-pvc
   comp-download-model:
     executorLabel: exec-download-model
     inputDefinitions:
@@ -14,6 +16,45 @@ components:
           parameterType: STRING
 deploymentSpec:
   executors:
+    exec-cleanup-manager-pvc:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - cleanup_manager_pvc
+        command:
+        - sh
+        - -c
+        - "\nuv venv /tmp/venv && . /tmp/venv/bin/activate && uv pip install -q \"kfp==2.16.0\" \"kubernetes>=8.0.0,<31\" && exec \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef cleanup_manager_pvc():\n    \"\"\"Remove old model files from\
+          \ PVC before downloading a new model.\"\"\"\n    import os\n    import shutil\n\
+          \n    model_dir = \"/data/models\"\n    if os.path.isdir(model_dir):\n \
+          \       size_mb = sum(\n            os.path.getsize(os.path.join(dp, f))\n\
+          \            for dp, _, fns in os.walk(model_dir)\n            for f in\
+          \ fns\n        ) / (1024 * 1024)\n        print(f\"Cleaning {model_dir}\
+          \ ({size_mb:.0f} MB)...\")\n        shutil.rmtree(model_dir)\n        print(\"\
+          Cleanup complete\")\n    else:\n        print(f\"{model_dir} does not exist,\
+          \ nothing to clean\")\n    os.makedirs(model_dir, exist_ok=True)\n\n"
+        image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:model-pvc-download
+        resources:
+          cpuRequest: 0.5
+          memoryLimit: 0.536870912
+          memoryRequest: 0.268435456
+          resourceCpuRequest: 500m
+          resourceMemoryLimit: 512Mi
+          resourceMemoryRequest: 256Mi
     exec-download-model:
       container:
         args:
@@ -40,12 +81,10 @@ deploymentSpec:
           \ model to PVC. Streams to disk, ~6Gi memory.\"\"\"\n    import subprocess\n\
           \n    subprocess.run(\n        [\"uv\", \"pip\", \"install\", \"-q\", \"\
           huggingface_hub[hf_transfer]\"],\n        check=True,\n    )\n\n    import\
-          \ os\n\n    out = \"/data/models\"\n    if os.path.isfile(os.path.join(out,\
-          \ \"config.json\")):\n        print(\"Model already on PVC, skipping download\"\
-          )\n        return\n    os.makedirs(out, exist_ok=True)\n    from huggingface_hub\
-          \ import snapshot_download\n\n    print(\"Downloading\", model_repo, \"\
-          ->\", out)\n    snapshot_download(\n        repo_id=model_repo,\n      \
-          \  local_dir=out,\n        token=os.environ.get(\"HF_TOKEN\") or None,\n\
+          \ os\n\n    out = \"/data/models\"\n    os.makedirs(out, exist_ok=True)\n\
+          \    from huggingface_hub import snapshot_download\n\n    print(\"Downloading\"\
+          , model_repo, \"->\", out)\n    snapshot_download(\n        repo_id=model_repo,\n\
+          \        local_dir=out,\n        token=os.environ.get(\"HF_TOKEN\") or None,\n\
           \    )\n    print(\"Done\")\n\n"
         image: 660250927410.dkr.ecr.us-east-1.amazonaws.com/byron-ai-registry:model-pvc-download
         resources:
@@ -61,10 +100,18 @@ pipelineInfo:
 root:
   dag:
     tasks:
+      cleanup-manager-pvc:
+        cachingOptions: {}
+        componentRef:
+          name: comp-cleanup-manager-pvc
+        taskInfo:
+          name: cleanup-manager-pvc
       download-model:
         cachingOptions: {}
         componentRef:
           name: comp-download-model
+        dependentTasks:
+        - cleanup-manager-pvc
         inputs:
           parameters:
             model_repo:
@@ -92,6 +139,12 @@ platforms:
   kubernetes:
     deploymentSpec:
       executors:
+        exec-cleanup-manager-pvc:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: /data
+            pvcNameParameter:
+              componentInputParameter: pvc_name
         exec-download-model:
           pvcMount:
           - componentInputParameter: pvc_name

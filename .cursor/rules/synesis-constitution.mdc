@@ -13,21 +13,21 @@ Sovereign engineering via Spec-Driven Governance. When modifying the planner gra
 If a task involves a **protocol** (ActivityPub, OAuth, gRPC), **multiple files**, or **system architecture**, the Supervisor MUST delegate to the Planner. Never "fast-path" complex system builds through the Worker.
 
 - **Protocol triggers** live in `plugins/weights/domain_protocols.yaml` — fediverse, activitypub, oauth, etc.
-- When EntryClassifier sets `task_size=complex` and `plan_required=True`, Supervisor uses **passthrough** (no LLM, <1ms) and routes directly to Planner.
+- When EntryClassifier sets `task_size=hard` and `plan_required=True`, Supervisor uses **passthrough** (no LLM, <1ms) and routes directly to Planner.
 
 ## 2. Deterministic Triage
 
-Use the EntryClassifier (regex + YAML weights) to bypass the LLM for trivial tasks (print X, hello world).
+Use the EntryClassifier (regex + YAML weights) to bypass the LLM for easy tasks (print X, hello world).
 
-- Trivial: `task_size=trivial`, `bypass_supervisor=True` → context_curator → Worker
-- Complex: `task_size=complex`, `plan_required=True` → Supervisor passthrough → Planner
+- Easy: `task_size=easy`, `bypass_supervisor=True` → context_curator → Worker
+- Hard: `task_size=hard`, `plan_required=True` → Supervisor passthrough → Planner
 
 ## 3. Anemic Supervisor
 
 The Supervisor node **allocates resources** (RAG, tools) and **routes**. It does NOT solve code.
 
-- When complex is pre-classified, Supervisor returns immediately with `next_node=planner` — no LLM call.
-- When small/ambiguous, Supervisor may invoke the LLM for routing only; heavy reasoning belongs in Planner.
+- When hard is pre-classified, Supervisor returns immediately with `next_node=planner` — no LLM call.
+- When medium/ambiguous, Supervisor may invoke the LLM for routing only; heavy reasoning belongs in Planner.
 
 ## 4. Evidence-Gated Critique
 
@@ -39,4 +39,4 @@ Python 3.11+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two
 
 ## Adding New Protocols
 
-Drop keywords into `plugins/weights/domain_protocols.yaml`. No code changes. High weight (15–25) forces `task_size=complex`.
+Drop keywords into `plugins/weights/domain_protocols.yaml`. No code changes. High weight (15–25) forces `task_size=hard`.

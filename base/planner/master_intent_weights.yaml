@@ -13,13 +13,13 @@
 # See docs/TAXONOMY.md for full coverage matrix.
 
 thresholds:
-  trivial_max: 4
-  small_max: 15
+  easy_max: 4
+  medium_max: 15
   density_threshold: 3
   density_tax: 10
   educational_discount: 10
   risk_high: 15
-  max_trivial_message_length: 200
+  max_easy_message_length: 200
 
 # Fast-path protection: block trivial when these appear
 risk_veto_triggers:

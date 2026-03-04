@@ -51,10 +51,10 @@ def get_approach_semantics(
     else:
         approach = "direct_snippet"
     if isinstance(approach, list):
-        # [A, B]: A = richer (complex), B = simpler (trivial). task_size picks.
-        if task_size == "trivial" and len(approach) > 1:
+        # [A, B]: A = richer (hard), B = simpler (easy). task_size picks.
+        if task_size == "easy" and len(approach) > 1:
             approach = approach[-1]  # e.g. direct_answer, quick_steps
-        elif task_size == "complex" and len(approach) > 1:
+        elif task_size == "hard" and len(approach) > 1:
             approach = approach[0]  # e.g. retrieval_augmented, structured_plan
         else:
             approach = approach[0] if approach else "direct_snippet"
@@ -161,7 +161,7 @@ def build_universal_carried_uncertainties_signal(
         )
 
     # Lifestyle: quick answer when plan might have been expected (only when we have other signal)
-    if vertical == "lifestyle" and task_size in ("trivial", "small"):
+    if vertical == "lifestyle" and task_size in ("easy", "medium"):
         plan_required = state.get("plan_required", False)
         has_plan = bool(state.get("execution_plan"))
         if not plan_required and not has_plan and ("lifestyle_running" in cats or "lifestyle_nutrition" in cats):

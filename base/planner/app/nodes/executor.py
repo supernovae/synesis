@@ -497,7 +497,7 @@ async def sandbox_node(state: dict[str, Any]) -> dict[str, Any]:
         "context_files": context_files[:20] if context_files else [],
     }
 
-    trivial = state.get("task_size") == "trivial" or state.get("task_is_trivial", False)
+    trivial = state.get("task_size") == "easy" or state.get("task_is_trivial", False)
     try:
         result = await _execute_warm_pool(code, language, filename, request_id=request_id, trivial=trivial)
         if result is not None:

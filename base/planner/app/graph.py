@@ -98,7 +98,7 @@ def with_timeout(timeout_seconds: float):
 
 
 def route_after_entry_classifier(state: dict[str, Any]) -> str:
-    """Route after deterministic IntentEnvelope. Trivial → context_curator; complex → planner; else supervisor."""
+    """Route after deterministic IntentEnvelope. Easy → context_curator; hard → planner; else supervisor."""
     # Pending question (user replying to clarification/plan/needs_input)
     if state.get("pending_question_continue"):
         src = state.get("pending_question_source", "worker")
@@ -112,10 +112,10 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
 
     # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
     if state.get("plan_required"):
-        if state.get("task_size") in ("complex", "small") or state.get("output_type") == "document":
+        if state.get("task_size") in ("hard", "medium") or state.get("deliverable_type") == "explain_only":
             return "planner"
 
-    # Bypass Supervisor: trivial fast path, or knowledge-downgraded tasks that
+    # Bypass Supervisor: easy fast path, or knowledge-downgraded tasks that
     # don't need LLM routing (e.g. "What are the differences between REST and GraphQL?")
     if state.get("bypass_supervisor"):
         return "context_curator"
@@ -130,7 +130,7 @@ def route_after_supervisor(state: dict[str, Any]) -> str:
     if next_node == "planner":
         return "planner"
     if next_node == "worker":
-        # Supervisor LLM classifies trivial; pass through to Worker with rag_mode=disabled
+        # Supervisor LLM classifies easy; pass through to Worker with rag_mode=disabled
         return "context_curator"
     return "respond"
 
@@ -159,11 +159,11 @@ def route_after_sandbox(state: dict[str, Any]) -> str:
     lint_passed = state.get("execution_lint_passed", True)
     security_passed = state.get("execution_security_passed", True)
     lsp_eligible = failure_type in ("lsp", "runtime") and lint_passed and security_passed
-    # Skip LSP for trivial tasks: simple hello-world code won't have type/symbol issues.
-    # Runtime failure on trivial code is usually sandbox/env, not fixable by LSP.
+    # Skip LSP for easy tasks: simple hello-world code won't have type/symbol issues.
+    # Runtime failure on easy code is usually sandbox/env, not fixable by LSP.
     # Break after 1 retry to avoid infinite loops; route to critic→respond so user gets code + note.
     task_size = state.get("task_size", "")
-    if task_size == "trivial":
+    if task_size == "easy":
         if iteration >= 1:
             return "critic"
         return "context_curator"
@@ -253,7 +253,6 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "assumptions": state.get("assumptions", []),
                     "failure_context": state.get("failure_context", []),
                     "web_search_results": state.get("web_search_results", []),
-                    "output_type": state.get("output_type"),
                     "deliverable_type": state.get("deliverable_type"),
                 },
                 "execution_plan": execution_plan,
@@ -264,7 +263,6 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "assumptions": state.get("assumptions", []),
                 "failure_context": state.get("failure_context", []),
                 "web_search_results": state.get("web_search_results", []),
-                "output_type": state.get("output_type"),
                 "deliverable_type": state.get("deliverable_type"),
             },
         )
@@ -299,13 +297,11 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "task_description": state.get("task_description", ""),
                     "target_language": state.get("target_language", "python"),
                     "rag_context": state.get("rag_context", []),
-                    "output_type": state.get("output_type"),
                     "deliverable_type": state.get("deliverable_type"),
                 },
                 "task_description": state.get("task_description", ""),
                 "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
-                "output_type": state.get("output_type"),
                 "deliverable_type": state.get("deliverable_type"),
             },
         )
@@ -341,7 +337,6 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "rag_context": state.get("rag_context", []),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
-            "output_type": state.get("output_type"),
             "deliverable_type": state.get("deliverable_type"),
         }
         memory.store_pending_question(
@@ -368,8 +363,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             content += f"\n\nPartial result:\n```\n{code}\n```"
     else:
         lang = state.get("target_language", "python")
-        persona = (state.get("worker_persona") or "").strip()
-        # When Worker outputs patch_ops (multi-file trivial), code may be empty; build display from patches
+        task_size = state.get("task_size", "medium")
+        # When Worker outputs patch_ops (multi-file), code may be empty; build display from patches
         display_code = code
         if not (display_code or "").strip() and patch_ops:
             blocks = []
@@ -385,8 +380,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             if blocks:
                 display_code = "\n\n".join(blocks)
 
-        is_minimalist = persona == "Minimalist"
-        is_architect = persona == "Architect"
+        is_minimalist = task_size == "easy"
+        is_architect = task_size == "hard"
 
         # Micro-ack: brief line when we have assumptions/defaults to surface (human, low-friction)
         micro_ack_parts = []
@@ -403,9 +398,8 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         if not is_minimalist and micro_ack_parts and display_code:
             ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
             parts.append(ack)
-            # Step 2: Small tasks — friendly note that defaults can be overridden (no blocking)
-            task_size = state.get("task_size", "")
-            if task_size == "small" and any(
+            # Step 2: Medium tasks — friendly note that defaults can be overridden (no blocking)
+            if task_size == "medium" and any(
                 x
                 for x in (defaults or [])
                 if isinstance(x, str) and ("pytest" in x.lower() or "unittest" in x.lower() or "test" in x.lower())

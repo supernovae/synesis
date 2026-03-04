@@ -1,7 +1,7 @@
 """ScoringEngine for EntryClassifier — YAML-driven complexity scoring.
 
 Universal Intent Ontology v3: Split axes
-- complexity_score: steps, uncertainty, scope → trivial/small/complex tier
+- complexity_score: steps, uncertainty, scope → easy/medium/hard tier
 - risk_score: destructive, secrets, compliance → veto to complex if >= risk_high
 - domain_hints: k8s, openshift, etc. → RAG only, never escalate
 
@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 logger = logging.getLogger("synesis.entry_classifier")
 
-TaskSize = Literal["trivial", "small", "complex"]
+TaskSize = Literal["easy", "medium", "hard"]
 
 # Prefer intent_weights.yaml (v3 ontology), fallback to entry_classifier_weights.yaml
 _PLANNER_ROOT = Path(__file__).parent.parent
@@ -56,8 +56,8 @@ def _builtin_fallback() -> dict[str, Any]:
     """Minimal built-in config when YAML missing."""
     return {
         "thresholds": {
-            "trivial_max": 4,
-            "small_max": 15,
+            "easy_max": 4,
+            "medium_max": 15,
             "density_threshold": 3,
             "density_tax": 10,
             "educational_discount": 10,
@@ -145,19 +145,24 @@ class ScoringEngine:
         self._pairings = self._config.get("pairings", [])
 
         th = self._config.get("thresholds") or {}
-        self._trivial_max = int(th.get("trivial_max", 4))
-        self._small_max = int(th.get("small_max", 15))
+        self._easy_max = int(th.get("easy_max", th.get("trivial_max", 4)))
+        self._medium_max = int(th.get("medium_max", th.get("small_max", 15)))
         self._density_threshold = int(th.get("density_threshold", 3))
         self._density_tax = int(th.get("density_tax", 10))
         self._educational_discount = int(th.get("educational_discount", 10))
         self._risk_high = int(th.get("risk_high", 15))
-        self._max_trivial_len = int(th.get("max_trivial_message_length", 200) or 200)
+        self._max_easy_len = int(th.get("max_easy_message_length", th.get("max_trivial_message_length", 200)) or 200)
         self._risk_veto_triggers: list[str] = list(
             self._config.get("risk_veto_triggers", []) or th.get("risk_veto_triggers", [])
         )
 
+        rt = self._config.get("routing_thresholds") or {}
+        self._bypass_supervisor_below = float(rt.get("bypass_supervisor_below", 0.2))
+        self._plan_required_above = float(rt.get("plan_required_above", 0.7))
+        self._critic_required_above = float(rt.get("critic_required_above", 0.6))
+
     def _check_risk_veto(self, text: str) -> bool:
-        """If any veto trigger matches, block trivial fast path. E.g. pip install, curl | bash."""
+        """If any veto trigger matches, block easy fast path. E.g. pip install, curl | bash."""
         if not text or not self._risk_veto_triggers:
             return False
         t_lower = (text or "").strip()[:800].lower()
@@ -192,7 +197,7 @@ class ScoringEngine:
         t = (text or "").strip()[:800]
         if not t:
             return {
-                "task_size": "small",
+                "task_size": "medium",
                 "score": 0,
                 "complexity_score": 0,
                 "risk_score": 0,
@@ -210,7 +215,7 @@ class ScoringEngine:
 
         if self._check_override(t, "force_manual"):
             return {
-                "task_size": "complex",
+                "task_size": "hard",
                 "score": 99,
                 "complexity_score": 0,
                 "risk_score": 99,
@@ -307,22 +312,22 @@ class ScoringEngine:
 
         # 7. Derive task_size: risk veto first, then complexity
         if risk_score >= self._risk_high:
-            task_size: TaskSize = "complex"
-        elif complexity_score <= self._trivial_max:
+            task_size: TaskSize = "hard"
+        elif complexity_score <= self._easy_max:
             if self._check_risk_veto(t):
-                task_size = "small"
-                hits.append("risk_veto(trivial_blocked)")
+                task_size = "medium"
+                hits.append("risk_veto(easy_blocked)")
                 score_breakdown["risk_veto"] = 0
-            elif len(t) > self._max_trivial_len:
-                task_size = "small"
-                hits.append(f"length_veto(>{self._max_trivial_len} chars)")
+            elif len(t) > self._max_easy_len:
+                task_size = "medium"
+                hits.append(f"length_veto(>{self._max_easy_len} chars)")
                 score_breakdown["length_veto"] = 0
             else:
-                task_size = "trivial"
-        elif complexity_score <= self._small_max:
-            task_size = "small"
+                task_size = "easy"
+        elif complexity_score <= self._medium_max:
+            task_size = "medium"
         else:
-            task_size = "complex"
+            task_size = "hard"
 
         # 8. Intent class (first match wins). Code intents checked first so "hello world" → code not conversation.
         intent_classes = self._config.get("intent_classes") or {}
@@ -373,48 +378,51 @@ class ScoringEngine:
                     hits.append(f"complexity_exempt:{exempt_cat}(-{discount})")
                     exempted = True
             if exempted:
-                if complexity_score <= self._trivial_max:
-                    task_size = "trivial"
-                elif complexity_score <= self._small_max:
-                    task_size = "small"
+                if complexity_score <= self._easy_max:
+                    task_size = "easy"
+                elif complexity_score <= self._medium_max:
+                    task_size = "medium"
 
-        # 9. Output type: document by default. Code only for code intents.
-        # Non-code intents (writing, planning, personal_guidance) default to document
+        # 9. Deliverable type: explain_only (text/document) or single_file (code).
+        # Non-code intents (writing, planning, personal_guidance) default to explain_only
         # even without a domain match -- "write a sentence" is text, not code.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
         if ic_data.get("inherently_document"):
-            output_type = "document"
-            hits.append("output:document(inherent)")
+            deliverable_type = "explain_only"
+            hits.append("deliverable:explain_only(inherent)")
         elif intent_class in code_intents:
-            output_type = "code"
-            hits.append("output:code")
+            deliverable_type = "single_file"
+            hits.append("deliverable:single_file")
         elif intent_class == "general":
-            output_type = "document"
-            hits.append("output:document(default)")
+            deliverable_type = "explain_only"
+            hits.append("deliverable:explain_only(default)")
         else:
             doc_domains = ic_data.get("document_domains") or []
             dom_set = {str(d).strip().lower() for d in doc_domains}
             refs = {str(a).strip().lower() for a in active_domains}
             if doc_domains and refs & dom_set:
-                output_type = "document"
-                hits.append("output:document")
+                deliverable_type = "explain_only"
+                hits.append("deliverable:explain_only")
             else:
-                output_type = "document"
-                hits.append("output:document(intent_noncode)")
+                deliverable_type = "explain_only"
+                hits.append("deliverable:explain_only(intent_noncode)")
 
         # 10. Surface taxonomy gaps: log when nothing matched
         if intent_class == "general" and not active_domains:
             hits.append("surfaced_gap:no_intent_no_domain")
 
         score = complexity_score + risk_score
+        # Normalized difficulty (0.0-1.0) for continuous budget curve and routing
+        difficulty = min(1.0, float(complexity_score) / max(1, self._medium_max * 2))
         return {
             "task_size": task_size,
             "score": score,
             "complexity_score": complexity_score,
+            "difficulty": difficulty,
             "risk_score": risk_score,
             "domain_hints": domain_hints,
             "intent_class": intent_class,
-            "output_type": output_type,
+            "deliverable_type": deliverable_type,
             "manual_override": False,
             "interaction_mode": interaction_mode,
             "force_pro_advanced": force_pro_advanced,
@@ -423,6 +431,11 @@ class ScoringEngine:
             "score_breakdown": score_breakdown,
             "categories_touched": list(hits_by_category.keys()),
             "active_domains": active_domains,
+            "routing_thresholds": {
+                "bypass_supervisor_below": self._bypass_supervisor_below,
+                "plan_required_above": self._plan_required_above,
+                "critic_required_above": self._critic_required_above,
+            },
         }
 
 

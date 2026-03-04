@@ -50,7 +50,7 @@ def _build_explain_prompt_with_tone(tone: str) -> str:
     return f"{tone}{_EXPLAIN_MARKDOWN_SUFFIX}"
 
 
-WORKER_PROMPT_TRIVIAL = """\
+WORKER_PROMPT_EASY = """\
 You are a code assistant. Produce minimal correct code for the user's request.
 
 Respond with valid JSON only:
@@ -61,7 +61,7 @@ Respond with valid JSON only:
 Use sensible defaults. Single file. Include run commands if relevant. No questions — just produce the code.
 """
 
-WORKER_PROMPT_SMALL = """\
+WORKER_PROMPT_MEDIUM = """\
 You are a helpful senior developer. Focus on working code and readability.
 
 Guidance:
@@ -84,7 +84,7 @@ Respond with valid JSON:
 When needs_input=true, leave code empty and ask a specific question.
 """
 
-WORKER_PROMPT_FULL = """\
+WORKER_PROMPT_HARD = """\
 You are the Executor in a Safety-II Joint Cognitive System called Synesis.
 
 PRIORITY (highest first):
@@ -135,22 +135,14 @@ When stop_reason is set, leave code empty.
 """
 
 
-def _get_worker_system_prompt(tier: str, persona: str | None = None) -> str:
-    """Select system prompt by persona (Minimalist/Senior/Architect) or tier. Persona takes precedence."""
-    if persona:
-        p = persona.strip()
-        if p == "Minimalist":
-            return WORKER_PROMPT_TRIVIAL
-        if p == "Architect":
-            return WORKER_PROMPT_FULL
-        if p == "Senior":
-            return WORKER_PROMPT_SMALL
-    t = (tier or "small").lower()
-    if t == "trivial":
-        return WORKER_PROMPT_TRIVIAL
-    if t == "full":
-        return WORKER_PROMPT_FULL
-    return WORKER_PROMPT_SMALL
+def _get_worker_system_prompt(task_size: str) -> str:
+    """Select system prompt by task_size: easy → minimal, medium → standard, hard → full JCS."""
+    t = (task_size or "medium").lower()
+    if t == "easy":
+        return WORKER_PROMPT_EASY
+    if t == "hard":
+        return WORKER_PROMPT_HARD
+    return WORKER_PROMPT_MEDIUM
 
 
 worker_llm = ChatOpenAI(
@@ -695,8 +687,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         # On revision (iteration > 0), upgrade to small so model gets execution feedback context
-        tier = state.get("worker_prompt_tier", "small")
-        persona = state.get("worker_persona", "")
+        effective_size = state.get("task_size", "medium")
 
         # Sovereign Persona Injection: append vertical-specific block when active_domain matches
         from ..vertical_resolver import (
@@ -709,15 +700,13 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             platform_context=state.get("platform_context"),
         )
 
-        # Taxonomy-driven: lifestyle vertical → Senior, not Architect. Safety-II/JCS only for architecture/complex code.
-        if active_vertical == "lifestyle" and persona == "Architect":
-            persona = "Senior"
-            tier = "small"
-            logger.debug("worker_persona_vertical_override", extra={"vertical": "lifestyle", "persona": "Senior"})
-        if iteration > 0 and (tier == "trivial" or persona == "Minimalist"):
-            tier = "small"
-            persona = "Senior"
-        system_prompt = _get_worker_system_prompt(tier, persona)
+        # Taxonomy-driven: lifestyle vertical → medium, not hard. Safety-II/JCS only for architecture tasks.
+        if active_vertical == "lifestyle" and effective_size == "hard":
+            effective_size = "medium"
+            logger.debug("worker_vertical_override", extra={"vertical": "lifestyle", "effective_size": "medium"})
+        if iteration > 0 and effective_size == "easy":
+            effective_size = "medium"
+        system_prompt = _get_worker_system_prompt(effective_size)
 
         vertical_block = get_worker_persona_block(active_vertical)
         if vertical_block:
@@ -756,30 +745,40 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 system_prompt = f"{system_prompt}\n\n{discovery}"
             logger.info("worker_explain_only_mode", extra={"deliverable_type": deliverable_type})
 
-        logger.debug("worker_persona=%s worker_prompt_tier=%s", persona or tier, tier)
+        logger.debug("worker_effective_size=%s", effective_size)
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt),
         ]
 
         # Token budget: tier max_completion_tokens by task complexity so trivial
-        # queries don't waste time on deep reasoning chains.
-        # R1 fills its reasoning budget — keep trivial tight (256) to avoid
-        # 30s reasoning on "What is 2+2?".
-        task_size = state.get("task_size", "small")
-        _TOKEN_BUDGETS = {"trivial": 256, "small": 2048, "complex": 4096}
-        token_budget = _TOKEN_BUDGETS.get(task_size, 2048)
+        # Continuous difficulty → token budget curve (replaces 3-bucket system).
+        # complexity_score from ScoringEngine is raw int (0-50+); normalize to 0.0-1.0.
+        _MIN_BUDGET = 64
+        _MAX_BUDGET = 4096
+        raw_complexity = state.get("complexity_score", 0) or 0
+        difficulty = min(1.0, float(raw_complexity) / 50.0)
+        token_budget = int(_MIN_BUDGET + (_MAX_BUDGET - _MIN_BUDGET) * difficulty**1.5)
 
-        # Social acknowledgements ("Thanks!", "OK", "Got it") need even less.
+        # Social acknowledgements ("Thanks!", "OK", "Got it, thanks") need minimal budget.
+        _ACK_WORDS = (
+            r"thanks|thank you|thx|ok|okay|got it|cool|great|sure|"
+            r"yes|no|yep|nope|bye|cheers|perfect|nice|awesome|lol|haha|"
+            r"sounds good|will do|noted|roger|right|alright|all good|fair enough"
+        )
         _SOCIAL_ACK_RE = re.compile(
-            r"^(thanks|thank you|thx|ok|okay|got it|cool|great|sure|yes|no|yep|nope|bye|cheers|perfect|nice|awesome)\s*[!.?]*$",
+            rf"^({_ACK_WORDS})([,;.!?\s]*({_ACK_WORDS})[,;.!?\s]*)*$",
             re.IGNORECASE,
         )
         if _SOCIAL_ACK_RE.match(task_desc.strip()):
             token_budget = 128
             logger.debug("worker_social_ack_budget", extra={"task": task_desc[:30]})
 
-        logger.debug("worker_token_budget", extra={"task_size": task_size, "budget": token_budget})
+        task_size = state.get("task_size", "medium")
+        logger.debug(
+            "worker_token_budget",
+            extra={"task_size": task_size, "difficulty": round(difficulty, 3), "budget": token_budget},
+        )
 
         # Explain-only: bypass langchain LLM call and return a deferred stream
         # request. The SSE generator will call the executor directly via the raw
@@ -847,7 +846,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Thinking Mode: when task_size=complex, enable model-specific reasoning
         thinking_param = getattr(settings, "executor_thinking_param", "enable_thinking") or ""
-        if task_size == "complex" and getattr(settings, "worker_thinking_mode_enabled", True) and thinking_param:
+        if task_size == "hard" and getattr(settings, "worker_thinking_mode_enabled", True) and thinking_param:
             llm_to_use = llm_to_use.bind(
                 extra_body={"chat_template_kwargs": {thinking_param: True}},
                 temperature=0.6,

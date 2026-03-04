@@ -13,7 +13,7 @@ prompts:
   # --- Trivial (fast path, bypass Supervisor) ---
   - prompt: "hello world in python"
     expected:
-      task_size: trivial
+      task_size: easy
       bypass_supervisor: true
       task_is_trivial: true
       rag_mode: disabled
@@ -22,73 +22,73 @@ prompts:
 
   - prompt: "print hello"
     expected:
-      task_size: trivial
+      task_size: easy
       bypass_supervisor: true
       interaction_mode: do
 
   - prompt: "write a basic unit test for this function"
     expected:
-      task_size: small
+      task_size: medium
       bypass_supervisor: false
       interaction_mode: do
 
   - prompt: "parse this json"
     expected:
-      task_size: small
+      task_size: medium
       bypass_supervisor: false
 
   # --- Phase 2: domain never escalates — kubectl/orchestration is RAG-only ---
   # Note: "get" in networking keyword currently adds complexity; classifier tuning may restore trivial
   - prompt: "kubectl get pods"
     expected:
-      task_size: small
+      task_size: medium
       bypass_supervisor: false
 
   - prompt: "simple fizzbuzz"
     expected:
-      task_size: trivial
+      task_size: easy
       bypass_supervisor: true
 
   # --- Force Manual override (route through Supervisor even for trivial wording) ---
   - prompt: "[STRICT] hello world in python"
     expected:
-      task_size: complex    # force_manual sets complex for full path
+      task_size: hard    # force_manual sets hard for full path
       bypass_supervisor: false
       plan_required: true
 
   - prompt: "/plan create a simple script that prints hello"
     expected:
-      task_size: complex    # force_manual
+      task_size: hard    # force_manual
       bypass_supervisor: false
 
   # --- Small (default, Supervisor runs) ---
   - prompt: "write a script that fetches data from an API and saves to csv"
     expected:
-      task_size: complex
+      task_size: hard
       bypass_supervisor: false
       interaction_mode: do
 
   - prompt: "add error handling to this function"
     expected:
-      task_size: trivial
+      task_size: easy
       bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
-  # Taxonomy refactoring classifies this as output_type=document; plan_required
+  # Taxonomy refactoring classifies this as deliverable_type=explain_only; plan_required
   # stays false unless should_plan_for_document() triggers a deep-dive domain.
   - prompt: "design the architecture for our microservices migration"
     expected:
-      task_size: complex
+      task_size: hard
       bypass_supervisor: false
       plan_required: false
 
   - prompt: "refactor across the whole repo"
     expected:
-      task_size: complex  # broad scope triggers complexity
+      task_size: hard  # broad scope triggers complexity
 
   - prompt: "connect to AWS and sync credentials"
     expected:
-      task_size: complex
+      task_size: hard
 
   # --- Educational / Mentor mode ---
   - prompt: "explain how this hello world works"
@@ -133,35 +133,35 @@ prompts:
     expected:
       message_origin: ui_helper
 
-  # --- output_type=document (taxonomy-driven: skip Planner, Worker produces markdown) ---
+  # --- deliverable_type=explain_only (taxonomy-driven: skip Planner, Worker produces markdown) ---
   # inherently_document: knowledge, creative_ideation
   - prompt: "explain how marathon taper works"
     expected:
       intent_class: knowledge
-      output_type: document
+      deliverable_type: explain_only
       plan_required: false
   - prompt: "brainstorm names for a running app"
     expected:
       intent_class: creative_ideation
-      output_type: document
+      deliverable_type: explain_only
       plan_required: false
   # document_domains: planning, personal_guidance, writing + lifestyle
   - prompt: "create a marathon training plan for intermediate runner"
     expected:
       intent_class: planning
-      output_type: document
+      deliverable_type: explain_only
       plan_required: false
   - prompt: "how can I improve my running form"
     expected:
       intent_class: personal_guidance
-      output_type: document
+      deliverable_type: explain_only
       plan_required: false
   - prompt: "write a blog post about marathon training"
     expected:
       intent_class: writing
-      output_type: document
+      deliverable_type: explain_only
       plan_required: false
   # code intents stay code
   - prompt: "write a python script to parse json"
     expected:
-      output_type: code
+      deliverable_type: single_file

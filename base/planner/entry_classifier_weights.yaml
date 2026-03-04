@@ -3,13 +3,13 @@
 # See intent_weights.yaml for full ontology; this is an alternate config.
 
 thresholds:
-  trivial_max: 4
-  small_max: 15
+  easy_max: 4
+  medium_max: 15
   density_threshold: 3
   density_tax: 10
   educational_discount: 10
   risk_high: 15
-  max_trivial_message_length: 200
+  max_easy_message_length: 200
 
 risk_veto_triggers:
   - "pip install"

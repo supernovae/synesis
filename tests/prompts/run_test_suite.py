@@ -58,107 +58,107 @@ CATEGORY_DEFAULTS: dict[str, dict] = {
     "trivial": {
         "max_reasoning_s": 1.5,
         "max_reasoning_ratio": 1.0,
-        "token_budget_tier": "trivial",
+        "token_budget_tier": "easy",
     },
     "performance": {
         "max_reasoning_s": 1.5,
         "max_reasoning_ratio": 0.5,
-        "token_budget_tier": "trivial",
+        "token_budget_tier": "easy",
     },
     "knowledge": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "taxonomy": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "conversation": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "creative": {
         "max_reasoning_s": 5,
         "max_reasoning_ratio": 2.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "formatting": {
         "max_reasoning_s": 5,
         "max_reasoning_ratio": 2.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "planning": {
         "max_reasoning_s": 10,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "comparison": {
         "max_reasoning_s": 10,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "persona": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "code": {
         "max_reasoning_s": 12,
         "max_reasoning_ratio": 4.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "review": {
         "max_reasoning_s": 10,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "mixed": {
         "max_reasoning_s": 12,
         "max_reasoning_ratio": 4.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "multi_step": {
         "max_reasoning_s": 20,
         "max_reasoning_ratio": 6.0,
-        "token_budget_tier": "complex",
+        "token_budget_tier": "hard",
     },
     "edge_case": {
         "max_reasoning_s": 3,
         "max_reasoning_ratio": 2.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "safety": {
         "max_reasoning_s": 5,
         "max_reasoning_ratio": 2.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "rapid": {
         "max_reasoning_s": 3,
         "max_reasoning_ratio": 1.5,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "pivot": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "node_routing": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
     "regression": {
         "max_reasoning_s": 8,
         "max_reasoning_ratio": 3.0,
-        "token_budget_tier": "small",
+        "token_budget_tier": "medium",
     },
 }
 
 # Fallback for unknown categories
-_DEFAULT_CATEGORY = {"max_reasoning_s": 10, "max_reasoning_ratio": 3.0, "token_budget_tier": "small"}
+_DEFAULT_CATEGORY = {"max_reasoning_s": 10, "max_reasoning_ratio": 3.0, "token_budget_tier": "medium"}
 
 
 def _derive_expected_phases(

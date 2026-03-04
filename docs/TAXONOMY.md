@@ -11,19 +11,19 @@
 
 | Tier | Score | Meaning |
 |------|-------|---------|
-| **Trivial** | < 5 | Single-step, localized, no state. Fast-path protected. |
-| **Small** | 5–15 | Single-step with scope; localized to 1–3 files. |
-| **Complex** | > 15 | Multi-step, protocol-heavy, stateful, or architecturally significant. |
+| **Easy** | < 5 | Single-step, localized, no state. Fast-path protected. |
+| **Medium** | 5–15 | Single-step with scope; localized to 1–3 files. |
+| **Hard** | > 15 | Multi-step, protocol-heavy, stateful, or architecturally significant. |
 
-- Single category capped ~10 so one keyword cannot force complex.
+- Single category capped ~10 so one keyword cannot force hard.
 - **Density tax:** 3+ complexity categories → +10.
-- **Trivial anchors (1–2 only):** `io_basic`, `logic_basic`, `query_basic`, `create_basic`.
+- **Easy anchors (1–2 only):** `io_basic`, `logic_basic`, `query_basic`, `create_basic`.
 
 ### 1.2 Risk Weights
 
 | Threshold | Effect |
 |-----------|--------|
-| **≥ 15** | Veto trivial → complex. Never run Minimalist on high-risk tasks. |
+| **≥ 15** | Veto easy → hard. Never run Minimalist on high-risk tasks. |
 
 Categories: destructive, security_governance, pii_handling, financial, production_deploy, phi_identifiers, industrial_safety, etc.
 
@@ -41,18 +41,18 @@ Categories: destructive, security_governance, pii_handling, financial, productio
 
 ---
 
-## 2. Trivial Fast-Path Protection
+## 2. Easy Fast-Path Protection
 
-Trivial requests (hello world, simple scripts) must stay on the fast path.
+Easy requests (hello world, simple scripts) must stay on the fast path.
 
 | Mechanism | Implementation |
 |-----------|----------------|
-| **Trivial anchors** | Only `io_basic`, `logic_basic`, `query_basic`, `create_basic` (weight 1–2). |
-| **Risk veto** | Substring match on `pip install`, `curl \|`, `\| bash`, `chmod +x`, `rm -rf`, etc. → block trivial. |
-| **Length veto** | Messages > `max_trivial_message_length` (200 chars) rarely stay trivial. |
-| **Educational discount** | `force_teach` + trivial → clarify path, not escalation. |
+| **Easy anchors** | Only `io_basic`, `logic_basic`, `query_basic`, `create_basic` (weight 1–2). |
+| **Risk veto** | Substring match on `pip install`, `curl \|`, `\| bash`, `chmod +x`, `rm -rf`, etc. → block easy. |
+| **Length veto** | Messages > `max_easy_message_length` (200 chars) rarely stay easy. |
+| **Educational discount** | `force_teach` + easy → clarify path, not escalation. |
 
-**Do NOT** add heavyweight keywords to trivial anchors. Keep `io_basic`, `logic_basic`, `query_basic` minimal.
+**Do NOT** add heavyweight keywords to easy anchors. Keep `io_basic`, `logic_basic`, `query_basic` minimal.
 
 ---
 
@@ -343,7 +343,7 @@ Plugins add **niche** keywords. The master covers **generic** baseline. Files li
 - **complexity_weights / risk_weights / domain_keywords:** Later plugin overwrites same category name. Use unique names per plugin.
 - **pairings:** Append. Plugins add risk/complexity multipliers.
 - **overrides:** Per-key merge (force_manual, force_teach, force_pro_advanced).
-- **thresholds:** Later overrides base.
+- **thresholds:** Later overrides base. YAML keys: `easy_max`, `medium_max`, `max_easy_message_length`. Routing thresholds live in `routing_thresholds` section of `intent_weights.yaml` (bypass_supervisor_below, plan_required_above, critic_required_above).
 
 ---
 
@@ -353,7 +353,7 @@ To reach "the 95%" for new verticals:
 
 1. **Add domain_keywords** in master or plugin (RAG routing only).
 2. **Add complexity_weights** for multi-step/protocol-heavy work.
-3. **Add risk_weights** for destructive/compliance work (≥15 vetoes trivial).
+3. **Add risk_weights** for destructive/compliance work (≥15 vetoes easy).
 4. **Add pairings** for synergistic triggers (e.g. `safety` + `override`).
 
 **Example—Aerospace:** Add `domain_keywords.aerospace` (domain: aerospace) with keywords like `dof-178c`, `adas`, `autopilot`. Add `risk_weights.safety_critical` if not covered by industrial.
@@ -362,15 +362,15 @@ To reach "the 95%" for new verticals:
 
 ---
 
-## 7. Taxonomy-Driven Output Type (Document vs Code)
+## 7. Taxonomy-Driven Deliverable Type (Explain-Only vs Code)
 
-**Design: document-first.** Default to discussions, plans, explanations. Code path only when taxonomy or coding client signals code.
+**Design: document-first.** Default to discussions, plans, explanations. Code path only when taxonomy or coding client signals code. `deliverable_type` subsumes former `output_type`: `explain_only` (was document), `single_file` (was code).
 
 | Mechanism | Intents | Meaning |
 |-----------|---------|---------|
-| `inherently_document: true` | conversation, knowledge, creative_ideation | Always document (greetings, explanations, ideas). |
-| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → document. |
-| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code path. |
+| `inherently_document: true` | conversation, knowledge, creative_ideation | Always `deliverable_type=explain_only` (greetings, explanations, ideas). |
+| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → `explain_only`. |
+| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code path (`single_file` or multi-file). |
 | **Coding client** | (header detection) | Cursor, Claude Code, etc. send `User-Agent`/`X-Client`. Ambiguous (general) → code bias. |
 
 | Intent | Config | Example |
@@ -383,9 +383,9 @@ To reach "the 95%" for new verticals:
 | writing | document_domains | "write blog about marathon", "draft email about nutrition" |
 | debugging, review, code_generation, data_transform, tool_orchestrated | code | "fix this bug", "write a script", "parse json" |
 
-**No match (general)** → document. **Coding client + general** → code (Cursor/Claude Code session assumes code).
+**No match (general)** → `explain_only`. **Coding client + general** → code (Cursor/Claude Code session assumes code).
 
-**Flow:** Entry Classifier (engine, coding_client override) → when document: if domain in `deep_dive_domains` and `complexity > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain_only) → Respond.
+**Flow:** Entry Classifier (engine, coding_client override) → when `deliverable_type=explain_only`: if domain in `deep_dive_domains` and `complexity_score > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain_only) → Respond.
 
 **Planner** serves code decomposition and document deep-dive (physics, astronomy, mathematics, etc.). Worker explain_only uses a document-focused prompt; when Planner ran for document, Worker receives `taxonomy_metadata` depth block.
 
@@ -410,7 +410,7 @@ To reach "the 95%" for new verticals:
 
 **Domain resolution:** `active_domain_refs` (EntryClassifier) + `platform_context` (Strategic Advisor) → canonical vertical.
 
-**Critic tiered mode** (lifestyle, llm_rag, llm_prompting, llm_evaluation): trivial → basic (Advisory), small → advanced (vertical-specific checks), complex → research (comprehensive). LLM verticals: RAG (chunk boundaries, attribution), prompting (injection risk), eval (methodology).
+**Critic tiered mode** (lifestyle, llm_rag, llm_prompting, llm_evaluation): easy → basic (Advisory), medium → advanced (vertical-specific checks), hard → research (comprehensive). LLM verticals: RAG (chunk boundaries, attribution), prompting (injection risk), eval (methodology).
 
 **Intent Class overlay** (critic = base + domain + intent): Knowledge → hallucination-sensitive; Writing → tone-based; Debugging → evidence-required; Review → strict; Data Transform → schema-enforcing; Personal Guidance → safety gate. See [INTENT_TAXONOMY.md](INTENT_TAXONOMY.md).
 
@@ -422,7 +422,7 @@ To reach "the 95%" for new verticals:
 
 **File:** `approach_dark_debt_config.yaml` — Maps (intent × vertical × task_size) → approach semantics, carried-uncertainties categories, and evidence sources.
 
-- **Approach:** What we chose to do — e.g. "Quick one-shot answer" (lifestyle trivial) vs "12-week training plan" (lifestyle complex); "RAG-grounded answer" (knowledge).
+- **Approach:** What we chose to do — e.g. "Quick one-shot answer" (lifestyle easy) vs "12-week training plan" (lifestyle hard); "RAG-grounded answer" (knowledge).
 - **Carried uncertainties:** What we're carrying (known unknowns we surface) — e.g. "Quick answer given; ask for full plan if needed" (lifestyle); "Forced approval at max iterations" (code); "RAG confidence low" (knowledge).
 - **How I got here:** Taxonomy-aware decision summary — code uses lint/sandbox/LSP/strategy; knowledge uses RAG; lifestyle uses RAG and assumptions.
 
@@ -459,16 +459,16 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 
 | User says | Intended | Taxonomy behavior |
 |-----------|----------|-------------------|
-| "terraform plan" | Small (single command) | terraform_basic (6) → small ✓ |
-| "terraform module for vpc" | Small–complex | terraform_module (10) + scope → small or complex ✓ |
-| "ansible playbook for 50 hosts" | Complex | ansible_orchestration (12) + multi → complex ✓ |
-| "bash script to backup db" | Small | shell_scripting (6) + local_persistence (8) → small ✓ |
-| "simple hello world" | Trivial | io_basic (1), create_basic (1) → trivial ✓ |
-| "migrate from Python 2 to 3" | Complex | maintenance_phase (10) + migration intent → complex ✓ |
+| "terraform plan" | Medium (single command) | terraform_basic (6) → medium ✓ |
+| "terraform module for vpc" | Medium–hard | terraform_module (10) + scope → medium or hard ✓ |
+| "ansible playbook for 50 hosts" | Hard | ansible_orchestration (12) + multi → hard ✓ |
+| "bash script to backup db" | Medium | shell_scripting (6) + local_persistence (8) → medium ✓ |
+| "simple hello world" | Easy | io_basic (1), create_basic (1) → easy ✓ |
+| "migrate from Python 2 to 3" | Hard | maintenance_phase (10) + migration intent → hard ✓ |
 
 **Density tax:** 3+ complexity categories → +10. Prevents single keyword from dominating; reflects real multi-faceted tasks.
 
-**Risk veto:** Any risk ≥15 → force complex. Security, destructive, production deploy never trivial.
+**Risk veto:** Any risk ≥15 → force hard. Security, destructive, production deploy never easy.
 
 ### How Taxonomy Improves Nodes
 
@@ -507,7 +507,7 @@ Existing indexers (domain, architecture, code) use their own domain extraction (
 
 **File:** `base/planner/taxonomy_prompt_config.yaml` — Maps taxonomy keys (physics, astronomy, mathematics, etc.) to `path`, `complexity`, `persona`, `depth_instructions`, `required_elements`. `deep_dive_domains` list: document questions in these domains get `plan_required=true` when `complexity > 0.6`.
 
-**State:** `taxonomy_metadata` (TaxonomyNode) flows through graph: `path`, `complexity_score`, `persona_instructions`, `required_bullets`, `required_elements`, `depth_instructions`, `taxonomy_key`. High-complexity domains trigger Planner with 5 detailed bullets; low complexity uses 1–2.
+**State:** `taxonomy_metadata` (TaxonomyNode) flows through graph: `path`, `complexity_score` (normalized 0.0–1.0), `persona_instructions`, `required_bullets`, `required_elements`, `depth_instructions`, `taxonomy_key`. High-complexity domains trigger Planner with 5 detailed bullets; low complexity uses 1–2.
 
 **Flow:** Entry Classifier → `resolve_taxonomy_metadata()` → `taxonomy_metadata` in state. Planner appends `required_elements` + `depth_instructions` when complexity > 0.7. Worker appends `get_executor_depth_block()`.
 

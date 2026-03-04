@@ -21,16 +21,8 @@ from ..taxonomy_prompt_factory import resolve_taxonomy_metadata, should_plan_for
 
 logger = logging.getLogger("synesis.entry_classifier")
 
-TaskSize = Literal["trivial", "small", "complex"]
-WorkerPersona = Literal["Minimalist", "Senior", "Architect"]
+TaskSize = Literal["easy", "medium", "hard"]
 MessageOrigin = Literal["end_user", "ui_helper", "system_internal", "tool_log"]
-
-# Persona Tier: Decouples engineering rigor from general utility
-_TASK_SIZE_TO_PERSONA: dict[TaskSize, WorkerPersona] = {
-    "trivial": "Minimalist",
-    "small": "Senior",
-    "complex": "Architect",
-}
 
 # Language detection (ordered: more specific first). Shell variants, IaC, programming languages.
 _LANGUAGE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
@@ -109,7 +101,7 @@ def _detect_language(text: str) -> str:
     return INFER_LANGUAGE
 
 
-def _trivial_wants_tests(text: str) -> bool:
+def _easy_wants_tests(text: str) -> bool:
     """User explicitly asked for tests. Don't assume tests for one-liners/simple scripts."""
     if not text or not text.strip():
         return False
@@ -119,10 +111,10 @@ def _trivial_wants_tests(text: str) -> bool:
     )
 
 
-def _trivial_touched_files(text: str, target_language: str) -> list[str]:
-    """Default touched_files for trivial tasks (from DefaultsPolicy). Single file unless user wants tests."""
+def _easy_touched_files(text: str, target_language: str) -> list[str]:
+    """Default touched_files for easy tasks (from DefaultsPolicy). Single file unless user wants tests."""
     policy = get_defaults_policy()
-    include_tests = _trivial_wants_tests(text)
+    include_tests = _easy_wants_tests(text)
     return policy.get_trivial_files(target_language, include_tests=include_tests)
 
 
@@ -139,7 +131,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             break
 
     # Pending continue: user replying to clarification/plan — analyze original task + reply so "4 week
-    # training plan" inherits domain from "marathon plan" (athletics_running → output_type=document)
+    # training plan" inherits domain from "marathon plan" (athletics_running → deliverable_type=explain_only)
     text_to_analyze = last_content
     if state.get("pending_question_continue") and state.get("task_description"):
         orig = (state.get("task_description") or "").strip()[:500]
@@ -155,37 +147,37 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     analysis = engine.analyze(text_to_analyze)
 
     task_size: TaskSize = analysis["task_size"]
+    difficulty: float = analysis.get("difficulty", 0.0)
     manual_override = analysis.get("manual_override", False)
     force_pro_advanced = analysis.get("force_pro_advanced", False)
+    rt = analysis.get("routing_thresholds") or {}
 
-    # Bypass Supervisor for trivial; else Supervisor runs. Force manual overrides.
-    bypass_supervisor = task_size == "trivial" and not manual_override
-    bypass_planner = task_size == "trivial" and not manual_override
-    requires_clarification = task_size == "complex"
+    # Routing uses continuous difficulty score against YAML-configured thresholds.
+    bypass_threshold = float(rt.get("bypass_supervisor_below", 0.2))
+    plan_threshold = float(rt.get("plan_required_above", 0.7))
 
-    # plan_required: Architect (complex) tasks; also when user explicitly requests planning (@plan, /plan, "lets plan")
+    bypass_supervisor = difficulty < bypass_threshold and not manual_override
+    bypass_planner = difficulty < bypass_threshold and not manual_override
+    requires_clarification = difficulty >= plan_threshold
+
+    # plan_required: high-difficulty or explicit planning request (@plan, /plan, "lets plan")
     planning_session_requested = manual_override or force_pro_advanced
-    if manual_override or task_size == "complex" or force_pro_advanced:
-        plan_required = True
-    else:
-        plan_required = False
+    plan_required = manual_override or difficulty >= plan_threshold or force_pro_advanced
 
-    # clarification_budget
-    clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
+    # clarification_budget scales with difficulty
+    if difficulty < bypass_threshold:
+        clarification_budget = 0
+    elif difficulty < plan_threshold:
+        clarification_budget = 1
+    else:
+        clarification_budget = 2
     # Teach mode: must not increase interrogation (Phase 4 item 8)
     interaction_mode = analysis.get("interaction_mode", "do")
     if interaction_mode == "teach":
         clarification_budget = min(clarification_budget, 1)
 
-    # worker_persona: Minimalist | Senior | Architect. worker_prompt_tier kept for backward compat.
-    worker_persona: WorkerPersona = _TASK_SIZE_TO_PERSONA.get(task_size, "Senior")
-    if force_pro_advanced or task_size == "complex":
-        worker_persona = "Architect"
-        worker_prompt_tier = "full"
-    elif task_size == "trivial":
-        worker_prompt_tier = "trivial"
-    else:
-        worker_prompt_tier = "small"
+    # worker_persona and worker_prompt_tier are now derived from task_size
+    # (easy→Minimalist, medium→Senior, hard→Architect). No longer set as separate state.
 
     # escalation_reason: set whenever routing to Supervisor (Phase 4 item 9)
     escalation_reason = ""
@@ -197,10 +189,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             escalation_reason = "risk_veto"
         elif any("length_veto" in r for r in reasons):
             escalation_reason = "length_veto"
-        elif task_size == "complex":
-            escalation_reason = "task_size_complex"
+        elif task_size == "hard":
+            escalation_reason = "task_size_hard"
         else:
-            escalation_reason = "task_size_small"
+            escalation_reason = "task_size_medium"
 
     # task_description: when pending continue, include original for downstream (Worker needs full context)
     if state.get("pending_question_continue") and state.get("task_description"):
@@ -214,9 +206,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {
         "message_origin": message_origin,
         "task_size": task_size,
-        "worker_persona": worker_persona,
         "task_description": task_description,
-        "target_language": "",  # set below from output_type and language detection
+        "target_language": "",  # set below from deliverable_type and language detection
         "bypass_supervisor": bypass_supervisor,
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
@@ -225,7 +216,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "clarification_budget": clarification_budget,
         "interaction_mode": interaction_mode,
         "intent_classifier_source": "deterministic",
-        "worker_prompt_tier": worker_prompt_tier,
         "escalation_reason": escalation_reason,
     }
     # Sovereign intersection: deterministic domains from EntryClassifier seed active_domain_refs
@@ -234,7 +224,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["active_domain_refs"] = active_domains
 
     out["intent_class"] = analysis.get("intent_class", "code")
-    out["output_type"] = analysis.get("output_type", "code")  # document → explain_only; taxonomy-driven
+    out["deliverable_type"] = analysis.get("deliverable_type", "single_file")
 
     # Defensive: knowledge/educational-style messages must never get code path
     _knowledge_style = re.compile(
@@ -246,39 +236,41 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if _knowledge_style.match((last_content or "").strip()):
-        out["output_type"] = "document"
+        out["deliverable_type"] = "explain_only"
         out["intent_class"] = "knowledge"
         out["target_language"] = "markdown"
-        out["deliverable_type"] = "explain_only"
         out["allowed_tools"] = ["none"]
-        # Knowledge questions asking ABOUT technical terms (e.g. "What are the
-        # differences between REST and GraphQL?") should never be classified as
-        # complex -- they don't need a planner or supervisor LLM routing call.
-        if out.get("task_size") == "complex":
-            out["task_size"] = "small"
-            out["worker_persona"] = "Senior"
-            out["worker_prompt_tier"] = "small"
+        # Knowledge queries need at least "medium" budget so the model has
+        # enough tokens for a substantive answer (easy budget is too tight).
+        _prev_size = out.get("task_size", "easy")
+        if _prev_size in ("easy", "hard"):
+            out["task_size"] = "medium"
             out["bypass_supervisor"] = True
             out["bypass_planner"] = True
             out["plan_required"] = False
             out["requires_clarification"] = False
             out["clarification_budget"] = 0
-            logger.info(
-                "entry_classifier_knowledge_downgrade",
-                extra={"from": "complex", "to": "small"},
-            )
+            if _prev_size == "hard":
+                logger.info(
+                    "entry_classifier_knowledge_downgrade",
+                    extra={"from": "hard", "to": "medium"},
+                )
+            else:
+                logger.info(
+                    "entry_classifier_knowledge_upgrade",
+                    extra={"from": _prev_size, "to": "medium"},
+                )
         logger.info(
             "entry_classifier_knowledge_override",
             extra={
                 "intent_class": "knowledge",
-                "output_type": "document",
+                "deliverable_type": "explain_only",
                 "preview": (last_content or "")[:60],
             },
         )
-    # target_language: document→markdown; explicit lang→use it; else infer (Supervisor infers from prompt)
-    # Use out["output_type"] so knowledge_override is respected
-    eff_output_type = out.get("output_type", "code")
-    if eff_output_type == "document":
+    # target_language: explain_only→markdown; explicit lang→use it; else infer (Supervisor infers from prompt)
+    eff_deliverable = out.get("deliverable_type", "single_file")
+    if eff_deliverable == "explain_only":
         out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
         out["target_language"] = _detect_language(last_content)
@@ -290,34 +282,33 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["classification_score"] = analysis.get("score", 0)
     # Phase 2: split axes — complexity/risk/domain (domain never escalates)
     out["complexity_score"] = analysis.get("complexity_score", 0)
+    out["difficulty"] = difficulty
     out["risk_score"] = analysis.get("risk_score", 0)
     out["domain_hints"] = analysis.get("domain_hints") or []
     out["current_node"] = "entry_classifier"
 
-    # task_size_override: /reclassify small|complex forces override (log for tuning)
+    # task_size_override: /reclassify easy|medium|hard forces override (log for tuning)
     task_size_override = state.get("task_size_override")
-    if task_size_override in ("trivial", "small", "complex"):
+    if task_size_override in ("easy", "medium", "hard"):
         task_size = task_size_override  # type: ignore[assignment]
+        difficulty = {"easy": 0.1, "medium": 0.4, "hard": 0.8}[task_size]
         out["task_size"] = task_size
+        out["difficulty"] = difficulty
         out["reclassify_override"] = task_size_override
         # Recompute downstream fields for overridden task_size
-        bypass_supervisor = task_size == "trivial"
-        bypass_planner = task_size == "trivial"
-        requires_clarification = task_size == "complex"
-        plan_required = bool(manual_override or task_size == "complex" or force_pro_advanced)
-        clarification_budget = 0 if task_size == "trivial" else (1 if task_size == "small" else 2)
+        bypass_supervisor = difficulty < bypass_threshold
+        bypass_planner = difficulty < bypass_threshold
+        requires_clarification = difficulty >= plan_threshold
+        plan_required = bool(manual_override or difficulty >= plan_threshold or force_pro_advanced)
+        clarification_budget = 0 if difficulty < bypass_threshold else (1 if difficulty < plan_threshold else 2)
         if interaction_mode == "teach":
             clarification_budget = min(clarification_budget, 1)
-        worker_persona = _TASK_SIZE_TO_PERSONA.get(task_size, "Senior")
-        worker_prompt_tier = "trivial" if task_size == "trivial" else ("small" if task_size == "small" else "full")
         out["bypass_supervisor"] = bypass_supervisor
         out["bypass_planner"] = bypass_planner
         out["requires_clarification"] = requires_clarification
         out["plan_required"] = plan_required
         out["clarification_budget"] = clarification_budget
-        out["worker_persona"] = worker_persona
-        out["worker_prompt_tier"] = worker_prompt_tier
-        out["escalation_reason"] = "reclassify_override" if task_size != "trivial" else ""
+        out["escalation_reason"] = "reclassify_override" if not bypass_supervisor else ""
 
     # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
     # Never override knowledge-style questions (what is, how does) to code
@@ -325,22 +316,22 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         state.get("coding_client_detected")
         and out.get("intent_class") != "knowledge"
         and analysis.get("intent_class") == "general"
-        and analysis.get("output_type") == "document"
+        and analysis.get("deliverable_type") == "explain_only"
     ):
-        out["output_type"] = "code"
+        out["deliverable_type"] = "single_file"
         out["intent_class"] = "code"
 
     # Taxonomy-Driven Contextual Injection: resolve taxonomy_metadata from active_domain_refs + task_size
     taxonomy_metadata = resolve_taxonomy_metadata(
         active_domain_refs=out.get("active_domain_refs") or [],
-        task_size=out.get("task_size", "small"),
+        task_size=out.get("task_size", "medium"),
         intent_class=out.get("intent_class", "code"),
         complexity_score=out.get("complexity_score", 0.5) or 0.5,
     )
     out["taxonomy_metadata"] = taxonomy_metadata
 
-    # Taxonomy-driven: output_type=document → usually skip Planner; BUT high-depth domains (physics, etc.) or explicit planning session
-    if out.get("output_type") == "document":
+    # Taxonomy-driven: explain_only → usually skip Planner; BUT high-depth domains (physics, etc.) or explicit planning session
+    if out.get("deliverable_type") == "explain_only":
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
         if deep_dive or planning_session_requested:
             out["plan_required"] = True  # Route to Planner for required_elements or @plan/lets plan
@@ -351,27 +342,26 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         # Clear stale execution_plan when not resuming pending — avoid injecting wrong plan steps (e.g. marathon)
         if not state.get("pending_question_continue") and not out.get("plan_required"):
             out["execution_plan"] = {}
-    # Pending continue: preserve output_type=document from restored state
-    elif state.get("pending_question_continue") and state.get("output_type") == "document":
-        out["output_type"] = "document"
+    # Pending continue: preserve deliverable_type=explain_only from restored state
+    elif state.get("pending_question_continue") and state.get("deliverable_type") == "explain_only":
+        out["deliverable_type"] = "explain_only"
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
 
-    # Trivial fast-path: branch on output_type. Document → explain_only; code → single_file + sandbox.
-    if task_size == "trivial" and not manual_override:
+    # Easy fast-path: branch on deliverable_type. explain_only → text; code → single_file + sandbox.
+    if task_size == "easy" and not manual_override:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
-        if out.get("output_type") == "document":
-            out["deliverable_type"] = "explain_only"
+        if out.get("deliverable_type") == "explain_only":
             out["task_type"] = "general"
             out["allowed_tools"] = ["none"]
         else:
             eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
-            out["touched_files"] = _trivial_touched_files(last_content, eff_lang)
+            out["touched_files"] = _easy_touched_files(last_content, eff_lang)
             out["defaults_used"] = policy.get_defaults_used(eff_lang)
             out["deliverable_type"] = "single_file"
-            out["include_tests"] = _trivial_wants_tests(last_content)
+            out["include_tests"] = _easy_wants_tests(last_content)
             out["include_run_commands"] = True
             out["task_type"] = "code_generation"
             out["allowed_tools"] = ["sandbox"]
@@ -383,7 +373,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "entry_classifier_result",
         extra={
             "intent_class": out.get("intent_class"),
-            "output_type": out.get("output_type"),
             "deliverable_type": out.get("deliverable_type"),
             "task_size": out.get("task_size"),
             "target_language": out.get("target_language"),

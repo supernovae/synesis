@@ -1,0 +1,2786 @@
+metadata:
+  timestamp: '2026-03-04T23:12:53.199320+00:00'
+  api_url: https://synesis-planner.apps.openshiftdemo.dev
+  total_prompts: 30
+summary:
+  pass: 0
+  warn: 10
+  fail: 20
+category_breakdown:
+  knowledge:
+    pass: 0
+    warn: 4
+    fail: 6
+    avg_latency_s: 20.87
+    avg_reasoning_ms: 16105
+    avg_phases: 8.0
+    stacked_count: 10
+    count: 10
+  trivial:
+    pass: 0
+    warn: 0
+    fail: 10
+    avg_latency_s: 11.89
+    avg_reasoning_ms: 9248
+    avg_phases: 8.5
+    stacked_count: 10
+    count: 10
+  conversation:
+    pass: 0
+    warn: 6
+    fail: 4
+    avg_latency_s: 14.03
+    avg_reasoning_ms: 12463
+    avg_phases: 8.0
+    stacked_count: 10
+    count: 10
+tuning_recommendations:
+- 'knowledge: avg reasoning 16105ms exceeds 8s threshold — consider lowering token budget'
+- 'knowledge: 10/10 prompts had stacked/duplicate phase events'
+- 'trivial: avg reasoning 9248ms exceeds 1.5s threshold — consider lowering token budget'
+- 'trivial: 10/10 prompts had stacked/duplicate phase events'
+- 'conversation: avg reasoning 12463ms exceeds 8s threshold — consider lowering token budget'
+- 'conversation: 10/10 prompts had stacked/duplicate phase events'
+failures:
+- &id003
+  id: know-03
+  category: knowledge
+  sequence: null
+  prompt_preview: How did we find out how fast the speed of light is to measure it?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 23.14s > 20s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14164ms, ratio 5.93x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.93x > 3.0x limit. 256 chunks, 14164ms, ratio 5.93x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 8868
+    ttfr_ms: 8978
+    ttfc_ms: 23142
+    reasoning_duration_ms: 14164
+    total_ms: 23143
+    total_s: 23.14
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1316
+    content_len: 222
+    reasoning_content_ratio: 5.93
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 8868
+    - description: Analyzing request…
+      offset_ms: 8868
+    - description: Detecting domain…
+      offset_ms: 8871
+    - description: Detecting domain…
+      offset_ms: 8871
+    - description: Gathering context…
+      offset_ms: 8873
+    - description: Creating your plan…
+      offset_ms: 8874
+    - description: Creating your plan…
+      offset_ms: 8874
+    - description: Finishing…
+      offset_ms: 8875
+    - description: ''
+      offset_ms: 8876
+      done: true
+    - description: ''
+      offset_ms: 23142
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id005
+  id: know-05
+  category: knowledge
+  sequence: null
+  prompt_preview: What are the differences between REST and GraphQL?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 57.02s > 15s limit
+  - check: streaming
+    status: pass
+    detail: 353 chunks
+  - check: has_content
+    status: pass
+    detail: 1780 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 33.6s > 8.0s limit. 604 chunks, 33571ms, ratio 1.73x
+  - check: reasoning_ratio
+    status: pass
+    detail: 1.73x (limit 3.0x)
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 3738
+    ttfr_ms: 3783
+    ttfc_ms: 37354
+    reasoning_duration_ms: 33571
+    total_ms: 57018
+    total_s: 57.02
+    reasoning_chunks: 604
+    content_chunks: 353
+    reasoning_len: 3087
+    content_len: 1780
+    reasoning_content_ratio: 1.73
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 3738
+    - description: Analyzing request…
+      offset_ms: 3738
+    - description: Detecting domain…
+      offset_ms: 3738
+    - description: Detecting domain…
+      offset_ms: 3738
+    - description: Gathering context…
+      offset_ms: 3739
+    - description: Creating your plan…
+      offset_ms: 3739
+    - description: Creating your plan…
+      offset_ms: 3739
+    - description: Finishing…
+      offset_ms: 3739
+    - description: ''
+      offset_ms: 3739
+      done: true
+    - description: ''
+      offset_ms: 57017
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id006
+  id: know-06
+  category: knowledge
+  sequence: null
+  prompt_preview: Why do planes leave white trails in the sky?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.61s > 12s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14186ms, ratio 5.25x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.25x > 3.0x limit. 256 chunks, 14186ms, ratio 5.25x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 291
+    ttfr_ms: 427
+    ttfc_ms: 14613
+    reasoning_duration_ms: 14186
+    total_ms: 14614
+    total_s: 14.61
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1166
+    content_len: 222
+    reasoning_content_ratio: 5.25
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 291
+    - description: Analyzing request…
+      offset_ms: 291
+    - description: Detecting domain…
+      offset_ms: 292
+    - description: Detecting domain…
+      offset_ms: 293
+    - description: Gathering context…
+      offset_ms: 294
+    - description: Creating your plan…
+      offset_ms: 294
+    - description: Creating your plan…
+      offset_ms: 295
+    - description: Finishing…
+      offset_ms: 296
+    - description: ''
+      offset_ms: 329
+      done: true
+    - description: ''
+      offset_ms: 14613
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 12
+    context_must_persist: false
+- &id007
+  id: know-07
+  category: knowledge
+  sequence: null
+  prompt_preview: What year did Jeep stop making the Wrangler JKU and switch to the JLU?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 17.07s > 12s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14160ms, ratio 4.47x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 4.47x > 3.0x limit. 256 chunks, 14160ms, ratio 4.47x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 2798
+    ttfr_ms: 2906
+    ttfc_ms: 17066
+    reasoning_duration_ms: 14160
+    total_ms: 17067
+    total_s: 17.07
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 992
+    content_len: 222
+    reasoning_content_ratio: 4.47
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 2798
+    - description: Analyzing request…
+      offset_ms: 2799
+    - description: Detecting domain…
+      offset_ms: 2799
+    - description: Detecting domain…
+      offset_ms: 2799
+    - description: Gathering context…
+      offset_ms: 2799
+    - description: Creating your plan…
+      offset_ms: 2799
+    - description: Creating your plan…
+      offset_ms: 2799
+    - description: Finishing…
+      offset_ms: 2799
+    - description: ''
+      offset_ms: 2800
+      done: true
+    - description: ''
+      offset_ms: 17066
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 12
+    context_must_persist: false
+- &id008
+  id: know-08
+  category: knowledge
+  sequence: null
+  prompt_preview: Explain the difference between affect and effect with examples.
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 20.08s > 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14165ms, ratio 5.05x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.05x > 3.0x limit. 256 chunks, 14165ms, ratio 5.05x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 5826
+    ttfr_ms: 5909
+    ttfc_ms: 20075
+    reasoning_duration_ms: 14165
+    total_ms: 20076
+    total_s: 20.08
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1122
+    content_len: 222
+    reasoning_content_ratio: 5.05
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 5826
+    - description: Analyzing request…
+      offset_ms: 5826
+    - description: Detecting domain…
+      offset_ms: 5829
+    - description: Detecting domain…
+      offset_ms: 5829
+    - description: Gathering context…
+      offset_ms: 5832
+    - description: Creating your plan…
+      offset_ms: 5832
+    - description: Creating your plan…
+      offset_ms: 5832
+    - description: Finishing…
+      offset_ms: 5832
+    - description: ''
+      offset_ms: 5832
+      done: true
+    - description: ''
+      offset_ms: 20075
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id009
+  id: triv-01
+  category: trivial
+  sequence: null
+  prompt_preview: Hello
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.44s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 1.5s limit. 256 chunks, 14160ms, ratio 5.33x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.33x > 1.0x limit. 256 chunks, 14160ms, ratio 5.33x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 186
+    ttfr_ms: 277
+    ttfc_ms: 14438
+    reasoning_duration_ms: 14160
+    total_ms: 14438
+    total_s: 14.44
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1184
+    content_len: 222
+    reasoning_content_ratio: 5.33
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 186
+    - description: Analyzing request…
+      offset_ms: 186
+    - description: Detecting domain…
+      offset_ms: 186
+    - description: Detecting domain…
+      offset_ms: 186
+    - description: Gathering context…
+      offset_ms: 187
+    - description: Creating your plan…
+      offset_ms: 187
+    - description: Creating your plan…
+      offset_ms: 187
+    - description: Finishing…
+      offset_ms: 187
+    - description: ''
+      offset_ms: 224
+      done: true
+    - description: ''
+      offset_ms: 14437
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id010
+  id: triv-02
+  category: trivial
+  sequence: null
+  prompt_preview: Write hello world in Python
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 16.33s > 8s limit
+  - check: streaming
+    status: pass
+    detail: 8 chunks
+  - check: has_content
+    status: pass
+    detail: 210 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: reasoning
+    status: info
+    detail: No reasoning tokens observed
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Validating code…'', ''Reviewing…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 2461
+    ttfr_ms: -1
+    ttfc_ms: 14654
+    reasoning_duration_ms: 0
+    total_ms: 16332
+    total_s: 16.33
+    reasoning_chunks: 0
+    content_chunks: 8
+    reasoning_len: 0
+    content_len: 210
+    reasoning_content_ratio: 0.0
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 2461
+    - description: Analyzing request…
+      offset_ms: 2461
+    - description: Detecting domain…
+      offset_ms: 2461
+    - description: Detecting domain…
+      offset_ms: 2461
+    - description: Gathering context…
+      offset_ms: 2461
+    - description: Generating your code…
+      offset_ms: 2461
+    - description: Thinking…
+      offset_ms: 2597
+    - description: Generating your code…
+      offset_ms: 16330
+    - description: Validating code…
+      offset_ms: 16331
+    - description: Validating code…
+      offset_ms: 16331
+    - description: Reviewing…
+      offset_ms: 16331
+    - description: Reviewing…
+      offset_ms: 16331
+    - description: Finishing…
+      offset_ms: 16331
+    - description: ''
+      offset_ms: 16331
+      done: true
+    phase_count: 13
+    duplicate_phases:
+    - Detecting domain…
+    - Validating code…
+    - Reviewing…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Generating your code…
+    - Thinking…
+    - Generating your code…
+    - Validating code…
+    - Validating code…
+    - Reviewing…
+    - Reviewing…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: false
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 8
+    context_must_persist: false
+- &id011
+  id: triv-03
+  category: trivial
+  sequence: null
+  prompt_preview: What is 2+2?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.52s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 1.5s limit. 256 chunks, 14154ms, ratio 5.26x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.26x > 1.0x limit. 256 chunks, 14154ms, ratio 5.26x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 271
+    ttfr_ms: 365
+    ttfc_ms: 14519
+    reasoning_duration_ms: 14154
+    total_ms: 14520
+    total_s: 14.52
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1168
+    content_len: 222
+    reasoning_content_ratio: 5.26
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 271
+    - description: Analyzing request…
+      offset_ms: 271
+    - description: Detecting domain…
+      offset_ms: 272
+    - description: Detecting domain…
+      offset_ms: 273
+    - description: Gathering context…
+      offset_ms: 273
+    - description: Creating your plan…
+      offset_ms: 273
+    - description: Creating your plan…
+      offset_ms: 274
+    - description: Finishing…
+      offset_ms: 274
+    - description: ''
+      offset_ms: 310
+      done: true
+    - description: ''
+      offset_ms: 14519
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id012
+  id: triv-04
+  category: trivial
+  sequence: null
+  prompt_preview: Thanks!
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 7.33s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 221 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 7.1s > 1.5s limit. 128 chunks, 7057ms, ratio 2.7x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 2.7x > 1.0x limit. 128 chunks, 7057ms, ratio 2.7x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 180
+    ttfr_ms: 269
+    ttfc_ms: 7327
+    reasoning_duration_ms: 7057
+    total_ms: 7327
+    total_s: 7.33
+    reasoning_chunks: 128
+    content_chunks: 1
+    reasoning_len: 596
+    content_len: 221
+    reasoning_content_ratio: 2.7
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 180
+    - description: Analyzing request…
+      offset_ms: 180
+    - description: Detecting domain…
+      offset_ms: 181
+    - description: Detecting domain…
+      offset_ms: 181
+    - description: Gathering context…
+      offset_ms: 181
+    - description: Creating your plan…
+      offset_ms: 182
+    - description: Creating your plan…
+      offset_ms: 182
+    - description: Finishing…
+      offset_ms: 182
+    - description: ''
+      offset_ms: 215
+      done: true
+    - description: ''
+      offset_ms: 7327
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id013
+  id: triv-05
+  category: trivial
+  sequence: null
+  prompt_preview: Print the numbers 1 to 10 in bash
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 17.39s > 8s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 1.5s limit. 256 chunks, 14155ms, ratio 4.32x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 4.32x > 1.0x limit. 256 chunks, 14155ms, ratio 4.32x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 3141
+    ttfr_ms: 3235
+    ttfc_ms: 17391
+    reasoning_duration_ms: 14155
+    total_ms: 17392
+    total_s: 17.39
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 959
+    content_len: 222
+    reasoning_content_ratio: 4.32
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 3141
+    - description: Analyzing request…
+      offset_ms: 3141
+    - description: Detecting domain…
+      offset_ms: 3142
+    - description: Detecting domain…
+      offset_ms: 3142
+    - description: Gathering context…
+      offset_ms: 3142
+    - description: Creating your plan…
+      offset_ms: 3142
+    - description: Creating your plan…
+      offset_ms: 3142
+    - description: Finishing…
+      offset_ms: 3142
+    - description: ''
+      offset_ms: 3142
+      done: true
+    - description: ''
+      offset_ms: 17391
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: bash
+    max_latency_s: 8
+    context_must_persist: false
+- &id014
+  id: budget-01
+  category: trivial
+  sequence: null
+  prompt_preview: OK
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 7.31s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 221 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 7.0s > 1.0s limit. 128 chunks, 7038ms, ratio 2.1x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 2.1x > 0.5x limit. 128 chunks, 7038ms, ratio 2.1x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 176
+    ttfr_ms: 269
+    ttfc_ms: 7307
+    reasoning_duration_ms: 7038
+    total_ms: 7308
+    total_s: 7.31
+    reasoning_chunks: 128
+    content_chunks: 1
+    reasoning_len: 464
+    content_len: 221
+    reasoning_content_ratio: 2.1
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 176
+    - description: Analyzing request…
+      offset_ms: 176
+    - description: Detecting domain…
+      offset_ms: 176
+    - description: Detecting domain…
+      offset_ms: 176
+    - description: Gathering context…
+      offset_ms: 176
+    - description: Creating your plan…
+      offset_ms: 179
+    - description: Creating your plan…
+      offset_ms: 179
+    - description: Finishing…
+      offset_ms: 179
+    - description: ''
+      offset_ms: 214
+      done: true
+    - description: ''
+      offset_ms: 7307
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id015
+  id: budget-02
+  category: trivial
+  sequence: null
+  prompt_preview: Got it, thanks
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.42s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 1.0s limit. 256 chunks, 14170ms, ratio 5.57x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.57x > 0.5x limit. 256 chunks, 14170ms, ratio 5.57x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 159
+    ttfr_ms: 249
+    ttfc_ms: 14420
+    reasoning_duration_ms: 14170
+    total_ms: 14420
+    total_s: 14.42
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1236
+    content_len: 222
+    reasoning_content_ratio: 5.57
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 159
+    - description: Analyzing request…
+      offset_ms: 159
+    - description: Detecting domain…
+      offset_ms: 160
+    - description: Detecting domain…
+      offset_ms: 161
+    - description: Gathering context…
+      offset_ms: 162
+    - description: Creating your plan…
+      offset_ms: 163
+    - description: Creating your plan…
+      offset_ms: 163
+    - description: Finishing…
+      offset_ms: 164
+    - description: ''
+      offset_ms: 201
+      done: true
+    - description: ''
+      offset_ms: 14420
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id016
+  id: budget-03
+  category: trivial
+  sequence: null
+  prompt_preview: Nope
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 7.38s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 221 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 7.1s > 1.0s limit. 128 chunks, 7057ms, ratio 2.53x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 2.53x > 0.5x limit. 128 chunks, 7057ms, ratio 2.53x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 229
+    ttfr_ms: 320
+    ttfc_ms: 7378
+    reasoning_duration_ms: 7057
+    total_ms: 7378
+    total_s: 7.38
+    reasoning_chunks: 128
+    content_chunks: 1
+    reasoning_len: 560
+    content_len: 221
+    reasoning_content_ratio: 2.53
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 229
+    - description: Analyzing request…
+      offset_ms: 232
+    - description: Detecting domain…
+      offset_ms: 232
+    - description: Detecting domain…
+      offset_ms: 232
+    - description: Gathering context…
+      offset_ms: 234
+    - description: Creating your plan…
+      offset_ms: 234
+    - description: Creating your plan…
+      offset_ms: 235
+    - description: Finishing…
+      offset_ms: 235
+    - description: ''
+      offset_ms: 269
+      done: true
+    - description: ''
+      offset_ms: 7378
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id017
+  id: budget-04
+  category: trivial
+  sequence: null
+  prompt_preview: What color is the sky?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.44s > 5s limit
+  - check: streaming
+    status: pass
+    detail: 81 chunks
+  - check: has_content
+    status: pass
+    detail: 398 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 9.7s > 1.5s limit. 174 chunks, 9744ms, ratio 2.05x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 2.05x > 1.0x limit. 174 chunks, 9744ms, ratio 2.05x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 161
+    ttfr_ms: 250
+    ttfc_ms: 9994
+    reasoning_duration_ms: 9744
+    total_ms: 14442
+    total_s: 14.44
+    reasoning_chunks: 174
+    content_chunks: 81
+    reasoning_len: 816
+    content_len: 398
+    reasoning_content_ratio: 2.05
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 161
+    - description: Analyzing request…
+      offset_ms: 162
+    - description: Detecting domain…
+      offset_ms: 162
+    - description: Detecting domain…
+      offset_ms: 162
+    - description: Gathering context…
+      offset_ms: 167
+    - description: Creating your plan…
+      offset_ms: 167
+    - description: Creating your plan…
+      offset_ms: 167
+    - description: Finishing…
+      offset_ms: 167
+    - description: ''
+      offset_ms: 199
+      done: true
+    - description: ''
+      offset_ms: 14441
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id019
+  id: phase-01
+  category: knowledge
+  sequence: null
+  prompt_preview: Explain what an API is.
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.46s > 12s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14169ms, ratio 5.51x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.51x > 3.0x limit. 256 chunks, 14169ms, ratio 5.51x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 180
+    ttfr_ms: 287
+    ttfc_ms: 14457
+    reasoning_duration_ms: 14169
+    total_ms: 14458
+    total_s: 14.46
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1223
+    content_len: 222
+    reasoning_content_ratio: 5.51
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 180
+    - description: Analyzing request…
+      offset_ms: 181
+    - description: Detecting domain…
+      offset_ms: 181
+    - description: Detecting domain…
+      offset_ms: 181
+    - description: Gathering context…
+      offset_ms: 184
+    - description: Creating your plan…
+      offset_ms: 184
+    - description: Creating your plan…
+      offset_ms: 184
+    - description: Finishing…
+      offset_ms: 184
+    - description: ''
+      offset_ms: 223
+      done: true
+    - description: ''
+      offset_ms: 14457
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 12
+    context_must_persist: false
+- &id020
+  id: phase-04
+  category: trivial
+  sequence: null
+  prompt_preview: Yo
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 5.38s > 5s limit
+  - check: streaming
+    status: pass
+    detail: 3 chunks
+  - check: has_content
+    status: pass
+    detail: 5 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 4.9s > 1.0s limit. 88 chunks, 4943ms, ratio 78.6x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 78.6x > 1.0x limit. 88 chunks, 4943ms, ratio 78.6x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 1 expected phases seen
+  metrics:
+    ttfe_ms: 177
+    ttfr_ms: 268
+    ttfc_ms: 5212
+    reasoning_duration_ms: 4943
+    total_ms: 5382
+    total_s: 5.38
+    reasoning_chunks: 88
+    content_chunks: 3
+    reasoning_len: 393
+    content_len: 5
+    reasoning_content_ratio: 78.6
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 177
+    - description: Analyzing request…
+      offset_ms: 177
+    - description: Detecting domain…
+      offset_ms: 178
+    - description: Detecting domain…
+      offset_ms: 178
+    - description: Gathering context…
+      offset_ms: 179
+    - description: Creating your plan…
+      offset_ms: 181
+    - description: Creating your plan…
+      offset_ms: 181
+    - description: Finishing…
+      offset_ms: 181
+    - description: ''
+      offset_ms: 219
+      done: true
+    - description: ''
+      offset_ms: 5381
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id022
+  id: conv-01b
+  category: conversation
+  sequence: vocab:2
+  prompt_preview: B
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.48s > 10s limit
+  - check: streaming
+    status: pass
+    detail: 39 chunks
+  - check: has_content
+    status: pass
+    detail: 164 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 12.1s > 8.0s limit. 216 chunks, 12053ms, ratio 6.07x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 6.07x > 3.0x limit. 216 chunks, 12053ms, ratio 6.07x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 225
+    ttfr_ms: 311
+    ttfc_ms: 12364
+    reasoning_duration_ms: 12053
+    total_ms: 14478
+    total_s: 14.48
+    reasoning_chunks: 216
+    content_chunks: 39
+    reasoning_len: 995
+    content_len: 164
+    reasoning_content_ratio: 6.07
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 225
+    - description: Analyzing request…
+      offset_ms: 226
+    - description: Detecting domain…
+      offset_ms: 226
+    - description: Detecting domain…
+      offset_ms: 228
+    - description: Gathering context…
+      offset_ms: 233
+    - description: Creating your plan…
+      offset_ms: 233
+    - description: Creating your plan…
+      offset_ms: 233
+    - description: Finishing…
+      offset_ms: 233
+    - description: ''
+      offset_ms: 266
+      done: true
+    - description: ''
+      offset_ms: 14477
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+- &id023
+  id: conv-01c
+  category: conversation
+  sequence: vocab:3
+  prompt_preview: a) captivating
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.43s > 10s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14170ms, ratio 5.55x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.55x > 3.0x limit. 256 chunks, 14170ms, ratio 5.55x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 162
+    ttfr_ms: 256
+    ttfc_ms: 14427
+    reasoning_duration_ms: 14170
+    total_ms: 14427
+    total_s: 14.43
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1231
+    content_len: 222
+    reasoning_content_ratio: 5.55
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 162
+    - description: Analyzing request…
+      offset_ms: 162
+    - description: Detecting domain…
+      offset_ms: 163
+    - description: Detecting domain…
+      offset_ms: 163
+    - description: Gathering context…
+      offset_ms: 164
+    - description: Creating your plan…
+      offset_ms: 167
+    - description: Creating your plan…
+      offset_ms: 167
+    - description: Finishing…
+      offset_ms: 167
+    - description: ''
+      offset_ms: 207
+      done: true
+    - description: ''
+      offset_ms: 14427
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+- &id025
+  id: conv-02a
+  category: conversation
+  sequence: geo:1
+  prompt_preview: What's the capital of France?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 11.5s > 8s limit
+  - check: streaming
+    status: pass
+    detail: 75 chunks
+  - check: has_content
+    status: pass
+    detail: 340 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning_duration
+    status: pass
+    detail: 7.1s (limit 8.0s)
+  - check: reasoning_ratio
+    status: pass
+    detail: 1.76x (limit 3.0x)
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 180
+    ttfr_ms: 276
+    ttfc_ms: 7332
+    reasoning_duration_ms: 7055
+    total_ms: 11498
+    total_s: 11.5
+    reasoning_chunks: 126
+    content_chunks: 75
+    reasoning_len: 598
+    content_len: 340
+    reasoning_content_ratio: 1.76
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 180
+    - description: Analyzing request…
+      offset_ms: 180
+    - description: Detecting domain…
+      offset_ms: 181
+    - description: Detecting domain…
+      offset_ms: 182
+    - description: Gathering context…
+      offset_ms: 183
+    - description: Creating your plan…
+      offset_ms: 184
+    - description: Creating your plan…
+      offset_ms: 185
+    - description: Finishing…
+      offset_ms: 185
+    - description: ''
+      offset_ms: 218
+      done: true
+    - description: ''
+      offset_ms: 11497
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 8
+    context_must_persist: false
+- &id026
+  id: conv-02b
+  category: conversation
+  sequence: geo:2
+  prompt_preview: And Germany?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.42s > 8s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14165ms, ratio 5.69x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.69x > 3.0x limit. 256 chunks, 14165ms, ratio 5.69x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 160
+    ttfr_ms: 257
+    ttfc_ms: 14422
+    reasoning_duration_ms: 14165
+    total_ms: 14423
+    total_s: 14.42
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1263
+    content_len: 222
+    reasoning_content_ratio: 5.69
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 160
+    - description: Analyzing request…
+      offset_ms: 160
+    - description: Detecting domain…
+      offset_ms: 160
+    - description: Detecting domain…
+      offset_ms: 161
+    - description: Gathering context…
+      offset_ms: 162
+    - description: Creating your plan…
+      offset_ms: 165
+    - description: Creating your plan…
+      offset_ms: 165
+    - description: Finishing…
+      offset_ms: 165
+    - description: ''
+      offset_ms: 165
+      done: true
+    - description: ''
+      offset_ms: 14422
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 8
+    context_must_persist: true
+warnings:
+- &id001
+  id: know-01
+  category: knowledge
+  sequence: null
+  prompt_preview: What is a ROSA cluster on AWS?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.4s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14155ms, ratio 5.46x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.46x > 3.0x limit. 256 chunks, 14155ms, ratio 5.46x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 150
+    ttfr_ms: 241
+    ttfc_ms: 14397
+    reasoning_duration_ms: 14155
+    total_ms: 14398
+    total_s: 14.4
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1213
+    content_len: 222
+    reasoning_content_ratio: 5.46
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 150
+    - description: Analyzing request…
+      offset_ms: 151
+    - description: Detecting domain…
+      offset_ms: 154
+    - description: Detecting domain…
+      offset_ms: 156
+    - description: Gathering context…
+      offset_ms: 158
+    - description: Creating your plan…
+      offset_ms: 158
+    - description: Creating your plan…
+      offset_ms: 161
+    - description: Finishing…
+      offset_ms: 161
+    - description: ''
+      offset_ms: 195
+      done: true
+    - description: ''
+      offset_ms: 14397
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id002
+  id: know-02
+  category: knowledge
+  sequence: null
+  prompt_preview: 'Explain options trading in simple terms if I''m familiar with buying and selling '
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 18.94s approaching 20s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14164ms, ratio 5.5x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.5x > 3.0x limit. 256 chunks, 14164ms, ratio 5.5x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 4647
+    ttfr_ms: 4777
+    ttfc_ms: 18942
+    reasoning_duration_ms: 14164
+    total_ms: 18942
+    total_s: 18.94
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1220
+    content_len: 222
+    reasoning_content_ratio: 5.5
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 4647
+    - description: Analyzing request…
+      offset_ms: 4648
+    - description: Detecting domain…
+      offset_ms: 4649
+    - description: Detecting domain…
+      offset_ms: 4649
+    - description: Gathering context…
+      offset_ms: 4650
+    - description: Creating your plan…
+      offset_ms: 4655
+    - description: Creating your plan…
+      offset_ms: 4655
+    - description: Finishing…
+      offset_ms: 4655
+    - description: ''
+      offset_ms: 4655
+      done: true
+    - description: ''
+      offset_ms: 18942
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id004
+  id: know-04
+  category: knowledge
+  sequence: null
+  prompt_preview: What is the funniest monty python joke or most well known monty python meme?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.44s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14157ms, ratio 5.24x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.24x > 3.0x limit. 256 chunks, 14157ms, ratio 5.24x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 169
+    ttfr_ms: 279
+    ttfc_ms: 14437
+    reasoning_duration_ms: 14157
+    total_ms: 14437
+    total_s: 14.44
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1163
+    content_len: 222
+    reasoning_content_ratio: 5.24
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 169
+    - description: Analyzing request…
+      offset_ms: 170
+    - description: Detecting domain…
+      offset_ms: 179
+    - description: Detecting domain…
+      offset_ms: 179
+    - description: Gathering context…
+      offset_ms: 179
+    - description: Creating your plan…
+      offset_ms: 180
+    - description: Creating your plan…
+      offset_ms: 183
+    - description: Finishing…
+      offset_ms: 183
+    - description: ''
+      offset_ms: 206
+      done: true
+    - description: ''
+      offset_ms: 14437
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id018
+  id: budget-05
+  category: knowledge
+  sequence: null
+  prompt_preview: Explain how DNS resolution works step by step.
+  verdict: warn
+  checks:
+  - check: latency
+    status: pass
+    detail: 14.52s
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14159ms, ratio 5.19x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.19x > 3.0x limit. 256 chunks, 14159ms, ratio 5.19x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 246
+    ttfr_ms: 355
+    ttfc_ms: 14515
+    reasoning_duration_ms: 14159
+    total_ms: 14515
+    total_s: 14.52
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1152
+    content_len: 222
+    reasoning_content_ratio: 5.19
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 246
+    - description: Analyzing request…
+      offset_ms: 246
+    - description: Detecting domain…
+      offset_ms: 248
+    - description: Detecting domain…
+      offset_ms: 249
+    - description: Gathering context…
+      offset_ms: 249
+    - description: Creating your plan…
+      offset_ms: 251
+    - description: Creating your plan…
+      offset_ms: 251
+    - description: Finishing…
+      offset_ms: 251
+    - description: ''
+      offset_ms: 280
+      done: true
+    - description: ''
+      offset_ms: 14515
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id021
+  id: conv-01a
+  category: conversation
+  sequence: vocab:1
+  prompt_preview: 'Help me study vocabulary: write a sentence for me to fill in the blank, and I''ll'
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 16.27s approaching 20s limit
+  - check: streaming
+    status: pass
+    detail: 7 chunks
+  - check: has_content
+    status: pass
+    detail: 32 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 13.8s > 8.0s limit. 248 chunks, 13828ms, ratio 36.78x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 36.78x > 3.0x limit. 248 chunks, 13828ms, ratio 36.78x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 2037
+    ttfr_ms: 2104
+    ttfc_ms: 15933
+    reasoning_duration_ms: 13828
+    total_ms: 16269
+    total_s: 16.27
+    reasoning_chunks: 248
+    content_chunks: 7
+    reasoning_len: 1177
+    content_len: 32
+    reasoning_content_ratio: 36.78
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 2037
+    - description: Analyzing request…
+      offset_ms: 2038
+    - description: Detecting domain…
+      offset_ms: 2038
+    - description: Detecting domain…
+      offset_ms: 2038
+    - description: Gathering context…
+      offset_ms: 2038
+    - description: Creating your plan…
+      offset_ms: 2038
+    - description: Creating your plan…
+      offset_ms: 2038
+    - description: Finishing…
+      offset_ms: 2038
+    - description: ''
+      offset_ms: 2038
+      done: true
+    - description: ''
+      offset_ms: 16268
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id024
+  id: conv-01d
+  category: conversation
+  sequence: vocab:4
+  prompt_preview: Give me another one, harder this time
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.45s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14163ms, ratio 5.57x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.57x > 3.0x limit. 256 chunks, 14163ms, ratio 5.57x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 192
+    ttfr_ms: 288
+    ttfc_ms: 14451
+    reasoning_duration_ms: 14163
+    total_ms: 14453
+    total_s: 14.45
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1237
+    content_len: 222
+    reasoning_content_ratio: 5.57
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 192
+    - description: Analyzing request…
+      offset_ms: 192
+    - description: Detecting domain…
+      offset_ms: 194
+    - description: Detecting domain…
+      offset_ms: 197
+    - description: Gathering context…
+      offset_ms: 197
+    - description: Creating your plan…
+      offset_ms: 197
+    - description: Creating your plan…
+      offset_ms: 199
+    - description: Finishing…
+      offset_ms: 199
+    - description: ''
+      offset_ms: 231
+      done: true
+    - description: ''
+      offset_ms: 14451
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: true
+- &id027
+  id: conv-02c
+  category: conversation
+  sequence: geo:3
+  prompt_preview: Which one has more people?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 9.94s approaching 10s limit
+  - check: streaming
+    status: pass
+    detail: 52 chunks
+  - check: has_content
+    status: pass
+    detail: 247 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning_duration
+    status: pass
+    detail: 6.7s (limit 8.0s)
+  - check: reasoning_ratio
+    status: pass
+    detail: 2.18x (limit 3.0x)
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: pass
+    detail: All 4 expected phases seen
+  metrics:
+    ttfe_ms: 230
+    ttfr_ms: 328
+    ttfc_ms: 7046
+    reasoning_duration_ms: 6718
+    total_ms: 9938
+    total_s: 9.94
+    reasoning_chunks: 120
+    content_chunks: 52
+    reasoning_len: 539
+    content_len: 247
+    reasoning_content_ratio: 2.18
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 230
+    - description: Analyzing request…
+      offset_ms: 236
+    - description: Detecting domain…
+      offset_ms: 239
+    - description: Detecting domain…
+      offset_ms: 239
+    - description: Gathering context…
+      offset_ms: 240
+    - description: Creating your plan…
+      offset_ms: 240
+    - description: Creating your plan…
+      offset_ms: 240
+    - description: Finishing…
+      offset_ms: 240
+    - description: ''
+      offset_ms: 272
+      done: true
+    - description: ''
+      offset_ms: 9937
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+- &id028
+  id: conv-03a
+  category: conversation
+  sequence: code-followup:1
+  prompt_preview: Write me a Python function that reverses a string.
+  verdict: warn
+  checks:
+  - check: latency
+    status: pass
+    detail: 15.92s
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14158ms, ratio 5.39x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.39x > 3.0x limit. 256 chunks, 14158ms, ratio 5.39x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: warn
+    detail: 'Missing phases: [''Generating code'']'
+  metrics:
+    ttfe_ms: 1677
+    ttfr_ms: 1759
+    ttfc_ms: 15917
+    reasoning_duration_ms: 14158
+    total_ms: 15918
+    total_s: 15.92
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1197
+    content_len: 222
+    reasoning_content_ratio: 5.39
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 1677
+    - description: Analyzing request…
+      offset_ms: 1678
+    - description: Detecting domain…
+      offset_ms: 1678
+    - description: Detecting domain…
+      offset_ms: 1679
+    - description: Gathering context…
+      offset_ms: 1679
+    - description: Creating your plan…
+      offset_ms: 1681
+    - description: Creating your plan…
+      offset_ms: 1681
+    - description: Finishing…
+      offset_ms: 1683
+    - description: ''
+      offset_ms: 1683
+      done: true
+    - description: ''
+      offset_ms: 15917
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 20
+    context_must_persist: false
+- &id029
+  id: conv-03b
+  category: conversation
+  sequence: code-followup:2
+  prompt_preview: Now add type hints
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.42s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14158ms, ratio 5.28x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.28x > 3.0x limit. 256 chunks, 14158ms, ratio 5.28x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: warn
+    detail: 'Missing phases: [''Generating code'']'
+  metrics:
+    ttfe_ms: 172
+    ttfr_ms: 262
+    ttfc_ms: 14421
+    reasoning_duration_ms: 14158
+    total_ms: 14422
+    total_s: 14.42
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1172
+    content_len: 222
+    reasoning_content_ratio: 5.28
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 172
+    - description: Analyzing request…
+      offset_ms: 172
+    - description: Detecting domain…
+      offset_ms: 174
+    - description: Detecting domain…
+      offset_ms: 175
+    - description: Gathering context…
+      offset_ms: 176
+    - description: Creating your plan…
+      offset_ms: 176
+    - description: Creating your plan…
+      offset_ms: 176
+    - description: Finishing…
+      offset_ms: 180
+    - description: ''
+      offset_ms: 180
+      done: true
+    - description: ''
+      offset_ms: 14421
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 15
+    context_must_persist: true
+- &id030
+  id: conv-03c
+  category: conversation
+  sequence: code-followup:3
+  prompt_preview: Can you also add a docstring?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.43s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 222 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: overthinking
+    status: warn
+    detail: Reasoning 14.2s > 8.0s limit. 256 chunks, 14162ms, ratio 5.65x
+  - check: overthinking_ratio
+    status: warn
+    detail: Ratio 5.65x > 3.0x limit. 256 chunks, 14162ms, ratio 5.65x
+  - check: phase_duplicates
+    status: warn
+    detail: 'Stacked phases: [''Detecting domain…'', ''Creating your plan…'']'
+  - check: expected_phases
+    status: warn
+    detail: 'Missing phases: [''Generating code'']'
+  metrics:
+    ttfe_ms: 179
+    ttfr_ms: 269
+    ttfc_ms: 14431
+    reasoning_duration_ms: 14162
+    total_ms: 14431
+    total_s: 14.43
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1254
+    content_len: 222
+    reasoning_content_ratio: 5.65
+    phase_timeline:
+    - description: Processing…
+      offset_ms: 179
+    - description: Analyzing request…
+      offset_ms: 180
+    - description: Detecting domain…
+      offset_ms: 184
+    - description: Detecting domain…
+      offset_ms: 185
+    - description: Gathering context…
+      offset_ms: 185
+    - description: Creating your plan…
+      offset_ms: 185
+    - description: Creating your plan…
+      offset_ms: 185
+    - description: Finishing…
+      offset_ms: 186
+    - description: ''
+      offset_ms: 186
+      done: true
+    - description: ''
+      offset_ms: 14431
+      done: true
+    phase_count: 8
+    duplicate_phases:
+    - Detecting domain…
+    - Creating your plan…
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 15
+    context_must_persist: true
+all_results:
+- *id001
+- *id002
+- *id003
+- *id004
+- *id005
+- *id006
+- *id007
+- *id008
+- *id009
+- *id010
+- *id011
+- *id012
+- *id013
+- *id014
+- *id015
+- *id016
+- *id017
+- *id018
+- *id019
+- *id020
+- *id021
+- *id022
+- *id023
+- *id024
+- *id025
+- *id026
+- *id027
+- *id028
+- *id029
+- *id030

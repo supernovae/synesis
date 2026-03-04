@@ -1,0 +1,1358 @@
+metadata:
+  timestamp: '2026-03-04T22:29:02.177189+00:00'
+  api_url: https://synesis-planner.apps.openshiftdemo.dev
+  total_prompts: 23
+summary:
+  pass: 3
+  warn: 7
+  fail: 13
+category_breakdown:
+  knowledge:
+    pass: 0
+    warn: 3
+    fail: 5
+    avg_latency_s: 21.53
+    count: 8
+  trivial:
+    pass: 0
+    warn: 0
+    fail: 5
+    avg_latency_s: 14.13
+    count: 5
+  conversation:
+    pass: 3
+    warn: 4
+    fail: 3
+    avg_latency_s: 12.66
+    count: 10
+failures:
+- &id004
+  id: know-04
+  category: knowledge
+  sequence: null
+  prompt_preview: What is the funniest monty python joke or most well known monty python meme?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 16.27s > 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1312 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 2008
+    ttfr_ms: 2116
+    ttfc_ms: 16266
+    total_ms: 16266
+    total_s: 16.27
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1092
+    content_len: 1312
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to figure out what the funniest Monty Python joke or the most we'
+    - 'Thinking: First, I should probably think about their most famous works. They have shows li'
+    - 'Thinking: I also think about the "Knights Who Say ''Ni!''" from the Holy Grail movie. That''s'
+    - 'Thinking: Another thing I recall is the "Argument Clinic" sketch where someone goes to get'
+    - 'Thinking: I should also consider what people commonly reference or meme from Monty Python.'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id005
+  id: know-05
+  category: knowledge
+  sequence: null
+  prompt_preview: What are the differences between REST and GraphQL?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 55.01s > 15s limit
+  - check: streaming
+    status: pass
+    detail: 402 chunks
+  - check: has_content
+    status: pass
+    detail: 2221 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: info
+    detail: No reasoning tokens observed
+  metrics:
+    ttfe_ms: 6237
+    ttfr_ms: -1
+    ttfc_ms: 25354
+    total_ms: 55005
+    total_s: 55.01
+    reasoning_chunks: 0
+    content_chunks: 402
+    reasoning_len: 0
+    content_len: 2221
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Generating code…
+    - Thinking…
+    - Generating code…
+    - Validating code…
+    - Validating code…
+    - Reviewing…
+    - Reviewing…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: false
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id006
+  id: know-06
+  category: knowledge
+  sequence: null
+  prompt_preview: Why do planes leave white trails in the sky?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.55s > 12s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1162 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 248
+    ttfr_ms: 382
+    ttfc_ms: 14549
+    total_ms: 14550
+    total_s: 14.55
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1299
+    content_len: 1162
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking why planes leave white trails in the sky. I remember'
+    - 'Thinking: I also recall that contrails can affect the environment. They might contribute t'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 12
+    context_must_persist: false
+- &id007
+  id: know-07
+  category: knowledge
+  sequence: null
+  prompt_preview: What year did Jeep stop making the Wrangler JKU and switch to the JLU?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 18.01s > 12s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1050 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 3757
+    ttfr_ms: 3853
+    ttfc_ms: 18005
+    total_ms: 18006
+    total_s: 18.01
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1046
+    content_len: 1050
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to figure out when Jeep stopped making the Wrangler JKU and swit'
+    - 'Thinking: First, I should probably understand what JKU and JLU stand for. I recall that Je'
+    - 'Thinking: I think the JKU was part of the JK generation, which was produced from around 20'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 12
+    context_must_persist: false
+- &id008
+  id: know-08
+  category: knowledge
+  sequence: null
+  prompt_preview: Explain the difference between affect and effect with examples.
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 20.03s > 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1308 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 5726
+    ttfr_ms: 5862
+    ttfc_ms: 20024
+    total_ms: 20025
+    total_s: 20.03
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1084
+    content_len: 1308
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to explain the difference between "affect" and "effect" with exa'
+    - 'Thinking: First, "affect" is a verb, right? It means to influence or have an impact on som'
+    - 'Thinking: Then, "effect" is usually a noun. It refers to the result of something. Like, "T'
+    - 'Thinking: Wait, but I think "effect" can also be a verb sometimes. Isn''t it used in phrase'
+    - 'Thinking: So, to summarize: "Affect" is a verb meaning to influence, "effect" as a noun is'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id009
+  id: triv-01
+  category: trivial
+  sequence: null
+  prompt_preview: Hello
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.43s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1311 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 188
+    ttfr_ms: 278
+    ttfc_ms: 14430
+    total_ms: 14431
+    total_s: 14.43
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1272
+    content_len: 1311
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking about how we determined the speed of light. I rememb'
+    - 'Thinking: First, I think the speed of light wasn''t always known. People used to debate whe'
+    - 'Thinking: Then there''s Ole Rømer. I think he observed something related to Jupiter''s moons'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id010
+  id: triv-02
+  category: trivial
+  sequence: null
+  prompt_preview: Write hello world in Python
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 17.56s > 8s limit
+  - check: streaming
+    status: pass
+    detail: 5 chunks
+  - check: has_content
+    status: pass
+    detail: 201 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: reasoning
+    status: info
+    detail: No reasoning tokens observed
+  metrics:
+    ttfe_ms: 3323
+    ttfr_ms: -1
+    ttfc_ms: 17389
+    total_ms: 17562
+    total_s: 17.56
+    reasoning_chunks: 0
+    content_chunks: 5
+    reasoning_len: 0
+    content_len: 201
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Generating your code…
+    - Thinking…
+    - Generating your code…
+    - Validating code…
+    - Validating code…
+    - Reviewing…
+    - Reviewing…
+    - Finishing…
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: false
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 8
+    context_must_persist: false
+- &id011
+  id: triv-03
+  category: trivial
+  sequence: null
+  prompt_preview: What is 2+2?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.59s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1277 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 333
+    ttfr_ms: 434
+    ttfc_ms: 14590
+    total_ms: 14590
+    total_s: 14.59
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1263
+    content_len: 1277
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking me to write "Hello World" in Python. I remember that'
+    - 'Thinking: Hmm, so maybe I should explain how to write it without showing the code. I can d'
+    - 'Thinking: I also need to remember to avoid any markdown formatting in my thinking. So, I''l'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id012
+  id: triv-04
+  category: trivial
+  sequence: null
+  prompt_preview: Thanks!
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 7.32s > 5s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 770 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 128 reasoning chunks
+  metrics:
+    ttfe_ms: 178
+    ttfr_ms: 273
+    ttfc_ms: 7316
+    total_ms: 7317
+    total_s: 7.32
+    reasoning_chunks: 128
+    content_chunks: 1
+    reasoning_len: 564
+    content_len: 770
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking how we determined the speed of light. I remember tha'
+    - 'Thinking: First, I know that the speed of light is incredibly fast, about 299,792 kilomete'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 5
+    context_must_persist: false
+- &id013
+  id: triv-05
+  category: trivial
+  sequence: null
+  prompt_preview: Print the numbers 1 to 10 in bash
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 16.74s > 8s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1064 chars
+  - check: deliverable_type
+    status: warn
+    detail: Expected code but none detected in response
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 2504
+    ttfr_ms: 2602
+    ttfc_ms: 16744
+    total_ms: 16744
+    total_s: 16.74
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1007
+    content_len: 1064
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user wants to print the numbers 1 to 10 in bash. Let me think about'
+    - 'Thinking: First, I remember that bash scripting uses loops for repeating tasks. The most c'
+    - 'Thinking: I need to decide how to structure the for loop. In bash, the syntax is for ((ini'
+    - 'Thinking: Inside the loop, I''ll use the echo command to print the value of i. That way, ea'
+    - 'Thinking: Putting it all together, the script will look something like this'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: bash
+    max_latency_s: 8
+    context_must_persist: false
+- &id014
+  id: conv-01b
+  category: conversation
+  sequence: vocab:2
+  prompt_preview: B
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.43s > 10s limit
+  - check: streaming
+    status: pass
+    detail: 37 chunks
+  - check: has_content
+    status: pass
+    detail: 156 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 218 reasoning chunks
+  metrics:
+    ttfe_ms: 165
+    ttfr_ms: 257
+    ttfc_ms: 12427
+    total_ms: 14431
+    total_s: 14.43
+    reasoning_chunks: 218
+    content_chunks: 37
+    reasoning_len: 1010
+    content_len: 156
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user wants to study vocabulary by filling in the blank sentences. T'
+    - 'Thinking: The sentence is: "The _______ of the ocean is home to many fascinating creatures'
+    - 'Thinking: First, I''ll think about the context. The ocean is vast, and when we talk about i'
+    - 'Thinking: Next, I''ll consider the other options. Width refers to how wide the ocean is fro'
+    - 'Thinking: So, "depth" makes the most sense because it''s about the vertical extent of the o'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+- &id015
+  id: conv-01c
+  category: conversation
+  sequence: vocab:3
+  prompt_preview: a) captivating
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 14.46s > 10s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1449 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 155
+    ttfr_ms: 292
+    ttfc_ms: 14460
+    total_ms: 14461
+    total_s: 14.46
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1263
+    content_len: 1449
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user wants to study vocabulary by filling in the blank sentences. T'
+    - 'Thinking: First, I need to understand the meaning of "captivating." It means something tha'
+    - 'Thinking: The example given uses "story," which is a good fit because a captivating story '
+    - 'Thinking: I should make sure the sentence is clear and the blank is in a position where "c'
+    - 'Thinking: I also need to ensure that the sentence is grammatically correct. "The captivati'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+- &id017
+  id: conv-02c
+  category: conversation
+  sequence: geo:3
+  prompt_preview: Which one has more people?
+  verdict: fail
+  checks:
+  - check: latency
+    status: fail
+    detail: 12.02s > 10s limit
+  - check: streaming
+    status: pass
+    detail: 28 chunks
+  - check: has_content
+    status: pass
+    detail: 118 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 183 reasoning chunks
+  metrics:
+    ttfe_ms: 155
+    ttfr_ms: 244
+    ttfc_ms: 10466
+    total_ms: 12024
+    total_s: 12.02
+    reasoning_chunks: 183
+    content_chunks: 28
+    reasoning_len: 920
+    content_len: 118
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Alright, the user is asking, "Which one has more people?" but they haven''t provi'
+    - 'Thinking: First, I should acknowledge that I don''t have enough information to answer the q'
+    - 'Thinking: I should prompt them to provide the options they''re considering. Maybe they''re c'
+    - 'Thinking: I also want to make sure my response is friendly and encouraging, so they feel c'
+    - 'Thinking: So, I''ll let them know I need more information and ask them to provide the optio'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 10
+    context_must_persist: true
+warnings:
+- &id001
+  id: know-01
+  category: knowledge
+  sequence: null
+  prompt_preview: What is a ROSA cluster on AWS?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.44s approaching 15s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1291 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 179
+    ttfr_ms: 295
+    ttfc_ms: 14437
+    total_ms: 14438
+    total_s: 14.44
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1241
+    content_len: 1291
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to figure out what a ROSA cluster on AWS is. I''ve heard terms li'
+    - 'Thinking: First, AWS stands for Amazon Web Services. I know it''s a cloud computing platfor'
+    - 'Thinking: Now, ROSA. I''m not as familiar with that. It sounds like an acronym. Maybe it''s '
+    - 'Thinking: Putting it together, ROSA cluster on AWS probably refers to a Kubernetes cluster'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: false
+- &id002
+  id: know-02
+  category: knowledge
+  sequence: null
+  prompt_preview: 'Explain options trading in simple terms if I''m familiar with buying and selling '
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 19.47s approaching 20s limit
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1241 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 5169
+    ttfr_ms: 5307
+    ttfc_ms: 19465
+    total_ms: 19465
+    total_s: 19.47
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1214
+    content_len: 1241
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to explain options trading in simple terms to someone who alread'
+    - 'Thinking: Hmm, so the user is familiar with stocks, which are straightforward: you buy a s'
+    - 'Thinking: I should probably break it down into call options and put options. Call options '
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id003
+  id: know-03
+  category: knowledge
+  sequence: null
+  prompt_preview: How did we find out how fast the speed of light is to measure it?
+  verdict: warn
+  checks:
+  - check: latency
+    status: pass
+    detail: 14.46s
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1220 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 191
+    ttfr_ms: 305
+    ttfc_ms: 14459
+    total_ms: 14461
+    total_s: 14.46
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1207
+    content_len: 1220
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so I need to figure out how we determined the speed of light. I remember t'
+    - 'Thinking: I recall that Ole Rømer observed something with Jupiter''s moons. Maybe he notice'
+    - 'Thinking: Then, there''s James Bradley who used the aberration of starlight. I''m not exactl'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- &id016
+  id: conv-01d
+  category: conversation
+  sequence: vocab:4
+  prompt_preview: Give me another one, harder this time
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.7s approaching 15s limit
+  - check: streaming
+    status: pass
+    detail: 4 chunks
+  - check: has_content
+    status: pass
+    detail: 12 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 251 reasoning chunks
+  metrics:
+    ttfe_ms: 444
+    ttfr_ms: 538
+    ttfc_ms: 14532
+    total_ms: 14698
+    total_s: 14.7
+    reasoning_chunks: 251
+    content_chunks: 4
+    reasoning_len: 1261
+    content_len: 12
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Alright, so the user is asking for another vocabulary exercise, but this time it'
+    - 'Thinking: First, I need to consider what makes a vocabulary exercise harder. Maybe using l'
+    - 'Thinking: I should think of a sentence where the blank requires a word that''s not just any'
+    - 'Thinking: Next, I need to come up with three plausible options. One should be the correct '
+    - 'Thinking: I should also make sure the sentence is clear and the context is set so that the'
+    - 'Thinking: Finally, I''ll present the sentence and the options, making sure it''s formatted c'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 15
+    context_must_persist: true
+- &id018
+  id: conv-03a
+  category: conversation
+  sequence: code-followup:1
+  prompt_preview: Write me a Python function that reverses a string.
+  verdict: warn
+  checks:
+  - check: latency
+    status: pass
+    detail: 15.85s
+  - check: streaming
+    status: warn
+    detail: Single chunk (buffered?)
+  - check: has_content
+    status: pass
+    detail: 1259 chars
+  - check: deliverable_type
+    status: pass
+    detail: Contains code
+  - check: reasoning
+    status: pass
+    detail: 256 reasoning chunks
+  metrics:
+    ttfe_ms: 1606
+    ttfr_ms: 1693
+    ttfc_ms: 15847
+    total_ms: 15848
+    total_s: 15.85
+    reasoning_chunks: 256
+    content_chunks: 1
+    reasoning_len: 1130
+    content_len: 1259
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user wants a Python function that reverses a string. Let me think a'
+    - 'Thinking: Wait, if I use a step of -1, that should reverse the string. So for example, if '
+    - 'Thinking: So the function can take a single argument, the string to reverse. Inside the fu'
+    - 'Thinking: I should also include a docstring to explain what the function does. That way, a'
+    - 'Thinking: Let me put it all together. The function will be named reverse_string, take s as'
+    - 'Thinking: Testing it with an example, like "hello", should give "olleh". That makes sense.'
+    finish_reason: stop
+    model: ''
+    streamed: false
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 20
+    context_must_persist: false
+- &id019
+  id: conv-03b
+  category: conversation
+  sequence: code-followup:2
+  prompt_preview: Now add type hints
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.43s approaching 15s limit
+  - check: streaming
+    status: pass
+    detail: 55 chunks
+  - check: has_content
+    status: pass
+    detail: 209 chars
+  - check: deliverable_type
+    status: pass
+    detail: Contains code
+  - check: reasoning
+    status: pass
+    detail: 200 reasoning chunks
+  metrics:
+    ttfe_ms: 178
+    ttfr_ms: 272
+    ttfc_ms: 11424
+    total_ms: 14426
+    total_s: 14.43
+    reasoning_chunks: 200
+    content_chunks: 55
+    reasoning_len: 945
+    content_len: 209
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user initially asked for a Python function that reverses a string. '
+    - 'Thinking: I remember that type hints in Python help with readability and can catch errors '
+    - 'Thinking: The function takes a string as input and returns a string. So, the parameters an'
+    - 'Thinking: I''ll modify the function by adding `-> str` after the parameter list. Also, I''ll'
+    - 'Thinking: I should explain why type hints are beneficial, like making the code clearer and'
+    - 'Thinking: I need to present this in markdown, using code blocks, but without any executabl'
+    - 'Thinking: I should make sure the explanation is concise and directly addresses the user''s '
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 15
+    context_must_persist: true
+- &id020
+  id: conv-03c
+  category: conversation
+  sequence: code-followup:3
+  prompt_preview: Can you also add a docstring?
+  verdict: warn
+  checks:
+  - check: latency
+    status: warn
+    detail: 14.4s approaching 15s limit
+  - check: streaming
+    status: pass
+    detail: 44 chunks
+  - check: has_content
+    status: pass
+    detail: 189 chars
+  - check: deliverable_type
+    status: pass
+    detail: Contains code
+  - check: reasoning
+    status: pass
+    detail: 211 reasoning chunks
+  metrics:
+    ttfe_ms: 146
+    ttfr_ms: 244
+    ttfc_ms: 12010
+    total_ms: 14398
+    total_s: 14.4
+    reasoning_chunks: 211
+    content_chunks: 44
+    reasoning_len: 1020
+    content_len: 189
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, the user initially asked for a Python function to reverse a string. I prov'
+    - 'Thinking: Hmm, I need to make sure the docstring is clear and follows standard conventions'
+    - 'Thinking: Wait, the user also mentioned they don''t want executable code blocks unless expl'
+    - 'Thinking: I should structure the response with a heading, the code block, and a brief expl'
+    - 'Thinking: Also, I need to remember not to invent any citations or facts. Just provide the '
+    - 'Thinking: Alright, putting it all together: a function with type hints and a docstring, pr'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: code_snippet
+    lang: python
+    max_latency_s: 15
+    context_must_persist: true
+all_results:
+- *id001
+- *id002
+- *id003
+- *id004
+- *id005
+- *id006
+- *id007
+- *id008
+- *id009
+- *id010
+- *id011
+- *id012
+- *id013
+- id: conv-01a
+  category: conversation
+  sequence: vocab:1
+  prompt_preview: 'Help me study vocabulary: write a sentence for me to fill in the blank, and I''ll'
+  verdict: pass
+  checks:
+  - check: latency
+    status: pass
+    detail: 15.72s
+  - check: streaming
+    status: pass
+    detail: 50 chunks
+  - check: has_content
+    status: pass
+    detail: 200 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 186 reasoning chunks
+  metrics:
+    ttfe_ms: 2460
+    ttfr_ms: 2566
+    ttfc_ms: 12939
+    total_ms: 15719
+    total_s: 15.72
+    reasoning_chunks: 186
+    content_chunks: 50
+    reasoning_len: 829
+    content_len: 200
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, the user wants to study vocabulary by filling in the blank with the correc'
+    - 'Thinking: I''ll construct a sentence where "affect" is the correct choice. Maybe something '
+    - 'Thinking: I should provide four options, including the correct one and some plausible dist'
+    - 'Thinking: I''ll make sure the sentence is clear and the options are varied enough to test t'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 20
+    context_must_persist: false
+- *id014
+- *id015
+- *id016
+- id: conv-02a
+  category: conversation
+  sequence: geo:1
+  prompt_preview: What's the capital of France?
+  verdict: pass
+  checks:
+  - check: latency
+    status: pass
+    detail: 5.15s
+  - check: streaming
+    status: pass
+    detail: 8 chunks
+  - check: has_content
+    status: pass
+    detail: 33 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 79 reasoning chunks
+  metrics:
+    ttfe_ms: 165
+    ttfr_ms: 262
+    ttfc_ms: 4699
+    total_ms: 5146
+    total_s: 5.15
+    reasoning_chunks: 79
+    content_chunks: 8
+    reasoning_len: 361
+    content_len: 33
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking for the capital of France. I remember that Paris is '
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 8
+    context_must_persist: false
+- id: conv-02b
+  category: conversation
+  sequence: geo:2
+  prompt_preview: And Germany?
+  verdict: pass
+  checks:
+  - check: latency
+    status: pass
+    detail: 5.43s
+  - check: streaming
+    status: pass
+    detail: 8 chunks
+  - check: has_content
+    status: pass
+    detail: 35 chars
+  - check: deliverable_type
+    status: pass
+    detail: explain_only
+  - check: reasoning
+    status: pass
+    detail: 84 reasoning chunks
+  metrics:
+    ttfe_ms: 159
+    ttfr_ms: 283
+    ttfc_ms: 4971
+    total_ms: 5428
+    total_s: 5.43
+    reasoning_chunks: 84
+    content_chunks: 8
+    reasoning_len: 403
+    content_len: 35
+    status_events:
+    - Processing…
+    - Analyzing request…
+    - Detecting domain…
+    - Detecting domain…
+    - Gathering context…
+    - Creating your plan…
+    - Creating your plan…
+    - Finishing…
+    - Thinking…
+    - 'Thinking: Okay, so the user is asking about the capital of Germany. I remember that German'
+    finish_reason: stop
+    model: ''
+    streamed: true
+    had_reasoning: true
+    error: null
+  expected:
+    route: worker
+    deliverable: explain_only
+    lang: markdown
+    max_latency_s: 8
+    context_must_persist: true
+- *id017
+- *id018
+- *id019
+- *id020

@@ -19,7 +19,7 @@ EntryClassifier (ScoringEngine + entry_classifier_node) must output:
 
 Any routing decision that sends to Supervisor/Planner (instead of fast path) must set:
 
-- `escalation_reason`: string enum — e.g. `"risk_veto"`, `"length_veto"`, `"manual_override"`, `"task_size_small"`, `"task_size_complex"`, `"reclassify_override"`
+- `escalation_reason`: string enum — e.g. `"risk_veto"`, `"length_veto"`, `"manual_override"`, `"task_size_medium"`, `"task_size_hard"`, `"reclassify_override"`
 
 ## Domain vs Complexity
 
@@ -31,10 +31,10 @@ Example: "print current namespace with kubectl" — domain=kubernetes for RAG; c
 
 - Use explicit namespacing: `ontology:`, `plugins:`, `compose:` — avoid duplicate top-level `weights:` keys
 - Split: `complexity_weights`, `risk_weights`, `domain_keywords` — so single-word escalation is intentional (risk only)
-- Thresholds must be consistent: no single complexity weight > small_max unless it's a risk category
+- Thresholds must be consistent: no single complexity weight > medium_max unless it's a risk category
 
 ## Risk Veto
 
-Before declaring trivial: run risk veto pass. If any risk trigger matches → force Supervisor path even if trivial regex matched.
+Before declaring easy: run risk veto pass. If any risk trigger matches → force Supervisor path even if trivial regex matched.
 
 Risk triggers: destructive+prod, credentials, pip/npm install, curl|bash, compliance tokens (hipaa, phi, pci).

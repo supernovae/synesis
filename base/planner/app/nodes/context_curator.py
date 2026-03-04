@@ -703,7 +703,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     pivot_summary = state.get("pivot_summary", "")
 
     pinned: list[Any] = []
-    # Tier 0a: Hard context pivot — user switched language or output_type; flush history
+    # Tier 0a: Hard context pivot — user switched language or deliverable_type; flush history
     if is_pivot and last_active_lang and target_lang:
         pivot_t = (
             f"CONTEXT PIVOT: User switched from {last_active_lang} to {target_lang}. "
@@ -726,7 +726,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
         )
-    # Tier 0b: Soft domain shift — related topic within same output_type; keep history
+    # Tier 0b: Soft domain shift — related topic within same deliverable_type; keep history
     elif domain_soft_shift:
         soft_t = "The user may be shifting topics slightly. Use conversation history for context."
         pinned.append(

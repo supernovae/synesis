@@ -168,7 +168,7 @@ how_i_got_here_sources:
 
 # ---------------------------------------------------------------------------
 # Pivot summary — taxonomy-aware prompts for context pivot summarization
-# pivot_type: language (Python→JS) | output_type (code↔document) | domain
+# pivot_type: language (Python→JS) | deliverable (single_file↔explain_only) | domain
 # ---------------------------------------------------------------------------
 pivot_summary_prompts:
   language:
@@ -177,7 +177,7 @@ pivot_summary_prompts:
       Conversation:
       {conversation}
       Reply with only the summary, no preamble.
-  output_type:
+  deliverable:
     template: |
       Summarize in 1-2 sentences what the user discussed or worked on in the previous {from_era} context.
       {domain_suffix}
@@ -202,9 +202,9 @@ pivot_summary_prompts:
 common_relationships:
   # task_size → approach modifier
   task_size_modifiers:
-    trivial: "direct or quick; no plan"
-    small: "single answer or minimal decomposition"
-    complex: "decomposed plan or structured output"
+    easy: "direct or quick; no plan"
+    medium: "single answer or minimal decomposition"
+    hard: "decomposed plan or structured output"
   # When plan_required (complex + Architect)
   plan_required:
     approach: decomposed_plan

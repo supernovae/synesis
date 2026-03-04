@@ -58,8 +58,7 @@ class GraphState(TypedDict, total=False):
     assumptions_structured: list[dict[str, Any]]
     deliverable_type: str
     interaction_mode: str
-    worker_prompt_tier: str
-    worker_persona: str  # Minimalist | Senior | Architect
+    # worker_prompt_tier and worker_persona removed — now derived inline from task_size
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
@@ -144,7 +143,7 @@ class GraphState(TypedDict, total=False):
     task_size: str
     intent_class: str  # knowledge|writing|code|debugging|review|planning|data_transform|...
     bypass_supervisor: bool
-    escalation_reason: str  # why routed to Supervisor/Planner (e.g. task_size_small, risk_veto)
+    escalation_reason: str  # why routed to Supervisor/Planner (e.g. task_size_medium, risk_veto)
     message_origin: str
     plan_pending_approval: bool
     # Worker/Gate
@@ -270,9 +269,8 @@ class SynesisState(BaseModel):
     # Supervisor: intent + output shape
     deliverable_type: str = "single_file"
     interaction_mode: str = "do"
-    # Progressive prompt: trivial=minimal, small=defensive, full=JCS. Pro users can force full via @plan etc.
-    worker_prompt_tier: str = "small"  # trivial | small | full
-    worker_persona: str = "Senior"  # Minimalist | Senior | Architect
+    # worker_prompt_tier and worker_persona removed — derived inline from task_size
+    # (easy→minimal prompt, medium→standard, hard→full JCS)
     include_tests: bool = True
     include_run_commands: bool = True
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])
