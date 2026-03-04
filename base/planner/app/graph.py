@@ -115,8 +115,9 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
         if state.get("task_size") in ("complex", "small") or state.get("output_type") == "document":
             return "planner"
 
-    # Trivial fast path: skip Supervisor, go straight to context curator → Worker
-    if state.get("task_size") == "trivial" and state.get("bypass_supervisor"):
+    # Bypass Supervisor: trivial fast path, or knowledge-downgraded tasks that
+    # don't need LLM routing (e.g. "What are the differences between REST and GraphQL?")
+    if state.get("bypass_supervisor"):
         return "context_curator"
 
     return "supervisor"

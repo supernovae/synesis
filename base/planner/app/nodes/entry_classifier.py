@@ -254,7 +254,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         # complex -- they don't need a planner or supervisor LLM routing call.
         if out.get("task_size") == "complex":
             out["task_size"] = "small"
-            out["bypass_supervisor"] = False
+            out["bypass_supervisor"] = True
             out["bypass_planner"] = True
             out["plan_required"] = False
             out["requires_clarification"] = False

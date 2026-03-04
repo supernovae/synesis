@@ -8,6 +8,7 @@ Agentic: can output needs_input instead of guessing.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -763,9 +764,21 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Token budget: tier max_completion_tokens by task complexity so trivial
         # queries don't waste time on deep reasoning chains.
+        # R1 fills its reasoning budget — keep trivial tight (256) to avoid
+        # 30s reasoning on "What is 2+2?".
         task_size = state.get("task_size", "small")
-        _TOKEN_BUDGETS = {"trivial": 1024, "small": 2048, "complex": 4096}
+        _TOKEN_BUDGETS = {"trivial": 256, "small": 2048, "complex": 4096}
         token_budget = _TOKEN_BUDGETS.get(task_size, 2048)
+
+        # Social acknowledgements ("Thanks!", "OK", "Got it") need even less.
+        _SOCIAL_ACK_RE = re.compile(
+            r"^(thanks|thank you|thx|ok|okay|got it|cool|great|sure|yes|no|yep|nope|bye|cheers|perfect|nice|awesome)\s*[!.?]*$",
+            re.IGNORECASE,
+        )
+        if _SOCIAL_ACK_RE.match(task_desc.strip()):
+            token_budget = 128
+            logger.debug("worker_social_ack_budget", extra={"task": task_desc[:30]})
+
         logger.debug("worker_token_budget", extra={"task_size": task_size, "budget": token_budget})
 
         # Explain-only: bypass langchain LLM call and return a deferred stream
@@ -784,21 +797,35 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 latency_ms=latency,
                 tokens_used=0,
             )
+
+            # Build multi-turn messages: system + conversation history + current user prompt.
+            # Without history, follow-up prompts like "B" or "And Germany?" lose context.
+            ds_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+            conv_history = state.get("conversation_history") or []
+            for entry in conv_history:
+                if not isinstance(entry, str):
+                    continue
+                if entry.startswith("[user]: "):
+                    ds_messages.append({"role": "user", "content": entry[8:]})
+                elif entry.startswith("[assistant]: "):
+                    ds_messages.append({"role": "assistant", "content": entry[13:]})
+                elif entry.startswith("[system]: "):
+                    ds_messages.append({"role": "system", "content": entry[10:]})
+            ds_messages.append({"role": "user", "content": prompt})
+
             logger.info(
                 "worker_deferred_stream",
                 extra={
                     "task_size": task_size,
                     "token_budget": token_budget,
+                    "history_turns": len(conv_history),
                     "latency_ms": latency,
                 },
             )
             return {
                 "generated_code": "",
                 "direct_stream_request": {
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
+                    "messages": ds_messages,
                     "max_completion_tokens": token_budget,
                     "temperature": 0.2,
                 },
