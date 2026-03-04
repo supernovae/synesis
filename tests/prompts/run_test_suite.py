@@ -46,11 +46,158 @@ except ImportError:
     sys.exit("pyyaml required: pip install pyyaml")
 
 
-SUITE_PATH = Path(__file__).parent / "test_prompts_100.yaml"
+SUITE_PATH = Path(__file__).parent / "test_prompts.yaml"
 DEFAULT_API_URL = os.environ.get("SYNESIS_API_URL", "https://synesis-api.apps.openshiftdemo.dev")
 DEFAULT_API_KEY = os.environ.get("SYNESIS_API_KEY", "sk-synesis-test")
 DEFAULT_MODEL = os.environ.get("SYNESIS_MODEL", "synesis-agent")
 TIMEOUT_S = 120
+
+# ── Category-level defaults for reasoning/phase evaluation ──────────────────
+# Each category gets sensible defaults; individual prompts can override.
+CATEGORY_DEFAULTS: dict[str, dict] = {
+    "trivial": {
+        "max_reasoning_s": 1.5,
+        "max_reasoning_ratio": 1.0,
+        "token_budget_tier": "trivial",
+    },
+    "performance": {
+        "max_reasoning_s": 1.5,
+        "max_reasoning_ratio": 0.5,
+        "token_budget_tier": "trivial",
+    },
+    "knowledge": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "taxonomy": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "conversation": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "creative": {
+        "max_reasoning_s": 5,
+        "max_reasoning_ratio": 2.0,
+        "token_budget_tier": "small",
+    },
+    "formatting": {
+        "max_reasoning_s": 5,
+        "max_reasoning_ratio": 2.0,
+        "token_budget_tier": "small",
+    },
+    "planning": {
+        "max_reasoning_s": 10,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "comparison": {
+        "max_reasoning_s": 10,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "persona": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "code": {
+        "max_reasoning_s": 12,
+        "max_reasoning_ratio": 4.0,
+        "token_budget_tier": "small",
+    },
+    "review": {
+        "max_reasoning_s": 10,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "mixed": {
+        "max_reasoning_s": 12,
+        "max_reasoning_ratio": 4.0,
+        "token_budget_tier": "small",
+    },
+    "multi_step": {
+        "max_reasoning_s": 20,
+        "max_reasoning_ratio": 6.0,
+        "token_budget_tier": "complex",
+    },
+    "edge_case": {
+        "max_reasoning_s": 3,
+        "max_reasoning_ratio": 2.0,
+        "token_budget_tier": "small",
+    },
+    "safety": {
+        "max_reasoning_s": 5,
+        "max_reasoning_ratio": 2.0,
+        "token_budget_tier": "small",
+    },
+    "rapid": {
+        "max_reasoning_s": 3,
+        "max_reasoning_ratio": 1.5,
+        "token_budget_tier": "small",
+    },
+    "pivot": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "node_routing": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+    "regression": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "small",
+    },
+}
+
+# Fallback for unknown categories
+_DEFAULT_CATEGORY = {"max_reasoning_s": 10, "max_reasoning_ratio": 3.0, "token_budget_tier": "small"}
+
+
+def _derive_expected_phases(
+    expected_route: str,
+    expected_deliverable: str,
+    category: str,
+) -> list[str]:
+    """Derive expected pipeline status phases from the prompt's routing metadata."""
+    if category in ("trivial", "performance"):
+        return ["Analyzing"]
+
+    if category == "edge_case":
+        return ["Analyzing"]
+
+    if expected_deliverable == "explain_only":
+        return ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+
+    if expected_route == "planner" or expected_deliverable == "code_project":
+        return [
+            "Complex task detected",
+            "Building execution plan",
+            "Architecting solution",
+            "Validating",
+            "Reviewing",
+        ]
+
+    if expected_deliverable in ("code_snippet",):
+        return ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
+
+    return ["Analyzing"]
+
+
+def _get_threshold(prompt_spec: dict, key: str) -> float:
+    """Get a threshold from the prompt spec, falling back to category defaults."""
+    if key in prompt_spec:
+        return float(prompt_spec[key])
+    cat = prompt_spec.get("category", "")
+    defaults = CATEGORY_DEFAULTS.get(cat, _DEFAULT_CATEGORY)
+    return float(defaults.get(key, _DEFAULT_CATEGORY[key]))
 
 
 def load_suite(path: Path) -> list[dict]:
@@ -77,17 +224,36 @@ def group_sequences(prompts: list[dict]) -> list[list[dict]]:
     return standalone + list(sequences.values())
 
 
+class PhaseEvent:
+    """A single pipeline status event with arrival timing."""
+
+    __slots__ = ("description", "done", "offset_ms")
+
+    def __init__(self, description: str, done: bool, offset_ms: int):
+        self.description = description
+        self.done = done
+        self.offset_ms = offset_ms
+
+    def to_dict(self) -> dict:
+        d: dict = {"description": self.description, "offset_ms": self.offset_ms}
+        if self.done:
+            d["done"] = True
+        return d
+
+
 class SSEMetrics:
-    """Captures timing and content metrics from an SSE stream."""
+    """Captures timing, content, phase, and reasoning metrics from an SSE stream."""
 
     def __init__(self):
         self.time_request_sent: float = 0
         self.time_first_event: float = 0
         self.time_first_reasoning: float = 0
+        self.time_last_reasoning: float = 0
         self.time_first_content: float = 0
         self.time_complete: float = 0
         self.reasoning_chunks: int = 0
         self.content_chunks: int = 0
+        self.phase_events: list[PhaseEvent] = []
         self.status_events: list[str] = []
         self.reasoning_text: str = ""
         self.content_text: str = ""
@@ -117,6 +283,16 @@ class SSEMetrics:
         return int((self.time_first_content - self.time_request_sent) * 1000)
 
     @property
+    def reasoning_duration_ms(self) -> int:
+        """Duration of reasoning phase (first reasoning token → first content token)."""
+        if not self.time_first_reasoning:
+            return 0
+        end = self.time_first_content if self.time_first_content else self.time_last_reasoning
+        if not end:
+            return 0
+        return int((end - self.time_first_reasoning) * 1000)
+
+    @property
     def total_ms(self) -> int:
         if not self.time_complete:
             return -1
@@ -136,17 +312,44 @@ class SSEMetrics:
     def streamed(self) -> bool:
         return self.content_chunks > 1
 
+    @property
+    def duplicate_phases(self) -> list[str]:
+        """Detect consecutive duplicate status descriptions (stacking)."""
+        dupes = []
+        prev = ""
+        for pe in self.phase_events:
+            if pe.description == prev and pe.description:
+                dupes.append(pe.description)
+            prev = pe.description
+        return dupes
+
+    @property
+    def phase_count(self) -> int:
+        return len([p for p in self.phase_events if p.description])
+
+    @property
+    def reasoning_content_ratio(self) -> float:
+        """Ratio of reasoning tokens to content tokens (higher = more thinking)."""
+        if not self.content_text:
+            return 0.0
+        return round(len(self.reasoning_text) / max(len(self.content_text), 1), 2)
+
     def to_dict(self) -> dict:
         return {
             "ttfe_ms": self.ttfe_ms,
             "ttfr_ms": self.ttfr_ms,
             "ttfc_ms": self.ttfc_ms,
+            "reasoning_duration_ms": self.reasoning_duration_ms,
             "total_ms": self.total_ms,
             "total_s": self.total_s,
             "reasoning_chunks": self.reasoning_chunks,
             "content_chunks": self.content_chunks,
             "reasoning_len": len(self.reasoning_text),
             "content_len": len(self.content_text),
+            "reasoning_content_ratio": self.reasoning_content_ratio,
+            "phase_timeline": [p.to_dict() for p in self.phase_events],
+            "phase_count": self.phase_count,
+            "duplicate_phases": self.duplicate_phases,
             "status_events": self.status_events,
             "finish_reason": self.finish_reason,
             "model": self.model_used,
@@ -209,7 +412,11 @@ def send_prompt(
 
                 # Check for status events (Open WebUI format)
                 if chunk.get("type") == "status":
-                    desc = (chunk.get("data") or {}).get("description", "")
+                    inner = chunk.get("data") or {}
+                    desc = inner.get("description", "")
+                    done = inner.get("done", False)
+                    offset = int((now - metrics.time_request_sent) * 1000)
+                    metrics.phase_events.append(PhaseEvent(desc, done, offset))
                     if desc:
                         metrics.status_events.append(desc)
                     continue
@@ -229,6 +436,7 @@ def send_prompt(
                 if reasoning:
                     metrics.reasoning_chunks += 1
                     metrics.reasoning_text += reasoning
+                    metrics.time_last_reasoning = now
                     if not metrics.time_first_reasoning:
                         metrics.time_first_reasoning = now
 
@@ -307,11 +515,64 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
         else:
             add("deliverable_type", "warn", "Expected code but none detected in response")
 
-    # Reasoning / thinking check
+    # ── Reasoning / thinking checks ──
+    max_reasoning_s = _get_threshold(prompt_spec, "max_reasoning_s")
+    max_ratio = _get_threshold(prompt_spec, "max_reasoning_ratio")
+    dur_s = metrics.reasoning_duration_ms / 1000.0 if metrics.reasoning_duration_ms else 0
+    ratio = metrics.reasoning_content_ratio
+
     if metrics.had_reasoning:
-        add("reasoning", "pass", f"{metrics.reasoning_chunks} reasoning chunks")
+        detail = f"{metrics.reasoning_chunks} chunks, {metrics.reasoning_duration_ms}ms, ratio {ratio}x"
+
+        if dur_s > max_reasoning_s:
+            add(
+                "overthinking",
+                "warn",
+                f"Reasoning {dur_s:.1f}s > {max_reasoning_s}s limit. {detail}",
+            )
+        else:
+            add("reasoning_duration", "pass", f"{dur_s:.1f}s (limit {max_reasoning_s}s)")
+
+        if ratio > max_ratio:
+            add(
+                "overthinking_ratio",
+                "warn",
+                f"Ratio {ratio}x > {max_ratio}x limit. {detail}",
+            )
+        else:
+            add("reasoning_ratio", "pass", f"{ratio}x (limit {max_ratio}x)")
     else:
-        add("reasoning", "info", "No reasoning tokens observed")
+        cat = prompt_spec.get("category", "")
+        if cat in ("multi_step", "code", "review", "mixed", "comparison"):
+            add("underthinking", "warn", "No reasoning for a category that benefits from chain-of-thought")
+        else:
+            add("reasoning", "info", "No reasoning tokens observed")
+
+    # ── Phase / pipeline checks ──
+    expected_phases = prompt_spec.get("expected_phases")
+    if not expected_phases:
+        expected_phases = _derive_expected_phases(
+            prompt_spec.get("expected_route", "worker"),
+            prompt_spec.get("expected_deliverable", "explain_only"),
+            prompt_spec.get("category", ""),
+        )
+
+    if metrics.phase_events:
+        dupes = metrics.duplicate_phases
+        if dupes:
+            add("phase_duplicates", "warn", f"Stacked phases: {dupes[:5]}")
+        else:
+            add("phase_duplicates", "pass", f"{metrics.phase_count} unique phases")
+
+        if expected_phases:
+            seen = [p.description for p in metrics.phase_events if p.description]
+            missing = [e for e in expected_phases if not any(e.lower() in s.lower() for s in seen)]
+            if missing:
+                add("expected_phases", "warn", f"Missing phases: {missing}")
+            else:
+                add("expected_phases", "pass", f"All {len(expected_phases)} expected phases seen")
+    elif expected_phases:
+        add("expected_phases", "warn", "No phase events received at all")
 
     return {"overall": overall, "checks": verdicts}
 
@@ -369,10 +630,18 @@ def run_batch(
 
             status_icon = {"pass": "✓", "warn": "⚠", "fail": "✗"}.get(evaluation["overall"], "?")
             timing = f"{metrics.total_s}s" if metrics.total_s > 0 else "err"
+            reason_info = ""
+            if metrics.had_reasoning:
+                reason_info = f" think:{metrics.reasoning_duration_ms}ms"
+            phase_info = ""
+            dupes = metrics.duplicate_phases
+            if dupes:
+                phase_info = f" STACKED:{len(dupes)}"
             print(
                 f"  {status_icon} {prompt_id}: {evaluation['overall'].upper()} "
                 f"({timing}, {metrics.content_chunks} chunks, "
-                f"{len(metrics.content_text)} chars)",
+                f"{len(metrics.content_text)} chars,"
+                f" phases:{metrics.phase_count}{reason_info}{phase_info})",
                 flush=True,
             )
 
@@ -386,19 +655,67 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
         summary[r["verdict"]] = summary.get(r["verdict"], 0) + 1
 
     category_breakdown: dict[str, dict] = defaultdict(
-        lambda: {"pass": 0, "warn": 0, "fail": 0, "avg_latency_s": 0, "count": 0}
+        lambda: {
+            "pass": 0,
+            "warn": 0,
+            "fail": 0,
+            "avg_latency_s": 0,
+            "avg_reasoning_ms": 0,
+            "avg_phases": 0,
+            "stacked_count": 0,
+            "count": 0,
+        }
     )
     for r in all_results:
         cat = r["category"]
         category_breakdown[cat][r["verdict"]] += 1
         category_breakdown[cat]["count"] += 1
-        t = r["metrics"].get("total_s", 0)
+        m = r["metrics"]
+        t = m.get("total_s", 0)
         if t > 0:
             category_breakdown[cat]["avg_latency_s"] += t
+        category_breakdown[cat]["avg_reasoning_ms"] += m.get("reasoning_duration_ms", 0)
+        category_breakdown[cat]["avg_phases"] += m.get("phase_count", 0)
+        if m.get("duplicate_phases"):
+            category_breakdown[cat]["stacked_count"] += 1
 
     for cat, data in category_breakdown.items():
-        if data["count"] > 0:
-            data["avg_latency_s"] = round(data["avg_latency_s"] / data["count"], 2)
+        n = data["count"]
+        if n > 0:
+            data["avg_latency_s"] = round(data["avg_latency_s"] / n, 2)
+            data["avg_reasoning_ms"] = round(data["avg_reasoning_ms"] / n)
+            data["avg_phases"] = round(data["avg_phases"] / n, 1)
+
+    # ── Tuning recommendations ──
+    tuning: list[str] = []
+    for cat, data in category_breakdown.items():
+        n = data["count"]
+        if n == 0:
+            continue
+        cat_defaults = CATEGORY_DEFAULTS.get(cat, _DEFAULT_CATEGORY)
+        max_r_s = cat_defaults.get("max_reasoning_s", 10)
+
+        if data["avg_reasoning_ms"] > max_r_s * 1000:
+            tuning.append(
+                f"{cat}: avg reasoning {data['avg_reasoning_ms']}ms exceeds "
+                f"{max_r_s}s threshold — consider lowering token budget"
+            )
+        if data.get("stacked_count", 0) > 0:
+            tuning.append(
+                f"{cat}: {data['stacked_count']}/{n} prompts had stacked/duplicate phase events"
+            )
+
+        # Check for consistent underthinking in code-oriented categories
+        reasoning_sum = sum(
+            r["metrics"].get("reasoning_chunks", 0)
+            for r in all_results
+            if r["category"] == cat
+        )
+        if cat in ("code", "multi_step", "review", "mixed") and reasoning_sum == 0 and n > 0:
+            tuning.append(
+                f"{cat}: zero reasoning tokens across {n} prompts — "
+                "model may not be engaging chain-of-thought"
+            )
 
     report = {
         "metadata": {
@@ -408,6 +725,7 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
         },
         "summary": summary,
         "category_breakdown": dict(category_breakdown),
+        "tuning_recommendations": tuning,
         "failures": [r for r in all_results if r["verdict"] == "fail"],
         "warnings": [r for r in all_results if r["verdict"] == "warn"],
         "all_results": all_results,
@@ -433,7 +751,14 @@ def print_summary(report: dict) -> None:
     for cat, data in sorted(report["category_breakdown"].items()):
         p, w, f_ = data["pass"], data["warn"], data["fail"]
         avg = data["avg_latency_s"]
-        print(f"  {cat:20s}  P:{p} W:{w} F:{f_}  avg:{avg}s")
+        avg_r = data.get("avg_reasoning_ms", 0)
+        avg_ph = data.get("avg_phases", 0)
+        stacked = data.get("stacked_count", 0)
+        stacked_str = f"  stacked:{stacked}" if stacked else ""
+        print(
+            f"  {cat:20s}  P:{p} W:{w} F:{f_}  "
+            f"avg:{avg}s  think:{avg_r}ms  phases:{avg_ph}{stacked_str}"
+        )
 
     if report["failures"]:
         print(f"\n{'─' * 60}")
@@ -452,6 +777,13 @@ def print_summary(report: dict) -> None:
             for c in r["checks"]:
                 if c["status"] == "warn":
                     print(f"      → {c['check']}: {c['detail']}")
+
+    tuning = report.get("tuning_recommendations", [])
+    if tuning:
+        print(f"\n{'─' * 60}")
+        print(f"TUNING RECOMMENDATIONS ({len(tuning)}):")
+        for t in tuning:
+            print(f"  → {t}")
 
     print()
 
@@ -514,9 +846,13 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load suite
+    # Load suite (accept old filename as fallback)
     if not args.suite.exists():
-        sys.exit(f"Suite file not found: {args.suite}")
+        fallback = args.suite.parent / "test_prompts_100.yaml"
+        if fallback.exists():
+            args.suite = fallback
+        else:
+            sys.exit(f"Suite file not found: {args.suite}")
     prompts = load_suite(args.suite)
     print(f"Loaded {len(prompts)} prompts from {args.suite}")
 
