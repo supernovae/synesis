@@ -532,7 +532,9 @@ intent_classes:
       - audio_synthesis
   # Explicit code intents — trigger code path (with coding client or when matched)
   code_generation:
-    keywords: [create script, implement, build, code for, script to, function to, class to, hello world, print statement, println, console.log, add test, write code, write a script, go script, rust program]
+    keywords: [create script, implement, build, code for, script to, function to,
+               class to, hello world, print statement, println, console.log,
+               add test, write code, write a script, go script, rust program]
   data_transform:
     keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
   tool_orchestrated:

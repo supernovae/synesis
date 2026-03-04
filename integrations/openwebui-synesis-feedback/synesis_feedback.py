@@ -13,7 +13,6 @@ licence: Apache-2.0
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 try:
     import httpx
@@ -29,8 +28,8 @@ logger = logging.getLogger("synesis_feedback")
 
 def _fetch_feedback(url: str, params: dict) -> dict:
     """Fetch GET /v1/feedback. Use httpx if available, else urllib."""
-    import urllib.request
     import urllib.parse
+    import urllib.request
 
     qs = urllib.parse.urlencode(params)
     full_url = f"{url}/v1/feedback?{qs}"

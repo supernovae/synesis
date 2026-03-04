@@ -38,13 +38,17 @@ domain_keywords:
 
   martial_arts:
     domain: martial_arts
-    keywords: ["martial arts", "karate", "judo", "bjj", "jiu jitsu", "boxing", "muay thai", "taekwondo", "mma", "self defense", "dojo", "sparring", "kata", "belt", "kickboxing", "wrestling", "krav maga"]
+    keywords: ["martial arts", "karate", "judo", "bjj", "jiu jitsu", "boxing",
+               "muay thai", "taekwondo", "mma", "self defense", "dojo",
+               "sparring", "kata", "belt", "kickboxing", "wrestling", "krav maga"]
   dance:
     domain: dance
     keywords: ["dance", "ballet", "hip hop dance", "salsa", "ballroom", "contemporary", "choreography", "zumba", "line dance", "tap dance", "jazz dance", "swing dance", "tango"]
   team_sports:
     domain: team_sports
-    keywords: ["soccer", "football", "basketball", "baseball", "volleyball", "hockey", "rugby", "cricket", "lacrosse", "coaching", "referee", "league", "tournament", "practice drills", "softball", "field hockey"]
+    keywords: ["soccer", "football", "basketball", "baseball", "volleyball",
+               "hockey", "rugby", "cricket", "lacrosse", "coaching", "referee",
+               "league", "tournament", "practice drills", "softball", "field hockey"]
 
 pairings:
   - keywords: ["injury", "pain"]

@@ -15,7 +15,10 @@ complexity_weights:
 domain_keywords:
   education:
     domain: education
-    keywords: ["study", "vocabulary", "grammar", "quiz", "flashcard", "homework", "exam", "test prep", "tutor", "tutoring", "lesson", "learning", "student", "teacher", "classroom", "study guide", "practice test", "fill in the blank", "multiple choice"]
+    keywords: ["study", "vocabulary", "grammar", "quiz", "flashcard", "homework",
+               "exam", "test prep", "tutor", "tutoring", "lesson", "learning",
+               "student", "teacher", "classroom", "study guide", "practice test",
+               "fill in the blank", "multiple choice"]
   language_learning:
     domain: language_learning
     keywords: ["duolingo", "anki", "rosetta stone", "babbel", "conjugation", "declension", "immersion", "translation", "foreign language", "esl", "second language", "pronunciation", "fluency"]

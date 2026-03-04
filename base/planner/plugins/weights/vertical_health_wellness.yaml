@@ -32,7 +32,9 @@ domain_keywords:
 
   skincare:
     domain: skincare
-    keywords: ["skincare", "moisturizer", "sunscreen", "acne", "retinol", "serum", "cleanser", "exfoliate", "dermatology", "anti-aging", "hair care", "grooming", "skin routine", "spf", "toner", "eczema", "rosacea"]
+    keywords: ["skincare", "moisturizer", "sunscreen", "acne", "retinol", "serum",
+               "cleanser", "exfoliate", "dermatology", "anti-aging", "hair care",
+               "grooming", "skin routine", "spf", "toner", "eczema", "rosacea"]
   weight_management:
     domain: weight_management
     keywords: ["weight loss", "weight gain", "bmi", "calorie deficit", "metabolism", "portion control", "body composition", "bulking", "cutting", "body fat", "scale", "waist measurement"]

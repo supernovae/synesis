@@ -12,7 +12,9 @@ complexity_weights:
 domain_keywords:
   cooking:
     domain: cooking
-    keywords: ["recipe", "ingredient", "cook", "cooking", "bake", "baking", "roast", "grill", "saute", "simmer", "stir fry", "meal prep", "kitchen", "oven", "stovetop", "instant pot", "air fryer", "slow cooker"]
+    keywords: ["recipe", "ingredient", "cook", "cooking", "bake", "baking",
+               "roast", "grill", "saute", "simmer", "stir fry", "meal prep",
+               "kitchen", "oven", "stovetop", "instant pot", "air fryer", "slow cooker"]
   baking:
     domain: baking
     keywords: ["sourdough", "bread", "pastry", "cake", "cookies", "pie", "dough", "yeast", "flour", "frosting", "fondant"]
@@ -22,10 +24,16 @@ domain_keywords:
 
   beverages:
     domain: beverages
-    keywords: ["coffee", "espresso", "tea", "cocktail", "wine", "beer", "bartending", "barista", "latte art", "brewing", "mocktail", "smoothie", "kombucha", "cold brew", "pour over", "french press", "whiskey", "spirits", "mixology"]
+    keywords: ["coffee", "espresso", "tea", "cocktail", "wine", "beer",
+               "bartending", "barista", "latte art", "brewing", "mocktail",
+               "smoothie", "kombucha", "cold brew", "pour over", "french press",
+               "whiskey", "spirits", "mixology"]
   dietary_patterns:
     domain: dietary_patterns
-    keywords: ["vegan", "vegetarian", "keto", "paleo", "gluten free", "whole30", "intermittent fasting", "fodmap", "allergen free", "plant based", "carnivore diet", "mediterranean diet", "dash diet", "low carb", "dairy free"]
+    keywords: ["vegan", "vegetarian", "keto", "paleo", "gluten free", "whole30",
+               "intermittent fasting", "fodmap", "allergen free", "plant based",
+               "carnivore diet", "mediterranean diet", "dash diet",
+               "low carb", "dairy free"]
   food_preservation:
     domain: food_preservation
     keywords: ["canning", "fermenting", "pickling", "dehydrating", "smoking", "curing", "preserving", "sourdough", "kimchi", "sauerkraut", "jerky", "jam", "jelly", "vacuum seal", "freeze drying"]

@@ -25,7 +25,10 @@ domain_keywords:
     keywords: ["oscillator", "lfo", "modular", "daw", "eurorack", "synthesizer", "synth patch", "sound design"]
   music_production:
     domain: music_production
-    keywords: ["music production", "mixing", "mastering", "recording", "studio", "track", "beat", "sample", "loop", "ableton", "logic pro", "fl studio", "garageband", "pro tools", "reaper", "beatmaking", "arrangement"]
+    keywords: ["music production", "mixing", "mastering", "recording", "studio",
+               "track", "beat", "sample", "loop", "ableton", "logic pro",
+               "fl studio", "garageband", "pro tools", "reaper", "beatmaking",
+               "arrangement"]
   podcasting:
     domain: podcasting
     keywords: ["podcast", "podcasting", "episode", "microphone", "audio editing", "audacity", "anchor", "rss feed", "interview", "show notes", "podcast hosting", "audio quality"]

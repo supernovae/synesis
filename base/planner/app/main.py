@@ -1087,7 +1087,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         "elapsed_ms": elapsed_now,
                                         "content_sample": (chunk_obj.content or "")[:80],
                                         "has_reasoning_attr": hasattr(chunk_obj, "reasoning_content"),
-                                        "reasoning_attr_val": (getattr(chunk_obj, "reasoning_content", None) or "")[:80],
+                                        "reasoning_attr_val": (getattr(chunk_obj, "reasoning_content", None) or "")[
+                                            :80
+                                        ],
                                         "ak_keys": sorted(_ak.keys())[:10],
                                         "ak_reasoning": (_ak.get("reasoning_content", "") or "")[:80],
                                         "chunk_type": type(chunk_obj).__name__,

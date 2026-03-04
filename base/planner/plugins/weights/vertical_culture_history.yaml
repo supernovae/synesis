@@ -40,7 +40,9 @@ domain_keywords:
     keywords: ["philosophy", "ethics", "metaphysics", "epistemology", "existentialism", "stoicism", "logic", "moral", "socrates", "plato", "aristotle"]
   film_tv:
     domain: film_tv
-    keywords: ["movie", "film", "tv show", "television", "streaming", "director", "actor", "actress", "cinema", "documentary", "series", "netflix", "anime", "screenplay", "sitcom", "drama series", "oscar", "emmy"]
+    keywords: ["movie", "film", "tv show", "television", "streaming", "director",
+               "actor", "actress", "cinema", "documentary", "series", "netflix",
+               "anime", "screenplay", "sitcom", "drama series", "oscar", "emmy"]
   literature:
     domain: literature
     keywords: ["book", "novel", "author", "fiction", "nonfiction", "poetry", "poem", "reading", "literary", "genre fiction", "book club", "bibliography", "classic literature", "bestseller", "memoir"]
@@ -49,7 +51,10 @@ domain_keywords:
     keywords: ["theater", "theatre", "broadway", "musical", "play", "stage", "performing arts", "drama", "opera", "ballet", "monologue", "audition", "playwright", "choreography"]
   religion_spirituality:
     domain: religion_spirituality
-    keywords: ["religion", "spiritual", "buddhism", "christianity", "islam", "hinduism", "judaism", "prayer", "scripture", "theology", "interfaith", "faith", "worship", "meditation practice", "mindfulness practice", "zen", "taoism"]
+    keywords: ["religion", "spiritual", "buddhism", "christianity", "islam",
+               "hinduism", "judaism", "prayer", "scripture", "theology",
+               "interfaith", "faith", "worship", "meditation practice",
+               "mindfulness practice", "zen", "taoism"]
   linguistics:
     domain: linguistics
     keywords: ["etymology", "linguistics", "language history", "dialect", "syntax", "morphology", "phonetics", "semantics", "sociolinguistics", "pidgin", "creole", "grammar rules"]
