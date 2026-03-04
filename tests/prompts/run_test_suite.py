@@ -128,6 +128,14 @@ class SSEMetrics:
             return -1
         return round(self.time_complete - self.time_request_sent, 2)
 
+    @property
+    def had_reasoning(self) -> bool:
+        return self.reasoning_chunks > 0
+
+    @property
+    def streamed(self) -> bool:
+        return self.content_chunks > 1
+
     def to_dict(self) -> dict:
         return {
             "ttfe_ms": self.ttfe_ms,
