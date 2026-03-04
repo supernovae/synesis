@@ -34,6 +34,11 @@ respond (no LLM) → END
 
 **Persona Tier:** Maps `task_size` → `worker_persona`: trivial → Minimalist, small → Senior, complex → Architect. `plan_required` is true when persona is Architect (code) or when document deep-dive applies.
 
+**Slash Commands:**
+- `/test` -- Forces sandbox execution for the current query (sets `force_sandbox=true`). Useful for validating code that would otherwise skip the sandbox.
+- `/why` -- Returns classification details for the previous message.
+- `/reclassify small|complex` -- Override classification.
+
 **Prompts:** None (rules + `intent_weights.yaml`).
 
 ---
@@ -170,7 +175,7 @@ Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions i
 
 **Persona selection:** `worker_persona` from EntryClassifier (takes precedence over `worker_prompt_tier`): Minimalist | Senior | Architect. **Vertical override:** lifestyle → Senior (not Architect); Safety-II/JCS only for architecture/complex code.
 
-**Explain-only mode:** When `deliverable_type=explain_only` (training plan, meal plan, etc.), Worker produces markdown in the `code` field instead of executable code. Injected block instructs: "Put your full response as markdown. No Python/bash — output displayed directly."
+**Explain-only mode:** When `deliverable_type=explain_only` (training plan, meal plan, etc.), Worker streams **direct markdown** (no JSON wrapper). System prompt: "Respond directly in markdown." Content is streamed token-by-token to the client via `astream_events(version="v2")`. No JSON parsing, no `StreamingCodeExtractor` on this path.
 
 **Sovereign Persona Injection:** When `active_domain_refs` or `platform_context` maps to a vertical (medical, fintech, industrial, platform, scientific, lifestyle), the corresponding block from `vertical_prompts.yaml` is appended. E.g. fintech → "Fintech Auditor" block, medical → "HIPAA Compliance Officer" block.
 
@@ -277,6 +282,8 @@ When stop_reason is set, leave code empty.
 **Source:** `app/nodes/patch_integrity_gate.py`
 
 **Explain-only bypass:** When `deliverable_type=explain_only` (plans, documents, training plans), gate skips sandbox and routes to `respond`. Worker output (markdown) is displayed directly.
+
+**`force_sandbox`:** When the user sends `/test`, the entry classifier sets `force_sandbox=true`. The gate honors this flag and routes to sandbox even for explain-only deliverables, enabling on-demand code validation.
 
 **Prompts:** None.
 

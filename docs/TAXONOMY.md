@@ -111,7 +111,7 @@ Planning, writing, personal_guidance with these domains → document output (stu
 
 | Vertical | Complexity | Risk | Domain | Plugin |
 |----------|------------|------|--------|--------|
-| Audio Synthesis | signal_flow, synthesis_types | — | oscillator, lfo, daw | domain_audio_synthesis |
+| Audio Synthesis | signal_flow, synthesis_types | — | oscillator, lfo, daw | vertical_audio_synthesis |
 | Digital Art | digital_art | — | canvas, shader | vertical_creative |
 | Video Editing | video_processing | — | ffmpeg, h264 | vertical_creative |
 | Procedural Gen | procedural_generation | — | perlin, l-system | vertical_creative |
@@ -120,7 +120,7 @@ Planning, writing, personal_guidance with these domains → document output (stu
 
 | Vertical | Complexity | Risk | Domain | Plugin |
 |----------|------------|------|--------|--------|
-| Biomechanics (Running) | training_metrics | injury+pain pairing | vo2max, marathon | domain_running |
+| Biomechanics (Running) | training_metrics | injury+pain pairing | vo2max, marathon | vertical_fitness |
 | Nutrition | nutrition_tracking | nutrition+medical pairing | calories, macro | vertical_lifestyle |
 | Home Automation | home_automation | home+security pairing | zigbee, mqtt | vertical_lifestyle |
 | Personal Finance | personal_finance | financial+export pairing | budget, portfolio | vertical_lifestyle |
@@ -132,8 +132,8 @@ Planning, writing, personal_guidance with these domains → document output (stu
 | Fediverse / ActivityPub | protocol_fediverse | — | mastodon, webfinger | domain_protocols |
 | OAuth / OIDC | protocol_auth | — | oauth2 | domain_protocols |
 | gRPC / Protobuf | protocol_rpc | — | grpc | domain_protocols |
-| AI Governance | compute_infra, model_mgmt | ai_safety | llm safety | ai_governance |
-| SecOps / Hardening | — | security_standards | fips, stig | secops_hardening |
+| AI Governance | compute_infra, model_mgmt | ai_safety | llm safety | compliance_ai_governance |
+| SecOps / Hardening | — | security_standards | fips, stig | compliance_secops |
 
 ### 3.8 Business & Commerce
 
@@ -154,7 +154,7 @@ Aligned with markets: SMB, enterprise, startup, B2B, B2C, consumer. Planning, wr
 
 ### 3.9 Hobbies & Activities
 
-Broad coverage from outdoors to making to obscure interests. `domain_running` covers athletics (marathon, vo2max). Planning, writing, personal_guidance in these domains → document output (trip plans, gear guides, project how-tos).
+Broad coverage from outdoors to making to obscure interests. `vertical_fitness` covers athletics (marathon, vo2max). Planning, writing, personal_guidance in these domains → document output (trip plans, gear guides, project how-tos).
 
 | Vertical | Complexity | Risk | Domain | Plugin |
 |----------|------------|------|--------|--------|
@@ -181,35 +181,57 @@ Broad coverage from outdoors to making to obscure interests. `domain_running` co
 
 ---
 
-## 4. Plugin Catalog (Modular Depth)
+## 4. Plugin Catalog (28 plugins)
 
-Plugins add **niche** keywords. The master covers **generic** baseline.
+Plugins add **niche** keywords. The master covers **generic** baseline. Files live in `base/planner/plugins/weights/`.
 
-| Plugin | Focus | Complexity Categories | Risk Categories | Domain |
-|--------|-------|------------------------|-----------------|--------|
+### Compliance (4)
+
+| Plugin | Focus | Complexity | Risk | Domain |
+|--------|-------|------------|------|--------|
 | **compliance_healthcare** | PHI, HL7/FHIR | interop_standards | phi_identifiers | healthcare_systems |
 | **compliance_fintech** | PCI, SOX, Ledger | — | transaction_logic, fin_regulatory | fin_platforms |
-| **vertical_compliance_legal** | GDPR, e-discovery | regulatory_workflow | gdpr_privacy, legal_sensitive | privacy_tools |
-| **vertical_infrastructure** | Cloud, K8s, HPC | cloud_native, k8s_ops, hpc_scheduling | cluster_destructive | aws, gcp, azure, observability |
-| **vertical_development** | Systems, Mobile, Embedded | systems_programming, mobile_native | — | rust, go, frontend |
-| **vertical_scientific** | Bio, Physics, GIS, ML | bioinformatics_pipeline, physics_simulation, ml_pipeline | clinical_data | genomics, ml_platforms |
-| **vertical_industrial** | ISO, OT/SCADA | ot_integration | industrial_safety, iso_compliance | industrial_platforms |
-| **vertical_creative** | Video, Art, Procedural | video_processing, procedural_generation | — | creative_media |
-| **vertical_lifestyle** | Nutrition, Home, Finance | nutrition_tracking, home_automation | — | smart_home, finance_tools |
-| **vertical_business_commerce** | Business, Sales, Marketing, Budgets, Finance, Accounting | business_strategy, sales_crm, marketing_analytics, budget_business, business_finance | financial_sensitive, budget_override | business, sales, marketing, budget, personal_finance, business_finance, accounting, markets |
-| **vertical_hobbies_activities** | Outdoors, Making, Collecting, Tabletop, Recreation | hiking_backpacking, three_d_printing, woodworking, board_games, etc. | power_tools, outdoor_safety | outdoors, fishing, gardening, three_d_printing, woodworking, hobbies_making, hobbies_collecting, board_games, recreation, hobbies_general |
-| **domain_protocols** | Fediverse, OAuth, gRPC | protocol_fediverse, protocol_auth, protocol_rpc | — | — |
-| **domain_audio_synthesis** | Oscillators, Modular | signal_flow, synthesis_types | — | audio_synthesis |
-| **domain_running** | VO2max, Taper | training_metrics | injury+pain | athletics |
-| **domain_disambiguation** | cluster vs cluster | — | — | kubernetes, healthcare |
-| **ai_governance** | LLM safety | compute_infra, model_mgmt | ai_safety | — |
-| **secops_hardening** | FIPS, CIS | — | security_standards | — |
-| **vertical_aerospace_automotive** | DO-178C, ISO 26262 | flight_software, adas_stack | flight_safety, automotive_safety | avionics, vehicle_ecosystem |
-| **vertical_edtech** | LMS, SCORM | lms_integration, learning_analytics | — | lms_platforms, authoring |
-| **vertical_llm_rag** | RAG, retrieval, chunking | rag_pipeline, chunking_strategy, reranking | — | llm_rag |
-| **vertical_llm_prompting** | Prompt engineering, tool use | prompt_design, tool_use, prompt_injection | — | llm_prompting |
-| **vertical_llm_evaluation** | Eval, benchmarks | eval_harness, hallucination, eval_metrics | — | llm_evaluation |
-| **ai_governance** | LLM safety, fine-tuning | compute_infra, model_mgmt | ai_safety | ai_governance |
+| **compliance_ai_governance** | LLM safety, fine-tuning | compute_infra, model_mgmt | ai_safety | ai_governance |
+| **compliance_secops** | FIPS, CIS, STIG | — | security_standards | secops |
+
+### Verticals (20)
+
+| Plugin | Focus | Key Categories |
+|--------|-------|----------------|
+| **vertical_infrastructure** | Cloud, K8s, HPC | cloud_native, k8s_ops, hpc_scheduling |
+| **vertical_development** | Systems, Mobile, Embedded | systems_programming, mobile_native |
+| **vertical_scientific** | Bio, Physics, GIS, ML | bioinformatics_pipeline, physics_simulation, ml_pipeline |
+| **vertical_industrial** | ISO, OT/SCADA | ot_integration, industrial_safety |
+| **vertical_creative** | Video, Art, Procedural | video_processing, procedural_generation |
+| **vertical_audio_synthesis** | Oscillators, Modular synth | signal_flow, synthesis_types |
+| **vertical_lifestyle** | Nutrition, Home, Finance | nutrition_tracking, home_automation |
+| **vertical_fitness** | Running, athletics, VO2max | training_metrics, injury+pain |
+| **vertical_business_commerce** | Business, Sales, Marketing, Budgets | business_strategy, sales_crm, marketing_analytics |
+| **vertical_hobbies_activities** | Outdoors, Making, Collecting, Tabletop | hiking_backpacking, three_d_printing, woodworking |
+| **vertical_compliance_legal** | GDPR, e-discovery | regulatory_workflow, gdpr_privacy |
+| **vertical_aerospace_automotive** | DO-178C, ISO 26262 | flight_software, adas_stack |
+| **vertical_edtech** | LMS, SCORM | lms_integration, learning_analytics |
+| **vertical_llm_rag** | RAG, retrieval, chunking | rag_pipeline, chunking_strategy |
+| **vertical_llm_prompting** | Prompt engineering, tool use | prompt_design, tool_use |
+| **vertical_llm_evaluation** | Eval, benchmarks | eval_harness, hallucination |
+| **vertical_programming_slc** | Languages, SLC phases | python, js, go, rust, testing_phase |
+| **vertical_iac_automation** | Terraform, Ansible, Shell | terraform_module, ansible_orchestration |
+| **vertical_education_learning** | Study, vocabulary, tutoring | education_study, vocabulary_practice |
+| **vertical_culture_history** | History, culture, arts | history_analysis, cultural_studies |
+
+### New verticals (added in taxonomy refactoring)
+
+| Plugin | Focus | Key Categories |
+|--------|-------|----------------|
+| **vertical_health_wellness** | Health, medical Q&A, wellness | health_general, wellness_advice |
+| **vertical_food_cooking** | Recipes, cooking, meal prep | recipe_creation, cooking_technique |
+
+### Domain (2)
+
+| Plugin | Focus |
+|--------|-------|
+| **domain_protocols** | Fediverse, OAuth, gRPC |
+| **domain_disambiguation** | cluster vs cluster, etc. |
 
 ---
 

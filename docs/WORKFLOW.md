@@ -180,7 +180,7 @@ Rigor scales with `task_size`. Decouples "general utility" from "engineering rig
 **When Planner runs:** (1) Code: `task_size=complex` + `plan_required` (multi-step, protocol-heavy). (2) Document deep-dive: `output_type=document` + domain in `deep_dive_domains` + `complexity > 0.6` → `plan_required=true` → Planner with `required_elements` and `depth_instructions` from `taxonomy_prompt_config.yaml`. Simple document → `plan_required=false` → Supervisor passthrough → Worker explain_only.
 
 **Why Planner can feel slow:**
-- Uses same model as Supervisor (e.g. Qwen3-14B). Each Planner call is a full LLM inference.
+- Uses same model as Supervisor (Qwen3-8B AWQ). Each Planner call is a full LLM inference.
 - Prompt: system (atomic rules) + task + assumptions + RAG context (up to 5 chunks) + domain decomposition rules from `vertical_prompts.yaml`.
 - Output: JSON plan with steps, touched_files, reasoning. `max_tokens=1024` (sufficient for 1–5 steps).
 
@@ -209,7 +209,7 @@ When `SYNESIS_STREAM_DEBUG_CHATTER=true`, the streaming SSE pipeline emits `even
 - **Prefix caching**: Supervisor and Critic share synesis-supervisor-critic runtime with `--enable-prefix-caching`. Static system prompts maximize cache hit.
 - **Guided JSON**: `SupervisorOut`, `PlannerOut`, `CriticOut`, `ExecutorOut` via LangChain `with_structured_output`.
 - **State refs**: RAG/failure context passed as refs+cache where possible to reduce payload size between nodes.
-- **Streaming**: SSE with `event: status` for Open WebUI; unbuffered headers (`X-Accel-Buffering: no`) for real-time spinner.
+- **Streaming**: `astream_events(version="v2")` with token-level SSE and `event: status` for Open WebUI. Unbuffered headers (`X-Accel-Buffering: no`). Explain-only mode streams direct markdown; code mode uses `StreamingCodeExtractor` for JSON field extraction. Reasoning content (`<think>` tags from R1-Distill) surfaces as "Thinking..." status.
 
 ## See Also
 
