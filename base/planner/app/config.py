@@ -22,7 +22,7 @@ def _build_info() -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SYNESIS_")
 
-    # Model endpoints (OpenShift AI 3 — deploy synesis-supervisor, synesis-planner, synesis-executor, synesis-critic)
+    # Model endpoints — see models.yaml for deployment architecture and physical mapping
     supervisor_model_url: str = "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
     # Micro model for summarization (pivot history, Tier 3 manifest). Empty = use stub/truncation.
     summarizer_model_url: str = ""
