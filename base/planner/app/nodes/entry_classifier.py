@@ -249,11 +249,15 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["output_type"] = "document"
         out["intent_class"] = "knowledge"
         out["target_language"] = "markdown"
+        out["deliverable_type"] = "explain_only"
+        out["allowed_tools"] = ["none"]
         # Knowledge questions asking ABOUT technical terms (e.g. "What are the
         # differences between REST and GraphQL?") should never be classified as
         # complex -- they don't need a planner or supervisor LLM routing call.
         if out.get("task_size") == "complex":
             out["task_size"] = "small"
+            out["worker_persona"] = "Senior"
+            out["worker_prompt_tier"] = "small"
             out["bypass_supervisor"] = True
             out["bypass_planner"] = True
             out["plan_required"] = False
