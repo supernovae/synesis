@@ -120,22 +120,6 @@ models:
 # Service URL pattern:
 #   http://<service-name>.<namespace>.svc.cluster.local:8080/v1
 
-# ============================================================================
-# Vestigial KServe files (NOT deployed, not in kustomization.yaml)
-# ============================================================================
-# These were from an earlier KServe-based approach before switching to manual
-# Deployments for GPU models. Safe to remove:
-#   - inference-service-supervisor.yaml
-#   - inference-service-executor.yaml
-#   - inference-service-critic.yaml
-#   - serving-runtime-executor.yaml
-#   - serving-runtime-supervisor-critic.yaml
-#   - serving-runtime-supervisor.yaml
-#   - serving-runtime-critic.yaml
-#   - connection-executor.yaml
-#   - connection-supervisor.yaml
-#   - connection-critic.yaml
-
 # Files that reference model identifiers or endpoints:
 references:
   - base/gateway/litellm-config.yaml
