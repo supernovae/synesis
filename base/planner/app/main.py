@@ -292,6 +292,100 @@ def _sse_status_chunk(data: dict) -> str:
     return f"event: status\ndata: {json.dumps(data)}\n\n"
 
 
+class ThinkTagParser:
+    """State machine for parsing <think>...</think> tags from streaming content.
+
+    When vLLM sends reasoning as raw <think> tags in content (i.e. without
+    --reasoning-parser), this splits the stream into reasoning vs content.
+    Handles tags that span chunk boundaries via internal buffering.
+    Also serves as belt-and-suspenders fallback when langchain-openai drops
+    the reasoning_content field (langchain-ai/langchain#34706).
+    """
+
+    OPEN_TAG = "<think>"
+    CLOSE_TAG = "</think>"
+
+    def __init__(self) -> None:
+        self._state = "scanning"  # scanning | thinking | done | passthrough
+        self._buffer = ""
+
+    def feed(self, token: str) -> tuple[str, str]:
+        """Feed a content token. Returns (reasoning_text, content_text).
+        At most one will be non-empty per call. Both empty means buffering.
+        """
+        if self._state == "passthrough":
+            return ("", token)
+
+        if self._state == "done":
+            return ("", token)
+
+        if self._state == "scanning":
+            return self._scan(token)
+
+        if self._state == "thinking":
+            return self._process_thinking(token)
+
+        return ("", token)
+
+    def _scan(self, token: str) -> tuple[str, str]:
+        self._buffer += token
+        if self._buffer.startswith(self.OPEN_TAG):
+            self._state = "thinking"
+            remaining = self._buffer[len(self.OPEN_TAG) :]
+            self._buffer = ""
+            if remaining:
+                return self._process_thinking(remaining)
+            return ("", "")
+        if len(self._buffer) >= len(self.OPEN_TAG):
+            self._state = "passthrough"
+            content = self._buffer
+            self._buffer = ""
+            return ("", content)
+        if not self.OPEN_TAG.startswith(self._buffer):
+            self._state = "passthrough"
+            content = self._buffer
+            self._buffer = ""
+            return ("", content)
+        return ("", "")
+
+    def _process_thinking(self, token: str) -> tuple[str, str]:
+        self._buffer += token
+        close_idx = self._buffer.find(self.CLOSE_TAG)
+        if close_idx >= 0:
+            reasoning = self._buffer[:close_idx]
+            content = self._buffer[close_idx + len(self.CLOSE_TAG) :]
+            self._buffer = ""
+            self._state = "done"
+            content = content.lstrip("\n")
+            return (reasoning, content)
+        safe_len = len(self._buffer) - (len(self.CLOSE_TAG) - 1)
+        if safe_len > 0:
+            reasoning = self._buffer[:safe_len]
+            self._buffer = self._buffer[safe_len:]
+            return (reasoning, "")
+        return ("", "")
+
+    def flush(self) -> tuple[str, str]:
+        """Flush remaining buffer. Call when stream ends."""
+        if self._state == "thinking":
+            reasoning = self._buffer
+            self._buffer = ""
+            return (reasoning, "")
+        if self._state == "scanning":
+            content = self._buffer
+            self._buffer = ""
+            return ("", content)
+        return ("", "")
+
+    @property
+    def is_thinking(self) -> bool:
+        return self._state in ("scanning", "thinking")
+
+    @property
+    def had_thinking(self) -> bool:
+        return self._state in ("thinking", "done")
+
+
 # User-friendly status messages for progressive feedback during graph execution.
 # Open WebUI format: {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}
 # Other clients ignore these lines; only Open WebUI displays them.
@@ -990,6 +1084,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _diag_first_content_ms: int | None = None
                 _reasoning_buf = ""
                 _last_reasoning_status = ""
+                _think_parser = ThinkTagParser()
+                _consecutive_empty = 0
+                _empty_thinking_emitted = False
 
                 try:
                     async for event in graph.astream_events(
@@ -1096,15 +1193,50 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     },
                                 )
 
-                            # Extract reasoning_content (DeepSeek R1 thinking tokens).
-                            # Check multiple locations: langchain-openai >= 0.3.14 puts it
-                            # on the chunk directly; older versions may put it in additional_kwargs;
-                            # some versions drop it entirely (langchain-ai/langchain#34706).
+                            # ── Reasoning extraction (3 paths: langchain attr, <think> tags, empty-chunk fallback) ──
+
+                            # Path 1: langchain-openai reasoning_content attribute
+                            # (works when langchain-openai properly forwards vLLM's reasoning_content)
                             rc = ""
                             if hasattr(chunk_obj, "reasoning_content") and chunk_obj.reasoning_content:
                                 rc = chunk_obj.reasoning_content
                             elif hasattr(chunk_obj, "additional_kwargs"):
                                 rc = (chunk_obj.additional_kwargs or {}).get("reasoning_content", "")
+
+                            # Path 2: <think> tag parsing from content stream
+                            # (fallback when langchain drops reasoning_content — langchain-ai/langchain#34706,
+                            #  or when vLLM runs without --reasoning-parser and sends raw <think> tags)
+                            content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""
+                            if content_tok and not rc:
+                                think_rc, think_content = _think_parser.feed(content_tok)
+                                if think_rc:
+                                    rc = think_rc
+                                content_tok = think_content
+                            elif not content_tok and not rc and _think_parser.is_thinking:
+                                pass
+
+                            # Path 3: empty-chunk fallback — detect silent thinking by counting
+                            # consecutive empty chunks before any content arrives
+                            if not rc and not content_tok:
+                                _consecutive_empty += 1
+                                _diag_empty_chunks += 1
+                                if _consecutive_empty >= 3 and not _empty_thinking_emitted:
+                                    _empty_thinking_emitted = True
+                                    yield _sse_status_chunk(
+                                        {
+                                            "type": "status",
+                                            "data": {
+                                                "description": "Thinking…",
+                                                "done": False,
+                                                "hidden": False,
+                                            },
+                                        }
+                                    )
+                                    await asyncio.sleep(0)
+                                continue
+                            _consecutive_empty = 0
+
+                            # ── Process reasoning tokens (from any path) ──
                             if rc:
                                 _diag_reasoning_chunks += 1
                                 if _diag_first_reasoning_ms is None:
@@ -1117,7 +1249,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "sample": rc[:120],
                                         },
                                     )
-                                    # Immediate "Thinking..." status so the user sees feedback right away
                                     yield _sse_status_chunk(
                                         {
                                             "type": "status",
@@ -1130,7 +1261,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     await asyncio.sleep(0)
                                 _reasoning_buf += rc
-                                # Extract headline-like phrases for live status updates
                                 while "\n" in _reasoning_buf:
                                     line, _reasoning_buf = _reasoning_buf.split("\n", 1)
                                     line = line.strip()
@@ -1142,7 +1272,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         or line.startswith("- ")
                                         or (line[0].isupper() and line.endswith(":"))
                                         or (line[0].isdigit() and ". " in line[:5])
-                                        # Broader: any line > 20 chars starting with uppercase
                                         or (len(line) > 20 and line[0].isupper())
                                     )
                                     if is_heading and line != _last_reasoning_status:
@@ -1162,8 +1291,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             )
                                             await asyncio.sleep(0)
 
-                            # Extract actual content tokens
-                            content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""
+                            # ── Process content tokens ──
                             if content_tok:
                                 _diag_content_chunks += 1
                                 if _diag_first_content_ms is None:
@@ -1176,7 +1304,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "node": lg_node,
                                         },
                                     )
-                                # Explain-only: stream raw markdown tokens directly (no JSON extractor)
                                 if deliverable_val == "explain_only":
                                     fragments = [content_tok]
                                 else:
@@ -1213,8 +1340,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             extra={"elapsed_ms": elapsed_now},
                                         )
                                     yield _sse_content_delta(chat_id, delta, run_id=run_id)
-                            elif not rc:
-                                _diag_empty_chunks += 1
 
                 except Exception as e:
                     logger.exception("graph_execution_error")
@@ -1227,6 +1352,30 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
+
+                # Flush any remaining think-parser buffer
+                flush_rc, flush_content = _think_parser.flush()
+                if flush_rc:
+                    _reasoning_buf += flush_rc
+                if flush_content and not content_streamed:
+                    yield _sse_content_delta(
+                        chat_id,
+                        {"role": "assistant", "content": flush_content},
+                        run_id=run_id,
+                    )
+                    content_streamed = True
+                    sent_role = True
+
+                # If empty-chunk fallback detected thinking but no phases were extracted,
+                # add a generic timing phase so the thinking block still renders
+                if (
+                    _empty_thinking_emitted
+                    and not thinking_phases
+                    and _diag_reasoning_chunks == 0
+                    and _diag_empty_chunks > 3
+                ):
+                    elapsed_s = time.monotonic() - t_start
+                    thinking_phases.append(f"  \u2192 Reasoned for {elapsed_s:.0f}s")
 
                 # Stop status animation
                 yield _sse_status_chunk({"type": "status", "data": {"description": "", "done": True, "hidden": False}})

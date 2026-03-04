@@ -69,7 +69,6 @@ spec:
             - --gpu-memory-utilization=0.92
             - --enable-chunked-prefill
             - --trust-remote-code
-            - --reasoning-parser=deepseek_r1
           resources:
             limits:
               cpu: "8"
