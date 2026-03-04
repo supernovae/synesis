@@ -1260,6 +1260,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         }
                                     )
                                     await asyncio.sleep(0)
+
+                                # Forward reasoning_content in SSE delta so Open
+                                # WebUI renders it in the native "Thought for Xs"
+                                # collapsible instead of only as status events.
+                                yield _sse_content_delta(
+                                    chat_id, {"reasoning_content": rc}, run_id=run_id
+                                )
+
                                 _reasoning_buf += rc
                                 while "\n" in _reasoning_buf:
                                     line, _reasoning_buf = _reasoning_buf.split("\n", 1)
@@ -1278,18 +1286,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         _last_reasoning_status = line
                                         short = line.lstrip("#*- ").strip().rstrip(":")
                                         if short and len(short) > 3:
-                                            thinking_phases.append(f"  \u2192 {short}")
-                                            yield _sse_status_chunk(
-                                                {
-                                                    "type": "status",
-                                                    "data": {
-                                                        "description": f"Thinking: {short[:80]}",
-                                                        "done": False,
-                                                        "hidden": False,
-                                                    },
-                                                }
-                                            )
-                                            await asyncio.sleep(0)
+                                            thinking_phases.append(f"  → {short}")
 
                             # ── Process content tokens ──
                             if content_tok:
@@ -1374,6 +1371,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 # renders it natively in a collapsible Thinking UI.
                 _stream_req = accumulated_state.get("direct_stream_request")
                 if _stream_req and not content_streamed:
+                    # Close the pipeline-status section so Open WebUI collapses
+                    # "Analyzing request… / Detecting domain… / …" into a clean
+                    # finished block BEFORE the native reasoning UI kicks in.
+                    yield _sse_status_chunk(
+                        {"type": "status", "data": {"description": "", "done": True, "hidden": False}}
+                    )
+                    await asyncio.sleep(0)
+
                     try:
                         import openai as _openai
 
@@ -1382,10 +1387,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             api_key="not-needed",
                         )
                         _ds_full_content = ""
-                        _ds_reasoning_buf = ""
                         _ds_in_reasoning = False
                         _ds_first_content = False
-                        _ds_last_status = ""
 
                         yield _sse_content_delta(chat_id, {"role": "assistant", "content": ""}, run_id=run_id)
                         sent_role = True
@@ -1417,52 +1420,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "source": "direct_stream",
                                         },
                                     )
-                                    yield _sse_status_chunk(
-                                        {
-                                            "type": "status",
-                                            "data": {
-                                                "description": "Thinking\u2026",
-                                                "done": False,
-                                                "hidden": False,
-                                            },
-                                        }
-                                    )
-                                    await asyncio.sleep(0)
 
-                                # Forward reasoning_content in SSE delta
+                                # Forward reasoning_content in SSE delta — Open WebUI
+                                # renders this natively as a collapsible "Thought for Xs"
+                                # block.  No need for duplicate status events.
                                 yield _sse_content_delta(chat_id, {"reasoning_content": _ds_rc}, run_id=run_id)
-
-                                # Extract heading lines for status events
-                                _ds_reasoning_buf += _ds_rc
-                                while "\n" in _ds_reasoning_buf:
-                                    _line, _ds_reasoning_buf = _ds_reasoning_buf.split("\n", 1)
-                                    _line = _line.strip()
-                                    if len(_line) < 5:
-                                        continue
-                                    _is_heading = (
-                                        _line.startswith("#")
-                                        or _line.startswith("**")
-                                        or _line.startswith("- ")
-                                        or (_line[0].isupper() and _line.endswith(":"))
-                                        or (_line[0].isdigit() and ". " in _line[:5])
-                                        or (len(_line) > 20 and _line[0].isupper())
-                                    )
-                                    if _is_heading and _line != _ds_last_status:
-                                        _ds_last_status = _line
-                                        _short = _line.lstrip("#*- ").strip().rstrip(":")
-                                        if _short and len(_short) > 3:
-                                            thinking_phases.append(f"  \u2192 {_short}")
-                                            yield _sse_status_chunk(
-                                                {
-                                                    "type": "status",
-                                                    "data": {
-                                                        "description": f"Thinking: {_short[:80]}",
-                                                        "done": False,
-                                                        "hidden": False,
-                                                    },
-                                                }
-                                            )
-                                            await asyncio.sleep(0)
 
                             if _ds_ct:
                                 _diag_content_chunks += 1
