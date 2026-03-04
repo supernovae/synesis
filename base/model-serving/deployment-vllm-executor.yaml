@@ -67,6 +67,7 @@ spec:
             - --served-model-name=synesis-executor
             - --max-model-len=20480
             - --gpu-memory-utilization=0.92
+            - --kv-cache-dtype=fp8_e4m3
             - --enable-chunked-prefill
             - --trust-remote-code
           resources:

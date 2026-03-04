@@ -64,17 +64,21 @@ models:
     min_vram_gb: 38
     context_length: 20480
     vllm_args:
+      - "--kv-cache-dtype=fp8_e4m3"
       - "--enable-chunked-prefill"
       - "--gpu-memory-utilization=0.92"
       - "--max-model-len=20480"
     notes: >
       FP8-dynamic quantized R1-Distill (RedHatAI, llm-compressor FP8_DYNAMIC
-      scheme). Native FP8 tensor core ops on L40S (SM89) — no dequantization
-      overhead vs GPTQ-INT4. Prefix caching disabled (incompatible with FP8
-      KV cache). Always produces <think>...</think> reasoning (architectural,
-      not parameter-controlled). The planner SSE pipeline parses <think> tags
+      scheme). Native FP8 tensor core ops on L40S (SM89/Ada) — no
+      dequantization overhead vs GPTQ-INT4. FP8 E4M3 KV cache halves
+      per-token KV memory vs FP16, allowing more context or concurrency.
+      Always produces <think>...</think> reasoning (architectural, not
+      parameter-controlled). The planner SSE pipeline parses <think> tags
       from the content stream directly (--reasoning-parser removed because
       langchain-openai drops the separated reasoning_content field).
+      Worker tiers max_completion_tokens by task complexity (trivial=1024,
+      small=2048, complex=4096) to limit thinking time on simple queries.
 
   # -------------------------------------------------------------------------
   # CPU: Summarizer (KServe InferenceService)

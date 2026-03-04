@@ -761,16 +761,22 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             HumanMessage(content=prompt),
         ]
 
-        # Thinking Mode: when task_size=complex, enable model-specific reasoning (Qwen3: enable_thinking; DeepSeek-V3: thinking; DeepSeek-Coder: disabled)
+        # Token budget: tier max_completion_tokens by task complexity so trivial
+        # queries don't waste time on deep reasoning chains.
         task_size = state.get("task_size", "small")
-        llm_to_use = worker_llm
+        _TOKEN_BUDGETS = {"trivial": 1024, "small": 2048, "complex": 4096}
+        token_budget = _TOKEN_BUDGETS.get(task_size, 2048)
+        llm_to_use = worker_llm.bind(max_completion_tokens=token_budget)
+
+        # Thinking Mode: when task_size=complex, enable model-specific reasoning
         thinking_param = getattr(settings, "executor_thinking_param", "enable_thinking") or ""
         if task_size == "complex" and getattr(settings, "worker_thinking_mode_enabled", True) and thinking_param:
-            llm_to_use = worker_llm.bind(
+            llm_to_use = llm_to_use.bind(
                 extra_body={"chat_template_kwargs": {thinking_param: True}},
                 temperature=0.6,
             )
             logger.debug("worker_thinking_mode_enabled", extra={"task_size": task_size, "param": thinking_param})
+        logger.debug("worker_token_budget", extra={"task_size": task_size, "budget": token_budget})
 
         response = await llm_to_use.ainvoke(messages)
 
