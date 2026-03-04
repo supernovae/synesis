@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Invoke Synesis pipelines on OpenShift AI. Download-only: models go to PVC, deployments load from PV."""
+
 from __future__ import annotations
 
 import argparse
@@ -26,7 +27,7 @@ def compile_pipeline(name: str, ecr_uri: str | None = None) -> Path:
         script = PIPELINES_DIR / "manager_modelcar_pipeline.py"
         yaml_suffix = ".yaml"
     elif name == "executor":
-        script = PIPELINES_DIR / "nvfp4_executor_pipeline.py"
+        script = PIPELINES_DIR / "executor_pipeline.py"
         yaml_suffix = ".yaml"
     else:
         raise ValueError(f"Unknown pipeline: {name}")
@@ -103,7 +104,7 @@ def run_pipeline(
             arguments={
                 "model_repo": os.environ.get(
                     "EXECUTOR_MODEL_REPO",
-                    "dwetzel/DeepSeek-R1-Distill-Qwen-32B-GPTQ-INT4",
+                    "RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic",
                 ),
                 "pvc_name": os.environ.get("EXECUTOR_PVC", "executor-build-pvc"),
             },
@@ -150,8 +151,18 @@ def main() -> None:
         for dspa_ns in DSPA_NAMESPACES:
             try:
                 r = subprocess.run(
-                    ["oc", "get", "dspa", "-n", dspa_ns, "-o", "jsonpath={.items[0].status.components.apiServer.externalUrl}"],
-                    capture_output=True, text=True, check=False
+                    [
+                        "oc",
+                        "get",
+                        "dspa",
+                        "-n",
+                        dspa_ns,
+                        "-o",
+                        "jsonpath={.items[0].status.components.apiServer.externalUrl}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     host = r.stdout.strip()
@@ -159,7 +170,9 @@ def main() -> None:
                     break
                 r = subprocess.run(
                     ["oc", "get", "route", "-n", dspa_ns, "-o", "jsonpath={.items[0].spec.host}"],
-                    capture_output=True, text=True, check=False
+                    capture_output=True,
+                    text=True,
+                    check=False,
                 )
                 if r.returncode == 0 and r.stdout.strip():
                     host = f"https://{r.stdout.strip()}"

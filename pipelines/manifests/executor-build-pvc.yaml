@@ -1,5 +1,5 @@
 # PVC for executor model — download pipeline writes to /data/executor-model; deployment mounts same PVC.
-# 32B INT4 ~20GiB. 50Gi = model + download cache headroom.
+# 32B FP8 ~33GiB. 50Gi = model + download cache headroom.
 # Create in same namespace as pipeline runs AND deployment:
 #   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
 #   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/executor-build-pvc.yaml | oc apply -f -
@@ -14,4 +14,4 @@ spec:
   storageClassName: gp3-high  # 16K IOPS, 1 GiB/s — apply storage-class-gp3-high.yaml first
   resources:
     requests:
-      storage: 50Gi  # 32B INT4 ~20GB + buffer
+      storage: 50Gi  # 32B FP8 ~33GB + buffer

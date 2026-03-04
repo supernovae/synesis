@@ -11,13 +11,13 @@ Download Manager and Executor models to PVC. **No OCI build/push.** Deployments 
 | Pipeline | Model | Steps | Runtime |
 |----------|-------|-------|---------|
 | **Manager** | Qwen2.5-32B-Instruct-AWQ | HF download → PVC | ~10–20 min |
-| **Executor** | DeepSeek-R1-Distill-Qwen-32B INT4 | HF download (pre-quant) → PVC | ~10–20 min |
+| **Executor** | DeepSeek-R1-Distill-Qwen-32B FP8 | Clean PVC → HF download → PVC | ~10–20 min |
 
 ## Prerequisites
 
 - OpenShift AI with Data Science Pipelines (DSPA) — KFP host discovered from `synesis` or `synesis-models`
 - `hf-hub-secret` in **synesis-models** (optional, for gated models)
-- PVCs in **synesis-models**: `modelcar-build-pvc` (120Gi), `executor-build-pvc` (50Gi)
+- PVCs in **synesis-models**: `modelcar-build-pvc` (120Gi), `executor-build-pvc` (50Gi, FP8 ~33GB)
 
 **If runs still land in synesis:** DSPA executes workloads in its own namespace. Move DSPA to synesis-models, or create a new DSPA in synesis-models for model pipelines. The `run-pipelines.sh` script exports `DS_PROJECT=synesis-models` and the KFP client requests that namespace; the server may override this if DSPA is namespace-scoped.
 
@@ -65,7 +65,7 @@ export KFP_HOST=https://<pipelines-route>
 
 ./scripts/run-pipelines.sh manager              # Manager: download to PVC
 ./scripts/run-pipelines.sh manager --validate   # 0.5B model — fast validation
-./scripts/run-pipelines.sh executor             # Executor: download INT4 to PVC
+./scripts/run-pipelines.sh executor             # Executor: clean PVC + download FP8
 ./scripts/run-pipelines.sh all                 # Both
 ```
 
@@ -83,5 +83,5 @@ oc apply -n $NS -f base/model-serving/deployment-vllm-executor.yaml
 ## Files
 
 - `manager_modelcar_pipeline.py` — Manager: download to PVC at /data/models
-- `nvfp4_executor_pipeline.py` — Executor: download to PVC at /data/executor-model
+- `executor_pipeline.py` — Executor: clean PVC + download FP8 model to /data/executor-model
 - `model-pvc-download/` — Pipeline container (uv + hf_hub); bootstrap pushes to ECR when ECR_URI set

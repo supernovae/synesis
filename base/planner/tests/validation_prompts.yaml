@@ -74,11 +74,13 @@ prompts:
       bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
+  # Taxonomy refactoring classifies this as output_type=document; plan_required
+  # stays false unless should_plan_for_document() triggers a deep-dive domain.
   - prompt: "design the architecture for our microservices migration"
     expected:
       task_size: complex
       bypass_supervisor: false
-      plan_required: true
+      plan_required: false
 
   - prompt: "refactor across the whole repo"
     expected:

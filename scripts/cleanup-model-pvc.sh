@@ -92,4 +92,4 @@ if oc get deployment "$DEPLOYMENT" -n "$NS" &>/dev/null; then
     oc scale deployment "$DEPLOYMENT" -n "$NS" --replicas="${REPLICAS:-1}"
 fi
 
-log "Cleanup complete. Re-download the model: ./scripts/run-pipelines.sh manager"
+log "Cleanup complete. Re-download: ./scripts/run-pipelines.sh manager (or executor)"
