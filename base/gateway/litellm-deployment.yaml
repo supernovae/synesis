@@ -61,10 +61,10 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health/readiness
+              path: /health/liveliness
               port: http
             initialDelaySeconds: 10
-            periodSeconds: 5
+            periodSeconds: 15
       volumes:
         - name: config
           configMap:
