@@ -604,16 +604,47 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     last_ctx = memory.get_last_context(memory_scope) if settings.memory_enabled else None
     context_pivot = False
+    domain_soft_shift = False
     pivot_to_label = ""
+    _SHORT_FOLLOWUP_LIMIT = 50
     if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
         curr_output_type = current_analysis.get("output_type", "code")
         curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
         last_output_type, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
-        context_pivot = curr_output_type != last_output_type or bool(curr_domains.symmetric_difference(last_domains))
-        if curr_output_type != last_output_type:
+
+        output_type_changed = curr_output_type != last_output_type
+        domains_differ = bool(curr_domains.symmetric_difference(last_domains))
+        domains_have_overlap = bool(curr_domains & last_domains)
+
+        # Guard 1: Short messages (< 50 chars) are almost always conversational
+        # follow-ups, not topic switches. Skip domain-based pivot.
+        is_short_followup = len(last_user_content.strip()) < _SHORT_FOLLOWUP_LIMIT
+
+        if output_type_changed:
+            context_pivot = True
             pivot_to_label = f"{last_output_type}→{curr_output_type}"
+        elif domains_differ and not is_short_followup:
+            # Guard 2: Same output_type — only hard-pivot when zero domain overlap.
+            if not domains_have_overlap:
+                context_pivot = True
+            else:
+                # Guard 3: Partial domain change with overlap → soft shift (keep history).
+                domain_soft_shift = True
+
+        if not context_pivot and (domains_differ or is_short_followup):
+            logger.debug(
+                "context_pivot_skipped",
+                extra={
+                    "reason": "short_followup" if is_short_followup else "domain_overlap",
+                    "msg_len": len(last_user_content.strip()),
+                    "curr_output": curr_output_type,
+                    "last_output": last_output_type,
+                    "overlap": sorted(curr_domains & last_domains)[:3],
+                    "diff": sorted(curr_domains.symmetric_difference(last_domains))[:5],
+                },
+            )
 
     is_pivot = lang_pivot or context_pivot
     pivot_summary = ""
@@ -831,6 +862,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "memory_scope": memory_scope,
         "conversation_history": conversation_history,
         "is_pivot": is_pivot,
+        "domain_soft_shift": domain_soft_shift,
         "last_active_language": last_lang or "",
         "pivot_summary": pivot_summary,
         "token_budget_remaining": settings.max_tokens_per_request,
@@ -935,6 +967,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 yield _sse_status_chunk(
                     {"type": "status", "data": {"description": "Processing…", "done": False, "hidden": False}}
                 )
+                await asyncio.sleep(0)
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 stream_content = True
@@ -978,6 +1011,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 yield _sse_status_chunk(
                                     {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}
                                 )
+                                await asyncio.sleep(0)
 
                         # ── Node ended → accumulate state, emit plan steps ──
                         elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
@@ -1023,6 +1057,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                     },
                                                 }
                                             )
+                                            await asyncio.sleep(0)
                                         steps = exec_plan.get("steps", [])
                                         for i, s in enumerate(steps, 1):
                                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
@@ -1034,6 +1069,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                         "data": {"description": act, "done": False, "hidden": False},
                                                     }
                                                 )
+                                                await asyncio.sleep(0)
 
                         # ── Token streaming from worker LLM ──
                         elif kind == "on_chat_model_stream" and lg_node == "worker" and stream_content:
@@ -1053,8 +1089,24 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     _diag_first_reasoning_ms = elapsed_now
                                     logger.info(
                                         "sse_first_reasoning_token",
-                                        extra={"elapsed_ms": elapsed_now, "node": lg_node},
+                                        extra={
+                                            "elapsed_ms": elapsed_now,
+                                            "node": lg_node,
+                                            "sample": rc[:120],
+                                        },
                                     )
+                                    # Immediate "Thinking..." status so the user sees feedback right away
+                                    yield _sse_status_chunk(
+                                        {
+                                            "type": "status",
+                                            "data": {
+                                                "description": "Thinking…",
+                                                "done": False,
+                                                "hidden": False,
+                                            },
+                                        }
+                                    )
+                                    await asyncio.sleep(0)
                                 _reasoning_buf += rc
                                 # Extract headline-like phrases for live status updates
                                 while "\n" in _reasoning_buf:
@@ -1062,13 +1114,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     line = line.strip()
                                     if not line or len(line) < 5:
                                         continue
-                                    # Pick lines that look like headings or key points
                                     is_heading = (
                                         line.startswith("#")
                                         or line.startswith("**")
                                         or line.startswith("- ")
                                         or (line[0].isupper() and line.endswith(":"))
                                         or (line[0].isdigit() and ". " in line[:5])
+                                        # Broader: any line > 20 chars starting with uppercase
+                                        or (len(line) > 20 and line[0].isupper())
                                     )
                                     if is_heading and line != _last_reasoning_status:
                                         _last_reasoning_status = line
@@ -1085,6 +1138,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                     },
                                                 }
                                             )
+                                            await asyncio.sleep(0)
 
                             # Extract actual content tokens
                             content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""

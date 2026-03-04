@@ -698,11 +698,12 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     task_is_trivial = state.get("task_is_trivial", False)
     interaction_mode = state.get("interaction_mode", "do")
     is_pivot = state.get("is_pivot", False)
+    domain_soft_shift = state.get("domain_soft_shift", False)
     last_active_lang = state.get("last_active_language", "")
     pivot_summary = state.get("pivot_summary", "")
 
     pinned: list[Any] = []
-    # Tier 0: Context pivot — user switched language/task domain; ignore contaminated history
+    # Tier 0a: Hard context pivot — user switched language or output_type; flush history
     if is_pivot and last_active_lang and target_lang:
         pivot_t = (
             f"CONTEXT PIVOT: User switched from {last_active_lang} to {target_lang}. "
@@ -722,6 +723,23 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                     origin="trusted",
                     content_hash=_hash_chunk(pivot_t),
                     source_label="context_pivot",
+                ),
+            )
+        )
+    # Tier 0b: Soft domain shift — related topic within same output_type; keep history
+    elif domain_soft_shift:
+        soft_t = "The user may be shifting topics slightly. Use conversation history for context."
+        pinned.append(
+            ContextChunk(
+                source="tool_contract",
+                text=soft_t,
+                score=0.8,
+                collection="",
+                doc_id="invariant_domain_soft_shift",
+                origin_metadata=OriginMetadata(
+                    origin="trusted",
+                    content_hash=_hash_chunk(soft_t),
+                    source_label="domain_soft_shift",
                 ),
             )
         )

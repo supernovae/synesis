@@ -136,6 +136,7 @@ class GraphState(TypedDict, total=False):
     # Routing-only (EntryClassifier, main)
     last_user_content: str
     is_pivot: bool  # context pivot: user switched language/task domain; flush contaminated history
+    domain_soft_shift: bool  # partial domain change with overlap — keep history, inject soft note
     last_active_language: str  # previous target language (for pivot priming)
     pivot_summary: str  # 1-2 line summary of pre-pivot era (from micro model; stubbed)
     pending_question_continue: bool
