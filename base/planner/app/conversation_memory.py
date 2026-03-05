@@ -75,7 +75,7 @@ class ConversationMemory:
         self._users: OrderedDict[str, deque[ConversationTurn]] = OrderedDict()
         self._last_active: dict[str, float] = {}
         self._last_active_language: dict[str, str] = {}  # per-user language for context-stability pivot
-        self._last_context: dict[str, tuple[bool, list[str]]] = {}  # user_id -> (needs_sandbox, active_domain_refs)
+        self._last_context: dict[str, tuple[bool, list[str]]] = {}  # user_id -> (is_code_task, active_domain_refs)
         self._pending_plans: dict[str, dict[str, Any]] = {}
         self._pending_needs_input: dict[str, dict[str, Any]] = {}
         self._pending_questions: dict[str, dict[str, Any]] = {}  # unified: plan, needs_input, clarification
@@ -162,20 +162,20 @@ class ConversationMemory:
             self._last_active[user_id] = time.time()
 
     def get_last_context(self, user_id: str) -> tuple[bool, list[str]] | None:
-        """Return (needs_sandbox, active_domain_refs) for context pivot detection. None if never set."""
+        """Return (is_code_task, active_domain_refs) for context pivot detection. None if never set."""
         with self._lock:
             return self._last_context.get(user_id)
 
-    def set_last_context(self, user_id: str, needs_sandbox: bool | str, active_domain_refs: list[str]) -> None:
-        """Store needs_sandbox and active_domain_refs after a turn for next-turn pivot detection.
+    def set_last_context(self, user_id: str, is_code_task: bool | str, active_domain_refs: list[str]) -> None:
+        """Store is_code_task and active_domain_refs after a turn for next-turn pivot detection.
 
-        needs_sandbox: True if sandbox required (code path); False if explain-only.
+        is_code_task: True if sandbox required (code path); False if explain-only.
         For backward compat, accepts str: 'explain_only' → False, else → True.
         """
         with self._lock:
-            if isinstance(needs_sandbox, str):
-                needs_sandbox = needs_sandbox != "explain_only"
-            self._last_context[user_id] = (needs_sandbox, list(active_domain_refs or []))
+            if isinstance(is_code_task, str):
+                is_code_task = is_code_task != "explain_only"
+            self._last_context[user_id] = (is_code_task, list(active_domain_refs or []))
             self._last_active[user_id] = time.time()
 
     def clear_user_history(self, user_id: str) -> None:

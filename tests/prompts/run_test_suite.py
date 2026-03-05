@@ -498,7 +498,7 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     else:
         add("has_content", "fail", "Empty response")
 
-    # Output type heuristics (needs_sandbox: code vs explain)
+    # Output type heuristics (is_code_task: code vs explain)
     expected_deliv = prompt_spec.get("expected_deliverable", "")
     if expected_deliv == "explain_only":
         has_code_blocks = "```" in metrics.content_text
@@ -701,20 +701,13 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
                 f"{max_r_s}s threshold — consider lowering token budget"
             )
         if data.get("stacked_count", 0) > 0:
-            tuning.append(
-                f"{cat}: {data['stacked_count']}/{n} prompts had stacked/duplicate phase events"
-            )
+            tuning.append(f"{cat}: {data['stacked_count']}/{n} prompts had stacked/duplicate phase events")
 
         # Check for consistent underthinking in code-oriented categories
-        reasoning_sum = sum(
-            r["metrics"].get("reasoning_chunks", 0)
-            for r in all_results
-            if r["category"] == cat
-        )
+        reasoning_sum = sum(r["metrics"].get("reasoning_chunks", 0) for r in all_results if r["category"] == cat)
         if cat in ("code", "multi_step", "review", "mixed") and reasoning_sum == 0 and n > 0:
             tuning.append(
-                f"{cat}: zero reasoning tokens across {n} prompts — "
-                "model may not be engaging chain-of-thought"
+                f"{cat}: zero reasoning tokens across {n} prompts — model may not be engaging chain-of-thought"
             )
 
     report = {
@@ -755,10 +748,7 @@ def print_summary(report: dict) -> None:
         avg_ph = data.get("avg_phases", 0)
         stacked = data.get("stacked_count", 0)
         stacked_str = f"  stacked:{stacked}" if stacked else ""
-        print(
-            f"  {cat:20s}  P:{p} W:{w} F:{f_}  "
-            f"avg:{avg}s  think:{avg_r}ms  phases:{avg_ph}{stacked_str}"
-        )
+        print(f"  {cat:20s}  P:{p} W:{w} F:{f_}  avg:{avg}s  think:{avg_r}ms  phases:{avg_ph}{stacked_str}")
 
     if report["failures"]:
         print(f"\n{'─' * 60}")

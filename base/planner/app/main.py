@@ -45,10 +45,9 @@ from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 from .streaming_events import StatusQueueCallback
 
-# /why, /reclassify, and /test command patterns
+# /why and /reclassify command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
 _RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(easy|medium|hard)\s*$", re.IGNORECASE)
-_TEST_PATTERN = re.compile(r"^\s*\/test\s*$", re.IGNORECASE)
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper()),
@@ -239,13 +238,13 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     if node == "entry_classifier":
         task_size = chunk.get("task_size", "")
         intent = chunk.get("intent_class", "")
-        needs_sandbox = chunk.get("needs_sandbox", True)
+        is_code_task = chunk.get("is_code_task", True)
         plan_req = chunk.get("plan_required", False)
         out.append(
             (
                 "entry_classifier",
                 "Router (Entry Classifier)",
-                f"task_size={task_size} intent={intent} needs_sandbox={needs_sandbox} plan_required={plan_req}",
+                f"task_size={task_size} intent={intent} is_code_task={is_code_task} plan_required={plan_req}",
             )
         )
 
@@ -431,9 +430,9 @@ STATUS_HARD: dict[str, str] = {
 }
 
 
-def _status_for_node(node: str, task_size: str, needs_sandbox: bool = True) -> str:
+def _status_for_node(node: str, task_size: str, is_code_task: bool = True) -> str:
     """Return tier-matched status message for Open WebUI."""
-    if node == "worker" and not needs_sandbox:
+    if node == "worker" and not is_code_task:
         return "Creating your plan…"
     if task_size == "easy" and node in STATUS_EASY:
         return STATUS_EASY[node]
@@ -515,7 +514,7 @@ def _extract_content_and_metrics(
             memory.set_last_active_language(scope, lang)
         memory.set_last_context(
             scope,
-            result.get("needs_sandbox", True),
+            result.get("is_code_task", True),
             result.get("active_domain_refs") or [],
         )
 
@@ -604,11 +603,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
-        curr_needs_sandbox = current_analysis.get("needs_sandbox", True)
+        curr_is_code_task = current_analysis.get("is_code_task", True)
         curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
-        last_needs_sandbox, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
+        last_is_code_task, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
 
-        deliverable_changed = curr_needs_sandbox != last_needs_sandbox
+        deliverable_changed = curr_is_code_task != last_is_code_task
         domains_differ = bool(curr_domains.symmetric_difference(last_domains))
         domains_have_overlap = bool(curr_domains & last_domains)
 
@@ -618,7 +617,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
         if deliverable_changed and not is_short_followup:
             context_pivot = True
-            pivot_to_label = f"{'explain_only' if not last_needs_sandbox else 'single_file'}→{'explain_only' if not curr_needs_sandbox else 'single_file'}"
+            pivot_to_label = f"{'explain_only' if not last_is_code_task else 'single_file'}→{'explain_only' if not curr_is_code_task else 'single_file'}"
         elif domains_differ and not is_short_followup:
             # Guard 2: Same sandbox mode — only hard-pivot when zero domain overlap.
             if not domains_have_overlap:
@@ -633,8 +632,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 extra={
                     "reason": "short_followup" if is_short_followup else "domain_overlap",
                     "msg_len": len(last_user_content.strip()),
-                    "curr_needs_sandbox": curr_needs_sandbox,
-                    "last_needs_sandbox": last_needs_sandbox,
+                    "curr_is_code_task": curr_is_code_task,
+                    "last_is_code_task": last_is_code_task,
                     "overlap": sorted(curr_domains & last_domains)[:3],
                     "diff": sorted(curr_domains.symmetric_difference(last_domains))[:5],
                 },
@@ -652,10 +651,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 from_era = last_lang or "unknown"
                 to_era = current_lang or "unknown"
                 active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
-            elif context_pivot and last_ctx and curr_needs_sandbox != last_needs_sandbox:
+            elif context_pivot and last_ctx and curr_is_code_task != last_is_code_task:
                 pivot_type = "deliverable"
-                from_era = "code" if last_needs_sandbox else "explain_only"
-                to_era = "code" if curr_needs_sandbox else "explain_only"
+                from_era = "code" if last_is_code_task else "explain_only"
+                to_era = "code" if curr_is_code_task else "explain_only"
                 active_domain_refs_for_summary = last_ctx[1]
             else:
                 pivot_type = "domain"
@@ -783,34 +782,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 usage=Usage(),
             )
 
-    # D) /test — force sandbox execution for previous message
-    force_sandbox = False
-    if _TEST_PATTERN.match(last_user_content or ""):
-        prev_content = ""
-        for m in reversed(request.messages):
-            if m.role == "user" and m.content and m.content.strip() != (last_user_content or "").strip():
-                prev_content = m.content.strip()
-                break
-        if prev_content:
-            force_sandbox = True
-            last_user_content = prev_content
-            user_messages = [HumanMessage(content=prev_content)]
-            logger.info("test_command", extra={"user_id": user_id, "preview": prev_content[:60]})
-        else:
-            logger.info("test_no_prev", extra={"user_id": user_id})
-            return ChatCompletionResponse(
-                choices=[
-                    Choice(
-                        message=ChatMessage(
-                            role="assistant",
-                            content="`/test` runs your previous code through the sandbox. Send a coding task first, then use `/test`.",
-                        ),
-                        finish_reason="stop",
-                    )
-                ],
-                usage=Usage(),
-            )
-
     # IDE/agent coordination: scan for prompt injection in user + conversation
     injection_detected = False
     injection_scan_result: dict[str, object] = {}
@@ -863,7 +834,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "sandbox_minutes_used": 0.0,
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
-        "force_sandbox": force_sandbox,
     }
 
     # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
@@ -886,7 +856,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "user_id": user_id,
                     "memory_scope": memory_scope,
                     "source_node": pending.get("source_node"),
-                    "pending_needs_sandbox": pending.get("needs_sandbox"),
+                    "pending_is_code_task": pending.get("is_code_task"),
                 },
             )
             # Task drift: reply diverges from pending (new requirements, different direction)
@@ -910,7 +880,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "rag_context",
                     "execution_plan",
                     "assumptions",
-                    "needs_sandbox",
+                    "is_code_task",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
@@ -926,7 +896,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "assumptions",
                     "failure_context",
                     "web_search_results",
-                    "needs_sandbox",
+                    "is_code_task",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
@@ -966,7 +936,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 content_streamed = False
                 sent_role = False
                 task_size_val = ""
-                needs_sandbox_val = True
+                is_code_task_val = True
                 thinking_phases: list[str] = []
                 thinking_block_emitted = False
                 first_content_logged = False
@@ -1000,7 +970,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         # ── Node started → status SSE + accumulate thinking phases ──
                         if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             node_label = name if name in _KNOWN_NODES else lg_node
-                            desc = _status_for_node(node_label, task_size_val, needs_sandbox_val)
+                            desc = _status_for_node(node_label, task_size_val, is_code_task_val)
                             if desc and desc != _last_status_desc:
                                 _last_status_desc = desc
                                 thinking_phases.append(desc)
@@ -1022,8 +992,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                                 if "task_size" in output:
                                     task_size_val = output["task_size"]
-                                if "needs_sandbox" in output:
-                                    needs_sandbox_val = output["needs_sandbox"]
+                                if "is_code_task" in output:
+                                    is_code_task_val = output["is_code_task"]
 
                                 # Emit planner reasoning + plan steps as status + thinking
                                 if name == "planner":
@@ -1471,7 +1441,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         result = chunk
                         node = chunk.get("current_node", "")
                         task_size = chunk.get("task_size", "")
-                        needs_sandbox_chunk = chunk.get("needs_sandbox", True)
+                        is_code_task_chunk = chunk.get("is_code_task", True)
                         exec_plan = chunk.get("execution_plan") or {}
                         steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
                         emitted_plan = False
@@ -1507,7 +1477,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     emitted_plan = True
                         if node:
-                            desc = _status_for_node(node, task_size or "", needs_sandbox_chunk)
+                            desc = _status_for_node(node, task_size or "", is_code_task_chunk)
                             if emitted_plan and node == "planner":
                                 desc = ""
                             if desc:

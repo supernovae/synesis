@@ -76,7 +76,7 @@ async def test_graph_reaches_respond_trivial_path(
     mock_critic_llm.ainvoke = AsyncMock(return_value=AIMessage(content=critic_json))
     mock_sandbox_settings.sandbox_enabled = False
     mock_sandbox_settings.sandbox_warm_pool_enabled = False
-    mock_sandbox_settings.max_sandbox_minutes = 60.0  # Avoid MagicMock in sandbox_node checks
+    mock_sandbox_settings.max_sandbox_minutes = 60.0
 
     from app.graph import graph
 

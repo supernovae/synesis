@@ -623,13 +623,13 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             effective_size = "medium"
 
         # ── Build system prompt: universal base + taxonomy steering ──
-        needs_sandbox = state.get("needs_sandbox", True)
+        is_code_task = state.get("is_code_task", True)
 
         from ..taxonomy_prompt_factory import get_discovery_prompt, get_executor_depth_block, get_worker_explain_tone
 
         taxonomy_depth = get_executor_depth_block(state.get("taxonomy_metadata") or {})
 
-        if not needs_sandbox:
+        if not is_code_task:
             tone = get_worker_explain_tone(state.get("taxonomy_metadata") or {})
             system_prompt = _build_explain_prompt_with_tone(tone) if tone else WORKER_PROMPT
             if tone:
@@ -648,11 +648,11 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 "worker_taxonomy_depth_injection",
                 extra={"taxonomy_key": (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")},
             )
-        if not needs_sandbox:
+        if not is_code_task:
             discovery = get_discovery_prompt(state.get("taxonomy_metadata") or {})
             if discovery:
                 system_prompt = f"{system_prompt}\n\n{discovery}"
-            logger.info("worker_explain_only_mode", extra={"needs_sandbox": False})
+            logger.info("worker_explain_only_mode", extra={"is_code_task": False})
 
         logger.debug("worker_effective_size=%s", effective_size)
 
@@ -701,7 +701,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         # ── Non-sandbox path: deferred direct stream ──
         # The SSE generator calls the executor via the raw openai SDK,
         # preserving reasoning_content (langchain-ai/langchain#34706).
-        if not needs_sandbox:
+        if not is_code_task:
             latency = (time.monotonic() - start) * 1000
             trace = NodeTrace(
                 node_name=node_name,

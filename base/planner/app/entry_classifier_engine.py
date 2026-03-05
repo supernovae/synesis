@@ -383,29 +383,29 @@ class ScoringEngine:
                 elif complexity_score <= self._medium_max:
                     task_size = "medium"
 
-        # 9. needs_sandbox: False = text/document (explain), True = code/sandbox.
+        # 9. is_code_task: False = text/document (explain), True = code/sandbox.
         # Non-code intents (writing, planning, personal_guidance) default to False
         # even without a domain match -- "write a sentence" is text, not code.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
         if ic_data.get("inherently_document"):
-            needs_sandbox = False
-            hits.append("needs_sandbox:false(inherent)")
+            is_code_task = False
+            hits.append("is_code_task:false(inherent)")
         elif intent_class in code_intents:
-            needs_sandbox = True
-            hits.append("needs_sandbox:true(code_intent)")
+            is_code_task = True
+            hits.append("is_code_task:true(code_intent)")
         elif intent_class == "general":
-            needs_sandbox = False
-            hits.append("needs_sandbox:false(default)")
+            is_code_task = False
+            hits.append("is_code_task:false(default)")
         else:
             doc_domains = ic_data.get("document_domains") or []
             dom_set = {str(d).strip().lower() for d in doc_domains}
             refs = {str(a).strip().lower() for a in active_domains}
             if doc_domains and refs & dom_set:
-                needs_sandbox = False
-                hits.append("needs_sandbox:false(doc_domain)")
+                is_code_task = False
+                hits.append("is_code_task:false(doc_domain)")
             else:
-                needs_sandbox = False
-                hits.append("needs_sandbox:false(intent_noncode)")
+                is_code_task = False
+                hits.append("is_code_task:false(intent_noncode)")
 
         # 10. Surface taxonomy gaps: log when nothing matched
         if intent_class == "general" and not active_domains:
@@ -422,7 +422,7 @@ class ScoringEngine:
             "risk_score": risk_score,
             "domain_hints": domain_hints,
             "intent_class": intent_class,
-            "needs_sandbox": needs_sandbox,
+            "is_code_task": is_code_task,
             "manual_override": False,
             "interaction_mode": interaction_mode,
             "force_pro_advanced": force_pro_advanced,

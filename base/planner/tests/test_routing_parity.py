@@ -16,7 +16,6 @@ NEXT_NODE_PRODUCERS_AND_ROUTERS = [
     ("supervisor", "supervisor_node", "route_after_supervisor"),
     ("planner_node", "planner_node", "route_after_planner"),
     ("patch_integrity_gate", "patch_integrity_gate_node", "route_after_patch_integrity_gate"),
-    ("executor", "sandbox_node", "route_after_sandbox"),
     ("critic", "critic_node", "route_after_critic"),
 ]
 
@@ -25,8 +24,7 @@ NEXT_NODE_PRODUCERS_AND_ROUTERS = [
 ROUTER_MUST_READ = {
     "route_after_supervisor": "next_node",
     "route_after_planner": "plan_pending_approval",  # planner uses this, not next_node directly
-    "route_after_patch_integrity_gate": "next_node",
-    "route_after_sandbox": "next_node",
+    "route_after_patch_integrity_gate": "integrity_passed",
     "route_after_critic": "critic_approved",  # critic sets next_node; router uses critic_approved/etc
 }
 
@@ -36,7 +34,6 @@ def _get_router_source(router_name: str) -> str:
         route_after_critic,
         route_after_patch_integrity_gate,
         route_after_planner,
-        route_after_sandbox,
         route_after_supervisor,
     )
 
@@ -44,7 +41,6 @@ def _get_router_source(router_name: str) -> str:
         "route_after_supervisor": route_after_supervisor,
         "route_after_planner": route_after_planner,
         "route_after_patch_integrity_gate": route_after_patch_integrity_gate,
-        "route_after_sandbox": route_after_sandbox,
         "route_after_critic": route_after_critic,
     }
     func = routers.get(router_name)
@@ -56,7 +52,6 @@ def _get_router_source(router_name: str) -> str:
 def _node_sets_next_node(module_name: str, func_name: str) -> bool:
     """Check if the node function returns dict with 'next_node' key."""
     mod_map = {
-        "executor": ("app.nodes.executor", "sandbox_node"),
         "planner_node": ("app.nodes.planner_node", "planner_node"),
         "patch_integrity_gate": ("app.nodes.patch_integrity_gate", "patch_integrity_gate_node"),
         "supervisor": ("app.nodes.supervisor", "supervisor_node"),

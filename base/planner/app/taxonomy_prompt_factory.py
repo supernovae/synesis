@@ -156,7 +156,7 @@ def get_executor_depth_block(metadata: dict[str, Any]) -> str:
 
 
 def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[str]) -> bool:
-    """When needs_sandbox=False (explain-only), should we route to Planner for structured bullets?"""
+    """When is_code_task=False (explain-only), should we route to Planner for structured bullets?"""
     if not metadata:
         return False
     cfg = _load_config()

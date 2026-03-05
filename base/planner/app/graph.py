@@ -1,14 +1,11 @@
 """Synesis LangGraph -- the core orchestration loop.
 
-Implements JCS (Joint Cognitive System) with Planner, Executor LLM, and Sandbox:
-  [User Input] -> [Supervisor] -> [Planner?] -> [Worker/Executor LLM] -> [Sandbox] -> [Critic] -> [Response]
-                       ^              |                   ^                |
-                       |              |     (fail)         +--[LSP]<--------+
-                       +---------- (needs_revision) -----------------------+
+Implements JCS (Joint Cognitive System) with Planner and Executor LLM:
+  [User Input] -> [Supervisor] -> [Planner?] -> [Worker/Executor LLM] -> [PatchGate] -> [Critic] -> [Response]
 
 Supervisor can request clarification (-> respond) or suggest planning (-> planner).
-Planner produces execution_plan; Worker consumes it. Sandbox runs code in isolated pod.
-On failure, LSP enriches error context before routing back to Worker.
+Planner produces execution_plan; Worker consumes it. Sandbox and LSP are no longer
+fixed pipeline stages; they remain available as tools for future agent-based self-correction loops.
 """
 
 from __future__ import annotations
@@ -25,10 +22,8 @@ from .nodes import (
     context_curator_node,
     critic_node,
     entry_classifier_node,
-    lsp_analyzer_node,
     patch_integrity_gate_node,
     planner_node,
-    sandbox_node,
     strategic_advisor_node,
     supervisor_node,
     worker_node,
@@ -112,7 +107,7 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
 
     # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
     if state.get("plan_required"):
-        if state.get("task_size") in ("hard", "medium") or not state.get("needs_sandbox", True):
+        if state.get("task_size") in ("hard", "medium") or not state.get("is_code_task", True):
             return "planner"
 
     # Bypass Supervisor: easy fast path, or knowledge-downgraded tasks that
@@ -135,52 +130,13 @@ def route_after_supervisor(state: dict[str, Any]) -> str:
     return "respond"
 
 
-def route_after_sandbox(state: dict[str, Any]) -> str:
-    """Route based on sandbox execution results. Explicit single branch per failure.
-
-    Rule: LSP only for type/symbol/compile failures when lsp_mode=on_failure.
-    Lint and security failures NEVER go to LSP (LSP is for deep type analysis).
-    At max iterations on failure → Critic (postmortem) → Respond.
-    Worker path always goes through context_curator (re-curate on retries).
-    Honor explicit next_node from sandbox (e.g. same_failure_repeated short-circuit).
-    """
-    if state.get("error"):
-        return "respond"
-    if state.get("next_node") == "critic":
-        return "critic"
-    exit_code = state.get("execution_exit_code")
-    if exit_code is None or exit_code == 0:
-        return "critic"
-    iteration = state.get("iteration_count", 0)
-    max_iter = state.get("max_iterations", settings.max_iterations)
-    if iteration >= max_iter:
-        return "critic"
-    failure_type = state.get("failure_type", "runtime")
-    lint_passed = state.get("execution_lint_passed", True)
-    security_passed = state.get("execution_security_passed", True)
-    lsp_eligible = failure_type in ("lsp", "runtime") and lint_passed and security_passed
-    # Skip LSP for easy tasks: simple hello-world code won't have type/symbol issues.
-    # Runtime failure on easy code is usually sandbox/env, not fixable by LSP.
-    # Break after 1 retry to avoid infinite loops; route to critic→respond so user gets code + note.
-    task_size = state.get("task_size", "")
-    if task_size == "easy":
-        if iteration >= 1:
-            return "critic"
-        return "context_curator"
-    if settings.lsp_enabled and settings.lsp_mode == "on_failure" and lsp_eligible:
-        return "lsp_analyzer"
-    return "context_curator"
-
-
 def route_after_critic(state: dict[str, Any]) -> str:
-    """Explicit: Respond unless need_more_evidence or (not approved & should_continue). Supervisor routes to worker."""
+    """Respond unless need_more_evidence or (not approved & should_continue)."""
     if state.get("error"):
         return "respond"
     iteration = state.get("iteration_count", 0)
     max_iter = state.get("max_iterations", settings.max_iterations)
     if state.get("critic_approved", True) and not state.get("need_more_evidence"):
-        if state.get("critic_needs_testing") and iteration < max_iter:
-            return "sandbox"
         return "respond"
     if iteration >= max_iter:
         return "respond"
@@ -253,7 +209,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "assumptions": state.get("assumptions", []),
                     "failure_context": state.get("failure_context", []),
                     "web_search_results": state.get("web_search_results", []),
-                    "needs_sandbox": state.get("needs_sandbox"),
+                    "is_code_task": state.get("is_code_task"),
                 },
                 "execution_plan": execution_plan,
                 "task_description": state.get("task_description", ""),
@@ -263,7 +219,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "assumptions": state.get("assumptions", []),
                 "failure_context": state.get("failure_context", []),
                 "web_search_results": state.get("web_search_results", []),
-                "needs_sandbox": state.get("needs_sandbox"),
+                "is_code_task": state.get("is_code_task"),
             },
         )
         steps = execution_plan.get("steps", [])
@@ -297,12 +253,12 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "task_description": state.get("task_description", ""),
                     "target_language": state.get("target_language", "python"),
                     "rag_context": state.get("rag_context", []),
-                    "needs_sandbox": state.get("needs_sandbox"),
+                    "is_code_task": state.get("is_code_task"),
                 },
                 "task_description": state.get("task_description", ""),
                 "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
-                "needs_sandbox": state.get("needs_sandbox"),
+                "is_code_task": state.get("is_code_task"),
             },
         )
         return {
@@ -337,7 +293,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "rag_context": state.get("rag_context", []),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
-            "needs_sandbox": state.get("needs_sandbox"),
+            "is_code_task": state.get("is_code_task"),
         }
         memory.store_pending_question(
             memory_scope,
@@ -406,7 +362,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             ):
                 parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if display_code:
-            if not state.get("needs_sandbox", True) or (patch_ops and not code):
+            if not state.get("is_code_task", True) or (patch_ops and not code):
                 parts.append(display_code)
             elif "```" in display_code:
                 # Already has fenced code blocks (markdown output from Worker)
@@ -454,7 +410,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     parts.append(f"\n---\n**How I got here**\n{summary}")
         # Critic nonblocking suggestions: surface as collapsible section for code responses
         critic_nonblocking = state.get("critic_nonblocking") or []
-        if critic_nonblocking and state.get("needs_sandbox", True):
+        if critic_nonblocking and state.get("is_code_task", True):
             suggestion_lines = []
             for item in critic_nonblocking[:5]:
                 desc = item.get("description", str(item)) if isinstance(item, dict) else str(item)
@@ -535,9 +491,6 @@ timeout = settings.node_timeout_seconds
 
 graph_builder = StateGraph(GraphState)
 
-sandbox_timeout = settings.sandbox_timeout_seconds + 15
-lsp_timeout = settings.lsp_timeout_seconds + 5
-
 graph_builder.add_node("entry_classifier", with_debug_node_timing(entry_classifier_node))
 graph_builder.add_node("strategic_advisor", with_debug_node_timing(strategic_advisor_node))
 graph_builder.add_node("supervisor", with_debug_node_timing(with_timeout(timeout)(supervisor_node)))
@@ -545,8 +498,6 @@ graph_builder.add_node("planner", with_debug_node_timing(with_timeout(timeout)(p
 graph_builder.add_node("context_curator", with_debug_node_timing(context_curator_node))
 graph_builder.add_node("worker", with_debug_node_timing(with_timeout(timeout)(worker_node)))
 graph_builder.add_node("patch_integrity_gate", with_debug_node_timing(patch_integrity_gate_node))
-graph_builder.add_node("sandbox", with_debug_node_timing(with_timeout(sandbox_timeout)(sandbox_node)))
-graph_builder.add_node("lsp_analyzer", with_debug_node_timing(with_timeout(lsp_timeout)(lsp_analyzer_node)))
 graph_builder.add_node("critic", with_debug_node_timing(with_timeout(timeout)(critic_node)))
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
@@ -590,7 +541,7 @@ def route_after_worker(state: dict[str, Any]) -> str:
         return "respond"
     # Explain-only fast path: skip patch_integrity_gate entirely.
     # High-complexity science domains route to critic for depth check; everything else goes direct.
-    if not state.get("needs_sandbox", True):
+    if not state.get("is_code_task", True):
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         complexity = float(taxonomy_metadata.get("complexity_score", 0))
         if complexity > 0.6 and taxonomy_metadata.get("required_elements"):
@@ -600,10 +551,10 @@ def route_after_worker(state: dict[str, Any]) -> str:
 
 
 def route_after_patch_integrity_gate(state: dict[str, Any]) -> str:
-    """Gate pass -> sandbox/lsp; Gate fail -> context_curator→worker (no iteration increment)."""
+    """Gate pass -> critic; Gate fail -> context_curator -> worker (no iteration increment)."""
     if not state.get("integrity_passed", True):
         return "context_curator"
-    return state.get("next_node", "sandbox")
+    return "critic"
 
 
 graph_builder.add_conditional_edges(
@@ -621,38 +572,10 @@ graph_builder.add_conditional_edges(
     route_after_patch_integrity_gate,
     {
         "context_curator": "context_curator",
-        "lsp_analyzer": "lsp_analyzer",
-        "sandbox": "sandbox",
-        "respond": "respond",
         "critic": "critic",
     },
 )
-
-
-def route_after_lsp(state: dict[str, Any]) -> str:
-    """When lsp_mode=always: if LSP reports Severity:Error, skip Sandbox and route to context_curator→Worker."""
-    if state.get("lsp_has_compile_errors"):
-        return "context_curator"
-    return "sandbox"
-
-
-if settings.lsp_enabled and settings.lsp_mode == "always":
-    graph_builder.add_conditional_edges(
-        "lsp_analyzer",
-        route_after_lsp,
-        {"context_curator": "context_curator", "sandbox": "sandbox"},
-    )
-else:
-    graph_builder.add_edge("lsp_analyzer", "context_curator")
-
-graph_builder.add_conditional_edges(
-    "sandbox",
-    route_after_sandbox,
-    {"critic": "critic", "context_curator": "context_curator", "lsp_analyzer": "lsp_analyzer", "respond": "respond"},
-)
-graph_builder.add_conditional_edges(
-    "critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor", "sandbox": "sandbox"}
-)
+graph_builder.add_conditional_edges("critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor"})
 graph_builder.add_edge("respond", END)
 
 graph = graph_builder.compile()

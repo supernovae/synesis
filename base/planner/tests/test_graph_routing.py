@@ -13,7 +13,6 @@ from app.graph import (
     route_after_entry_classifier,
     route_after_patch_integrity_gate,
     route_after_planner,
-    route_after_sandbox,
     route_after_supervisor,
     route_after_worker,
 )
@@ -68,19 +67,16 @@ class TestRouteAfterWorker:
 class TestRouteAfterPatchIntegrityGate:
     def test_fail_routes_to_context_curator(self):
         """Gate fail routes through context_curator before worker."""
-        state = {"integrity_passed": False, "next_node": "sandbox"}
+        state = {"integrity_passed": False}
         assert route_after_patch_integrity_gate(state) == "context_curator"
 
-    def test_pass_routes_by_next_node(self):
-        state = {"integrity_passed": True, "next_node": "sandbox"}
-        assert route_after_patch_integrity_gate(state) == "sandbox"
+    def test_pass_routes_to_critic(self):
+        state = {"integrity_passed": True}
+        assert route_after_patch_integrity_gate(state) == "critic"
 
-        state["next_node"] = "lsp_analyzer"
-        assert route_after_patch_integrity_gate(state) == "lsp_analyzer"
-
-    def test_default_pass_routes_to_sandbox(self):
+    def test_default_pass_routes_to_critic(self):
         state = {}
-        assert route_after_patch_integrity_gate(state) == "sandbox"
+        assert route_after_patch_integrity_gate(state) == "critic"
 
 
 class TestRouteAfterPlanner:
@@ -129,98 +125,6 @@ class TestRouteAfterSupervisor:
     def test_routes_to_respond_on_missing_next(self):
         state = {}
         assert route_after_supervisor(state) == "respond"
-
-
-class TestRouteAfterSandbox:
-    @patch("app.graph.settings")
-    def test_success_routes_to_critic(self, mock_settings):
-        mock_settings.lsp_enabled = False
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": 0}
-        assert route_after_sandbox(state) == "critic"
-
-    @patch("app.graph.settings")
-    def test_none_exit_code_routes_to_critic(self, mock_settings):
-        mock_settings.lsp_enabled = False
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": None}
-        assert route_after_sandbox(state) == "critic"
-
-    @patch("app.graph.settings")
-    def test_error_routes_to_respond(self, mock_settings):
-        mock_settings.lsp_enabled = False
-        state = {"error": "crash", "execution_exit_code": 1}
-        assert route_after_sandbox(state) == "respond"
-
-    @patch("app.graph.settings")
-    def test_failure_with_lsp_on_failure(self, mock_settings):
-        mock_settings.lsp_enabled = True
-        mock_settings.lsp_mode = "on_failure"
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": 1, "iteration_count": 1}
-        assert route_after_sandbox(state) == "lsp_analyzer"
-
-    @patch("app.graph.settings")
-    def test_failure_with_lsp_always(self, mock_settings):
-        """In 'always' mode, LSP already ran pre-execution, route to context_curator→worker."""
-        mock_settings.lsp_enabled = True
-        mock_settings.lsp_mode = "always"
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": 1, "iteration_count": 1}
-        assert route_after_sandbox(state) == "context_curator"
-
-    @patch("app.graph.settings")
-    def test_failure_without_lsp(self, mock_settings):
-        """Sandbox failure routes through context_curator before worker (re-curate on retry)."""
-        mock_settings.lsp_enabled = False
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": 1, "iteration_count": 1}
-        assert route_after_sandbox(state) == "context_curator"
-
-    @patch("app.graph.settings")
-    def test_failure_at_max_iterations(self, mock_settings):
-        """At max iterations, route to critic (postmortem) not respond."""
-        mock_settings.lsp_enabled = True
-        mock_settings.lsp_mode = "on_failure"
-        mock_settings.max_iterations = 3
-        state = {"execution_exit_code": 1, "iteration_count": 3}
-        assert route_after_sandbox(state) == "critic"
-
-    @patch("app.graph.settings")
-    def test_trivial_runtime_breaks_loop_after_one_retry(self, mock_settings):
-        """Trivial+runtime: first failure → context_curator; second (iteration>=1) → critic."""
-        mock_settings.lsp_enabled = True
-        mock_settings.lsp_mode = "on_failure"
-        mock_settings.max_iterations = 3
-        state = {
-            "execution_exit_code": 1,
-            "iteration_count": 1,
-            "task_size": "trivial",
-            "failure_type": "runtime",
-            "execution_lint_passed": True,
-            "execution_security_passed": True,
-        }
-        assert route_after_sandbox(state) == "critic"
-
-        state["iteration_count"] = 0
-        assert route_after_sandbox(state) == "context_curator"
-
-    @patch("app.graph.settings")
-    def test_next_node_critic_honors_same_failure_short_circuit(self, mock_settings):
-        """When sandbox sets next_node=critic (same_failure_repeated), route to critic."""
-        mock_settings.lsp_enabled = True
-        mock_settings.lsp_mode = "on_failure"
-        mock_settings.max_iterations = 3
-        # Without next_node we would route to lsp_analyzer or context_curator
-        state = {
-            "execution_exit_code": 1,
-            "iteration_count": 1,
-            "failure_type": "runtime",
-            "execution_lint_passed": True,
-            "execution_security_passed": True,
-            "next_node": "critic",
-        }
-        assert route_after_sandbox(state) == "critic"
 
 
 class TestRouteAfterCritic:

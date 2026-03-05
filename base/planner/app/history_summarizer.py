@@ -1,6 +1,6 @@
 """Context pivot: summarize previous era before flushing, archive to L2.
 
-When user pivots languages (Python→JS→shell), needs_sandbox (True↔False),
+When user pivots languages (Python→JS→shell), is_code_task (True↔False),
 or domain, we optionally:
 1. Summarize the "old era" via a tiny micro model (Qwen 0.5B, CPU)
 2. Archive raw history to L2 (durable store)
@@ -178,7 +178,7 @@ async def summarize_pivot_history(
     """Summarize the pre-pivot history in 1-2 sentences.
 
     Taxonomy-aware: uses inlined pivot summary prompts.
-    pivot_type: language (Python→JS) | deliverable (needs_sandbox True↔False) | domain
+    pivot_type: language (Python→JS) | deliverable (is_code_task True↔False) | domain
     Uses micro model when summarizer_model_url configured; falls back to stub.
     """
     if not history:

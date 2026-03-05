@@ -74,7 +74,7 @@ prompts:
       bypass_supervisor: true
 
   # --- Complex (escalate, plan approval) ---
-  # Taxonomy refactoring classifies this as needs_sandbox=false; plan_required
+  # Taxonomy refactoring classifies this as is_code_task=false; plan_required
   # stays false unless should_plan_for_document() triggers a deep-dive domain.
   - prompt: "design the architecture for our microservices migration"
     expected:
@@ -133,35 +133,35 @@ prompts:
     expected:
       message_origin: ui_helper
 
-  # --- needs_sandbox=false (taxonomy-driven: skip Planner, Worker produces markdown) ---
+  # --- is_code_task=false (taxonomy-driven: skip Planner, Worker produces markdown) ---
   # inherently_document: knowledge, creative_ideation
   - prompt: "explain how marathon taper works"
     expected:
       intent_class: knowledge
-      needs_sandbox: false
+      is_code_task: false
       plan_required: false
   - prompt: "brainstorm names for a running app"
     expected:
       intent_class: creative_ideation
-      needs_sandbox: false
+      is_code_task: false
       plan_required: false
   # document_domains: planning, personal_guidance, writing + lifestyle
   - prompt: "create a marathon training plan for intermediate runner"
     expected:
       intent_class: planning
-      needs_sandbox: false
+      is_code_task: false
       plan_required: false
   - prompt: "how can I improve my running form"
     expected:
       intent_class: personal_guidance
-      needs_sandbox: false
+      is_code_task: false
       plan_required: false
   - prompt: "write a blog post about marathon training"
     expected:
       intent_class: writing
-      needs_sandbox: false
+      is_code_task: false
       plan_required: false
   # code intents stay code
   - prompt: "write a python script to parse json"
     expected:
-      needs_sandbox: true
+      is_code_task: true

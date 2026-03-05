@@ -620,14 +620,10 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         for p in (patch_ops or [])
     )
     if not code.strip() and not has_patch_ops:
-        if state.get("force_sandbox"):
-            next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
-        else:
-            next_after_pass = "critic"  # noqa: S105
         return {
             "current_node": node_name,
             "integrity_passed": True,
-            "next_node": next_after_pass,
+            "next_node": "critic",
             "generated_code": state.get("generated_code", ""),
             "code_explanation": state.get("code_explanation", ""),
             "patch_ops": state.get("patch_ops", []) or [],
@@ -637,8 +633,8 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Explain-only / text output: plans, documents, training plans — bypass sandbox
     # When taxonomy_metadata indicates high complexity (e.g. physics, astronomy), route to critic for science-depth check
-    needs_sandbox = state.get("needs_sandbox", True)
-    if not needs_sandbox:
+    is_code_task = state.get("is_code_task", True)
+    if not is_code_task:
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         complexity = float(taxonomy_metadata.get("complexity_score", 0))
         route_to_critic = complexity > 0.6 and bool(taxonomy_metadata.get("required_elements"))
@@ -646,7 +642,7 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "gate_explain_only_bypass",
             extra={
-                "needs_sandbox": needs_sandbox,
+                "is_code_task": is_code_task,
                 "next_node": next_node,
                 "taxonomy_depth_check": route_to_critic,
             },
@@ -808,15 +804,11 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             logger.warning("patch_integrity_failed", extra={"category": "syntax", "detail": str(e)[:120]})
             return _gate_fail(node_name, failure, state)
 
-    if state.get("force_sandbox"):
-        next_after_pass = "lsp_analyzer" if (settings.lsp_enabled and settings.lsp_mode == "always") else "sandbox"
-    else:
-        next_after_pass = "critic"  # noqa: S105
     return {
         "current_node": node_name,
         "integrity_passed": True,
         "integrity_failure_reason": None,
-        "next_node": next_after_pass,
+        "next_node": "critic",
         "generated_code": state.get("generated_code", ""),
         "code_explanation": state.get("code_explanation", ""),
         "patch_ops": state.get("patch_ops", []) or [],

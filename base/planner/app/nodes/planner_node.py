@@ -73,13 +73,13 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
 
-    # Short-circuit: needs_sandbox=False (explanation-only) WITHOUT plan_required (taxonomy didn't request structured bullets)
-    if not state.get("needs_sandbox", False) and not state.get("plan_required"):
+    # Short-circuit: is_code_task=False (explanation-only) WITHOUT plan_required (taxonomy didn't request structured bullets)
+    if not state.get("is_code_task", False) and not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
-        needs_sandbox = state.get("needs_sandbox", False)
+        is_code_task = state.get("is_code_task", False)
         logger.info(
             "planner_skipped_deliverable_explain_only",
-            extra={"label": "code" if needs_sandbox else "explanation", "latency_ms": latency},
+            extra={"label": "code" if is_code_task else "explanation", "latency_ms": latency},
         )
         return {
             "execution_plan": {
@@ -97,7 +97,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             },
             "touched_files": [],
             "plan_pending_approval": False,
-            "needs_sandbox": False,
+            "is_code_task": False,
             "allowed_tools": ["none"],
             "target_language": "markdown",
             "current_node": node_name,
@@ -223,12 +223,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Defensive: needs_sandbox=False (explanation-only, taxonomy-driven) → skip approval unless explicit planning request
-        if needs_approval and not state.get("needs_sandbox", False) and not planning_session_requested:
+        # Defensive: is_code_task=False (explanation-only, taxonomy-driven) → skip approval unless explicit planning request
+        if needs_approval and not state.get("is_code_task", False) and not planning_session_requested:
             needs_approval = False
             logger.info(
                 "planner_skip_approval_deliverable_explain_only",
-                extra={"label": "code" if state.get("needs_sandbox", False) else "explanation"},
+                extra={"label": "code" if state.get("is_code_task", False) else "explanation"},
             )
 
         next_node = "respond" if needs_approval else "worker"
@@ -241,8 +241,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
-        if not needs_approval and not state.get("needs_sandbox", False):
-            out["needs_sandbox"] = False
+        if not needs_approval and not state.get("is_code_task", False):
+            out["is_code_task"] = False
             out["allowed_tools"] = ["none"]
             out["target_language"] = "markdown"
         return out

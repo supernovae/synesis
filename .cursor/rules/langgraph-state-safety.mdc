@@ -33,7 +33,7 @@ return {
 
 ## Key flow
 
-Worker → Gate → [LSP?] → Sandbox → Critic → Respond. Every node between Worker and Respond must forward `generated_code`, `code_explanation`, `patch_ops` in all return paths: Gate, LSP (when Gate→LSP→Sandbox), Sandbox, Critic. Also: Context Curator (revision path), Supervisor (revision path), and `with_timeout` wrapper (timeout fallback).
+Worker → PatchIntegrityGate → Critic → Respond. Every node between Worker and Respond must forward `generated_code`, `code_explanation`, `patch_ops` in all return paths: Gate, Critic. Also: Context Curator (revision path), Supervisor (revision path), and `with_timeout` wrapper (timeout fallback). Note: Sandbox and LSP are decoupled from the default pipeline (see WORKFLOW.md).
 
 ## Routing signals
 
@@ -43,8 +43,7 @@ Nodes set `next_node` (or other routing signals) to steer conditional edges. **I
 |-------------|------------------|---------------------|-------------|
 | Supervisor  | planner, worker, respond | route_after_supervisor      | ✓ (reads first) |
 | Planner     | respond, worker  | route_after_planner  | ✓ (reads plan_pending_approval) |
-| Patch Gate  | sandbox, lsp_analyzer | route_after_patch_integrity_gate | ✓ (uses next_node) |
-| Sandbox     | critic, worker   | route_after_sandbox  | ✓ (check `next_node == "critic"` before other logic) |
+| Patch Gate  | critic | route_after_patch_integrity_gate | ✓ (uses integrity_passed) |
 | Critic      | respond, supervisor | route_after_critic | ✓ (uses critic_approved, iteration, need_more_evidence) |
 
 **Checklist when adding/changing routing:** When a node starts setting `next_node` (or a new routing field), add a corresponding check at the *top* of the router for that node’s outgoing edge. Do not rely on downstream logic to “figure it out.”

@@ -27,9 +27,9 @@ from ..web_search import format_search_results, search_client
 logger = logging.getLogger("synesis.supervisor")
 
 
-def _state_needs_sandbox(state: dict[str, Any]) -> bool:
-    """Read needs_sandbox from state, defaulting to True (code path)."""
-    return state.get("needs_sandbox", True)
+def _state_is_code_task(state: dict[str, Any]) -> bool:
+    """Read is_code_task from state, defaulting to True (code path)."""
+    return state.get("is_code_task", True)
 
 
 # Anemic Supervisor: ROUTING only. EntryClassifier handles complexity; Planner handles decomposition.
@@ -44,9 +44,9 @@ Rules:
 2. route_to: "worker" (single step or text output), "planner" (multi-step code), "respond" (clarification only).
 3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
 4. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
-5. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, needs_sandbox=false, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
+5. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, is_code_task=false, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
 6. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for trivial.
-7. allowed_tools: needs_sandbox=false → ["none"]; needs_sandbox=true → ["sandbox","lsp"].
+7. allowed_tools: is_code_task=false → ["none"]; is_code_task=true → ["sandbox","lsp"].
 
 Return valid JSON (same schema). Keep reasoning to one sentence.
 """
@@ -181,7 +181,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "needs_sandbox": True,
+                "is_code_task": True,
                 "interaction_mode": state.get("interaction_mode", "do"),
                 "include_tests": True,
                 "include_run_commands": True,
@@ -202,14 +202,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [trace],
             }
 
-        # Taxonomy-driven explain_only passthrough: needs_sandbox=false from intent_classes[].document_domains
+        # Taxonomy-driven explain_only passthrough: is_code_task=false from intent_classes[].document_domains
         # Planner is for code decomposition; explanation-only goes straight to Worker
-        if not _state_needs_sandbox(state) and iteration == 0:
+        if not _state_is_code_task(state) and iteration == 0:
             task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
             latency = (time.monotonic() - start) * 1000
             trace = NodeTrace(
                 node_name=node_name,
-                reasoning="Taxonomy: needs_sandbox=false → passthrough (no LLM)",
+                reasoning="Taxonomy: is_code_task=false → passthrough (no LLM)",
                 assumptions=[],
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
@@ -217,7 +217,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             logger.info(
                 "supervisor_passthrough_explain_only",
-                extra={"needs_sandbox": False, "latency_ms": latency},
+                extra={"is_code_task": False, "latency_ms": latency},
             )
             return {
                 "task_type": "general",
@@ -227,7 +227,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "needs_sandbox": False,
+                "is_code_task": False,
                 "interaction_mode": state.get("interaction_mode", "do"),
                 "include_tests": False,
                 "include_run_commands": False,
@@ -281,7 +281,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "needs_sandbox": True,
+                "is_code_task": True,
                 "interaction_mode": "teach",
                 "include_tests": False,
                 "include_run_commands": True,
@@ -326,14 +326,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             intent_class = state.get("intent_class", "code")
             active_refs = state.get("active_domain_refs") or []
             refs_str = ", ".join(str(r) for r in active_refs[:5]) if active_refs else "none"
-            needs_sandbox = _state_needs_sandbox(state)
-            deliverable_label = "code" if needs_sandbox else "explanation"
+            is_code_task = _state_is_code_task(state)
+            deliverable_label = "code" if is_code_task else "explanation"
             intent_envelope_block = (
                 f"\n\n## Pre-classified (EntryClassifier)\n"
-                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, needs_sandbox={needs_sandbox} ({deliverable_label}), active_domain_refs=[{refs_str}]. "
+                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, is_code_task={is_code_task} ({deliverable_label}), active_domain_refs=[{refs_str}]. "
                 f"Use these; do not re-classify. "
-                f'When needs_sandbox=false, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
-                f"Focus on: routing, RAG, planning_suggested, needs_sandbox."
+                f'When is_code_task=false, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
+                f"Focus on: routing, RAG, planning_suggested, is_code_task."
             )
 
         scope_expansion_note = ""
@@ -397,7 +397,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 task_is_trivial=True,
                 bypass_planner=True,
                 bypass_clarification=True,
-                needs_sandbox=False,
+                is_code_task=False,
                 interaction_mode="do",
                 rag_mode="disabled",
                 allowed_tools=["none"],
@@ -568,19 +568,19 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
 
         # Override: explain_only → worker, never Planner. Taxonomy-driven.
-        if next_node == "planner" and not state.get("needs_sandbox", False):
+        if next_node == "planner" and not state.get("is_code_task", False):
             next_node = "worker"
             needs_code = True
             parsed = parsed.model_copy(
                 update={
-                    "needs_sandbox": False,
+                    "is_code_task": False,
                     "allowed_tools": ["none"],
                     "target_language": "markdown",
                 }
             )
             logger.info(
                 "supervisor_override_planner_to_explain_only",
-                extra={"needs_sandbox": False},
+                extra={"is_code_task": False},
             )
 
         # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.
@@ -596,7 +596,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             target_language = "markdown"
             parsed = parsed.model_copy(
                 update={
-                    "needs_sandbox": False,
+                    "is_code_task": False,
                     "allowed_tools": ["none"],
                     "target_language": "markdown",
                 }
@@ -695,7 +695,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "defaults_used": getattr(parsed, "defaults_used", []),
             "assumptions_structured": getattr(parsed, "assumptions_structured", []),
             "task_is_trivial": getattr(parsed, "task_is_trivial", False),
-            "needs_sandbox": getattr(parsed, "needs_sandbox", False),
+            "is_code_task": getattr(parsed, "is_code_task", False),
             "interaction_mode": (
                 state["interaction_mode"]
                 if state.get("intent_classifier_source") == "deterministic" and state.get("interaction_mode") == "teach"

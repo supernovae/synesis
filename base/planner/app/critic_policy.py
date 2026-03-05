@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 logger = logging.getLogger("synesis.critic_policy")
 
-VALID_REF_TYPES = frozenset(("lsp", "sandbox"))
+VALID_REF_TYPES = frozenset(("lsp", "sandbox", "static_analysis", "syntax", "spec", "code_smell"))
 
 
 @dataclass
@@ -73,7 +73,7 @@ def check_evidence_gate(
     blocking_issues: list[Any],
     available_ids: set[str] | None = None,
 ) -> tuple[bool, bool]:
-    """Evidence gate: approved=false requires >=1 blocking_issue with lsp/sandbox refs.
+    """Evidence gate: approved=false requires >=1 blocking_issue with valid evidence refs.
 
     Returns (effective_approved, has_valid_evidence).
     Override to approved if blocking without valid refs.

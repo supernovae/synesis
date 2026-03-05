@@ -136,8 +136,8 @@ class SupervisorOut(BaseModel):
     bypass_planner: bool = False
     bypass_clarification: bool = False
 
-    # Intent + output shape (document-first: needs_sandbox=False default)
-    needs_sandbox: bool = False
+    # Intent + output shape (document-first: is_code_task=False default)
+    is_code_task: bool = False
     interaction_mode: str = "do"  # teach | do
     include_tests: bool = True
     include_run_commands: bool = True

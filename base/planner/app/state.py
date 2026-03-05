@@ -56,7 +56,7 @@ class GraphState(TypedDict, total=False):
     assumptions: list[str]
     defaults_used: list[str]
     assumptions_structured: list[dict[str, Any]]
-    needs_sandbox: bool
+    is_code_task: bool
     interaction_mode: str
     include_tests: bool
     include_run_commands: bool
@@ -146,7 +146,6 @@ class GraphState(TypedDict, total=False):
     message_origin: str
     plan_pending_approval: bool
     # Worker/Gate
-    force_sandbox: bool
     stop_reason: str
     stop_reason_explanation: str
     integrity_passed: bool
@@ -158,7 +157,7 @@ class GraphState(TypedDict, total=False):
     # Lighter payloads: refs + cache instead of duplicating full text
     context_cache: dict[str, str]  # content_hash -> text
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
-    direct_stream_request: dict[str, Any] | None  # deferred LLM call when not needs_sandbox (bypasses langchain)
+    direct_stream_request: dict[str, Any] | None  # deferred LLM call when not is_code_task (bypasses langchain)
 
 
 class Confidence(float):
@@ -266,7 +265,7 @@ class SynesisState(BaseModel):
     assumptions_structured: list[dict[str, Any]] = Field(default_factory=list)
 
     # Supervisor: intent + output shape
-    needs_sandbox: bool = True
+    is_code_task: bool = True
     interaction_mode: str = "do"
     include_tests: bool = True
     include_run_commands: bool = True

@@ -131,7 +131,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             break
 
     # Pending continue: user replying to clarification/plan — analyze original task + reply so "4 week
-    # training plan" inherits domain from "marathon plan" (athletics_running → needs_sandbox=False)
+    # training plan" inherits domain from "marathon plan" (athletics_running → is_code_task=False)
     text_to_analyze = last_content
     if state.get("pending_question_continue") and state.get("task_description"):
         orig = (state.get("task_description") or "").strip()[:500]
@@ -207,7 +207,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "message_origin": message_origin,
         "task_size": task_size,
         "task_description": task_description,
-        "target_language": "",  # set below from needs_sandbox and language detection
+        "target_language": "",  # set below from is_code_task and language detection
         "bypass_supervisor": bypass_supervisor,
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
@@ -224,7 +224,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["active_domain_refs"] = active_domains
 
     out["intent_class"] = analysis.get("intent_class", "code")
-    out["needs_sandbox"] = analysis.get("needs_sandbox", True)
+    out["is_code_task"] = analysis.get("is_code_task", True)
 
     # Defensive: knowledge/educational-style messages must never get code path
     _knowledge_style = re.compile(
@@ -236,7 +236,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if _knowledge_style.match((last_content or "").strip()):
-        out["needs_sandbox"] = False
+        out["is_code_task"] = False
         out["intent_class"] = "knowledge"
         out["target_language"] = "markdown"
         out["allowed_tools"] = ["none"]
@@ -264,13 +264,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             "entry_classifier_knowledge_override",
             extra={
                 "intent_class": "knowledge",
-                "needs_sandbox": False,
+                "is_code_task": False,
                 "preview": (last_content or "")[:60],
             },
         )
-    # target_language: needs_sandbox=False→markdown; explicit lang→use it; else infer
-    needs_sandbox = out.get("needs_sandbox", True)
-    if not needs_sandbox:
+    # target_language: is_code_task=False→markdown; explicit lang→use it; else infer
+    is_code_task = out.get("is_code_task", True)
+    if not is_code_task:
         out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
         out["target_language"] = _detect_language(last_content)
@@ -315,9 +315,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         state.get("coding_client_detected")
         and out.get("intent_class") != "knowledge"
         and analysis.get("intent_class") == "general"
-        and not analysis.get("needs_sandbox", True)
+        and not analysis.get("is_code_task", True)
     ):
-        out["needs_sandbox"] = True
+        out["is_code_task"] = True
         out["intent_class"] = "code"
 
     # Taxonomy-Driven Contextual Injection: resolve taxonomy_metadata from active_domain_refs + task_size
@@ -330,7 +330,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["taxonomy_metadata"] = taxonomy_metadata
 
     # Taxonomy-driven: non-sandbox → usually skip Planner; BUT high-depth domains or explicit planning session
-    if not out.get("needs_sandbox", True):
+    if not out.get("is_code_task", True):
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
         if deep_dive or planning_session_requested:
             out["plan_required"] = True
@@ -340,8 +340,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             out["rag_mode"] = "disabled"
         if not state.get("pending_question_continue") and not out.get("plan_required"):
             out["execution_plan"] = {}
-    elif state.get("pending_question_continue") and not state.get("needs_sandbox", True):
-        out["needs_sandbox"] = False
+    elif state.get("pending_question_continue") and not state.get("is_code_task", True):
+        out["is_code_task"] = False
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
 
@@ -350,14 +350,14 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
-        if not out.get("needs_sandbox", True):
+        if not out.get("is_code_task", True):
             out["task_type"] = "general"
             out["allowed_tools"] = ["none"]
         else:
             eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
             out["touched_files"] = _easy_touched_files(last_content, eff_lang)
             out["defaults_used"] = policy.get_defaults_used(eff_lang)
-            out["needs_sandbox"] = True
+            out["is_code_task"] = True
             out["include_tests"] = _easy_wants_tests(last_content)
             out["include_run_commands"] = True
             out["task_type"] = "code_generation"
@@ -369,7 +369,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "entry_classifier_result",
         extra={
             "intent_class": out.get("intent_class"),
-            "needs_sandbox": out.get("needs_sandbox"),
+            "is_code_task": out.get("is_code_task"),
             "task_size": out.get("task_size"),
             "target_language": out.get("target_language"),
             "preview": (last_content or "")[:80],

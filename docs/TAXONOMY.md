@@ -362,15 +362,15 @@ To reach "the 95%" for new verticals:
 
 ---
 
-## 7. Taxonomy-Driven Output Path (needs_sandbox)
+## 7. Taxonomy-Driven Output Path (is_code_task)
 
-**Design: document-first.** Default to discussions, plans, explanations. Code/sandbox path only when taxonomy or coding client signals code. `needs_sandbox` (bool): `false` = text/document (explain), `true` = code/sandbox.
+**Design: document-first.** Default to discussions, plans, explanations. Code/sandbox path only when taxonomy or coding client signals code. `is_code_task` (bool): `false` = text/document (explain), `true` = code/sandbox.
 
 | Mechanism | Intents | Meaning |
 |-----------|---------|---------|
-| `inherently_document: true` | conversation, knowledge, creative_ideation | Always `needs_sandbox=false` (greetings, explanations, ideas). |
-| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → `needs_sandbox=false`. |
-| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code/sandbox path (`needs_sandbox=true`). |
+| `inherently_document: true` | conversation, knowledge, creative_ideation | Always `is_code_task=false` (greetings, explanations, ideas). |
+| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → `is_code_task=false`. |
+| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code/sandbox path (`is_code_task=true`). |
 | **Coding client** | (header detection) | Cursor, Claude Code, etc. send `User-Agent`/`X-Client`. Ambiguous (general) → code bias. |
 
 | Intent | Config | Example |
@@ -383,9 +383,9 @@ To reach "the 95%" for new verticals:
 | writing | document_domains | "write blog about marathon", "draft email about nutrition" |
 | debugging, review, code_generation, data_transform, tool_orchestrated | code | "fix this bug", "write a script", "parse json" |
 
-**No match (general)** → `needs_sandbox=false`. **Coding client + general** → code (Cursor/Claude Code session assumes code).
+**No match (general)** → `is_code_task=false`. **Coding client + general** → code (Cursor/Claude Code session assumes code).
 
-**Flow:** Entry Classifier (engine, coding_client override) → when `needs_sandbox=false`: if domain in `deep_dive_domains` and `complexity_score > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain) → Respond.
+**Flow:** Entry Classifier (engine, coding_client override) → when `is_code_task=false`: if domain in `deep_dive_domains` and `complexity_score > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain) → Respond.
 
 **Planner** serves code decomposition and document deep-dive (physics, astronomy, mathematics, etc.). Worker explain path uses a document-focused prompt; when Planner ran for document, Worker receives `taxonomy_metadata` depth block.
 

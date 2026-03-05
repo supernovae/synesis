@@ -131,11 +131,11 @@ def _build_pinned_context(
     interaction_mode: str = "do",
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session).
-    Taxonomy-aware: when needs_sandbox=False (document path), use document-appropriate
+    Taxonomy-aware: when is_code_task=False (document path), use document-appropriate
     output format and constraints — no sandbox/bash/code execution.
     """
     chunks: list[ContextChunk] = []
-    is_document = not (session_preferences or {}).get("needs_sandbox", True)
+    is_document = not (session_preferences or {}).get("is_code_task", True)
 
     # Tier 1: Educational/Mentor mode — Learner's Corner (unified schema, taxonomy-aware)
     # Works for both code (design patterns, failure handling) and document (concepts, pitfalls)
@@ -264,7 +264,7 @@ def _build_pinned_context(
     # Tier 4b: Session preferences (deliverable shape, interaction mode) — taxonomy-aware
     if session_preferences:
         prefs = []
-        sandbox_flag = session_preferences.get("needs_sandbox", True)
+        sandbox_flag = session_preferences.get("is_code_task", True)
         prefs.append(f"Deliverable: {'code' if sandbox_flag else 'explain_only'}")
         if session_preferences.get("interaction_mode") == "teach":
             if is_document:
@@ -690,7 +690,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     context_conflicts = tier2_tier3_conflicts
 
     session_prefs = {
-        "needs_sandbox": state.get("needs_sandbox", True),
+        "is_code_task": state.get("is_code_task", True),
         "interaction_mode": state.get("interaction_mode", "do"),
         "include_tests": state.get("include_tests", True),
         "include_run_commands": state.get("include_run_commands", True),
