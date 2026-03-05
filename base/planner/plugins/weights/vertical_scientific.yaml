@@ -342,4 +342,3 @@ vertical_prompt:
     Scientific pipelines: Each step needs verification_command (unit test or script run).
     Clinical data: Apply medical decomposition rules.
   critic_mode: safety_ii
-

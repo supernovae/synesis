@@ -72,4 +72,3 @@ vertical_prompt:
     research: |
       Full review: injection surfaces, tool-calling safety, edge cases (empty input, very long input).
       Flag: missing validation, unclear instruction precedence.
-

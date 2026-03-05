@@ -86,4 +86,3 @@ vertical_prompt:
     Payment steps: Include idempotency and reconciliation check.
     KYC/AML: Separate step for identity verification logic.
   critic_mode: safety_ii
-

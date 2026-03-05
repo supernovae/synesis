@@ -166,9 +166,7 @@ class ConversationMemory:
         with self._lock:
             return self._last_context.get(user_id)
 
-    def set_last_context(
-        self, user_id: str, needs_sandbox: bool | str, active_domain_refs: list[str]
-    ) -> None:
+    def set_last_context(self, user_id: str, needs_sandbox: bool | str, active_domain_refs: list[str]) -> None:
         """Store needs_sandbox and active_domain_refs after a turn for next-turn pivot detection.
 
         needs_sandbox: True if sandbox required (code path); False if explain-only.

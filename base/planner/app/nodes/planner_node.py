@@ -77,7 +77,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     if not state.get("needs_sandbox", False) and not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
         needs_sandbox = state.get("needs_sandbox", False)
-        logger.info("planner_skipped_deliverable_explain_only", extra={"label": "code" if needs_sandbox else "explanation", "latency_ms": latency})
+        logger.info(
+            "planner_skipped_deliverable_explain_only",
+            extra={"label": "code" if needs_sandbox else "explanation", "latency_ms": latency},
+        )
         return {
             "execution_plan": {
                 "steps": [
@@ -223,7 +226,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Defensive: needs_sandbox=False (explanation-only, taxonomy-driven) → skip approval unless explicit planning request
         if needs_approval and not state.get("needs_sandbox", False) and not planning_session_requested:
             needs_approval = False
-            logger.info("planner_skip_approval_deliverable_explain_only", extra={"label": "code" if state.get("needs_sandbox", False) else "explanation"})
+            logger.info(
+                "planner_skip_approval_deliverable_explain_only",
+                extra={"label": "code" if state.get("needs_sandbox", False) else "explanation"},
+            )
 
         next_node = "respond" if needs_approval else "worker"
 

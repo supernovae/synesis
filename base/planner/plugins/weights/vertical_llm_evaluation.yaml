@@ -74,4 +74,3 @@ vertical_prompt:
     research: |
       Full methodology review: eval set provenance, metric validity, statistical significance.
       Flag: data leakage, biased eval set, inadequate sample size.
-

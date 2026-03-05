@@ -129,4 +129,3 @@ vertical_prompt:
     For Platform: Step 1 MUST verify FIPS/compliance requirements or explicitly skip.
     OpenShift/K8s: Include RBAC manifest and namespace scoping.
   critic_mode: safety_ii
-

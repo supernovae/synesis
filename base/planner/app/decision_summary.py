@@ -48,14 +48,30 @@ def _strategy_why(revision_strategy: str, strategy_candidates: list[dict]) -> st
 def build_decision_summary(state: dict[str, Any]) -> str | None:
     """Build taxonomy-aware Decision Summary. Returns None if nothing substantive."""
 
-    intent_class, vertical = _get_intent_and_vertical(state)
+    intent_class, _vertical = _get_intent_and_vertical(state)
     approach_label = ""
 
     _EVIDENCE_SOURCES: dict[str, dict[str, Any]] = {
-        "code": {"evidence": ["sandbox", "lsp", "lint", "security", "rag"], "strategy_key": "revision_strategy", "uncertain_key": ["what_if_analyses", "residual_risks"]},
-        "knowledge": {"evidence": ["rag"], "strategy_key": None, "uncertain_key": ["residual_risks", "knowledge_gap_message"]},
-        "debugging": {"evidence": ["sandbox", "lsp", "lint", "security"], "strategy_key": "revision_strategy", "uncertain_key": ["residual_risks"]},
-        "planning": {"evidence": ["rag", "execution_plan"], "strategy_key": None, "uncertain_key": ["residual_risks", "execution_plan"]},
+        "code": {
+            "evidence": ["sandbox", "lsp", "lint", "security", "rag"],
+            "strategy_key": "revision_strategy",
+            "uncertain_key": ["what_if_analyses", "residual_risks"],
+        },
+        "knowledge": {
+            "evidence": ["rag"],
+            "strategy_key": None,
+            "uncertain_key": ["residual_risks", "knowledge_gap_message"],
+        },
+        "debugging": {
+            "evidence": ["sandbox", "lsp", "lint", "security"],
+            "strategy_key": "revision_strategy",
+            "uncertain_key": ["residual_risks"],
+        },
+        "planning": {
+            "evidence": ["rag", "execution_plan"],
+            "strategy_key": None,
+            "uncertain_key": ["residual_risks", "execution_plan"],
+        },
     }
     sources = _EVIDENCE_SOURCES.get(intent_class, _EVIDENCE_SOURCES["code"])
 

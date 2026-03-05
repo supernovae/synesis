@@ -321,9 +321,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
         is_document_taxonomy_path = (
-            not needs_sandbox
-            and taxonomy_complexity > 0.6
-            and bool(taxonomy_metadata.get("required_elements"))
+            not needs_sandbox and taxonomy_complexity > 0.6 and bool(taxonomy_metadata.get("required_elements"))
         )
         if is_document_taxonomy_path:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block

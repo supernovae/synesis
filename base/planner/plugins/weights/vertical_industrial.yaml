@@ -101,4 +101,3 @@ vertical_prompt:
     For Industrial: Step 1 MUST document safety boundaries and fail-safe behavior.
     PLC/SCADA: Each step must specify verification (e.g., simulation or test harness).
   critic_mode: safety_ii
-

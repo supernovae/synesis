@@ -444,7 +444,6 @@ def _status_for_node(node: str, task_size: str, needs_sandbox: bool = True) -> s
     return NODE_STATUS_MESSAGES.get(node, "")
 
 
-
 # StreamingCodeExtractor removed — Worker now produces plain markdown.
 # All content tokens stream directly to the client.
 
@@ -1164,9 +1163,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 # Forward reasoning_content in SSE delta so Open
                                 # WebUI renders it in the native "Thought for Xs"
                                 # collapsible instead of only as status events.
-                                yield _sse_content_delta(
-                                    chat_id, {"reasoning_content": rc}, run_id=run_id
-                                )
+                                yield _sse_content_delta(chat_id, {"reasoning_content": rc}, run_id=run_id)
 
                                 _reasoning_buf += rc
                                 while "\n" in _reasoning_buf:

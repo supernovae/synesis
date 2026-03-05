@@ -406,9 +406,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             ):
                 parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if display_code:
-            if not state.get("needs_sandbox", True):
-                parts.append(display_code)
-            elif patch_ops and not code:
+            if not state.get("needs_sandbox", True) or (patch_ops and not code):
                 parts.append(display_code)
             elif "```" in display_code:
                 # Already has fenced code blocks (markdown output from Worker)
@@ -611,7 +609,12 @@ def route_after_patch_integrity_gate(state: dict[str, Any]) -> str:
 graph_builder.add_conditional_edges(
     "worker",
     route_after_worker,
-    {"respond": "respond", "supervisor": "supervisor", "patch_integrity_gate": "patch_integrity_gate", "critic": "critic"},
+    {
+        "respond": "respond",
+        "supervisor": "supervisor",
+        "patch_integrity_gate": "patch_integrity_gate",
+        "critic": "critic",
+    },
 )
 graph_builder.add_conditional_edges(
     "patch_integrity_gate",

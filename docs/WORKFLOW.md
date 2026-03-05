@@ -4,9 +4,18 @@ This document describes the LangGraph orchestration flow, routing logic, and key
 
 ## Overview
 
-Synesis implements a **Joint Cognitive System (JCS)** with 11 nodes: Entry Classifier, Strategic Advisor (Domain Aligner), Supervisor, Planner, Context Curator, Worker (Executor), Patch Integrity Gate, Sandbox, LSP Analyzer, Critic, and Respond. Each node has a narrow scope; the mantra is **Routing, not Reasoning** for the Supervisor and **Atomic Decomposition** for the Planner.
+Synesis implements a **Joint Cognitive System (JCS)** with 11 nodes:
+Entry Classifier, Strategic Advisor (Domain Aligner), Supervisor,
+Planner, Context Curator, Worker (Executor), Patch Integrity Gate,
+Sandbox, LSP Analyzer, Critic, and Respond. Each node has a narrow
+scope; the mantra is **Routing, not Reasoning** for the Supervisor
+and **Atomic Decomposition** for the Planner.
 
-**Output philosophy:** The Worker always produces **streaming markdown** — no JSON wrapper, no format bifurcation. Code tasks include fenced code blocks; explanations are prose. The `needs_sandbox` boolean controls whether code blocks are extracted for sandbox execution.
+**Output philosophy:** The Worker always produces **streaming
+markdown** — no JSON wrapper, no format bifurcation. Code tasks
+include fenced code blocks; explanations are prose. The
+`needs_sandbox` boolean controls whether code blocks are extracted
+for sandbox execution.
 
 ## Models
 
@@ -183,7 +192,10 @@ The Entry Classifier is **deterministic** (no LLM). It uses the YAML-driven `Sco
 2. **Taxonomy-Driven Everything**: Entry Classifier outputs `intent_class`, `needs_sandbox`, `active_domain_refs`, `taxonomy_metadata`, `difficulty`, and YAML-driven `routing_thresholds`. Taxonomy plugins provide domain keywords, complexity/risk weights, and vertical prompt data (worker persona, planner rules, critic mode).
 3. **Atomic Planner**: Each step max 3 files. Every step must have `verification_command`. Protocol tasks (Fediverse, ActivityPub): first step = discovery/WebFinger only.
 4. **Evidence-Gated Critic**: `approved=false` requires at least one `blocking_issue` with sandbox/lsp `evidence_refs`. No blocking on speculation.
-5. **Unified Markdown Output**: Worker always produces markdown. No JSON wrapper, no `StreamingCodeExtractor`. Code is in fenced blocks; `code_extractor.py` extracts blocks for sandbox. `needs_sandbox` controls whether extraction happens.
+5. **Unified Markdown Output**: Worker always produces markdown.
+   No JSON wrapper, no `StreamingCodeExtractor`. Code is in fenced
+   blocks; `code_extractor.py` extracts blocks for sandbox.
+   `needs_sandbox` controls whether extraction happens.
 6. **Monotonic Retry** (`state.retry`): Failures, decisions, diversification_history only append. At `max_iterations`, force PASS and emit `carried_uncertainties_signal`.
 7. **Continuous Token Budgets**: Difficulty-based curve (not bucketed). Social acknowledgements get minimal budget (128 tokens). Thinking budgets scale with `task_size`.
 
@@ -213,7 +225,10 @@ All responses stream via SSE (`text/event-stream`) through the OpenAI-compatible
 
 **Reasoning content**: vLLM `--reasoning-parser=deepseek_r1` separates R1 thinking into `reasoning_content` in the SSE delta. Open WebUI v0.8.8+ renders this natively in a collapsible "Thinking" UI.
 
-**Status events**: Pipeline phases (`Analyzing request…`, `Detecting domain…`, `Creating your plan…`, `Finishing…`) emit as `reasoning_content` before the main response, appearing in the Thinking dropdown.
+**Status events**: Pipeline phases (`Analyzing request…`,
+`Detecting domain…`, `Creating your plan…`, `Finishing…`) emit as
+`reasoning_content` before the main response, appearing in the
+Thinking dropdown.
 
 **Deduplication**: Consecutive identical status descriptions are suppressed to prevent duplicate phase indicators.
 

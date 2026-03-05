@@ -87,4 +87,3 @@ vertical_prompt:
     research: |
       Full pipeline review: ingestion pipeline, index freshness, eval coverage.
       Flag: missing evals, unclear retrieval strategy, potential staleness.
-

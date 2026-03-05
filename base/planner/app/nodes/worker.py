@@ -779,9 +779,13 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         if stop_reason:
             trace = NodeTrace(
-                node_name=node_name, reasoning=f"stop_reason={stop_reason}",
-                assumptions=[], confidence=0.5,
-                outcome=NodeOutcome.SUCCESS, latency_ms=latency, tokens_used=tokens_used,
+                node_name=node_name,
+                reasoning=f"stop_reason={stop_reason}",
+                assumptions=[],
+                confidence=0.5,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+                tokens_used=tokens_used,
             )
             logger.info("worker_stop_reason", extra={"stop_reason": stop_reason})
             next_on_stop = "supervisor" if stop_reason == "needs_scope_expansion" else "respond"
@@ -789,7 +793,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 "stop_reason": stop_reason,
                 "stop_reason_explanation": content[:200].strip(),
                 "scope_expansion_needed": stop_reason == "needs_scope_expansion",
-                "current_node": node_name, "next_node": next_on_stop,
+                "current_node": node_name,
+                "next_node": next_on_stop,
                 "token_budget_remaining": token_budget - tokens_used,
                 "node_traces": [trace],
             }
@@ -800,15 +805,20 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         if needs_input_detected:
             trace = NodeTrace(
-                node_name=node_name, reasoning="needs_input detected",
-                assumptions=[], confidence=0.5,
-                outcome=NodeOutcome.SUCCESS, latency_ms=latency, tokens_used=tokens_used,
+                node_name=node_name,
+                reasoning="needs_input detected",
+                assumptions=[],
+                confidence=0.5,
+                outcome=NodeOutcome.SUCCESS,
+                latency_ms=latency,
+                tokens_used=tokens_used,
             )
             q = needs_input_question or "I need more information to proceed. Can you provide more details?"
             logger.info("executor_needs_input", extra={"question": q[:80]})
             return {
                 "needs_input_question": q,
-                "current_node": node_name, "next_node": "respond",
+                "current_node": node_name,
+                "next_node": "respond",
                 "token_budget_remaining": token_budget - tokens_used,
                 "node_traces": [trace],
             }
@@ -818,17 +828,28 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         files_touched = worker_files or []
         if generated_code and not files_touched:
             ext = {
-                "python": "py", "py": "py", "bash": "sh", "shell": "sh", "sh": "sh",
-                "javascript": "js", "js": "js", "typescript": "ts", "ts": "ts",
+                "python": "py",
+                "py": "py",
+                "bash": "sh",
+                "shell": "sh",
+                "sh": "sh",
+                "javascript": "js",
+                "js": "js",
+                "typescript": "ts",
+                "ts": "ts",
             }.get((target_lang or "").lower(), "txt")
             files_touched = [f"script.{ext}"]
 
         patch_ops_list = extract_patch_ops(content)
 
         trace = NodeTrace(
-            node_name=node_name, reasoning="markdown output",
-            assumptions=[], confidence=0.7,
-            outcome=NodeOutcome.SUCCESS, latency_ms=latency, tokens_used=tokens_used,
+            node_name=node_name,
+            reasoning="markdown output",
+            assumptions=[],
+            confidence=0.7,
+            outcome=NodeOutcome.SUCCESS,
+            latency_ms=latency,
+            tokens_used=tokens_used,
         )
 
         logger.info(

@@ -26,6 +26,12 @@ from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.supervisor")
 
+
+def _state_needs_sandbox(state: dict[str, Any]) -> bool:
+    """Read needs_sandbox from state, defaulting to True (code path)."""
+    return state.get("needs_sandbox", True)
+
+
 # Anemic Supervisor: ROUTING only. EntryClassifier handles complexity; Planner handles decomposition.
 # Target: sub-500ms. Keep prompt static for vLLM prefix caching.
 SUPERVISOR_SYSTEM_PROMPT = """\
