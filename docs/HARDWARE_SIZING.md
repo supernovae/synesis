@@ -10,9 +10,11 @@ The primary GPU-bound workloads are the model serving deployments. Memory bandwi
 
 | Profile | Hardware | Model Distribution |
 |---------|----------|-------------------|
-| **Small** | 2x L40S (48GB each) | Router + Critic share GPU 0; Coder on GPU 1 |
-| **Medium** | 4x L40S | General on GPU 0; Coder TP=2 on GPUs 1-2; Router + Critic on GPU 3 |
+| **Small** | 2x L40S (48GB each) | GPU 0: Router + Critic (Qwen3-8B, thinking mode); GPU 1: Coder (FP8) |
+| **Medium** | 4x L40S | General on GPU 0; Coder TP=2 on GPUs 1-2; Router + R1 Critic on GPU 3 |
 | **Large** | 8x GPU (A100/H100) | All roles dedicated; Coder scales 2-4 replicas on queue depth |
+
+**Small profile note**: The critic uses the same Qwen3-8B model as the router via Qwen3's per-request thinking mode (`enable_thinking=True`). This eliminates the separate R1 deployment, freeing GPU 1 entirely for the Coder. The executor deployment is scaled to 0 replicas.
 
 ### GPU Comparison
 
@@ -29,9 +31,14 @@ The primary GPU-bound workloads are the model serving deployments. Memory bandwi
 |------|--------------|-------------|--------------------|--------------------|
 | Router | Qwen3-8B | ~8 GB | ~2 GB | ~10 GB |
 | General | Qwen3.5-35B-A3B | ~8 GB (MoE active) | ~4 GB | ~14 GB |
-| Coder | Qwen3-Coder-Next | ~40 GB | ~8-10 GB | ~48-50 GB |
-| Critic | R1-Distill-32B | ~32 GB | ~4 GB | ~38 GB |
+| Coder (small) | Qwen3-Coder-30B-A3B-FP8 | ~15 GB | ~4 GB (65K ctx) | ~20 GB |
+| Coder (medium+) | Qwen3-Coder-Next-FP8 | ~46 GB (all 512 experts) | ~4 GB (65K ctx) | ~50 GB (TP=2) |
+| Critic (small) | Qwen3-8B thinking | shared with Router | shared | ~10 GB (shared) |
+| Critic (medium) | R1-Distill-32B | ~32 GB | ~4 GB | ~38 GB |
+| Critic (large) | R1-Distill-70B | ~70 GB | ~6 GB | ~78 GB |
 | Summarizer | Qwen2.5-0.5B | CPU only | N/A | 0 GPU |
+
+**Coder note**: The small profile uses the 30B-A3B model which fits easily on a single L40S. The 80B Next model requires TP=2 (medium/large) because all 512 expert weights must reside in VRAM despite only 10 being active per token. Even at FP8 (~46GB), it exceeds any single 48GB card.
 
 ## CPU Services
 

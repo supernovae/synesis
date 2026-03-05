@@ -6,13 +6,61 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 
 | Model | Role | Quantization | VRAM | Deployment |
 |-------|------|-------------|------|------------|
-| **DeepSeek R1-Distill-Qwen-32B FP8-dynamic** | Executor (Worker) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-executor.yaml` |
-| **Qwen3-8B FP8-dynamic** | Supervisor, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-supervisor-critic.yaml` |
+| **Qwen3-8B FP8-dynamic** | Router, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-supervisor-critic.yaml` |
+| **Qwen3-Coder-Next-FP8** | Coder (IDE agent) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
+| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (deep reasoning) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-executor.yaml` |
 | **Qwen2.5-0.5B-Instruct** | Summarizer | none (CPU) | 0 | KServe InferenceService |
 
 See [models.yaml](../models.yaml) for the authoritative model registry.
 
-## Executor: DeepSeek R1-Distill-Qwen-32B FP8
+## Coder: Profile-Dependent Model
+
+### Small profile: Qwen3-Coder-30B-A3B-Instruct-FP8
+
+Key vLLM args (from `base/model-serving/deployment-vllm-coder.yaml`):
+
+```
+--max-model-len=65536
+--gpu-memory-utilization=0.90
+--enable-auto-tool-choice
+--tool-call-parser=hermes
+--enable-prefix-caching
+--enable-chunked-prefill
+```
+
+- **Architecture**: 30B MoE with 3B active parameters per token. Same Qwen3-Coder family as the 80B Next model.
+- **FP8 weights ~15GB** — fits easily on a single L40S with full 65K context and ~25GB headroom.
+- **Prefix caching**: Enabled — caches repeated system prompts from IDE clients.
+- **Separate endpoint**: IDEs (Cursor, Claude Code) connect directly — not routed through the planner.
+- **Upgrade path**: Medium/large profiles use Qwen3-Coder-Next-FP8 (80B, TP=2) for max quality.
+
+#### Coder VRAM budget (small profile, single L40S)
+
+| Component | Estimate |
+|-----------|----------|
+| FP8 weights (30B MoE) | ~15 GB |
+| KV cache (65K ctx) | ~4 GB |
+| Activation memory | ~1 GB |
+| **Total** | **~20 GB** |
+| L40S usable (0.90 util) | 40 GB |
+
+Plenty of headroom. The 30B-A3B model is the right fit for single-GPU deployment.
+
+### Medium/Large profile: Qwen3-Coder-Next-FP8
+
+```
+--tensor-parallel-size=2
+--max-model-len=65536
+--gpu-memory-utilization=0.90
+--enable-auto-tool-choice
+--tool-call-parser=hermes
+```
+
+- **Architecture**: 80B MoE with 512 experts, 10 active per token (~3B active). Hybrid attention (gated attention + DeltaNet).
+- **FP8 weights ~46GB** — requires TP=2 (2 GPUs). Will OOM on any single GPU.
+- **Why not single-GPU?**: All 512 expert weight tensors must reside in VRAM even though only 10 are active per token. FP8 compresses from ~80GB to ~46GB but that still exceeds any single 48GB card.
+
+## Critic: DeepSeek R1-Distill-Qwen-32B FP8
 
 Key vLLM args (from `base/model-serving/deployment-vllm-executor.yaml`):
 
@@ -32,20 +80,38 @@ Key vLLM args (from `base/model-serving/deployment-vllm-executor.yaml`):
 - **Chunked prefill**: Improves TTFT by overlapping prefill with decode.
 - **Memory**: ~33GB weights + ~2.5GB FP8 KV cache (20K ctx) + ~3GB overhead = ~38.5GB of 44GB usable (0.92 util).
 
-## Supervisor-Critic: Qwen3-8B FP8-dynamic
+## Router + Critic (small profile): Qwen3-8B FP8-dynamic
 
 Key vLLM args (from `base/model-serving/deployment-vllm-supervisor-critic.yaml`):
 
 ```
+--served-model-name=synesis-supervisor,synesis-critic
 --generation-config=vllm
 --enable-prefix-caching
 --max-model-len=32768
 --gpu-memory-utilization=0.90
+--enable-reasoning
+--reasoning-parser=qwen3
 ```
 
 - **No `--quantization` flag**: vLLM auto-detects compressed-tensors FP8 format from the model's `config.json`. Native FP8 tensor core ops on L40S.
-- **Prefix caching**: Enabled. Caches KV states for repeated system prompts across supervisor/planner/critic roles.
-- **Shared deployment**: Two K8s Services route to the same pod for supervisor and critic roles.
+- **Prefix caching**: Enabled. Caches KV states for repeated system prompts across router/planner/critic roles.
+- **Dual model names**: Serves as both `synesis-supervisor` and `synesis-critic`. Two K8s Services route to the same pod.
+- **Thinking mode (Qwen3)**: `--enable-reasoning --reasoning-parser=qwen3` separates `<think>` tokens into `reasoning_content`, keeping `content` clean for JSON parsing.
+- **Per-request thinking control**: Router/planner/advisor pass `enable_thinking=False` via `chat_template_kwargs` for fast ~100ms classification. Critic passes `enable_thinking=True` for chain-of-thought reasoning.
+- **Small profile GPU savings**: Eliminates the need for a separate R1 deployment. One 8B model on one GPU handles both routing and critiquing. Medium/large profiles deploy dedicated R1 for stronger critic reasoning.
+
+### VRAM budget (single L40S)
+
+| Component | Estimate |
+|-----------|----------|
+| FP8 weights | ~8 GB |
+| KV cache (32K ctx) | ~2 GB |
+| Overhead | ~1 GB |
+| **Total** | **~11 GB** |
+| L40S usable (0.90 util) | 40 GB |
+
+Plenty of headroom — the 8B model is very efficient even with thinking enabled.
 
 ## Common Troubleshooting
 
@@ -54,8 +120,11 @@ Key vLLM args (from `base/model-serving/deployment-vllm-supervisor-critic.yaml`)
 | OOM on startup | Reduce `--max-model-len` or `--gpu-memory-utilization` |
 | 404 on `/v1/health` | Health endpoint is at `/health` (no `/v1` prefix) |
 | Slow TTFT | Enable `--enable-chunked-prefill`; check `--gpu-memory-utilization` |
-| No reasoning content | Ensure `--reasoning-parser=deepseek_r1` for R1-Distill models |
+| No reasoning content (R1) | Ensure `--reasoning-parser=deepseek_r1` for R1-Distill models |
+| No reasoning content (Qwen3) | Ensure `--enable-reasoning --reasoning-parser=qwen3` |
+| Router is slow | Check that `enable_thinking=False` is passed in `chat_template_kwargs` |
 | FP8 + prefix caching | These are mutually exclusive. Choose one. |
+| Critic not using thinking | Verify `enable_thinking=True` in critic node's `extra_body` params |
 
 ## Deployment strategy (Recreate vs RollingUpdate)
 

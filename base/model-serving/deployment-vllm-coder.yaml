@@ -1,18 +1,18 @@
-# Synesis Coder — agentic coding model (Qwen3-Coder-Next)
+# Synesis Coder — agentic coding model
 #
 # Direct vLLM endpoint for IDE clients (Cursor, Claude Code, Windsurf).
 # NOT routed through the Synesis planner pipeline — IDEs connect here
 # directly or via LiteLLM for key management.
 #
-# Qwen3-Coder-Next is an 80B MoE with 3B active parameters, trained
-# for agentic coding with tool-call support (SWE-Bench Verified 70%+).
+# Profile-dependent model:
+#   small:  Qwen3-Coder-30B-A3B-FP8 (~15 GB), single L40S, TP=1, 65K ctx
+#   medium: Qwen3-Coder-Next-FP8 (~46 GB), 2x L40S, TP=2, 65K ctx
+#   large:  Qwen3-Coder-Next-FP8, 2x GPU, TP=2, HPA replicas=2-4
 #
-# Profile-dependent sizing:
-#   small:  Q3 quantization (~40 GB), single L40S, TP=1
-#   medium: FP8 (~85 GB), 2x L40S, TP=2
-#   large:  FP8, 2x GPU, TP=2, HPA replicas=2-4
+# The base deployment serves whatever model is downloaded to the PVC.
+# Run: ./scripts/run-model-pipeline.sh --role=coder --profile=<small|medium|large>
 #
-# Prerequisites: synesis-coder-pvc in synesis-models, model via run-model-pipeline.sh --role=coder
+# Prerequisites: synesis-coder-pvc in synesis-models
 ---
 apiVersion: v1
 kind: Service
@@ -73,10 +73,12 @@ spec:
             - --served-model-name=synesis-coder
             - --tensor-parallel-size=1
             - --max-model-len=65536
-            - --gpu-memory-utilization=0.92
+            - --gpu-memory-utilization=0.90
             - --generation-config=vllm
             - --enable-auto-tool-choice
             - --tool-call-parser=hermes
+            - --enable-prefix-caching
+            - --enable-chunked-prefill
           resources:
             limits:
               cpu: "8"

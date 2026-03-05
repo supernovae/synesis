@@ -43,6 +43,9 @@ planner_llm = ChatOpenAI(
     streaming=True,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
+    model_kwargs={
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}}
+    },
 )
 
 

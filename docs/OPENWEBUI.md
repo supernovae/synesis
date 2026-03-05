@@ -1,6 +1,6 @@
 # Open WebUI
 
-Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. It is pre-configured to connect to the LiteLLM gateway — no manual API URL or key setup required.
+Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
 
 ## Zero-Configuration Setup
 
@@ -21,17 +21,40 @@ On first visit, create an admin account. The `synesis-agent` model is available 
 | **Staging** | `https://synesis-staging.apps.openshiftdemo.dev` | `https://synesis-api-staging.apps.openshiftdemo.dev` |
 | **Prod** | `https://synesis.apps.openshiftdemo.dev` | `https://synesis-api.apps.openshiftdemo.dev` |
 
-## Available Models in the UI
+## Available Models by Profile
+
+### Small Profile (dev)
+
+| Model Name | What It Does |
+|------------|-------------|
+| `synesis-agent` | Full pipeline: Router → Planner → Worker → Critic → Respond (all via Qwen3-8B) |
+| `synesis-thinking` | Qwen3-8B with thinking mode enabled — shows chain-of-thought reasoning |
+
+In small profile, Qwen3-8B handles all roles (router, worker, critic) on GPU 0. The critic uses Qwen3 thinking mode for chain-of-thought reasoning. The Coder model runs on GPU 1 but is accessed directly by IDEs, not through Open WebUI.
+
+### Medium/Large Profile (staging/prod)
 
 | Model Name | What It Does |
 |------------|-------------|
 | `synesis-agent` | Full pipeline: Router → Planner → Worker → Critic → Respond |
 | `synesis-router` | Direct access to Router model (Qwen3-8B) |
-| `synesis-general` | Direct access to General model (reasoning, writing) |
-| `synesis-coder` | Direct access to Coder model (Qwen3-Coder-Next) |
-| `synesis-critic` | Direct access to Critic model (R1-Distill-32B, thinking) |
+| `synesis-critic` | Direct access to Critic model (R1-Distill, deep thinking) |
+| `synesis-thinking` | R1-Distill thinking model — dedicated deep reasoning |
+| `synesis-coder` | Direct access to Coder model (Qwen3-Coder-Next-FP8) |
 
-Users can select the Critic (R1) model as a dedicated "thinking" model for tasks that benefit from deep reasoning.
+## Important: Do NOT point Open WebUI directly at vLLM
+
+The dev overlay configures Open WebUI to talk to the **planner** endpoint (`synesis-planner:8000/v1`), not directly to vLLM. This is intentional:
+
+- **Through the planner**: Thinking tokens are properly handled — router/planner use `enable_thinking=False` for fast classification, critic uses `enable_thinking=True` for reasoning. vLLM's `--enable-reasoning` parser separates thinking into `reasoning_content` (invisible to the user).
+- **Directly to vLLM**: The Qwen3 chat template defaults to `enable_thinking=True`. Every response will include thinking tokens, adding latency and potentially showing raw `<think>` blocks in the UI.
+
+If you accidentally set the API URL to a vLLM endpoint in **Admin → Settings → Connections**, reset it by redeploying:
+
+```bash
+./scripts/deploy.sh dev
+oc rollout restart deployment/open-webui -n synesis-webui
+```
 
 ## Code Formatting
 
@@ -48,7 +71,7 @@ The planner emits SSE status events during graph execution (Thinking, Validating
 | `WEBUI_AUTH` | `true` | Require login (first user becomes admin) |
 | `ENABLE_SIGNUP` | `true` | Allow new user registration |
 | `DEFAULT_MODELS` | `synesis-agent` | Pre-selected model for new conversations |
-| `ENABLE_OLLAMA_API` | `false` | Disabled — all inference goes through LiteLLM |
+| `ENABLE_OLLAMA_API` | `false` | Disabled — all inference goes through planner/LiteLLM |
 
 ## Resource Requirements
 
@@ -61,7 +84,7 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 
 ## Network Policy
 
-Open WebUI can only reach the LiteLLM gateway (`synesis-gateway:4000`) and DNS. It has no access to the planner, Milvus, sandbox, or external internet. All model inference goes through the LiteLLM proxy.
+Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planner (`synesis-planner:8000`), plus DNS. In the dev overlay, traffic goes directly to the planner (bypasses LiteLLM). It has no access to Milvus, sandbox, or external internet.
 
 ## Troubleshooting
 

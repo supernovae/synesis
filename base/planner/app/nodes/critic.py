@@ -62,6 +62,12 @@ _model_kwargs: dict[str, Any] = {}
 if getattr(settings, "critic_stop_sequence", ""):
     _model_kwargs["stop"] = [settings.critic_stop_sequence]
 
+# Explicitly enable thinking for critic — works with both R1 (medium/large profiles)
+# and Qwen3-8B with thinking mode (small profile). R1 always thinks via <think> tags
+# regardless; Qwen3 requires enable_thinking=True to activate chain-of-thought.
+_model_kwargs.setdefault("extra_body", {})
+_model_kwargs["extra_body"]["chat_template_kwargs"] = {"enable_thinking": True}
+
 critic_llm = ChatOpenAI(
     base_url=settings.critic_model_url,
     api_key="not-needed",
@@ -73,7 +79,9 @@ critic_llm = ChatOpenAI(
     model_kwargs=_model_kwargs,
 )
 
-# Budget Guidance: thinking token budget per task difficulty (arXiv:2506.13752)
+# Budget Guidance: thinking token budget per task difficulty (arXiv:2506.13752).
+# Applies to both R1 and Qwen3-8B thinking mode — max_completion_tokens caps the
+# combined <think> + output length proportional to task complexity.
 _CRITIC_THINKING_BUDGETS = {
     "easy": 256,
     "medium": 1024,
@@ -85,8 +93,8 @@ def _budget_guided_critic(task_size: str) -> ChatOpenAI:
     """Return a critic LLM instance with thinking budget tuned to task difficulty.
 
     Budget Guidance (arXiv:2506.13752): controls reasoning model thinking
-    length via max_completion_tokens scaling. For R1, this limits the
-    <think>...</think> phase proportionally to task complexity.
+    length via max_completion_tokens scaling. Limits <think>...</think>
+    phase proportionally to task complexity for both R1 and Qwen3 models.
     """
     thinking_budget = _CRITIC_THINKING_BUDGETS.get(task_size, 1024)
     total_budget = thinking_budget + 2048  # thinking + output tokens

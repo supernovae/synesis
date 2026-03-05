@@ -91,6 +91,43 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: "256Mi"
 
+  # Small profile: no dedicated R1 critic — Qwen3-8B handles critic via thinking mode.
+  # Scale executor deployment to 0 (frees 1 GPU for the coder).
+  - target:
+      kind: Deployment
+      name: synesis-executor-predictor
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 0
+
+  # Small profile: Qwen3-8B handles ALL roles (router, worker, critic).
+  # The executor deployment (R1) is scaled to 0 — redirect worker + critic
+  # to the supervisor-critic pod. Critic uses thinking mode for reasoning;
+  # worker generates responses (thinking adds latency but improves quality).
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: synesis-planner
+      spec:
+        template:
+          spec:
+            containers:
+              - name: planner
+                env:
+                  - name: SYNESIS_CRITIC_MODEL_URL
+                    value: "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+                  - name: SYNESIS_CRITIC_MODEL_NAME
+                    value: "synesis-critic"
+                  - name: SYNESIS_EXECUTOR_MODEL_URL
+                    value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+                  - name: SYNESIS_EXECUTOR_MODEL_NAME
+                    value: "synesis-supervisor"
+
   # Scale warm pool to 1 replica in dev
   - target:
       kind: Deployment

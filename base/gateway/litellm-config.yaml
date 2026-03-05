@@ -33,16 +33,19 @@ data:
           max_tokens: 4096
           temperature: 0.3
 
-      # Critic (R1-Distill-32B FP8) — deep reasoning, Safety-II review
+      # Critic — routes to synesis-critic-predictor Service.
+      # Small profile: resolves to Qwen3-8B (supervisor-critic pod, thinking mode).
+      # Medium/large: resolves to R1-Distill (executor pod) when executor is deployed.
+      # The critic Service selector is profile-aware via Kustomize overlays.
       - model_name: synesis-critic
         litellm_params:
-          model: openai/synesis-executor
-          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-critic
+          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.1
 
-      # Coder (Qwen3-Coder-Next) — direct IDE endpoint, agentic coding
+      # Coder (Qwen3-Coder-Next-FP8) — direct IDE endpoint, agentic coding
       - model_name: synesis-coder
         litellm_params:
           model: openai/synesis-coder
@@ -51,16 +54,17 @@ data:
           max_tokens: 16384
           temperature: 0.2
 
-      # Thinking model (R1, same backend as critic) — Open WebUI optional
+      # Thinking model — Open WebUI optional "think out loud" model.
+      # Small: uses Qwen3-8B thinking mode; medium/large: uses R1 via executor.
       - model_name: synesis-thinking
         litellm_params:
-          model: openai/synesis-executor
-          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-critic
+          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 8192
           temperature: 0.2
 
-      # Legacy aliases for backward compatibility during migration
+      # Router alias (same as synesis-supervisor-predictor)
       - model_name: synesis-supervisor
         litellm_params:
           model: openai/synesis-supervisor
@@ -68,14 +72,6 @@ data:
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.3
-
-      - model_name: synesis-executor
-        litellm_params:
-          model: openai/synesis-executor
-          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 8192
-          temperature: 0.2
 
     litellm_settings:
       drop_params: true

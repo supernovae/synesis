@@ -38,7 +38,7 @@ flowchart LR
     subgraph models [Model Serving]
         RouterLLM["Router · Qwen3-8B"]
         GeneralLLM["General · Qwen3.5-35B"]
-        CoderLLM["Coder · Qwen3-Coder-Next"]
+        CoderLLM["Coder · Qwen3-Coder-30B-A3B"]
         CriticLLM["Critic · R1-32B"]
     end
 
@@ -79,7 +79,7 @@ All model definitions live in [`models.yaml`](models.yaml) — the single source
 |------|--------------|---------|
 | **Router** | Qwen3-8B FP8 | Fast intent classification and taxonomy routing |
 | **General** | Qwen3.5-35B-A3B | General reasoning, writer synthesis, Open WebUI default |
-| **Coder** | Qwen3-Coder-Next | Agentic coding for IDE clients (direct vLLM endpoint) |
+| **Coder** | Qwen3-Coder-30B-A3B (small) / Next (med+) | Agentic coding for IDE clients (direct vLLM endpoint) |
 | **Critic** | DeepSeek R1-Distill-32B FP8 | Deep reasoning critic with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
 

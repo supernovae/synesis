@@ -1,11 +1,16 @@
-# Synesis Router — fast taxonomy classification and intent routing
+# Synesis Router + Critic — Qwen3-8B FP8-dynamic with thinking mode
 #
-# Qwen3-8B FP8-dynamic serves supervisor, planner, advisor, and router roles.
-# Same model instance, different inference params per request (temperature, prompt).
-# Loads from PVC (pipeline downloads to synesis-router-pvc).
+# Serves router, planner, advisor, and critic roles from a single model instance.
+# Qwen3's per-request enable_thinking control allows dual behavior:
+#   - Router/planner/advisor: enable_thinking=False → fast JSON classification
+#   - Critic: enable_thinking=True → chain-of-thought reasoning before evaluation
 #
-# The supervisor, planner, and advisor logical roles all use this same 8B model
-# for fast classification and routing.
+# In small profile (2 GPUs), this eliminates the need for a separate R1 critic
+# deployment. Medium/large profiles can still deploy a dedicated R1 for stronger
+# critic reasoning via synesis-executor-predictor.
+#
+# --enable-reasoning + --reasoning-parser=qwen3 separates <think> tokens into
+# reasoning_content field, keeping the content field clean for JSON parsing.
 #
 # Prerequisites: synesis-router-pvc in synesis-models, model via run-model-pipeline.sh --role=router
 ---
@@ -82,12 +87,14 @@ spec:
           args:
             - --port=8080
             - --model=/mnt/models
-            - --served-model-name=synesis-supervisor
+            - --served-model-name=synesis-supervisor,synesis-critic
             - --tensor-parallel-size=1
             - --max-model-len=32768
             - --gpu-memory-utilization=0.90
             - --generation-config=vllm
             - --enable-prefix-caching
+            - --enable-reasoning
+            - --reasoning-parser=qwen3
           resources:
             limits:
               cpu: "4"

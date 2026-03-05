@@ -22,14 +22,17 @@ def _build_info() -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SYNESIS_")
 
-    # V3 Model Endpoints — see models.yaml for profile-specific assignments.
+    # Model Endpoints — see models.yaml for profile-specific assignments.
     #
-    # Role mapping (V3):
-    #   Router (Qwen3-8B)        → supervisor, planner, advisor nodes
-    #   General (Qwen3.5-35B-A3B) → worker node (executor), writer pass
-    #   Critic (R1-Distill-32B)  → critic node, optional thinking model
-    #   Coder (Qwen3-Coder-Next) → direct IDE endpoint (not used by planner)
-    #   Summarizer (Qwen2.5-0.5B) → pivot history summarization
+    # Role mapping:
+    #   Router (Qwen3-8B)          → supervisor, planner, advisor nodes
+    #   General (Qwen3.5-35B-A3B)  → worker node (executor), writer pass
+    #   Critic                     → critic node, optional thinking model
+    #     small:  Qwen3-8B thinking mode (same pod as router, 0 extra GPUs)
+    #     medium: R1-Distill-32B FP8 (dedicated GPU)
+    #     large:  R1-Distill-70B FP8 (dedicated GPU pair)
+    #   Coder (Qwen3-Coder-Next)   → direct IDE endpoint (not used by planner)
+    #   Summarizer (Qwen2.5-0.5B)  → pivot history summarization
     #
     # In "small" profile (no general model), executor falls back to critic endpoint.
 
@@ -46,9 +49,12 @@ class Settings(BaseSettings):
     executor_model_url: str = "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
     executor_model_name: str = "synesis-executor"
 
-    # Critic model (R1 deep reasoning — V3: dedicated critic)
-    critic_model_url: str = "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
-    critic_model_name: str = "synesis-executor"
+    # Critic model — defaults to synesis-critic-predictor Service which resolves to:
+    #   small:  supervisor-critic pod (Qwen3-8B thinking mode)
+    #   medium/large: executor pod (R1-Distill) when overlays redirect the Service
+    # Dev overlay overrides these to point at the supervisor-critic endpoint.
+    critic_model_url: str = "http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1"
+    critic_model_name: str = "synesis-critic"
 
     # Writer model (defaults to general model endpoint; same physical model)
     writer_model_url: str = ""
