@@ -653,10 +653,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 from_era = last_lang or "unknown"
                 to_era = current_lang or "unknown"
                 active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
-            elif context_pivot and last_ctx and curr_deliverable != last_deliverable:
+            elif context_pivot and last_ctx and curr_needs_sandbox != last_needs_sandbox:
                 pivot_type = "deliverable"
-                from_era = last_deliverable
-                to_era = curr_deliverable
+                from_era = "code" if last_needs_sandbox else "explain_only"
+                to_era = "code" if curr_needs_sandbox else "explain_only"
                 active_domain_refs_for_summary = last_ctx[1]
             else:
                 pivot_type = "domain"

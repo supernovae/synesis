@@ -657,7 +657,9 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.debug("worker_effective_size=%s", effective_size)
 
         # ── Token budget: continuous difficulty curve ──
-        _MIN_BUDGET = 64
+        # With R1's --reasoning-parser, max_completion_tokens includes BOTH
+        # reasoning and content tokens.  A low floor starves content output.
+        _MIN_BUDGET = 512
         _MAX_BUDGET = 4096
         raw_complexity = state.get("complexity_score", 0) or 0
         difficulty = min(1.0, float(raw_complexity) / 50.0)
@@ -673,7 +675,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             re.IGNORECASE,
         )
         if _SOCIAL_ACK_RE.match(task_desc.strip()):
-            token_budget = 128
+            token_budget = 256
             logger.debug("worker_social_ack_budget", extra={"task": task_desc[:30]})
 
         task_size = state.get("task_size", "medium")
