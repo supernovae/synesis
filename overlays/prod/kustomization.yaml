@@ -30,7 +30,7 @@ patches:
         value: 2
 
   # Scale planner for HA, warning-level logging in production.
-  # Large profile: dedicated R1-70B critic on executor deployment.
+  # Large profile: dedicated R1-70B critic (synesis-critic Service targets critic pod by default).
   # Uses strategic merge patch (targets env by name, immune to index drift).
   - target:
       kind: Deployment
@@ -49,10 +49,6 @@ patches:
                 env:
                   - name: SYNESIS_LOG_LEVEL
                     value: "warning"
-                  - name: SYNESIS_CRITIC_MODEL_URL
-                    value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
-                  - name: SYNESIS_CRITIC_MODEL_NAME
-                    value: "synesis-executor"
 
   # Scale SearXNG for HA in prod
   - target:

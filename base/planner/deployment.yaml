@@ -35,29 +35,29 @@ spec:
               protocol: TCP
           env:
             # V3 Model Endpoints — see models.yaml for profile assignments
-            # Router (Qwen3-8B) → supervisor, planner, advisor roles
+            # Router (synesis-router) → supervisor, planner, advisor roles
             - name: SYNESIS_SUPERVISOR_MODEL_URL
-              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
-              value: "synesis-supervisor"
+              value: "synesis-router"
             - name: SYNESIS_PLANNER_MODEL_URL
-              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_PLANNER_MODEL_NAME
-              value: "synesis-supervisor"
+              value: "synesis-router"
             - name: SYNESIS_ADVISOR_MODEL_URL
-              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_ADVISOR_MODEL_NAME
-              value: "synesis-supervisor"
-            # General/Worker (defaults to executor endpoint; medium+ gets dedicated general)
+              value: "synesis-router"
+            # General/Worker (synesis-general) → executor/worker response generation
             - name: SYNESIS_EXECUTOR_MODEL_URL
-              value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-general.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_EXECUTOR_MODEL_NAME
-              value: "synesis-executor"
-            # Critic (R1-Distill-32B — same physical model as executor in small profile)
+              value: "synesis-general"
+            # Critic (synesis-critic) — Service selector is profile-aware
             - name: SYNESIS_CRITIC_MODEL_URL
-              value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_CRITIC_MODEL_NAME
-              value: "synesis-executor"
+              value: "synesis-critic"
             # Summarizer
             - name: SYNESIS_SUMMARIZER_MODEL_URL
               value: "http://synesis-summarizer.synesis-models.svc.cluster.local:8080/v1"

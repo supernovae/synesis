@@ -19,7 +19,7 @@ resources:
 
 patches:
   # Staging uses same model config as prod but with info-level logging.
-  # Medium/large profile: dedicated R1 critic on executor deployment.
+  # Medium/large profile: dedicated R1 critic (synesis-critic Service targets critic pod by default).
   # Uses strategic merge patch (targets env by name, immune to index drift).
   - target:
       kind: Deployment
@@ -37,10 +37,6 @@ patches:
                 env:
                   - name: SYNESIS_LOG_LEVEL
                     value: "info"
-                  - name: SYNESIS_CRITIC_MODEL_URL
-                    value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
-                  - name: SYNESIS_CRITIC_MODEL_NAME
-                    value: "synesis-executor"
 
   # Set Route domain for staging
   - target:

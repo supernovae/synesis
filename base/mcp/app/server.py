@@ -34,9 +34,9 @@ PLANNER_URL = os.environ.get(
 )
 CRITIC_URL = os.environ.get(
     "SYNESIS_CRITIC_URL",
-    "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1",
+    "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1",
 )
-CRITIC_MODEL = os.environ.get("SYNESIS_CRITIC_MODEL", "synesis-executor")
+CRITIC_MODEL = os.environ.get("SYNESIS_CRITIC_MODEL", "synesis-critic")
 
 app = FastAPI(title="Synesis MCP Server", version="0.1.0")
 

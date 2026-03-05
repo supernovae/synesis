@@ -1,23 +1,23 @@
-# Public HTTPS route for direct vLLM executor access (Cursor, Claude Code, etc.).
+# Public HTTPS route for direct vLLM coder access (Cursor, Claude Code, etc.).
 # Override spec.host via overlay to match your cluster ingress domain.
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: synesis-executor-api
+  name: synesis-coder-api
   namespace: synesis-models
   labels:
-    app.kubernetes.io/name: synesis-executor
+    app.kubernetes.io/name: synesis-coder
     app.kubernetes.io/part-of: synesis
   annotations:
     haproxy.router.openshift.io/timeout: 300s
 spec:
-  host: synesis-executor.apps.openshiftdemo.dev
+  host: synesis-coder.apps.openshiftdemo.dev
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
   to:
     kind: Service
-    name: synesis-executor
+    name: synesis-coder
     weight: 100
   port:
     targetPort: http

@@ -92,41 +92,29 @@ patches:
         value: "256Mi"
 
   # Small profile: no dedicated R1 critic — Qwen3-8B handles critic via thinking mode.
-  # Scale executor deployment to 0 (frees 1 GPU for the coder).
+  # Scale R1 critic deployment to 0 (frees 1 GPU for the coder).
   - target:
       kind: Deployment
-      name: synesis-executor
+      name: synesis-critic
     patch: |
       - op: replace
         path: /spec/replicas
         value: 0
 
-  # Small profile: 3-GPU layout with dedicated general model.
-  # Router+Critic on GPU 0 (Qwen3-8B), General on GPU 1 (Qwen3.5-35B),
-  # Coder on GPU 2. R1 executor scaled to 0.
-  # Worker uses the dedicated general model for response generation.
+  # Small profile: redirect synesis-critic Service to router pod.
+  # The router serves model name "synesis-critic" via --served-model-name alias,
+  # using Qwen3 thinking mode for critic requests.
   - target:
-      kind: Deployment
-      name: synesis-planner
+      kind: Service
+      name: synesis-critic
     patch: |
-      apiVersion: apps/v1
-      kind: Deployment
+      apiVersion: v1
+      kind: Service
       metadata:
-        name: synesis-planner
+        name: synesis-critic
       spec:
-        template:
-          spec:
-            containers:
-              - name: planner
-                env:
-                  - name: SYNESIS_CRITIC_MODEL_URL
-                    value: "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
-                  - name: SYNESIS_CRITIC_MODEL_NAME
-                    value: "synesis-critic"
-                  - name: SYNESIS_EXECUTOR_MODEL_URL
-                    value: "http://synesis-general.synesis-models.svc.cluster.local:8080/v1"
-                  - name: SYNESIS_EXECUTOR_MODEL_NAME
-                    value: "synesis-general"
+        selector:
+          app: synesis-router
 
   # Scale warm pool to 1 replica in dev
   - target:

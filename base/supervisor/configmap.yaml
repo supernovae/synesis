@@ -16,8 +16,8 @@ data:
 
     # Model endpoints: vLLM CPU (supervisor/critic) port 8080, CUDA (executor) port 8080
     services:
-      synesis-supervisor:
-        endpoint: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
+      synesis-router:
+        endpoint: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5
@@ -29,21 +29,8 @@ data:
           backoff_max_seconds: 5.0
         timeout_seconds: 30
 
-      synesis-planner:
-        endpoint: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
-        health_path: "/health"
-        circuit_breaker:
-          failure_threshold: 5
-          reset_timeout_seconds: 60
-          half_open_max_requests: 2
-        retry:
-          max_attempts: 3
-          backoff_base_seconds: 0.5
-          backoff_max_seconds: 5.0
-        timeout_seconds: 60
-
-      synesis-executor:
-        endpoint: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
+      synesis-general:
+        endpoint: "http://synesis-general.synesis-models.svc.cluster.local:8080/v1"
         health_path: "/health"
         circuit_breaker:
           failure_threshold: 5

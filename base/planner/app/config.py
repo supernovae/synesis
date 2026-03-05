@@ -24,35 +24,32 @@ class Settings(BaseSettings):
 
     # Model Endpoints — see models.yaml for profile-specific assignments.
     #
-    # Role mapping:
-    #   Router (Qwen3-8B)          → supervisor, planner, advisor nodes
-    #   General (Qwen3.5-35B-A3B)  → worker node (executor), writer pass
-    #   Critic                     → critic node, optional thinking model
-    #     small:  Qwen3-8B thinking mode (same pod as router, 0 extra GPUs)
-    #     medium: R1-Distill-32B FP8 (dedicated GPU)
-    #     large:  R1-Distill-70B FP8 (dedicated GPU pair)
-    #   Coder (Qwen3-Coder-Next)   → direct IDE endpoint (not used by planner)
-    #   Summarizer (Qwen2.5-0.5B)  → pivot history summarization
-    #
-    # In small profile, dev overlay redirects executor to synesis-general.
+    # Role mapping (1:1 with models.yaml roles):
+    #   Router  (synesis-router)  → supervisor, planner, advisor nodes
+    #   General (synesis-general) → worker node (executor), writer pass
+    #   Critic  (synesis-critic)  → critic node, optional thinking model
+    #     small:  Qwen3-8B thinking mode (Service targets router pod)
+    #     medium: R1-Distill-32B FP8 (Service targets dedicated critic pod)
+    #     large:  R1-Distill-70B FP8 (Service targets dedicated critic pod)
+    #   Coder   (synesis-coder)   → direct IDE endpoint (not used by planner)
+    #   Summarizer (synesis-summarizer) → pivot history summarization
 
     # Router model (serves supervisor, planner, advisor roles)
-    supervisor_model_url: str = "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
-    supervisor_model_name: str = "synesis-supervisor"
-    planner_model_url: str = "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
-    planner_model_name: str = "synesis-supervisor"
-    advisor_model_url: str = "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
-    advisor_model_name: str = "synesis-supervisor"
+    supervisor_model_url: str = "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+    supervisor_model_name: str = "synesis-router"
+    planner_model_url: str = "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+    planner_model_name: str = "synesis-router"
+    advisor_model_url: str = "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+    advisor_model_name: str = "synesis-router"
     advisor_enabled: bool = True
 
     # General/Worker model (serves worker/executor and writer roles)
-    executor_model_url: str = "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
-    executor_model_name: str = "synesis-executor"
+    executor_model_url: str = "http://synesis-general.synesis-models.svc.cluster.local:8080/v1"
+    executor_model_name: str = "synesis-general"
 
-    # Critic model — defaults to synesis-critic Service which resolves to:
-    #   small:  supervisor-critic pod (Qwen3-8B thinking mode)
-    #   medium/large: executor pod (R1-Distill) when overlays redirect the Service
-    # Dev overlay overrides these to point at the supervisor-critic endpoint.
+    # Critic model — synesis-critic Service resolves to:
+    #   small:  router pod (Qwen3-8B thinking mode, selector patched in dev overlay)
+    #   medium/large: critic pod (R1-Distill, base selector)
     critic_model_url: str = "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
     critic_model_name: str = "synesis-critic"
 

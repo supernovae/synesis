@@ -6,18 +6,19 @@ Synesis deploys GPU models via vLLM and loads weights from per-role PVCs. All mo
 
 | Deployment | Role | GPU | PVC | Model |
 |-----------|------|-----|-----|-------|
-| synesis-supervisor-critic | Router | 1 × L40S | synesis-router-pvc | Qwen3-8B FP8 |
-| synesis-executor | Critic | 1 × L40S | synesis-critic-pvc | R1-Distill-32B FP8 |
+| synesis-router | Router | 1 × L40S | synesis-router-pvc | Qwen3-8B FP8 |
+| synesis-general | General | 1 × L40S | synesis-general-pvc | Qwen3.5-35B-A3B FP8 |
+| synesis-critic | Critic | 1 × L40S | synesis-critic-pvc | R1-Distill-32B FP8 |
 | synesis-coder | Coder | 1 × L40S | synesis-coder-pvc | Qwen3-Coder-Next |
 | synesis-summarizer | Summarizer | CPU | (hf:// direct) | Qwen2.5-0.5B |
 
-The Router deployment serves supervisor, planner, and advisor roles from a single model instance with different inference params (temperature, prompt) per request.
+The Router deployment serves supervisor, planner, and advisor roles from a single model instance with different inference params (temperature, prompt) per request. In small profile, it also serves the critic role via thinking mode.
 
 ## Deployment Profiles
 
 See `models.yaml` for small/medium/large profiles:
 
-- **Small** (2 GPU): Router + Critic share GPU 0; Coder on GPU 1
+- **Small** (3 GPU): Router+Critic on GPU 0 (Service alias); General on GPU 1; Coder on GPU 2
 - **Medium** (4 GPU): All roles dedicated
 - **Large** (8 GPU): HPA auto-scaling for Coder
 
@@ -32,8 +33,8 @@ See `models.yaml` for small/medium/large profiles:
 `./scripts/deploy.sh dev` applies everything. Or manually:
 
 ```bash
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-supervisor-critic.yaml
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-executor.yaml
+oc apply -n synesis-models -f base/model-serving/deployment-vllm-router.yaml
+oc apply -n synesis-models -f base/model-serving/deployment-vllm-critic.yaml
 oc apply -n synesis-models -f base/model-serving/deployment-vllm-coder.yaml
 ```
 
@@ -48,16 +49,16 @@ oc get deployments -n synesis-models
 
 | Service | URL | Role |
 |---------|-----|------|
-| synesis-supervisor | `http://synesis-supervisor.synesis-models.svc:8080/v1` | Router / Supervisor / Planner |
-| synesis-critic | `http://synesis-critic.synesis-models.svc:8080/v1` | Critic (same backend as supervisor) |
-| synesis-executor | `http://synesis-executor.synesis-models.svc:8080/v1` | Critic (R1 deep reasoning) |
+| synesis-router | `http://synesis-router.synesis-models.svc:8080/v1` | Router / Supervisor / Planner |
+| synesis-critic | `http://synesis-critic.synesis-models.svc:8080/v1` | Critic (routes to router in small, R1 in medium+) |
+| synesis-general | `http://synesis-general.synesis-models.svc:8080/v1` | General / Worker / Writer |
 | synesis-coder | `http://synesis-coder.synesis-models.svc:8080/v1` | Coder (IDE direct access) |
 
 ## Routes
 
 | Route | Target | Purpose |
 |-------|--------|---------|
-| synesis-executor-api | synesis-executor | Direct IDE access to Coder endpoint |
+| synesis-coder-api | synesis-coder | Direct IDE access to Coder endpoint |
 
 ## UDS (Unix Domain Socket)
 

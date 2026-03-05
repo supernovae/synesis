@@ -78,8 +78,8 @@ After download completes:
 Or apply model-serving manifests directly:
 
 ```bash
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-supervisor-critic.yaml
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-executor.yaml
+oc apply -n synesis-models -f base/model-serving/deployment-vllm-router.yaml
+oc apply -n synesis-models -f base/model-serving/deployment-vllm-critic.yaml
 oc apply -n synesis-models -f base/model-serving/deployment-vllm-coder.yaml
 ```
 

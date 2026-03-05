@@ -30,10 +30,8 @@ def _log_model_response_headers_sync(response: Any) -> None:
             return
         url = str(getattr(request, "url", "")) if request else ""
         service = "unknown"
-        if "synesis-supervisor" in url:
-            service = "supervisor"
-        elif "synesis-executor" in url:
-            service = "executor"
+        if "synesis-router" in url:
+            service = "router"
         elif "synesis-critic" in url:
             service = "critic"
         elif "synesis-general" in url:

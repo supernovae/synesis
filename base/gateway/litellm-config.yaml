@@ -27,15 +27,15 @@ data:
       # Router (Qwen3-8B FP8) — supervisor, planner, advisor roles
       - model_name: synesis-router
         litellm_params:
-          model: openai/synesis-supervisor
-          api_base: http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1
+          model: openai/synesis-router
+          api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.3
 
       # Critic — routes to synesis-critic Service.
-      # Small profile: resolves to Qwen3-8B (supervisor-critic pod, thinking mode).
-      # Medium/large: resolves to R1-Distill (executor pod) when executor is deployed.
+      # Small profile: resolves to Qwen3-8B (router pod, thinking mode).
+      # Medium/large: resolves to R1-Distill (critic pod) when deployed.
       # The critic Service selector is profile-aware via Kustomize overlays.
       - model_name: synesis-critic
         litellm_params:
@@ -64,7 +64,7 @@ data:
           temperature: 0.2
 
       # Thinking model — Open WebUI optional "think out loud" model.
-      # Small: uses Qwen3-8B thinking mode; medium/large: uses R1 via executor.
+      # Small: uses Qwen3-8B thinking mode; medium/large: uses R1 via critic.
       - model_name: synesis-thinking
         litellm_params:
           model: openai/synesis-critic
@@ -72,15 +72,6 @@ data:
           api_key: "not-needed"
           max_tokens: 8192
           temperature: 0.2
-
-      # Router alias (same as synesis-supervisor)
-      - model_name: synesis-supervisor
-        litellm_params:
-          model: openai/synesis-supervisor
-          api_base: http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1
-          api_key: "not-needed"
-          max_tokens: 4096
-          temperature: 0.3
 
     litellm_settings:
       drop_params: true

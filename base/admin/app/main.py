@@ -88,12 +88,12 @@ def _safe_query(
 # Service endpoints to probe (vLLM uses /health at root; planner/Milvus use their own paths)
 STATUS_SERVICES = [
     {
-        "name": "synesis-supervisor",
-        "url": "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/health",
+        "name": "synesis-router",
+        "url": "http://synesis-router.synesis-models.svc.cluster.local:8080/health",
     },
     {
-        "name": "synesis-executor",
-        "url": "http://synesis-executor.synesis-models.svc.cluster.local:8080/health",
+        "name": "synesis-general",
+        "url": "http://synesis-general.synesis-models.svc.cluster.local:8080/health",
     },
     {"name": "synesis-critic", "url": "http://synesis-critic.synesis-models.svc.cluster.local:8080/health"},
     {"name": "synesis-planner", "url": "http://synesis-planner.synesis-planner.svc.cluster.local:8000/health"},

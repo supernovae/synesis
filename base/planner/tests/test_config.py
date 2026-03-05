@@ -33,7 +33,7 @@ class TestSettingsValidation:
 
     def test_default_settings_valid(self):
         s = self._make_settings()
-        assert s.executor_model_name == "synesis-executor"
+        assert s.executor_model_name == "synesis-general"
         assert s.rag_reranker in ("flashrank", "bge", "none")
 
     def test_all_reranker_values(self):

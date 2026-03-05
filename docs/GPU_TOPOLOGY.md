@@ -1,32 +1,35 @@
 # GPU Topology
 
-How Synesis model serving uses GPU nodes for supervisor, critic, and executor.
+How Synesis model serving uses GPU nodes for router, general, critic, and coder.
 
-## Current: 2x L40S (G6e.4xlarge)
+## Current: 3x L40S (3x g6e.2xlarge)
 
-**One GPU server** with 2x L40S (48GB each, 96GB total). Two deployments split the GPUs:
+**Three GPU instances** with 1x L40S each (48GB each, 144GB total). One deployment per GPU:
 
-| Deployment                 | Model                                          | Roles              | GPU | Notes                              |
-|---------------------------|-------------------------------------------------|--------------------|-----|------------------------------------|
-| synesis-supervisor-critic | Qwen3-8B FP8-dynamic                            | Supervisor, Planner, Critic | 1   | Shared model; different temps/prompts per request |
-| synesis-executor          | DeepSeek R1-Distill-Qwen-32B FP8-dynamic       | Executor (Worker)  | 1   | Code generation + knowledge Q&A   |
+| Deployment      | Model                                    | Roles                              | GPU | Notes                                   |
+|----------------|------------------------------------------|-------------------------------------|-----|-----------------------------------------|
+| synesis-router | Qwen3-8B FP8-dynamic                     | Router, Planner, Advisor, Critic   | 0   | Shared model; thinking mode for critic  |
+| synesis-general| Qwen3.5-35B-A3B FP8                      | General, Writer                    | 1   | Dedicated worker/response generation    |
+| synesis-coder  | Qwen3-Coder-30B-A3B FP8                  | Coder                              | 2   | Direct IDE endpoint                     |
 
 Summarizer (Qwen2.5-0.5B) runs on CPU via KServe -- no GPU needed.
 
-Both GPU deployments use `nodeSelector: nvidia.com/gpu.product: NVIDIA-L40S` so they schedule on the same node and each gets one GPU.
+All GPU deployments use `nodeSelector: nvidia.com/gpu.product: NVIDIA-L40S` so they schedule on L40S nodes.
 
 ## Model Architecture
 
-- **Supervisor, Planner, and Critic**: One Qwen3-8B FP8-dynamic instance, three logical roles. Different `ChatOpenAI` instances with role-specific prompts, temperature, and `max_completion_tokens`. Two K8s Services route to the same pod (`synesis-supervisor` and `synesis-critic`).
-- **Executor**: DeepSeek R1-Distill-Qwen-32B FP8-dynamic. Separate deployment with FP8 KV cache (`--kv-cache-dtype=fp8_e5m2`). Always produces `<think>...</think>` reasoning before content.
+- **Router** (synesis-router): One Qwen3-8B FP8-dynamic instance, multiple logical roles. Different `ChatOpenAI` instances with role-specific prompts, temperature, and `max_completion_tokens`. In small profile, also serves the critic role via `--served-model-name=synesis-router,synesis-critic`. The `synesis-critic` Service selector is patched to target the router pod.
+- **General** (synesis-general): Qwen3.5-35B-A3B FP8 MoE. Dedicated worker/writer model for response generation.
+- **Critic** (synesis-critic): DeepSeek R1-Distill-Qwen-32B FP8-dynamic. Scaled to 0 in small profile. Medium/large profiles use the dedicated R1 deployment. FP8 KV cache (`--kv-cache-dtype=fp8_e4m3`). Always produces `<think>...</think>` reasoning before content.
 - **Summarizer**: Qwen2.5-0.5B on CPU (KServe InferenceService). Used for pivot history summarization.
 
 ## Flexible Scaling
 
-| Topology        | GPUs | Use case                          |
-|-----------------|------|-----------------------------------|
-| 2x L40S (now)  | 2    | G6e.4xlarge; default              |
-| 4x L40S        | 4    | Scale executor replicas or split workloads |
+| Topology         | GPUs | Use case                                   |
+|-----------------|------|--------------------------------------------|
+| 3x L40S (now)   | 3    | 3x g6e.2xlarge; small profile              |
+| 4x L40S         | 4    | Medium; all roles dedicated                 |
+| 8x GPU          | 8    | Large; HPA auto-scaling for coder           |
 
 Adjust `nodeSelector`, `replicas`, and `resources` in `base/model-serving/deployment-vllm-*.yaml` as needed.
 
@@ -40,7 +43,7 @@ Verify:
 
 ```bash
 oc get pods -n synesis-models
-oc get deployment synesis-supervisor-critic synesis-executor -n synesis-models
+oc get deployment synesis-router synesis-general synesis-coder -n synesis-models
 ```
 
 ## UDS (low-latency, no OVN)

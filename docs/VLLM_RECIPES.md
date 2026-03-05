@@ -6,11 +6,11 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 
 | Model | Role | Quantization | VRAM | Deployment |
 |-------|------|-------------|------|------------|
-| **Qwen3-8B FP8-dynamic** | Router, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-supervisor-critic.yaml` |
+| **Qwen3-8B FP8-dynamic** | Router, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-router.yaml` |
 | **Qwen3.5-35B-A3B-FP8** | General, Writer | FP8 (Qwen official) | ~35 GB | `deployment-vllm-general.yaml` |
 | **Qwen3-Coder-30B-A3B-FP8** | Coder (small) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
 | **Qwen3-Coder-Next-FP8** | Coder (medium+) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
-| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (medium+) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-executor.yaml` |
+| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (medium+) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
 | **Qwen2.5-0.5B-Instruct** | Summarizer | none (CPU) | 0 | KServe InferenceService |
 
 See [models.yaml](../models.yaml) for the authoritative model registry.
@@ -94,7 +94,7 @@ Plenty of headroom. The 30B-A3B model is the right fit for single-GPU deployment
 
 ## Critic: DeepSeek R1-Distill-Qwen-32B FP8
 
-Key vLLM args (from `base/model-serving/deployment-vllm-executor.yaml`):
+Key vLLM args (from `base/model-serving/deployment-vllm-critic.yaml`):
 
 ```
 --quantization=fp8
@@ -114,10 +114,10 @@ Key vLLM args (from `base/model-serving/deployment-vllm-executor.yaml`):
 
 ## Router + Critic (small profile): Qwen3-8B FP8-dynamic
 
-Key vLLM args (from `base/model-serving/deployment-vllm-supervisor-critic.yaml`):
+Key vLLM args (from `base/model-serving/deployment-vllm-router.yaml`):
 
 ```
---served-model-name=synesis-supervisor,synesis-critic
+--served-model-name=synesis-router,synesis-critic
 --generation-config=vllm
 --enable-prefix-caching
 --max-model-len=32768
@@ -128,7 +128,7 @@ Key vLLM args (from `base/model-serving/deployment-vllm-supervisor-critic.yaml`)
 
 - **No `--quantization` flag**: vLLM auto-detects compressed-tensors FP8 format from the model's `config.json`. Native FP8 tensor core ops on L40S.
 - **Prefix caching**: Enabled. Caches KV states for repeated system prompts across router/planner/critic roles.
-- **Dual model names**: Serves as both `synesis-supervisor` and `synesis-critic`. Two K8s Services route to the same pod.
+- **Dual model names**: Serves as both `synesis-router` and `synesis-critic`. In small profile, the `synesis-critic` Service selector is patched to target the router pod.
 - **Thinking mode (Qwen3)**: `--enable-reasoning --reasoning-parser=qwen3` separates `<think>` tokens into `reasoning_content`, keeping `content` clean for JSON parsing.
 - **Per-request thinking control**: Router/planner/advisor pass `enable_thinking=False` via `chat_template_kwargs` for fast ~100ms classification. Critic passes `enable_thinking=True` for chain-of-thought reasoning.
 - **Small profile GPU savings**: Eliminates the need for a separate R1 deployment. One 8B model on one GPU handles both routing and critiquing. Medium/large profiles deploy dedicated R1 for stronger critic reasoning.

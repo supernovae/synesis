@@ -185,7 +185,7 @@ discover_runtimes() {
     deploys=$(oc get deployments -n synesis-models -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
     if [[ -n "$deploys" ]]; then
         log "  Model deployments in synesis-models: $deploys"
-        for r in synesis-supervisor-critic synesis-executor synesis-coder synesis-general; do
+        for r in synesis-router synesis-critic synesis-coder synesis-general; do
             echo "$deploys" | grep -q "$r" || log "  WARNING: $r not found (deploy creates it)"
         done
     fi
@@ -421,16 +421,16 @@ if [[ "$ISVC_SKIP" == "true" ]]; then
     log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
     log "  Summarizer and model deployments must be applied manually."
 else
-    if oc get deployment synesis-supervisor-critic -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
+    if oc get deployment synesis-router -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
         log ""
-        oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-supervisor-critic,synesis-executor,synesis-coder)' 2>/dev/null || true
-        oc get pods -n synesis-models -l 'app in (synesis-supervisor-critic,synesis-executor,synesis-coder)' 2>/dev/null || true
+        oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
+        oc get pods -n synesis-models -l 'app in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
         oc get inferenceservice -n synesis-models 2>/dev/null || true
         log ""
         log "  Model topology (small profile): router (1 GPU) + critic (1 GPU) + coder (1 GPU) on L40S"
         log "  See models.yaml for profile sizing. Wait for pods Ready."
         pending=$(oc get pods -n synesis-models --no-headers 2>/dev/null \
-            | grep -E "supervisor-critic|executor|coder" | grep -E "Pending|ContainerCreating" || true)
+            | grep -E "synesis-router|synesis-critic|synesis-coder|synesis-general" | grep -E "Pending|ContainerCreating" || true)
         if [[ -n "$pending" ]]; then
             log ""
             log "  WARNING: Model pods Pending. Common causes:"
@@ -438,7 +438,7 @@ else
             log "    - PVC not bound: check StorageClass gp3-high exists"
             log "    - No GPU nodes: oc get nodes -l nvidia.com/gpu.product=NVIDIA-L40S"
             log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --profile=small"
-            log "  Inspect: oc describe pod -n synesis-models -l app=synesis-supervisor-critic"
+            log "  Inspect: oc describe pod -n synesis-models -l app=synesis-router"
         fi
     else
         log "  Model deployments may not be ready yet."

@@ -24,8 +24,8 @@ if ! oc whoami &>/dev/null; then
     exit 1
 fi
 
-# GPU model deployments: supervisor-critic (1 pod) and executor (1 pod)
-for deploy in synesis-supervisor-critic synesis-executor synesis-general synesis-coder; do
+# GPU model deployments: router (1 pod), critic (1 pod, scaled to 0 in small), general, coder
+for deploy in synesis-router synesis-critic synesis-general synesis-coder; do
     app="$deploy"
     pod=$(oc get pods -n "$NAMESPACE" -l "app=$app" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -z "$pod" ]]; then
@@ -45,7 +45,7 @@ for deploy in synesis-supervisor-critic synesis-executor synesis-general synesis
     fi
 
     # Run nvidia-smi in the pod (if available) to show GPU memory usage
-    for c in vllm-supervisor-critic vllm-executor kserve-container ""; do
+    for c in vllm-router vllm-critic vllm-general vllm-coder kserve-container ""; do
         if [[ -z "$c" ]]; then
             oc exec -n "$NAMESPACE" "$pod" -- nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>/dev/null && break
         else

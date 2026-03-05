@@ -15,12 +15,12 @@ resources:
   - serving-runtime-vllm-cpu.yaml
   - inference-service-summarizer.yaml
   # Router: Qwen3-8B — taxonomy routing, fast classification. 1 GPU.
-  - deployment-vllm-supervisor-critic.yaml
+  - deployment-vllm-router.yaml
   # General: Qwen3.5-35B-A3B — worker/writer response generation. 1 GPU.
   - deployment-vllm-general.yaml
   # Critic: R1-Distill-32B — deep reasoning critic. 1 GPU (scaled to 0 in small).
-  - deployment-vllm-executor.yaml
+  - deployment-vllm-critic.yaml
   # Coder: Qwen3-Coder — direct IDE endpoint for agentic coding. 1 GPU.
   - deployment-vllm-coder.yaml
   # Route for direct Coder/IDE access
-  - route-executor.yaml
+  - route-coder.yaml
