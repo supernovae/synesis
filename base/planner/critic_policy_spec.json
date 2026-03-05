@@ -1,0 +1,121 @@
+{
+  "version": "1.0",
+  "langgraph_topology": {
+    "nodes": ["entry_classifier", "strategic_advisor", "supervisor", "planner", "context_curator", "worker", "patch_integrity_gate", "sandbox", "lsp_analyzer", "critic", "respond"],
+    "critic_incoming": ["sandbox"],
+    "critic_outgoing": ["respond", "supervisor"],
+    "retry_loop": "critic -> supervisor -> context_curator -> worker -> patch_integrity_gate -> sandbox -> critic",
+    "evidence_sources": ["sandbox", "lsp", "rag"]
+  },
+  "state_schema": {
+    "taxonomy": {
+      "selected_class": "state.intent_class (knowledge|writing|code|debugging|review|planning|data_transform|tool_orchestrated|personal_guidance|creative_ideation)",
+      "active_vertical": "resolve_active_vertical(active_domain_refs, platform_context)"
+    },
+    "critic": {
+      "active_mode": "safety_ii|tiered|advisory from vertical_prompts",
+      "mode_spec": "intent_prompts.critic_behavior_block + vertical_prompts.critic_mode",
+      "approved": "state.critic_approved",
+      "should_continue": "state.critic_should_continue",
+      "continue_reason": "state.critic_continue_reason",
+      "feedback": "state.critic_feedback"
+    },
+    "rag": {
+      "evidence": "normalized from state.tool_refs; each: {evidence_id, source_type, source_ref, content, trust}",
+      "tool_refs": "state.tool_refs (sandbox, lsp, rag)"
+    },
+    "retry": {
+      "attempt": "state.iteration_count",
+      "max_attempts": "state.max_iterations",
+      "failures": "append-only; from failure_context, failure_ids_seen, failure_type",
+      "used_evidence_ids": "ids from tool_refs cited in blocking_issues",
+      "decisions": "append-only PASS|RETRY|FAIL with rationale",
+      "diversification_history": "state.revision_strategies_tried",
+      "escalations": "append-only when mode escalated",
+      "constraints": "state.revision_constraints (append-only keys)"
+    }
+  },
+  "critic_policy_engine": {
+    "phases": ["advisory_bypass", "evidence_gate", "llm_eval", "retry_decision"],
+    "advisory_bypass": "When worker_persona != Architect OR (tiered + basic): skip LLM, approve if exit_code in (0,None) and lint+security passed",
+    "evidence_gate": "When approved=false: require >=1 blocking_issue with evidence_refs ref_type in (lsp, sandbox). Override to approved if missing",
+    "llm_eval": "Invoke critic LLM with base + domain_block + intent_block. Parse CriticOut",
+    "retry_decision": "PASS->respond; RETRY->supervisor when not approved and should_continue and attempt < max"
+  },
+  "scoring_model": {
+    "pass_threshold": "approved=true",
+    "fail_threshold": "approved=false AND has_valid_evidence_refs",
+    "force_pass_at_max": "attempt >= max_attempts -> approved=true (degraded)",
+    "evidence_required_modes": ["debugging", "review"],
+    "hallucination_sensitive_modes": ["knowledge"],
+    "schema_strict_modes": ["data_transform"]
+  },
+  "evidence_gating": {
+    "valid_ref_types": ["lsp", "sandbox"],
+    "ref_id_format": "{tool}_{request_id[:8]}",
+    "when_blocking": "Every blocking_issue MUST have evidence_refs with ref_type in valid_ref_types",
+    "when_missing": "Override approved to true; add nonblocking note",
+    "needs_more_evidence": "CriticOut.need_more_evidence; route to supervisor; emit evidence_needed (query_plan) without calling tools"
+  },
+  "retry_controller": {
+    "increment_attempt": "When RETRY for needs_revision (NOT when need_more_evidence)",
+    "max_attempts_default": 3,
+    "diversification": "revision_strategy from strategy_candidates; append to revision_strategies_tried",
+    "same_failure_shortcircuit": "failure_id in failure_ids_seen -> skip retry, route to critic->respond",
+    "fail_fast": "iteration >= max_iterations -> PASS (forced), route to respond"
+  },
+  "escalation_policy": {
+    "trigger": "Repeated RETRY with same failure_pattern; at max_attempts",
+    "action": "Append to escalations; set carried_uncertainties_signal",
+    "mode_escalation": "tiered basic->advanced when iteration>0; no thrashing (do not downgrade)"
+  },
+  "monotonicity_invariants": [
+    "retry.attempt only increments on needs_revision RETRY",
+    "retry.failures only appends",
+    "retry.used_evidence_ids only appends unique",
+    "retry.decisions only appends",
+    "retry.diversification_history only appends",
+    "retry.escalations only appends",
+    "retry.constraints only add keys; never delete"
+  ],
+  "node_specs": {
+    "critic": {
+      "node_name": "critic",
+      "purpose": "Evidence-gated evaluation; PASS/RETRY/FAIL; intent+domain aware",
+      "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "worker_persona", "execution_exit_code", "execution_lint_passed", "execution_security_passed"],
+      "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "need_more_evidence", "iteration_count", "next_node"],
+      "decision_logic": "advisory_bypass -> PASS if exit ok; else evidence_gate on LLM output; RETRY if not approved and attempt<max",
+      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append carried_uncertainties"]
+    }
+  },
+  "examples": [
+    {
+      "id": "example_1",
+      "scenario": "Code gen, sandbox passes, critic approves",
+      "initial_state": {"iteration_count": 0, "max_iterations": 3, "generated_code": "print('hi')", "execution_exit_code": 0, "execution_lint_passed": true, "tool_refs": [{"tool": "sandbox", "request_id": "abc12345"}]},
+      "attempt_0_candidate": "print('hi')",
+      "critic_eval": {"approved": true},
+      "decision": "PASS",
+      "state_diff": {"iteration_count": 1},
+      "outcome": "PASS; route to respond"
+    },
+    {
+      "id": "example_2",
+      "scenario": "Debugging intent, lint fails, blocking_issue cites sandbox",
+      "initial_state": {"iteration_count": 0, "intent_class": "debugging", "execution_exit_code": 1, "execution_lint_passed": false, "tool_refs": [{"tool": "sandbox", "request_id": "xyz67890", "result_hash": "abc"}]},
+      "attempt_0_candidate": "code with syntax error",
+      "critic_eval": {"approved": false, "blocking_issues": [{"evidence_refs": [{"ref_type": "sandbox", "id": "sandbox_stage_1"}]}]},
+      "decision": "RETRY",
+      "state_diff": {"iteration_count": 1, "retry.failures": [{"failure_type": "lint", "evidence_id": "sandbox_xyz67890"}], "retry.decisions": [{"decision": "RETRY", "rationale": "Lint failure"}]},
+      "outcome": "RETRY; route to supervisor->context_curator->worker"
+    },
+    {
+      "id": "example_3",
+      "scenario": "Max iterations reached, force PASS",
+      "initial_state": {"iteration_count": 3, "max_iterations": 3, "critic_approved": false},
+      "decision": "PASS (forced)",
+      "state_diff": {"critic_approved": true, "carried_uncertainties_signal": {"failure_pattern": "runtime"}},
+      "outcome": "PASS forced; route to respond with degraded note"
+    }
+  ]
+}

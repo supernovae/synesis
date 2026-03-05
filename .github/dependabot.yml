@@ -1,0 +1,111 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "pip"
+    directory: "/base/planner"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "pip"
+    directory: "/base/admin"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "pip"
+    directory: "/base/lsp/gateway"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "pip"
+    directory: "/base/rag/ingestion"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "docker"
+    directory: "/base/planner"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/sandbox/image"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/lsp/gateway"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/admin"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/planner/bge-reranker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/rag/indexers/code"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/rag/indexers/apispec"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/rag/indexers/architecture"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]
+
+  - package-ecosystem: "docker"
+    directory: "/base/rag/indexers/license"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "python"
+        versions: [">=3.14"]

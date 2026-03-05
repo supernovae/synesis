@@ -1,0 +1,19 @@
+# PVC for coder model (Qwen3-Coder-Next, ~40-85 GB depending on quantization).
+# 200Gi = model + download cache headroom for largest quant (FP8).
+# Source of truth: models.yaml roles.coder.pvc_*
+#
+# Create:
+#   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
+#   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/synesis-coder-pvc.yaml | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synesis-coder-pvc
+  namespace: NAMESPACE
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-high
+  resources:
+    requests:
+      storage: 200Gi

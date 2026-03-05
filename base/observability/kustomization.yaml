@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - service-monitor.yaml
+  - service-monitor-models.yaml
+  # Perses (COO) - Red Hat's dashboard stack; Grafana deprecated in favor of Perses
+  - perses-namespace.yaml
+  - perses-datasource.yaml
+  - perses-dashboard-synesis.yaml
+  # Grafana - deprecated; kept for clusters still using Grafana Operator
+  - grafana-dashboard.yaml

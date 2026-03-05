@@ -1,0 +1,40 @@
+---
+description: EntryClassifier invariants — complexity/risk/domain split, explainability, escalation reasons
+globs: base/planner/app/entry_classifier_engine.py,base/planner/app/nodes/entry_classifier.py,base/planner/app/plugin_weight_loader.py,base/planner/**/entry_classifier_weights.yaml,base/planner/**/intent_weights.yaml,base/planner/plugins/weights/*.yaml
+alwaysApply: false
+---
+
+# EntryClassifier Invariants
+
+## Output Contract
+
+EntryClassifier (ScoringEngine + entry_classifier_node) must output:
+
+- `complexity_score`, `risk_score` — separate axes; domain never escalates complexity
+- `domain_hints` — for RAG gravity only; must NOT directly affect `task_size`
+- `classification_reasons` — human-readable list: `["pairing(phi+public): +40", "keyword(hipaa): +15"]`
+- `score_breakdown` — dict: `{ phi_identifiers: 15, pairing_phi_public: 40 }`
+
+## Routing Escalation
+
+Any routing decision that sends to Supervisor/Planner (instead of fast path) must set:
+
+- `escalation_reason`: string enum — e.g. `"risk_veto"`, `"length_veto"`, `"manual_override"`, `"task_size_medium"`, `"task_size_hard"`, `"reclassify_override"`
+
+## Domain vs Complexity
+
+**Rule:** Domain keywords (kubernetes, openshift, aws, python) inform RAG routing and `active_domains`. They must NOT add to complexity_score when the task is intrinsically trivial.
+
+Example: "print current namespace with kubectl" — domain=kubernetes for RAG; complexity should stay trivial.
+
+## YAML Config
+
+- Use explicit namespacing: `ontology:`, `plugins:`, `compose:` — avoid duplicate top-level `weights:` keys
+- Split: `complexity_weights`, `risk_weights`, `domain_keywords` — so single-word escalation is intentional (risk only)
+- Thresholds must be consistent: no single complexity weight > medium_max unless it's a risk category
+
+## Risk Veto
+
+Before declaring easy: run risk veto pass. If any risk trigger matches → force Supervisor path even if trivial regex matched.
+
+Risk triggers: destructive+prod, credentials, pip/npm install, curl|bash, compliance tokens (hipaa, phi, pci).

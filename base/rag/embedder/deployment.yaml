@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embedder
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/name: embedder
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: embedder
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: embedder
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: rag
+    spec:
+      containers:
+        - name: embedder
+          image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9
+          args:
+            - --model-id=sentence-transformers/all-MiniLM-L6-v2
+            - --port=8080
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /tmp
+            - name: HF_HOME
+              value: /data/hf
+            - name: HUGGINGFACE_HUB_CACHE
+              value: /data
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hf-token
+                  key: token
+                  optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+          volumeMounts:
+            - name: model-cache
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext:
+        runAsNonRoot: true
+      volumes:
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi

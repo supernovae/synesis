@@ -1,0 +1,72 @@
+# Synesis Healthcare Compliance Plugin
+# Focus: HIPAA, FHIR, DICOM, PHI-masking. 95% vertical catalog.
+risk_weights:
+  phi_identifiers:
+    weight: 15
+    domain: healthcare_compliance
+    keywords:
+      - phi
+      - patient
+      - medical record
+      - ssn
+      - dob
+      - provider
+      - diagnosis
+      - hipaa
+      - phi masking
+      - phi-masking
+      - de-identify
+      - deidentify
+      - redact
+
+complexity_weights:
+  interop_standards:
+    weight: 12
+    keywords:
+      - hl7
+      - fhir
+      - emr
+      - ehr
+      - dicom
+      - loinc
+      - snomed
+      - fhir resource
+      - hl7 v2
+      - hl7v2
+
+domain_keywords:
+  healthcare_systems:
+    domain: healthcare_compliance
+    keywords:
+      - epic
+      - cerner
+      - meditech
+      - allscripts
+  interop_domain:
+    domain: healthcare_compliance
+    keywords:
+      - fhir
+      - hl7
+      - dicom
+      - hipaa
+  phi_tools:
+    domain: healthcare_compliance
+    keywords:
+      - phi masking
+      - de-identification
+      - safe harbor
+      - expert determination
+
+pairings:
+  - keywords: ["phi", "public"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["public", "patient"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["fhir", "ingress"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["hipaa", "log"]
+    extra_weight: 15
+    axis: risk

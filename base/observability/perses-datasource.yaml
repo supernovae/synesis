@@ -1,0 +1,38 @@
+# Perses datasource for Synesis metrics. COO/Perses uses Thanos Querier for unified metrics.
+#
+# Deploy AFTER enabling Perses in COO (UIPlugin with monitoring.perses.enabled: true).
+# Create namespace first: oc create ns perses-dev
+#
+# For OpenShift with user workload monitoring, Thanos Querier aggregates platform + user metrics.
+# Adjust spec.config.plugin.spec.proxy.spec.url if your Prometheus/Thanos is elsewhere.
+# Thanos uses TLS; you may need to add spec.config.plugin.spec.proxy.spec.secret with the
+# service CA. See Red Hat COO docs for the full PersesDatasource + secret setup.
+apiVersion: perses.dev/v1alpha1
+kind: PersesDatasource
+metadata:
+  name: prometheus-datasource
+  namespace: perses-dev
+  labels:
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: synesis
+spec:
+  config:
+    default: true
+    display:
+      name: Prometheus (Thanos)
+    plugin:
+      kind: PrometheusDatasource
+      spec:
+        proxy:
+          kind: HTTPProxy
+          spec:
+            # Thanos Querier - OpenShift built-in; aggregates platform + user workload metrics
+            url: https://thanos-querier.openshift-monitoring.svc.cluster.local:9091
+            # For COO-deployed Prometheus, use your MonitoringStack's Thanos route instead
+  # Optional: TLS for in-cluster auth (Thanos often uses service-ca)
+  # client:
+  #   tls:
+  #     enable: true
+  #     caCert:
+  #       type: file
+  #       certPath: /ca/service-ca.crt

@@ -1,0 +1,107 @@
+# Synesis Development Vertical
+# Web (Frontend/Backend), Systems (C/Rust), Mobile, Embedded, GameDev.
+# Niche keywords for sovereign RAG routing.
+
+complexity_weights:
+  systems_programming:
+    weight: 10
+    keywords:
+      - unsafe
+      - memory layout
+      - borrow checker
+      - lifetime
+      - ffi
+      - cgo
+      - syscall
+      - kernel module
+  mobile_native:
+    weight: 10
+    keywords:
+      - native module
+      - bridge
+      - platform channel
+      - app store
+      - play store
+      - push notification
+      - deep link
+  embedded_realtime:
+    weight: 12
+    keywords:
+      - real-time
+      - rtos
+      - interrupt
+      - bare metal
+      - hal
+      - driver
+      - spi
+      - i2c
+      - uart
+  gamedev_engine:
+    weight: 12
+    keywords:
+      - physics engine
+      - render pipeline
+      - shader
+      - asset pipeline
+      - level editor
+      - game loop
+      - collision detection
+  fullstack:
+    weight: 8
+    keywords:
+      - full stack
+      - fullstack
+      - monolith
+      - bff
+      - graphql
+      - tRPC
+
+domain_keywords:
+  rust_ecosystem:
+    domain: rust
+    keywords:
+      - cargo
+      - tokio
+      - async
+      - serde
+      - actix
+      - axum
+  go_ecosystem:
+    domain: golang
+    keywords:
+      - go mod
+      - goroutine
+      - gin
+      - echo
+      - cobra
+  frontend_frameworks:
+    domain: web_frontend
+    keywords:
+      - react query
+      - swr
+      - zustand
+      - redux
+      - mobx
+      - storybook
+  backend_frameworks:
+    domain: web_backend
+    keywords:
+      - prisma
+      - drizzle
+      - typeorm
+      - alembic
+      - sqlalchemy
+
+pairings:
+  - keywords: [unsafe, production]
+    extra_weight: 15
+    axis: risk
+  - keywords: [mobile, release]
+    extra_weight: 10
+    axis: complexity
+  - keywords: [embedded, safety]
+    extra_weight: 15
+    axis: risk
+  - keywords: [game, multiplayer]
+    extra_weight: 15
+    axis: complexity

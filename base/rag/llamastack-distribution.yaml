@@ -1,0 +1,79 @@
+# LlamaStackDistribution - RHOAI 3 RAG stack (optional)
+#
+# Requires: Llama Stack Operator enabled in OpenShift AI 3.
+# Before applying, create the inference and Milvus secrets:
+#
+#   export INFERENCE_MODEL="synesis-coder"
+#   export VLLM_URL="http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
+#   export VLLM_TLS_VERIFY="false"
+#   export VLLM_API_TOKEN=""   # or token if auth enabled
+#   oc create secret generic llama-stack-inference-secret -n synesis-rag \
+#     --from-literal=INFERENCE_MODEL="$INFERENCE_MODEL" \
+#     --from-literal=VLLM_URL="$VLLM_URL" \
+#     --from-literal=VLLM_TLS_VERIFY="$VLLM_TLS_VERIFY" \
+#     --from-literal=VLLM_API_TOKEN="$VLLM_API_TOKEN"
+#
+#   export MILVUS_ENDPOINT="http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
+#   export MILVUS_TOKEN="synesis-milvus"   # match milvus-secret root-password
+#   oc create secret generic milvus-connection-secret -n synesis-rag \
+#     --from-literal=MILVUS_ENDPOINT="$MILVUS_ENDPOINT" \
+#     --from-literal=MILVUS_TOKEN="$MILVUS_TOKEN"
+#
+# Uses RHOAI's built-in vLLM runtime - deploy models via dashboard, never Docker Hub.
+---
+apiVersion: llamastack.io/v1alpha1
+kind: LlamaStackDistribution
+metadata:
+  name: synesis-rag-stack
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  server:
+    containerSpec:
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "500Mi"
+        limits:
+          cpu: 4
+          memory: "12Gi"
+      env:
+        - name: INFERENCE_MODEL
+          valueFrom:
+            secretKeyRef:
+              name: llama-stack-inference-secret
+              key: INFERENCE_MODEL
+        - name: VLLM_MAX_TOKENS
+          value: "4096"
+        - name: VLLM_URL
+          valueFrom:
+            secretKeyRef:
+              name: llama-stack-inference-secret
+              key: VLLM_URL
+        - name: VLLM_TLS_VERIFY
+          valueFrom:
+            secretKeyRef:
+              name: llama-stack-inference-secret
+              key: VLLM_TLS_VERIFY
+        - name: VLLM_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: llama-stack-inference-secret
+              key: VLLM_API_TOKEN
+        - name: MILVUS_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: milvus-connection-secret
+              key: MILVUS_ENDPOINT
+        - name: MILVUS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: milvus-connection-secret
+              key: MILVUS_TOKEN
+      name: llama-stack
+      port: 8321
+    distribution:
+      name: rh-dev

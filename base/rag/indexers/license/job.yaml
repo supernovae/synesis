@@ -1,0 +1,51 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: synesis-index-license
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer-license
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: indexer-license
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: indexer
+          image: synesis-indexer-license:latest
+          args:
+            - --sources
+            - /data/sources.yaml
+            - --compat
+            - /data/compatibility.yaml
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: sources
+              mountPath: /data/sources.yaml
+              subPath: sources.yaml
+              readOnly: true
+            - name: compatibility
+              mountPath: /data/compatibility.yaml
+              subPath: compatibility.yaml
+              readOnly: true
+      volumes:
+        - name: sources
+          configMap:
+            name: license-indexer-sources
+        - name: compatibility
+          configMap:
+            name: license-indexer-compatibility

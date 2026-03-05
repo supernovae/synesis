@@ -1,0 +1,38 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sandbox-executor
+  namespace: synesis-sandbox
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: sandbox
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: planner-sandbox-executor
+  namespace: synesis-sandbox
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: sandbox
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: synesis-planner
+roleRef:
+  kind: Role
+  name: sandbox-executor
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,51 @@
+# Synesis SecOps Hardening Plugin
+# Focus: OpenShift-Hardening, FIPS-compliance, Air-gap. 95% vertical catalog.
+risk_weights:
+  security_standards:
+    weight: 15
+    domain: secops_hardening
+    keywords:
+      - fips
+      - fips compliance
+      - cis-benchmark
+      - cis benchmark
+      - stigs
+      - stig
+      - fedramp
+      - nist
+      - common criteria
+  os_hardening:
+    weight: 12
+    keywords:
+      - selinux
+      - apparmor
+      - kernel hardening
+      - iptables
+      - firewalld
+      - openshift hardening
+  crypto_policy:
+    weight: 15
+    keywords:
+      - aes-256
+      - rsa-4096
+      - sha-512
+      - hsm
+      - kms
+      - tpm
+
+domain_keywords:
+  platform_compliance:
+    domain: secops_hardening
+    keywords:
+      - air-gap
+      - airgap
+      - disconnected
+      - offline install
+
+pairings:
+  - keywords: ["fips", "openshift"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["selinux", "disable"]
+    extra_weight: 50
+    axis: risk

@@ -1,0 +1,269 @@
+# Synesis Business & Commerce Vertical
+# Business ops, Sales, Marketing, Budgets, Personal Finance, Business Finance.
+# Markets: SMB, enterprise, startup, B2B, B2C, consumer.
+# Aligned with document output for plans, guidance, reports; fintech_compliance for transactions.
+
+complexity_weights:
+  business_strategy:
+    weight: 10
+    keywords:
+      - business plan
+      - go-to-market
+      - gtm
+      - market entry
+      - competitive analysis
+      - swot
+      - pitch deck
+      - investor deck
+  business_operations:
+    weight: 8
+    keywords:
+      - operations
+      - workflow
+      - process improvement
+      - kpi
+      - okr
+      - quarterly planning
+  sales_crm:
+    weight: 8
+    keywords:
+      - sales pipeline
+      - crm
+      - deal stage
+      - lead
+      - prospect
+      - salesforce
+      - hubspot sales
+  sales_forecasting:
+    weight: 10
+    keywords:
+      - sales forecast
+      - quota
+      - revenue projection
+      - pipeline value
+      - conversion rate
+  marketing_campaign:
+    weight: 8
+    keywords:
+      - marketing campaign
+      - ad campaign
+      - funnel
+      - conversion
+      - landing page
+      - cta
+  marketing_analytics:
+    weight: 10
+    keywords:
+      - seo
+      - sem
+      - ppc
+      - google ads
+      - meta ads
+      - analytics
+      - attribution
+      - roi marketing
+      - cac
+      - ltv
+  budget_personal:
+    weight: 6
+    keywords:
+      - personal budget
+      - household budget
+      - expense tracking
+      - spending
+      - savings goal
+  budget_business:
+    weight: 10
+    keywords:
+      - business budget
+      - department budget
+      - capex
+      - opex
+      - budget forecast
+      - variance analysis
+      - headcount budget
+  personal_finance:
+    weight: 8
+    keywords:
+      - budget tracker
+      - expense report
+      - investment portfolio
+      - tax calculation
+      - 401k
+      - ira
+      - roth
+      - ynab
+      - mint
+      - retirement
+      - emergency fund
+  business_finance:
+    weight: 12
+    keywords:
+      - p&l
+      - profit loss
+      - cash flow
+      - balance sheet
+      - fp&a
+      - financial planning
+      - variance
+      - accrual
+      - gaap
+      - chart of accounts
+      - general ledger
+  accounting:
+    weight: 10
+    keywords:
+      - reconcile
+      - journal entry
+      - accounts payable
+      - accounts receivable
+      - audit
+      - financial close
+
+risk_weights:
+  financial_sensitive:
+    weight: 15
+    keywords:
+      - payroll
+      - tax filing
+      - ssn
+      - bank account
+      - routing number
+  budget_override:
+    weight: 12
+    keywords:
+      - override budget
+      - bypass approval
+      - unauthorized spend
+
+domain_keywords:
+  business:
+    domain: business
+    keywords:
+      - business
+      - startup
+      - smb
+      - enterprise
+      - b2b
+      - b2c
+      - operations
+      - strategy
+  sales:
+    domain: sales
+    keywords:
+      - sales
+      - crm
+      - pipeline
+      - deal
+      - quota
+      - salesforce
+      - hubspot
+      - outreach
+  marketing:
+    domain: marketing
+    keywords:
+      - marketing
+      - campaign
+      - seo
+      - ppc
+      - funnel
+      - conversion
+      - analytics
+      - google ads
+      - meta
+  budget:
+    domain: budget
+    keywords:
+      - budget
+      - forecast
+      - capex
+      - opex
+      - variance
+  personal_finance:
+    domain: personal_finance
+    keywords:
+      - budget
+      - expense
+      - investment
+      - portfolio
+      - tax
+      - 401k
+      - ira
+      - retirement
+      - ynab
+      - mint
+      - plaid
+  business_finance:
+    domain: business_finance
+    keywords:
+      - p&l
+      - profit loss
+      - cash flow
+      - fp&a
+      - balance sheet
+      - accrual
+      - gaap
+  accounting:
+    domain: accounting
+    keywords:
+      - ledger
+      - reconcile
+      - journal
+      - ap
+      - ar
+      - audit
+  markets:
+    domain: markets
+    keywords:
+      - smb
+      - enterprise
+      - startup
+      - saas
+      - ecommerce
+      - marketplace
+  entrepreneurship:
+    domain: entrepreneurship
+    keywords:
+      - startup
+      - founder
+      - pitch deck
+      - mvp
+      - bootstrapping
+      - venture capital
+      - angel investor
+      - business model canvas
+      - side hustle
+      - solopreneur
+      - incubator
+      - accelerator
+  freelancing:
+    domain: freelancing
+    keywords:
+      - freelance
+      - freelancer
+      - gig
+      - upwork
+      - fiverr
+      - contract work
+      - invoice
+      - client management
+      - portfolio
+      - remote work
+      - consulting
+
+pairings:
+  - keywords: [budget, delete]
+    extra_weight: 18
+    axis: risk
+  - keywords: [ledger, modify]
+    extra_weight: 20
+    axis: risk
+  - keywords: [sales, forecast]
+    extra_weight: 8
+    axis: complexity
+  - keywords: [marketing, attribution]
+    extra_weight: 8
+    axis: complexity
+  - keywords: [financial, export]
+    extra_weight: 15
+    axis: risk

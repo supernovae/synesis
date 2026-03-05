@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Gaps - Synesis Admin{% endblock %}
+{% block content %}
+<h1>Knowledge Gaps (Self-Heal Surface)</h1>
+{% if request.query_params.get('submitted') %}
+<p style="color: var(--green); margin-bottom: 1rem;">Knowledge submitted and ingested into synesis_catalog.</p>
+{% elif request.query_params.get('error') %}
+<p style="color: var(--red); margin-bottom: 1rem;">Submit failed: {{ request.query_params.get('error') }}</p>
+{% endif %}
+<p style="color: var(--muted); margin-bottom: 1.5rem;">
+    Queries where RAG had low confidence (max score &lt; threshold). Review and submit content to fill gaps.
+    Approved content is ingested into <code>synesis_catalog</code>. See <a class="link" href="/admin/status">Status</a> for service health.
+</p>
+
+<form class="filters" method="get" action="/admin/knowledge-gaps">
+    <input type="text" name="domain" placeholder="Filter by domain" value="{{ domain }}" />
+    <button type="submit">Filter</button>
+</form>
+
+{% if gaps %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Domain</th>
+                <th>Query / Task</th>
+                <th>Collections</th>
+                <th>Max Score</th>
+                <th>Language</th>
+                <th>Time</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in gaps %}
+            <tr>
+                <td><span class="badge badge-runtime">{{ g.get('platform_context', 'generic') }}</span></td>
+                <td>{{ (g.get('query') or g.get('task_description', ''))[:100] }}{% if (g.get('query') or g.get('task_description', ''))|length > 100 %}...{% endif %}</td>
+                <td><code>{{ g.get('collections_queried', '')[:40] }}</code></td>
+                <td>{{ "%.2f"|format(g.get('max_score', 0)) }}</td>
+                <td>{{ g.get('language', '') }}</td>
+                <td>{{ g.get('timestamp', 0) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="/admin/knowledge-gaps?domain={{ domain }}&page={{ page - 1 }}&page_size={{ page_size }}">Previous</a>
+    {% endif %}
+    <a href="/admin/knowledge-gaps?domain={{ domain }}&page={{ page + 1 }}&page_size={{ page_size }}">Next</a>
+</div>
+{% else %}
+<div class="empty">No knowledge gaps recorded yet. Gaps appear when Context Curator detects low RAG confidence.</div>
+{% endif %}
+
+<div class="card" style="margin-top: 2rem;">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Submit Knowledge</h2>
+    <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
+        Fill a gap by submitting content. It will be embedded and added to <code>synesis_catalog</code> with <code>indexer_source=user_submitted</code>.
+    </p>
+    <form id="submit-knowledge" action="/admin/knowledge-gaps/submit" method="post" style="display: flex; flex-direction: column; gap: 0.75rem; max-width: 600px;">
+        <div>
+            <label style="display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem;">Domain</label>
+            <input type="text" name="domain" placeholder="e.g. openshift, python, bash" required style="width: 100%;" />
+        </div>
+        <div>
+            <label style="display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem;">Content</label>
+            <textarea name="content" rows="4" placeholder="Paste the knowledge snippet to add…" required style="width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 0.5rem; border-radius: 0.375rem;"></textarea>
+        </div>
+        <button type="submit" style="align-self: flex-start;">Submit to Catalog</button>
+    </form>
+</div>
+{% endblock %}

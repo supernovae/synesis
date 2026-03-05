@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    # Synesis V3 Model Endpoints
+    # See models.yaml for profile-specific model assignments and GPU sizing.
+    #
+    # synesis-agent: Open WebUI default — routes through Synesis planner pipeline
+    # synesis-coder: IDE direct endpoint — bypasses planner, agentic coding
+    # synesis-thinking: Optional R1 thinking model — user-selectable in Open WebUI
+    model_list:
+      # Primary pipeline endpoint (Open WebUI → LangGraph pipeline)
+      - model_name: synesis-agent
+        litellm_params:
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Router (Qwen3-8B FP8) — supervisor, planner, advisor roles
+      - model_name: synesis-router
+        litellm_params:
+          model: openai/synesis-supervisor
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.3
+
+      # Critic (R1-Distill-32B FP8) — deep reasoning, Safety-II review
+      - model_name: synesis-critic
+        litellm_params:
+          model: openai/synesis-executor
+          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.1
+
+      # Coder (Qwen3-Coder-Next) — direct IDE endpoint, agentic coding
+      - model_name: synesis-coder
+        litellm_params:
+          model: openai/synesis-coder
+          api_base: http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 16384
+          temperature: 0.2
+
+      # Thinking model (R1, same backend as critic) — Open WebUI optional
+      - model_name: synesis-thinking
+        litellm_params:
+          model: openai/synesis-executor
+          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Legacy aliases for backward compatibility during migration
+      - model_name: synesis-supervisor
+        litellm_params:
+          model: openai/synesis-supervisor
+          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.3
+
+      - model_name: synesis-executor
+        litellm_params:
+          model: openai/synesis-executor
+          api_base: http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 120
+
+    general_settings:
+      master_key: "sk-synesis-change-me"
+      forward_client_headers_to_llm_api: true
+      background_health_checks: false

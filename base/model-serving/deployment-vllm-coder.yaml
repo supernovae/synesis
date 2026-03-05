@@ -1,0 +1,122 @@
+# Synesis Coder — agentic coding model (Qwen3-Coder-Next)
+#
+# Direct vLLM endpoint for IDE clients (Cursor, Claude Code, Windsurf).
+# NOT routed through the Synesis planner pipeline — IDEs connect here
+# directly or via LiteLLM for key management.
+#
+# Qwen3-Coder-Next is an 80B MoE with 3B active parameters, trained
+# for agentic coding with tool-call support (SWE-Bench Verified 70%+).
+#
+# Profile-dependent sizing:
+#   small:  Q3 quantization (~40 GB), single L40S, TP=1
+#   medium: FP8 (~85 GB), 2x L40S, TP=2
+#   large:  FP8, 2x GPU, TP=2, HPA replicas=2-4
+#
+# Prerequisites: synesis-coder-pvc in synesis-models, model via run-model-pipeline.sh --role=coder
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-coder-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-coder
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: model-serving
+spec:
+  selector:
+    app: synesis-coder
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-coder-predictor
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/name: synesis-coder
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: synesis-coder
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: synesis-coder
+    spec:
+      imagePullPolicy: IfNotPresent
+      volumes:
+        - name: model-store
+          persistentVolumeClaim:
+            claimName: synesis-coder-pvc
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
+      containers:
+        - name: vllm-coder
+          image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - vllm.entrypoints.openai.api_server
+          args:
+            - --port=8080
+            - --model=/mnt/models
+            - --served-model-name=synesis-coder
+            - --tensor-parallel-size=1
+            - --max-model-len=65536
+            - --gpu-memory-utilization=0.92
+            - --generation-config=vllm
+            - --enable-auto-tool-choice
+            - --tool-call-parser=hermes
+          resources:
+            limits:
+              cpu: "8"
+              memory: 48Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: "4"
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: model-store
+              mountPath: /mnt/models
+              subPath: coder-model
+              readOnly: true
+            - name: shm
+              mountPath: /dev/shm
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-L40S
+      tolerations:
+        - effect: NoSchedule
+          key: nvidia.com/gpu
+          operator: Equal
+          value: "true"

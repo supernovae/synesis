@@ -1,0 +1,44 @@
+# Synesis Summarizer — Qwen2.5-0.5B-Instruct for pivot history and Tier 3 manifest summarization.
+# CPU-only: no GPU; schedules on any node so 8B/30B models get full GPU. 0.5B runs fine on CPU.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: synesis-summarizer
+  labels:
+    app.kubernetes.io/name: synesis-summarizer
+    app.kubernetes.io/component: model
+    opendatahub.io/dashboard: "true"
+  annotations:
+    opendatahub.io/connections: synesis-summarizer
+    opendatahub.io/model-type: generative
+    openshift.io/description: Synesis Summarizer (Qwen2.5-0.5B-Instruct, CPU)
+    openshift.io/display-name: Synesis Summarizer (Qwen2.5-0.5B-Instruct)
+    security.opendatahub.io/enable-auth: "false"
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    automountServiceAccountToken: false
+    deploymentStrategy:
+      type: Recreate
+    maxReplicas: 1
+    minReplicas: 0
+    model:
+      runtime: vllm-cpu
+      modelFormat:
+        name: pytorch
+      name: ""
+      storageUri: hf://Qwen/Qwen2.5-0.5B-Instruct
+      env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: synesis-hf-token
+              key: HF_TOKEN
+              optional: true
+      resources:
+        limits:
+          cpu: "2"
+          memory: 8Gi
+        requests:
+          cpu: "1"
+          memory: 4Gi

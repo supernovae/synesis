@@ -1,0 +1,12 @@
+# Model-serving only. Use when you need to deploy/update InferenceServices.
+# Run separately from dev-services to avoid restarting planner/webui/etc.
+#
+# Usage (when model config changes):
+#   kustomize build overlays/dev-models | oc apply -f -
+#
+# Expect 20-30 min for GPU models to load. Use dev-services for day-to-day deploys.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base/model-serving

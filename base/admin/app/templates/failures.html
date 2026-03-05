@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Failures - Synesis Admin{% endblock %}
+{% block content %}
+<h1>Failure Log</h1>
+
+<form class="filters" method="get" action="/admin/failures">
+    <select name="language">
+        <option value="">All Languages</option>
+        {% for lang in ["bash", "python", "javascript", "typescript", "c", "cpp", "java", "go"] %}
+        <option value="{{ lang }}" {% if language == lang %}selected{% endif %}>{{ lang }}</option>
+        {% endfor %}
+    </select>
+    <select name="error_type">
+        <option value="">All Types</option>
+        {% for etype in ["lint", "security", "runtime", "timeout"] %}
+        <option value="{{ etype }}" {% if error_type == etype %}selected{% endif %}>{{ etype }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+</form>
+
+{% if failures %}
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Language</th>
+                <th>Task</th>
+                <th>Exit</th>
+                <th>Resolved</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in failures %}
+            <tr>
+                <td><span class="badge badge-{{ f.get('error_type', 'runtime') }}">{{ f.get('error_type', '?') }}</span></td>
+                <td>{{ f.get('language', '?') }}</td>
+                <td>{{ f.get('task_description', '')[:80] }}{% if f.get('task_description', '')|length > 80 %}...{% endif %}</td>
+                <td>{{ f.get('exit_code', '?') }}</td>
+                <td>{% if f.get('resolution') %}<span class="badge badge-resolved">yes</span>{% else %}-{% endif %}</td>
+                <td><a class="link" href="/admin/failures/{{ f.get('failure_id', '') }}">view</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="/admin/failures?language={{ language }}&error_type={{ error_type }}&page={{ page - 1 }}&page_size={{ page_size }}">Previous</a>
+    {% endif %}
+    <a href="/admin/failures?language={{ language }}&error_type={{ error_type }}&page={{ page + 1 }}&page_size={{ page_size }}">Next</a>
+</div>
+{% else %}
+<div class="empty">No failures recorded yet.</div>
+{% endif %}
+{% endblock %}

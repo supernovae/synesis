@@ -1,0 +1,719 @@
+# Synesis Universal Intent Ontology v4.1 — "The 95%" Router
+# Global Sovereign Catalog: 100+ industrial/creative/lifestyle verticals.
+# Split axes: complexity (tier) | risk (veto) | domain (RAG only).
+# Easy < 5 | Medium 5-15 | Hard > 15 | Risk >= 15 → veto to hard
+#
+# See master_intent_weights.yaml and docs/TAXONOMY.md.
+# Plugins in plugins/weights/*.yaml add vertical-specific depth.
+
+thresholds:
+  easy_max: 4
+  medium_max: 15
+  density_threshold: 3
+  density_tax: 10
+  educational_discount: 10
+  risk_high: 15
+  max_easy_message_length: 200
+
+# Routing thresholds: normalized difficulty (0.0-1.0) determines routing.
+# These override the discrete task_size-based routing when the continuous
+# difficulty score is available.
+routing_thresholds:
+  bypass_supervisor_below: 0.2
+  plan_required_above: 0.7
+  critic_required_above: 0.6
+
+risk_veto_triggers:
+  - "pip install"
+  - "pip3 install"
+  - "npm install"
+  - "yarn add"
+  - "pnpm add"
+  - "go get"
+  - "cargo add"
+  - "curl |"
+  - "wget |"
+  - "| bash"
+  - "| sh"
+  - "chmod +x"
+  - "rm -rf"
+  - "dd if="
+
+complexity_weights:
+  create_basic:
+    weight: 1
+    keywords: ["create a script", "create a simple script", "write a script", "create a file", "quick script"]
+  parse_basic:
+    weight: 1
+    keywords: ["parse json", "parse this json", "parse csv", "read file and print", "read file and count"]
+  unit_test_basic:
+    weight: 1
+    keywords: ["add test", "basic test", "test for"]
+  io_basic:
+    weight: 1
+    keywords: ["print", "prints", "echo", "log", "say", "hello", "fmt", "console", "write-host", "display", "show", "stdout", "output", "puts"]
+  logic_basic:
+    weight: 2
+    keywords: ["math", "sum", "count", "calculate", "fizzbuzz", "loop", "iterate", "sort", "reverse", "basic", "simple", "minimal", "script", "factorial", "fibonacci"]
+  query_basic:
+    weight: 2
+    keywords: ["what is", "how do i", "example of", "syntax for", "quick example", "minimal example", "starter code"]
+  data_manipulation:
+    weight: 5
+    keywords: ["parse", "json", "csv", "yaml", "xml", "regex", "base64", "convert", "transform", "map", "filter", "reduce", "serialize", "deserialize"]
+  local_persistence:
+    weight: 8
+    keywords: ["file", "directory", "folder", "read file", "write file", "save", "load", "mkdir", "path", "disk", "filesystem"]
+  networking:
+    weight: 8
+    keywords: ["http", "request", "api", "rest", "client", "server", "port", "socket", "url", "curl", "wget", "endpoint", "fetch", "get", "post", "websocket"]
+  os_system:
+    weight: 8
+    keywords: ["process", "thread", "exec", "shell", "env", "variable", "systemd", "cron", "service", "daemon", "signal", "subprocess", "spawn"]
+  web_ui_basic:
+    weight: 6
+    keywords: ["button", "form", "input", "checkbox", "dropdown", "modal", "css", "style", "layout", "responsive"]
+  api_consumer:
+    weight: 7
+    keywords: ["call api", "api call", "rest api", "fetch data", "webhook", "oauth", "bearer token", "rate limit"]
+  scope_expansion:
+    weight: 10
+    keywords: ["architecture", "design", "refactor", "integrate", "whole", "entire", "all files", "across", "restructure", "migrate", "multi-file", "monorepo"]
+  distributed_systems:
+    weight: 12
+    keywords: ["microservices", "distributed", "messaging", "queue", "event-driven", "saga", "eventual consistency", "replication", "sharding"]
+  stateful_logic:
+    weight: 10
+    keywords: ["state machine", "workflow", "pipeline", "orchestration", "batch job", "cron job", "scheduled task"]
+  testing_suite:
+    weight: 8
+    keywords: ["test suite", "unit test", "integration test", "e2e", "coverage", "mock", "fixture", "pytest", "jest", "unittest"]
+  devops_ci:
+    weight: 10
+    keywords: ["ci pipeline", "jenkins", "github actions", "gitlab ci", "circleci", "drone", "tekton"]
+  education_platform:
+    weight: 10
+    keywords: ["lms", "learning management", "scorm", "course builder"]
+
+risk_weights:
+  destructive:
+    weight: 20
+    keywords: ["delete", "wipe", "drop", "remove", "format", "truncate", "rotate keys", "purge", "destroy", "overwrite"]
+  security_governance:
+    weight: 25
+    keywords: ["auth", "login", "password", "token", "secret", "credentials", "vault", "encrypt", "decrypt", "fips", "tls", "ssl", "certificate", "audit", "key rotation"]
+  pii_handling:
+    weight: 18
+    keywords: ["pii", "personal data", "sensitive data", "ssn", "credit card", "payment info", "user data", "gdpr"]
+  financial:
+    weight: 18
+    keywords: ["transaction", "payment", "ledger", "accounting", "money", "currency", "bank", "pci", "sox"]
+  production_deploy:
+    weight: 15
+    keywords: ["production", "prod", "deploy", "rollout", "release", "ci/cd", "pipeline"]
+  safety_critical:
+    weight: 20
+    keywords: ["autopilot", "flight control", "abs brake", "airbag", "do-178", "do-178c", "iso 26262"]
+
+domain_keywords:
+  cloud_infra:
+    domain: cloud
+    keywords: ["aws", "s3", "lambda", "ec2", "gcp", "azure", "cloud", "bucket", "vpc", "terraform", "pulumi"]
+  orchestration:
+    domain: kubernetes
+    keywords: ["k8s", "kubernetes", "openshift", "oc ", "kubectl", "pod", "deployment", "helm", "istio", "ingress", "manifest", "cluster", "namespace"]
+  persistence_engines:
+    domain: databases
+    keywords: ["sql", "database", "db", "postgres", "redis", "mongo", "query", "table", "schema", "migrate", "cassandra", "dynamodb"]
+  networking_infra:
+    domain: networking
+    keywords: ["dns", "load balancer", "vpc", "subnet", "firewall", "nginx", "envoy"]
+  hpc:
+    domain: hpc
+    keywords: ["gpu", "cuda", "mpi", "slurm", "cluster compute", "parallel", "distributed training"]
+  web_frontend:
+    domain: web_frontend
+    keywords: ["react", "vue", "svelte", "angular", "next", "nuxt", "tailwind", "component"]
+  web_backend:
+    domain: web_backend
+    keywords: ["fastapi", "flask", "django", "express", "spring", "gin", "actix"]
+  mobile:
+    domain: mobile
+    keywords: ["ios", "android", "swift", "kotlin", "react native", "flutter", "mobile app"]
+  embedded:
+    domain: embedded
+    keywords: ["arduino", "raspberry pi", "microcontroller", "iot", "embedded", "firmware"]
+  gamedev:
+    domain: gamedev
+    keywords: ["unity", "unreal", "game engine", "sprite", "physics", "collision"]
+  ml_ops:
+    domain: ml_ops
+    keywords: ["tensorflow", "pytorch", "mlflow", "model serving", "inference", "training"]
+  bioinformatics:
+    domain: bioinformatics
+    keywords: ["fasta", "sam", "bam", "vcf", "genome", "alignment", "blast"]
+  geospatial:
+    domain: geospatial
+    keywords: ["gis", "shapefile", "geojson", "postgis", "coordinates", "lat", "lon"]
+  audio_video:
+    domain: creative_media
+    keywords: ["ffmpeg", "video", "audio", "stream", "encode", "decode"]
+  procedural:
+    domain: procedural
+    keywords: ["procedural", "noise", "fractal", "l-system", "generative"]
+  home_automation:
+    domain: home_automation
+    keywords: ["home assistant", "smart home", "hue", "zigbee", "homekit"]
+  personal_finance:
+    domain: personal_finance
+    keywords: ["budget", "expense", "investment", "portfolio", "tax", "401k"]
+  nutrition:
+    domain: nutrition
+    keywords: ["calories", "macro", "recipe", "meal plan", "nutrition"]
+  athletics_running:
+    domain: athletics_running
+    keywords: ["marathon", "running", "training plan", "vo2max", "taper", "interval", "5k", "10k", "half marathon"]
+  aerospace:
+    domain: aerospace
+    keywords: ["avionics", "fcc", "faa", "flight"]
+  automotive:
+    domain: automotive
+    keywords: ["can bus", "ecu", "adas", "lidar"]
+  edtech:
+    domain: edtech
+    keywords: ["canvas", "moodle", "blackboard", "lms"]
+
+pairings:
+  - keywords: ["delete", "database"]
+    extra_weight: 15
+    axis: risk
+  - keywords: ["production", "deploy"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["wipe", "cluster"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["public", "api"]
+    extra_weight: 10
+    axis: risk
+  - keywords: ["credential", "log"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["pii", "export"]
+    extra_weight: 20
+    axis: risk
+  - keywords: ["public", "patient"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["learn", "code", "flashcards"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["learn", "code", "brief"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["microservices", "deploy"]
+    extra_weight: 15
+    axis: complexity
+  - keywords: ["multi-file", "refactor"]
+    extra_weight: 12
+    axis: complexity
+  - keywords: ["api", "integrate"]
+    extra_weight: 8
+    axis: complexity
+  - keywords: ["safety", "critical"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["flight", "control"]
+    extra_weight: 20
+    axis: risk
+  # Domain-pairing multipliers (immediate complex escalation)
+  - keywords: ["public", "patient"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["public", "phi"]
+    extra_weight: 50
+    axis: risk
+
+# Intent classes: first match wins. Drives critic behavior overlay (hallucination, schema, tone, etc).
+# output_type: document = Planner skipped; Worker produces markdown. Code = Planner (if complex), Sandbox.
+# inherently_document: true = intent always produces text (explanations, ideas); no domain check.
+# document_domains: intent + these domains → document. Used when intent is mixed (e.g. planning, writing).
+intent_classes:
+  # First: greetings, meta, ambiguous → document. Must stay first (first match wins).
+  conversation:
+    keywords: [hi, hello, hey, howdy, what's up, what can you do, how does this work, thanks, ok, got it, cool]
+    inherently_document: true
+  debugging:
+    keywords: [fix, debug, error, trace, why does it fail, stack trace, diagnose, troubleshoot]
+  review:
+    keywords: [review, validate, audit, check, assess, code review, security audit]
+  planning:
+    keywords:
+      - plan
+      - strategy
+      - design
+      - architecture
+      - break down
+      - decompose
+      - training plan
+      - meal plan
+      - budget plan
+      - business plan
+      - marketing plan
+      - sales plan
+      - go-to-market
+      - gtm plan
+      - financial plan
+      - hiking plan
+      - trip plan
+      - gear list
+      - trail plan
+      - garden plan
+      - 3d print plan
+      - generate a plan
+      - marathon plan
+      - create a plan
+      - training schedule
+      - schedule
+      - study plan
+      - wedding plan
+      - party plan
+      - career plan
+      - game plan
+      - safety plan
+      - renovation plan
+      - remodel plan
+      - fitness plan
+      - diet plan
+      - workout plan
+      - content plan
+      - event plan
+    # document output; science + lifestyle + business + hobbies + education + culture + all verticals
+    document_domains:
+      - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
+      - martial_arts
+      - dance
+      - team_sports
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - entrepreneurship
+      - freelancing
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - leatherworking
+      - cosplay_larp
+      - astronomy
+      - physics
+      - mathematics
+      - chemistry
+      - social_science
+      - environmental_science
+      - neuroscience
+      - education
+      - language_learning
+      - test_prep
+      - study_skills
+      - homeschool
+      - cooking
+      - baking
+      - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
+      - parenting
+      - pregnancy
+      - child_development
+      - family_activities
+      - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
+      - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
+      - creative_media
+  knowledge:
+    keywords: [explain, what is, how does, why does, define, describe, tell me about, pivot, pivot to, switch to, switch mode, document mode]
+    inherently_document: true  # explanations are always text; pivot/switch = user context change
+  education:
+    keywords: [study, vocabulary, quiz, flashcard, fill in the blank, practice, drill, lesson, teach me, test me, tutor, learning exercise]
+    inherently_document: true
+  writing:
+    keywords: [write, draft, compose, email, blog, article, content, essay, report, summary]
+    # blog/essay/report; script = code
+    document_domains:
+      - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
+      - martial_arts
+      - dance
+      - team_sports
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - entrepreneurship
+      - freelancing
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - leatherworking
+      - cosplay_larp
+      - creative_media
+      - astronomy
+      - physics
+      - mathematics
+      - chemistry
+      - social_science
+      - environmental_science
+      - neuroscience
+      - education
+      - language_learning
+      - test_prep
+      - study_skills
+      - homeschool
+      - cooking
+      - baking
+      - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
+      - parenting
+      - pregnancy
+      - child_development
+      - family_activities
+      - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
+      - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
+  # Explicit code intents — trigger code path (with coding client or when matched)
+  code_generation:
+    keywords: [create script, implement, build, code for, script to, function to,
+               class to, hello world, print statement, println, console.log,
+               add test, write code, write a script, go script, rust program]
+  data_transform:
+    keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
+  tool_orchestrated:
+    keywords: [search and, fetch and, multi-step]
+  migration:
+    keywords: [migrate, upgrade, deprecate, version bump, breaking change, port from, convert to]
+  documentation:
+    keywords: [generate docs, document, readme, api docs, openapi spec]
+  personal_guidance:
+    keywords: [how can i, improve my, optimize my, help me with]
+    # guidance as text; no code steps
+    document_domains:
+      - athletics_running
+      - fitness_general
+      - yoga_pilates
+      - cycling
+      - swimming
+      - strength_training
+      - martial_arts
+      - dance
+      - team_sports
+      - nutrition
+      - home_automation
+      - personal_finance
+      - business
+      - sales
+      - marketing
+      - budget
+      - business_finance
+      - accounting
+      - entrepreneurship
+      - freelancing
+      - outdoors
+      - fishing
+      - gardening
+      - three_d_printing
+      - woodworking
+      - hobbies_making
+      - hobbies_collecting
+      - board_games
+      - recreation
+      - photography_hobby
+      - aquariums
+      - hobbies_general
+      - leatherworking
+      - cosplay_larp
+      - astronomy
+      - physics
+      - mathematics
+      - chemistry
+      - social_science
+      - environmental_science
+      - neuroscience
+      - education
+      - language_learning
+      - test_prep
+      - study_skills
+      - homeschool
+      - cooking
+      - baking
+      - food_science
+      - beverages
+      - dietary_patterns
+      - food_preservation
+      - health
+      - mental_health
+      - sleep
+      - physical_therapy
+      - skincare
+      - weight_management
+      - first_aid
+      - aging_senior
+      - history
+      - geography
+      - travel
+      - music
+      - art
+      - philosophy
+      - film_tv
+      - literature
+      - theater
+      - religion_spirituality
+      - linguistics
+      - parenting
+      - pregnancy
+      - child_development
+      - family_activities
+      - pets
+      - dog_training
+      - equestrian
+      - birds_exotic
+      - aquatic_pets
+      - automotive_hobby
+      - motorcycles
+      - ev_vehicles
+      - home_improvement
+      - interior_design
+      - home_organization
+      - career
+      - productivity
+      - public_speaking
+      - leadership
+      - gaming
+      - game_design
+      - esports
+      - green_living
+      - renewable_energy
+      - real_estate
+      - mortgage_finance
+      - relationships
+      - communication_skills
+      - creative_writing
+      - publishing
+      - journalism
+      - events_planning
+      - weddings
+      - fashion
+      - grooming
+      - personal_legal
+      - insurance
+      - taxes_personal
+      - emergency_preparedness
+      - home_safety
+      - music_production
+      - podcasting
+      - dj_performance
+      - illustration
+      - graphic_design
+      - crafts_diy_art
+      - audio_synthesis
+      - creative_media
+  creative_ideation:
+    keywords: [brainstorm, ideas for, suggest, creative]
+    inherently_document: true  # ideas/suggestions are always text
+
+overrides:
+  force_manual:
+    - "[STRICT]"
+    - "/plan"
+    - "/manual"
+    - "/strict"
+    - "@plan"
+  force_teach:
+    - explain
+    - teach
+    - how does it work
+    - how does that work
+    - why did
+    - why do
+    - why would
+    - walk me through
+    - i'm learning
+    - learning how
+    - learning to
+    - how can i learn
+    - learn
+    - what does this do
+    - what does that mean
+    - what does this code do
+    - what does the code
+    - can you explain
+  force_pro_advanced:
+    - plan first
+    - lets plan
+    - let's plan
+    - break it down
+    - break this down
+    - step-by-step plan
+    - execution plan
+    - I need a plan
+    - need a plan
+    - full planning
+    - "scope:"
+    - /reclassify

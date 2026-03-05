@@ -1,0 +1,73 @@
+name: Bug Report
+description: Report a bug in Project Synesis
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please fill out the sections below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this?
+      placeholder: |
+        1. Deploy with `./scripts/deploy.sh dev`
+        2. Send a request to `/v1/chat/completions`
+        3. Observe error in planner logs
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include error messages or logs.
+    validations:
+      required: true
+
+  - type: input
+    id: openshift-version
+    attributes:
+      label: OpenShift Version
+      placeholder: "4.16"
+
+  - type: input
+    id: rhoai-version
+    attributes:
+      label: RHOAI Version
+      placeholder: "2.14"
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Planner (LangGraph)
+        - Gateway (LiteLLM)
+        - RAG Pipeline
+        - Sandbox / Executor
+        - LSP Gateway
+        - Model Serving (vLLM)
+        - Web UI (Open WebUI)
+        - SearXNG (Search)
+        - Knowledge Indexers
+        - Deploy / Bootstrap Scripts
+        - Other

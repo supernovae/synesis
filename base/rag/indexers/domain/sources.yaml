@@ -1,0 +1,14 @@
+# Red Hat / OpenShift domain runbook sources (GitHub)
+# Convention: collection maps to domain_{platform} for RAG metadata gravity
+github_repos:
+  - repo: "openshift/runbooks"
+    branch: "master"
+    path: "alerts"
+    collection: "domain_openshift"
+    tags: ["ocp", "runbooks", "alerts"]
+
+  - repo: "red-hat-storage/ocs-sop"
+    branch: "main"
+    path: "sop"
+    collection: "domain_openshift"
+    tags: ["ods", "ocs", "storage", "odf"]

@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-lsp
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - network-policy.yaml
+  - gateway/

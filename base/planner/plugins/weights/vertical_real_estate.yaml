@@ -1,0 +1,81 @@
+# Synesis Real Estate Plugin
+# Focus: Home buying/selling, mortgages, property investment, rentals.
+
+complexity_weights:
+  mortgage_finance:
+    weight: 10
+    keywords:
+      - mortgage rate
+      - amortization
+      - points
+      - escrow
+      - pmi
+      - dti ratio
+      - pre-approval
+  property_investment:
+    weight: 10
+    keywords:
+      - cap rate
+      - cash on cash
+      - appreciation
+      - rental yield
+      - 1031 exchange
+      - reit
+
+risk_weights:
+  financial_commitment:
+    weight: 12
+    keywords:
+      - closing costs
+      - earnest money
+      - contract contingency
+      - title insurance
+
+domain_keywords:
+  real_estate:
+    domain: real_estate
+    keywords:
+      - real estate
+      - house
+      - apartment
+      - condo
+      - home buying
+      - home selling
+      - realtor
+      - property
+      - rental
+      - landlord
+      - tenant
+      - lease
+      - appraisal
+      - inspection
+      - hoa
+      - open house
+      - listing
+      - mls
+      - fixer upper
+      - flip
+  mortgage_finance:
+    domain: mortgage_finance
+    keywords:
+      - mortgage
+      - down payment
+      - closing costs
+      - refinance
+      - interest rate
+      - fixed rate
+      - adjustable rate
+      - fha
+      - va loan
+      - conventional loan
+      - pre-approval
+      - amortization
+      - investment property
+
+pairings:
+  - keywords: [mortgage, default]
+    extra_weight: 15
+    axis: risk
+  - keywords: [property, legal]
+    extra_weight: 10
+    axis: risk

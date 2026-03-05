@@ -1,0 +1,167 @@
+# Canonical prompts for intent-flow validation.
+#
+# Run: cd base/planner && pip install -r requirements.txt -r requirements-test.txt && pytest tests/test_intent_validation.py -v
+#
+# EntryClassifier is deterministic — no LLM needed. These assert expected
+# task_size, interaction_mode, routing, etc. Use for regression testing and
+# to validate flow behavior as the system evolves.
+#
+# Future: Integration tests (full graph with model proxy) can use the same
+# prompts and assert on final response shape (e.g. Learner's Corner present).
+
+prompts:
+  # --- Trivial (fast path, bypass Supervisor) ---
+  - prompt: "hello world in python"
+    expected:
+      task_size: easy
+      bypass_supervisor: true
+      task_is_trivial: true
+      rag_mode: disabled
+      interaction_mode: do
+      target_language: python
+
+  - prompt: "print hello"
+    expected:
+      task_size: easy
+      bypass_supervisor: true
+      interaction_mode: do
+
+  - prompt: "write a basic unit test for this function"
+    expected:
+      task_size: medium
+      bypass_supervisor: false
+      interaction_mode: do
+
+  - prompt: "parse this json"
+    expected:
+      task_size: medium
+      bypass_supervisor: false
+
+  # --- Phase 2: domain never escalates — kubectl/orchestration is RAG-only ---
+  # Note: "get" in networking keyword currently adds complexity; classifier tuning may restore trivial
+  - prompt: "kubectl get pods"
+    expected:
+      task_size: medium
+      bypass_supervisor: false
+
+  - prompt: "simple fizzbuzz"
+    expected:
+      task_size: easy
+      bypass_supervisor: true
+
+  # --- Force Manual override (route through Supervisor even for trivial wording) ---
+  - prompt: "[STRICT] hello world in python"
+    expected:
+      task_size: hard    # force_manual sets hard for full path
+      bypass_supervisor: false
+      plan_required: true
+
+  - prompt: "/plan create a simple script that prints hello"
+    expected:
+      task_size: hard    # force_manual
+      bypass_supervisor: false
+
+  # --- Small (default, Supervisor runs) ---
+  - prompt: "write a script that fetches data from an API and saves to csv"
+    expected:
+      task_size: hard
+      bypass_supervisor: false
+      interaction_mode: do
+
+  - prompt: "add error handling to this function"
+    expected:
+      task_size: easy
+      bypass_supervisor: true
+
+  # --- Complex (escalate, plan approval) ---
+  # Taxonomy refactoring classifies this as is_code_task=false; plan_required
+  # stays false unless should_plan_for_document() triggers a deep-dive domain.
+  - prompt: "design the architecture for our microservices migration"
+    expected:
+      task_size: hard
+      bypass_supervisor: false
+      plan_required: false
+
+  - prompt: "refactor across the whole repo"
+    expected:
+      task_size: hard  # broad scope triggers complexity
+
+  - prompt: "connect to AWS and sync credentials"
+    expected:
+      task_size: hard
+
+  # --- Educational / Mentor mode ---
+  - prompt: "explain how this hello world works"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "how does it work?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "why did you use print() instead of sys.stdout?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "I'm learning Python, can you walk me through this?"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "teach me how context managers work"
+    expected:
+      interaction_mode: teach
+
+  - prompt: "what does this code do?"
+    expected:
+      interaction_mode: teach
+
+  # --- Language detection ---
+  - prompt: "hello world"
+    expected:
+      target_language: infer  # classifier defers to Supervisor; trivial block uses DEFAULT_LANGUAGE
+
+  - prompt: "write a go script that prints hi"
+    expected:
+      target_language: go
+
+  - prompt: "create a rust program"
+    expected:
+      target_language: rust
+
+  # --- UI helper (should be filtered in main.py; EntryClassifier double-check) ---
+  - prompt: "suggest 3-5 follow-up questions"
+    expected:
+      message_origin: ui_helper
+
+  # --- is_code_task=false (taxonomy-driven: skip Planner, Worker produces markdown) ---
+  # inherently_document: knowledge, creative_ideation
+  - prompt: "explain how marathon taper works"
+    expected:
+      intent_class: knowledge
+      is_code_task: false
+      plan_required: false
+  - prompt: "brainstorm names for a running app"
+    expected:
+      intent_class: creative_ideation
+      is_code_task: false
+      plan_required: false
+  # document_domains: planning, personal_guidance, writing + lifestyle
+  - prompt: "create a marathon training plan for intermediate runner"
+    expected:
+      intent_class: planning
+      is_code_task: false
+      plan_required: false
+  - prompt: "how can I improve my running form"
+    expected:
+      intent_class: personal_guidance
+      is_code_task: false
+      plan_required: false
+  - prompt: "write a blog post about marathon training"
+    expected:
+      intent_class: writing
+      is_code_task: false
+      plan_required: false
+  # code intents stay code
+  - prompt: "write a python script to parse json"
+    expected:
+      is_code_task: true

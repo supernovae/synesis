@@ -1,0 +1,33 @@
+# Live integration prompts: hit /v1/chat/completions and assert on response shape.
+#
+# Run against deployed planner (oc port-forward or tunnel). Use to validate
+# end-to-end behavior: trivial path, educational mode, UI helper filter.
+#
+# Usage: scripts/validate-intent-live.sh [--url http://localhost:8000]
+#
+# Prerequisite: Push + deploy, then oc port-forward svc/synesis-planner 8000:8000 -n synesis-planner
+
+prompts:
+  # --- Trivial: expect code block, no "I need more info" ---
+  - prompt: "hello world in python"
+    response_must_contain: ["```python", "print"]
+    response_must_not_contain: ["I need more", "Which ", "clarification"]
+
+  - prompt: "print hello"
+    response_must_contain: ["```"]
+    response_must_not_contain: ["I need more", "clarification"]
+
+  # --- Educational: expect Learner's Corner ---
+  - prompt: "explain how a simple hello world works in Python"
+    response_must_contain: ["Learner's Corner", "Pattern:", "Why:"]
+    response_must_not_contain: ["[UI helper request]"]
+
+  # --- UI helper: expect short-circuit ---
+  - prompt: "suggest 3-5 follow-up questions"
+    response_must_contain: ["[UI helper request]", "no coding task"]
+    response_must_not_contain: ["```python", "```bash"]
+
+  # --- Small: expect code or plan (may have defaults ack) ---
+  - prompt: "write a one-line Python script that prints the current date"
+    response_must_contain: ["```"]
+    response_must_not_contain: ["[UI helper request]"]

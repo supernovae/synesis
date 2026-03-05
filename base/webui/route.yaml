@@ -1,0 +1,22 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-webui
+  namespace: synesis-webui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: webui
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
+spec:
+  host: synesis.apps.openshiftdemo.dev
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: open-webui
+    weight: 100
+  port:
+    targetPort: http

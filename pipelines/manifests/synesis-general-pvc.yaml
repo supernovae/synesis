@@ -1,0 +1,19 @@
+# PVC for general model (Qwen3.5-35B-A3B, ~35 GB weights).
+# 100Gi = model + download cache headroom (~2.5x buffer).
+# Source of truth: models.yaml roles.general.pvc_*
+#
+# Create:
+#   oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # once, as cluster-admin
+#   sed "s/NAMESPACE/synesis-models/" pipelines/manifests/synesis-general-pvc.yaml | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synesis-general-pvc
+  namespace: NAMESPACE
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-high
+  resources:
+    requests:
+      storage: 100Gi

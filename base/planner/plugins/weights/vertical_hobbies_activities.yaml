@@ -1,0 +1,405 @@
+# Synesis Hobbies & Activities Vertical
+# Outdoors, making, collecting, tabletop, recreation — broad coverage from hiking to 3D printing.
+# domain_running.yaml covers athletics (marathon, vo2max); this covers the rest.
+# Planning, writing, personal_guidance in these domains → document output (guides, trip plans, project guides).
+
+complexity_weights:
+  # Outdoors & nature
+  hiking_backpacking:
+    weight: 7
+    keywords:
+      - hiking
+      - backpacking
+      - trail
+      - thru-hike
+      - ultralight
+      - appalachian trail
+      - pct
+      - cdt
+      - gear list
+  fishing:
+    weight: 6
+    keywords:
+      - fishing
+      - fly fishing
+      - bass
+      - trout
+      - saltwater fishing
+      - lure
+      - tackle
+      - rod
+      - reel
+      - casting
+  camping_outdoors:
+    weight: 6
+    keywords:
+      - camping
+      - tent
+      - rv
+      - car camping
+      - overland
+      - campsite
+  paddling:
+    weight: 7
+    keywords:
+      - kayaking
+      - canoe
+      - paddle
+      - whitewater
+      - sup
+      - stand up paddleboard
+  climbing:
+    weight: 8
+    keywords:
+      - rock climbing
+      - bouldering
+      - belay
+      - anchor
+      - trad climbing
+      - sport climb
+      - indoor climbing
+  skiing_snowsports:
+    weight: 7
+    keywords:
+      - skiing
+      - snowboarding
+      - backcountry
+      - ski touring
+      - avalanche
+  cycling_outdoor:
+    weight: 6
+    keywords:
+      - cycling
+      - mountain bike
+      - gravel bike
+      - bikepacking
+      - bike touring
+  gardening:
+    weight: 6
+    keywords:
+      - gardening
+      - vegetable garden
+      - permaculture
+      - compost
+      - raised bed
+      - hydroponic
+      - bonsai
+  # Making & DIY
+  three_d_printing:
+    weight: 9
+    keywords:
+      - 3d print
+      - 3d printer
+      - slicer
+      - cura
+      - prusaslicer
+      - fdm
+      - sla
+      - resin print
+      - support
+      - bed level
+      - extrusion
+      - marlin
+      - klipper
+  woodworking:
+    weight: 8
+    keywords:
+      - woodworking
+      - joinery
+      - table saw
+      - router
+      - planer
+      - lumber
+      - finish
+      - dovetail
+  metalworking:
+    weight: 9
+    keywords:
+      - metalworking
+      - welding
+      - forge
+      - blacksmith
+      - lathe
+      - mill
+      - cnc
+  electronics_hobby:
+    weight: 8
+    keywords:
+      - arduino
+      - raspberry pi
+      - esp32
+      - circuit
+      - soldering
+      - pcb
+      - hobby electronics
+  model_building:
+    weight: 6
+    keywords:
+      - scale model
+      - rc car
+      - rc plane
+      - fpv drone
+      - model kit
+  sewing_crafts:
+    weight: 6
+    keywords:
+      - sewing
+      - quilting
+      - knitting
+      - crochet
+      - embroidery
+      - fiber arts
+      - macrame
+      - weaving
+      - felting
+      - cross stitch
+      - yarn
+      - pattern
+  pottery_ceramics:
+    weight: 7
+    keywords:
+      - pottery
+      - ceramics
+      - kiln
+      - wheel throwing
+      - glaze
+  # Collecting
+  collecting:
+    weight: 5
+    keywords:
+      - collecting
+      - stamps
+      - coins
+      - trading cards
+      - memorabilia
+      - vintage
+  # Tabletop & indoor
+  board_games:
+    weight: 6
+    keywords:
+      - board game
+      - tabletop
+      - dnd
+      - dungeons dragons
+      - ttrpg
+      - warhammer
+      - miniature
+  puzzles:
+    weight: 5
+    keywords:
+      - jigsaw puzzle
+      - crossword
+      - sudoku
+      - puzzle
+  # Other recreation (beyond domain_running)
+  golf:
+    weight: 6
+    keywords:
+      - golf
+      - swing
+      - club
+      - handicap
+  photography_hobby:
+    weight: 7
+    keywords:
+      - photography
+      - camera
+      - lens
+      - aperture
+      - composition
+      - landscape photography
+  aquariums:
+    weight: 7
+    keywords:
+      - aquarium
+      - fish tank
+      - reef tank
+      - planted tank
+      - freshwater
+      - saltwater
+  drones:
+    weight: 8
+    keywords:
+      - drone
+      - fpv
+      - dji
+      - uav
+  ham_radio:
+    weight: 8
+    keywords:
+      - ham radio
+      - amateur radio
+      - call sign
+      - antenna
+      - qso
+  genealogy:
+    weight: 7
+    keywords:
+      - genealogy
+      - family tree
+      - ancestry
+      - records research
+  homebrewing:
+    weight: 7
+    keywords:
+      - homebrew
+      - beer brewing
+      - ferment
+      - mash
+      - mead
+      - wine making
+
+risk_weights:
+  power_tools:
+    weight: 12
+    keywords:
+      - table saw
+      - angle grinder
+      - welding
+      - forge
+  outdoor_safety:
+    weight: 10
+    keywords:
+      - avalanche
+      - wilderness
+      - bear
+      - survival
+
+domain_keywords:
+  outdoors:
+    domain: outdoors
+    keywords:
+      - hiking
+      - backpacking
+      - trail
+      - camping
+      - kayaking
+      - climbing
+      - fishing
+      - outdoors
+      - wilderness
+  fishing:
+    domain: fishing
+    keywords:
+      - fishing
+      - fly fishing
+      - lure
+      - tackle
+      - rod
+      - reel
+  gardening:
+    domain: gardening
+    keywords:
+      - gardening
+      - garden
+      - compost
+      - permaculture
+      - hydroponic
+  three_d_printing:
+    domain: three_d_printing
+    keywords:
+      - 3d print
+      - 3d printer
+      - slicer
+      - cura
+      - prusa
+      - fdm
+      - sla
+      - klipper
+  woodworking:
+    domain: woodworking
+    keywords:
+      - woodworking
+      - joinery
+      - lumber
+      - saw
+      - router
+  hobbies_making:
+    domain: hobbies_making
+    keywords:
+      - diy
+      - maker
+      - craft
+      - solder
+      - arduino
+      - welding
+      - pottery
+  hobbies_collecting:
+    domain: hobbies_collecting
+    keywords:
+      - collecting
+      - stamps
+      - coins
+      - trading card
+      - vintage
+  board_games:
+    domain: board_games
+    keywords:
+      - board game
+      - tabletop
+      - dnd
+      - ttrpg
+      - miniature
+  recreation:
+    domain: recreation
+    keywords:
+      - golf
+      - tennis
+      - cycling
+      - swimming
+      - ski
+      - drone
+  photography_hobby:
+    domain: photography_hobby
+    keywords:
+      - photography
+      - camera
+      - lens
+  aquariums:
+    domain: aquariums
+    keywords:
+      - aquarium
+      - fish tank
+      - reef
+  hobbies_general:
+    domain: hobbies_general
+    keywords:
+      - hobby
+      - interest
+      - pastime
+      - leisure
+  leatherworking:
+    domain: leatherworking
+    keywords:
+      - leatherwork
+      - leather craft
+      - tooling
+      - leather stitching
+      - tanning
+      - saddle making
+      - leather holster
+      - leather carving
+  cosplay_larp:
+    domain: cosplay_larp
+    keywords:
+      - cosplay
+      - costume
+      - prop making
+      - foam armor
+      - larp
+      - convention
+      - wig styling
+      - body paint
+      - eva foam
+      - worbla
+
+pairings:
+  - keywords: [3d print, firmware]
+    extra_weight: 10
+    axis: complexity
+  - keywords: [power, tool]
+    extra_weight: 10
+    axis: risk
+  - keywords: [outdoor, emergency]
+    extra_weight: 12
+    axis: risk

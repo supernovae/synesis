@@ -1,0 +1,189 @@
+# Synesis Programming & Software Lifecycle Vertical
+# Deep language/ecosystem coverage. SLC phases: requirements, design, implement, test, deploy, maintain.
+# Enables consistent routing, planning, critic strategy within programming taxonomy domains.
+
+complexity_weights:
+  requirements_phase:
+    weight: 8
+    keywords:
+      - requirements
+      - user story
+      - acceptance criteria
+      - spec
+      - story point
+      - epic
+  design_phase:
+    weight: 10
+    keywords:
+      - design doc
+      - adr
+      - architecture decision
+      - system design
+      - uml
+      - sequence diagram
+      - er diagram
+  implementation_multi:
+    weight: 10
+    keywords:
+      - implement
+      - refactor across
+      - multi-file
+      - codebase
+      - repository
+  testing_phase:
+    weight: 8
+    keywords:
+      - integration test
+      - e2e test
+      - test coverage
+      - tdd
+      - bdd
+      - acceptance test
+  deployment_phase:
+    weight: 10
+    keywords:
+      - deploy
+      - release
+      - version bump
+      - changelog
+      - semver
+      - release notes
+  maintenance_phase:
+    weight: 10
+    keywords:
+      - deprecate
+      - migrate version
+      - upgrade dependency
+      - breaking change
+      - backward compat
+      - technical debt
+  documentation_artifact:
+    weight: 6
+    keywords:
+      - generate docs
+      - readme
+      - api docs
+      - openapi
+      - sphinx
+      - javadoc
+      - godoc
+  dependency_mgmt:
+    weight: 8
+    keywords:
+      - dependency
+      - package manager
+      - lockfile
+      - transitive
+      - vulnerability
+      - sbom
+
+domain_keywords:
+  python_ecosystem:
+    domain: python
+    keywords:
+      - python
+      - pip
+      - venv
+      - poetry
+      - uv
+      - pyproject
+      - pytest
+      - mypy
+      - ruff
+      - black
+  javascript_ecosystem:
+    domain: javascript
+    keywords:
+      - npm
+      - yarn
+      - pnpm
+      - node
+      - esm
+      - commonjs
+      - webpack
+      - vite
+      - jest
+  typescript_ecosystem:
+    domain: typescript
+    keywords:
+      - typescript
+      - tsconfig
+      - strict mode
+      - tsc
+  go_ecosystem:
+    domain: golang
+    keywords:
+      - go mod
+      - go build
+      - goroutine
+      - go test
+  rust_ecosystem:
+    domain: rust
+    keywords:
+      - cargo
+      - crate
+      - tokio
+      - serde
+  java_ecosystem:
+    domain: java
+    keywords:
+      - maven
+      - gradle
+      - jvm
+      - spring
+  csharp_ecosystem:
+    domain: csharp
+    keywords:
+      - dotnet
+      - nuget
+      - csproj
+  ruby_ecosystem:
+    domain: ruby
+    keywords:
+      - ruby
+      - gem
+      - bundler
+      - rake
+  php_ecosystem:
+    domain: php
+    keywords:
+      - composer
+      - phpunit
+  elixir_ecosystem:
+    domain: elixir
+    keywords:
+      - mix
+      - elixir
+      - phoenix
+  perl_ecosystem:
+    domain: perl
+    keywords:
+      - cpan
+      - perl
+  lua_ecosystem:
+    domain: lua
+    keywords:
+      - lua
+      - luajit
+  scala_ecosystem:
+    domain: scala
+    keywords:
+      - sbt
+      - scala
+  haskell_ecosystem:
+    domain: haskell
+    keywords:
+      - cabal
+      - stack
+      - ghc
+
+pairings:
+  - keywords: [dependency, upgrade]
+    extra_weight: 8
+    axis: complexity
+  - keywords: [breaking change, production]
+    extra_weight: 15
+    axis: risk
+  - keywords: [test, coverage]
+    extra_weight: 5
+    axis: complexity

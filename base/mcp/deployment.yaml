@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-mcp
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-mcp
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-mcp
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: mcp
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: mcp
+          image: ghcr.io/supernovae/synesis/mcp:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8100
+              protocol: TCP
+          env:
+            - name: SYNESIS_LOG_LEVEL
+              value: "info"
+            - name: SYNESIS_PLANNER_URL
+              value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+            - name: SYNESIS_CRITIC_URL
+              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+            - name: SYNESIS_CRITIC_MODEL
+              value: "synesis-executor"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5

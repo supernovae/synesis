@@ -1,0 +1,390 @@
+# ============================================================================
+# Synesis Model Registry — Single Source of Truth
+# ============================================================================
+#
+# This file defines all model roles, their defaults, and composable deployment
+# profiles. `scripts/generate-model-configs.sh --profile=<name>` reads this
+# file and generates:
+#   - base/model-serving/deployment-vllm-*.yaml
+#   - base/gateway/litellm-config.yaml  (model_list entries)
+#   - base/planner/deployment.yaml      (SYNESIS_*_MODEL_URL env vars)
+#   - docs/COST_ESTIMATE.md
+#
+# See docs/WORKFLOW.md and the V3 architecture plan for context.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Logical roles — constant across all profiles
+# ---------------------------------------------------------------------------
+roles:
+  router:
+    description: "Fast taxonomy classification and intent routing"
+    default_model: "RedHatAI/Qwen3-8B-FP8-dynamic"
+    served_model_name: "synesis-router"
+    service_name: "synesis-router-predictor"
+    namespace: "synesis-models"
+    pvc_name: "synesis-router-pvc"
+    pvc_size: "25Gi"
+    pvc_subpath: "router-model"
+    deployment_name: "synesis-supervisor-critic-predictor"
+
+  general:
+    description: "General reasoning, Open WebUI default, writer synthesis"
+    default_model: "Qwen/Qwen3.5-35B-A3B"
+    served_model_name: "synesis-general"
+    service_name: "synesis-general-predictor"
+    namespace: "synesis-models"
+    also_serves:
+      - writer
+    pvc_name: "synesis-general-pvc"
+    pvc_size: "100Gi"
+    pvc_subpath: "general-model"
+    deployment_name: "synesis-general-predictor"
+
+  coder:
+    description: "Agentic coding for IDE clients (Cursor, Claude Code)"
+    default_model: "Qwen/Qwen3-Coder-Next"
+    served_model_name: "synesis-coder"
+    service_name: "synesis-coder-predictor"
+    namespace: "synesis-models"
+    separate_endpoint: true
+    pvc_name: "synesis-coder-pvc"
+    pvc_size: "200Gi"
+    pvc_subpath: "coder-model"
+    deployment_name: "synesis-coder-predictor"
+
+  critic:
+    description: "Deep reasoning critic — R1 thinking model"
+    default_model: "RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic"
+    served_model_name: "synesis-critic"
+    service_name: "synesis-critic-predictor"
+    namespace: "synesis-models"
+    openwebui_selectable: true
+    pvc_name: "synesis-critic-pvc"
+    pvc_size: "100Gi"
+    pvc_subpath: "critic-model"
+    deployment_name: "synesis-executor-predictor"
+
+  summarizer:
+    description: "Pivot history summarization, conversation context compression"
+    default_model: "Qwen/Qwen2.5-0.5B-Instruct"
+    served_model_name: "synesis-summarizer"
+    service_name: "synesis-summarizer-predictor"
+    namespace: "synesis-models"
+
+# ---------------------------------------------------------------------------
+# Supporting services (non-LLM)
+# ---------------------------------------------------------------------------
+supporting:
+  embedder:
+    name: "all-MiniLM-L6-v2"
+    display_name: "MiniLM L6 v2 Embedder"
+    role: "RAG embedding generation"
+    huggingface_repo: "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dim: 384
+    requires_gpu: false
+
+# ---------------------------------------------------------------------------
+# Composable deployment profiles
+# ---------------------------------------------------------------------------
+#
+# Each profile specifies, per role:
+#   model_override  — HuggingFace repo (omit to use role default)
+#   quant           — quantization (FP8, BF16, Q4, Q3, none)
+#   device          — gpu | cpu
+#   gpu             — GPU index(es); int or list for tensor parallelism
+#   tp              — tensor-parallel-size (default 1)
+#   replicas        — pod replicas (default 1)
+#   shared_with     — co-locate on same pod as another role
+#   pvc             — PVC name for model weights
+#   pvc_subpath     — subPath within PVC
+#   vllm_args       — extra vLLM CLI args (appended to base set)
+#   hpa             — HorizontalPodAutoscaler config (optional)
+#
+# Base vLLM args applied to all GPU roles:
+#   --port=8080
+#   --generation-config=vllm
+#   --gpu-memory-utilization=<from profile>
+# ---------------------------------------------------------------------------
+
+profiles:
+  # =========================================================================
+  # Small: 2× L40S — proof of concept, single developer
+  # =========================================================================
+  small:
+    description: "2x L40S (g6e.4xlarge) — proof of concept"
+    instance_type: "g6e.4xlarge"
+    gpus: 2
+    assignments:
+      router:
+        model_override: "RedHatAI/Qwen3-8B-FP8-dynamic"
+        quant: "FP8"
+        device: "gpu"
+        gpu: 0
+        tp: 1
+        replicas: 1
+        pvc: "synesis-router-pvc"
+        pvc_subpath: "router-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.90"
+          - "--enable-prefix-caching"
+        notes: >
+          Router shares GPU 0 with nothing else in small profile.
+          Also serves supervisor/planner/advisor roles (same 8B model).
+
+      general:
+        notes: >
+          No dedicated general model in small profile. Open WebUI
+          routes to critic (R1, shows thinking) as default, or falls
+          back to router for general queries. Upgrade to medium for
+          a dedicated general model.
+
+      coder:
+        model_override: "Qwen/Qwen3-Coder-Next"
+        quant: "Q3"
+        device: "gpu"
+        gpu: 1
+        tp: 1
+        replicas: 1
+        pvc: "synesis-coder-pvc"
+        pvc_subpath: "coder-model"
+        vllm_args:
+          - "--gpu-memory-utilization=0.92"
+          - "--max-model-len=65536"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=hermes"
+        notes: >
+          Q3 quantization (~40 GB) to fit single L40S. Quality
+          tradeoff vs FP8 is minimal for code generation tasks.
+
+      critic:
+        model_override: "RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic"
+        quant: "FP8"
+        device: "gpu"
+        gpu: 0
+        tp: 1
+        replicas: 1
+        shared_with: "router"
+        pvc: "synesis-critic-pvc"
+        pvc_subpath: "critic-model"
+        vllm_args:
+          - "--reasoning-parser=deepseek_r1"
+          - "--kv-cache-dtype=fp8_e4m3"
+          - "--enable-chunked-prefill"
+          - "--max-model-len=20480"
+          - "--gpu-memory-utilization=0.92"
+        notes: >
+          Shares GPU 0 with router in small profile. Time-shared:
+          critic only fires for hard tasks; router handles easy/medium.
+          R1 also appears as optional thinking model in Open WebUI.
+
+      summarizer:
+        device: "cpu"
+        replicas: 1
+        vllm_args:
+          - "--max-model-len=8192"
+
+  # =========================================================================
+  # Medium: 4× L40S — team use, dedicated roles
+  # =========================================================================
+  medium:
+    description: "4x L40S (g6e.12xlarge or 2x g6e.4xlarge) — team use"
+    instance_type: "g6e.12xlarge"
+    gpus: 4
+    assignments:
+      router:
+        quant: "FP8"
+        device: "gpu"
+        gpu: 3
+        tp: 1
+        replicas: 1
+        pvc: "synesis-router-pvc"
+        pvc_subpath: "router-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.85"
+          - "--enable-prefix-caching"
+
+      general:
+        quant: "BF16"
+        device: "gpu"
+        gpu: 0
+        tp: 1
+        replicas: 1
+        pvc: "synesis-general-pvc"
+        pvc_subpath: "general-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.90"
+          - "--enable-prefix-caching"
+        notes: >
+          Qwen3.5-35B-A3B at BF16. MoE with 3B active params fits
+          on one L40S. Serves both general queries and writer role.
+
+      coder:
+        quant: "FP8"
+        device: "gpu"
+        gpu:
+          - 1
+          - 2
+        tp: 2
+        replicas: 1
+        pvc: "synesis-coder-pvc"
+        pvc_subpath: "coder-model"
+        vllm_args:
+          - "--gpu-memory-utilization=0.90"
+          - "--max-model-len=65536"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=hermes"
+        notes: >
+          FP8 quantization (~85 GB) requires TP=2 across 2 GPUs.
+
+      critic:
+        quant: "FP8"
+        device: "gpu"
+        gpu: 3
+        tp: 1
+        replicas: 1
+        shared_with: "router"
+        pvc: "synesis-critic-pvc"
+        pvc_subpath: "critic-model"
+        vllm_args:
+          - "--reasoning-parser=deepseek_r1"
+          - "--kv-cache-dtype=fp8_e4m3"
+          - "--enable-chunked-prefill"
+          - "--max-model-len=20480"
+          - "--gpu-memory-utilization=0.90"
+
+      summarizer:
+        device: "cpu"
+        replicas: 1
+        vllm_args:
+          - "--max-model-len=8192"
+
+  # =========================================================================
+  # Large: 8× GPU — production, horizontal scaling
+  # =========================================================================
+  large:
+    description: "8x GPU (p5.48xlarge or multi-node) — production"
+    instance_type: "p5.48xlarge or multi-node L40S"
+    gpus: 8
+    assignments:
+      router:
+        quant: "FP8"
+        device: "gpu"
+        gpu: 7
+        tp: 1
+        replicas: 2
+        pvc: "synesis-router-pvc"
+        pvc_subpath: "router-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.85"
+          - "--enable-prefix-caching"
+
+      general:
+        model_override: "Qwen/Qwen3-235B-A22B"
+        quant: "FP8"
+        device: "gpu"
+        gpu:
+          - 0
+          - 1
+        tp: 2
+        replicas: 1
+        pvc: "synesis-general-pvc"
+        pvc_subpath: "general-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.90"
+          - "--enable-prefix-caching"
+        notes: >
+          Upgraded to Qwen3-235B-A22B (22B active) for production.
+          TP=2 across 2 GPUs. Serves general and writer roles.
+
+      coder:
+        quant: "FP8"
+        device: "gpu"
+        gpu:
+          - 2
+          - 3
+        tp: 2
+        replicas: 2
+        pvc: "synesis-coder-pvc"
+        pvc_subpath: "coder-model"
+        vllm_args:
+          - "--gpu-memory-utilization=0.90"
+          - "--max-model-len=65536"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=hermes"
+        hpa:
+          min_replicas: 2
+          max_replicas: 4
+          metric: "vllm:num_requests_waiting"
+          target_value: 5
+        notes: >
+          HPA scales coder replicas based on queue depth. Each replica
+          gets its own GPU pair (TP=2). Topology spread ensures replicas
+          land on different nodes.
+
+      critic:
+        model_override: "deepseek-ai/DeepSeek-R1-Distill-Qwen-70B"
+        quant: "FP8"
+        device: "gpu"
+        gpu:
+          - 4
+          - 5
+        tp: 2
+        replicas: 1
+        pvc: "synesis-critic-pvc"
+        pvc_subpath: "critic-model"
+        vllm_args:
+          - "--reasoning-parser=deepseek_r1"
+          - "--kv-cache-dtype=fp8_e4m3"
+          - "--enable-chunked-prefill"
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.90"
+        notes: >
+          Upgraded to R1-Distill-70B for production critic quality.
+
+      summarizer:
+        device: "cpu"
+        replicas: 1
+        vllm_args:
+          - "--max-model-len=8192"
+
+# ---------------------------------------------------------------------------
+# Logical role → planner config mapping
+# ---------------------------------------------------------------------------
+# The planner (config.py) uses these env vars to reach each role:
+#
+#   SYNESIS_SUPERVISOR_MODEL_URL  → router endpoint  (router = supervisor)
+#   SYNESIS_SUPERVISOR_MODEL_NAME → router served_model_name
+#   SYNESIS_PLANNER_MODEL_URL    → router endpoint  (planner = supervisor)
+#   SYNESIS_PLANNER_MODEL_NAME   → router served_model_name
+#   SYNESIS_EXECUTOR_MODEL_URL   → general endpoint (worker uses general)
+#   SYNESIS_EXECUTOR_MODEL_NAME  → general served_model_name
+#   SYNESIS_CRITIC_MODEL_URL     → critic endpoint
+#   SYNESIS_CRITIC_MODEL_NAME    → critic served_model_name
+#   SYNESIS_ADVISOR_MODEL_URL    → router endpoint  (advisor = supervisor)
+#   SYNESIS_ADVISOR_MODEL_NAME   → router served_model_name
+#   SYNESIS_SUMMARIZER_MODEL_URL → summarizer endpoint
+#   SYNESIS_SUMMARIZER_MODEL_NAME→ summarizer served_model_name
+#
+# Service URL pattern:
+#   http://<service_name>.<namespace>.svc.cluster.local:8080/v1
+#
+# The coder endpoint is NOT routed through the planner. IDEs connect
+# directly to synesis-coder-predictor via LiteLLM or direct vLLM.
+
+# ---------------------------------------------------------------------------
+# Files generated by scripts/generate-model-configs.sh
+# ---------------------------------------------------------------------------
+generated_files:
+  - base/model-serving/deployment-vllm-supervisor-critic.yaml
+  - base/model-serving/deployment-vllm-executor.yaml
+  - base/model-serving/deployment-vllm-coder.yaml
+  - base/model-serving/inference-service-summarizer.yaml
+  - base/gateway/litellm-config.yaml
+  - base/planner/deployment.yaml
+  - docs/COST_ESTIMATE.md

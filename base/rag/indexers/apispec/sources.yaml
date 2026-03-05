@@ -1,0 +1,25 @@
+specs:
+  - name: "kubernetes-core-v1"
+    url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/api__v1_openapi.json"
+    description: "Kubernetes Core v1 API"
+    collection: "apispec_kubernetes_v1"
+
+  - name: "kubernetes-apps-v1"
+    url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apps__v1_openapi.json"
+    description: "Kubernetes Apps v1 API (Deployments, StatefulSets, DaemonSets)"
+    collection: "apispec_kubernetes_v1"
+
+  - name: "kubernetes-batch-v1"
+    url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__batch__v1_openapi.json"
+    description: "Kubernetes Batch v1 API (Jobs, CronJobs)"
+    collection: "apispec_kubernetes_v1"
+
+  - name: "kubernetes-networking-v1"
+    url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1_openapi.json"
+    description: "Kubernetes Networking v1 API (Ingress, NetworkPolicy)"
+    collection: "apispec_kubernetes_v1"
+
+  - name: "openshift-route"
+    url: "https://raw.githubusercontent.com/openshift/api/master/route/v1/zz_generated.swagger_doc_generated.go"
+    description: "OpenShift Route API"
+    collection: "apispec_openshift_v1"

@@ -1,0 +1,7 @@
+# Pipeline container: model download to PVC.
+# uv + huggingface_hub pre-installed for faster pipeline runs.
+# Push to ECR: ./pipelines/model-pvc-download/build.sh
+#
+FROM ghcr.io/astral-sh/uv:python3.12-trixie-slim
+
+RUN uv pip install --system "huggingface_hub[hf_transfer]"
