@@ -1,6 +1,6 @@
 """LLM response telemetry — capture x-* headers when SYNESIS_LOG_LEVEL=DEBUG.
 
-Surfaces queue_time_ms, inference_time_ms, compute_tokens from model predictors
+Surfaces queue_time_ms, inference_time_ms, compute_tokens from model services
 so we can identify bottlenecks (queue vs inference).
 """
 
@@ -29,18 +29,17 @@ def _log_model_response_headers_sync(response: Any) -> None:
         if not headers:
             return
         url = str(getattr(request, "url", "")) if request else ""
-        # Infer service from URL (supervisor-predictor, executor-predictor, critic-predictor, embedder)
         service = "unknown"
-        if "supervisor-predictor" in url:
+        if "synesis-supervisor" in url:
             service = "supervisor"
-        elif "executor-predictor" in url:
+        elif "synesis-executor" in url:
             service = "executor"
-        elif "critic-predictor" in url:
+        elif "synesis-critic" in url:
             service = "critic"
+        elif "synesis-general" in url:
+            service = "general"
         elif "embedder" in url:
             service = "embedder"
-        elif "planner" in url and "predictor" in url:
-            service = "planner"
 
         # Header names are case-insensitive; httpx lowercases them
         def _get(name: str) -> int | None:

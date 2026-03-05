@@ -34,7 +34,7 @@ PLANNER_URL = os.environ.get(
 )
 CRITIC_URL = os.environ.get(
     "SYNESIS_CRITIC_URL",
-    "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1",
+    "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1",
 )
 CRITIC_MODEL = os.environ.get("SYNESIS_CRITIC_MODEL", "synesis-executor")
 

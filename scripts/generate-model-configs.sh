@@ -92,7 +92,7 @@ PORT = 8080
 
 def service_url(role_name: str) -> str:
     role_def = roles.get(role_name, {})
-    svc = role_def.get("service_name", f"synesis-{role_name}-predictor")
+    svc = role_def.get("service_name", f"synesis-{role_name}")
     ns = role_def.get("namespace", NAMESPACE)
     return f"http://{svc}.{ns}.svc.cluster.local:{PORT}/v1"
 

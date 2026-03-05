@@ -21,55 +21,55 @@ roles:
     description: "Fast taxonomy classification and intent routing"
     default_model: "RedHatAI/Qwen3-8B-FP8-dynamic"
     served_model_name: "synesis-router"
-    service_name: "synesis-router-predictor"
+    service_name: "synesis-supervisor"
     namespace: "synesis-models"
     pvc_name: "synesis-router-pvc"
     pvc_size: "25Gi"
     pvc_subpath: "router-model"
-    deployment_name: "synesis-supervisor-critic-predictor"
+    deployment_name: "synesis-supervisor-critic"
 
   general:
     description: "General reasoning, Open WebUI default, writer synthesis"
     default_model: "Qwen/Qwen3.5-35B-A3B"
     served_model_name: "synesis-general"
-    service_name: "synesis-general-predictor"
+    service_name: "synesis-general"
     namespace: "synesis-models"
     also_serves:
       - writer
     pvc_name: "synesis-general-pvc"
     pvc_size: "100Gi"
     pvc_subpath: "general-model"
-    deployment_name: "synesis-general-predictor"
+    deployment_name: "synesis-general"
 
   coder:
     description: "Agentic coding for IDE clients (Cursor, Claude Code)"
     default_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
     served_model_name: "synesis-coder"
-    service_name: "synesis-coder-predictor"
+    service_name: "synesis-coder"
     namespace: "synesis-models"
     separate_endpoint: true
     pvc_name: "synesis-coder-pvc"
     pvc_size: "200Gi"
     pvc_subpath: "coder-model"
-    deployment_name: "synesis-coder-predictor"
+    deployment_name: "synesis-coder"
 
   critic:
     description: "Deep reasoning critic — R1 thinking model"
     default_model: "RedHatAI/DeepSeek-R1-Distill-Qwen-32B-FP8-dynamic"
     served_model_name: "synesis-critic"
-    service_name: "synesis-critic-predictor"
+    service_name: "synesis-critic"
     namespace: "synesis-models"
     openwebui_selectable: true
     pvc_name: "synesis-critic-pvc"
     pvc_size: "100Gi"
     pvc_subpath: "critic-model"
-    deployment_name: "synesis-executor-predictor"
+    deployment_name: "synesis-executor"
 
   summarizer:
     description: "Pivot history summarization, conversation context compression"
     default_model: "Qwen/Qwen2.5-0.5B-Instruct"
     served_model_name: "synesis-summarizer"
-    service_name: "synesis-summarizer-predictor"
+    service_name: "synesis-summarizer"
     namespace: "synesis-models"
 
 # ---------------------------------------------------------------------------
@@ -109,12 +109,16 @@ supporting:
 
 profiles:
   # =========================================================================
-  # Small: 2× L40S — proof of concept, single developer
+  # Small: 3× L40S — multi-user capable, dedicated general model
   # =========================================================================
   small:
-    description: "2x L40S (g6e.4xlarge) — proof of concept"
-    instance_type: "g6e.4xlarge"
-    gpus: 2
+    description: "3x L40S (3x g6e.2xlarge) — multi-user small"
+    instance_type: "g6e.2xlarge"
+    instance_count: 3
+    gpus: 3
+    cost_estimate:
+      on_demand: "$6.72/hr ($4,906/mo)"
+      spot: "$2.73/hr ($1,993/mo)"
     assignments:
       router:
         model_override: "RedHatAI/Qwen3-8B-FP8-dynamic"
@@ -130,22 +134,37 @@ profiles:
           - "--gpu-memory-utilization=0.90"
           - "--enable-prefix-caching"
         notes: >
-          Router shares GPU 0 with nothing else in small profile.
-          Also serves supervisor/planner/advisor roles (same 8B model).
+          Router on GPU 0 with ~35 GB KV cache headroom. Handles
+          supervisor/planner/advisor roles. Large KV cache supports
+          50-80 concurrent sessions at 32K context — prefix caching
+          keeps system prompts warm across users.
 
       general:
+        model_override: "Qwen/Qwen3.5-35B-A3B-FP8"
+        quant: "FP8"
+        device: "gpu"
+        gpu: 1
+        tp: 1
+        replicas: 1
+        pvc: "synesis-general-pvc"
+        pvc_subpath: "general-model"
+        vllm_args:
+          - "--max-model-len=32768"
+          - "--gpu-memory-utilization=0.92"
+          - "--enable-prefix-caching"
+          - "--enable-chunked-prefill"
         notes: >
-          No dedicated general model in small profile. The dev overlay
-          redirects SYNESIS_EXECUTOR_MODEL_URL to the supervisor-critic
-          endpoint (Qwen3-8B), so the worker node uses the same 8B model
-          for response generation. Quality tradeoff vs medium/large
-          profiles — upgrade for a dedicated general model.
+          Qwen3.5-35B-A3B MoE (3B active) at FP8 (~35 GB weights).
+          Dedicated general/writer model — significant quality upgrade
+          over the 2-GPU layout where worker fell back to 8B. MoE KV
+          cache is efficient (~2-3 GB at 32K) so ~9 GB headroom is
+          enough for multiple concurrent users.
 
       coder:
         model_override: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
         quant: "FP8"
         device: "gpu"
-        gpu: 1
+        gpu: 2
         tp: 1
         replicas: 1
         pvc: "synesis-coder-pvc"
@@ -159,7 +178,7 @@ profiles:
           - "--enable-chunked-prefill"
         notes: >
           Qwen3-Coder-30B-A3B MoE (3B active) at FP8 (~15 GB weights).
-          Fits easily on single L40S with full 65K context and 30 GB
+          Fits easily on single L40S with full 65K context and ~28 GB
           headroom. Same Qwen3-Coder family as the 80B Next — smaller
           but strong agentic coding. Medium/large upgrade to Next (TP=2)
           for max quality.
@@ -176,12 +195,13 @@ profiles:
         pvc_subpath: "router-model"
         vllm_args: []
         notes: >
-          Small profile: critic uses the SAME Qwen3-8B model as the router
-          with Qwen3 thinking mode (enable_thinking=True per request).
-          No separate R1 deployment — saves 1 GPU. The supervisor-critic
-          deployment serves both synesis-supervisor and synesis-critic model
-          names. synesis-executor-predictor scaled to 0 replicas.
-          Upgrade to medium/large for dedicated R1 critic.
+          Critic uses the SAME Qwen3-8B model as the router with Qwen3
+          thinking mode (enable_thinking=True per request). No separate
+          R1 deployment — the 8B critic is adequate for small profile.
+          The supervisor-critic deployment serves both synesis-supervisor
+          and synesis-critic model names. synesis-executor scaled
+          to 0 replicas. Upgrade to medium/large for dedicated
+          R1 critic.
 
       summarizer:
         device: "cpu"
@@ -381,7 +401,7 @@ profiles:
 #   http://<service_name>.<namespace>.svc.cluster.local:8080/v1
 #
 # The coder endpoint is NOT routed through the planner. IDEs connect
-# directly to synesis-coder-predictor via LiteLLM or direct vLLM.
+# directly to synesis-coder via LiteLLM or direct vLLM.
 
 # ---------------------------------------------------------------------------
 # Files generated by scripts/generate-model-configs.sh

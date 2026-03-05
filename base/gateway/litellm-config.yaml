@@ -28,28 +28,37 @@ data:
       - model_name: synesis-router
         litellm_params:
           model: openai/synesis-supervisor
-          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_base: http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.3
 
-      # Critic — routes to synesis-critic-predictor Service.
+      # Critic — routes to synesis-critic Service.
       # Small profile: resolves to Qwen3-8B (supervisor-critic pod, thinking mode).
       # Medium/large: resolves to R1-Distill (executor pod) when executor is deployed.
       # The critic Service selector is profile-aware via Kustomize overlays.
       - model_name: synesis-critic
         litellm_params:
           model: openai/synesis-critic
-          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.1
+
+      # General (Qwen3.5-35B-A3B FP8) — worker/writer response generation
+      - model_name: synesis-general
+        litellm_params:
+          model: openai/synesis-general
+          api_base: http://synesis-general.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.3
 
       # Coder (Qwen3-Coder-Next-FP8) — direct IDE endpoint, agentic coding
       - model_name: synesis-coder
         litellm_params:
           model: openai/synesis-coder
-          api_base: http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_base: http://synesis-coder.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 16384
           temperature: 0.2
@@ -59,16 +68,16 @@ data:
       - model_name: synesis-thinking
         litellm_params:
           model: openai/synesis-critic
-          api_base: http://synesis-critic-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 8192
           temperature: 0.2
 
-      # Router alias (same as synesis-supervisor-predictor)
+      # Router alias (same as synesis-supervisor)
       - model_name: synesis-supervisor
         litellm_params:
           model: openai/synesis-supervisor
-          api_base: http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1
+          api_base: http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
           temperature: 0.3

@@ -7,11 +7,43 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 | Model | Role | Quantization | VRAM | Deployment |
 |-------|------|-------------|------|------------|
 | **Qwen3-8B FP8-dynamic** | Router, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-supervisor-critic.yaml` |
-| **Qwen3-Coder-Next-FP8** | Coder (IDE agent) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
-| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (deep reasoning) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-executor.yaml` |
+| **Qwen3.5-35B-A3B-FP8** | General, Writer | FP8 (Qwen official) | ~35 GB | `deployment-vllm-general.yaml` |
+| **Qwen3-Coder-30B-A3B-FP8** | Coder (small) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
+| **Qwen3-Coder-Next-FP8** | Coder (medium+) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
+| **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (medium+) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-executor.yaml` |
 | **Qwen2.5-0.5B-Instruct** | Summarizer | none (CPU) | 0 | KServe InferenceService |
 
 See [models.yaml](../models.yaml) for the authoritative model registry.
+
+## General: Qwen3.5-35B-A3B FP8
+
+Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
+
+```
+--max-model-len=32768
+--gpu-memory-utilization=0.92
+--enable-prefix-caching
+--enable-chunked-prefill
+```
+
+- **Architecture**: 35B MoE with 3B active parameters per token. Qwen3.5 series — successor to Qwen3 with improved reasoning.
+- **FP8 weights ~35GB** — fits on a single L40S with ~9 GB headroom for KV cache.
+- **MoE KV cache efficiency**: Attention layers are sized for 3B active params, so KV cache is small (~2-3 GB at 32K context) despite the 35B total parameter count.
+- **Worker role**: Generates responses for Open WebUI users and the planner worker node. Quality upgrade over the 8B router fallback in the previous 2-GPU layout.
+- **Prefix caching**: Enabled — caches system prompts and repeated context across concurrent users.
+- **No thinking flags**: The general deployment does not enable `--enable-reasoning`. Workers control thinking per-request via `chat_template_kwargs` if needed.
+
+### General VRAM budget (small profile, single L40S)
+
+| Component | Estimate |
+|-----------|----------|
+| FP8 weights (35B MoE, all experts) | ~35 GB |
+| KV cache (32K ctx) | ~3 GB |
+| Activation memory | ~1 GB |
+| **Total** | **~39 GB** |
+| L40S usable (0.92 util) | 44 GB |
+
+Tight but workable. If OOM occurs, reduce `--max-model-len` to 16384 first.
 
 ## Coder: Profile-Dependent Model
 

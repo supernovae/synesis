@@ -185,7 +185,7 @@ discover_runtimes() {
     deploys=$(oc get deployments -n synesis-models -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
     if [[ -n "$deploys" ]]; then
         log "  Model deployments in synesis-models: $deploys"
-        for r in synesis-supervisor-critic-predictor synesis-executor-predictor synesis-coder-predictor; do
+        for r in synesis-supervisor-critic synesis-executor synesis-coder synesis-general; do
             echo "$deploys" | grep -q "$r" || log "  WARNING: $r not found (deploy creates it)"
         done
     fi
@@ -421,7 +421,7 @@ if [[ "$ISVC_SKIP" == "true" ]]; then
     log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
     log "  Summarizer and model deployments must be applied manually."
 else
-    if oc get deployment synesis-supervisor-critic-predictor -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
+    if oc get deployment synesis-supervisor-critic -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
         log ""
         oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-supervisor-critic,synesis-executor,synesis-coder)' 2>/dev/null || true
         oc get pods -n synesis-models -l 'app in (synesis-supervisor-critic,synesis-executor,synesis-coder)' 2>/dev/null || true

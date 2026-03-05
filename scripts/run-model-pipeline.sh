@@ -110,7 +110,7 @@ for role_name in target_roles:
     model_repo = assignment.get("model_override") or role_def.get("default_model", "")
     pvc_size = role_def.get("pvc_size", "50Gi")
     pvc_subpath = role_def.get("pvc_subpath", f"{role_name}-model")
-    deployment_name = role_def.get("deployment_name", f"synesis-{role_name}-predictor")
+    deployment_name = role_def.get("deployment_name", f"synesis-{role_name}")
 
     # Output as KEY=VALUE lines, one role block per separator
     print(f"ROLE={role_name}")

@@ -50,7 +50,7 @@ patches:
                   - name: SYNESIS_LOG_LEVEL
                     value: "warning"
                   - name: SYNESIS_CRITIC_MODEL_URL
-                    value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+                    value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
                   - name: SYNESIS_CRITIC_MODEL_NAME
                     value: "synesis-executor"
 

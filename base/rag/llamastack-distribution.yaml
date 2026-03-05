@@ -4,7 +4,7 @@
 # Before applying, create the inference and Milvus secrets:
 #
 #   export INFERENCE_MODEL="synesis-coder"
-#   export VLLM_URL="http://synesis-coder-predictor.synesis-models.svc.cluster.local:8080/v1"
+#   export VLLM_URL="http://synesis-coder.synesis-models.svc.cluster.local:8080/v1"
 #   export VLLM_TLS_VERIFY="false"
 #   export VLLM_API_TOKEN=""   # or token if auth enabled
 #   oc create secret generic llama-stack-inference-secret -n synesis-rag \

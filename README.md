@@ -91,7 +91,7 @@ Synesis scales from a 2-GPU proof of concept to a production cluster. Each profi
 
 | Profile | Hardware | Use Case | Models |
 |---------|----------|----------|--------|
-| **Small** | 2x L40S | Single developer, proof of concept | Router + Critic share GPU 0; Coder on GPU 1 |
+| **Small** | 3x L40S (3x g6e.2xlarge) | Multi-user small | Router + Critic on GPU 0; General on GPU 1; Coder on GPU 2 |
 | **Medium** | 4x L40S | Team use, all roles dedicated | General on GPU 0; Coder TP=2 on GPUs 1-2; Router + Critic on GPU 3 |
 | **Large** | 8x GPU | Production with HPA auto-scaling | All roles dedicated; Coder scales 2-4 replicas on queue depth |
 

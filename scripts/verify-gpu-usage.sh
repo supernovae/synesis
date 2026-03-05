@@ -25,9 +25,8 @@ if ! oc whoami &>/dev/null; then
 fi
 
 # GPU model deployments: supervisor-critic (1 pod) and executor (1 pod)
-for deploy in synesis-supervisor-critic-predictor synesis-executor-predictor; do
-    # Match by app label (synesis-supervisor-critic or synesis-executor)
-    app="${deploy%-predictor}"
+for deploy in synesis-supervisor-critic synesis-executor synesis-general synesis-coder; do
+    app="$deploy"
     pod=$(oc get pods -n "$NAMESPACE" -l "app=$app" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
     if [[ -z "$pod" ]]; then
         pod=$(oc get pods -n "$NAMESPACE" --no-headers -o custom-columns=:metadata.name 2>/dev/null | grep -E "^${deploy}-" | head -1 || true)

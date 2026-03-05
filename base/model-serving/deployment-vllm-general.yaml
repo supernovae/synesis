@@ -1,26 +1,27 @@
-# Synesis Critic — deep reasoning model (DeepSeek R1-Distill-Qwen-32B FP8)
+# Synesis General — general reasoning + writer model (Qwen3.5-35B-A3B FP8)
 #
-# R1 is the dedicated critic for quality evaluation.
-# Its extended thinking is an asset for evaluation tasks.
-# Also available as an optional "thinking model" in Open WebUI.
+# Serves worker (executor) and writer roles. This is the main response
+# generation model for Open WebUI users and the planner worker node.
 #
-# Loads from PVC (pipeline downloads to synesis-critic-pvc).
-# FP8 weights ~32GB + FP8 KV cache on 48GB L40S at 0.92 utilization.
+# Profile-dependent:
+#   small:  Qwen3.5-35B-A3B-FP8 (~35 GB), single L40S, TP=1, 32K ctx
+#   medium: Qwen3.5-35B-A3B BF16 (~70 GB), single L40S not enough → needs FP8 or TP=2
+#   large:  Qwen3-235B-A22B FP8, TP=2
 #
-# Prerequisites: synesis-critic-pvc in synesis-models, model via run-model-pipeline.sh --role=critic
+# Prerequisites: synesis-general-pvc in synesis-models, model via run-model-pipeline.sh --role=general
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: synesis-executor
+  name: synesis-general
   namespace: synesis-models
   labels:
-    app.kubernetes.io/name: synesis-executor
+    app.kubernetes.io/name: synesis-general
     app.kubernetes.io/part-of: synesis
     app.kubernetes.io/component: model-serving
 spec:
   selector:
-    app: synesis-executor
+    app: synesis-general
   ports:
     - name: http
       port: 8080
@@ -29,33 +30,33 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: synesis-executor
+  name: synesis-general
   namespace: synesis-models
   labels:
-    app.kubernetes.io/name: synesis-executor
+    app.kubernetes.io/name: synesis-general
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: synesis-executor
+      app: synesis-general
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: synesis-executor
+        app: synesis-general
     spec:
       imagePullPolicy: IfNotPresent
       volumes:
         - name: model-store
           persistentVolumeClaim:
-            claimName: synesis-critic-pvc
+            claimName: synesis-general-pvc
         - name: shm
           emptyDir:
             medium: Memory
-            sizeLimit: 32Gi
+            sizeLimit: 16Gi
       containers:
-        - name: vllm-executor
+        - name: vllm-general
           image: registry.redhat.io/rhaiis/vllm-cuda-rhel9@sha256:094db84a1da5e8a575d0c9eade114fa30f4a2061064a338e3e032f3578f8082a
           imagePullPolicy: IfNotPresent
           command:
@@ -64,16 +65,14 @@ spec:
             - vllm.entrypoints.openai.api_server
           args:
             - --port=8080
-            - --tensor-parallel-size=1
             - --model=/mnt/models
-            - --served-model-name=synesis-executor
-            - --max-model-len=20480
+            - --served-model-name=synesis-general
+            - --tensor-parallel-size=1
+            - --max-model-len=32768
             - --gpu-memory-utilization=0.92
             - --generation-config=vllm
-            - --kv-cache-dtype=fp8_e4m3
-            - --reasoning-parser=deepseek_r1
+            - --enable-prefix-caching
             - --enable-chunked-prefill
-            - --trust-remote-code
           resources:
             limits:
               cpu: "8"
@@ -89,7 +88,7 @@ spec:
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 30
+            failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
@@ -106,7 +105,7 @@ spec:
           volumeMounts:
             - name: model-store
               mountPath: /mnt/models
-              subPath: critic-model
+              subPath: general-model
               readOnly: true
             - name: shm
               mountPath: /dev/shm

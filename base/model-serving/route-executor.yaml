@@ -17,7 +17,7 @@ spec:
     insecureEdgeTerminationPolicy: Redirect
   to:
     kind: Service
-    name: synesis-executor-predictor
+    name: synesis-executor
     weight: 100
   port:
     targetPort: http

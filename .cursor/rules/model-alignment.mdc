@@ -18,7 +18,7 @@ alwaysApply: true
 
 ## Service URL pattern
 
-`http://<inference-service-name>-predictor.<namespace>.svc.cluster.local:8080/v1`
+`http://<service-name>.<namespace>.svc.cluster.local:8080/v1`
 
 ## vLLM config alignment
 

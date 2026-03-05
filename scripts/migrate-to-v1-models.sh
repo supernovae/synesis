@@ -27,7 +27,7 @@ log ""
 # -------------------------------------------------------------------------
 log "--- Step 1: Delete old model deployments ---"
 
-for deploy in synesis-supervisor-critic-predictor synesis-executor-predictor; do
+for deploy in synesis-supervisor-critic synesis-executor; do
     if oc get deployment "$deploy" -n "$NS" &>/dev/null; then
         log "  Scaling down $deploy..."
         oc scale deployment "$deploy" -n "$NS" --replicas=0 2>/dev/null || true
@@ -40,7 +40,7 @@ for deploy in synesis-supervisor-critic-predictor synesis-executor-predictor; do
 done
 
 # Also delete old services and routes
-for svc in synesis-supervisor-predictor synesis-critic-predictor synesis-executor-predictor; do
+for svc in synesis-supervisor synesis-critic synesis-executor; do
     oc delete service "$svc" -n "$NS" --ignore-not-found 2>/dev/null && log "  Deleted service $svc" || true
 done
 
@@ -110,7 +110,7 @@ log ""
 log "=== Migration complete ==="
 log ""
 log "Old artifacts removed:"
-log "  - Deployments: synesis-supervisor-critic-predictor, synesis-executor-predictor"
+log "  - Deployments: synesis-supervisor-critic, synesis-executor"
 log "  - PVCs: modelcar-build-pvc (120Gi), executor-build-pvc (50Gi)"
 log "  - Services, routes, and pipeline jobs"
 log ""
@@ -120,5 +120,5 @@ log "  2. Deploy:           ./scripts/deploy.sh dev"
 log ""
 log "New layout will create:"
 log "  - PVCs: synesis-router-pvc (25Gi), synesis-coder-pvc (200Gi), synesis-critic-pvc (100Gi)"
-log "  - Deployments: synesis-supervisor-critic-predictor (router), synesis-executor-predictor (critic), synesis-coder-predictor (coder)"
+log "  - Deployments: synesis-supervisor-critic (router), synesis-executor (critic), synesis-coder (coder)"
 log "  - Summarizer: InferenceService via hf:// (no PVC)"

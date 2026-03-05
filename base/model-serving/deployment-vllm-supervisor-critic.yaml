@@ -5,9 +5,9 @@
 #   - Router/planner/advisor: enable_thinking=False → fast JSON classification
 #   - Critic: enable_thinking=True → chain-of-thought reasoning before evaluation
 #
-# In small profile (2 GPUs), this eliminates the need for a separate R1 critic
-# deployment. Medium/large profiles can still deploy a dedicated R1 for stronger
-# critic reasoning via synesis-executor-predictor.
+# In small profile (3 GPUs), this eliminates the need for a separate R1 critic
+# deployment, keeping all 3 GPUs for router+critic, general, and coder.
+# Medium/large profiles deploy a dedicated R1 via synesis-executor.
 #
 # --enable-reasoning + --reasoning-parser=qwen3 separates <think> tokens into
 # reasoning_content field, keeping the content field clean for JSON parsing.
@@ -17,7 +17,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: synesis-supervisor-predictor
+  name: synesis-supervisor
   namespace: synesis-models
   labels:
     app.kubernetes.io/name: synesis-supervisor-critic
@@ -34,7 +34,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: synesis-critic-predictor
+  name: synesis-critic
   namespace: synesis-models
   labels:
     app.kubernetes.io/name: synesis-supervisor-critic
@@ -51,7 +51,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: synesis-supervisor-critic-predictor
+  name: synesis-supervisor-critic
   namespace: synesis-models
   labels:
     app.kubernetes.io/name: synesis-supervisor-critic

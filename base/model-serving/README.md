@@ -6,9 +6,9 @@ Synesis deploys GPU models via vLLM and loads weights from per-role PVCs. All mo
 
 | Deployment | Role | GPU | PVC | Model |
 |-----------|------|-----|-----|-------|
-| synesis-supervisor-critic-predictor | Router | 1 × L40S | synesis-router-pvc | Qwen3-8B FP8 |
-| synesis-executor-predictor | Critic | 1 × L40S | synesis-critic-pvc | R1-Distill-32B FP8 |
-| synesis-coder-predictor | Coder | 1 × L40S | synesis-coder-pvc | Qwen3-Coder-Next |
+| synesis-supervisor-critic | Router | 1 × L40S | synesis-router-pvc | Qwen3-8B FP8 |
+| synesis-executor | Critic | 1 × L40S | synesis-critic-pvc | R1-Distill-32B FP8 |
+| synesis-coder | Coder | 1 × L40S | synesis-coder-pvc | Qwen3-Coder-Next |
 | synesis-summarizer | Summarizer | CPU | (hf:// direct) | Qwen2.5-0.5B |
 
 The Router deployment serves supervisor, planner, and advisor roles from a single model instance with different inference params (temperature, prompt) per request.
@@ -48,16 +48,16 @@ oc get deployments -n synesis-models
 
 | Service | URL | Role |
 |---------|-----|------|
-| synesis-supervisor-predictor | `http://synesis-supervisor-predictor.synesis-models.svc:8080/v1` | Router / Supervisor / Planner |
-| synesis-critic-predictor | `http://synesis-critic-predictor.synesis-models.svc:8080/v1` | Critic (same backend as supervisor) |
-| synesis-executor-predictor | `http://synesis-executor-predictor.synesis-models.svc:8080/v1` | Critic (R1 deep reasoning) |
-| synesis-coder-predictor | `http://synesis-coder-predictor.synesis-models.svc:8080/v1` | Coder (IDE direct access) |
+| synesis-supervisor | `http://synesis-supervisor.synesis-models.svc:8080/v1` | Router / Supervisor / Planner |
+| synesis-critic | `http://synesis-critic.synesis-models.svc:8080/v1` | Critic (same backend as supervisor) |
+| synesis-executor | `http://synesis-executor.synesis-models.svc:8080/v1` | Critic (R1 deep reasoning) |
+| synesis-coder | `http://synesis-coder.synesis-models.svc:8080/v1` | Coder (IDE direct access) |
 
 ## Routes
 
 | Route | Target | Purpose |
 |-------|--------|---------|
-| synesis-executor-api | synesis-executor-predictor | Direct IDE access to Coder endpoint |
+| synesis-executor-api | synesis-executor | Direct IDE access to Coder endpoint |
 
 ## UDS (Unix Domain Socket)
 

@@ -37,30 +37,30 @@ spec:
             # V3 Model Endpoints — see models.yaml for profile assignments
             # Router (Qwen3-8B) → supervisor, planner, advisor roles
             - name: SYNESIS_SUPERVISOR_MODEL_URL
-              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUPERVISOR_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_PLANNER_MODEL_URL
-              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_PLANNER_MODEL_NAME
               value: "synesis-supervisor"
             - name: SYNESIS_ADVISOR_MODEL_URL
-              value: "http://synesis-supervisor-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-supervisor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_ADVISOR_MODEL_NAME
               value: "synesis-supervisor"
             # General/Worker (defaults to executor endpoint; medium+ gets dedicated general)
             - name: SYNESIS_EXECUTOR_MODEL_URL
-              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_EXECUTOR_MODEL_NAME
               value: "synesis-executor"
             # Critic (R1-Distill-32B — same physical model as executor in small profile)
             - name: SYNESIS_CRITIC_MODEL_URL
-              value: "http://synesis-executor-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-executor.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_CRITIC_MODEL_NAME
               value: "synesis-executor"
             # Summarizer
             - name: SYNESIS_SUMMARIZER_MODEL_URL
-              value: "http://synesis-summarizer-predictor.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://synesis-summarizer.synesis-models.svc.cluster.local:8080/v1"
             - name: SYNESIS_SUMMARIZER_MODEL_NAME
               value: "synesis-summarizer"
             - name: SYNESIS_MILVUS_HOST

@@ -17,7 +17,7 @@ Both GPU deployments use `nodeSelector: nvidia.com/gpu.product: NVIDIA-L40S` so 
 
 ## Model Architecture
 
-- **Supervisor, Planner, and Critic**: One Qwen3-8B FP8-dynamic instance, three logical roles. Different `ChatOpenAI` instances with role-specific prompts, temperature, and `max_completion_tokens`. Two K8s Services route to the same pod (`synesis-supervisor-predictor` and `synesis-critic-predictor`).
+- **Supervisor, Planner, and Critic**: One Qwen3-8B FP8-dynamic instance, three logical roles. Different `ChatOpenAI` instances with role-specific prompts, temperature, and `max_completion_tokens`. Two K8s Services route to the same pod (`synesis-supervisor` and `synesis-critic`).
 - **Executor**: DeepSeek R1-Distill-Qwen-32B FP8-dynamic. Separate deployment with FP8 KV cache (`--kv-cache-dtype=fp8_e5m2`). Always produces `<think>...</think>` reasoning before content.
 - **Summarizer**: Qwen2.5-0.5B on CPU (KServe InferenceService). Used for pivot history summarization.
 
@@ -40,7 +40,7 @@ Verify:
 
 ```bash
 oc get pods -n synesis-models
-oc get deployment synesis-supervisor-critic-predictor synesis-executor-predictor -n synesis-models
+oc get deployment synesis-supervisor-critic synesis-executor -n synesis-models
 ```
 
 ## UDS (low-latency, no OVN)
