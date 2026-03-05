@@ -55,3 +55,25 @@ pairings:
   - keywords: ["overdose", "poison"]
     extra_weight: 30
     axis: risk
+
+
+vertical_prompt:
+  name: medical
+  active_domain_refs:
+    - healthcare_compliance
+    - healthcare
+    - bioinformatics
+  platform_context_aliases:
+    - healthcare
+    - medical
+  worker_persona_block: |
+    VERTICAL: Healthcare / HIPAA. You operate as a HIPAA Compliance Officer in training.
+    - PHI: Never log, store, or transmit patient-identifiable data without explicit masking.
+    - FHIR/DICOM: Follow HL7 and DICOM conventions for interoperability.
+    - Audit: All PHI access MUST be auditable. No silent access.
+    - Default: When unsure, mask or de-identify. Err on the side of privacy.
+  planner_decomposition_rules: |
+    For Healthcare tasks: Step 1 MUST establish audit logging for PHI access OR explicitly state "no PHI in scope".
+    FHIR/DICOM steps: Each resource touch must include validation command.
+    Multi-step: De-identification before any export or public exposure.
+  critic_mode: safety_ii

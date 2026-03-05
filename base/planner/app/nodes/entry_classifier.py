@@ -131,7 +131,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             break
 
     # Pending continue: user replying to clarification/plan — analyze original task + reply so "4 week
-    # training plan" inherits domain from "marathon plan" (athletics_running → deliverable_type=explain_only)
+    # training plan" inherits domain from "marathon plan" (athletics_running → needs_sandbox=False)
     text_to_analyze = last_content
     if state.get("pending_question_continue") and state.get("task_description"):
         orig = (state.get("task_description") or "").strip()[:500]
@@ -207,7 +207,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "message_origin": message_origin,
         "task_size": task_size,
         "task_description": task_description,
-        "target_language": "",  # set below from deliverable_type and language detection
+        "target_language": "",  # set below from needs_sandbox and language detection
         "bypass_supervisor": bypass_supervisor,
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
@@ -224,7 +224,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["active_domain_refs"] = active_domains
 
     out["intent_class"] = analysis.get("intent_class", "code")
-    out["deliverable_type"] = analysis.get("deliverable_type", "single_file")
+    out["needs_sandbox"] = analysis.get("needs_sandbox", True)
 
     # Defensive: knowledge/educational-style messages must never get code path
     _knowledge_style = re.compile(
@@ -236,7 +236,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if _knowledge_style.match((last_content or "").strip()):
-        out["deliverable_type"] = "explain_only"
+        out["needs_sandbox"] = False
         out["intent_class"] = "knowledge"
         out["target_language"] = "markdown"
         out["allowed_tools"] = ["none"]
@@ -264,13 +264,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             "entry_classifier_knowledge_override",
             extra={
                 "intent_class": "knowledge",
-                "deliverable_type": "explain_only",
+                "needs_sandbox": False,
                 "preview": (last_content or "")[:60],
             },
         )
-    # target_language: explain_only→markdown; explicit lang→use it; else infer (Supervisor infers from prompt)
-    eff_deliverable = out.get("deliverable_type", "single_file")
-    if eff_deliverable == "explain_only":
+    # target_language: needs_sandbox=False→markdown; explicit lang→use it; else infer
+    needs_sandbox = out.get("needs_sandbox", True)
+    if not needs_sandbox:
         out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
         out["target_language"] = _detect_language(last_content)
@@ -311,14 +311,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["escalation_reason"] = "reclassify_override" if not bypass_supervisor else ""
 
     # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
-    # Never override knowledge-style questions (what is, how does) to code
     if (
         state.get("coding_client_detected")
         and out.get("intent_class") != "knowledge"
         and analysis.get("intent_class") == "general"
-        and analysis.get("deliverable_type") == "explain_only"
+        and not analysis.get("needs_sandbox", True)
     ):
-        out["deliverable_type"] = "single_file"
+        out["needs_sandbox"] = True
         out["intent_class"] = "code"
 
     # Taxonomy-Driven Contextual Injection: resolve taxonomy_metadata from active_domain_refs + task_size
@@ -330,37 +329,35 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     )
     out["taxonomy_metadata"] = taxonomy_metadata
 
-    # Taxonomy-driven: explain_only → usually skip Planner; BUT high-depth domains (physics, etc.) or explicit planning session
-    if out.get("deliverable_type") == "explain_only":
+    # Taxonomy-driven: non-sandbox → usually skip Planner; BUT high-depth domains or explicit planning session
+    if not out.get("needs_sandbox", True):
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
         if deep_dive or planning_session_requested:
-            out["plan_required"] = True  # Route to Planner for required_elements or @plan/lets plan
+            out["plan_required"] = True
             out["rag_mode"] = "normal" if deep_dive else "disabled"
         else:
             out["plan_required"] = False
             out["rag_mode"] = "disabled"
-        # Clear stale execution_plan when not resuming pending — avoid injecting wrong plan steps (e.g. marathon)
         if not state.get("pending_question_continue") and not out.get("plan_required"):
             out["execution_plan"] = {}
-    # Pending continue: preserve deliverable_type=explain_only from restored state
-    elif state.get("pending_question_continue") and state.get("deliverable_type") == "explain_only":
-        out["deliverable_type"] = "explain_only"
+    elif state.get("pending_question_continue") and not state.get("needs_sandbox", True):
+        out["needs_sandbox"] = False
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
 
-    # Easy fast-path: branch on deliverable_type. explain_only → text; code → single_file + sandbox.
+    # Easy fast-path
     if task_size == "easy" and not manual_override:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
-        if out.get("deliverable_type") == "explain_only":
+        if not out.get("needs_sandbox", True):
             out["task_type"] = "general"
             out["allowed_tools"] = ["none"]
         else:
             eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
             out["touched_files"] = _easy_touched_files(last_content, eff_lang)
             out["defaults_used"] = policy.get_defaults_used(eff_lang)
-            out["deliverable_type"] = "single_file"
+            out["needs_sandbox"] = True
             out["include_tests"] = _easy_wants_tests(last_content)
             out["include_run_commands"] = True
             out["task_type"] = "code_generation"
@@ -368,12 +365,11 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         if out.get("interaction_mode") != "teach":
             out["interaction_mode"] = "do"
 
-    # Diagnostic: trace taxonomy decisions for debugging document vs code path
     logger.info(
         "entry_classifier_result",
         extra={
             "intent_class": out.get("intent_class"),
-            "deliverable_type": out.get("deliverable_type"),
+            "needs_sandbox": out.get("needs_sandbox"),
             "task_size": out.get("task_size"),
             "target_language": out.get("target_language"),
             "preview": (last_content or "")[:80],

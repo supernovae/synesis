@@ -101,6 +101,7 @@ def load_config_with_plugins(
     master_overrides = dict(merged.get("overrides", {}))
     master_thresholds = dict(merged.get("thresholds", {}))
     risk_veto_triggers = list(merged.get("risk_veto_triggers", []))
+    vertical_prompts = {}
 
     # Filter plugins by compose.enabled_plugins or SYNESIS_ENTRY_CLASSIFIER_PLUGINS
     enabled = merged.get("compose", {}).get("enabled_plugins")
@@ -134,6 +135,11 @@ def load_config_with_plugins(
             risk_veto_triggers.extend(plug["risk_veto_triggers"])
         if plug.get("intent_classes"):
             intent_classes = _merge_weights(intent_classes, plug["intent_classes"])
+        if plug.get("vertical_prompt"):
+            vp = plug["vertical_prompt"]
+            vp_name = vp.get("name", "")
+            if vp_name:
+                vertical_prompts[vp_name] = vp
         logger.debug("plugin_loaded path=%s", pf)
 
     return {
@@ -145,4 +151,5 @@ def load_config_with_plugins(
         "overrides": master_overrides,
         "thresholds": master_thresholds,
         "risk_veto_triggers": risk_veto_triggers,
+        "vertical_prompts": vertical_prompts,
     }

@@ -28,9 +28,9 @@ respond (no LLM) → END
 
 **Source:** `app/nodes/entry_classifier.py`
 
-**Output:** `task_size`, `target_language`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `deliverable_type`, `active_domain_refs`, `taxonomy_metadata`, etc. `deliverable_type` from intent_classes (explain_only vs single_file). Worker persona/tier derived inline from `task_size` (not stored in state).
+**Output:** `task_size`, `target_language`, `plan_required`, `bypass_supervisor`, `task_description`, `intent_class`, `needs_sandbox`, `active_domain_refs`, `taxonomy_metadata`, etc. `needs_sandbox` (bool) from intent_classes — `false` for text/document, `true` for code/sandbox. Worker persona/tier derived inline from `task_size` (not stored in state).
 
-**Taxonomy-Driven Injection:** After classification, calls `resolve_taxonomy_metadata()` from `TaxonomyPromptFactory` to set `taxonomy_metadata` (path, complexity_score 0.0–1.0, persona_instructions, required_bullets, required_elements, depth_instructions). For `deliverable_type=explain_only`, when `should_plan_for_document()` (domain in `deep_dive_domains`, complexity > 0.6), sets `plan_required=true` and `rag_mode="normal"` for deep-dive domains (physics, astronomy, etc.).
+**Taxonomy-Driven Injection:** After classification, calls `resolve_taxonomy_metadata()` from `TaxonomyPromptFactory` to set `taxonomy_metadata` (path, complexity_score 0.0–1.0, persona_instructions, required_bullets, required_elements, depth_instructions). For `needs_sandbox=false`, when `should_plan_for_document()` (domain in `deep_dive_domains`, complexity > 0.6), sets `plan_required=true` and `rag_mode="normal"` for deep-dive domains (physics, astronomy, etc.).
 
 **Persona Tier:** Derived from `task_size`: easy → Minimalist, medium → Senior, hard → Architect. `plan_required` is true when persona is Architect (code) or when document deep-dive applies.
 
@@ -77,9 +77,9 @@ Examples: openshift, kubernetes, python_web, embedded_garmin, synthesizer_music,
 **Taxonomy-Driven Passthroughs (no LLM):**
 - **Complex + plan_required:** Skip to Planner.
 - **Small + teach:** Skip to Worker.
-- **deliverable_type=explain_only:** From intent_classes (taxonomy). Skip LLM; route to Worker with `deliverable_type=explain_only`. No per-vertical if/else.
+- **needs_sandbox=false:** From intent_classes (taxonomy). Skip LLM; route to Worker with `needs_sandbox=false`. No per-vertical if/else.
 
-**Pre-classified envelope:** When Entry Classifier ran, Supervisor prompt includes `intent_class`, `deliverable_type`, `active_domain_refs`, `task_size`, `target_language`. When `deliverable_type=explain_only`, LLM must use `deliverable_type=explain_only`, `route_to=worker`.
+**Pre-classified envelope:** When Entry Classifier ran, Supervisor prompt includes `intent_class`, `needs_sandbox`, `active_domain_refs`, `task_size`, `target_language`. When `needs_sandbox=false`, LLM must use `needs_sandbox=false`, `route_to=worker`.
 
 **System Prompt:**
 
@@ -92,10 +92,10 @@ Rules:
 1. target_language: python|javascript|typescript|go|rust|java|bash|markdown|... Use "markdown" for plans, documents.
 2. route_to: "worker" (single step or text output), "planner" (multi-step code), "respond" (clarification only).
 3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
-4. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, deliverable_type=explain_only, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
+4. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, needs_sandbox=false, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
 5. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
 6. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for easy.
-7. allowed_tools: explain_only → ["none"]; code generation → ["sandbox","lsp"].
+7. allowed_tools: needs_sandbox=false → ["none"]; code generation → ["sandbox","lsp"].
 
 Return valid JSON (same schema). Keep reasoning to one sentence.
 ```
@@ -103,7 +103,7 @@ Return valid JSON (same schema). Keep reasoning to one sentence.
 **Passthrough (no LLM):**
 - `task_size == "hard"` and `plan_required` → skip LLM, `next_node="planner"`.
 - `task_size == "medium"` and `interaction_mode == "teach"` → skip LLM, `next_node="worker"`.
-- `deliverable_type=explain_only` (taxonomy) → skip LLM, `next_node="worker"` with `deliverable_type=explain_only`.
+- `needs_sandbox=false` (taxonomy) → skip LLM, `next_node="worker"` with `needs_sandbox=false`.
 
 **Output Schema:** `SupervisorOut` — task_type, task_description, target_language, route_to, assumptions, rag_mode, etc.
 
@@ -115,7 +115,7 @@ Return valid JSON (same schema). Keep reasoning to one sentence.
 
 **Source:** `app/nodes/planner_node.py`
 
-**When it runs:** (1) Code: `task_size=hard` + `plan_required`. (2) Document deep-dive: `deliverable_type=explain_only` + `plan_required=true` (domain in `deep_dive_domains`). Short-circuit only when `deliverable_type=explain_only` and `plan_required=false`.
+**When it runs:** (1) Code: `task_size=hard` + `plan_required`. (2) Document deep-dive: `needs_sandbox=false` + `plan_required=true` (domain in `deep_dive_domains`). Short-circuit only when `needs_sandbox=false` and `plan_required=false`.
 
 **Taxonomy-Driven Injection:** When `plan_required=true`, uses `get_planner_system_prompt_append(metadata)` to append `required_elements` and `depth_instructions` when complexity > 0.7. Planner prompt includes "Your plan MUST include these sections: …" for document tasks.
 
@@ -153,7 +153,7 @@ Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions i
 
 **Output Schema:** `PlannerOut` — plan (steps, open_questions, assumptions), touched_files, reasoning, confidence.
 
-**Sovereign Alignment:** When `active_vertical` (from `active_domain_refs` + `platform_context`) is medical, fintech, industrial, or platform, domain-specific decomposition rules from `vertical_prompts.yaml` are injected. E.g. Fintech: Step 1 MUST implement audit log for ledger.
+**Sovereign Alignment:** When `active_vertical` (from `active_domain_refs` + `platform_context`) is medical, fintech, industrial, or platform, domain-specific decomposition rules from taxonomy plugin YAMLs are injected. E.g. Fintech: Step 1 MUST implement audit log for ledger.
 
 ---
 
@@ -175,9 +175,9 @@ Keep plans concise. 1-3 steps for simple; more for complex. Add open_questions i
 
 **Persona selection:** Derived from `task_size` (easy→Minimalist, medium→Senior, hard→Architect). **Vertical override:** lifestyle → Senior (not Architect); Safety-II/JCS only for architecture/hard code.
 
-**Explain-only mode:** When `deliverable_type=explain_only` (training plan, meal plan, etc.), Worker streams **direct markdown** (no JSON wrapper). System prompt: "Respond directly in markdown." Content is streamed token-by-token to the client via `astream_events(version="v2")`. No JSON parsing, no `StreamingCodeExtractor` on this path.
+**Explain-only mode:** When `needs_sandbox=false` (training plan, meal plan, etc.), Worker streams **direct markdown** (no JSON wrapper). System prompt: "Respond directly in markdown." Content is streamed token-by-token to the client via `astream_events(version="v2")`. No JSON parsing on this path.
 
-**Sovereign Persona Injection:** When `active_domain_refs` or `platform_context` maps to a vertical (medical, fintech, industrial, platform, scientific, lifestyle), the corresponding block from `vertical_prompts.yaml` is appended. E.g. fintech → "Fintech Auditor" block, medical → "HIPAA Compliance Officer" block.
+**Sovereign Persona Injection:** When `active_domain_refs` or `platform_context` maps to a vertical (medical, fintech, industrial, platform, scientific, lifestyle), the corresponding block from taxonomy plugins is appended. E.g. fintech → "Fintech Auditor" block, medical → "HIPAA Compliance Officer" block.
 
 **Taxonomy-Driven Depth Block:** When `taxonomy_metadata` is present, calls `get_executor_depth_block(metadata)` and appends the taxonomy depth block to the system prompt. Shapes response depth for physics, astronomy, mathematics, etc.
 
@@ -281,7 +281,7 @@ When stop_reason is set, leave code empty.
 
 **Source:** `app/nodes/patch_integrity_gate.py`
 
-**Explain-only bypass:** When `deliverable_type=explain_only` (plans, documents, training plans), gate skips sandbox and routes to `respond`. Worker output (markdown) is displayed directly.
+**Explain-only bypass:** When `needs_sandbox=false` (plans, documents, training plans), gate skips sandbox and routes to `respond`. Worker output (markdown) is displayed directly.
 
 **`force_sandbox`:** When the user sends `/test`, the entry classifier sets `force_sandbox=true`. The gate honors this flag and routes to sandbox even for explain-only deliverables, enabling on-demand code validation.
 
@@ -321,7 +321,7 @@ When stop_reason is set, leave code empty.
 - **Full Critic** (Architect, safety_ii verticals): Full JCS analysis with What-Ifs.
 - **Intent Class overlay** (`intent_prompts.yaml`): Knowledge → hallucination-sensitive; Debugging → evidence-required; Review → strict; Data Transform → schema-enforcing; Personal Guidance → safety gate. See INTENT_TAXONOMY.md.
 
-**Taxonomy-Driven Depth Check:** When `deliverable_type=explain_only` and `taxonomy_metadata` (complexity > 0.6), Critic runs a science-depth validation. Uses `get_critic_depth_prompt_block(metadata)` to evaluate whether the Executor's markdown response meets required_elements and scientific rigor. If insufficient → `approved=false`, `critic_continue_reason=needs_depth_revision` → Supervisor → Worker revision. Evidence gate is skipped for document path (taxonomy assessment is the evidence).
+**Taxonomy-Driven Depth Check:** When `needs_sandbox=false` and `taxonomy_metadata` (complexity > 0.6), Critic runs a science-depth validation. Uses `get_critic_depth_prompt_block(metadata)` to evaluate whether the Executor's markdown response meets required_elements and scientific rigor. If insufficient → `approved=false`, `critic_continue_reason=needs_depth_revision` → Supervisor → Worker revision. Evidence gate is skipped for document path (taxonomy assessment is the evidence).
 
 **Mantra:** Evidence-Gated Critic. No blocking on feeling or speculation.
 
@@ -362,7 +362,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 
 **Evidence Gate Logic (code):** If `approved=false` but no blocking_issue has sandbox/lsp evidence_refs, override to `approved=true`.
 
-**Critic Policy Engine** (`critic_policy.py`): Scoring, evidence gating, retry controller, monotonic `state.retry`. At max iterations, force PASS and emit universal `carried_uncertainties_signal` via `build_universal_carried_uncertainties_signal` (approach_dark_debt).
+**Critic Policy Engine** (`critic_policy.py`): Scoring, evidence gating, retry controller, monotonic `state.retry`. At max iterations, force PASS and emit universal `carried_uncertainties_signal` via `build_universal_carried_uncertainties_signal` (carried_uncertainties).
 
 **Output Schema:** `CriticOut` — what_if_analyses, approved, blocking_issues, evidence_refs, etc.
 
@@ -380,7 +380,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 - **Architect:** Full treatment — Decision Summary, Strategy Bullets, Learner's Corner, Safety Analysis (What-Ifs).
 
 **Taxonomy-aware (all personas):**
-- **How I got here** (Architect only): `decision_summary.build_decision_summary` — approach label, strategy, evidence checked, uncertain items. Uses `approach_dark_debt_config.yaml` for intent × vertical.
+- **How I got here** (Architect only): `decision_summary.build_decision_summary` — approach label, strategy, evidence checked, uncertain items. Uses inlined evidence sources for intent × vertical.
 - **What I'm carrying** (any persona when relevant): `carried_uncertainties_signal.items` — e.g. "Quick answer given; ask for full plan if needed" (lifestyle), "Forced approval at max iterations" (code), "RAG confidence low" (knowledge).
 
 ---
@@ -410,7 +410,7 @@ blocking_issues: ONLY add here when you have concrete evidence_refs (lsp or sand
 - [workflow.md](workflow.md) — Routing logic and graph flow
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, approach/dark debt, critic policy
 - [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) — Taxonomy metadata, Planner deep-dive, depth block injection
-- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
+- carried_uncertainties.py — Carried uncertainties (inlined)
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — EntryClassifier weights
 - [schemas.py](../base/planner/app/schemas.py) — SupervisorOut, PlannerOut, ExecutorOut, CriticOut

@@ -63,3 +63,35 @@ pairings:
   - keywords: ["sparring", "injury"]
     extra_weight: 15
     axis: risk
+
+
+vertical_prompt:
+  name: lifestyle
+  active_domain_refs:
+    - athletics_running
+    - nutrition
+    - home_automation
+    - personal_finance
+  platform_context_aliases:
+    - running
+    - athletics
+    - nutrition
+    - smart_home
+  worker_persona_block: |
+    VERTICAL: Lifestyle. Running, nutrition, home automation, personal finance.
+    - No Safety-II overhead. Focus on correctness, readability, and usability.
+    - Running/biomechanics: VO2max, cadence, training load — cite conventions when relevant.
+  planner_decomposition_rules: |
+    Lifestyle: Standard atomic steps. No vertical-specific mandates.
+  critic_mode: tiered
+  critic_tiers:
+    basic: |
+      Approve if code compiles and runs. Brief correctness note only.
+      No What-If analysis. No Safety-II.
+    advanced: |
+      Check logic, inputs, edge cases. Suggest improvements in nonblocking.
+      No architectural What-Ifs. No Safety-II.
+    research: |
+      Comprehensive review: methodology, citations, reproducibility.
+      Flag missing documentation or unclear assumptions.
+

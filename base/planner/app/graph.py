@@ -112,7 +112,7 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
 
     # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
     if state.get("plan_required"):
-        if state.get("task_size") in ("hard", "medium") or state.get("deliverable_type") == "explain_only":
+        if state.get("task_size") in ("hard", "medium") or not state.get("needs_sandbox", True):
             return "planner"
 
     # Bypass Supervisor: easy fast path, or knowledge-downgraded tasks that
@@ -253,7 +253,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "assumptions": state.get("assumptions", []),
                     "failure_context": state.get("failure_context", []),
                     "web_search_results": state.get("web_search_results", []),
-                    "deliverable_type": state.get("deliverable_type"),
+                    "needs_sandbox": state.get("needs_sandbox"),
                 },
                 "execution_plan": execution_plan,
                 "task_description": state.get("task_description", ""),
@@ -263,7 +263,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "assumptions": state.get("assumptions", []),
                 "failure_context": state.get("failure_context", []),
                 "web_search_results": state.get("web_search_results", []),
-                "deliverable_type": state.get("deliverable_type"),
+                "needs_sandbox": state.get("needs_sandbox"),
             },
         )
         steps = execution_plan.get("steps", [])
@@ -297,12 +297,12 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     "task_description": state.get("task_description", ""),
                     "target_language": state.get("target_language", "python"),
                     "rag_context": state.get("rag_context", []),
-                    "deliverable_type": state.get("deliverable_type"),
+                    "needs_sandbox": state.get("needs_sandbox"),
                 },
                 "task_description": state.get("task_description", ""),
                 "target_language": state.get("target_language", "python"),
                 "rag_context": state.get("rag_context", []),
-                "deliverable_type": state.get("deliverable_type"),
+                "needs_sandbox": state.get("needs_sandbox"),
             },
         )
         return {
@@ -337,7 +337,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "rag_context": state.get("rag_context", []),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
-            "deliverable_type": state.get("deliverable_type"),
+            "needs_sandbox": state.get("needs_sandbox"),
         }
         memory.store_pending_question(
             memory_scope,
@@ -406,11 +406,12 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             ):
                 parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if display_code:
-            deliverable_type = state.get("deliverable_type", "single_file")
-            if deliverable_type == "explain_only":
-                # Plans, documents, training plans — display as markdown (no code fence)
+            if not state.get("needs_sandbox", True):
                 parts.append(display_code)
             elif patch_ops and not code:
+                parts.append(display_code)
+            elif "```" in display_code:
+                # Already has fenced code blocks (markdown output from Worker)
                 parts.append(display_code)
             else:
                 parts.append(f"```{lang}\n{display_code}\n```")
@@ -455,7 +456,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     parts.append(f"\n---\n**How I got here**\n{summary}")
         # Critic nonblocking suggestions: surface as collapsible section for code responses
         critic_nonblocking = state.get("critic_nonblocking") or []
-        if critic_nonblocking and state.get("deliverable_type") != "explain_only":
+        if critic_nonblocking and state.get("needs_sandbox", True):
             suggestion_lines = []
             for item in critic_nonblocking[:5]:
                 desc = item.get("description", str(item)) if isinstance(item, dict) else str(item)
@@ -465,7 +466,7 @@ def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             if suggestion_lines:
                 suggestions_md = "\n".join(suggestion_lines)
                 parts.append(f"\n<details>\n<summary>Suggestions</summary>\n\n{suggestions_md}\n\n</details>")
-        # Carried uncertainties: what we're carrying (§approach_dark_debt_config) — any persona when relevant
+        # Carried uncertainties: known unknowns surfaced to user — any persona when relevant
         carried = state.get("carried_uncertainties_signal") or {}
         debt_items = carried.get("items") or []
         if debt_items:
@@ -591,7 +592,7 @@ def route_after_worker(state: dict[str, Any]) -> str:
         return "respond"
     # Explain-only fast path: skip patch_integrity_gate entirely.
     # High-complexity science domains route to critic for depth check; everything else goes direct.
-    if state.get("deliverable_type") == "explain_only":
+    if not state.get("needs_sandbox", True):
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         complexity = float(taxonomy_metadata.get("complexity_score", 0))
         if complexity > 0.6 and taxonomy_metadata.get("required_elements"):
@@ -610,7 +611,7 @@ def route_after_patch_integrity_gate(state: dict[str, Any]) -> str:
 graph_builder.add_conditional_edges(
     "worker",
     route_after_worker,
-    {"respond": "respond", "supervisor": "supervisor", "patch_integrity_gate": "patch_integrity_gate"},
+    {"respond": "respond", "supervisor": "supervisor", "patch_integrity_gate": "patch_integrity_gate", "critic": "critic"},
 )
 graph_builder.add_conditional_edges(
     "patch_integrity_gate",

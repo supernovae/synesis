@@ -321,3 +321,25 @@ pairings:
   - keywords: [astronomy, data]
     extra_weight: 8
     axis: complexity
+
+
+vertical_prompt:
+  name: scientific
+  active_domain_refs:
+    - bioinformatics
+    - geospatial
+    - ml_ops
+  platform_context_aliases:
+    - bioinformatics
+    - genomics
+    - gis
+    - ml
+  worker_persona_block: |
+    VERTICAL: Scientific. Bioinformatics, GIS, ML-Ops.
+    - Reproducibility: Fix random seeds. Document versions.
+    - Clinical crossover: If patient/genome data, apply healthcare rules.
+  planner_decomposition_rules: |
+    Scientific pipelines: Each step needs verification_command (unit test or script run).
+    Clinical data: Apply medical decomposition rules.
+  critic_mode: safety_ii
+

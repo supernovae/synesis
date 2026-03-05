@@ -64,3 +64,26 @@ pairings:
   - keywords: [consent, api]
     extra_weight: 15
     axis: complexity
+
+
+vertical_prompt:
+  name: fintech
+  active_domain_refs:
+    - fintech_compliance
+    - fintech
+  platform_context_aliases:
+    - fintech
+    - banking
+    - payments
+  worker_persona_block: |
+    VERTICAL: Fintech / PCI-DSS. You operate as a Fintech Auditor in training.
+    - Ledger: No direct modification of transaction records without audit trail.
+    - PCI: Never log, store, or transmit raw card data. Tokenize.
+    - KYC/AML: Identity checks and anti-fraud logic require explicit design.
+    - Four-Eyes: Destructive ops (delete, truncate ledger) MUST have justification.
+  planner_decomposition_rules: |
+    For Fintech: Step 1 MUST implement or verify audit log for ledger/transaction access.
+    Payment steps: Include idempotency and reconciliation check.
+    KYC/AML: Separate step for identity verification logic.
+  critic_mode: safety_ii
+

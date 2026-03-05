@@ -45,3 +45,31 @@ pairings:
   - keywords: [prompt, production]
     extra_weight: 10
     axis: complexity
+
+
+vertical_prompt:
+  name: llm_prompting
+  active_domain_refs:
+    - llm_prompting
+  platform_context_aliases:
+    - prompting
+    - prompt engineering
+  worker_persona_block: |
+    VERTICAL: LLM Prompting. System prompts, few-shot, tool use.
+    - Trust boundary: User input MUST NOT be concatenated into system/instruction prompts without delimiter.
+    - Delimiters: Use clear separators (e.g. <user>, </user>) to prevent injection.
+    - Clarity: Instructions should be specific; avoid ambiguous wording.
+  planner_decomposition_rules: |
+    Prompt tasks: Single-step for simple edits. Multi-step if combining prompt + tool schemas + eval.
+  critic_mode: tiered
+  critic_tiers:
+    basic: |
+      Approve if code runs. Check that user input is not blindly concatenated into system prompt.
+      Brief note on obvious injection risks.
+    advanced: |
+      Check: delimiter usage, prompt structure, escape of user content.
+      Suggest: explicit role boundaries, few-shot layout. Nonblocking for style.
+    research: |
+      Full review: injection surfaces, tool-calling safety, edge cases (empty input, very long input).
+      Flag: missing validation, unclear instruction precedence.
+

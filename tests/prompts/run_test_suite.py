@@ -498,22 +498,22 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     else:
         add("has_content", "fail", "Empty response")
 
-    # Deliverable type heuristics
+    # Output type heuristics (needs_sandbox: code vs explain)
     expected_deliv = prompt_spec.get("expected_deliverable", "")
     if expected_deliv == "explain_only":
         has_code_blocks = "```" in metrics.content_text
         if has_code_blocks and prompt_spec.get("category") not in ("review", "safety", "mixed"):
-            add("deliverable_type", "warn", "explain_only but response contains code blocks")
+            add("output_type", "warn", "explain_only but response contains code blocks")
         else:
-            add("deliverable_type", "pass", "explain_only")
+            add("output_type", "pass", "explain_only")
     elif expected_deliv in ("code_snippet", "code_project"):
         has_code = (
             "```" in metrics.content_text or "def " in metrics.content_text or "function " in metrics.content_text
         )
         if has_code:
-            add("deliverable_type", "pass", "Contains code")
+            add("output_type", "pass", "Contains code")
         else:
-            add("deliverable_type", "warn", "Expected code but none detected in response")
+            add("output_type", "warn", "Expected code but none detected in response")
 
     # ── Reasoning / thinking checks ──
     max_reasoning_s = _get_threshold(prompt_spec, "max_reasoning_s")

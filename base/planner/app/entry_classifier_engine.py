@@ -383,29 +383,29 @@ class ScoringEngine:
                 elif complexity_score <= self._medium_max:
                     task_size = "medium"
 
-        # 9. Deliverable type: explain_only (text/document) or single_file (code).
-        # Non-code intents (writing, planning, personal_guidance) default to explain_only
+        # 9. needs_sandbox: False = text/document (explain), True = code/sandbox.
+        # Non-code intents (writing, planning, personal_guidance) default to False
         # even without a domain match -- "write a sentence" is text, not code.
         ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
         if ic_data.get("inherently_document"):
-            deliverable_type = "explain_only"
-            hits.append("deliverable:explain_only(inherent)")
+            needs_sandbox = False
+            hits.append("needs_sandbox:false(inherent)")
         elif intent_class in code_intents:
-            deliverable_type = "single_file"
-            hits.append("deliverable:single_file")
+            needs_sandbox = True
+            hits.append("needs_sandbox:true(code_intent)")
         elif intent_class == "general":
-            deliverable_type = "explain_only"
-            hits.append("deliverable:explain_only(default)")
+            needs_sandbox = False
+            hits.append("needs_sandbox:false(default)")
         else:
             doc_domains = ic_data.get("document_domains") or []
             dom_set = {str(d).strip().lower() for d in doc_domains}
             refs = {str(a).strip().lower() for a in active_domains}
             if doc_domains and refs & dom_set:
-                deliverable_type = "explain_only"
-                hits.append("deliverable:explain_only")
+                needs_sandbox = False
+                hits.append("needs_sandbox:false(doc_domain)")
             else:
-                deliverable_type = "explain_only"
-                hits.append("deliverable:explain_only(intent_noncode)")
+                needs_sandbox = False
+                hits.append("needs_sandbox:false(intent_noncode)")
 
         # 10. Surface taxonomy gaps: log when nothing matched
         if intent_class == "general" and not active_domains:
@@ -422,7 +422,7 @@ class ScoringEngine:
             "risk_score": risk_score,
             "domain_hints": domain_hints,
             "intent_class": intent_class,
-            "deliverable_type": deliverable_type,
+            "needs_sandbox": needs_sandbox,
             "manual_override": False,
             "interaction_mode": interaction_mode,
             "force_pro_advanced": force_pro_advanced,

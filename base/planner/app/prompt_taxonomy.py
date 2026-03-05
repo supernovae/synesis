@@ -65,7 +65,7 @@ def get_prompt_components(
 def get_summary_domain_suffix_key(vertical: str) -> str:
     """Return the domain_suffix_by_vertical key for the given vertical.
 
-    Used by pivot summarizer to pick the right suffix from approach_dark_debt_config.
+    Used by pivot summarizer to pick the right domain suffix.
     """
     cfg = _load_config()
     mapping = cfg.get("vertical_to_summary_suffix_key") or {}

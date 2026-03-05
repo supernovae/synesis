@@ -238,7 +238,7 @@ class TestExplainabilityPhase1:
 
 
 class TestOutputTypeCoverage:
-    """deliverable_type=explain_only → skip Planner; Worker produces markdown. Taxonomy-driven."""
+    """needs_sandbox=False → skip Planner; Worker produces markdown. Taxonomy-driven."""
 
     @pytest.mark.parametrize(
         "prompt",
@@ -251,11 +251,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_knowledge_inherently_document(self, prompt: str):
-        """knowledge intent → deliverable_type=explain_only. plan_required=False for non-deep-dive domains."""
+        """knowledge intent → needs_sandbox=False. plan_required=False for non-deep-dive domains."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is False
 
     def test_knowledge_physics_deep_dive_requires_plan(self):
@@ -263,7 +263,7 @@ class TestOutputTypeCoverage:
         state = {"messages": [{"content": "what is the speed of light"}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is True
         assert "physics" in (out.get("active_domain_refs") or [])
 
@@ -277,11 +277,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_creative_ideation_inherently_document(self, prompt: str):
-        """creative_ideation intent → deliverable_type=explain_only (inherently_document)."""
+        """creative_ideation intent → needs_sandbox=False (inherently_document)."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "creative_ideation"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -294,11 +294,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_planning_document_domains(self, prompt: str):
-        """planning + lifestyle domain → deliverable_type=explain_only."""
+        """planning + lifestyle domain → needs_sandbox=False."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "planning"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -310,11 +310,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_personal_guidance_document_domains(self, prompt: str):
-        """personal_guidance + lifestyle domain → deliverable_type=explain_only."""
+        """personal_guidance + lifestyle domain → needs_sandbox=False."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "personal_guidance"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -326,11 +326,11 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_writing_document_domains(self, prompt: str):
-        """writing + lifestyle/creative domain → deliverable_type=explain_only."""
+        """writing + lifestyle/creative domain → needs_sandbox=False."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "writing"
-        assert out.get("deliverable_type") == "explain_only"
+        assert out.get("needs_sandbox") is False
         assert out.get("plan_required") is False
 
     @pytest.mark.parametrize(
@@ -342,10 +342,10 @@ class TestOutputTypeCoverage:
         ],
     )
     def test_code_intents_stay_code(self, prompt: str):
-        """Code intents → deliverable_type=single_file; plan_required per task_size."""
+        """Code intents → needs_sandbox=True; plan_required per task_size."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
-        assert out.get("deliverable_type") == "single_file"
+        assert out.get("needs_sandbox") is True
 
 
 class TestRiskVeto:

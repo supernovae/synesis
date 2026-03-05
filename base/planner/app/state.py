@@ -56,9 +56,8 @@ class GraphState(TypedDict, total=False):
     assumptions: list[str]
     defaults_used: list[str]
     assumptions_structured: list[dict[str, Any]]
-    deliverable_type: str
+    needs_sandbox: bool
     interaction_mode: str
-    # worker_prompt_tier and worker_persona removed — now derived inline from task_size
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
@@ -159,7 +158,7 @@ class GraphState(TypedDict, total=False):
     # Lighter payloads: refs + cache instead of duplicating full text
     context_cache: dict[str, str]  # content_hash -> text
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
-    direct_stream_request: dict[str, Any] | None  # deferred LLM call for explain_only (bypasses langchain)
+    direct_stream_request: dict[str, Any] | None  # deferred LLM call when not needs_sandbox (bypasses langchain)
 
 
 class Confidence(float):
@@ -267,10 +266,8 @@ class SynesisState(BaseModel):
     assumptions_structured: list[dict[str, Any]] = Field(default_factory=list)
 
     # Supervisor: intent + output shape
-    deliverable_type: str = "single_file"
+    needs_sandbox: bool = True
     interaction_mode: str = "do"
-    # worker_prompt_tier and worker_persona removed — derived inline from task_size
-    # (easy→minimal prompt, medium→standard, hard→full JCS)
     include_tests: bool = True
     include_run_commands: bool = True
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])

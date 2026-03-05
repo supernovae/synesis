@@ -136,8 +136,8 @@ class SupervisorOut(BaseModel):
     bypass_planner: bool = False
     bypass_clarification: bool = False
 
-    # Intent + output shape (document-first: explain_only default)
-    deliverable_type: str = "explain_only"  # snippet | single_file | multi_file_patch | explain_only | mixed
+    # Intent + output shape (document-first: needs_sandbox=False default)
+    needs_sandbox: bool = False
     interaction_mode: str = "do"  # teach | do
     include_tests: bool = True
     include_run_commands: bool = True
@@ -655,4 +655,4 @@ class CriticOut(BaseModel):
     needs_testing: bool = False
 
     # Postmortem (max_iterations): weak signal for system brittleness aggregation
-    carried_uncertainties_signal: dict[str, Any] | None = None  # approach_dark_debt: known unknowns we surface
+    carried_uncertainties_signal: dict[str, Any] | None = None  # known unknowns surfaced to user

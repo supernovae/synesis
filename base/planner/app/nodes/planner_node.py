@@ -73,10 +73,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
 
-    # Short-circuit: deliverable_type=explain_only WITHOUT plan_required (taxonomy didn't request structured bullets)
-    if state.get("deliverable_type") == "explain_only" and not state.get("plan_required"):
+    # Short-circuit: needs_sandbox=False (explanation-only) WITHOUT plan_required (taxonomy didn't request structured bullets)
+    if not state.get("needs_sandbox", False) and not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
-        logger.info("planner_skipped_deliverable_explain_only", extra={"deliverable_type": "explain_only", "latency_ms": latency})
+        needs_sandbox = state.get("needs_sandbox", False)
+        logger.info("planner_skipped_deliverable_explain_only", extra={"label": "code" if needs_sandbox else "explanation", "latency_ms": latency})
         return {
             "execution_plan": {
                 "steps": [
@@ -93,7 +94,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             },
             "touched_files": [],
             "plan_pending_approval": False,
-            "deliverable_type": "explain_only",
+            "needs_sandbox": False,
             "allowed_tools": ["none"],
             "target_language": "markdown",
             "current_node": node_name,
@@ -116,7 +117,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         context_block = _build_context_block(rag_context)
 
         # Domain-specific decomposition rules (Sovereign alignment)
-        from ..vertical_resolver import (
+        from ..taxonomy_prompt_factory import (
             get_planner_decomposition_rules,
             resolve_active_vertical,
         )
@@ -219,10 +220,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Defensive: deliverable_type=explain_only (taxonomy-driven) → skip approval unless explicit planning request
-        if needs_approval and state.get("deliverable_type") == "explain_only" and not planning_session_requested:
+        # Defensive: needs_sandbox=False (explanation-only, taxonomy-driven) → skip approval unless explicit planning request
+        if needs_approval and not state.get("needs_sandbox", False) and not planning_session_requested:
             needs_approval = False
-            logger.info("planner_skip_approval_deliverable_explain_only", extra={"deliverable_type": "explain_only"})
+            logger.info("planner_skip_approval_deliverable_explain_only", extra={"label": "code" if state.get("needs_sandbox", False) else "explanation"})
 
         next_node = "respond" if needs_approval else "worker"
 
@@ -234,8 +235,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
-        if not needs_approval and state.get("deliverable_type") == "explain_only":
-            out["deliverable_type"] = "explain_only"
+        if not needs_approval and not state.get("needs_sandbox", False):
+            out["needs_sandbox"] = False
             out["allowed_tools"] = ["none"]
             out["target_language"] = "markdown"
         return out

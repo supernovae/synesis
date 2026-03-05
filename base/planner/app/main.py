@@ -16,7 +16,7 @@ import re
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, ClassVar
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -239,13 +239,13 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     if node == "entry_classifier":
         task_size = chunk.get("task_size", "")
         intent = chunk.get("intent_class", "")
-        deliverable_type = chunk.get("deliverable_type", "")
+        needs_sandbox = chunk.get("needs_sandbox", True)
         plan_req = chunk.get("plan_required", False)
         out.append(
             (
                 "entry_classifier",
                 "Router (Entry Classifier)",
-                f"task_size={task_size} intent={intent} deliverable_type={deliverable_type} plan_required={plan_req}",
+                f"task_size={task_size} intent={intent} needs_sandbox={needs_sandbox} plan_required={plan_req}",
             )
         )
 
@@ -431,10 +431,9 @@ STATUS_HARD: dict[str, str] = {
 }
 
 
-def _status_for_node(node: str, task_size: str, deliverable_type: str = "") -> str:
+def _status_for_node(node: str, task_size: str, needs_sandbox: bool = True) -> str:
     """Return tier-matched status message for Open WebUI."""
-    # explain_only (plans, documents) → "Creating your plan…" instead of "Generating code…"
-    if node == "worker" and deliverable_type == "explain_only":
+    if node == "worker" and not needs_sandbox:
         return "Creating your plan…"
     if task_size == "easy" and node in STATUS_EASY:
         return STATUS_EASY[node]
@@ -445,107 +444,9 @@ def _status_for_node(node: str, task_size: str, deliverable_type: str = "") -> s
     return NODE_STATUS_MESSAGES.get(node, "")
 
 
-class _ExtractorState:
-    SCANNING = 0
-    IN_VALUE = 1
-    DONE = 2
 
-
-class StreamingCodeExtractor:
-    """Incremental JSON extractor for the ``"code"`` field value.
-
-    Feed raw LLM tokens (which form a JSON object) and receive decoded
-    string fragments from the ``code`` field as they arrive.  The extractor
-    handles standard JSON string escapes (``\\n``, ``\\"``, ``\\\\``,
-    ``\\uXXXX``, etc.).  If the token stream never enters the ``code``
-    field the caller falls back to the post-loop ``_extract_content_and_metrics``
-    path.
-    """
-
-    def __init__(self) -> None:
-        self._state = _ExtractorState.SCANNING
-        self._buf = ""
-        self._escape = False
-
-    # Compile once; matches `"code"` followed by optional whitespace + colon + optional whitespace + opening quote.
-    _KEY_RE = re.compile(r'"code"\s*:\s*"')
-
-    def feed(self, token: str) -> list[str]:
-        """Return decoded content fragments (may be empty)."""
-        if self._state == _ExtractorState.DONE:
-            return []
-
-        out: list[str] = []
-        self._buf += token
-
-        if self._state == _ExtractorState.SCANNING:
-            m = self._KEY_RE.search(self._buf)
-            if m is None:
-                if len(self._buf) > 4096:
-                    self._buf = self._buf[-256:]
-                return []
-            self._buf = self._buf[m.end() :]
-            self._state = _ExtractorState.IN_VALUE
-
-        if self._state == _ExtractorState.IN_VALUE:
-            decoded, remaining = self._decode_value(self._buf)
-            self._buf = remaining
-            if decoded:
-                out.append(decoded)
-
-        return out
-
-    _SIMPLE_ESCAPES: ClassVar[dict[str, str]] = {
-        "n": "\n",
-        "t": "\t",
-        "r": "\r",
-        "\\": "\\",
-        '"': '"',
-        "/": "/",
-        "b": "\b",
-        "f": "\f",
-    }
-
-    def _decode_value(self, s: str) -> tuple[str, str]:
-        """Decode JSON string content, return (decoded_text, leftover_buffer)."""
-        out: list[str] = []
-        i = 0
-        while i < len(s):
-            if self._escape:
-                self._escape = False
-                ch = s[i]
-                if ch in self._SIMPLE_ESCAPES:
-                    out.append(self._SIMPLE_ESCAPES[ch])
-                    i += 1
-                elif ch == "u":
-                    if i + 4 < len(s):
-                        hex_str = s[i + 1 : i + 5]
-                        try:
-                            out.append(chr(int(hex_str, 16)))
-                        except ValueError:
-                            out.append(f"\\u{hex_str}")
-                        i += 5
-                    else:
-                        return "".join(out), "\\" + s[i:]
-                else:
-                    out.append(ch)
-                    i += 1
-                continue
-
-            ch = s[i]
-            if ch == "\\":
-                if i + 1 >= len(s):
-                    return "".join(out), s[i:]
-                self._escape = True
-                i += 1
-            elif ch == '"':
-                self._state = _ExtractorState.DONE
-                return "".join(out), ""
-            else:
-                out.append(ch)
-                i += 1
-
-        return "".join(out), ""
+# StreamingCodeExtractor removed — Worker now produces plain markdown.
+# All content tokens stream directly to the client.
 
 
 def _extract_content_and_metrics(
@@ -610,12 +511,12 @@ def _extract_content_and_metrics(
         # Update last_active_language and last_context for next turn's pivot detection
         lang = result.get("target_language", "python")
         if lang in ("", "infer"):
-            lang = "markdown" if result.get("deliverable_type") == "explain_only" else "python"
+            lang = "markdown"
         if lang:
             memory.set_last_active_language(scope, lang)
         memory.set_last_context(
             scope,
-            result.get("deliverable_type", "single_file"),
+            result.get("needs_sandbox", True),
             result.get("active_domain_refs") or [],
         )
 
@@ -704,11 +605,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
-        curr_deliverable = current_analysis.get("deliverable_type", "single_file")
+        curr_needs_sandbox = current_analysis.get("needs_sandbox", True)
         curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
-        last_deliverable, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
+        last_needs_sandbox, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
 
-        deliverable_changed = curr_deliverable != last_deliverable
+        deliverable_changed = curr_needs_sandbox != last_needs_sandbox
         domains_differ = bool(curr_domains.symmetric_difference(last_domains))
         domains_have_overlap = bool(curr_domains & last_domains)
 
@@ -718,9 +619,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
         if deliverable_changed and not is_short_followup:
             context_pivot = True
-            pivot_to_label = f"{last_deliverable}→{curr_deliverable}"
+            pivot_to_label = f"{'explain_only' if not last_needs_sandbox else 'single_file'}→{'explain_only' if not curr_needs_sandbox else 'single_file'}"
         elif domains_differ and not is_short_followup:
-            # Guard 2: Same deliverable_type — only hard-pivot when zero domain overlap.
+            # Guard 2: Same sandbox mode — only hard-pivot when zero domain overlap.
             if not domains_have_overlap:
                 context_pivot = True
             else:
@@ -733,8 +634,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 extra={
                     "reason": "short_followup" if is_short_followup else "domain_overlap",
                     "msg_len": len(last_user_content.strip()),
-                    "curr_deliverable": curr_deliverable,
-                    "last_deliverable": last_deliverable,
+                    "curr_needs_sandbox": curr_needs_sandbox,
+                    "last_needs_sandbox": last_needs_sandbox,
                     "overlap": sorted(curr_domains & last_domains)[:3],
                     "diff": sorted(curr_domains.symmetric_difference(last_domains))[:5],
                 },
@@ -986,7 +887,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "user_id": user_id,
                     "memory_scope": memory_scope,
                     "source_node": pending.get("source_node"),
-                    "pending_deliverable_type": pending.get("deliverable_type"),
+                    "pending_needs_sandbox": pending.get("needs_sandbox"),
                 },
             )
             # Task drift: reply diverges from pending (new requirements, different direction)
@@ -1010,7 +911,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "rag_context",
                     "execution_plan",
                     "assumptions",
-                    "deliverable_type",
+                    "needs_sandbox",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
@@ -1026,7 +927,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "assumptions",
                     "failure_context",
                     "web_search_results",
-                    "deliverable_type",
+                    "needs_sandbox",
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
@@ -1063,11 +964,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 stream_content = True
-                extractor = StreamingCodeExtractor()
                 content_streamed = False
                 sent_role = False
                 task_size_val = ""
-                deliverable_val = ""
+                needs_sandbox_val = True
                 thinking_phases: list[str] = []
                 thinking_block_emitted = False
                 first_content_logged = False
@@ -1101,7 +1001,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         # ── Node started → status SSE + accumulate thinking phases ──
                         if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             node_label = name if name in _KNOWN_NODES else lg_node
-                            desc = _status_for_node(node_label, task_size_val, deliverable_val)
+                            desc = _status_for_node(node_label, task_size_val, needs_sandbox_val)
                             if desc and desc != _last_status_desc:
                                 _last_status_desc = desc
                                 thinking_phases.append(desc)
@@ -1123,8 +1023,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                                 if "task_size" in output:
                                     task_size_val = output["task_size"]
-                                if "deliverable_type" in output:
-                                    deliverable_val = output["deliverable_type"]
+                                if "needs_sandbox" in output:
+                                    needs_sandbox_val = output["needs_sandbox"]
 
                                 # Emit planner reasoning + plan steps as status + thinking
                                 if name == "planner":
@@ -1288,7 +1188,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         if short and len(short) > 3:
                                             thinking_phases.append(f"  → {short}")
 
-                            # ── Process content tokens ──
+                            # ── Process content tokens (always raw markdown) ──
                             if content_tok:
                                 _diag_content_chunks += 1
                                 if _diag_first_content_ms is None:
@@ -1301,10 +1201,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "node": lg_node,
                                         },
                                     )
-                                if deliverable_val == "explain_only":
-                                    fragments = [content_tok]
-                                else:
-                                    fragments = extractor.feed(content_tok)
+                                fragments = [content_tok]
                                 for fragment in fragments:
                                     if not fragment:
                                         continue
@@ -1577,7 +1474,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         result = chunk
                         node = chunk.get("current_node", "")
                         task_size = chunk.get("task_size", "")
-                        deliverable_type = chunk.get("deliverable_type", "")
+                        needs_sandbox_chunk = chunk.get("needs_sandbox", True)
                         exec_plan = chunk.get("execution_plan") or {}
                         steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
                         emitted_plan = False
@@ -1613,7 +1510,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     emitted_plan = True
                         if node:
-                            desc = _status_for_node(node, task_size or "", deliverable_type or "")
+                            desc = _status_for_node(node, task_size or "", needs_sandbox_chunk)
                             if emitted_plan and node == "planner":
                                 desc = ""
                             if desc:

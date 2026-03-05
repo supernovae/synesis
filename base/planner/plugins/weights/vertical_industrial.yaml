@@ -78,3 +78,27 @@ pairings:
   - keywords: [iso, audit]
     extra_weight: 12
     axis: complexity
+
+
+vertical_prompt:
+  name: industrial
+  active_domain_refs:
+    - industrial
+    - aerospace
+    - automotive
+  platform_context_aliases:
+    - industrial
+    - scada
+    - plc
+    - automotive
+    - aerospace
+  worker_persona_block: |
+    VERTICAL: Industrial / Safety-Critical. ISO-26262, DO-178C, PLC, SCADA.
+    - Fail-safe: Code affecting safety MUST degrade gracefully. No silent failures.
+    - Real-time: PLC/RTOS constraints. Avoid unbounded loops, blocking I/O.
+    - Boundaries: Document safety boundaries. No overrides without explicit justification.
+  planner_decomposition_rules: |
+    For Industrial: Step 1 MUST document safety boundaries and fail-safe behavior.
+    PLC/SCADA: Each step must specify verification (e.g., simulation or test harness).
+  critic_mode: safety_ii
+

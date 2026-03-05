@@ -16,7 +16,7 @@ def _get_intent_and_vertical(state: dict[str, Any]) -> tuple[str, str]:
     """Resolve intent_class and vertical for taxonomy-aware summary."""
     intent = state.get("intent_class", "code")
     try:
-        from .vertical_resolver import resolve_active_vertical
+        from .taxonomy_prompt_factory import resolve_active_vertical
 
         vertical = resolve_active_vertical(
             state.get("active_domain_refs"),
@@ -50,18 +50,14 @@ def build_decision_summary(state: dict[str, Any]) -> str | None:
 
     intent_class, vertical = _get_intent_and_vertical(state)
     approach_label = ""
-    try:
-        from .approach_dark_debt import get_approach_semantics, get_how_i_got_here_sources
 
-        sources = get_how_i_got_here_sources(intent_class)
-        approach = get_approach_semantics(intent_class, vertical, state.get("task_size", ""))
-        approach_label = approach.get("label", "")
-    except ImportError:
-        sources = {
-            "evidence": ["sandbox", "lsp", "rag"],
-            "strategy_key": "revision_strategy",
-            "uncertain_key": ["what_if_analyses", "residual_risks"],
-        }
+    _EVIDENCE_SOURCES: dict[str, dict[str, Any]] = {
+        "code": {"evidence": ["sandbox", "lsp", "lint", "security", "rag"], "strategy_key": "revision_strategy", "uncertain_key": ["what_if_analyses", "residual_risks"]},
+        "knowledge": {"evidence": ["rag"], "strategy_key": None, "uncertain_key": ["residual_risks", "knowledge_gap_message"]},
+        "debugging": {"evidence": ["sandbox", "lsp", "lint", "security"], "strategy_key": "revision_strategy", "uncertain_key": ["residual_risks"]},
+        "planning": {"evidence": ["rag", "execution_plan"], "strategy_key": None, "uncertain_key": ["residual_risks", "execution_plan"]},
+    }
+    sources = _EVIDENCE_SOURCES.get(intent_class, _EVIDENCE_SOURCES["code"])
 
     revision_strategy = state.get("revision_strategy", "")
     strategy_candidates = state.get("strategy_candidates", [])

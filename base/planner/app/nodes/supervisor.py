@@ -38,9 +38,9 @@ Rules:
 2. route_to: "worker" (single step or text output), "planner" (multi-step code), "respond" (clarification only).
 3. UI-helper/meta ("suggest follow-up", "JSON array") → task_type="general", needs_code_generation=false, route_to="respond".
 4. Trivial (hello world, simple print, unit test) → route_to=worker, bypass_planner=true, rag_mode=disabled, allowed_tools=["none"].
-5. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, deliverable_type=explain_only, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
+5. Plans, documents, explanations (training plan, nutrition plan, how-to) → needs_code_generation=true, needs_sandbox=false, allowed_tools=["none"], route_to=worker. NEVER route_to=respond for substantive output.
 6. Clarification: ONE question max, only when required input is missing AND cannot be defaulted. Never ask for trivial.
-7. allowed_tools: explain_only → ["none"]; code generation → ["sandbox","lsp"].
+7. allowed_tools: needs_sandbox=false → ["none"]; needs_sandbox=true → ["sandbox","lsp"].
 
 Return valid JSON (same schema). Keep reasoning to one sentence.
 """
@@ -175,7 +175,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "deliverable_type": "multi_file_patch",
+                "needs_sandbox": True,
                 "interaction_mode": state.get("interaction_mode", "do"),
                 "include_tests": True,
                 "include_run_commands": True,
@@ -196,14 +196,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [trace],
             }
 
-        # Taxonomy-driven explain_only passthrough: explain_only from intent_classes[].document_domains
-        # Planner is for code decomposition; explain_only goes straight to Worker
-        if state.get("deliverable_type") == "explain_only" and iteration == 0:
+        # Taxonomy-driven explain_only passthrough: needs_sandbox=false from intent_classes[].document_domains
+        # Planner is for code decomposition; explanation-only goes straight to Worker
+        if not _state_needs_sandbox(state) and iteration == 0:
             task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "Create plan as requested")
             latency = (time.monotonic() - start) * 1000
             trace = NodeTrace(
                 node_name=node_name,
-                reasoning="Taxonomy: deliverable_type=explain_only → passthrough (no LLM)",
+                reasoning="Taxonomy: needs_sandbox=false → passthrough (no LLM)",
                 assumptions=[],
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
@@ -211,7 +211,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             )
             logger.info(
                 "supervisor_passthrough_explain_only",
-                extra={"deliverable_type": "explain_only", "latency_ms": latency},
+                extra={"needs_sandbox": False, "latency_ms": latency},
             )
             return {
                 "task_type": "general",
@@ -221,7 +221,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "deliverable_type": "explain_only",
+                "needs_sandbox": False,
                 "interaction_mode": state.get("interaction_mode", "do"),
                 "include_tests": False,
                 "include_run_commands": False,
@@ -275,7 +275,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "defaults_used": [],
                 "assumptions_structured": [],
                 "task_is_trivial": False,
-                "deliverable_type": "mixed",
+                "needs_sandbox": True,
                 "interaction_mode": "teach",
                 "include_tests": False,
                 "include_run_commands": True,
@@ -320,13 +320,14 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             intent_class = state.get("intent_class", "code")
             active_refs = state.get("active_domain_refs") or []
             refs_str = ", ".join(str(r) for r in active_refs[:5]) if active_refs else "none"
-            deliverable_type = state.get("deliverable_type", "single_file")
+            needs_sandbox = _state_needs_sandbox(state)
+            deliverable_label = "code" if needs_sandbox else "explanation"
             intent_envelope_block = (
                 f"\n\n## Pre-classified (EntryClassifier)\n"
-                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, deliverable_type={deliverable_type}, active_domain_refs=[{refs_str}]. "
+                f"task_size={task_size}, target_language={target_lang}, intent_class={intent_class}, needs_sandbox={needs_sandbox} ({deliverable_label}), active_domain_refs=[{refs_str}]. "
                 f"Use these; do not re-classify. "
-                f'When deliverable_type=explain_only, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
-                f"Focus on: routing, RAG, planning_suggested, deliverable_type."
+                f'When needs_sandbox=false, route_to=worker, allowed_tools=["none"] — produce text/plan, not code. '
+                f"Focus on: routing, RAG, planning_suggested, needs_sandbox."
             )
 
         scope_expansion_note = ""
@@ -390,7 +391,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 task_is_trivial=True,
                 bypass_planner=True,
                 bypass_clarification=True,
-                deliverable_type="explain_only",
+                needs_sandbox=False,
                 interaction_mode="do",
                 rag_mode="disabled",
                 allowed_tools=["none"],
@@ -561,19 +562,19 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
 
         # Override: explain_only → worker, never Planner. Taxonomy-driven.
-        if next_node == "planner" and state.get("deliverable_type") == "explain_only":
+        if next_node == "planner" and not state.get("needs_sandbox", False):
             next_node = "worker"
             needs_code = True
             parsed = parsed.model_copy(
                 update={
-                    "deliverable_type": "explain_only",
+                    "needs_sandbox": False,
                     "allowed_tools": ["none"],
                     "target_language": "markdown",
                 }
             )
             logger.info(
                 "supervisor_override_planner_to_explain_only",
-                extra={"deliverable_type": "explain_only"},
+                extra={"needs_sandbox": False},
             )
 
         # Override: substantive non-code requests (plans, docs, how-to) must go to worker, not respond.
@@ -589,7 +590,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             target_language = "markdown"
             parsed = parsed.model_copy(
                 update={
-                    "deliverable_type": "explain_only",
+                    "needs_sandbox": False,
                     "allowed_tools": ["none"],
                     "target_language": "markdown",
                 }
@@ -688,7 +689,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "defaults_used": getattr(parsed, "defaults_used", []),
             "assumptions_structured": getattr(parsed, "assumptions_structured", []),
             "task_is_trivial": getattr(parsed, "task_is_trivial", False),
-            "deliverable_type": getattr(parsed, "deliverable_type", "single_file"),
+            "needs_sandbox": getattr(parsed, "needs_sandbox", False),
             "interaction_mode": (
                 state["interaction_mode"]
                 if state.get("intent_classifier_source") == "deterministic" and state.get("interaction_mode") == "teach"

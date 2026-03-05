@@ -11,16 +11,15 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-# ExecutorOut and CriticOut JSON that the Worker and Critic nodes parse
-EXECUTOR_OUT_JSON = """{
-  "code": "print('hello world')",
-  "explanation": "Simple hello world script.",
-  "reasoning": "Trivial task.",
-  "assumptions": ["Python 3"],
-  "confidence": 0.95,
-  "needs_input": false,
-  "patch_ops": []
-}"""
+# Worker now outputs markdown with fenced code blocks (no JSON wrapper)
+EXECUTOR_OUT_MARKDOWN = """Here's a simple hello world script:
+
+```python
+print('hello world')
+```
+
+This prints "hello world" to the console.
+"""
 
 CRITIC_OUT_JSON = """{
   "what_if_analyses": [],
@@ -72,7 +71,7 @@ async def test_graph_reaches_respond_trivial_path(
     """Trivial path reaches respond with code in the final message."""
     mock_retrieve.return_value = []
     mock_discover.return_value = []
-    mock_worker_llm.ainvoke = AsyncMock(return_value=AIMessage(content=EXECUTOR_OUT_JSON))
+    mock_worker_llm.ainvoke = AsyncMock(return_value=AIMessage(content=EXECUTOR_OUT_MARKDOWN))
     critic_json = '{"what_if_analyses":[],"overall_assessment":"Acceptable.","approved":true,"revision_feedback":"","confidence":0.9,"reasoning":"Simple script, low risk.","should_continue":false,"need_more_evidence":false}'
     mock_critic_llm.ainvoke = AsyncMock(return_value=AIMessage(content=critic_json))
     mock_sandbox_settings.sandbox_enabled = False

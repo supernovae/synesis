@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_critic_rejection
-from ..approach_dark_debt import build_universal_carried_uncertainties_signal
+from ..carried_uncertainties import build_universal_carried_uncertainties_signal
 from ..config import settings
 from ..critic_policy import (
     build_evidence_needed_query_plan,
@@ -316,12 +316,12 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-        # Taxonomy-driven document depth check: when explain_only + high complexity, validate science depth
-        deliverable_type = state.get("deliverable_type", "single_file")
+        # Taxonomy-driven document depth check: when not needs_sandbox + high complexity, validate science depth
+        needs_sandbox = state.get("needs_sandbox", True)
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
         is_document_taxonomy_path = (
-            deliverable_type == "explain_only"
+            not needs_sandbox
             and taxonomy_complexity > 0.6
             and bool(taxonomy_metadata.get("required_elements"))
         )
@@ -412,7 +412,7 @@ Respond with valid JSON: overall_assessment, approved, revision_feedback, blocki
         # Exception: lifestyle vertical with tiered critic may use basic tier (also Advisory-like).
         task_size = state.get("task_size", "medium")
 
-        from ..vertical_resolver import (
+        from ..taxonomy_prompt_factory import (
             get_critic_mode,
             get_critic_tier_prompt,
             get_intent_critic_block,
@@ -661,7 +661,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Use nonblocking for su
                 suggested_system_fix = "Review lint/security rules or relax revision constraints."
             else:
                 suggested_system_fix = "Update touched_files manifest or revision constraints."
-            # Universal carried uncertainties (§approach_dark_debt_config)
+            # Universal carried uncertainties (known unknowns surfaced)
             intent_class = state.get("intent_class", "code")
             carried_uncertainties_signal = build_universal_carried_uncertainties_signal(
                 state,

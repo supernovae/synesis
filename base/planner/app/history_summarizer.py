@@ -1,13 +1,13 @@
 """Context pivot: summarize previous era before flushing, archive to L2.
 
-When user pivots languages (Python→JS→shell), deliverable_type (single_file↔explain_only),
+When user pivots languages (Python→JS→shell), needs_sandbox (True↔False),
 or domain, we optionally:
 1. Summarize the "old era" via a tiny micro model (Qwen 0.5B, CPU)
 2. Archive raw history to L2 (durable store)
 3. Replace flushed history with a compact summary for smooth UX
 
 Uses summarizer_model_url when configured; otherwise falls back to stub.
-Taxonomy-aware: pivot_summary_prompts in approach_dark_debt_config.yaml.
+Taxonomy-aware: pivot summary prompts inlined (formerly approach_dark_debt_config.yaml).
 """
 
 from __future__ import annotations
@@ -23,28 +23,40 @@ from .llm_telemetry import get_llm_http_client
 logger = logging.getLogger("synesis.history_summarizer")
 
 _summarizer_llm: Any = "__unset__"
-_pivot_prompts_cache: dict[str, Any] | None = None
+
+
+_PIVOT_PROMPTS: dict[str, Any] = {
+    "language": {
+        "template": (
+            "Summarize in 1-2 sentences what the user accomplished in {from_era}.\n"
+            "Conversation:\n{conversation}\nReply with only the summary, no preamble."
+        ),
+    },
+    "deliverable": {
+        "template": (
+            "Summarize in 1-2 sentences what the user discussed or worked on in the "
+            "previous {from_era} context.\n{domain_suffix}\nConversation:\n{conversation}\n"
+            "Reply with only the summary, no preamble."
+        ),
+        "domain_suffix_by_vertical": {
+            "scientific": "Focus on concepts, data, or methodology discussed.",
+            "lifestyle": "Focus on goals, plans, or advice exchanged.",
+            "medical": "Focus on concepts or workflows (do not mention PHI).",
+            "generic": "",
+        },
+    },
+    "domain": {
+        "template": (
+            "Summarize what the user worked on in the previous context ({domain_hint}).\n"
+            "Conversation:\n{conversation}\nReply with only the summary, no preamble."
+        ),
+    },
+}
 
 
 def _load_pivot_prompts() -> dict[str, Any]:
-    """Load pivot_summary_prompts from approach_dark_debt_config.yaml."""
-    global _pivot_prompts_cache
-    if _pivot_prompts_cache is not None:
-        return _pivot_prompts_cache
-    try:
-        import yaml
-
-        path = Path(__file__).parent.parent / "approach_dark_debt_config.yaml"
-        if path.exists():
-            with open(path) as f:
-                raw = yaml.safe_load(f) or {}
-            _pivot_prompts_cache = raw.get("pivot_summary_prompts") or {}
-        else:
-            _pivot_prompts_cache = {}
-    except Exception as e:
-        logger.debug("pivot_prompts_load_failed %s", e)
-        _pivot_prompts_cache = {}
-    return _pivot_prompts_cache
+    """Return inlined pivot summary prompts."""
+    return _PIVOT_PROMPTS
 
 
 def _get_summarizer_llm():
@@ -116,7 +128,7 @@ def _build_pivot_prompt(
         vert = "generic"
         if active_domain_refs:
             try:
-                from .vertical_resolver import resolve_active_vertical
+                from .taxonomy_prompt_factory import resolve_active_vertical
 
                 vert = resolve_active_vertical(active_domain_refs, None)
             except Exception:
@@ -166,8 +178,8 @@ async def summarize_pivot_history(
 ) -> str:
     """Summarize the pre-pivot history in 1-2 sentences.
 
-    Taxonomy-aware: uses pivot_summary_prompts from approach_dark_debt_config.yaml.
-    pivot_type: language (Python→JS) | deliverable (single_file↔explain_only) | domain
+    Taxonomy-aware: uses inlined pivot summary prompts.
+    pivot_type: language (Python→JS) | deliverable (needs_sandbox True↔False) | domain
     Uses micro model when summarizer_model_url configured; falls back to stub.
     """
     if not history:

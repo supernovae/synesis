@@ -156,7 +156,7 @@ def get_executor_depth_block(metadata: dict[str, Any]) -> str:
 
 
 def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[str]) -> bool:
-    """When deliverable_type=explain_only, should we route to Planner for structured bullets?"""
+    """When needs_sandbox=False (explain-only), should we route to Planner for structured bullets?"""
     if not metadata:
         return False
     cfg = _load_config()
@@ -165,6 +165,111 @@ def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[
     key = metadata.get("taxonomy_key", "")
     refs = {str(r).lower() for r in (active_domain_refs or [])}
     return bool(key in deep_dive and complexity > 0.6) or bool(refs & deep_dive and complexity > 0.6)
+
+
+def _load_vertical_prompts() -> dict[str, Any]:
+    """Load vertical prompts from plugin-merged config."""
+    try:
+        from .entry_classifier_engine import get_scoring_engine
+
+        engine = get_scoring_engine()
+        return engine._config.get("vertical_prompts") or {}
+    except Exception:
+        return {}
+
+
+def _load_intent_prompts() -> dict[str, Any]:
+    """Load intent critic behavior overlays from intent_prompts.yaml."""
+    import yaml
+
+    path = Path(__file__).parent.parent / "intent_prompts.yaml"
+    try:
+        if path.exists():
+            with open(path) as f:
+                raw = yaml.safe_load(f) or {}
+            return raw
+        return {}
+    except Exception:
+        return {}
+
+
+_cached_intent_prompts: dict[str, Any] | None = None
+
+
+def resolve_active_vertical(
+    active_domain_refs: list[str] | None = None,
+    platform_context: str | None = None,
+) -> str:
+    """Resolve canonical vertical from domain refs and platform context.
+
+    Uses vertical_prompt data from taxonomy plugins (merged by plugin_weight_loader).
+    Returns: medical | fintech | industrial | platform | scientific | lifestyle | generic
+    """
+    refs = [r.strip().lower() for r in (active_domain_refs or []) if r and str(r).strip()]
+    ctx = (platform_context or "").strip().lower() if platform_context else ""
+
+    verticals = _load_vertical_prompts()
+    for vert_name, vert_data in verticals.items():
+        if not isinstance(vert_data, dict):
+            continue
+        ref_list = [str(x).strip().lower() for x in (vert_data.get("active_domain_refs") or [])]
+        for r in refs:
+            if r in ref_list or any(r == ref or r in ref or ref in r for ref in ref_list):
+                return vert_name
+        aliases = [str(x).strip().lower() for x in (vert_data.get("platform_context_aliases") or [])]
+        if ctx and (ctx in aliases or any(a in ctx or ctx in a for a in aliases)):
+            return vert_name
+
+    return "generic"
+
+
+def get_worker_persona_block(vertical: str) -> str:
+    """Return vertical-specific Worker persona block, or empty string."""
+    verticals = _load_vertical_prompts()
+    vert_data = verticals.get(vertical)
+    if not isinstance(vert_data, dict):
+        return ""
+    return (vert_data.get("worker_persona_block") or "").strip()
+
+
+def get_planner_decomposition_rules(vertical: str) -> str:
+    """Return vertical-specific Planner decomposition rules."""
+    verticals = _load_vertical_prompts()
+    vert_data = verticals.get(vertical)
+    if not isinstance(vert_data, dict):
+        return ""
+    return (vert_data.get("planner_decomposition_rules") or "").strip()
+
+
+def get_critic_mode(vertical: str) -> str:
+    """Return critic mode: safety_ii | tiered | advisory."""
+    verticals = _load_vertical_prompts()
+    vert_data = verticals.get(vertical)
+    if not isinstance(vert_data, dict):
+        return "advisory"
+    return (vert_data.get("critic_mode") or "advisory").strip().lower()
+
+
+def get_critic_tier_prompt(vertical: str, tier: str) -> str:
+    """For tiered critic: basic | advanced | research."""
+    verticals = _load_vertical_prompts()
+    vert_data = verticals.get(vertical)
+    if not isinstance(vert_data, dict):
+        return ""
+    tiers = vert_data.get("critic_tiers") or {}
+    return (tiers.get(tier) or "").strip()
+
+
+def get_intent_critic_block(intent_class: str) -> str:
+    """Return intent-specific critic behavior overlay."""
+    global _cached_intent_prompts
+    if _cached_intent_prompts is None:
+        _cached_intent_prompts = _load_intent_prompts()
+    intent_classes = _cached_intent_prompts.get("intent_classes") or {}
+    ic_data = intent_classes.get(intent_class) if intent_class else None
+    if not isinstance(ic_data, dict):
+        return ""
+    return (ic_data.get("critic_behavior_block") or "").strip()
 
 
 def get_critic_depth_prompt_block(metadata: dict[str, Any]) -> str:

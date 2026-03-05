@@ -362,15 +362,15 @@ To reach "the 95%" for new verticals:
 
 ---
 
-## 7. Taxonomy-Driven Deliverable Type (Explain-Only vs Code)
+## 7. Taxonomy-Driven Output Path (needs_sandbox)
 
-**Design: document-first.** Default to discussions, plans, explanations. Code path only when taxonomy or coding client signals code. `deliverable_type` subsumes former `output_type`: `explain_only` (was document), `single_file` (was code).
+**Design: document-first.** Default to discussions, plans, explanations. Code/sandbox path only when taxonomy or coding client signals code. `needs_sandbox` (bool): `false` = text/document (explain), `true` = code/sandbox.
 
 | Mechanism | Intents | Meaning |
 |-----------|---------|---------|
-| `inherently_document: true` | conversation, knowledge, creative_ideation | Always `deliverable_type=explain_only` (greetings, explanations, ideas). |
-| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → `explain_only`. |
-| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code path (`single_file` or multi-file). |
+| `inherently_document: true` | conversation, knowledge, creative_ideation | Always `needs_sandbox=false` (greetings, explanations, ideas). |
+| `document_domains: [...]` | planning, personal_guidance, writing | Intent + domain overlap → `needs_sandbox=false`. |
+| **Code intents** | debugging, review, code_generation, data_transform, tool_orchestrated | Explicit code/sandbox path (`needs_sandbox=true`). |
 | **Coding client** | (header detection) | Cursor, Claude Code, etc. send `User-Agent`/`X-Client`. Ambiguous (general) → code bias. |
 
 | Intent | Config | Example |
@@ -383,17 +383,17 @@ To reach "the 95%" for new verticals:
 | writing | document_domains | "write blog about marathon", "draft email about nutrition" |
 | debugging, review, code_generation, data_transform, tool_orchestrated | code | "fix this bug", "write a script", "parse json" |
 
-**No match (general)** → `explain_only`. **Coding client + general** → code (Cursor/Claude Code session assumes code).
+**No match (general)** → `needs_sandbox=false`. **Coding client + general** → code (Cursor/Claude Code session assumes code).
 
-**Flow:** Entry Classifier (engine, coding_client override) → when `deliverable_type=explain_only`: if domain in `deep_dive_domains` and `complexity_score > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain_only) → Respond.
+**Flow:** Entry Classifier (engine, coding_client override) → when `needs_sandbox=false`: if domain in `deep_dive_domains` and `complexity_score > 0.6` → `plan_required=true` → Planner; else → `plan_required=false` → Supervisor passthrough → Worker (explain) → Respond.
 
-**Planner** serves code decomposition and document deep-dive (physics, astronomy, mathematics, etc.). Worker explain_only uses a document-focused prompt; when Planner ran for document, Worker receives `taxonomy_metadata` depth block.
+**Planner** serves code decomposition and document deep-dive (physics, astronomy, mathematics, etc.). Worker explain path uses a document-focused prompt; when Planner ran for document, Worker receives `taxonomy_metadata` depth block.
 
 ---
 
 ## 8. Vertical-Specific Prompting (Sovereign Persona Injection)
 
-**File:** `vertical_prompts.yaml` — Maps `active_domain` → Worker persona, Planner rules, Critic mode.
+**File:** Vertical prompts are now embedded in taxonomy plugin YAMLs (e.g. `plugins/weights/vertical_health_wellness.yaml`). Maps `active_domain` → Worker persona, Planner rules, Critic mode.
 
 | Vertical | Worker Persona | Planner Rules | Critic Mode |
 |----------|----------------|----------------|-------------|
@@ -420,7 +420,7 @@ To reach "the 95%" for new verticals:
 
 ## 9. Approach + Dark Debt + How I Got Here (Universal)
 
-**File:** `approach_dark_debt_config.yaml` — Maps (intent × vertical × task_size) → approach semantics, carried-uncertainties categories, and evidence sources.
+Carried uncertainties are now inlined in `carried_uncertainties.py`. Evidence sources are inlined in `decision_summary.py`.
 
 - **Approach:** What we chose to do — e.g. "Quick one-shot answer" (lifestyle easy) vs "12-week training plan" (lifestyle hard); "RAG-grounded answer" (knowledge).
 - **Carried uncertainties:** What we're carrying (known unknowns we surface) — e.g. "Quick answer given; ask for full plan if needed" (lifestyle); "Forced approval at max iterations" (code); "RAG confidence low" (knowledge).
@@ -521,9 +521,9 @@ See [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) for design, flo
 - [TAXONOMY_CANONICAL.md](TAXONOMY_CANONICAL.md) — Canonical domains, verticals, seeding
 - [prompt_taxonomy.yaml](../base/planner/prompt_taxonomy.yaml) — Router → prompt components
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec
-- [approach_dark_debt_config.yaml](../base/planner/approach_dark_debt_config.yaml) — Approach + carried uncertainties
+- carried_uncertainties.py — Carried uncertainties (inlined)
 - [intent_weights.yaml](../base/planner/intent_weights.yaml) — Active config (may symlink to master)
 - [master_intent_weights.yaml](../base/planner/master_intent_weights.yaml) — Full sovereign catalog
-- [vertical_prompts.yaml](../base/planner/vertical_prompts.yaml) — Sovereign persona injection
+- Vertical prompts in taxonomy plugin YAMLs — Sovereign persona injection
 - [plugins/weights/README.md](../base/planner/plugins/weights/README.md) — Plugin format
 - [nodes.md](nodes.md) — Node flow and persona tiers

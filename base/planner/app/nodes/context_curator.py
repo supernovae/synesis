@@ -131,11 +131,11 @@ def _build_pinned_context(
     interaction_mode: str = "do",
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session).
-    Taxonomy-aware: when deliverable_type=explain_only (document path), use document-appropriate
+    Taxonomy-aware: when needs_sandbox=False (document path), use document-appropriate
     output format and constraints — no sandbox/bash/code execution.
     """
     chunks: list[ContextChunk] = []
-    is_document = (session_preferences or {}).get("deliverable_type") == "explain_only"
+    is_document = not (session_preferences or {}).get("needs_sandbox", True)
 
     # Tier 1: Educational/Mentor mode — Learner's Corner (unified schema, taxonomy-aware)
     # Works for both code (design patterns, failure handling) and document (concepts, pitfalls)
@@ -197,12 +197,12 @@ def _build_pinned_context(
             )
         )
 
-    # Tier 1: Global policy (hardcoded) — taxonomy-aware: document vs code
+    # Tier 1: Global policy (hardcoded) — always markdown output
     if is_document:
-        t1 = "Respond directly in markdown. No JSON wrapper. No code execution."
+        t1 = "Respond directly in markdown. No code execution."
         t2 = f"Target language: {target_language}. Produce formatted text only. No sandbox, no code execution, no bash."
     else:
-        t1 = "Respond with valid JSON. Include code, explanation, reasoning, assumptions, confidence, edge_cases_considered, needs_input, needs_input_question, stop_reason."
+        t1 = "Respond in markdown. Use fenced code blocks with language tags for code."
         t2 = f"Target language: {target_language}. Sandbox has no network. Use set -euo pipefail for bash."
     chunks.append(
         ContextChunk(
@@ -264,8 +264,8 @@ def _build_pinned_context(
     # Tier 4b: Session preferences (deliverable shape, interaction mode) — taxonomy-aware
     if session_preferences:
         prefs = []
-        if session_preferences.get("deliverable_type"):
-            prefs.append(f"Deliverable: {session_preferences['deliverable_type']}")
+        sandbox_flag = session_preferences.get("needs_sandbox", True)
+        prefs.append(f"Deliverable: {'code' if sandbox_flag else 'explain_only'}")
         if session_preferences.get("interaction_mode") == "teach":
             if is_document:
                 prefs.append(
@@ -690,7 +690,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     context_conflicts = tier2_tier3_conflicts
 
     session_prefs = {
-        "deliverable_type": state.get("deliverable_type", "single_file"),
+        "needs_sandbox": state.get("needs_sandbox", True),
         "interaction_mode": state.get("interaction_mode", "do"),
         "include_tests": state.get("include_tests", True),
         "include_run_commands": state.get("include_run_commands", True),
@@ -703,7 +703,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     pivot_summary = state.get("pivot_summary", "")
 
     pinned: list[Any] = []
-    # Tier 0a: Hard context pivot — user switched language or deliverable_type; flush history
+    # Tier 0a: Hard context pivot — user switched language or sandbox mode; flush history
     if is_pivot and last_active_lang and target_lang:
         pivot_t = (
             f"CONTEXT PIVOT: User switched from {last_active_lang} to {target_lang}. "
@@ -726,7 +726,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
         )
-    # Tier 0b: Soft domain shift — related topic within same deliverable_type; keep history
+    # Tier 0b: Soft domain shift — related topic within same sandbox mode; keep history
     elif domain_soft_shift:
         soft_t = "The user may be shifting topics slightly. Use conversation history for context."
         pinned.append(
