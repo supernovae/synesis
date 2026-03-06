@@ -16,6 +16,7 @@ import logging
 
 try:
     import httpx
+
     HAS_HTTPX = True
 except ImportError:
     httpx = None
@@ -33,9 +34,10 @@ def _fetch_feedback(url: str, params: dict) -> dict:
 
     qs = urllib.parse.urlencode(params)
     full_url = f"{url}/v1/feedback?{qs}"
-    req = urllib.request.Request(full_url)
-    with urllib.request.urlopen(req, timeout=10) as r:
+    req = urllib.request.Request(full_url)  # noqa: S310
+    with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310
         import json
+
         return json.loads(r.read().decode())
 
 
@@ -59,7 +61,9 @@ class Pipe:
         """Fetch and format feedback from Synesis planner."""
         url = (self.valves.synesis_planner_url or "").rstrip("/")
         if not url:
-            return "**Error:** Set `synesis_planner_url` in plugin Valves (Admin Settings → Functions → Synesis Feedback)"
+            return (
+                "**Error:** Set `synesis_planner_url` in plugin Valves (Admin Settings → Functions → Synesis Feedback)"
+            )
 
         # Parse user message for filters
         messages = body.get("messages", [])

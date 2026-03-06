@@ -33,7 +33,6 @@ Recommended (uses scripts venv):
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -89,7 +88,7 @@ def run_local(engine, prompts: list[tuple[str, str]], verbose: bool) -> int:
         if verbose:
             cats = result.get("categories_touched", [])
             hits = f"{hits} [cats: {cats}]"
-        print(f"{prompt[:width-2]:<{width}} | {size:<8} | {score:<5} | {mode:<6} | {hits}")
+        print(f"{prompt[: width - 2]:<{width}} | {size:<8} | {score:<5} | {mode:<6} | {hits}")
 
     return 0
 

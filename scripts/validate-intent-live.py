@@ -73,17 +73,17 @@ def post_chat(url: str, prompt: str) -> tuple[str, int]:
                 content = resp.text
             return content, resp.status_code
     except ImportError:
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         try:
-            req = urllib.request.Request(
+            req = urllib.request.Request(  # noqa: S310
                 api_url,
                 data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
                 data = json.loads(resp.read().decode())
                 content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 return content, resp.status
@@ -127,7 +127,7 @@ def main():
         content, status = post_chat(base, prompt)
 
         if status != 200:
-            print(f"  ✗ [{i+1}] \"{prompt[:50]}...\" — HTTP {status}")
+            print(f'  ✗ [{i + 1}] "{prompt[:50]}..." — HTTP {status}')
             if args.verbose:
                 print(f"      {content[:300]}...")
             failed += 1
@@ -144,9 +144,9 @@ def main():
                 break
 
         if ok:
-            print(f"  ✓ [{i+1}] \"{prompt[:50]}...\"")
+            print(f'  ✓ [{i + 1}] "{prompt[:50]}..."')
         else:
-            print(f"  ✗ [{i+1}] \"{prompt[:50]}...\"")
+            print(f'  ✗ [{i + 1}] "{prompt[:50]}..."')
             if must:
                 for s in must:
                     print(f"      must contain: {s!r} — {'OK' if s in content else 'MISSING'}")

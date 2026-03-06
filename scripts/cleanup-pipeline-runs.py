@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Clean up old KFP pipeline runs to reduce clutter in the OpenShift AI Pipelines UI."""
+
 from __future__ import annotations
 
 import argparse
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def get_kfp_token(token: str | None) -> str | None:
@@ -40,17 +41,14 @@ def list_all_runs(client, page_size: int = 50):
             page_size=page_size,
             sort_by="created_at desc",
         )
-        for r in resp.runs or []:
-            yield r
+        yield from resp.runs or []
         token = resp.next_page_token or ""
         if not token:
             break
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(
-        description="Delete or archive old KFP pipeline runs (OpenShift AI Pipelines)"
-    )
+    ap = argparse.ArgumentParser(description="Delete or archive old KFP pipeline runs (OpenShift AI Pipelines)")
     ap.add_argument(
         "--host",
         default=os.environ.get("KFP_HOST"),
@@ -146,7 +144,7 @@ def main() -> None:
     if args.older_than_days:
         from datetime import timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=args.older_than_days)
+        cutoff = datetime.now(UTC) - timedelta(days=args.older_than_days)
 
     runs = []
     for run in list_all_runs(c):
@@ -170,8 +168,8 @@ def main() -> None:
         runs.append(run)
 
     # Keep N most recent, remove the rest
-    runs.sort(key=lambda r: r.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-    to_remove = runs[args.keep:]
+    runs.sort(key=lambda r: r.created_at or datetime.min.replace(tzinfo=UTC), reverse=True)
+    to_remove = runs[args.keep :]
 
     if not to_remove:
         print("No runs to clean up.")
