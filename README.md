@@ -4,15 +4,27 @@
 [![Lint](https://github.com/supernovae/synesis/actions/workflows/lint.yml/badge.svg)](https://github.com/supernovae/synesis/actions/workflows/lint.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-A composable, self-hosted LLM assistant built on [OpenShift AI](https://www.redhat.com/en/technologies/cloud-computing/openshift/openshift-ai). Multi-model architecture with taxonomy-driven prompt shaping, hybrid RAG, and YAML-configurable behavior profiles — from 2 GPUs to production scale.
+A composable, self-hosted LLM platform built on [OpenShift AI](https://www.redhat.com/en/technologies/cloud-computing/openshift/openshift-ai). Multi-model architecture with taxonomy-driven prompt shaping, hybrid RAG, and YAML-configurable behavior profiles — from 3 GPUs to production scale.
 
 > **Synesis** (coined by Erik Hollnagel): The unification of productivity, quality, safety, and reliability. Safety and success are not separate goals, but emergent properties of the same adaptive processes.
 
 **Repository:** [github.com/supernovae/synesis](https://github.com/supernovae/synesis)
 
+## Lateral Collaboration Model
+
+Synesis implements a **lateral collaboration model** — domain agents operate independently with their own tools and context, but share a common layer of intelligence infrastructure: taxonomy routing, knowledge retrieval, quality gates, and critic reasoning.
+
+The Coder agent is the first instance of this pattern. It connects directly to a dedicated coding model with tool-calling support, and reaches Synesis capabilities (RAG, taxonomy, architecture knowledge, critic review) through MCP tool calls when it needs them. The agent stays lightweight and domain-focused; Synesis provides the connective tissue.
+
+This is the Hollnagel insight applied to multi-agent AI. Quality, safety, and productivity aren't separate concerns bolted onto each agent — they emerge from the shared adaptive processes (taxonomy-driven routing, evidence-gated critique, knowledge retrieval) that surround every agent equally.
+
+**The pattern generalizes beyond coding.** A GIS spatial analysis agent, a compliance auditor, or a data pipeline builder can each plug into the same lateral infrastructure. Each domain agent brings its own model and tools for domain-specific work, while MCP connections to Synesis give it access to organizational knowledge, quality validation, and structured reasoning — without forcing that intelligence into the agent itself.
+
+The architecture doesn't even require a full agent. For lighter use cases, a guided LLM with taxonomy shaping can serve the same role — the router classifies intent, the taxonomy shapes behavior, and the critic validates output. The depth scales with the need: from a single guided model endpoint up to a fully autonomous agent with MCP tools and sandbox execution.
+
 ## Architecture
 
-Synesis separates concerns across specialized model roles. A fast router classifies intent and steers requests through a LangGraph pipeline, while IDE clients connect directly to a dedicated coding model. All model assignments, vLLM tuning, and deployment profiles are driven from a single [`models.yaml`](models.yaml).
+Synesis separates concerns across specialized model roles. A fast router classifies intent and steers requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. All model assignments, vLLM tuning, and deployment profiles are driven from a single [`models.yaml`](models.yaml).
 
 ```mermaid
 flowchart LR
