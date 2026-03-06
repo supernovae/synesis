@@ -6,22 +6,17 @@ set -euo pipefail
 # Prepares an OpenShift cluster for Synesis deployment.
 # Requires: RHOAI operator + NVIDIA GPU Operator already installed.
 #
-# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token] [--skip-rag] [--load-knowledge]
+# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]
 #   --ghcr-creds     Prompt for GitHub credentials to create GHCR pull secrets (private images)
 #   --skip-ghcr-creds  Skip GHCR pull secret setup (use when images are public)
 #   --hf-token       Prompt for HuggingFace token (avoids throttling, enables private models)
 #   --github-token   Create synesis-github-token in synesis-rag (RAG indexer jobs need this for GitHub API)
-#   --skip-rag       Skip RAG stack installation (use when deploy.sh will apply it)
-#   --load-knowledge Load language pack (bash) + index SOP runbooks into synesis_catalog (requires built images)
 
 FORCE=false
 GHCR_CREDS=false
 SKIP_GHCR_CREDS=false
 HF_TOKEN=false
 GITHUB_TOKEN_FLAG=false
-SKIP_RAG=false
-LOAD_KNOWLEDGE=false
-
 for arg in "$@"; do
     case "$arg" in
         --force) FORCE=true ;;
@@ -29,10 +24,8 @@ for arg in "$@"; do
         --skip-ghcr-creds) SKIP_GHCR_CREDS=true ;;
         --hf-token) HF_TOKEN=true ;;
         --github-token) GITHUB_TOKEN_FLAG=true ;;
-        --skip-rag) SKIP_RAG=true ;;
-        --load-knowledge) LOAD_KNOWLEDGE=true ;;
         --help|-h)
-            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token] [--skip-rag] [--load-knowledge]"
+            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]"
             echo ""
             echo "Prepares an OpenShift cluster for Synesis deployment."
             echo "  --force           Continue even if RHOAI/GPU checks fail"
@@ -40,8 +33,6 @@ for arg in "$@"; do
             echo "  --skip-ghcr-creds Skip GHCR pull secret setup (default when not prompting)"
             echo "  --hf-token        Prompt for HuggingFace token (model downloads, avoids throttling)"
             echo "  --github-token    Create synesis-github-token in synesis-rag (RAG indexer jobs)"
-            echo "  --skip-rag        Skip RAG stack installation (deploy.sh applies it)"
-            echo "  --load-knowledge  Load bash language pack + index SOP runbooks (requires: ./scripts/build-images.sh)"
             echo ""
             echo "For non-interactive use: GITHUB_USERNAME, GITHUB_TOKEN, HUGGINGFACE_TOKEN env vars."
             exit 0
@@ -483,50 +474,17 @@ main() {
         log "  Recommended to avoid rate limiting when deploy.sh deploys models from hf://"
     fi
 
-    if [[ "$SKIP_RAG" != "true" ]]; then
-        log ""
-        log "--- RAG Stack (Milvus + embedder) ---"
-        log "Installing RAG stack and waiting for rollout..."
-        if "$PROJECT_ROOT/scripts/install-rag-stack.sh" --wait; then
-            log "  RAG stack ready (synesis_catalog created on first planner query)"
-        else
-            warn "RAG stack install had issues. deploy.sh will re-apply; Milvus may still be starting."
-        fi
-    else
-        log ""
-        log "--- RAG Stack ---"
-        log "  Skipped (--skip-rag). deploy.sh will apply RAG manifests."
-    fi
-
-    if [[ "$LOAD_KNOWLEDGE" == "true" ]]; then
-        log ""
-        log "--- Loading RAG knowledge (synesis_catalog) ---"
-        log "  Build images first if not done: ./scripts/build-images.sh"
-        if "$PROJECT_ROOT/scripts/load-language-pack.sh" bash 2>/dev/null; then
-            log "  Language pack (bash) loaded"
-        else
-            warn "load-language-pack failed (ingestor image may not be built/pushed)"
-        fi
-        if "$PROJECT_ROOT/scripts/index-domain.sh" 2>/dev/null; then
-            log "  SOP runbooks (OpenShift/Red Hat) indexed"
-        else
-            warn "index-domain failed (indexer-domain image may not be built/pushed)"
-        fi
-    else
-        log ""
-        log "--- RAG knowledge ---"
-        log "  Skipped (use --load-knowledge after build-images to populate synesis_catalog)"
-    fi
-
     log ""
     log "=== Bootstrap complete ==="
     log ""
     log "Next steps:"
-    log "  1. Download models to PVC:      ./scripts/run-model-pipeline.sh --profile=small"
-    log "  2. Build images (if not done): ./scripts/build-images.sh --push"
-    log "  3. Deploy:                     ./scripts/deploy.sh dev"
-    log "  4. If models fail:             ./scripts/list-model-runtimes.sh"
-    log "  5. Load RAG corpus (optional):  ./scripts/load-language-pack.sh bash && ./scripts/index-domain.sh"
+    log "  1. Download models:      ./scripts/run-model-pipeline.sh --profile=small"
+    log "  2. Build images:         ./scripts/build-images.sh --push"
+    log "  3. Deploy services:      ./scripts/deploy.sh dev"
+    log "  4. Deploy indexers:      ./scripts/deploy-jobs.sh dev"
+    log "  5. Load RAG corpus:      ./scripts/load-language-pack.sh bash"
+    log ""
+    log "  If models fail:          ./scripts/list-model-runtimes.sh"
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

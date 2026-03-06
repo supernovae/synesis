@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Synesis RAG Stack Installer
 #
-# Installs Milvus (etcd + standalone) + embedder + indexers in synesis-rag.
-# Use this for standalone RAG setup or before full deploy.
+# Installs Milvus (etcd + standalone) + embedder in synesis-rag.
+# Use this for standalone RAG infra setup. deploy.sh applies this
+# as part of the full stack; deploy-jobs.sh handles CronJobs separately.
 #
 # Usage: ./scripts/install-rag-stack.sh [--wait]
 
@@ -19,7 +20,7 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--wait]"
             echo ""
-            echo "Installs Milvus (etcd + standalone) + embedder + indexers."
+            echo "Installs Milvus (etcd + standalone) + embedder."
             echo "  --wait  Wait for etcd, milvus-standalone, and embedder to be ready"
             exit 0
             ;;
@@ -62,7 +63,6 @@ log "RAG stack applied. Components:"
 log "  - etcd-deployment (metadata for Milvus)"
 log "  - milvus-standalone (vector store, service: synesis-milvus:19530)"
 log "  - embedder (TEI for embeddings)"
-log "  - indexers (code, apispec, architecture, license, domain)"
 log ""
 
 if [[ "$WAIT_FOR_READY" == "true" ]]; then
@@ -83,8 +83,7 @@ log ""
 log "=== RAG stack install complete ==="
 log ""
 log "Next steps:"
-log "  1. Load knowledge into synesis_catalog:"
-log "     ./scripts/load-language-pack.sh bash"
-log "     ./scripts/index-domain.sh  (Red Hat/OpenShift runbooks)"
-log "  2. Run full deploy:       ./scripts/deploy.sh dev"
+log "  1. Deploy indexer CronJobs:  ./scripts/deploy-jobs.sh dev"
+log "  2. Load knowledge:           ./scripts/load-language-pack.sh bash"
+log "  3. Run full deploy:          ./scripts/deploy.sh dev"
 log ""

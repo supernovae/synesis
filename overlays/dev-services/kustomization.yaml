@@ -99,38 +99,6 @@ patches:
         value: 1
 
   - target:
-      kind: CronJob
-      name: synesis-index-code
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-index-apispec
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-index-architecture
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-index-license
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
       kind: Deployment
       name: open-webui
     patch: |
@@ -175,18 +143,6 @@ images:
     newTag: latest
   - name: synesis-ingestor
     newName: ghcr.io/supernovae/synesis/ingestor
-    newTag: latest
-  - name: synesis-indexer-code
-    newName: ghcr.io/supernovae/synesis/indexer-code
-    newTag: latest
-  - name: synesis-indexer-apispec
-    newName: ghcr.io/supernovae/synesis/indexer-apispec
-    newTag: latest
-  - name: synesis-indexer-architecture
-    newName: ghcr.io/supernovae/synesis/indexer-architecture
-    newTag: latest
-  - name: synesis-indexer-license
-    newName: ghcr.io/supernovae/synesis/indexer-license
     newTag: latest
 
 labels:

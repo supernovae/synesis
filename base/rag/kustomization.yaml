@@ -13,4 +13,3 @@ resources:
   - milvus-standalone.yaml
   - embedder/deployment.yaml
   - embedder/service.yaml
-  - indexers

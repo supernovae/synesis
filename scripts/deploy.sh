@@ -229,16 +229,6 @@ for doc in docs:
         print('---')
         print(doc)
 "
-    elif [[ "$ENV" == "dev" ]]; then
-        # Exclude CronJobs and Jobs in dev — use deploy-jobs.sh to deploy them
-        echo "$output" | python3 -c "
-import sys
-docs = sys.stdin.read().split('---')
-for doc in docs:
-    if 'kind: CronJob' not in doc and 'kind: Job' not in doc:
-        print('---')
-        print(doc)
-"
     else
         echo "$output"
     fi
@@ -459,6 +449,9 @@ log "  API endpoint:  https://$ROUTE_HOST"
 log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
 log "============================================================"
+log ""
+log "Next: deploy indexer CronJobs (after Milvus is healthy):"
+log "  ./scripts/deploy-jobs.sh $ENV"
 log ""
 log "Open WebUI:"
 log "  Browse to https://$WEBUI_HOST"

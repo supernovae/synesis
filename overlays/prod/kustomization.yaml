@@ -105,18 +105,6 @@ images:
   - name: synesis-ingestor
     newName: ghcr.io/supernovae/synesis/ingestor
     newTag: latest
-  - name: synesis-indexer-code
-    newName: ghcr.io/supernovae/synesis/indexer-code
-    newTag: latest
-  - name: synesis-indexer-apispec
-    newName: ghcr.io/supernovae/synesis/indexer-apispec
-    newTag: latest
-  - name: synesis-indexer-architecture
-    newName: ghcr.io/supernovae/synesis/indexer-architecture
-    newTag: latest
-  - name: synesis-indexer-license
-    newName: ghcr.io/supernovae/synesis/indexer-license
-    newTag: latest
 
 labels:
   - pairs:

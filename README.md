@@ -128,9 +128,7 @@ See [`models.yaml`](models.yaml) for full profile definitions, vLLM args, and HP
 ### 1. Bootstrap the cluster
 
 ```bash
-./scripts/bootstrap.sh                  # Namespaces + RAG stack
-./scripts/bootstrap.sh --ghcr-creds     # + GHCR pull secrets
-./scripts/bootstrap.sh --hf-token       # + HuggingFace token for model downloads
+./scripts/bootstrap.sh --ghcr-creds --hf-token   # Namespaces, PVCs, secrets
 ```
 
 ### 2. Deploy models
@@ -152,12 +150,22 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 ### 4. Deploy services
 
 ```bash
-./scripts/deploy.sh dev       # Development (debug logging)
+./scripts/deploy.sh dev       # Development (debug logging, RAG infra, all services)
 ./scripts/deploy.sh staging   # Staging
 ./scripts/deploy.sh prod      # Production (HA, PDBs)
 ```
 
-### 5. Connect your tools
+### 5. Deploy indexer CronJobs
+
+Run after `deploy.sh` so Milvus and embedder are healthy first:
+
+```bash
+./scripts/deploy-jobs.sh dev       # CronJobs suspended (manual trigger)
+./scripts/deploy-jobs.sh staging   # Bi-weekly schedule
+./scripts/deploy-jobs.sh prod      # Weekly schedule
+```
+
+### 6. Connect your tools
 
 | Endpoint | URL Pattern | Use Case |
 |----------|------------|----------|

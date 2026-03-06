@@ -1,56 +1,44 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Dev indexer CronJobs: suspended (manual trigger only).
-# Staging and prod use jobs-staging/ and jobs-prod/ overlays.
-#
-# Usage: ./scripts/deploy-jobs.sh dev
-# Prereq: deploy.sh has been run (Milvus, embedder must be healthy)
+# Staging indexer CronJobs: unsuspended, bi-weekly schedule.
+# Usage: ./scripts/deploy-jobs.sh staging
 
 resources:
   - ../../base/rag/indexers
 
 patches:
-  # Suspend CronJobs in dev (run manually via index-*.sh)
   - target:
       kind: CronJob
       name: synesis-index-code
     patch: |
       - op: replace
-        path: /spec/suspend
-        value: true
+        path: /spec/schedule
+        value: "0 3 1,15 * *"
 
   - target:
       kind: CronJob
       name: synesis-index-apispec
     patch: |
       - op: replace
-        path: /spec/suspend
-        value: true
+        path: /spec/schedule
+        value: "0 4 1,15 * *"
 
   - target:
       kind: CronJob
       name: synesis-index-architecture
     patch: |
       - op: replace
-        path: /spec/suspend
-        value: true
+        path: /spec/schedule
+        value: "0 5 1,15 * *"
 
   - target:
       kind: CronJob
       name: synesis-index-license
     patch: |
       - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-index-domain
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
+        path: /spec/schedule
+        value: "0 6 1,15 * *"
 
 images:
   - name: synesis-indexer-code
@@ -68,3 +56,8 @@ images:
   - name: synesis-indexer-domain
     newName: ghcr.io/supernovae/synesis/indexer-domain
     newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: staging
+    includeSelectors: false

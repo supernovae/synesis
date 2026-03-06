@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Production indexer CronJobs: unsuspended, weekly schedule (base defaults).
+# Usage: ./scripts/deploy-jobs.sh prod
+
+resources:
+  - ../../base/rag/indexers
+
+images:
+  - name: synesis-indexer-code
+    newName: ghcr.io/supernovae/synesis/indexer-code
+    newTag: latest
+  - name: synesis-indexer-apispec
+    newName: ghcr.io/supernovae/synesis/indexer-apispec
+    newTag: latest
+  - name: synesis-indexer-architecture
+    newName: ghcr.io/supernovae/synesis/indexer-architecture
+    newTag: latest
+  - name: synesis-indexer-license
+    newName: ghcr.io/supernovae/synesis/indexer-license
+    newTag: latest
+  - name: synesis-indexer-domain
+    newName: ghcr.io/supernovae/synesis/indexer-domain
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: prod
+    includeSelectors: false
