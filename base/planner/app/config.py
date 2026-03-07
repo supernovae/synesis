@@ -183,14 +183,41 @@ class Settings(BaseSettings):
     lsp_gateway_url: str = "http://lsp-gateway.synesis-lsp.svc:8000"
     lsp_timeout_seconds: int = 30
 
-    # Depth mode: parallel per-section generation for knowledge deep-dives.
-    # "auto" = activate when hard + deep_dive + 4+ plan steps (recommended).
-    # "always" = force parallel for all planned tasks (testing/research).
-    # "disabled" = always monolithic single-call generation.
-    depth_mode: Literal["auto", "always", "disabled"] = "auto"
-    depth_mode_min_steps: int = 4  # minimum plan steps to justify fan-out overhead
-    depth_mode_max_parallel: int = 4  # cap concurrent section workers (vLLM memory)
-    depth_mode_section_budget: int = 3072  # per-section token budget (raised for narrative depth)
+    # Always-plan architecture: all non-trivial knowledge tasks go through
+    # planner -> section_workers -> critic -> writer. Complexity scales depth
+    # (section count, token budgets, critic strictness) rather than whether
+    # to use the pipeline at all.
+    #
+    # Research basis:
+    #   Compute-optimal inference (ICLR 2025): per-prompt adaptive allocation
+    #   CRAG (arxiv 2401.15884): confidence-triggered corrective web search
+    #   Self-RAG (arxiv 2310.11511): adaptive retrieval on-demand
+    #   MAgICoRe (arxiv 2409.12147): multi-agent refinement with stopping
+    #   BATS (arxiv 2511.17006): budget-aware tool-use scaling
+
+    # Depth mode: "always" = all knowledge tasks use section workers (recommended).
+    # "disabled" = monolithic single-call generation (fallback).
+    depth_mode: Literal["always", "disabled"] = "always"
+    depth_mode_max_parallel: int = 6  # cap concurrent section workers (vLLM memory)
+
+    # Continuous budget scaling: difficulty (0.0-1.0) drives budgets.
+    # Actual budget = base + (difficulty * (max - base))
+    section_budget_base: int = 1024   # tokens per section at difficulty=0
+    section_budget_max: int = 4096    # tokens per section at difficulty=1
+    writer_budget_base: int = 2048    # writer synthesis budget at difficulty=0
+    writer_budget_max: int = 12288    # writer synthesis budget at difficulty=1
+    max_sections_base: int = 1        # minimum sections (even easy queries get structured output)
+    max_sections_max: int = 10        # maximum sections for hardest queries
+
+    # CRAG-style corrective retrieval: critic triggers web search on low-confidence sections.
+    # Total web queries per run capped by difficulty * crag_max_web_queries.
+    crag_web_trigger_threshold: float = 0.6   # critic confidence below this triggers web augmentation
+    crag_max_web_queries: int = 8             # ceiling on total web searches per run
+    crag_proportionality_enabled: bool = True  # critic flags over-engineering for simple tasks
+
+    # Critic scaling by difficulty
+    critic_skip_below_difficulty: float = 0.15  # skip critic entirely for trivial tasks
+    critic_lenient_below_difficulty: float = 0.4  # lenient critic (fast rubber-stamp) below this
 
     # Graph behavior
     max_iterations: int = 3
@@ -302,6 +329,26 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+
+    def scaled_section_budget(self, difficulty: float) -> int:
+        """Per-section token budget scaled by continuous difficulty (0.0-1.0)."""
+        d = max(0.0, min(1.0, difficulty))
+        return int(self.section_budget_base + d * (self.section_budget_max - self.section_budget_base))
+
+    def scaled_writer_budget(self, difficulty: float) -> int:
+        """Writer synthesis token budget scaled by continuous difficulty."""
+        d = max(0.0, min(1.0, difficulty))
+        return int(self.writer_budget_base + d * (self.writer_budget_max - self.writer_budget_base))
+
+    def scaled_max_sections(self, difficulty: float) -> int:
+        """Maximum plan sections scaled by continuous difficulty."""
+        d = max(0.0, min(1.0, difficulty))
+        return max(1, int(self.max_sections_base + d * (self.max_sections_max - self.max_sections_base)))
+
+    def scaled_web_budget(self, difficulty: float) -> int:
+        """Maximum web search queries for this run, scaled by difficulty."""
+        d = max(0.0, min(1.0, difficulty))
+        return max(0, int(d * self.crag_max_web_queries))
 
     @property
     def build_version(self) -> str:

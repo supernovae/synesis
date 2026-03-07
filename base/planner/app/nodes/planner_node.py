@@ -100,45 +100,18 @@ def _build_context_block(rag_context: list[str], authority_labels: list[str] | N
 def _should_activate_depth_mode(state: dict[str, Any], steps: list) -> bool:
     """Determine if parallel per-section generation should activate.
 
-    Conditions (all must be true for "auto" mode):
-      - depth_mode config is not "disabled"
-      - Task is not code (is_code_task=False)
-      - task_size is "hard"
-      - Plan has enough steps (>= depth_mode_min_steps)
-      - Domain is in deep_dive_domains (knowledge deep-dive)
+    Always-plan architecture: depth mode activates for ALL knowledge tasks
+    with 2+ plan steps. Complexity scales section count and token budgets,
+    not whether to use the pipeline.
 
-    "always" mode bypasses complexity checks for testing.
+    Only disabled for code tasks (which use the worker pipeline) or when
+    depth_mode config is explicitly "disabled".
     """
-    mode = settings.depth_mode
-    if mode == "disabled":
+    if settings.depth_mode == "disabled":
         return False
-
     if state.get("is_code_task", False):
         return False
-
-    if mode == "always":
-        return len(steps) >= 2
-
-    # Auto mode: hard + deep_dive + enough steps
-    if state.get("task_size") != "hard":
-        return False
-
-    if len(steps) < settings.depth_mode_min_steps:
-        return False
-
-    taxonomy_metadata = state.get("taxonomy_metadata") or {}
-    taxonomy_key = taxonomy_metadata.get("taxonomy_key", "")
-    try:
-        from ..taxonomy_prompt_factory import get_deep_dive_domains
-        deep_dive = get_deep_dive_domains()
-    except Exception:
-        deep_dive = set()
-    if taxonomy_key and taxonomy_key not in deep_dive:
-        active_refs = set(state.get("active_domain_refs") or [])
-        if not active_refs & deep_dive:
-            return False
-
-    return True
+    return len(steps) >= 2
 
 
 async def planner_node(state: dict[str, Any]) -> dict[str, Any]:

@@ -172,8 +172,11 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         logger.warning("section_worker_rag_failed", exc_info=True)
 
-    # Phase 2: Optional per-section web search
-    if settings.web_search_enabled and state.get("web_search_enabled", True):
+    # Phase 2: Web search — budget-gated by difficulty (CRAG pattern).
+    # Higher difficulty = more web queries allowed. RAG always runs (Phase 1).
+    difficulty = state.get("difficulty", 0.5)
+    web_budget = settings.scaled_web_budget(difficulty)
+    if settings.web_search_enabled and state.get("web_search_enabled", True) and web_budget > 0:
         try:
             web_query = _build_section_rag_query(section_action, "")
             web_results = await search_and_process(web_query, profile="web", fetch_pages=True)
@@ -183,7 +186,7 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 web_block = f'\n<context source="web_search" trust="untrusted">\n{web_joined}\n</context>'
                 logger.debug(
                     "section_worker_web",
-                    extra={"section_id": section_id, "results": len(web_results)},
+                    extra={"section_id": section_id, "results": len(web_results), "web_budget": web_budget},
                 )
         except Exception:
             logger.debug("section_worker_web_failed", exc_info=True)
@@ -234,7 +237,9 @@ Write this section now with multi-paragraph narrative depth. Explain the reasoni
     # Scan for injection in assembled prompt
     user_prompt = reduce_context_on_injection(user_prompt, "section_worker")
 
-    section_budget = settings.depth_mode_section_budget
+    # Continuous budget scaling: difficulty drives token budget per section
+    difficulty = state.get("difficulty", 0.5)
+    section_budget = settings.scaled_section_budget(difficulty)
 
     try:
         worker_url = settings.executor_model_url
@@ -269,6 +274,8 @@ Write this section now with multi-paragraph narrative depth. Explain the reasoni
             "latency_ms": round(latency_ms),
             "had_rag": bool(rag_block),
             "had_web": bool(web_block),
+            "difficulty": round(difficulty, 2),
+            "section_budget": section_budget,
         },
     )
 

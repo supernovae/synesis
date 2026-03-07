@@ -338,12 +338,15 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-        # Taxonomy-driven document depth check: knowledge deep-dives (engineering, science, etc.)
+        # Always-plan architecture: critic scales by continuous difficulty.
+        # Low difficulty = lenient (fast rubber-stamp); high difficulty = strict enforcement.
         is_code_task = state.get("is_code_task", False)
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
-        taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
+        difficulty = state.get("difficulty", 0.5)
+        is_lenient = difficulty < settings.critic_lenient_below_difficulty
+
         is_document_taxonomy_path = (
-            not is_code_task and taxonomy_complexity > 0.6 and bool(taxonomy_metadata.get("required_elements"))
+            not is_code_task and bool(taxonomy_metadata.get("required_elements"))
         )
         if is_document_taxonomy_path:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
@@ -384,6 +387,10 @@ HALLUCINATION CHECK:
 - If the response adds constraints the user did not ask for (e.g., compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
 
 Minor suggestions → nonblocking. Major structural omissions → blocking.
+{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or complete misunderstanding of the question. Structural completeness is nice-to-have, not mandatory." if is_lenient else ""}
+{f"PROPORTIONALITY CHECK: If difficulty < 0.4, flag sections that are over-engineered relative to the task complexity. A simple explanation should not produce 8 sections of enterprise architecture." if settings.crag_proportionality_enabled else ""}
+
+CRAG ASSESSMENT: For each section, estimate your confidence that the content is factually grounded (0.0-1.0). If any section scores below {settings.crag_web_trigger_threshold}, note it in residual_risks as "CRAG:section_name:confidence" so corrective web search can be triggered.
 
 Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
             task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc
@@ -408,6 +415,20 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                 doc_approved = doc_parsed.approved
                 doc_next = "respond" if doc_approved else "supervisor"
                 latency = (time.monotonic() - start) * 1000
+
+                # CRAG: detect sections needing corrective web search
+                residual = getattr(doc_parsed, "residual_risks", []) or []
+                crag_triggers = [r for r in residual if isinstance(r, str) and r.startswith("CRAG:")]
+                if crag_triggers:
+                    logger.info(
+                        "critic_crag_web_triggers",
+                        extra={
+                            "triggers": crag_triggers,
+                            "difficulty": round(difficulty, 2),
+                            "web_budget": settings.scaled_web_budget(difficulty),
+                        },
+                    )
+
                 result = {
                     "what_if_analyses": [],
                     "critic_feedback": doc_parsed.revision_feedback or doc_parsed.overall_assessment or "",

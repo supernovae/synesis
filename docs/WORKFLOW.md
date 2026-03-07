@@ -256,26 +256,52 @@ engineering rigor.
   Worker → Critic for structured, section-by-section generation
   with quality review.
 
-## Depth Mode: Parallel Per-Section Generation
+## Always-Plan Architecture: Depth as a Continuous Dial
 
-For hard knowledge deep-dives, Synesis can generate each planner section
-as a **separate parallel worker call** with dedicated RAG retrieval and
-optional web search per section. This is the **Skeleton-of-Thought (SoT)**
-pattern (ICLR 2024) applied to our architecture.
+All non-trivial knowledge tasks flow through the full pipeline:
+**Planner → Section Workers → Critic → Writer → Respond**.
+Complexity scales **depth** (section count, token budgets, web search budget,
+critic strictness) rather than whether to use the pipeline at all.
 
 ### Architecture
 
 ```
-Planner → [plan with N steps]
-              │
-              ├── (depth_mode=false) → Context Curator → Worker (monolithic, all sections in one call)
-              │
-              └── (depth_mode=true) → Send() fan-out
-                    ├── section_worker(step 1) ← focused RAG + optional web search
-                    ├── section_worker(step 2) ← focused RAG + optional web search
-                    ├── section_worker(step N) ← focused RAG + optional web search
-                    └── merge_sections → writer_pass (synthesis) → respond
+EntryClassifier → [difficulty: 0.0-1.0]
+                     │
+                     ├── trivial (difficulty < 0.15) → context_curator → worker → respond
+                     ├── code task → supervisor → [planner|worker] → critic → respond
+                     │
+                     └── all other knowledge → Planner
+                           │
+                           └── Send() fan-out (sections scaled by difficulty)
+                                 ├── section_worker(step 1) ← RAG always + web search if budget allows
+                                 ├── section_worker(step 2) ← RAG always + web search if budget allows
+                                 ├── section_worker(step N) ← RAG always + web search if budget allows
+                                 └── merge_sections → critic (scaled strictness) → writer → respond
 ```
+
+### Continuous Scaling
+
+Difficulty (0.0-1.0) drives all budget decisions continuously:
+
+| Parameter | At difficulty=0.0 | At difficulty=1.0 | Config keys |
+|---|---|---|---|
+| Sections | 1 | 10 | `max_sections_base/max` |
+| Tokens/section | 1024 | 4096 | `section_budget_base/max` |
+| Writer budget | 2048 | 12288 | `writer_budget_base/max` |
+| Web searches/run | 0 | 8 | `crag_max_web_queries` |
+| Critic | skipped | strict | `critic_skip_below_difficulty` |
+
+### CRAG: Corrective Retrieval Augmented Generation
+
+The critic evaluates each section and estimates factual grounding confidence.
+When confidence is below `crag_web_trigger_threshold` (default: 0.6), the
+section is flagged for corrective web search in `residual_risks` as
+`CRAG:section_name:confidence`. This enables future iterative correction.
+
+RAG always runs per section (provenance and citation value regardless of
+complexity). Web search is budget-gated: total queries capped by
+`difficulty * crag_max_web_queries`.
 
 ### Why Per-Section RAG Matters
 
@@ -285,53 +311,33 @@ focused query instead of one generic query for the whole topic. Research shows:
 - SParC-RAG (arxiv 2602.00083): per-query parallel retrieval +6.2 F1
 - A-MapReduce (arxiv 2602.01331): parallel retrieval, 45% time reduction
 
-### Activation
-
-Depth mode auto-activates when all conditions are met:
-
-| Signal | Threshold |
-|---|---|
-| `depth_mode` config | Not `"disabled"` |
-| `is_code_task` | `false` (knowledge tasks only) |
-| `task_size` | `"hard"` |
-| Domain | In `deep_dive_domains` |
-| Plan steps | >= `depth_mode_min_steps` (default: 4) |
-
-**Environment override** (`SYNESIS_DEPTH_MODE`):
-- `auto` (default): complexity-gated as above
-- `always`: force parallel for all planned non-code tasks (testing)
-- `disabled`: always monolithic single-call generation
-
 ### Performance
 
-Parallel generation can reduce wall-clock time because vLLM batches
-concurrent requests efficiently. Five 2048-token requests complete faster
-than one 8192-token request due to better KV cache utilization and
-continuous batching. The writer pass adds ~20% overhead but produces
-better coherence across sections.
+Parallel generation reduces wall-clock time because vLLM batches
+concurrent requests efficiently. The writer pass adds ~20% overhead but
+produces better coherence across sections. Even simple 1-2 section
+queries benefit from structured planner output.
 
-Max parallel sections is capped at `depth_mode_max_parallel` (default: 4)
+Max parallel sections is capped at `depth_mode_max_parallel` (default: 6)
 to avoid GPU memory pressure.
 
-### Thinking Model Compatibility
-
-Depth mode naturally supports thinking models (R1, o3-style):
-- Each section_worker can enable thinking independently
-- Thinking tokens are per-section, so the model doesn't exhaust reasoning
-  budget on early sections
-- The writer pass runs without thinking (synthesis doesn't need deep reasoning)
-
-### Research References (Depth Mode)
+### Research References
 
 | Paper | Key Contribution | How We Apply It |
 |---|---|---|
 | Skeleton-of-Thought (ICLR 2024, [arxiv 2307.15337](https://arxiv.org/abs/2307.15337)) | Outline first, expand in parallel. 2-3.7x speedup. | Planner produces skeleton; section_workers expand in parallel. |
-| LLMxMapReduce ([arxiv 2410.09342](https://arxiv.org/abs/2410.09342)) | Map-reduce for long generation with inter-chunk protocols. | Section isolation + writer merge pattern. |
+| CRAG ([arxiv 2401.15884](https://arxiv.org/abs/2401.15884), ICLR 2025) | Confidence-triggered corrective web search. | Critic flags low-confidence sections for web augmentation. |
+| Self-RAG ([arxiv 2310.11511](https://arxiv.org/abs/2310.11511)) | Reflection tokens for adaptive retrieval on-demand. | Section worker self-assesses retrieval need. |
+| Self-Routing RAG ([arxiv 2504.01018](https://arxiv.org/abs/2504.01018)) | 21-40% fewer retrievals via policy datastore. | RAG always, web search adaptive. |
+| AMSRAG (Applied Sciences 2025) | Query complexity awareness + confidence-aware fusion. | Continuous difficulty → budget scaling. |
+| MAgICoRe ([arxiv 2409.12147](https://arxiv.org/abs/2409.12147)) | Multi-agent iterative refinement with stopping. | Critic as quality enforcer and proportionality check. |
+| BATS ([arxiv 2511.17006](https://arxiv.org/abs/2511.17006)) | Budget-aware tool-use scaling. | Total web queries capped by difficulty budget. |
+| TARG ([arxiv 2511.09803](https://arxiv.org/abs/2511.09803)) | Margin signal (logit gap) for retrieval trigger. | Lightweight uncertainty for retrieval decisions. |
+| Compute-optimal inference (ICLR 2025) | Per-prompt adaptive compute allocation, 4x efficiency. | Continuous difficulty → continuous budget. |
+| Bandit scaling ([arxiv 2506.12721](https://arxiv.org/abs/2506.12721)) | 11% improvement via adaptive difficulty estimation. | On-the-fly difficulty estimation drives budget. |
+| ComposeRAG ([arxiv 2506.00232](https://arxiv.org/abs/2506.00232)) | Decomposed RAG beats monolithic by up to 15% accuracy. | Validates per-section retrieval approach. |
 | A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
 | SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
-| ComposeRAG ([arxiv 2506.00232](https://arxiv.org/abs/2506.00232)) | Decomposed RAG beats monolithic by up to 15% accuracy. | Validates per-section retrieval approach. |
-| PASTA (2025) | Parallel decoding with Pareto-optimal speed/quality tradeoffs. | Informs quality envelope expectations. |
-| Multiverse ([arxiv 2506.09991](https://arxiv.org/abs/2506.09991)) | MapReduce LLM generation; 2x speedup with parity. | Validates parallel section generation performance. |
 
 ## Streaming Architecture
 

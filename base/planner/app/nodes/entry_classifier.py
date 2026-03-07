@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
-from ..taxonomy_prompt_factory import resolve_taxonomy_metadata, should_plan_for_document
+from ..taxonomy_prompt_factory import resolve_taxonomy_metadata
 
 logger = logging.getLogger("synesis.entry_classifier")
 
@@ -262,40 +262,41 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     )
     out["taxonomy_metadata"] = taxonomy_metadata
 
-    # Taxonomy-driven: non-sandbox → usually skip Planner; BUT high-depth domains or explicit planning session
+    # Always-plan architecture: ALL non-trivial knowledge tasks go through planner.
+    # Complexity scales depth (section count, token budgets, critic strictness),
+    # not whether to use the pipeline. Code tasks still use supervisor routing.
     if not out.get("is_code_task", False):
-        deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
-        if deep_dive or plan_session:
-            out["plan_required"] = True
-            out["bypass_supervisor"] = False
-            out["rag_mode"] = "normal" if deep_dive else "disabled"
-        else:
+        if task_size == "easy" and not plan_session and difficulty < 0.15:
+            # Truly trivial: greetings, "thanks", one-word queries
+            out["task_is_trivial"] = True
             out["plan_required"] = False
+            out["bypass_supervisor"] = True
             out["rag_mode"] = "disabled"
-        if not state.get("pending_question_continue") and not out.get("plan_required"):
-            out["execution_plan"] = {}
-    elif state.get("pending_question_continue") and not state.get("is_code_task", False):
-        out["is_code_task"] = False
-        out["plan_required"] = False
-        out["rag_mode"] = "disabled"
-
-    # Easy fast-path
-    if task_size == "easy" and not plan_session:
-        out["task_is_trivial"] = True
-        out["rag_mode"] = "disabled"
-        out["task_description"] = (last_content or "").strip()[:500]
-        if not out.get("is_code_task", False):
             out["task_type"] = "general"
             out["allowed_tools"] = ["none"]
         else:
-            eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
-            out["touched_files"] = _easy_touched_files(last_content, eff_lang)
-            out["defaults_used"] = policy.get_defaults_used(eff_lang)
-            out["is_code_task"] = True
-            out["include_tests"] = _easy_wants_tests(last_content)
-            out["include_run_commands"] = True
-            out["task_type"] = "code_generation"
-            out["allowed_tools"] = ["sandbox"]
+            # All non-trivial knowledge: always plan, always RAG
+            out["plan_required"] = True
+            out["bypass_supervisor"] = False
+            out["rag_mode"] = "normal"
+    elif state.get("pending_question_continue") and not state.get("is_code_task", False):
+        out["is_code_task"] = False
+        out["plan_required"] = True
+        out["rag_mode"] = "normal"
+
+    # Code easy fast-path (unchanged)
+    if out.get("is_code_task") and task_size == "easy" and not plan_session:
+        out["task_is_trivial"] = True
+        out["rag_mode"] = "disabled"
+        out["task_description"] = (last_content or "").strip()[:500]
+        eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
+        out["touched_files"] = _easy_touched_files(last_content, eff_lang)
+        out["defaults_used"] = policy.get_defaults_used(eff_lang)
+        out["is_code_task"] = True
+        out["include_tests"] = _easy_wants_tests(last_content)
+        out["include_run_commands"] = True
+        out["task_type"] = "code_generation"
+        out["allowed_tools"] = ["sandbox"]
     logger.info(
         "entry_classifier_result",
         extra={

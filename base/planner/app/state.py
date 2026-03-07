@@ -186,6 +186,7 @@ class SectionWorkerState(TypedDict, total=False):
     is_code_task: bool
     taxonomy_metadata: dict[str, Any]
     web_search_enabled: bool
+    difficulty: float
     plan_required: bool
 
 

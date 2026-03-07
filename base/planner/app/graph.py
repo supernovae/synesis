@@ -94,29 +94,38 @@ def with_timeout(timeout_seconds: float):
 
 
 def route_after_entry_classifier(state: dict[str, Any]) -> str:
-    """Route after deterministic IntentEnvelope. Easy → context_curator; hard → planner; else supervisor."""
-    # Pending question (user replying to clarification/plan/needs_input)
+    """Route after deterministic IntentEnvelope.
+
+    Always-plan architecture:
+      - Trivial knowledge → context_curator → worker (direct, no planning)
+      - All other knowledge → planner (depth scaled by difficulty)
+      - Code tasks → supervisor (unchanged)
+      - UI helper → respond
+    """
     if state.get("pending_question_continue"):
         src = state.get("pending_question_source", "worker")
         if src in ("worker", "planner"):
             return "context_curator"
         return src
 
-    # UI helper slipped through main.py filter — short-circuit
     if state.get("message_origin") == "ui_helper":
         return "respond"
 
-    # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
+    # Always-plan: all non-trivial knowledge tasks go to planner
     if state.get("plan_required"):
-        if state.get("task_size") in ("hard", "medium") or not state.get("is_code_task", False):
-            return "planner"
+        return "planner"
 
-    # Bypass Supervisor: easy fast path, or knowledge-downgraded tasks that
-    # don't need LLM routing (e.g. "What are the differences between REST and GraphQL?")
-    if state.get("bypass_supervisor"):
+    # Trivial knowledge fast path (greetings, etc.)
+    if state.get("task_is_trivial") and not state.get("is_code_task", False):
         return "context_curator"
 
-    return "supervisor"
+    # Code tasks: supervisor handles routing
+    if state.get("is_code_task"):
+        if state.get("bypass_supervisor"):
+            return "context_curator"
+        return "supervisor"
+
+    return "context_curator"
 
 
 def route_after_supervisor(state: dict[str, Any]) -> str:
@@ -170,19 +179,21 @@ _WRITER_SYSTEM = (
 
 
 async def _writer_pass(content: str, state: dict[str, Any]) -> str:
-    """Optional writer synthesis for hard tasks with multi-section responses.
+    """Writer synthesis pass — always runs for depth-mode, optional for others.
 
     Uses the general model (or dedicated writer endpoint if configured) to
-    polish assembled output. Skipped for easy/medium tasks, short responses,
+    synthesize and polish assembled output. Skipped for very short content
     or when no writer endpoint is available.
     """
-    task_size = state.get("task_size", "medium")
-    if task_size != "hard":
-        return content
+    is_depth = state.get("depth_mode", False)
 
-    section_count = content.count("\n---\n") + content.count("\n**")
-    if section_count < 3:
-        return content
+    if not is_depth:
+        task_size = state.get("task_size", "medium")
+        if task_size not in ("hard", "medium"):
+            return content
+        section_count = content.count("\n---\n") + content.count("\n**")
+        if section_count < 3:
+            return content
 
     if len(content) < 500:
         return content
@@ -199,7 +210,8 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
         from .llm_telemetry import get_llm_http_client
 
         is_depth = state.get("depth_mode", False)
-        writer_budget = 12288 if is_depth else 4096
+        difficulty = state.get("difficulty", 0.5)
+        writer_budget = settings.scaled_writer_budget(difficulty) if is_depth else 4096
 
         writer_llm = ChatOpenAI(
             base_url=writer_url,
@@ -636,16 +648,24 @@ graph_builder.add_conditional_edges(
 
 
 def route_after_planner(state: dict[str, Any]) -> str | list[Send]:
-    """Route after planner: approval, depth-mode fan-out, or monolithic path."""
+    """Route after planner: approval, depth-mode fan-out, or monolithic path.
+
+    Always-plan architecture: all knowledge tasks with 2+ steps fan out
+    to parallel section workers. Section count is capped by continuous
+    difficulty scaling.
+    """
     if state.get("plan_pending_approval"):
         return "respond"
 
     # Depth mode: fan out to parallel section workers via Send() API
-    # (Skeleton-of-Thought pattern, ICLR 2024)
     if state.get("depth_mode"):
         steps = (state.get("execution_plan") or {}).get("steps", [])
         if steps:
+            difficulty = state.get("difficulty", 0.5)
+            max_sections = settings.scaled_max_sections(difficulty)
             max_parallel = settings.depth_mode_max_parallel
+            effective_steps = steps[:max_sections]
+
             sends = [
                 Send("section_worker", {
                     "section_id": s.get("id", i + 1),
@@ -657,16 +677,22 @@ def route_after_planner(state: dict[str, Any]) -> str | list[Send]:
                     "is_code_task": False,
                     "taxonomy_metadata": state.get("taxonomy_metadata") or {},
                     "web_search_enabled": settings.web_search_enabled,
+                    "difficulty": difficulty,
                     "plan_required": True,
                 })
-                for i, s in enumerate(steps[:max_parallel])
+                for i, s in enumerate(effective_steps[:max_parallel])
             ]
-            # If more steps than max_parallel, remaining are serialized after merge
-            if len(steps) > max_parallel:
-                logger.info(
-                    "depth_mode_overflow",
-                    extra={"total_steps": len(steps), "parallel": max_parallel},
-                )
+
+            logger.info(
+                "depth_mode_fanout",
+                extra={
+                    "total_steps": len(steps),
+                    "effective_steps": len(effective_steps),
+                    "parallel": min(len(effective_steps), max_parallel),
+                    "difficulty": round(difficulty, 2),
+                    "section_budget": settings.scaled_section_budget(difficulty),
+                },
+            )
             return sends
 
     return "context_curator"
@@ -679,25 +705,36 @@ graph_builder.add_conditional_edges(
 )
 graph_builder.add_edge("context_curator", "worker")
 graph_builder.add_edge("section_worker", "merge_sections")
-graph_builder.add_edge("merge_sections", "respond")
+
+
+def route_after_merge(state: dict[str, Any]) -> str:
+    """After merge_sections: route through critic if difficulty warrants it, else respond.
+
+    Continuous scaling: skip critic for trivial, run lenient for medium, strict for hard.
+    """
+    difficulty = state.get("difficulty", 0.5)
+    if difficulty < settings.critic_skip_below_difficulty:
+        return "respond"
+    return "critic"
+
+
+graph_builder.add_conditional_edges(
+    "merge_sections",
+    route_after_merge,
+    {"critic": "critic", "respond": "respond"},
+)
 
 
 def route_after_worker(state: dict[str, Any]) -> str:
-    """When Executor needs_input or stop_reason, route accordingly; else continue to Patch Integrity Gate."""
+    """Route after worker node (used for code tasks and trivial knowledge fast-path)."""
     if state.get("needs_input_question"):
         return "respond"
     stop_reason = state.get("stop_reason", "")
     if stop_reason == "needs_scope_expansion":
-        return "supervisor"  # §8.5: Supervisor asks user or triggers Planner to update manifest
+        return "supervisor"
     if stop_reason:
         return "respond"
-    # Explain-only fast path: skip patch_integrity_gate entirely.
-    # High-complexity science domains route to critic for depth check; everything else goes direct.
     if not state.get("is_code_task", False):
-        taxonomy_metadata = state.get("taxonomy_metadata") or {}
-        complexity = float(taxonomy_metadata.get("complexity_score", 0))
-        if complexity > 0.6 and taxonomy_metadata.get("required_elements"):
-            return "critic"
         return "respond"
     return "patch_integrity_gate"
 
