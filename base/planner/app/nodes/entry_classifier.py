@@ -208,7 +208,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         r"explain |define |describe |tell me about|why does|why do |how does |how do |"
         r"help me (study|learn|practice|review|understand)|"
         r"i ('m |am )?(studying|learning|practicing)|"
-        r"teach me|quiz me|test me on)",
+        r"teach me|quiz me|test me on|"
+        r"propose |suggest |recommend |evaluate |compare |outline |"
+        r"you are (helping|going to help) me)",
         re.IGNORECASE,
     )
     if _knowledge_style.match((last_content or "").strip()):

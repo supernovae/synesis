@@ -136,6 +136,8 @@ class GraphState(TypedDict, total=False):
     pending_question_continue: bool
     pending_question_source: str
     task_size: str
+    complexity_score: int  # raw complexity from entry classifier engine (drives token budget curve)
+    difficulty: float  # normalized 0.0-1.0 difficulty for continuous budget/routing
     intent_class: str  # knowledge|writing|code|debugging|review|planning|data_transform|...
     bypass_supervisor: bool
     escalation_reason: str  # why routed to Supervisor/Planner (e.g. task_size_medium, risk_veto)

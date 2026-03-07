@@ -70,7 +70,9 @@ spec:
           args:
             - --port=8080
             - --model=/mnt/models
-            - --served-model-name=synesis-router,synesis-critic
+            - --served-model-name
+            - synesis-router
+            - synesis-critic
             - --tensor-parallel-size=1
             - --max-model-len=32768
             - --gpu-memory-utilization=0.90
