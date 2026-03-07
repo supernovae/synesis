@@ -152,7 +152,6 @@ class GraphState(TypedDict, total=False):
     integrity_failure_reason: str
     integrity_failure: dict[str, Any] | None
     # Respond
-    learners_corner: dict[str, Any]
     context_pack: Any
     # Lighter payloads: refs + cache instead of duplicating full text
     context_cache: dict[str, str]  # content_hash -> text

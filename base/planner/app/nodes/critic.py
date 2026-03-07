@@ -511,19 +511,9 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                     )
 
         # task_size already set above
-        interaction_mode = state.get("interaction_mode", "do")
-        learners_corner = state.get("learners_corner") or {}
         lint_passed = state.get("execution_lint_passed", True)
         security_passed = state.get("execution_security_passed", True)
         omit_whatif = task_size == "easy" and lint_passed and security_passed
-
-        teach_mode_note = ""
-        if interaction_mode == "teach":
-            has_lc = isinstance(learners_corner, dict) and learners_corner.get("pattern")
-            teach_mode_note = (
-                f"\ninteraction_mode=teach. Learner's Corner present: {bool(has_lc)}. "
-                "If absent, add nonblocking note; do not block."
-            )
 
         tool_refs_block = ""
         tool_refs = state.get("tool_refs") or []
@@ -546,8 +536,7 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
             f"## Language\n{target_lang}\n\n"
             f"## Task Size\n{task_size}\n"
             f"Lint passed: {lint_passed}, Security passed: {security_passed}.\n"
-            f"{'OMIT what_if_analyses (trivial + lint+security passed).' if omit_whatif else ''}"
-            f"{teach_mode_note}\n\n"
+            f"{'OMIT what_if_analyses (trivial + lint+security passed).' if omit_whatif else ''}\n\n"
             f"{tool_refs_block}"
             f"## Code to Analyze (iteration {iteration})\n"
             f"```{target_lang}\n{generated_code}\n```"

@@ -213,27 +213,26 @@ class TestRespondNode:
         assert "dependency" in content.lower() or "credential" in content.lower()
         assert "API key" in content
 
-    @pytest.mark.asyncio
-    async def test_learners_corner_formatted_when_present(self):
-        """Educational mode: Learner's Corner section when learners_corner in state."""
-        state = {
-            "generated_code": "print('hi')",
-            "code_explanation": "Prints greeting.",
-            "target_language": "python",
-            "interaction_mode": "teach",
-            "learners_corner": {
-                "pattern": "Procedural",
-                "why": "Simple output, no abstraction needed.",
-                "resilience": "Responding: print() handles encoding.",
-                "trade_off": "Verbosity for readability.",
-            },
-            "node_traces": [],
-            "what_if_analyses": [],
-        }
-        result = await respond_node(state)
-        content = result["messages"][0].content
-        assert "Learner's Corner" in content
-        assert "Pattern:" in content
-        assert "Procedural" in content
-        assert "Why:" in content
-        assert "Trade-off:" in content
+    def test_teach_mode_injects_learners_corner_markdown_instruction(self):
+        """Educational mode: context_curator injects inline markdown instruction, not JSON."""
+        from app.nodes.context_curator import _build_pinned_context
+
+        chunks = _build_pinned_context(
+            task_type="explain",
+            target_language="markdown",
+            task_description="Explain X",
+            execution_plan={},
+            org_standards=[],
+            project_manifest=[],
+            session_preferences={"is_code_task": False, "interaction_mode": "teach"},
+            interaction_mode="teach",
+        )
+        teach_chunks = [c for c in chunks if c.doc_id == "invariant_teach_mode"]
+        assert len(teach_chunks) == 1
+        text = teach_chunks[0].text
+        assert "Learner's Corner" in text
+        assert "**Pattern:**" in text
+        assert "**Gotchas:**" in text
+        assert "**Trade-off:**" in text
+        assert "JSON" in text  # "Do NOT output JSON"
+        assert "learners_corner" not in text  # no JSON field name

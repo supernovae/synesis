@@ -445,22 +445,6 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             if explanation:
                 parts.append(f"\n**Approach:** {explanation}")
-            # Educational mode: Learner's Corner (Architect + Senior in teach mode)
-            learners_corner = state.get("learners_corner")
-            if learners_corner and isinstance(learners_corner, dict) and learners_corner.get("pattern"):
-                if is_architect or state.get("interaction_mode") == "teach":
-                    lc_lines = ["\n---\n**Learner's Corner**"]
-                    for key, label in [
-                        ("pattern", "Pattern"),
-                        ("why", "Why"),
-                        ("resilience", "Resilience"),
-                        ("trade_off", "Trade-off"),
-                    ]:
-                        val = learners_corner.get(key, "").strip()
-                        if val:
-                            lc_lines.append(f"- **{label}:** {val}")
-                    if len(lc_lines) > 1:
-                        parts.append("\n".join(lc_lines))
             # What-If and Decision Summary: Architect only
             if is_architect and what_ifs:
                 parts.append("\n**Safety Analysis:**")
