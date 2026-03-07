@@ -83,12 +83,11 @@ def run_local(engine, prompts: list[tuple[str, str]], verbose: bool) -> int:
         result = engine.analyze(prompt)
         size = result["task_size"]
         score = result["score"]
-        mode = result.get("interaction_mode", "do")
         hits = ", ".join(result.get("classification_hits", []))[:50]
         if verbose:
             cats = result.get("categories_touched", [])
             hits = f"{hits} [cats: {cats}]"
-        print(f"{prompt[: width - 2]:<{width}} | {size:<8} | {score:<5} | {mode:<6} | {hits}")
+        print(f"{prompt[: width - 2]:<{width}} | {size:<8} | {score:<5} | {hits}")
 
     return 0
 

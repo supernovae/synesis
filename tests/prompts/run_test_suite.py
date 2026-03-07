@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -525,16 +526,21 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
         add("has_content", "fail", "Empty response")
 
     # Output type heuristics (is_code_task: code vs explain)
+    # Detect actual fenced code blocks (``` at start of line) rather than any
+    # triple-backtick occurrence, which catches inline formatting in quizzes etc.
+    _FENCED_CODE_RE = re.compile(r"^```\w*\s*$", re.MULTILINE)
     expected_deliv = prompt_spec.get("expected_deliverable", "")
     if expected_deliv == "explain_only":
-        has_code_blocks = "```" in metrics.content_text
+        has_code_blocks = bool(_FENCED_CODE_RE.search(metrics.content_text))
         if has_code_blocks and prompt_spec.get("category") not in ("review", "safety", "mixed"):
             add("output_type", "warn", "explain_only but response contains code blocks")
         else:
             add("output_type", "pass", "explain_only")
     elif expected_deliv in ("code_snippet", "code_project"):
         has_code = (
-            "```" in metrics.content_text or "def " in metrics.content_text or "function " in metrics.content_text
+            bool(_FENCED_CODE_RE.search(metrics.content_text))
+            or "def " in metrics.content_text
+            or "function " in metrics.content_text
         )
         if has_code:
             add("output_type", "pass", "Contains code")

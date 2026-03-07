@@ -92,7 +92,6 @@ def _stub_pivot_summary(
     from_era: str,
     to_era: str,
     pivot_type: str = "language",
-    interaction_mode: str = "do",
 ) -> str:
     """Fallback when micro model unavailable."""
     if not history:
@@ -104,11 +103,6 @@ def _stub_pivot_summary(
         stub = f"Completed {turn_count} turn(s) in {from_era} context."
     else:
         stub = f"Completed {turn_count} turn(s) in previous context."
-    if interaction_mode == "teach" and pivot_type == "language":
-        stub += (
-            f" [Mentor: We're moving from {from_era} to {to_era}. "
-            "Same intent may use different tools—e.g. Python json vs Shell jq.]"
-        )
     return stub
 
 
@@ -170,7 +164,6 @@ async def summarize_pivot_history(
     history: list[str],
     from_era: str,
     to_era: str,
-    interaction_mode: str = "do",
     *,
     pivot_type: str = "language",
     active_domain_refs: list[str] | None = None,
@@ -186,7 +179,7 @@ async def summarize_pivot_history(
 
     llm = _get_summarizer_llm()
     if llm is None:
-        return _stub_pivot_summary(history, from_era, to_era, pivot_type, interaction_mode)
+        return _stub_pivot_summary(history, from_era, to_era, pivot_type)
 
     # Truncate to fit micro model context (~1k tokens)
     combined = "\n".join(history[-5:])[:2000]
@@ -202,11 +195,6 @@ async def summarize_pivot_history(
         )
         summary = (response.content or "").strip()
         if summary:
-            if interaction_mode == "teach" and pivot_type == "language":
-                summary += (
-                    f" [Mentor: We're moving from {from_era} to {to_era}. "
-                    "Same intent may use different tools—e.g. Python json vs Shell jq.]"
-                )
             logger.debug(
                 "pivot_summary_from_model",
                 extra={"from_era": from_era, "to_era": to_era, "pivot_type": pivot_type},
@@ -217,7 +205,7 @@ async def summarize_pivot_history(
     except Exception as e:
         logger.debug("pivot_summarizer_error %s", e)
 
-    return _stub_pivot_summary(history, from_era, to_era, pivot_type, interaction_mode)
+    return _stub_pivot_summary(history, from_era, to_era, pivot_type)
 
 
 async def summarize_text(text: str, max_tokens: int = 400) -> str:

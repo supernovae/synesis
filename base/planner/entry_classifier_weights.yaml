@@ -7,7 +7,7 @@ thresholds:
   medium_max: 15
   density_threshold: 3
   density_tax: 10
-  educational_discount: 10
+
   risk_high: 15
   max_easy_message_length: 200
 
@@ -78,28 +78,12 @@ pairings:
     axis: risk
 
 overrides:
-  force_manual:
+  plan_session:
     - "[STRICT]"
     - "/plan"
     - "/manual"
     - "/strict"
     - "@plan"
-  force_teach:
-    - "explain"
-    - "teach"
-    - "how does it work"
-    - "how does that work"
-    - "why did"
-    - "why do"
-    - "why would"
-    - "walk me through"
-    - "i'm learning"
-    - "learning how"
-    - "learning to"
-    - "what does this do"
-    - "what does that mean"
-    - "can you explain"
-  force_pro_advanced:
     - "plan first"
     - "plan before"
     - "i need a plan"

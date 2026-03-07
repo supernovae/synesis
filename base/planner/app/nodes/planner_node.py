@@ -201,15 +201,14 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         steps = plan.get("steps", [])
-        # Explicit planning session (@plan, /plan, "lets plan"): always show plan, ask to proceed
-        planning_session_requested = state.get("planning_session_requested", False)
+        plan_session = state.get("plan_session", False)
         plan_required = state.get("plan_required", True)
-        needs_approval = (planning_session_requested and len(steps) > 0) or (
+        needs_approval = (plan_session and len(steps) > 0) or (
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Defensive: is_code_task=False (explanation-only, taxonomy-driven) → skip approval unless explicit planning request
-        if needs_approval and not state.get("is_code_task", False) and not planning_session_requested:
+        # Defensive: is_code_task=False (explanation-only, taxonomy-driven) → skip approval unless explicit plan_session
+        if needs_approval and not state.get("is_code_task", False) and not plan_session:
             needs_approval = False
             logger.info(
                 "planner_skip_approval_deliverable_explain_only",

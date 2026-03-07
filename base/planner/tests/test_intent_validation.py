@@ -4,7 +4,6 @@ EntryClassifier is deterministic — no LLM, no network. Run to confirm:
 - Trivial prompts → fast path (bypass Supervisor)
 - Small prompts → Supervisor runs
 - Complex prompts → plan_required, escalation
-- Educational prompts → interaction_mode=teach (Learner's Corner)
 - Language detection, UI helper routing
 
 Usage: pytest tests/test_intent_validation.py -v
@@ -38,7 +37,7 @@ def _load_validation_prompts() -> list[dict]:
     return [
         {"prompt": "hello world in python", "expected": {"task_size": "easy", "bypass_supervisor": True}},
         {"prompt": "design the architecture for our microservices migration", "expected": {"task_size": "hard"}},
-        {"prompt": "explain how this works", "expected": {"interaction_mode": "teach"}},
+        {"prompt": "explain how this works", "expected": {"is_code_task": False}},
         {"prompt": "write a go script that prints hi", "expected": {"target_language": "go"}},
     ]
 
@@ -111,8 +110,8 @@ class TestEntryClassifierTrivialPath:
         assert route_after_entry_classifier(state) == "respond"
 
 
-class TestEducationalMode:
-    """Educational intent → interaction_mode=teach."""
+class TestEducationalPrompts:
+    """Educational prompts route as explain-only (is_code_task=False), not special teach mode."""
 
     @pytest.mark.parametrize(
         "prompt",
@@ -126,10 +125,10 @@ class TestEducationalMode:
             "what does this code do?",
         ],
     )
-    def test_educational_prompts_set_teach_mode(self, prompt: str):
+    def test_educational_prompts_are_explain_only(self, prompt: str):
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
-        assert out.get("interaction_mode") == "teach", f'Expected interaction_mode=teach for "{prompt}"'
+        assert "interaction_mode" not in out, f'interaction_mode should not be set for "{prompt}"'
 
 
 class TestTaskSizeScaling:
@@ -160,27 +159,17 @@ class TestTaskSizeScaling:
             "hello world @plan",
             "/plan create a simple script that prints hello",
             "scope: multi-file refactor",
-        ],
-    )
-    def test_force_manual_overrides_set_hard_and_plan(self, prompt: str):
-        """force_manual signals (@plan, /plan, [STRICT]) → task_size=hard + plan_required."""
-        state = {"messages": [{"content": prompt}]}
-        out = entry_classifier_node(state)
-        assert out.get("task_size") == "hard", f'Expected task_size=hard for force_manual "{prompt}"'
-        assert out.get("plan_required") is True, f'Expected plan_required=True for force_manual "{prompt}"'
-
-    @pytest.mark.parametrize(
-        "prompt",
-        [
             "plan first: write a hello script",
             "break it down into smaller steps",
         ],
     )
-    def test_force_pro_advanced_sets_plan_required(self, prompt: str):
-        """force_pro_advanced signals ("plan first", "break it down") → plan_required=True."""
+    def test_plan_session_sets_hard_and_plan_required(self, prompt: str):
+        """plan_session triggers (@plan, /plan, "plan first", "break it down") → task_size=hard + plan_required."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
-        assert out.get("plan_required") is True, f'Expected plan_required=True for pro-advanced "{prompt}"'
+        assert out.get("task_size") == "hard", f'Expected task_size=hard for plan_session "{prompt}"'
+        assert out.get("plan_required") is True, f'Expected plan_required=True for plan_session "{prompt}"'
+        assert out.get("plan_session") is True, f'Expected plan_session=True for "{prompt}"'
 
 
 class TestExplainabilityPhase1:
@@ -364,18 +353,8 @@ class TestRiskVeto:
         assert "risk_veto" in str(out.get("classification_reasons", []))
 
 
-class TestTeachModeAndEscalation:
-    """Phase 4: teach mode clarification cap, escalation_reason, length veto."""
-
-    def test_teach_mode_caps_clarification_budget(self):
-        """Teach mode must not increase clarification budget above 1."""
-        state = {"messages": [{"content": "design the architecture for our microservices"}]}
-        out = entry_classifier_node(state)
-        assert out.get("interaction_mode") != "teach"
-        state_teach = {"messages": [{"content": "explain how this architecture works"}]}
-        out_teach = entry_classifier_node(state_teach)
-        assert out_teach.get("interaction_mode") == "teach"
-        assert out_teach.get("clarification_budget", 2) <= 1
+class TestEscalation:
+    """Escalation_reason, length veto."""
 
     def test_escalation_reason_set_when_not_trivial(self):
         """Non-trivial routing must set escalation_reason."""

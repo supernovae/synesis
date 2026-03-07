@@ -60,7 +60,7 @@ def _builtin_fallback() -> dict[str, Any]:
             "medium_max": 15,
             "density_threshold": 3,
             "density_tax": 10,
-            "educational_discount": 10,
+
             "risk_high": 15,
         },
         "pairings": [],
@@ -72,9 +72,7 @@ def _builtin_fallback() -> dict[str, Any]:
         "risk_weights": {"destructive": {"weight": 20, "keywords": ["delete", "wipe"]}},
         "domain_keywords": {},
         "overrides": {
-            "force_manual": ["[STRICT]", "/plan", "/manual", "/strict", "@plan"],
-            "force_teach": ["explain", "teach", "how does it work", "why"],
-            "force_pro_advanced": ["plan first", "break it down"],
+            "plan_session": ["[STRICT]", "/plan", "/manual", "/strict", "@plan", "plan first", "break it down"],
         },
     }
 
@@ -149,7 +147,7 @@ class ScoringEngine:
         self._medium_max = int(th.get("medium_max", th.get("small_max", 15)))
         self._density_threshold = int(th.get("density_threshold", 3))
         self._density_tax = int(th.get("density_tax", 10))
-        self._educational_discount = int(th.get("educational_discount", 10))
+
         self._risk_high = int(th.get("risk_high", 15))
         self._max_easy_len = int(th.get("max_easy_message_length", th.get("max_trivial_message_length", 200)) or 200)
         self._risk_veto_triggers: list[str] = list(
@@ -203,9 +201,7 @@ class ScoringEngine:
                 "risk_score": 0,
                 "domain_hints": [],
                 "intent_class": "code",
-                "manual_override": False,
-                "interaction_mode": "do",
-                "force_pro_advanced": False,
+                "plan_session": False,
                 "classification_hits": [],
                 "classification_reasons": [],
                 "score_breakdown": {},
@@ -213,7 +209,7 @@ class ScoringEngine:
                 "active_domains": [],
             }
 
-        if self._check_override(t, "force_manual"):
+        if self._check_override(t, "plan_session"):
             return {
                 "task_size": "hard",
                 "score": 99,
@@ -221,18 +217,13 @@ class ScoringEngine:
                 "risk_score": 99,
                 "domain_hints": [],
                 "intent_class": "planning",
-                "manual_override": True,
-                "interaction_mode": "teach" if self._check_override(t, "force_teach") else "do",
-                "force_pro_advanced": True,
-                "classification_hits": ["force_manual"],
-                "classification_reasons": ["force_manual"],
-                "score_breakdown": {"force_manual": 99},
+                "plan_session": True,
+                "classification_hits": ["plan_session"],
+                "classification_reasons": ["plan_session"],
+                "score_breakdown": {"plan_session": 99},
                 "categories_touched": [],
                 "active_domains": [],
             }
-
-        interaction_mode = "teach" if self._check_override(t, "force_teach") else "do"
-        force_pro_advanced = self._check_override(t, "force_pro_advanced")
 
         t_lower = t.lower()
         hits: list[str] = []
@@ -303,14 +294,7 @@ class ScoringEngine:
             hits.append(f"density_tax(+{self._density_tax})")
             score_breakdown["density_tax"] = self._density_tax
 
-        # 6. Educational discount
-        if interaction_mode == "teach":
-            complexity_score -= self._educational_discount
-            complexity_score = max(0, complexity_score)
-            hits.append(f"teach_discount(-{self._educational_discount})")
-            score_breakdown["teach_discount"] = -self._educational_discount
-
-        # 7. Derive task_size: risk veto first, then complexity
+        # 6. Derive task_size: risk veto first, then complexity
         if risk_score >= self._risk_high:
             task_size: TaskSize = "hard"
         elif complexity_score <= self._easy_max:
@@ -442,9 +426,7 @@ class ScoringEngine:
             "domain_hints": domain_hints,
             "intent_class": intent_class,
             "is_code_task": is_code_task,
-            "manual_override": False,
-            "interaction_mode": interaction_mode,
-            "force_pro_advanced": force_pro_advanced,
+            "plan_session": False,
             "classification_hits": hits,
             "classification_reasons": hits,
             "score_breakdown": score_breakdown,

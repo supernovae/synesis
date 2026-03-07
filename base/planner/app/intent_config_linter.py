@@ -59,7 +59,6 @@ def lint_intent_config(core_path: Path | None = None, plugin_dir: Path | str | N
             ("medium_max", 15),
             ("density_threshold", 3),
             ("density_tax", 10),
-            ("educational_discount", 10),
             ("risk_high", 15),
         ):
             val = th.get(name)

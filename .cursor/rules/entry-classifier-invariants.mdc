@@ -19,7 +19,7 @@ EntryClassifier (ScoringEngine + entry_classifier_node) must output:
 
 Any routing decision that sends to Supervisor/Planner (instead of fast path) must set:
 
-- `escalation_reason`: string enum — e.g. `"risk_veto"`, `"length_veto"`, `"manual_override"`, `"task_size_medium"`, `"task_size_hard"`, `"reclassify_override"`
+- `escalation_reason`: string enum — e.g. `"risk_veto"`, `"length_veto"`, `"plan_session"`, `"task_size_medium"`, `"task_size_hard"`, `"reclassify_override"`
 
 ## Domain vs Complexity
 

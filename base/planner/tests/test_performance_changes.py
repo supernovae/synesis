@@ -138,7 +138,6 @@ class TestFreeGenerationParsing:
             "iteration_count": 0,
             "task_size": "medium",
             "is_code_task": True,
-            "interaction_mode": "do",
         }
 
         result = await supervisor_node(state)

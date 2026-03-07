@@ -644,7 +644,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if is_pivot:
         run_id_pre = str(uuid.uuid4())
         if settings.pivot_summary_enabled and conversation_history:
-            interaction_mode = "do"
             # Determine pivot_type and era labels for taxonomy-aware summarizer
             if lang_pivot:
                 pivot_type = "language"
@@ -665,7 +664,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 conversation_history,
                 from_era,
                 to_era,
-                interaction_mode,
                 pivot_type=pivot_type,
                 active_domain_refs=active_domain_refs_for_summary,
             )

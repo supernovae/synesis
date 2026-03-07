@@ -50,7 +50,6 @@ Easy requests (hello world, simple scripts) must stay on the fast path.
 | **Easy anchors** | Only `io_basic`, `logic_basic`, `query_basic`, `create_basic` (weight 1–2). |
 | **Risk veto** | Substring match on `pip install`, `curl \|`, `\| bash`, `chmod +x`, `rm -rf`, etc. → block easy. |
 | **Length veto** | Messages > `max_easy_message_length` (200 chars) rarely stay easy. |
-| **Educational discount** | `force_teach` + easy → clarify path, not escalation. |
 
 **Do NOT** add heavyweight keywords to easy anchors. Keep `io_basic`, `logic_basic`, `query_basic` minimal.
 
@@ -342,7 +341,7 @@ Plugins add **niche** keywords. The master covers **generic** baseline. Files li
 
 - **complexity_weights / risk_weights / domain_keywords:** Later plugin overwrites same category name. Use unique names per plugin.
 - **pairings:** Append. Plugins add risk/complexity multipliers.
-- **overrides:** Per-key merge (force_manual, force_teach, force_pro_advanced).
+- **overrides:** Per-key merge (`plan_session`).
 - **thresholds:** Later overrides base. YAML keys: `easy_max`, `medium_max`, `max_easy_message_length`. Routing thresholds live in `routing_thresholds` section of `intent_weights.yaml` (bypass_supervisor_below, plan_required_above, critic_required_above).
 
 ---

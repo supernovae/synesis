@@ -57,7 +57,6 @@ class GraphState(TypedDict, total=False):
     defaults_used: list[str]
     assumptions_structured: list[dict[str, Any]]
     is_code_task: bool
-    interaction_mode: str
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
@@ -265,7 +264,6 @@ class SynesisState(BaseModel):
 
     # Supervisor: intent + output shape
     is_code_task: bool = True
-    interaction_mode: str = "do"
     include_tests: bool = True
     include_run_commands: bool = True
     allowed_tools: list[str] = Field(default_factory=lambda: ["sandbox", "lsp"])

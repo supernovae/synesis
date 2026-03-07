@@ -31,7 +31,7 @@ The Supervisor node **allocates resources** (RAG, tools) and **routes**. It does
 
 ## 4. Evidence-Gated Critique
 
-No critique or "Learner's Corner" can exist without a `ToolRef` (LSP, Sandbox, or RAG hash). The Critic must cite evidence.
+No critique can exist without a `ToolRef` (LSP, Sandbox, or RAG hash). The Critic must cite evidence.
 
 ## 5. Code Style (Tier 2)
 

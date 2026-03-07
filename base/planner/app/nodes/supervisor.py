@@ -33,7 +33,7 @@ logger = logging.getLogger("synesis.supervisor")
 # ── Router prompt: minimal JSON-lite schema ──
 # The Router decides WHERE to send the request, nothing else.
 # EntryClassifier already resolved: task_size, is_code_task, target_language,
-# allowed_tools, interaction_mode, difficulty, bypass flags.
+# allowed_tools, difficulty, bypass flags.
 ROUTER_SYSTEM_PROMPT = """\
 You are the Router. Decide where to send this request.
 
@@ -124,7 +124,6 @@ def _build_passthrough_result(
         "assumptions_structured": [],
         "task_is_trivial": state.get("task_is_trivial", False),
         "is_code_task": is_code_task,
-        "interaction_mode": state.get("interaction_mode", "do"),
         "include_tests": is_code_task and state.get("task_size") == "hard",
         "include_run_commands": is_code_task,
         "allowed_tools": state.get("allowed_tools", ["none"] if not is_code_task else ["sandbox", "lsp"]),
@@ -167,7 +166,6 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         conversation_history = state.get("conversation_history", [])
         user_context = _get_user_context(state)
         task_size = state.get("task_size", "medium")
-        interaction_mode = state.get("interaction_mode", "do")
         is_code_task = state.get("is_code_task", True)
 
         # ── Passthrough 1: hard + plan_required → Planner (no LLM) ──
@@ -197,22 +195,6 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                     "active_domain_refs": state.get("active_domain_refs"),
                     "platform_context": state.get("platform_context"),
                 },
-            )
-
-        # ── Passthrough 3: medium + teach → Worker (no LLM) ──
-        if (
-            task_size == "medium"
-            and interaction_mode == "teach"
-            and iteration == 0
-            and not state.get("scope_expansion_needed")
-        ):
-            return _build_passthrough_result(
-                state,
-                next_node="worker",
-                reasoning="Medium+teach → Worker",
-                log_event="supervisor_passthrough_teach",
-                start=start,
-                extra_fields={"interaction_mode": "teach"},
             )
 
         # ── LLM routing path ──
@@ -446,7 +428,6 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "assumptions_structured": [],
             "task_is_trivial": state.get("task_is_trivial", False),
             "is_code_task": is_code_task,
-            "interaction_mode": interaction_mode,
             "include_tests": is_code_task and task_size == "hard",
             "include_run_commands": is_code_task,
             "allowed_tools": state.get("allowed_tools", ["none"] if not is_code_task else ["sandbox", "lsp"]),

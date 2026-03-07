@@ -111,7 +111,7 @@ class RouterDecision(BaseModel):
 
     The Router only decides *where* to send the request and RAG intensity.
     All other classification (task_size, is_code_task, target_language,
-    allowed_tools, interaction_mode) comes from the deterministic
+    allowed_tools) comes from the deterministic
     EntryClassifier and is passed through via state.
     """
 

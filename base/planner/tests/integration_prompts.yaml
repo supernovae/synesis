@@ -17,9 +17,9 @@ prompts:
     response_must_contain: ["```"]
     response_must_not_contain: ["I need more", "clarification"]
 
-  # --- Educational: expect Learner's Corner ---
+  # --- Educational: explain-only path ---
   - prompt: "explain how a simple hello world works in Python"
-    response_must_contain: ["Learner's Corner", "Pattern:", "Why:"]
+    response_must_contain: ["print"]
     response_must_not_contain: ["[UI helper request]"]
 
   # --- UI helper: expect short-circuit ---

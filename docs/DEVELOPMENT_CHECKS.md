@@ -38,13 +38,13 @@ pip install -r requirements.txt -r requirements-test.txt
 pytest tests/test_intent_validation.py tests/test_graph_routing.py tests/test_routing_parity.py tests/test_e2e_graph.py tests/test_api.py -v
 ```
 
-These assert on `task_size`, `interaction_mode`, routing (trivial → context_curator, etc.). See `base/planner/tests/validation_prompts.yaml`.
+These assert on `task_size`, routing (trivial → context_curator, etc.). See `base/planner/tests/validation_prompts.yaml`.
 
 ---
 
 ## 2. Live Integration Validation (Against Deployed Planner)
 
-Validates **end-to-end** behavior: trivial path returns code, educational mode returns Learner's Corner, UI helper short-circuits.
+Validates **end-to-end** behavior: trivial path returns code, educational mode returns explain-only content, UI helper short-circuits.
 
 ### Step 1: Deploy Your Release
 

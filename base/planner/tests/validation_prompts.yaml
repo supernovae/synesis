@@ -3,11 +3,8 @@
 # Run: cd base/planner && pip install -r requirements.txt -r requirements-test.txt && pytest tests/test_intent_validation.py -v
 #
 # EntryClassifier is deterministic — no LLM needed. These assert expected
-# task_size, interaction_mode, routing, etc. Use for regression testing and
+# task_size, routing, etc. Use for regression testing and
 # to validate flow behavior as the system evolves.
-#
-# Future: Integration tests (full graph with model proxy) can use the same
-# prompts and assert on final response shape (e.g. Learner's Corner present).
 
 prompts:
   # --- Trivial (fast path, bypass Supervisor) ---
@@ -17,20 +14,17 @@ prompts:
       bypass_supervisor: true
       task_is_trivial: true
       rag_mode: disabled
-      interaction_mode: do
       target_language: python
 
   - prompt: "print hello"
     expected:
       task_size: easy
       bypass_supervisor: true
-      interaction_mode: do
 
   - prompt: "write a basic unit test for this function"
     expected:
       task_size: medium
       bypass_supervisor: false
-      interaction_mode: do
 
   - prompt: "parse this json"
     expected:
@@ -49,16 +43,16 @@ prompts:
       task_size: easy
       bypass_supervisor: true
 
-  # --- Force Manual override (route through Supervisor even for trivial wording) ---
+  # --- Plan session override (route through Planner even for trivial wording) ---
   - prompt: "[STRICT] hello world in python"
     expected:
-      task_size: hard    # force_manual sets hard for full path
+      task_size: hard    # plan_session sets hard for full path
       bypass_supervisor: false
       plan_required: true
 
   - prompt: "/plan create a simple script that prints hello"
     expected:
-      task_size: hard    # force_manual
+      task_size: hard    # plan_session
       bypass_supervisor: false
 
   # --- Small (default, Supervisor runs) ---
@@ -66,7 +60,6 @@ prompts:
     expected:
       task_size: hard
       bypass_supervisor: false
-      interaction_mode: do
 
   - prompt: "add error handling to this function"
     expected:
@@ -90,30 +83,18 @@ prompts:
     expected:
       task_size: hard
 
-  # --- Educational / Mentor mode ---
+  # --- Educational prompts (explain-only path, no special teach mode) ---
   - prompt: "explain how this hello world works"
     expected:
-      interaction_mode: teach
+      is_code_task: false
 
   - prompt: "how does it work?"
     expected:
-      interaction_mode: teach
-
-  - prompt: "why did you use print() instead of sys.stdout?"
-    expected:
-      interaction_mode: teach
-
-  - prompt: "I'm learning Python, can you walk me through this?"
-    expected:
-      interaction_mode: teach
+      is_code_task: false
 
   - prompt: "teach me how context managers work"
     expected:
-      interaction_mode: teach
-
-  - prompt: "what does this code do?"
-    expected:
-      interaction_mode: teach
+      is_code_task: false
 
   # --- Language detection ---
   - prompt: "hello world"

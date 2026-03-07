@@ -12,7 +12,7 @@ How to get the behavior you want. Synesis uses a deterministic EntryClassifier b
 |---------------|----------|
 | **Force full path** (see Supervisor + Planner even for trivial tasks) | `[STRICT]`, `/plan`, `/manual`, `/strict` at start of message |
 | **Full planning / JCS prompt** (step-by-step breakdown, defensive code) | `@plan`, `plan first`, `break it down`, `I need a plan`, `step-by-step plan` |
-| **Learn, not just code** (explanations, Learner's Corner) | `explain`, `how does it work`, `why`, `teach me`, `I'm learning`, `walk me through` |
+| **Explanations** (explain-only path, no code) | `explain`, `how does it work`, `why`, `I'm learning`, `walk me through` |
 | **Fast path** (trivial → straight to Worker) | `hello world`, `print X`, `basic unit test`, `parse json`, `simple fizzbuzz` |
 | **Complex / escalation** (Supervisor may ask, Planner runs) | `deploy`, `architecture`, `design`, `migrate`, `security`, `credentials`, `connect to AWS` |
 
@@ -32,65 +32,41 @@ Synesis classifies your request into three tiers before any LLM runs:
 
 ---
 
-## 2. Force Manual Override
+## 2. Plan Session
 
-**Problem:** You're a Senior Architect reviewing a "trivial" task. You want to see the Supervisor's plan and routing — not the fast path.
+**Problem:** You want to see a structured plan and approve it before execution — even for tasks the system considers trivial.
 
-**Solution:** Prefix your message with one of:
+**Solution:** Use any of these triggers:
 
-- `[STRICT]`
-- `/plan` (at the very start)
-- `/manual`
-- `/strict`
+- `[STRICT]`, `/plan`, `/manual`, `/strict` (prefix)
+- `@plan`, `plan first`, `I need a plan`
+- `break it down`, `break this down`, `step-by-step plan`
+- `execution plan`, `full planning`, `scope:`
 
 **Examples:**
-
-```
-[STRICT] hello world in python
-```
 
 ```
 /plan Create a simple script that prints "Hello"
 ```
 
-**Effect:** Bypasses the trivial fast path. Your request runs through the Supervisor (and Planner if plan approval is needed). You see the full pipeline: Supervisor routing → optional plan approval → Worker → Critic.
+```
+plan first: write a hello script
+```
+
+**Effect:** Routes to the Planner node regardless of task complexity. You see a structured plan and are asked to approve before execution proceeds to the Worker.
 
 ---
 
-## 3. Full Planning / Pro Advanced
+## 4. Explanations and Educational Content
 
-When you want step-by-step breakdowns or the full JCS (Joint Cognitive System) prompt tier — even for small tasks — use these phrases:
+When you want an explanation rather than code, use natural language:
 
-- `@plan`, `#plan`
-- `plan first`, `plan before`, `I need a plan`
-- `break it down`, `break this down`
-- `full planning`, `architecture review`, `design review`
-- `scope:`, `multi-file:`, `walk through the steps`
-- `step-by-step plan`, `execution plan`
+- `explain`, `how does it work`, `why did`, `why would`
+- `walk me through`, `what does this do`, `can you explain`
 
-**Effect:** Worker uses the **full** prompt tier (defensive code, JCS style) instead of the minimal or small tier.
-
----
-
-## 4. Educational / Mentor Mode
-
-When you want to **learn** — not just get code — use:
-
-- `explain`
-- `how does it work`, `why did`, `why do`, `why would`
-- `walk me through`
-- `teach me`
-- `I'm learning`, `learning how`, `learning to`
-- `what does this do`, `what does that mean`
-- `can you explain`
-
-**Effect:** `interaction_mode=teach`. The Worker produces a **Learner's Corner** with:
-- `pattern` — what the code does
-- `why` — why it's written that way
-- `resilience` — failure modes
-- `trade_off` — alternatives
-
-Respond formats this as a "Learner's Corner" section in the output.
+**Effect:** The system routes to the explain-only path (`is_code_task=false`), producing
+well-structured markdown with taxonomy-driven depth and tone. Domain-specific taxonomy
+prompts enrich responses with gotchas, trade-offs, and discovery prompts where appropriate.
 
 ---
 
@@ -158,9 +134,8 @@ When the Supervisor, Planner, or Worker asks a question (e.g. "Which database?",
 
 | Override | Triggers | Effect |
 |----------|----------|--------|
-| **Force Manual** | `[STRICT]`, `/plan`, `/manual`, `/strict` at start | Route through Supervisor even for trivial |
-| **Full Planning** | `@plan`, `plan first`, `break it down`, etc. | Worker prompt tier = full (JCS) |
-| **Educational** | `explain`, `teach me`, `how does it work`, etc. | Learner's Corner in output |
+| **Plan Session** | `[STRICT]`, `/plan`, `@plan`, `plan first`, `break it down`, etc. | Route through Planner, show plan for approval |
+| **Educational** | `explain`, `how does it work`, etc. | Explain-only path with taxonomy enrichment |
 
 Use overrides when the automatic classification is wrong. For example: *"The system treated this as trivial, but I want to see the plan"* → add `[STRICT]` or `/plan` at the start.
 
@@ -196,7 +171,7 @@ Config: `base/planner/intent_weights.yaml` (or `entry_classifier_weights.yaml`):
 - **risk_weights:** Destructive, secrets, compliance — can veto trivial to complex.
 - **domain_keywords:** k8s, aws, etc. — RAG gravity only; never escalates.
 - **thresholds:** `trivial_max`, `small_max`, `risk_high` — score thresholds.
-- **overrides:** `force_manual`, `force_teach`, `force_pro_advanced`.
+- **overrides:** `plan_session`.
 
 Override config path via `SYNESIS_ENTRY_CLASSIFIER_WEIGHTS`.
 

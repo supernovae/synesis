@@ -148,21 +148,18 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
 
     task_size: TaskSize = analysis["task_size"]
     difficulty: float = analysis.get("difficulty", 0.0)
-    manual_override = analysis.get("manual_override", False)
-    force_pro_advanced = analysis.get("force_pro_advanced", False)
+    plan_session = analysis.get("plan_session", False)
     rt = analysis.get("routing_thresholds") or {}
 
     # Routing uses continuous difficulty score against YAML-configured thresholds.
     bypass_threshold = float(rt.get("bypass_supervisor_below", 0.2))
     plan_threshold = float(rt.get("plan_required_above", 0.7))
 
-    bypass_supervisor = difficulty < bypass_threshold and not manual_override
-    bypass_planner = difficulty < bypass_threshold and not manual_override
+    bypass_supervisor = difficulty < bypass_threshold and not plan_session
+    bypass_planner = difficulty < bypass_threshold and not plan_session
     requires_clarification = difficulty >= plan_threshold
 
-    # plan_required: high-difficulty or explicit planning request (@plan, /plan, "lets plan")
-    planning_session_requested = manual_override or force_pro_advanced
-    plan_required = manual_override or difficulty >= plan_threshold or force_pro_advanced
+    plan_required = plan_session or difficulty >= plan_threshold
 
     # clarification_budget scales with difficulty
     if difficulty < bypass_threshold:
@@ -171,11 +168,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         clarification_budget = 1
     else:
         clarification_budget = 2
-    # Teach mode: must not increase interrogation (Phase 4 item 8)
-    interaction_mode = analysis.get("interaction_mode", "do")
-    if interaction_mode == "teach":
-        clarification_budget = min(clarification_budget, 1)
-
     # worker_persona and worker_prompt_tier are now derived from task_size
     # (easy→Minimalist, medium→Senior, hard→Architect). No longer set as separate state.
 
@@ -183,8 +175,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     escalation_reason = ""
     reasons = analysis.get("classification_reasons") or []
     if not bypass_supervisor:
-        if manual_override:
-            escalation_reason = "manual_override"
+        if plan_session:
+            escalation_reason = "plan_session"
         elif any("risk_veto" in r for r in reasons):
             escalation_reason = "risk_veto"
         elif any("length_veto" in r for r in reasons):
@@ -212,9 +204,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "bypass_planner": bypass_planner,
         "requires_clarification": requires_clarification,
         "plan_required": plan_required,
-        "planning_session_requested": planning_session_requested,  # @plan, /plan, "lets plan" → show plan, ask to proceed
+        "plan_session": plan_session,
         "clarification_budget": clarification_budget,
-        "interaction_mode": interaction_mode,
         "intent_classifier_source": "deterministic",
         "escalation_reason": escalation_reason,
     }
@@ -299,10 +290,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         bypass_supervisor = difficulty < bypass_threshold
         bypass_planner = difficulty < bypass_threshold
         requires_clarification = difficulty >= plan_threshold
-        plan_required = bool(manual_override or difficulty >= plan_threshold or force_pro_advanced)
+        plan_required = bool(plan_session or difficulty >= plan_threshold)
         clarification_budget = 0 if difficulty < bypass_threshold else (1 if difficulty < plan_threshold else 2)
-        if interaction_mode == "teach":
-            clarification_budget = min(clarification_budget, 1)
         out["bypass_supervisor"] = bypass_supervisor
         out["bypass_planner"] = bypass_planner
         out["requires_clarification"] = requires_clarification
@@ -332,7 +321,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     # Taxonomy-driven: non-sandbox → usually skip Planner; BUT high-depth domains or explicit planning session
     if not out.get("is_code_task", True):
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
-        if deep_dive or planning_session_requested:
+        if deep_dive or plan_session:
             out["plan_required"] = True
             out["rag_mode"] = "normal" if deep_dive else "disabled"
         else:
@@ -346,7 +335,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["rag_mode"] = "disabled"
 
     # Easy fast-path
-    if task_size == "easy" and not manual_override:
+    if task_size == "easy" and not plan_session:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
@@ -362,9 +351,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             out["include_run_commands"] = True
             out["task_type"] = "code_generation"
             out["allowed_tools"] = ["sandbox"]
-        if out.get("interaction_mode") != "teach":
-            out["interaction_mode"] = "do"
-
     logger.info(
         "entry_classifier_result",
         extra={

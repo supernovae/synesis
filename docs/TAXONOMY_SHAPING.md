@@ -335,8 +335,8 @@ vertical_prompt:
   critic_mode: advisory
   worker_persona_block: |
     VERTICAL: Education. Pedagogy-first.
-    - Always include a Learner's Corner with pattern, why, and trade-off.
     - Encourage exploration, never dismiss questions.
+    - Include gotchas and trade-offs where relevant.
   critic_tiers:
     basic: |
       Approve if explanation is clear and correct. Note missing analogies.

@@ -13,7 +13,7 @@ import re
 import time
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..code_extractor import (
@@ -658,13 +658,13 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.debug("worker_effective_size=%s", effective_size)
 
         # ── Token budget: continuous difficulty curve ──
-        # With R1's --reasoning-parser, max_completion_tokens includes BOTH
-        # reasoning and content tokens.  A low floor starves content output.
-        _MIN_BUDGET = 512
-        _MAX_BUDGET = 4096
+        _MIN_BUDGET = 1024
+        _MAX_BUDGET = 8192
         raw_complexity = state.get("complexity_score", 0) or 0
         difficulty = min(1.0, float(raw_complexity) / 50.0)
         token_budget = int(_MIN_BUDGET + (_MAX_BUDGET - _MIN_BUDGET) * difficulty**1.5)
+        if not is_code_task:
+            token_budget = max(token_budget, 2048)
 
         _ACK_WORDS = (
             r"thanks|thank you|thx|ok|okay|got it|cool|great|sure|"
@@ -745,8 +745,23 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             }
 
         # ── Sandbox/code path: call LLM, extract code from markdown ──
+        # Include recent conversation history so follow-ups like "now add type
+        # hints" know what function to modify.  Bounded to last 6 turns to
+        # avoid blowing the context window.
+        history_messages: list[SystemMessage | HumanMessage | AIMessage] = []
+        for entry in conv_history[-6:]:
+            if not isinstance(entry, str):
+                continue
+            if entry.startswith("[user]: "):
+                history_messages.append(HumanMessage(content=entry[8:]))
+            elif entry.startswith("[assistant]: "):
+                history_messages.append(AIMessage(content=entry[13:]))
+            elif entry.startswith("[system]: "):
+                history_messages.append(SystemMessage(content=entry[10:]))
+
         messages = [
             SystemMessage(content=system_prompt),
+            *history_messages,
             HumanMessage(content=prompt),
         ]
         llm_to_use = worker_llm.bind(max_completion_tokens=token_budget)

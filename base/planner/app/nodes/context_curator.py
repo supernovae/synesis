@@ -128,7 +128,6 @@ def _build_pinned_context(
     project_manifest: list[ContextChunk],
     session_preferences: dict[str, Any] | None = None,
     task_is_trivial: bool = False,
-    interaction_mode: str = "do",
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session).
     Taxonomy-aware: when is_code_task=False (document path), use document-appropriate
@@ -136,50 +135,6 @@ def _build_pinned_context(
     """
     chunks: list[ContextChunk] = []
     is_document = not (session_preferences or {}).get("is_code_task", True)
-
-    # Tier 1: Educational/Mentor mode — Learner's Corner (unified schema, taxonomy-aware)
-    # Works for both code (design patterns, failure handling) and document (concepts, pitfalls)
-    if interaction_mode == "teach":
-        if is_document:
-            teach_t = (
-                "EDUCATIONAL MODE. User wants to learn. "
-                "After your main response, end with a brief Learner's Corner section "
-                "formatted exactly like this (use the markdown separator and bold labels):\n\n"
-                "---\n"
-                "**Learner's Corner**\n"
-                "- **Pattern:** key concept or main takeaway\n"
-                "- **Why:** why it matters (1-2 sentences)\n"
-                "- **Gotchas:** common pitfalls, what to watch for, or how to verify\n"
-                "- **Trade-off:** caveats, limitations, or when this might not apply\n\n"
-                "Keep each bullet to 1-2 sentences. Do NOT output JSON."
-            )
-        else:
-            teach_t = (
-                "EDUCATIONAL MODE. User wants to learn, not just get code. "
-                "After your main response, end with a brief Learner's Corner section "
-                "formatted exactly like this (use the markdown separator and bold labels):\n\n"
-                "---\n"
-                "**Learner's Corner**\n"
-                "- **Pattern:** design pattern used (e.g., Result Wrapper, Context Manager)\n"
-                "- **Why:** 1-2 sentences on architectural intent\n"
-                "- **Gotchas:** how failures are handled, common mistakes\n"
-                "- **Trade-off:** what we sacrifice (e.g., verbosity for clarity)\n\n"
-                "Keep each bullet to 1-2 sentences. Do NOT output JSON."
-            )
-        chunks.append(
-            ContextChunk(
-                source="tool_contract",
-                text=teach_t,
-                score=1.0,
-                collection="",
-                doc_id="invariant_teach_mode",
-                origin_metadata=OriginMetadata(
-                    origin="trusted",
-                    content_hash=_hash_chunk(teach_t),
-                    source_label="teach_mode",
-                ),
-            )
-        )
 
     # Tier 1: Trivial task override (Supervisor LLM classified this; Worker proceeds with minimal output)
     # Skip for document path (trivial = brief answer, not "minimal code")
@@ -273,18 +228,10 @@ def _build_pinned_context(
         prefs = []
         sandbox_flag = session_preferences.get("is_code_task", True)
         prefs.append(f"Deliverable: {'code' if sandbox_flag else 'explain_only'}")
-        if session_preferences.get("interaction_mode") == "teach":
-            if is_document:
-                prefs.append(
-                    "Interaction mode: teach — include Learner's Corner (pattern, why, gotchas, trade-off) as inline markdown, no code execution"
-                )
-            else:
-                prefs.append("Interaction mode: teach — include 2-4 line explanation, run commands, and tests")
-        elif session_preferences.get("interaction_mode") == "do":
-            if is_document:
-                prefs.append("Interaction mode: do — produce markdown/text response, no code execution")
-            else:
-                prefs.append("Interaction mode: do — output code and run commands")
+        if is_document:
+            prefs.append("Produce markdown/text response, no code execution")
+        else:
+            prefs.append("Output code and run commands")
         if not session_preferences.get("include_tests", True):
             prefs.append("Do not include tests")
         if not session_preferences.get("include_run_commands", True):
@@ -440,7 +387,7 @@ def _tier_for_chunk(c: ContextChunk) -> int:
     did = c.doc_id or ""
     src = c.source or ""
     if did.startswith("invariant_") and did != "invariant_session":
-        return 1  # output_format, sandbox, teach_mode, trivial, context_pivot
+        return 1  # output_format, sandbox, trivial, context_pivot
     if src == "arch" or label == "org_standards":
         return 2
     if label == "project_manifest":
@@ -698,12 +645,10 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     session_prefs = {
         "is_code_task": state.get("is_code_task", True),
-        "interaction_mode": state.get("interaction_mode", "do"),
         "include_tests": state.get("include_tests", True),
         "include_run_commands": state.get("include_run_commands", True),
     }
     task_is_trivial = state.get("task_is_trivial", False)
-    interaction_mode = state.get("interaction_mode", "do")
     is_pivot = state.get("is_pivot", False)
     domain_soft_shift = state.get("domain_soft_shift", False)
     last_active_lang = state.get("last_active_language", "")
@@ -761,7 +706,6 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             project_manifest,
             session_prefs,
             task_is_trivial=task_is_trivial,
-            interaction_mode=interaction_mode,
         )
     )
     for c in tier2_tier3_conflicts:

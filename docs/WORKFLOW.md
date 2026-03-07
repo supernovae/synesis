@@ -133,7 +133,6 @@ acknowledgements get 256 tokens.
 
 **Taxonomy-driven passthroughs (no LLM):**
 - `task_size == "hard"` + `plan_required` -> skip LLM, route to `planner`
-- `task_size == "medium"` + `interaction_mode == "teach"` -> skip LLM, route to `worker`
 - `is_code_task=false` (taxonomy) -> skip LLM, route to `worker`
 
 ### After Planner
@@ -177,7 +176,7 @@ acknowledgements get 256 tokens.
 
 1. **Anemic Supervisor**: Routing only. No architecture reasoning.
    Sub-500ms target. Taxonomy-driven passthroughs skip LLM for
-   easy, teach, and `is_code_task=false` cases.
+   easy and `is_code_task=false` cases.
 2. **Taxonomy-Driven Everything**: Entry Classifier outputs
    `intent_class`, `is_code_task`, `active_domain_refs`,
    `taxonomy_metadata`, `difficulty`, and YAML-driven
@@ -216,7 +215,7 @@ engineering rigor.
 |-----------|-------------|----------------|-----|--------|
 | **easy** | Advisory (no LLM) | Code/markdown + one line | disabled | "Generating..." |
 | **medium** | Advisory (no LLM) | Code/markdown + explanation | light (generic) | "Generating..." |
-| **hard** | Full JCS Critic | Decision Summary, Safety Analysis, Learner's Corner | normal | "Architecting solution..." |
+| **hard** | Full JCS Critic | Decision Summary, Safety Analysis | normal | "Architecting solution..." |
 
 - **Advisory Mode** (easy/medium): Critic skips LLM.
   `approved=true` if code compiles/runs. No What-If analysis.

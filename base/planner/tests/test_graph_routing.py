@@ -213,8 +213,8 @@ class TestRespondNode:
         assert "dependency" in content.lower() or "credential" in content.lower()
         assert "API key" in content
 
-    def test_teach_mode_injects_learners_corner_markdown_instruction(self):
-        """Educational mode: context_curator injects inline markdown instruction, not JSON."""
+    def test_no_teach_mode_chunks_injected(self):
+        """Teach mode removed: no invariant_teach_mode chunks should exist."""
         from app.nodes.context_curator import _build_pinned_context
 
         chunks = _build_pinned_context(
@@ -224,15 +224,7 @@ class TestRespondNode:
             execution_plan={},
             org_standards=[],
             project_manifest=[],
-            session_preferences={"is_code_task": False, "interaction_mode": "teach"},
-            interaction_mode="teach",
+            session_preferences={"is_code_task": False},
         )
         teach_chunks = [c for c in chunks if c.doc_id == "invariant_teach_mode"]
-        assert len(teach_chunks) == 1
-        text = teach_chunks[0].text
-        assert "Learner's Corner" in text
-        assert "**Pattern:**" in text
-        assert "**Gotchas:**" in text
-        assert "**Trade-off:**" in text
-        assert "JSON" in text  # "Do NOT output JSON"
-        assert "learners_corner" not in text  # no JSON field name
+        assert len(teach_chunks) == 0
