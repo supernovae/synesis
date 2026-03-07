@@ -165,7 +165,7 @@ _WRITER_SYSTEM = (
     "specialist nodes (code, explanation, safety analysis, suggestions). "
     "Your job is to synthesize these into a single, coherent, well-structured "
     "response. Do not add information — only improve flow, tone, and structure. "
-    "Preserve all code blocks and markdown formatting verbatim. Keep it concise."
+    "Preserve all code blocks and markdown formatting verbatim."
 )
 
 
@@ -199,7 +199,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
         from .llm_telemetry import get_llm_http_client
 
         is_depth = state.get("depth_mode", False)
-        writer_budget = 8192 if is_depth else 4096
+        writer_budget = 12288 if is_depth else 4096
 
         writer_llm = ChatOpenAI(
             base_url=writer_url,
@@ -214,8 +214,15 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
 
         instruction = (
             "Synthesize these independently-generated sections into a single coherent document. "
-            "Improve flow and transitions between sections. Remove redundancy. "
-            "Preserve all substantive content, code blocks, and markdown formatting verbatim."
+            "Improve flow and transitions between sections. Remove exact duplicate sentences only. "
+            "PRESERVE the following verbatim: all code blocks, markdown formatting, "
+            "[Fact]/[Assumption]/[Recommendation]/[Uncertain] labels, and any sections titled "
+            "'Assumptions', 'Facts', 'Recommendations', or 'Decision Policy'. "
+            "Do NOT merge these structured sections into other sections. "
+            "Do NOT add generic compliance scaffolding, security checklists, or enterprise "
+            "boilerplate that was not present in the source sections. "
+            "Maintain the multi-paragraph narrative depth of each section — do not compress "
+            "detailed analysis into bullet-point summaries."
             if is_depth
             else "Polish this multi-section response:"
         )

@@ -49,12 +49,19 @@ Reply with JSON only:
 {"plan":{"steps":[{"id":1,"action":"Section: title — concrete deliverable description","dependencies":[]}],"open_questions":[],"assumptions":[]},"reasoning":"Brief","confidence":0.0-1.0}
 
 Rules:
-- Each step = one section of the final response. Each section will be written as a substantial standalone deliverable.
+- Each step = one section of the final response. Each section will be written as a substantial standalone deliverable with multi-paragraph narrative depth, not bullet-point summaries.
 - Map the user's explicitly requested sections to steps. Do NOT invent sections they did not ask for.
 - CRITICAL: Count the user's explicitly numbered or bulleted deliverables. Create one step per deliverable. Do NOT merge multiple deliverables into a single step. If the user requests N sections, produce at least N steps.
 - Each step's action MUST state the concrete deliverable, not just the topic. Bad: "Design Goals — what to cover". Good: "Design Goals — state 3-5 prioritized goals with justification, explicit non-goals, and how each maps to stated constraints."
 - If the user listed numbered deliverables, preserve their order and wording.
 - Final step should cover risks, caveats, or failure modes if relevant (unless the user already listed this as a deliverable).
+
+CRITICAL STANDALONE SECTIONS — these must NEVER be folded into other steps:
+- If the user asks to "separate facts from assumptions" OR if "Assumptions vs Facts vs Recommendations" appears in the required elements, create a DEDICATED step: "Assumptions, Facts, and Recommendations — explicitly label every claim as [Fact], [Assumption], or [Recommendation]. Group them under separate headings. Do not blend into undifferentiated prose."
+- If the system involves answering queries OR if "Decision Policy" appears in the required elements, create a DEDICATED step: "Decision Policy — define explicit conditions for when to answer directly, when to ask clarifying questions, when to refuse, and when to escalate. State what observable signals each condition depends on (not arbitrary numeric thresholds)."
+- If "Failure Modes" appears in the required elements, create a DEDICATED step: "Failure Modes and Mitigations — name at least 5 concrete, domain-specific failures tied to the proposed architecture. For each: what breaks, how you detect it, and how you mitigate it. Generic failures like 'system goes down' do not count."
+
+FORMAT CONSTRAINT CAPTURE:
 - If the user specifies output constraints (e.g., "separate facts from assumptions," "make tradeoffs explicit," "be concise but specific"), capture EACH as a separate item in "assumptions" prefixed with "User format constraints: ..."
 - If the user says "do not give a generic answer" or similar, add to assumptions: "User format constraints: choose concrete approaches, do not list alternatives without recommending one."
 - If the user specifies a timeline or budget constraint, add: "User format constraints: constrain scope to stated timeline/budget. Defer out-of-scope items to future phases."

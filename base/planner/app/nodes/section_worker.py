@@ -34,11 +34,16 @@ logger = logging.getLogger("synesis.section_worker")
 _SECTION_SYSTEM = """\
 You are writing ONE section of a larger document. Focus deeply on this section only.
 
+WRITING STYLE:
+- Write in multi-paragraph narrative prose. Explain reasoning, tradeoffs, and context.
+- Bullet points are fine for lists of items, but each major point should be accompanied by explanatory prose that provides the "why" and "how."
+- Do NOT produce a wall of bullet points with no connecting narrative. Each section should read like a well-written technical document, not a slide deck.
+
 Rules:
 - Write this section as a standalone, substantial deliverable with real depth.
 - Do NOT summarize or reference other sections — the assembler handles coherence.
 - Use concrete examples, specific tools/versions, and actionable recommendations.
-- When uncertain, state assumptions explicitly.
+- When uncertain, state assumptions explicitly with [Assumption] labels.
 - Produce markdown. Use headings, lists, and code blocks as appropriate.
 - Be thorough but focused — depth over breadth for this one section.
 
@@ -49,6 +54,61 @@ TRUST POLICY (mandatory):
   Prefer higher-authority sources when they conflict with lower ones.
 - When source URLs are available, cite them in your response.
 """
+
+_SECTION_SPECIFIC_RULES: dict[str, str] = {
+    "failure": (
+        "FAILURE MODE RULES: Name at least 5 concrete, domain-specific failures "
+        "tied to the proposed architecture. For each failure: (1) what breaks, "
+        "(2) how you detect it early, (3) how you mitigate it. Generic failures "
+        "like 'system goes down' or 'model hallucinates' without domain specificity "
+        "do not count. Examples of good failures: 'stale Terraform module docs produce "
+        "invalid IaC recommendations', 'semantically similar but wrong internal runbook "
+        "is retrieved and cited as support.'"
+    ),
+    "decision": (
+        "DECISION POLICY RULES: Define explicit conditions for EACH of these four actions: "
+        "(1) answer directly, (2) ask a clarifying question, (3) refuse, (4) escalate to a human. "
+        "For each condition, state what observable signals it depends on — retrieval quality, "
+        "source agreement, permission checks, query ambiguity, risk level, validator outcomes. "
+        "Do NOT use naked numeric thresholds like '75% confidence.' Confidence must be decomposed "
+        "into the signals that produce it."
+    ),
+    "model": (
+        "MODEL/TIERING STRATEGY RULES: For each model tier or tool choice: (1) state what it handles "
+        "and why, (2) name one rejected alternative and why you rejected it, (3) explain when queries "
+        "escalate from this tier to the next. 'Different models for different areas' is not a strategy — "
+        "explain the routing logic and cost/latency/quality tradeoffs between tiers."
+    ),
+    "retrieval": (
+        "RETRIEVAL DESIGN RULES: For an engineering assistant, generic RAG is insufficient. Address: "
+        "(1) hybrid lexical + semantic retrieval and why both matter, (2) version/freshness policy "
+        "for rapidly changing docs, (3) code-aware retrieval by file/symbol/module vs prose retrieval, "
+        "(4) evidence thresholds — when to block an answer because retrieval is weak, "
+        "(5) citation expectations — how sources are surfaced to the user, "
+        "(6) conflict resolution when multiple sources disagree."
+    ),
+    "assumption": (
+        "EPISTEMIC STRUCTURE RULES: Use EXPLICIT headings: ## Facts, ## Assumptions, ## Recommendations. "
+        "Every claim must be categorized. Do not blend into undifferentiated proposal prose. "
+        "Facts are verifiable truths. Assumptions are inferences you are making. "
+        "Recommendations are your advised course of action. Flag uncertain claims with [Uncertain]."
+    ),
+    "confidence": (
+        "CONFIDENCE RULES: Do NOT state naked numeric thresholds (e.g., '75% confidence'). "
+        "Decompose confidence into the observable signals it derives from: retrieval coverage, "
+        "source agreement, permission checks, query ambiguity, risk classification, "
+        "validator/test outcomes. Explain how these signals combine to inform a decision."
+    ),
+}
+
+_SECTION_TRIGGER_KEYWORDS: dict[str, list[str]] = {
+    "failure": ["failure mode", "failure", "risk", "what could go wrong", "mitigation"],
+    "decision": ["decision policy", "when to answer", "when to refuse", "escalat", "clarif"],
+    "model": ["model choice", "model strateg", "tiering", "small vs large", "model selection"],
+    "retrieval": ["retrieval", "search", "rag", "knowledge base", "document retrieval"],
+    "assumption": ["assumption", "fact", "recommendation", "epistemic", "separate facts"],
+    "confidence": ["confidence", "threshold", "certainty", "evidence strength"],
+}
 
 
 def _build_section_rag_query(section_action: str, task_description: str) -> str:
@@ -138,7 +198,25 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
     outline_block = "\n".join(outline_lines)
 
     depth_instructions = taxonomy_metadata.get("depth_instructions", "")
-    persona = taxonomy_metadata.get("persona_instructions", "")
+    persona = taxonomy_metadata.get("worker_explain_tone", "")
+
+    # Build dynamic system prompt: base + taxonomy depth rules + section-specific rules
+    system_parts = [_SECTION_SYSTEM]
+    if persona:
+        system_parts.append(f"\nPERSONA:\n{persona}")
+    if depth_instructions:
+        system_parts.append(f"\nDEPTH RULES (mandatory):\n{depth_instructions}")
+
+    # Match section action against trigger keywords to inject section-specific rules
+    action_lower = section_action.lower()
+    matched_rules: list[str] = []
+    for rule_key, triggers in _SECTION_TRIGGER_KEYWORDS.items():
+        if any(t in action_lower for t in triggers):
+            matched_rules.append(_SECTION_SPECIFIC_RULES[rule_key])
+    if matched_rules:
+        system_parts.append("\nSECTION-SPECIFIC REQUIREMENTS:\n" + "\n\n".join(matched_rules))
+
+    full_system = "\n".join(system_parts)
 
     user_prompt = f"""## Task
 {task_description}
@@ -149,9 +227,7 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
 ## Your Section
 {section_action}
 
-Write this section now. Be thorough and specific — this is a deep analysis, not a summary.
-{f"Depth guidance: {depth_instructions}" if depth_instructions else ""}
-{f"Persona: {persona}" if persona else ""}
+Write this section now with multi-paragraph narrative depth. Explain the reasoning behind each choice, not just the choice itself. This is a deep analysis, not a summary or a slide deck.
 {rag_block}
 {web_block}"""
 
@@ -176,7 +252,7 @@ Write this section now. Be thorough and specific — this is a deep analysis, no
         )
 
         result = await llm.ainvoke([
-            SystemMessage(content=_SECTION_SYSTEM),
+            SystemMessage(content=full_system),
             HumanMessage(content=user_prompt),
         ])
         section_text = result.content.strip()

@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     depth_mode: Literal["auto", "always", "disabled"] = "auto"
     depth_mode_min_steps: int = 4  # minimum plan steps to justify fan-out overhead
     depth_mode_max_parallel: int = 4  # cap concurrent section workers (vLLM memory)
-    depth_mode_section_budget: int = 2048  # per-section token budget
+    depth_mode_section_budget: int = 3072  # per-section token budget (raised for narrative depth)
 
     # Graph behavior
     max_iterations: int = 3

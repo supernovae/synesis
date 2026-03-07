@@ -17,7 +17,8 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 | 2026-03-07b | BM25 classification + deep-dive prompt strengthening + format constraints pipeline | 4.5/10 | Correct classification (knowledge path), but brevity-encouraging pinned context caused regression from 5.5. |
 | 2026-03-07c | Knowledge path depth fix: depth-encouraging pinned context, prescriptive planner, per-section depth rules, temp 0.3, improved web search queries, curated RAG docs | 6.5-7/10 | Major jump. Better role separation, hybrid control patterns, more buildable. Still lacks epistemic structure, decision policy, and concrete failure modes. |
 | 2026-03-07d | Depth mode (parallel per-section generation), provenance/authority RAG, web search trust classification | 6.5-7/10 | Depth mode likely did NOT activate for benchmark — software_architecture domain detection required 2 keyword hits but prompt only matched 1 ("architecture"). Output was still monolithic. |
-| 2026-03-07e | Fix domain keywords (add "design", "propose", etc.), epistemic structure enforcement in taxonomy/worker/critic, anti-boilerplate steering, strengthened critic depth checks | TBD | Phase 1-6 of "Critic Teeth and Depth Fix" plan. Should trigger depth mode + per-section RAG + stronger critic enforcement. |
+| 2026-03-07e | Fix domain keywords, epistemic enforcement in taxonomy/worker/critic, anti-boilerplate steering | ~7/10 (structure 8, specificity 7, prompt compliance 5) | Depth mode activated (process diagrams visible). Private/public split, deterministic tooling, practical roadmap. Still missing epistemic structure, decision policy, concrete failure modes, retrieval realism. |
+| 2026-03-07f | Planner guarantees dedicated steps for decision policy/epistemic/failure modes; section-type-specific rules in section_worker; writer preserves epistemic labels; token budget increase (section 3072, writer 12288); narrative depth steering | TBD | Addressing prompt compliance gap: planner creates mandatory sections, section_worker injects domain-specific rules per section type, writer no longer compresses or adds boilerplate. |
 
 ---
 
@@ -89,7 +90,10 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 - **Prompt strengthening** (Phase 3): Added explicit anti-generic, timeline constraining, and uncertainty honesty rules to `_DEEP_DIVE_SUFFIX`.
 - **Format constraints pipeline** (Phase 1): Planner-captured format constraints now reach the worker as `## Response Constraints`.
 - **Compliance isolation** (Phase 6): Compliance terms removed from base vertical persona; injected only when user prompt contains trigger keywords.
-- **Token budget raised** (Phase 7): Floor raised from 2048 to 4096 for planned knowledge tasks to prevent truncation of later sections.
+- **Token budget raised** (Phase 7): Floor raised from 2048 to 4096 for planned knowledge tasks to prevent truncation of later sections. Depth mode section budget further raised to 3072 and writer budget to 12288 (2026-03-07f) for narrative depth.
+- **Depth mode** (2026-03-07d): Parallel per-section generation activated. Produces better role separation and deterministic tooling mentions, but sections still tend toward bullet-point lists rather than narrative prose.
+- **Section-type-specific rules** (2026-03-07f): Section worker now injects domain-specific requirements (failure mode concreteness, decision policy signal decomposition, retrieval design depth, confidence decomposition) based on section topic keywords.
+- **Narrative depth steering** (2026-03-07f): Section worker and writer now explicitly require multi-paragraph prose, not bullet-point summaries.
 - **LoRA candidate:** Worker LoRA is Priority 2. Training on (architecture prompt + planner outline + constraints → response with concrete choices, fact/assumption/recommendation separation, timeline-scoped recommendations) would address the remaining gaps.
 
 ---
