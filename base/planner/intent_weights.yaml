@@ -190,7 +190,11 @@ domain_keywords:
   software_architecture:
     domain: software_architecture
     min_hits: 2
-    keywords: ["architecture", "system design", "microservices", "monolith", "event-driven", "distributed system", "scalability", "high availability", "load balancing", "caching strategy", "api gateway", "design proposal", "design goals"]
+    # NOTE: "design" is the key addition — most architecture prompts say
+    # "design an X" or "propose a design" which, combined with "architecture",
+    # gives the 2 hits needed. If min_hits proves too strict for real-world
+    # prompts, consider lowering to 1 (architecture alone is a strong signal).
+    keywords: ["architecture", "design", "system design", "microservices", "monolith", "event-driven", "distributed system", "scalability", "high availability", "load balancing", "caching strategy", "api gateway", "design proposal", "design goals", "propose", "rollout plan", "phased rollout", "failure modes", "model strategy", "retrieval", "assistant"]
 
 pairings:
   - keywords: ["delete", "database"]
@@ -220,6 +224,14 @@ pairings:
   - keywords: ["learn", "code", "brief"]
     extra_weight: 15
     axis: complexity
+  - keywords: ["architecture", "design"]
+    extra_weight: 10
+    axis: complexity
+    domain: software_architecture
+  - keywords: ["architecture", "propose"]
+    extra_weight: 10
+    axis: complexity
+    domain: software_architecture
   - keywords: ["microservices", "deploy"]
     extra_weight: 15
     axis: complexity

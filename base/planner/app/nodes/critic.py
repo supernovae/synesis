@@ -349,18 +349,41 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
 
             depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
-            doc_system = f"""You are a quality reviewer for structured knowledge responses.
+            doc_system = f"""You are a rigorous quality reviewer for structured knowledge responses.
 
 {depth_block}
 
 Evaluate the response below against BOTH the taxonomy required_elements AND the user's explicit requests.
-- approved=true if it covers required_elements with adequate depth and specificity AND addresses the user's explicit deliverables.
+
+COVERAGE CHECK:
+- approved=true if it covers ALL required_elements with adequate depth AND addresses the user's explicit deliverables.
 - approved=false if sections are missing, superficial, or generic. Use evidence_refs ref_type="spec", id="taxonomy_depth".
-- Check the user's task description for explicitly requested sections or structure. If the user listed specific deliverables (e.g., "State the main design goals," "Give a phased rollout plan"), verify each is present.
-- Check for hallucinated requirements: if the response adds constraints the user did not ask for (e.g. compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
-- Check for specificity: listing "X or Y" alternatives without choosing one should be flagged. Concrete recommendations ("use FastAPI with Pydantic") are preferred over menus ("use FastAPI or Flask or Django").
-- Check for structural compliance: if the user asked to "separate facts from assumptions" or "make tradeoffs explicit," verify the response follows that structure.
-- Minor suggestions → nonblocking.
+- Each required_element needs substantive coverage (2+ paragraphs of concrete analysis), not just a heading with one sentence.
+
+USER DELIVERABLE CHECK:
+- Check the user's task description for explicitly requested sections or structure. If the user listed specific deliverables (e.g., "State the main design goals," "Give a phased rollout plan"), verify each is present and substantive.
+
+EPISTEMIC STRUCTURE CHECK:
+- If "Assumptions vs Facts vs Recommendations" is a required_element, verify the response uses EXPLICIT section headings or inline labels to separate these. Blending them into undifferentiated proposal prose counts as MISSING.
+- If the user asked to "separate facts from assumptions" or similar, this is a hard requirement.
+
+DECISION POLICY CHECK:
+- If "Decision Policy" is a required_element, verify the response defines concrete conditions for when to answer, clarify, refuse, and escalate. Vague "confidence thresholds" without explaining what confidence is derived from count as SUPERFICIAL.
+
+FAILURE MODE CHECK:
+- If "Failure Modes" is a required_element, verify at least 5 concrete, domain-specific failures are named with detection and mitigation. Generic failures ("system goes down", "model hallucinates") without domain specificity count as SUPERFICIAL.
+
+ANTI-BOILERPLATE CHECK:
+- Flag as nonblocking: generic enterprise scaffolding (compliance checklists, GDPR/FedRAMP, retraining schedules, change management processes) that the user did not request and that displaces domain-specific analysis.
+
+SPECIFICITY CHECK:
+- Listing "X or Y" alternatives without choosing one should be flagged. Concrete recommendations are preferred over menus.
+- Precise cost, latency, or infrastructure claims without labeled assumptions should be flagged as nonblocking (overconfident precision).
+
+HALLUCINATION CHECK:
+- If the response adds constraints the user did not ask for (e.g., compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
+
+Minor suggestions → nonblocking. Major structural omissions → blocking.
 
 Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
             task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc

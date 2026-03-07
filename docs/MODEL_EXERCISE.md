@@ -15,7 +15,9 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 | 2026-03-06 | Pre-BM25, code path, no deep-dive steering | 4/10 | Baseline. Classified as code task; produced JSON patch ops. |
 | 2026-03-07a | Pre-BM25, code path, domain disambiguation | 5.5/10 | Better structure but still generic; model listed alternatives without choosing. |
 | 2026-03-07b | BM25 classification + deep-dive prompt strengthening + format constraints pipeline | 4.5/10 | Correct classification (knowledge path), but brevity-encouraging pinned context caused regression from 5.5. |
-| 2026-03-07c | Knowledge path depth fix: depth-encouraging pinned context, prescriptive planner, per-section depth rules, temp 0.3, improved web search queries, curated RAG docs | TBD | Strategies 1-3 of "Fix Knowledge Path Regression" plan. |
+| 2026-03-07c | Knowledge path depth fix: depth-encouraging pinned context, prescriptive planner, per-section depth rules, temp 0.3, improved web search queries, curated RAG docs | 6.5-7/10 | Major jump. Better role separation, hybrid control patterns, more buildable. Still lacks epistemic structure, decision policy, and concrete failure modes. |
+| 2026-03-07d | Depth mode (parallel per-section generation), provenance/authority RAG, web search trust classification | 6.5-7/10 | Depth mode likely did NOT activate for benchmark — software_architecture domain detection required 2 keyword hits but prompt only matched 1 ("architecture"). Output was still monolithic. |
+| 2026-03-07e | Fix domain keywords (add "design", "propose", etc.), epistemic structure enforcement in taxonomy/worker/critic, anti-boilerplate steering, strengthened critic depth checks | TBD | Phase 1-6 of "Critic Teeth and Depth Fix" plan. Should trigger depth mode + per-section RAG + stronger critic enforcement. |
 
 ---
 
@@ -110,6 +112,28 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 - **Critic prompt** already includes specificity and structural compliance checks (taxonomy depth review). The issue is model capability at 8B scale.
 - **LoRA candidate:** Critic LoRA is Priority 3. Training on (weak response + user constraints → blocking_issues with specific citations) would improve rejection of generic content.
+
+---
+
+## Entry Classifier / Domain Detection (BM25 + Keyword Axes)
+
+**Role:** Classify task complexity, risk, intent, and domain via keyword matching and BM25 scoring.
+
+### Observed limitations
+
+1. **Domain keyword threshold too strict.** `software_architecture` required `min_hits: 2` from a narrow keyword list. The benchmark prompt said "architecture" (1 hit) but used "design" which wasn't in the list. This caused the domain to not activate, bypassing the entire depth mode pipeline, `_DEEP_DIVE_SUFFIX` instructions, and taxonomy-specific persona/instructions.
+
+2. **Single-word keywords vs. multi-word phrases.** Keywords like "system design" (2 words) require exact phrase match. A prompt saying "design a system" would not match "system design". This is a BM25 tokenization limitation.
+
+3. **No semantic fallback.** The entry classifier is purely lexical. A prompt about "building an AI platform" is semantically close to software_architecture but may not hit any domain keywords if the user avoids the exact words in the list.
+
+### Mitigation status
+
+- **Keyword expansion** (Phase 1, 2026-03-07e): Added "design", "propose", "rollout plan", "failure modes", "model strategy", "retrieval", "assistant" to `software_architecture` keywords. Also added pairings for ("architecture" + "design") and ("architecture" + "propose") to boost complexity score.
+- **Future fine-tuning notes:** If keyword expansion proves insufficient, consider:
+  - Lowering `min_hits` to 1 for high-signal domains (architecture alone is a strong enough signal)
+  - Adding a lightweight embedding similarity check as a fallback when keyword matches are 0-1
+  - LoRA-trained classifier that maps prompts to domains directly (would replace the keyword axis entirely)
 
 ---
 
