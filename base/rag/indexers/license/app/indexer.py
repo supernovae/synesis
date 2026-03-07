@@ -178,14 +178,15 @@ def index_licenses(
             logger.warning(f"License '{filter_license}' not found in SPDX data")
             return
 
-    # --- Build raw entities (cid, text, source, tags) ---
-    raw_entities: list[tuple[str, str, str, str]] = []
+    # --- Build raw entities (cid, text, source, tags, source_url) ---
+    raw_entities: list[tuple[str, str, str, str, str]] = []
     skipped = 0
 
     for spdx_id, spdx_lic in spdx_map.items():
         fedora = fedora_map.get(spdx_id)
         choose = choose_map.get(spdx_id)
         copyleft_level = copyleft_map.get(spdx_id, "unknown")
+        ref_url = spdx_lic.reference_url or ""
         tags = _tags_for_license(
             spdx_id,
             spdx_lic.name,
@@ -199,7 +200,7 @@ def index_licenses(
         cid = chunk_id_hash(summary, f"license:{spdx_id}:summary")
 
         if cid not in existing_ids:
-            raw_entities.append((cid, summary[:8192], f"license:{spdx_id}"[:512], tags))
+            raw_entities.append((cid, summary[:8192], f"license:{spdx_id}"[:512], tags, ref_url))
         else:
             skipped += 1
 
@@ -218,6 +219,7 @@ def index_licenses(
                         chunk_text[:8192],
                         f"license:{spdx_id}:fulltext:{i}"[:512],
                         ft_tags[:512],
+                        ref_url,
                     )
                 )
 
@@ -228,7 +230,7 @@ def index_licenses(
 
     # --- Compatibility rules ---
     compat_rules = load_compatibility_rules(compat_path)
-    compat_raw: list[tuple[str, str, str, str]] = []
+    compat_raw: list[tuple[str, str, str, str, str]] = []
 
     for rule in compat_rules:
         text = (
@@ -240,7 +242,7 @@ def index_licenses(
         if cid in existing_ids:
             continue
         tags = f"compat {rule.from_license}->{rule.to_license}"
-        compat_raw.append((cid, text[:8192], f"compat:{rule.from_license}->{rule.to_license}"[:512], tags[:512]))
+        compat_raw.append((cid, text[:8192], f"compat:{rule.from_license}->{rule.to_license}"[:512], tags[:512], ""))
 
     progress.log_source("Compatibility rules", len(compat_raw))
 
@@ -253,7 +255,7 @@ def index_licenses(
     texts = [e[1] for e in all_raw]
     embeddings = embedder.embed_texts(texts)
     catalog_entities = []
-    for (cid, text, source, tags), emb in zip(all_raw, embeddings):
+    for (cid, text, source, tags, src_url), emb in zip(all_raw, embeddings):
         catalog_entities.append(
             catalog_entity(
                 chunk_id=cid,
@@ -266,6 +268,7 @@ def index_licenses(
                 tags=tags,
                 origin_type="curated",
                 authority="canonical",
+                source_url=src_url,
             )
         )
 

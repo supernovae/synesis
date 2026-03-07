@@ -129,6 +129,7 @@ def index_document(
                 tags=tags_str[:512],
                 origin_type="curated",
                 authority="vetted",
+                source_url=url,
             )
         )
 

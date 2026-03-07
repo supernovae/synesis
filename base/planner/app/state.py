@@ -156,6 +156,7 @@ class GraphState(TypedDict, total=False):
     context_cache: dict[str, str]  # content_hash -> text
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
     rag_authority_labels: list[str]  # parallel to rag_context/rag_context_refs: authority tier per chunk
+    rag_source_urls: list[str]  # parallel to rag_context/rag_context_refs: source URL per chunk
     direct_stream_request: dict[str, Any] | None  # deferred LLM call when not is_code_task (bypasses langchain)
 
 
@@ -212,6 +213,7 @@ class RetrievalResult(BaseModel):
     authority: str = ""
     indexer_source: str = ""
     domain: str = ""
+    source_url: str = ""
 
 
 class RetrievalParams(BaseModel):
@@ -285,6 +287,7 @@ class SynesisState(BaseModel):
     context_cache: dict[str, str] = Field(default_factory=dict)
     rag_context_refs: list[str] = Field(default_factory=list)
     rag_authority_labels: list[str] = Field(default_factory=list)
+    rag_source_urls: list[str] = Field(default_factory=list)
     rag_collections_queried: list[str] = Field(default_factory=list)
     # Federated RAG / Strategic Advisor (platform-aware SOP routing)
     platform_context: str = ""  # Domain from fast LLM classifier (openshift, kubernetes, generic, etc.)

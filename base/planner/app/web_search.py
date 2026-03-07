@@ -61,6 +61,9 @@ class SearchResult:
     score: float = 0.0
     relevance: float = 0.0
     fetched_content: str = ""
+    authority: str = "external"
+    origin_type: str = "external"
+    is_trusted: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -363,12 +366,31 @@ def _sanitize_search_result(result: SearchResult) -> SearchResult:
     return result
 
 
+def classify_results_by_trust(results: list[SearchResult]) -> list[SearchResult]:
+    """Tag each result with authority/origin_type/is_trusted based on engine_authority_map.
+
+    Engines present in the map are treated as trusted internal sources.
+    Unmapped engines default to external/untrusted.
+    """
+    engine_map = settings.engine_authority_map
+    if not engine_map:
+        return results
+    for r in results:
+        entry = engine_map.get(r.engine)
+        if entry:
+            r.authority = entry.get("authority", "canonical")
+            r.origin_type = entry.get("origin_type", "internal")
+            r.is_trusted = True
+    return results
+
+
 def format_search_results(results: list[SearchResult]) -> list[str]:
     """Format search results as readable strings with injection scanning.
 
     Sanitizes each result via the extended web scanner before formatting.
     Prefers fetched_content (full page text) over snippet when available.
-    Applies [W] datamarking prefix per Spotlighting (arxiv 2403.14720).
+    Trusted results get [R:authority] prefix; untrusted get [W] prefix
+    per Spotlighting (arxiv 2403.14720).
     """
     formatted = []
     for r in results:
@@ -376,10 +398,11 @@ def format_search_results(results: list[SearchResult]) -> list[str]:
         body = r.fetched_content.strip() if r.fetched_content else ""
         if not body:
             body = r.snippet[:300].replace("\n", " ").strip()
+        prefix = f"[R:{r.authority}]" if r.is_trusted else "[W]"
         if body:
-            formatted.append(f"[W] [{r.title}]({r.url}): {body}")
+            formatted.append(f"{prefix} [{r.title}]({r.url}): {body}")
         else:
-            formatted.append(f"[W] [{r.title}]({r.url})")
+            formatted.append(f"{prefix} [{r.title}]({r.url})")
     return formatted
 
 
@@ -425,11 +448,11 @@ async def search_and_process(
     fetch_pages: bool = True,
     min_relevance: float = 0.5,
 ) -> list[SearchResult]:
-    """Full CRAG-inspired pipeline: search → fetch → rank → filter → deduplicate.
+    """Full CRAG-inspired pipeline: search → fetch → rank → filter → classify trust.
 
     Returns relevance-ranked, deduplicated SearchResults with fetched content
-    where available. This is the recommended entry point for nodes that want
-    enriched web context.
+    where available, tagged with authority/trust from engine_authority_map.
+    This is the recommended entry point for nodes that want enriched web context.
     """
     raw = await search_client.search(query, profile=profile)
     if not raw:
@@ -438,7 +461,8 @@ async def search_and_process(
     if fetch_pages and profile == "web":
         raw = await fetch_page_contents(raw)
 
-    return score_and_filter(query, raw, min_relevance=min_relevance)
+    filtered = score_and_filter(query, raw, min_relevance=min_relevance)
+    return classify_results_by_trust(filtered)
 
 
 search_client = WebSearchClient(

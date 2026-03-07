@@ -218,6 +218,7 @@ def index_language(
             embeddings = embedder.embed_texts(texts)
             catalog_entities = []
             for (cid, text, source, tags), emb in zip(code_entities, embeddings):
+                gh_url = f"https://github.com/{repo_name}"
                 catalog_entities.append(
                     catalog_entity(
                         chunk_id=cid,
@@ -230,6 +231,7 @@ def index_language(
                         tags=tags[:512],
                         origin_type="external",
                         authority="external",
+                        source_url=gh_url,
                     )
                 )
             count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
@@ -266,6 +268,7 @@ def index_language(
                             tags=tags[:512],
                             origin_type="external",
                             authority="external",
+                            source_url=f"https://github.com/{repo_name}",
                         )
                     )
                 count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)

@@ -723,13 +723,14 @@ only affects ranking precedence and the signal given to the LLM.
 
 | Indexer | `origin_type` | `authority` | Rationale |
 |---|---|---|---|
-| `knowledge-base` | `internal` | `vetted` | Curated team knowledge |
+| `knowledge-base` | `internal` | `canonical` | Org-approved internal ADRs and decisions |
 | `architecture` | `curated` | `vetted` | Selected whitepapers/design docs |
 | `domain` (official docs) | `curated` | `community` | Official project docs (OpenShift, etc.) |
 | `code` (internal repos) | `internal` | `vetted` | Team's own code |
 | `code` (external repos) | `external` | `external` | External GitHub repos |
 | `apispec` | `curated` | `community` | API specs from known services |
 | `license` | `curated` | `canonical` | SPDX/legal standards |
+| `web-docs` (internal) | per-source | per-source | Crawl4AI-based batch crawler; authority set in `sources.yaml` |
 
 ### Authority-Weighted Re-Ranking
 
@@ -763,12 +764,67 @@ The TRUST POLICY in every system prompt (Worker, Planner, Critic, Router)
 instructs the model to prefer higher-authority sources when they conflict with
 lower-authority ones, while still treating all RAG content as reference only.
 
+### Source URL and Citation Flow
+
+Every chunk in Milvus carries a `source_url` field (VARCHAR, 512 chars) populated
+at index time. The field propagates through the full retrieval pipeline:
+
+1. **Indexer** -- sets `source_url` per chunk (e.g., GitHub raw URL, SPDX reference,
+   crawled page URL). Internal file-only content uses empty string.
+2. **rag_client** -- `_CachedChunk` stores `source_url`; BM25, vector, and RRF
+   merge all propagate it. `RetrievalResult.source_url` carries it to consumers.
+3. **context_curator** -- builds a parallel `rag_source_urls` list aligned with
+   `rag_context` chunks.
+4. **worker** -- `_build_context_block()` appends `(source: <url>)` to each chunk
+   that has a URL, producing citable RAG context.
+
+Citation guidance in the Worker TRUST POLICY: "When source_url is available,
+cite it in your response. Prefer internal/canonical sources over external."
+
+### Web-Docs Batch Crawler
+
+The `web-docs` indexer uses **Crawl4AI** (Apache-2.0 license) for batch crawling
+trusted URLs into the RAG corpus. Configuration lives in
+`base/rag/indexers/web-docs/sources.yaml`:
+
+```yaml
+sites:
+  - name: internal-wiki
+    url: https://wiki.internal.example.com/engineering
+    authority: canonical
+    origin_type: internal
+    follow_links: true
+    tags: [wiki, engineering]
+```
+
+Each site specifies its own `authority` and `origin_type`, so a single crawl
+run can ingest both canonical internal wikis and vetted external documentation.
+The crawler converts HTML to Markdown, chunks by heading, embeds via the shared
+embedding service, and upserts to Milvus with full provenance metadata.
+
+### SearchProvider Protocol
+
+Web search is abstracted behind a `SearchProvider` protocol
+(`base/planner/app/search_provider.py`). The current implementation wraps
+SearXNG (AGPL-3.0, consumed as a separate container -- not bundled).
+
+The `engine_authority_map` in `config.py` lets SearXNG engines (including
+internal Elasticsearch, Solr, MeiliSearch connectors) be tagged with trust
+tiers. Results from mapped engines are flagged as trusted internal sources
+with the configured authority/origin_type. Unmapped engines default to
+`authority=external, origin_type=external`.
+
+This abstraction layer ensures SearXNG can be replaced with a permissively-
+licensed alternative without touching downstream code (worker, context_curator,
+etc.).
+
 ### Schema Migration
 
-The `origin_type` and `authority` fields are VARCHAR fields added to the Milvus
-`synesis_catalog` collection. Existing chunks without these fields receive empty
-strings, which map to `1.0x` boost (baseline behavior). No re-indexing is
-required immediately -- populate the fields at convenience by re-running indexers.
+The `origin_type`, `authority`, and `source_url` fields are VARCHAR fields added
+to the Milvus `synesis_catalog` collection. Existing chunks without these fields
+receive empty strings, which map to `1.0x` boost and no citation (baseline
+behavior). No re-indexing is required immediately -- populate the fields at
+convenience by re-running indexers.
 
 ### Research References (Provenance)
 
@@ -780,6 +836,7 @@ required immediately -- populate the fields at convenience by re-running indexer
 | Engineering the RAG Stack ([arxiv 2601.05264](https://arxiv.org/abs/2601.05264)) | Provenance tracking as foundational | `origin_type` + `authority` in Milvus schema |
 | TrustRAG ([arxiv 2501.00879](https://arxiv.org/abs/2501.00879)) | Clustering-based corpus poisoning defense | Informs RAG scanning strategy |
 | Milvus Boost Ranker ([docs](https://milvus.io/docs/boost-ranker.md), v2.6.2+) | Native metadata-driven ranking | Future: replace application-level boost with native Milvus ranker |
+| Crawl4AI ([github](https://github.com/unclecode/crawl4ai), Apache-2.0) | LLM-optimized async web crawler with markdown output, proxy/auth/cache | Web-docs batch indexer for trusted URL ingestion |
 
 ## See Also
 

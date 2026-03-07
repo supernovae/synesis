@@ -161,7 +161,7 @@ class Settings(BaseSettings):
     # When "large", taxonomy prompt shaping is disabled — the model handles tone/depth natively.
     model_capability_tier: Literal["small", "medium", "large"] = "small"
 
-    # Web search (SearXNG)
+    # Web search (SearXNG behind SearchProvider protocol)
     web_search_enabled: bool = True
     web_search_url: str = "http://searxng.synesis-search.svc.cluster.local:8080"
     web_search_timeout_seconds: int = 5
@@ -169,6 +169,13 @@ class Settings(BaseSettings):
     web_search_supervisor_enabled: bool = True
     web_search_worker_error_enabled: bool = True
     web_search_critic_enabled: bool = False
+
+    # Engine-to-authority map: SearXNG engine names -> trust tiers.
+    # Results from mapped engines are treated as trusted internal sources
+    # with the specified authority/origin_type. Unmapped engines default
+    # to authority=external, origin_type=external (untrusted web).
+    # Format: JSON dict, e.g. '{"internal-wiki": {"authority": "canonical", "origin_type": "internal"}}'
+    engine_authority_map: dict[str, dict[str, str]] = Field(default_factory=dict)
 
     # LSP deep analysis
     lsp_enabled: bool = True

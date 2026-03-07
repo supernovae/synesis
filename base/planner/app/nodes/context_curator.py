@@ -856,7 +856,8 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     min_score = getattr(settings, "curator_min_rerank_score", 0.6) or 0.0
     sanitization_actions: list[SanitizationAction] = []
 
-    # Build candidates and apply injection scan
+    # Build candidates and apply injection scan; track source_url for citation
+    _text_to_source_url: dict[str, str] = {}
     candidates: list[ContextChunk] = []
     for i, r in enumerate(rag_results):
         text = getattr(r, "text", str(r)) if hasattr(r, "text") else str(r)
@@ -865,6 +866,9 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         doc_id = getattr(r, "source", f"rag_{i}")
         authority = getattr(r, "authority", "") or ""
         origin_type = getattr(r, "origin_type", "") or ""
+        source_url = getattr(r, "source_url", "") or ""
+        if source_url:
+            _text_to_source_url[_hash_chunk(text)] = source_url
         if settings.injection_scan_enabled and text:
             scan = scan_text(text, source=f"rag_{doc_id}")
             if scan.detected:
@@ -1103,8 +1107,9 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     rag_context_refs: list[str] = []
     context_cache: dict[str, str] = dict(state.get("context_cache") or {})
 
-    # Parallel authority labels for provenance-aware datamarking in worker
+    # Parallel authority labels and source URLs for provenance-aware datamarking in worker
     rag_authority_labels: list[str] = []
+    rag_source_urls: list[str] = []
 
     if getattr(settings, "context_refs_enabled", True):
         for c in retrieved:
@@ -1114,12 +1119,28 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             om = c.origin_metadata
             authority = (om.source_label.split(":")[-1] if om and ":" in om.source_label else "") if om else ""
             rag_authority_labels.append(authority)
+            rag_source_urls.append(_text_to_source_url.get(h, ""))
     else:
         for c in retrieved:
+            h = _hash_chunk(c.text)
             rag_context.append(c.text)
             om = c.origin_metadata
             authority = (om.source_label.split(":")[-1] if om and ":" in om.source_label else "") if om else ""
             rag_authority_labels.append(authority)
+            rag_source_urls.append(_text_to_source_url.get(h, ""))
+
+    auth_dist: dict[str, int] = {}
+    for lbl in rag_authority_labels:
+        auth_dist[lbl or "unknown"] = auth_dist.get(lbl or "unknown", 0) + 1
+    cited = sum(1 for u in rag_source_urls if u)
+    logger.info(
+        "context_curator_provenance",
+        extra={
+            "authority_distribution": auth_dist,
+            "citable_chunks": cited,
+            "total_chunks": len(rag_authority_labels),
+        },
+    )
 
     # Ensure task_description reaches Worker (fixes empty task when main receives transformed request)
     # On revision path (sandbox→curator→worker), preserve iteration_count, execution_result,
@@ -1130,6 +1151,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "rag_context": rag_context,
         "rag_context_refs": rag_context_refs,
         "rag_authority_labels": rag_authority_labels,
+        "rag_source_urls": rag_source_urls,
         "context_cache": context_cache,
         "web_search_results": web_search_results,
         "web_search_status": web_search_status,

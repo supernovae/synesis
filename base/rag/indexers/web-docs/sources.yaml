@@ -1,0 +1,25 @@
+# Web-docs crawler: trusted URL allowlist for Crawl4AI batch indexing.
+#
+# Each site specifies its authority tier and origin type. The crawler
+# fetches, converts to Markdown, chunks, embeds, and upserts to Milvus.
+#
+# authority: canonical | vetted | community | external
+# origin_type: internal | curated | external
+# follow_links: if true, crawl depth-1 same-domain links from seed URL
+
+sites:
+  # Example: internal wiki (uncomment and configure for your environment)
+  # - name: "Internal Architecture Decisions"
+  #   url: "https://wiki.internal.example.com/engineering/adrs"
+  #   authority: canonical
+  #   origin_type: internal
+  #   follow_links: true
+  #   tags: [adr, architecture, internal]
+
+  # Example: external curated documentation
+  # - name: "Kubernetes Concepts"
+  #   url: "https://kubernetes.io/docs/concepts/"
+  #   authority: community
+  #   origin_type: external
+  #   follow_links: false
+  #   tags: [kubernetes, docs]

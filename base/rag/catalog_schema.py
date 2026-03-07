@@ -41,6 +41,8 @@ CATALOG_FIELDS = [
     FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
     # Authority tier: "canonical" | "vetted" | "community" | "external"
     FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32),
+    # Source URL for citation (empty for local-file-only content)
+    FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
 ]
 
 
@@ -106,6 +108,7 @@ def catalog_entity(
     tags: str = "",
     origin_type: str = "",
     authority: str = "",
+    source_url: str = "",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. All required fields + optional metadata."""
     return {
@@ -122,4 +125,5 @@ def catalog_entity(
         "tags": (tags or "")[:512],
         "origin_type": (origin_type or "")[:32],
         "authority": (authority or "")[:32],
+        "source_url": (source_url or "")[:512],
     }

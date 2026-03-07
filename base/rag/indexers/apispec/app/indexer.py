@@ -103,6 +103,7 @@ def index_spec(
                 document_name=name[:256],
                 origin_type="curated",
                 authority="community",
+                source_url=url,
             )
         )
 

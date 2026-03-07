@@ -121,7 +121,7 @@ def index_directory(
                 document_name=doc_name[:256],
                 tags=tags_str[:512],
                 origin_type="internal",
-                authority="vetted",
+                authority="canonical",
             )
         )
 

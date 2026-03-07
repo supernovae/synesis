@@ -113,6 +113,7 @@ class _CachedChunk:
     authority: str = ""
     indexer_source: str = ""
     domain: str = ""
+    source_url: str = ""
 
 
 class BM25Index:
@@ -156,6 +157,7 @@ class BM25Index:
                     output_fields=[
                         "chunk_id", "text", "source",
                         "origin_type", "authority", "indexer_source", "domain",
+                        "source_url",
                     ],
                     limit=1000,
                     offset=offset,
@@ -190,6 +192,7 @@ class BM25Index:
                             authority=row.get("authority", ""),
                             indexer_source=row.get("indexer_source", ""),
                             domain=row.get("domain", ""),
+                            source_url=row.get("source_url", ""),
                         )
                     )
                 if len(results) < batch_size:
@@ -248,6 +251,7 @@ class BM25Index:
                     "authority": chunk.authority,
                     "indexer_source": chunk.indexer_source,
                     "domain": chunk.domain,
+                    "source_url": chunk.source_url,
                 }
             )
 
@@ -430,6 +434,7 @@ async def _vector_search(
         "output_fields": [
             "text", "source", "chunk_id",
             "origin_type", "authority", "indexer_source", "domain",
+            "source_url",
         ],
     }
     if filter_expr:
@@ -466,6 +471,7 @@ async def _vector_search(
                     "authority": entity.get("authority", ""),
                     "indexer_source": entity.get("indexer_source", ""),
                     "domain": entity.get("domain", ""),
+                    "source_url": entity.get("source_url", ""),
                 }
             )
 
@@ -501,7 +507,7 @@ def _reciprocal_rank_fusion(
 
     RRF score = sum(1 / (k + rank_i)) across retrievers.
     """
-    _PROVENANCE_KEYS = ("origin_type", "authority", "indexer_source", "domain")
+    _PROVENANCE_KEYS = ("origin_type", "authority", "indexer_source", "domain", "source_url")
 
     doc_map: dict[str, dict[str, Any]] = {}
 
@@ -767,11 +773,20 @@ async def retrieve_context(
             authority=doc.get("authority", ""),
             indexer_source=doc.get("indexer_source", ""),
             domain=doc.get("domain", ""),
+            source_url=doc.get("source_url", ""),
         )
         for doc in all_merged
     ]
 
     effective_strategy = "bm25" if fallback_to_bm25 else strategy
+
+    authority_dist: dict[str, int] = {}
+    cited_count = 0
+    for r in results:
+        authority_dist[r.authority or "unknown"] = authority_dist.get(r.authority or "unknown", 0) + 1
+        if r.source_url:
+            cited_count += 1
+
     logger.info(
         "rag_retrieval",
         extra={
@@ -782,6 +797,22 @@ async def retrieve_context(
             "results_returned": len(results),
             "fallback_to_bm25": fallback_to_bm25,
             "top_score": results[0].rerank_score or results[0].rrf_score if results else 0.0,
+            "authority_distribution": authority_dist,
+            "citable_chunks": cited_count,
+        },
+    )
+    logger.debug(
+        "rag_provenance_detail",
+        extra={
+            "chunks": [
+                {
+                    "source": r.source[:60],
+                    "authority": r.authority,
+                    "origin_type": r.origin_type,
+                    "has_url": bool(r.source_url),
+                }
+                for r in results[:10]
+            ],
         },
     )
 

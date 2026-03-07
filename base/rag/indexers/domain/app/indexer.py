@@ -46,6 +46,7 @@ def index_repo(
     repo = repo_cfg.get("repo", "")
     path = repo_cfg.get("path", "")
     branch = repo_cfg.get("branch", "main")
+    github_base = f"https://github.com/{repo}/blob/{branch}"
     collection = repo_cfg.get("collection", "domain_openshift")
     tags = repo_cfg.get("tags", [])
     domain = _domain_from_collection(collection)
@@ -70,14 +71,15 @@ def index_repo(
     ensure_synesis_catalog()
     existing_ids = writer.existing_chunk_ids(SYNESIS_CATALOG) if skip_existing else set()
 
-    chunks_to_embed: list[tuple[str, str, str, str, str, str]] = []
+    chunks_to_embed: list[tuple[str, str, str, str, str, str, str]] = []
     for mf in files:
         doc_name = f"{repo}:{mf.path}"
+        file_url = f"{github_base}/{mf.path}"
         for chunk in parse_markdown(mf.content, doc_name, tags):
             cid = chunk_id_hash(chunk.text, f"{doc_name}:{chunk.section}")
             if cid in existing_ids:
                 continue
-            chunks_to_embed.append((cid, chunk.text, doc_name, chunk.section, ",".join(chunk.tags), domain))
+            chunks_to_embed.append((cid, chunk.text, doc_name, chunk.section, ",".join(chunk.tags), domain, file_url))
 
     if not chunks_to_embed:
         progress.log_source(repo, 0)
@@ -86,7 +88,7 @@ def index_repo(
     texts = [c[1] for c in chunks_to_embed]
     embeddings = embedder.embed_texts(texts)
     all_entities = []
-    for (cid, text, doc_name, section, tags_str, _domain), emb in zip(chunks_to_embed, embeddings):
+    for (cid, text, doc_name, section, tags_str, _domain, _url), emb in zip(chunks_to_embed, embeddings):
         all_entities.append(
             catalog_entity(
                 chunk_id=cid,
@@ -101,6 +103,7 @@ def index_repo(
                 tags=tags_str[:512],
                 origin_type="curated",
                 authority="community",
+                source_url=_url,
             )
         )
 
