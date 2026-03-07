@@ -1,7 +1,7 @@
-# Synesis Unified Model Pipeline — download any model to a per-role PVC.
+# Synesis Unified Model Pipeline — download any model to the shared EFS volume.
 #
-# Single parameterized pipeline replaces manager_modelcar_pipeline.py and
-# executor_pipeline.py. All parameters come from models.yaml via the run script.
+# Single parameterized pipeline. All parameters come from models.yaml via the
+# run script. Each role gets its own subpath on the shared synesis-models-efs PVC.
 #
 # Parameters: model_repo, pvc_name, pvc_subpath
 # Steps: cleanup → download (same proven pattern as prior pipelines)
@@ -97,7 +97,7 @@ def _patch_yaml_deps(path: str) -> None:
 )
 def model_download_pipeline(
     model_repo: str = "RedHatAI/Qwen3-8B-FP8-dynamic",
-    pvc_name: str = "synesis-router-pvc",
+    pvc_name: str = "synesis-models-efs",
     pvc_subpath: str = "router-model",
 ):
     cleanup_task = cleanup_pvc(pvc_subpath=pvc_subpath)

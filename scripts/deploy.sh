@@ -304,41 +304,25 @@ apply_manifests() {
 migrate_stale_selectors
 
 # -----------------------------------------------------------------------
-# Ensure model PVCs exist — reads per-role PVC names from models.yaml.
-# Bootstrap creates these; deploy creates them if missing so model pods can schedule.
+# Ensure shared EFS PVC exists for model weights.
 # -----------------------------------------------------------------------
-ensure_model_pvcs() {
+ensure_model_pvc() {
     oc create namespace synesis-models 2>/dev/null || true
 
-    if [[ -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" ]]; then
-        oc apply -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" 2>/dev/null || true
-    fi
-
-    # Read PVC names from models.yaml (source of truth)
-    local pvcs
-    pvcs=$("$PYTHON" -c "
-import yaml, sys
-with open('$PROJECT_ROOT/models.yaml') as f:
-    cfg = yaml.safe_load(f)
-for role, rdef in cfg.get('roles', {}).items():
-    pvc = rdef.get('pvc_name', '')
-    if pvc:
-        print(pvc)
-" 2>/dev/null || echo "synesis-router-pvc synesis-critic-pvc synesis-coder-pvc synesis-general-pvc")
-
-    for pvc in $pvcs; do
-        if ! oc get pvc "$pvc" -n synesis-models &>/dev/null; then
-            local manifest="$PROJECT_ROOT/pipelines/manifests/${pvc}.yaml"
-            if [[ -f "$manifest" ]]; then
-                log "Creating $pvc from manifest"
-                sed "s/NAMESPACE/synesis-models/" "$manifest" | oc apply -f - || true
-            else
-                log "WARNING: PVC manifest not found: $manifest"
-            fi
+    local pvc="synesis-models-efs"
+    if oc get pvc "$pvc" -n synesis-models &>/dev/null; then
+        log "PVC $pvc exists"
+    else
+        local manifest="$PROJECT_ROOT/pipelines/manifests/synesis-models-efs-pvc.yaml"
+        if [[ -f "$manifest" ]]; then
+            log "Creating $pvc PVC (requires efs-sc StorageClass from Terraform)..."
+            oc apply -f "$manifest" || true
+        else
+            log "WARNING: PVC manifest not found: $manifest"
         fi
-    done
+    fi
 }
-ensure_model_pvcs
+ensure_model_pvc
 
 log ""
 log "Applying manifests to cluster..."
@@ -424,9 +408,9 @@ else
         if [[ -n "$pending" ]]; then
             log ""
             log "  WARNING: Model pods Pending. Common causes:"
-            log "    - No PVC: oc get pvc -n synesis-models (need synesis-router-pvc, synesis-critic-pvc, synesis-coder-pvc)"
-            log "    - PVC not bound: check StorageClass gp3-high exists"
-            log "    - No GPU nodes: oc get nodes -l nvidia.com/gpu.product=NVIDIA-L40S"
+            log "    - No PVC: oc get pvc synesis-models-efs -n synesis-models"
+            log "    - PVC pending: check efs-sc StorageClass and EFS CSI driver"
+            log "    - No GPU nodes: oc get nodes -l node-role.autonode/gpu"
             log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --profile=small"
             log "  Inspect: oc describe pod -n synesis-models -l app=synesis-router"
         fi

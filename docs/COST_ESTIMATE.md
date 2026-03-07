@@ -134,7 +134,7 @@ Scale replicas for throughput without changing models:
 | OpenShift cluster (control plane) | ~$0.17/hr ($122/mo) per cluster |
 | Milvus (RAG, single node) | Included in compute |
 | S3 (model pipeline artifacts) | ~$5-20/mo |
-| EBS gp3 (PVCs) | ~$0.08/GB/mo |
+| EFS (shared model storage) | ~$0.30/GB/mo (pay for actual usage) |
 | Data transfer (inter-AZ) | ~$0.01/GB |
 | Load balancer | ~$0.025/hr ($18/mo) |
 

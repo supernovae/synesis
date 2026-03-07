@@ -88,12 +88,11 @@ export KFP_TOKEN=$(oc whoami -t)
 
 The script ensures the EFS PVC exists, scales down any existing deployment, runs the download pipeline, then scales back up.
 
-## Clean and Re-download
+## Re-download a Model
 
-To switch models (e.g., upgrade Qwen3-8B to a newer version):
+To switch models (e.g., upgrade Qwen3-8B to a newer version), re-run the pipeline for that role. The pipeline's cleanup step removes the old data from the EFS subpath before downloading:
 
 ```bash
-./scripts/cleanup-model-pvc.sh --role=router
 ./scripts/run-model-pipeline.sh --role=router
 ```
 

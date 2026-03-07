@@ -4,14 +4,13 @@
 # Its extended thinking is an asset for evaluation tasks.
 # Also available as an optional "thinking model" in Open WebUI.
 #
-# Loads from PVC (pipeline downloads to synesis-critic-pvc).
 # FP8 weights ~32GB + FP8 KV cache on 48GB L40S at 0.92 utilization.
 #
 # In small profile, this deployment is scaled to 0 (Qwen3-8B handles critic
 # via thinking mode on the router pod). The synesis-critic Service selector
 # is patched to target the router pod in the dev overlay.
 #
-# Prerequisites: synesis-critic-pvc in synesis-models, model via run-model-pipeline.sh --role=critic
+# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=critic
 ---
 apiVersion: v1
 kind: Service

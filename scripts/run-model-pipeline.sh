@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Synesis Model Pipeline Runner — models.yaml as source of truth.
 #
-# Downloads models to per-role PVCs via KFP pipeline. Handles deployment
+# Downloads models to the shared EFS volume via KFP pipeline. Handles deployment
 # scale-down before PVC cleanup and scale-up after download completes.
 #
 # Usage:

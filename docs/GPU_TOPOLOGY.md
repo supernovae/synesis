@@ -9,12 +9,12 @@ How Synesis model serving uses GPU nodes for router, general, critic, and coder.
 | Deployment      | Model                                    | Roles                              | GPU | Notes                                   |
 |----------------|------------------------------------------|-------------------------------------|-----|-----------------------------------------|
 | synesis-router | Qwen3-8B FP8-dynamic                     | Router, Planner, Advisor, Critic   | 0   | Shared model; thinking mode for critic  |
-| synesis-general| Qwen3.5-35B-A3B FP8                      | General, Writer                    | 1   | Dedicated worker/response generation    |
+| synesis-general| Qwen3-32B FP8-dynamic                    | General, Writer                    | 1   | Dedicated worker/response generation    |
 | synesis-coder  | Qwen3-Coder-30B-A3B FP8                  | Coder                              | 2   | Direct IDE endpoint                     |
 
 Summarizer (Qwen2.5-0.5B) runs on CPU via KServe -- no GPU needed.
 
-All GPU deployments use `nodeSelector: nvidia.com/gpu.product: NVIDIA-L40S` so they schedule on L40S nodes.
+All GPU deployments use `nodeSelector: node-role.autonode/gpu: ""` to target Karpenter's GPU node pool.
 
 ## Model Architecture
 

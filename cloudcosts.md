@@ -52,7 +52,7 @@ The L40S on g6e instances offers the best cost-per-VRAM ratio for the 48GB requi
 | **EC2: 5x m6i.xlarge** | 5 × $0.192 = $0.96 | **$700.80** | General-purpose workers |
 | **EC2: 1x g6e.4xlarge** | $3.004 | **$2,193.10** | 1x NVIDIA L40S (48GB) |
 | **EC2: 1x m6i.2xlarge** | $0.384 | **$280.32** | CPU inference node |
-| **EBS Storage** | ~$0.11 | **~$80** | ~1 TB gp3 across nodes |
+| **EFS Storage** | ~$0.30/GB | **~$30-60** | Shared model volume, pay for actual usage |
 | **S3 Model Storage** | -- | **$0** | Not required — RHOAI 3 uses Model Hub / HuggingFace directly |
 | **Data Transfer** | -- | **~$10** | Internal mostly; minimal egress |
 | | | | |

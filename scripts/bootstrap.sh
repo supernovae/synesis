@@ -282,29 +282,21 @@ create_namespaces() {
 }
 
 # ---------------------------------------------------------------------------
-# Model PVCs (Manager + Executor)
+# Shared EFS PVC for model weights
 #
-# Pipelines download models to PVC; deployments mount same PVC. Same namespace
-# for PVCs, pipeline runs, and deployments. Requires gp3-high StorageClass
-# (cluster-admin applies once).
+# All models share a single EFS volume (synesis-models-efs) with per-role
+# subpaths. Requires efs-sc StorageClass provisioned by Terraform.
 # ---------------------------------------------------------------------------
-create_model_pvcs() {
-    log "Creating model PVCs in synesis-models..."
+create_model_pvc() {
+    log "Ensuring shared EFS PVC in synesis-models..."
 
-    # StorageClass: cluster-admin applies once; skip if not privileged
-    if oc apply -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" 2>/dev/null; then
-        log "  StorageClass gp3-high applied (or already exists)"
+    local pvc="synesis-models-efs"
+    if oc get pvc "$pvc" -n synesis-models &>/dev/null; then
+        log "  PVC $pvc exists"
     else
-        warn "Could not apply gp3-high StorageClass (need cluster-admin)."
-        warn "  Run: oc apply -f pipelines/manifests/storage-class-gp3-high.yaml"
+        log "  Creating $pvc PVC (requires efs-sc StorageClass from Terraform)..."
+        oc apply -f "$PROJECT_ROOT/pipelines/manifests/synesis-models-efs-pvc.yaml"
     fi
-
-    for pvc_manifest in "$PROJECT_ROOT"/pipelines/manifests/synesis-*-pvc.yaml; do
-        [[ -f "$pvc_manifest" ]] || continue
-        sed "s/NAMESPACE/synesis-models/" "$pvc_manifest" | oc apply -f -
-        log "  Applied $(basename "$pvc_manifest")"
-    done
-    log "  Per-role PVCs ready (see models.yaml for sizing)"
 }
 
 # ---------------------------------------------------------------------------
@@ -432,8 +424,8 @@ main() {
     create_namespaces
 
     log ""
-    log "--- Model PVCs (Manager + Executor) ---"
-    create_model_pvcs
+    log "--- Model PVC (EFS) ---"
+    create_model_pvc
 
     if [[ "$SKIP_GHCR_CREDS" != "true" ]]; then
         log ""

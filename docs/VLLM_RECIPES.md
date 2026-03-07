@@ -168,11 +168,11 @@ RHOAI ships `registry.redhat.io/rhaiis/vllm-cuda-rhel9`. Both deployments pin th
 
 ## GPU scheduling (node selectors)
 
-Both model deployments target L40S GPUs:
+Both model deployments target GPU nodes via Karpenter:
 
 ```yaml
 nodeSelector:
-  nvidia.com/gpu.product: NVIDIA-L40S
+  node-role.autonode/gpu: ""
 ```
 
-Labels come from NVIDIA GPU Feature Discovery (`nvidia.com/gpu.product`). Verify with `oc describe node <gpu-node> | grep nvidia.com`.
+This label matches the Karpenter GPU node pool. Verify with `oc get nodes -l node-role.autonode/gpu`.

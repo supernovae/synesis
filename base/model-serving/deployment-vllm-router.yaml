@@ -9,10 +9,10 @@
 # deployment, keeping all 3 GPUs for router+critic, general, and coder.
 # Medium/large profiles deploy a dedicated R1 via synesis-critic deployment.
 #
-# --enable-reasoning + --reasoning-parser=qwen3 separates <think> tokens into
-# reasoning_content field, keeping the content field clean for JSON parsing.
+# --reasoning-parser=qwen3 separates <think> tokens into reasoning_content
+# field, keeping the content field clean for JSON parsing.
 #
-# Prerequisites: synesis-router-pvc in synesis-models, model via run-model-pipeline.sh --role=router
+# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=router
 ---
 apiVersion: v1
 kind: Service

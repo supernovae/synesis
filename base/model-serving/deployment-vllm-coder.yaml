@@ -12,7 +12,7 @@
 # The base deployment serves whatever model is downloaded to the PVC.
 # Run: ./scripts/run-model-pipeline.sh --role=coder --profile=<small|medium|large>
 #
-# Prerequisites: synesis-coder-pvc in synesis-models
+# Prerequisites: synesis-models-efs PVC, model via run-model-pipeline.sh --role=coder
 ---
 apiVersion: v1
 kind: Service

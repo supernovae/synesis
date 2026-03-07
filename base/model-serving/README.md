@@ -1,16 +1,18 @@
 # Model Serving
 
-Synesis deploys GPU models via vLLM and loads weights from per-role PVCs. All model definitions, PVC names, and vLLM args are in [`models.yaml`](../../models.yaml).
+Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (`synesis-models-efs`). All model definitions, subpaths, and vLLM args are in [`models.yaml`](../../models.yaml).
 
 ## Model Roles
 
-| Deployment | Role | GPU | PVC | Model |
-|-----------|------|-----|-----|-------|
-| synesis-router | Router | 1 × L40S | synesis-router-pvc | Qwen3-8B FP8 |
-| synesis-general | General | 1 × L40S | synesis-general-pvc | Qwen3.5-35B-A3B FP8 |
-| synesis-critic | Critic | 1 × L40S | synesis-critic-pvc | R1-Distill-32B FP8 |
-| synesis-coder | Coder | 1 × L40S | synesis-coder-pvc | Qwen3-Coder-Next |
+| Deployment | Role | GPU | EFS Subpath | Model |
+|-----------|------|-----|-------------|-------|
+| synesis-router | Router | 1 × L40S | router-model | Qwen3-8B FP8 |
+| synesis-general | General | 1 × L40S | general-model | Qwen3-32B FP8 |
+| synesis-critic | Critic | 1 × L40S | critic-model | R1-Distill-32B FP8 |
+| synesis-coder | Coder | 1 × L40S | coder-model | Qwen3-Coder-Next |
 | synesis-summarizer | Summarizer | CPU | (hf:// direct) | Qwen2.5-0.5B |
+
+All models share a single PVC (`synesis-models-efs`) backed by AWS EFS via `efs-sc` StorageClass. Each deployment mounts a different `subPath`.
 
 The Router deployment serves supervisor, planner, and advisor roles from a single model instance with different inference params (temperature, prompt) per request. In small profile, it also serves the critic role via thinking mode.
 
@@ -24,8 +26,9 @@ See `models.yaml` for small/medium/large profiles:
 
 ## Prerequisites
 
-- OpenShift/ROSA with GPU node pool (`nvidia.com/gpu.product: NVIDIA-L40S`)
-- Models downloaded to PVC: `./scripts/run-model-pipeline.sh --profile=small`
+- OpenShift/ROSA with Karpenter GPU node pool (`node-role.autonode/gpu: ""`)
+- EFS StorageClass (`efs-sc`) provisioned by Terraform
+- Models downloaded to EFS: `./scripts/run-model-pipeline.sh --profile=small`
 - Summarizer (optional, CPU): InferenceService with `connection-summarizer`
 
 ## Deploying
@@ -34,7 +37,7 @@ See `models.yaml` for small/medium/large profiles:
 
 ```bash
 oc apply -n synesis-models -f base/model-serving/deployment-vllm-router.yaml
-oc apply -n synesis-models -f base/model-serving/deployment-vllm-critic.yaml
+oc apply -n synesis-models -f base/model-serving/deployment-vllm-general.yaml
 oc apply -n synesis-models -f base/model-serving/deployment-vllm-coder.yaml
 ```
 
@@ -66,7 +69,7 @@ When planner is co-located with models on the same GPU node, UDS reduces latency
 
 ## Troubleshooting
 
-- **No nodes available**: Ensure nodeSelector matches your GPU nodes (`oc get nodes -l nvidia.com/gpu.product=NVIDIA-L40S`)
-- **OOM on model load**: Check vLLM args in the deployment YAML; reduce `--max-model-len` or use a smaller quantization
+- **No nodes available**: Ensure Karpenter GPU node pool exists (`oc get nodepool gpu-l40-spot`)
+- **OOM on model load**: Check vLLM args in the deployment YAML; reduce `--max-model-len` or `--max-num-seqs`
 - **ImagePullBackOff**: Create `imagePullSecrets` if needed for registry access
-- **PVC not found**: Run `./scripts/bootstrap-pipelines.sh` to create PVCs, then `./scripts/run-model-pipeline.sh --profile=small`
+- **PVC pending**: Check `oc get pvc synesis-models-efs -n synesis-models` and EFS CSI driver status
