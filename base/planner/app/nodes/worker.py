@@ -343,8 +343,10 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                         if idx >= 0:
                             task_desc = text[idx + len(prefix) :].strip().split("\n")[0][:500]
                             break
-        raw_lang = state.get("target_language", "python")
-        target_lang = raw_lang if raw_lang not in ("", "infer") else "python"
+        is_code = state.get("is_code_task", False)
+        _lang_default = "python" if is_code else "markdown"
+        raw_lang = state.get("target_language") or _lang_default
+        target_lang = raw_lang if raw_lang not in ("", "infer") else _lang_default
         from ..context_resolver import get_resolved_rag_context
 
         rag_context = get_resolved_rag_context(state)

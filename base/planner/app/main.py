@@ -479,7 +479,7 @@ def _extract_content_and_metrics(
     if "no output to show" in (content or "") and (result.get("generated_code") or result.get("patch_ops")):
         code = result.get("generated_code", "")
         patch_ops = result.get("patch_ops", []) or []
-        lang = result.get("target_language", "python")
+        lang = result.get("target_language") or "markdown"
         expl = result.get("code_explanation", "")
         is_code_task = result.get("is_code_task", False)
         parts = []
@@ -518,7 +518,7 @@ def _extract_content_and_metrics(
         if content:
             memory.store_turn(scope, "assistant", content)
         # Update last_active_language and last_context for next turn's pivot detection
-        lang = result.get("target_language", "python")
+        lang = result.get("target_language") or "markdown"
         if lang in ("", "infer"):
             lang = "markdown"
         if lang:
@@ -943,8 +943,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 content_streamed = False
                 sent_role = False
                 task_size_val = ""
-                is_code_task_val = True
+                is_code_task_val = False
                 thinking_phases: list[str] = []
+                plan_content_lines: list[str] = []
                 thinking_block_emitted = False
                 first_content_logged = False
                 _last_status_desc = ""
@@ -1013,7 +1014,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         )
                                         await asyncio.sleep(0)
 
-                                # Emit planner reasoning + plan steps as status + thinking
+                                # Emit planner reasoning + plan steps as status + plan content
                                 if name == "planner":
                                     exec_plan = output.get("execution_plan") or {}
                                     if isinstance(exec_plan, dict):
@@ -1030,7 +1031,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             reasoning = str(exec_plan.get("reasoning", "")).strip()
                                         if reasoning:
                                             short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
-                                            thinking_phases.append(f"\n\n**Plan:** {short}")
+                                            plan_content_lines.append(f"**Plan:** {short}")
                                             yield _sse_status_chunk(
                                                 {
                                                     "type": "status",
@@ -1046,7 +1047,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         for i, s in enumerate(steps, 1):
                                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
                                             if act:
-                                                thinking_phases.append(f"{i}. {act}")
+                                                plan_content_lines.append(f"{i}. {act}")
                                                 yield _sse_status_chunk(
                                                     {
                                                         "type": "status",
@@ -1190,22 +1191,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 for fragment in fragments:
                                     if not fragment:
                                         continue
-                                    if not thinking_block_emitted and thinking_phases:
+                                    if not thinking_block_emitted:
                                         thinking_block_emitted = True
-                                        elapsed_s = time.monotonic() - t_start
-                                        phases_text = "\n".join(thinking_phases)
-                                        thinking_html = (
-                                            f'<details type="thinking" done="true">\n'
-                                            f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
-                                            f"{phases_text}\n"
-                                            f"</details>\n\n"
-                                        )
-                                        yield _sse_content_delta(
-                                            chat_id,
-                                            {"role": "assistant", "content": thinking_html},
-                                            run_id=run_id,
-                                        )
-                                        sent_role = True
+                                        if not is_code_task_val and plan_content_lines:
+                                            status_labels = [p for p in thinking_phases if not p.startswith("  →")]
+                                            header = " | ".join(status_labels) if status_labels else ""
+                                            steps_text = "\n".join(f"> {l}" for l in plan_content_lines)
+                                            plan_block = ""
+                                            if header:
+                                                plan_block += f"> **{header}**\n>\n"
+                                            plan_block += steps_text + "\n\n"
+                                            yield _sse_content_delta(
+                                                chat_id,
+                                                {"role": "assistant", "content": plan_block},
+                                                run_id=run_id,
+                                            )
+                                            sent_role = True
                                     delta: dict[str, str] = {"content": fragment}
                                     if not sent_role:
                                         delta["role"] = "assistant"
@@ -1371,19 +1372,18 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         model=request.model,
                     )
                     record_chat_success(time.monotonic() - start)
-                    thinking_prefix = ""
-                    if not thinking_block_emitted and thinking_phases:
-                        elapsed_s = time.monotonic() - t_start
-                        phases_text = "\n".join(thinking_phases)
-                        thinking_prefix = (
-                            f'<details type="thinking" done="true">\n'
-                            f"<summary>Thought for {elapsed_s:.0f} seconds</summary>\n"
-                            f"{phases_text}\n"
-                            f"</details>\n\n"
-                        )
+                    plan_prefix = ""
+                    if not thinking_block_emitted and not is_code_task_val and plan_content_lines:
+                        status_labels = [p for p in thinking_phases if not p.startswith("  →")]
+                        header = " | ".join(status_labels) if status_labels else ""
+                        steps_text = "\n".join(f"> {l}" for l in plan_content_lines)
+                        plan_prefix = ""
+                        if header:
+                            plan_prefix += f"> **{header}**\n>\n"
+                        plan_prefix += steps_text + "\n\n"
                     yield _sse_content_delta(
                         chat_id,
-                        {"role": "assistant", "content": thinking_prefix + content},
+                        {"role": "assistant", "content": plan_prefix + content},
                         run_id=run_id,
                     )
 

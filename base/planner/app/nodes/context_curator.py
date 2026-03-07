@@ -163,7 +163,7 @@ def _build_pinned_context(
     # Tier 1: Global policy (hardcoded) — always markdown output
     if is_document:
         t1 = "Respond directly in markdown. No code execution."
-        t2 = f"Target language: {target_language}. Produce formatted text only. No sandbox, no code execution, no bash."
+        t2 = "Target language: markdown. Produce formatted text only. No sandbox, no code execution, no bash."
     else:
         t1 = "Respond in markdown. Use fenced code blocks with language tags for code."
         t2 = f"Target language: {target_language}. Sandbox has no network. Use set -euo pipefail for bash."
@@ -546,7 +546,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
 
     task_desc = _resolve_task_description(state)
     task_type = state.get("task_type", "general")
-    target_lang = state.get("target_language", "python")
+    target_lang = state.get("target_language") or "markdown"
     rag_mode = state.get("rag_mode", "normal")
     rag_results = [] if rag_mode == "disabled" else list(state.get("rag_results", []))
     execution_plan = state.get("execution_plan", {})

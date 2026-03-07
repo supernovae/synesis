@@ -272,7 +272,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "context": {
                     "execution_plan": execution_plan,
                     "task_description": state.get("task_description", ""),
-                    "target_language": state.get("target_language", "python"),
+                    "target_language": state.get("target_language") or "markdown",
                     "rag_context": _get_resolved_rag_context(state),
                     "task_type": state.get("task_type", "general"),
                     "assumptions": state.get("assumptions", []),
@@ -282,7 +282,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
                 "execution_plan": execution_plan,
                 "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "python"),
+                "target_language": state.get("target_language") or "markdown",
                 "rag_context": _get_resolved_rag_context(state),
                 "task_type": state.get("task_type", "general"),
                 "assumptions": state.get("assumptions", []),
@@ -320,12 +320,12 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "question": clarification_question,
                 "context": {
                     "task_description": state.get("task_description", ""),
-                    "target_language": state.get("target_language", "python"),
+                    "target_language": state.get("target_language") or "markdown",
                     "rag_context": _get_resolved_rag_context(state),
                     "is_code_task": state.get("is_code_task"),
                 },
                 "task_description": state.get("task_description", ""),
-                "target_language": state.get("target_language", "python"),
+                "target_language": state.get("target_language") or "markdown",
                 "rag_context": _get_resolved_rag_context(state),
                 "is_code_task": state.get("is_code_task"),
             },
@@ -358,7 +358,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         content = f"**I need a bit more information:**\n\n{needs_input_question}"
         ctx = {
             "task_description": state.get("task_description", ""),
-            "target_language": state.get("target_language", "python"),
+            "target_language": state.get("target_language") or "markdown",
             "rag_context": _get_resolved_rag_context(state),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
@@ -387,7 +387,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         if code:
             content += f"\n\nPartial result:\n```\n{code}\n```"
     else:
-        lang = state.get("target_language", "python")
+        lang = state.get("target_language") or "markdown"
         task_size = state.get("task_size", "medium")
         # When Worker outputs patch_ops (multi-file), code may be empty; build display from patches
         display_code = code

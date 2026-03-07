@@ -108,7 +108,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language", "python")
+        is_code_task = state.get("is_code_task", False)
+        target_lang = state.get("target_language") or ("python" if is_code_task else "markdown")
         from ..context_resolver import get_resolved_rag_context
 
         rag_context = get_resolved_rag_context(state)

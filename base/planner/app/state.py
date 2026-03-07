@@ -247,7 +247,7 @@ class SynesisState(BaseModel):
 
     task_type: TaskType = TaskType.GENERAL
     task_description: str = ""
-    target_language: str = "python"
+    target_language: str = ""
 
     # Clarification request (Router emits when ambiguous)
     clarification_question: str = ""

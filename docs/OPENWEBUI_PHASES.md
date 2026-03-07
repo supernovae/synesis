@@ -28,9 +28,10 @@ We emit status events during graph execution and a final `done: true` before str
 - Uses `graph.astream_events(version="v2")` for fine-grained token-level streaming
 - `on_chat_model_stream` events intercepted and yielded immediately as OpenAI-compatible SSE chunks
 - **Reasoning content:** R1-Distill `<think>` tags surface via `reasoning_content` field in chunks. Emits "Thinking..." status immediately, then extracts headline-like reasoning lines as status updates
-- **Explain-only mode:** Streams direct markdown tokens (no JSON extraction needed)
+- **Text mode:** Streams direct markdown tokens (no JSON extraction needed)
 - **Code mode:** Uses `StreamingCodeExtractor` to parse JSON field content from the token stream
 - `StatusQueueCallback` emits node-level status as nodes start/complete
+- **Plan step visibility:** For knowledge deep-dives (non-code tasks with a planner), plan steps are emitted as visible markdown content (blockquote) before the main response — not hidden in a collapsed `<details>` block
 - Diagnostic logging: `sse_first_worker_chunk_diag`, `sse_first_content_token`, `sse_first_content_delta`
 
 ```python
@@ -40,7 +41,7 @@ NODE_STATUS_MESSAGES = {
     "supervisor": "Planning…",
     "planner": "Building execution plan…",
     "context_curator": "Gathering context…",
-    "worker": "Generating code…",  # Override: text mode → "Generating response…"
+    "worker": "Generating code…",  # text mode → "Generating response…"
     "patch_integrity_gate": "Validating code…",
     "sandbox": "Testing code…",
     "lsp_analyzer": "Analyzing types…",
@@ -86,18 +87,24 @@ Open WebUI expects status events in the stream with:
 - `data.done`: `true` at end to clear the indicator
 - `data.hidden`: optional
 
-### 3. Markdown "Expandable Status" (2026 Spec)
+### 3. Visible Plan Steps (Knowledge Deep-Dives)
 
-Open WebUI can render collapsible status blocks from markdown in the streamed content:
+For non-code tasks that go through the planner, plan steps are rendered as **visible markdown content** (a blockquote block) before the main response:
 
 ```markdown
-<details type="thinking" done="true">
-<summary>Thought for 5 seconds</summary>
-Checking system invariants and validating patch integrity...
-</details>
+> **Analyzing request… | Planning… | Architecting solution…**
+>
+> **Plan:** The plan breaks down the task into atomic steps…
+> 1. Define the main design goals and constraints
+> 2. Propose a concrete architecture
+> 3. Explain model choices and retrieval mechanisms
 ```
 
-We could add this as a **fallback** if SSE status events aren't displayed (e.g., when proxied through LiteLLM).
+This replaces the previous `<details type="thinking">` collapsed block. Plan steps are now directly visible to the user, similar to how other AI assistants surface their working process.
+
+- **Code tasks:** No plan block emitted (plan steps are execution details, not user-facing)
+- **Simple text tasks (no planner):** No plan block emitted
+- **Status events (`event: status`)** still fire in parallel for real-time UI indicators
 
 **Why statuses might not appear:**
 - **LiteLLM/proxy**: Some proxies forward only `data:` lines and drop `event: status`. Try calling the Planner directly (no LiteLLM) to verify.
@@ -119,6 +126,8 @@ We could add this as a **fallback** if SSE status events aren't displayed (e.g.,
 | Route `haproxy.router.openshift.io/disable_buffer: "true"` | Reduce proxy buffering so SSE events reach client in real time |
 | Entry classifier sets `current_node` | First status event ("Analyzing request…") now fires |
 | Context-aware status for complex | When task_size=complex, emit "Complex task detected. Building execution plan…" instead of generic node message |
+| Plan steps as visible content | Knowledge deep-dives render plan steps as a blockquote before the response, not in a collapsed `<details>` dropdown |
+| Removed `<details type="thinking">` wrapper | Status events provide real-time feedback; plan steps are now directly visible markdown content |
 
 ---
 

@@ -307,7 +307,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
         generated_code = state.get("generated_code", "")
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language", "python")
+        target_lang = state.get("target_language") or "markdown"
         iteration = state.get("iteration_count", 0)
         max_iterations = state.get("max_iterations", 3)
 
@@ -737,7 +737,7 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Suggestions → nonblo
         if approved:
             _code = state.get("generated_code", "")
             _task_desc = state.get("task_description", "")
-            _lang = state.get("target_language", "python")
+            _lang = state.get("target_language") or "markdown"
             if _code and _task_desc:
                 try:
                     from ..failfast_cache import cache as failfast_cache
