@@ -61,12 +61,25 @@ If you are not confident about a specific fact, say so briefly. Do not invent ci
 
 _DEEP_DIVE_SUFFIX = """
 
-When proposing architecture or making recommendations:
-- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one.
-- Separate facts (what you know) from assumptions (what you infer) from recommendations (what you advise).
+STRUCTURAL RULES — follow strictly:
+- The planner outlined sections based on the user's explicit requests. Cover EVERY section. Do not merge or skip any.
 - If the user asked for specific sections or structure, follow their outline exactly.
+
+SPECIFICITY RULES:
+- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one.
+- If you name a technology, state in one sentence why it beats alternatives for this specific use case.
 - Be specific: name tools, versions, and quantities. Avoid abstract categories.
+- When discussing model sizes, infrastructure, or cost, give concrete tiers with justification, not vague labels.
+
+CONSTRAINT ADHERENCE:
 - Address the user's stated constraints directly. Do not add requirements they did not mention.
+- When a timeline or budget constraint is stated, ruthlessly prioritize. Name only what fits. Defer everything else to "Future Work" or "Phase 2+."
+- Do not propose a stack that a small team cannot deliver in the stated timeframe.
+
+HONESTY AND RIGOR:
+- Separate facts (what you know) from assumptions (what you infer) from recommendations (what you advise). Use explicit labels if the user asked for this.
+- When you lack specific data (exact latency, pricing, version compatibility), say so. Do not invent plausible-sounding numbers or thresholds.
+- Flag assumptions with [Assumption] inline. Flag uncertain claims with [Uncertain] inline.
 """
 
 
@@ -573,6 +586,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                 conflict_block = "\n".join(lines)
 
         plan_block = ""
+        constraints_block = ""
         execution_plan = state.get("execution_plan", {}) or {}
         touched_files = state.get("touched_files", []) or []
         if isinstance(execution_plan, dict):
@@ -590,6 +604,20 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                         line += f" — verify: `{verify}`"
                     plan_lines.append(line)
                 plan_block = "\n".join(plan_lines)
+
+            assumptions = execution_plan.get("assumptions", []) or []
+            constraint_items = [
+                a for a in assumptions
+                if isinstance(a, str) and a.lower().startswith("user format constraint")
+            ]
+            if constraint_items:
+                clines = ["\n\n## Response Constraints (from user's explicit requests)"]
+                for c in constraint_items:
+                    cleaned = c.split(":", 1)[1].strip() if ":" in c else c
+                    clines.append(f"- {cleaned}")
+                constraints_block = "\n".join(clines)
+                logger.debug("worker_format_constraints_injected", extra={"count": len(constraint_items)})
+
         if len(touched_files) > 1 and state.get("is_code_task", False):
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
 
@@ -613,6 +641,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             f"{milestone_banner}"
             f"{task_header}"
             f"{plan_block}"
+            f"{constraints_block}"
             f"{user_answer_block}"
             f"{conflict_block}"
             f"{web_block}{failure_hints}{previous_code}"
@@ -660,7 +689,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             system_prompt = WORKER_PROMPT
 
-        vertical_block = get_worker_persona_block(active_vertical)
+        vertical_block = get_worker_persona_block(active_vertical, task_desc=task_desc)
         if vertical_block:
             system_prompt = f"{system_prompt}\n\n{vertical_block}"
             logger.debug("worker_vertical_injection", extra={"vertical": active_vertical})
@@ -685,7 +714,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         difficulty = min(1.0, float(raw_complexity) / 50.0)
         token_budget = int(_MIN_BUDGET + (_MAX_BUDGET - _MIN_BUDGET) * difficulty**1.5)
         if not is_code_task:
-            token_budget = max(token_budget, 2048)
+            floor = 4096 if state.get("plan_required") else 2048
+            token_budget = max(token_budget, floor)
 
         _ACK_WORDS = (
             r"thanks|thank you|thx|ok|okay|got it|cool|great|sure|"
@@ -743,12 +773,13 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                     "latency_ms": latency,
                 },
             )
+            knowledge_temp = 0.4 if state.get("plan_required") else 0.2
             return {
                 "generated_code": "",
                 "direct_stream_request": {
                     "messages": ds_messages,
                     "max_completion_tokens": token_budget,
-                    "temperature": 0.2,
+                    "temperature": knowledge_temp,
                     "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
                 },
                 "code_explanation": "",

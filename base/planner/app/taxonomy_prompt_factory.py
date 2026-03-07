@@ -222,13 +222,28 @@ def resolve_active_vertical(
     return best_name
 
 
-def get_worker_persona_block(vertical: str) -> str:
-    """Return vertical-specific Worker persona block, or empty string."""
+def get_worker_persona_block(vertical: str, task_desc: str = "") -> str:
+    """Return vertical-specific Worker persona block with dynamic compliance injection."""
     verticals = _load_vertical_prompts()
     vert_data = verticals.get(vertical)
     if not isinstance(vert_data, dict):
         return ""
-    return (vert_data.get("worker_persona_block") or "").strip()
+    base = (vert_data.get("worker_persona_block") or "").strip()
+
+    signals = vert_data.get("compliance_signals") or {}
+    triggers = vert_data.get("compliance_trigger_keywords") or {}
+    if signals and triggers and task_desc:
+        task_lower = task_desc.lower()
+        matched = []
+        for key, keywords in triggers.items():
+            if any(kw in task_lower for kw in (keywords or [])):
+                text = signals.get(key, "")
+                if text:
+                    matched.append(f"- {text}")
+        if matched:
+            base += "\nAdditional considerations (user context signals these):\n" + "\n".join(matched)
+
+    return base
 
 
 def get_planner_decomposition_rules(vertical: str) -> str:

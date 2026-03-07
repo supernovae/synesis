@@ -98,3 +98,10 @@ docs/*
 !docs/FEEDBACK_API.md
 !docs/STREAMING_BUFFERING.md
 !docs/IDE_CLIENT_COORDINATION.md
+!docs/MODEL_EXERCISE.md
+!docs/LORA_TRAINING_GUIDE.md
+!docs/INTENT_TAXONOMY.md
+!docs/TAXONOMY_CANONICAL.md
+!docs/TAXONOMY_DRIVEN_INJECTION.md
+!docs/UDS_SETUP.md
+!docs/performance.md

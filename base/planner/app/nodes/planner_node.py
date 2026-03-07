@@ -43,11 +43,12 @@ Reply with JSON only:
 Rules:
 - Each step = one section of the final response.
 - Map the user's explicitly requested sections to steps. Do NOT invent sections they did not ask for.
-- 4-8 steps for complex topics; fewer for simple ones.
-- If the user listed numbered deliverables, preserve their order.
-- Final step should cover risks, caveats, or failure modes if relevant.
-- If the user specifies output constraints (e.g., "separate facts from assumptions," "make tradeoffs explicit," "be concise but specific"), capture them in "assumptions" as "User format constraints: ..." so the Writer enforces them.
+- CRITICAL: Count the user's explicitly numbered or bulleted deliverables. Create one step per deliverable. Do NOT merge multiple deliverables into a single step. If the user requests N sections, produce at least N steps.
+- If the user listed numbered deliverables, preserve their order and wording.
+- Final step should cover risks, caveats, or failure modes if relevant (unless the user already listed this as a deliverable).
+- If the user specifies output constraints (e.g., "separate facts from assumptions," "make tradeoffs explicit," "be concise but specific"), capture EACH as a separate item in "assumptions" prefixed with "User format constraints: ..."
 - If the user says "do not give a generic answer" or similar, add to assumptions: "User format constraints: choose concrete approaches, do not list alternatives without recommending one."
+- If the user specifies a timeline or budget constraint, add: "User format constraints: constrain scope to stated timeline/budget. Defer out-of-scope items to future phases."
 """
 
 planner_llm = ChatOpenAI(

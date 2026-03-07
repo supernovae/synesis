@@ -524,6 +524,39 @@ def _compute_context_hash(pinned: list, retrieved: list) -> str:
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
 
+def _build_knowledge_search_queries(
+    execution_plan: dict[str, Any] | None,
+    active_domain_refs: list[str] | None,
+    task_desc: str,
+) -> list[str]:
+    """Build focused search queries from planner sections + domain refs instead of raw task text."""
+    queries: list[str] = []
+    domain_terms = " ".join(str(d).replace("_", " ") for d in (active_domain_refs or [])[:3])
+
+    plan = execution_plan if isinstance(execution_plan, dict) else {}
+    steps = plan.get("steps", [])
+    if steps:
+        titles = []
+        for s in steps[:6]:
+            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+            clean = act.replace("Section:", "").replace("section:", "").strip()
+            if " — " in clean:
+                clean = clean.split(" — ")[0].strip()
+            if clean:
+                titles.append(clean)
+        if titles:
+            queries.append(f"{' '.join(titles[:3])} {domain_terms}".strip()[:120])
+            if len(titles) > 3:
+                queries.append(f"{' '.join(titles[3:])} {domain_terms}".strip()[:120])
+
+    if not queries:
+        first_sentence = task_desc.split(".")[0].strip()[:80] if task_desc else ""
+        if first_sentence:
+            queries.append(f"{first_sentence} {domain_terms}".strip()[:120])
+
+    return queries or [task_desc[:100]]
+
+
 def _resolve_task_description(state: dict[str, Any]) -> str:
     """Resolve task description from state; fallback to last user message when empty."""
     task_desc = (state.get("task_description", "") or "").strip()
@@ -1013,6 +1046,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     # Web search for knowledge deep-dives: when the planner path bypasses the
     # supervisor (plan_required + is_code_task=False), web search never runs.
     # Run it here so the worker gets current context for its structured response.
+    # Build focused queries from planner section titles + domain refs instead of raw task text.
     web_search_results: list[str] = list(state.get("web_search_results") or [])
     is_code_task = state.get("is_code_task", False)
     if (
@@ -1022,14 +1056,20 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         and not web_search_results
     ):
         try:
-            search_query = task_desc[:200]
-            results = await search_client.search(search_query, profile="web")
-            web_search_results = format_search_results(results)
-            if web_search_results:
-                logger.info(
-                    "context_curator_web_search",
-                    extra={"results_count": len(web_search_results), "query": search_query[:120]},
-                )
+            search_queries = _build_knowledge_search_queries(
+                state.get("execution_plan", {}),
+                state.get("active_domain_refs", []),
+                task_desc,
+            )
+            for sq in search_queries[:3]:
+                results = await search_client.search(sq, profile="web")
+                formatted = format_search_results(results)
+                if formatted:
+                    web_search_results.extend(formatted)
+                    logger.info(
+                        "context_curator_web_search",
+                        extra={"results_count": len(formatted), "query": sq[:120]},
+                    )
         except Exception as e:
             logger.debug("context_curator_web_search_failed: %s", e)
 

@@ -125,16 +125,20 @@ vertical_prompt:
     - Focus on operational reality: cost, latency, reliability, team capacity.
     - Be specific: name concrete tools and versions, not abstract categories.
     - Make tradeoffs explicit. Separate facts from assumptions.
-    Additional considerations (apply only when the user's context signals these):
-    - GovCloud / FedRAMP / government: add FIPS-validated crypto and FedRAMP boundary requirements.
-    - HIPAA / healthcare / PHI: add data protection, audit logging, and BAA requirements.
-    - Air-gapped / disconnected: note external dependency constraints (registries, package managers).
-    - PCI / financial: note tokenization, audit trail, and key rotation requirements.
-    - Multi-tenant / shared: note RBAC isolation and namespace scoping.
-    If none of these are signaled, do not inject compliance constraints.
+  compliance_signals:
+    govcloud: "GovCloud / FedRAMP / government: add FIPS-validated crypto and FedRAMP boundary requirements."
+    hipaa: "HIPAA / healthcare / PHI: add data protection, audit logging, and BAA requirements."
+    airgap: "Air-gapped / disconnected: note external dependency constraints (registries, package managers)."
+    pci: "PCI / financial: note tokenization, audit trail, and key rotation requirements."
+    multitenant: "Multi-tenant / shared: note RBAC isolation and namespace scoping."
+  compliance_trigger_keywords:
+    govcloud: [govcloud, fedramp, fips, government, federal, dod, il4, il5, stigs]
+    hipaa: [hipaa, healthcare, phi, protected health, medical, hospital, patient]
+    airgap: [air-gap, airgap, disconnected, offline, dark site, no internet]
+    pci: [pci, pci-dss, payment, cardholder, financial compliance]
+    multitenant: [multi-tenant, multitenant, shared cluster, namespace isolation, tenant]
   planner_decomposition_rules: |
     For Platform/Infrastructure tasks:
     - Map each user-requested deliverable to a plan step.
     - Include operational considerations (monitoring, rollback, failure modes).
-    - Only include compliance steps (FIPS, RBAC, air-gap) when the user's context requires them.
   critic_mode: safety_ii
