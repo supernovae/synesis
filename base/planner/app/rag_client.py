@@ -109,6 +109,10 @@ class _CachedChunk:
     text: str
     source: str
     chunk_id: str
+    origin_type: str = ""
+    authority: str = ""
+    indexer_source: str = ""
+    domain: str = ""
 
 
 class BM25Index:
@@ -149,7 +153,10 @@ class BM25Index:
                 return client.query(
                     collection_name=collection,
                     filter="",
-                    output_fields=["chunk_id", "text", "source"],
+                    output_fields=[
+                        "chunk_id", "text", "source",
+                        "origin_type", "authority", "indexer_source", "domain",
+                    ],
                     limit=1000,
                     offset=offset,
                 )
@@ -179,6 +186,10 @@ class BM25Index:
                             text=row.get("text", ""),
                             source=row.get("source", "unknown"),
                             chunk_id=row.get("chunk_id", ""),
+                            origin_type=row.get("origin_type", ""),
+                            authority=row.get("authority", ""),
+                            indexer_source=row.get("indexer_source", ""),
+                            domain=row.get("domain", ""),
                         )
                     )
                 if len(results) < batch_size:
@@ -233,6 +244,10 @@ class BM25Index:
                     "text": chunk.text,
                     "source": chunk.source,
                     "bm25_score": float(score),
+                    "origin_type": chunk.origin_type,
+                    "authority": chunk.authority,
+                    "indexer_source": chunk.indexer_source,
+                    "domain": chunk.domain,
                 }
             )
 
@@ -412,7 +427,10 @@ async def _vector_search(
         "collection_name": collection,
         "data": [query_vector],
         "limit": top_k,
-        "output_fields": ["text", "source", "chunk_id"],
+        "output_fields": [
+            "text", "source", "chunk_id",
+            "origin_type", "authority", "indexer_source", "domain",
+        ],
     }
     if filter_expr:
         search_params["filter"] = filter_expr
@@ -444,6 +462,10 @@ async def _vector_search(
                     "text": entity.get("text", ""),
                     "source": entity.get("source", "unknown"),
                     "vector_score": float(score),
+                    "origin_type": entity.get("origin_type", ""),
+                    "authority": entity.get("authority", ""),
+                    "indexer_source": entity.get("indexer_source", ""),
+                    "domain": entity.get("domain", ""),
                 }
             )
 
@@ -479,12 +501,14 @@ def _reciprocal_rank_fusion(
 
     RRF score = sum(1 / (k + rank_i)) across retrievers.
     """
+    _PROVENANCE_KEYS = ("origin_type", "authority", "indexer_source", "domain")
+
     doc_map: dict[str, dict[str, Any]] = {}
 
     for rank, doc in enumerate(vector_results):
         key = doc["text"][:200]
         if key not in doc_map:
-            doc_map[key] = {
+            entry: dict[str, Any] = {
                 "text": doc["text"],
                 "source": doc.get("source", "unknown"),
                 "vector_score": doc.get("vector_score", 0.0),
@@ -492,13 +516,16 @@ def _reciprocal_rank_fusion(
                 "rrf_score": 0.0,
                 "retrieval_source": "vector",
             }
+            for pk in _PROVENANCE_KEYS:
+                entry[pk] = doc.get(pk, "")
+            doc_map[key] = entry
         doc_map[key]["rrf_score"] += 1.0 / (k + rank + 1)
         doc_map[key]["vector_score"] = doc.get("vector_score", 0.0)
 
     for rank, doc in enumerate(bm25_results):
         key = doc["text"][:200]
         if key not in doc_map:
-            doc_map[key] = {
+            entry = {
                 "text": doc["text"],
                 "source": doc.get("source", "unknown"),
                 "vector_score": 0.0,
@@ -506,6 +533,9 @@ def _reciprocal_rank_fusion(
                 "rrf_score": 0.0,
                 "retrieval_source": "bm25",
             }
+            for pk in _PROVENANCE_KEYS:
+                entry[pk] = doc.get(pk, "")
+            doc_map[key] = entry
         else:
             doc_map[key]["retrieval_source"] = "both"
         doc_map[key]["rrf_score"] += 1.0 / (k + rank + 1)
@@ -700,6 +730,25 @@ async def retrieve_context(
         all_merged.sort(key=lambda d: d.get("rrf_score", 0.0), reverse=True)
         all_merged = all_merged[:top_k]
 
+    # Authority-weighted re-ranking (RA-RAG, arxiv 2410.22954):
+    # Boost scores by source authority tier so higher-authority content
+    # surfaces above lower-authority content at equal relevance.
+    _AUTHORITY_BOOST = {
+        "canonical": 1.5,
+        "vetted": 1.3,
+        "community": 1.0,
+        "external": 0.7,
+        "": 1.0,
+    }
+    for doc in all_merged:
+        boost = _AUTHORITY_BOOST.get(doc.get("authority", ""), 1.0)
+        score_key = "rerank_score" if doc.get("rerank_score", 0.0) > 0 else "rrf_score"
+        doc[score_key] = doc.get(score_key, 0.0) * boost
+    all_merged.sort(
+        key=lambda d: d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0),
+        reverse=True,
+    )
+
     if _retrieval_source_counter:
         for doc in all_merged:
             _retrieval_source_counter.labels(source=doc.get("retrieval_source", "unknown")).inc()
@@ -714,6 +763,10 @@ async def retrieve_context(
             bm25_score=doc.get("bm25_score", 0.0),
             rrf_score=doc.get("rrf_score", 0.0),
             rerank_score=doc.get("rerank_score", 0.0),
+            origin_type=doc.get("origin_type", ""),
+            authority=doc.get("authority", ""),
+            indexer_source=doc.get("indexer_source", ""),
+            domain=doc.get("domain", ""),
         )
         for doc in all_merged
     ]

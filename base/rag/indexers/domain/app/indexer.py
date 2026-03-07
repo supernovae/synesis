@@ -99,6 +99,8 @@ def index_repo(
                 section=section[:256],
                 document_name=doc_name[:256],
                 tags=tags_str[:512],
+                origin_type="curated",
+                authority="community",
             )
         )
 

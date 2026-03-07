@@ -101,6 +101,8 @@ def index_spec(
                 domain=domain,
                 indexer_source="apispec",
                 document_name=name[:256],
+                origin_type="curated",
+                authority="community",
             )
         )
 

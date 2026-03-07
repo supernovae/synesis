@@ -155,6 +155,7 @@ class GraphState(TypedDict, total=False):
     # Lighter payloads: refs + cache instead of duplicating full text
     context_cache: dict[str, str]  # content_hash -> text
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
+    rag_authority_labels: list[str]  # parallel to rag_context/rag_context_refs: authority tier per chunk
     direct_stream_request: dict[str, Any] | None  # deferred LLM call when not is_code_task (bypasses langchain)
 
 
@@ -191,7 +192,12 @@ class WhatIfAnalysis(BaseModel):
 
 
 class RetrievalResult(BaseModel):
-    """A single retrieved document chunk with full provenance metadata."""
+    """A single retrieved document chunk with full provenance metadata.
+
+    Two-axis trust model (RA-RAG, arxiv 2410.22954):
+      - Security trust: handled at prompt level (injection scanning, delimiters)
+      - Authority weight: origin_type + authority modulate ranking and LLM signal
+    """
 
     text: str
     source: str = "unknown"
@@ -202,6 +208,10 @@ class RetrievalResult(BaseModel):
     rrf_score: float = 0.0
     rerank_score: float = 0.0
     repo_license: str = ""
+    origin_type: str = ""
+    authority: str = ""
+    indexer_source: str = ""
+    domain: str = ""
 
 
 class RetrievalParams(BaseModel):
@@ -274,6 +284,7 @@ class SynesisState(BaseModel):
     # Lighter payloads: refs + cache (context_refs_enabled)
     context_cache: dict[str, str] = Field(default_factory=dict)
     rag_context_refs: list[str] = Field(default_factory=list)
+    rag_authority_labels: list[str] = Field(default_factory=list)
     rag_collections_queried: list[str] = Field(default_factory=list)
     # Federated RAG / Strategic Advisor (platform-aware SOP routing)
     platform_context: str = ""  # Domain from fast LLM classifier (openshift, kubernetes, generic, etc.)

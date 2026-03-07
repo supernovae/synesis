@@ -2,6 +2,12 @@
 
 All indexers write to synesis_catalog with a common schema. Single BM25 index,
 metadata-driven gravity, no per-collection complexity.
+
+Provenance fields (origin_type, authority) enable two-axis trust:
+  - Security trust: handled at prompt level (injection scanning, delimiters)
+  - Authority weight: modulates retrieval ranking and LLM signal
+
+Research: RA-RAG (arxiv 2410.22954), SeCon-RAG (arxiv 2510.09710)
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ EMBEDDING_DIM = 384
 
 # Common schema: all indexers must populate chunk_id, text, source, language, embedding.
 # domain, expertise_level, indexer_source enable metadata filtering and gravity.
+# origin_type + authority enable two-axis trust (security vs precedence).
 CATALOG_FIELDS = [
     FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
     FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
@@ -30,6 +37,10 @@ CATALOG_FIELDS = [
     FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
     FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
     FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
+    # Provenance: "internal" | "external" | "curated"
+    FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
+    # Authority tier: "canonical" | "vetted" | "community" | "external"
+    FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32),
 ]
 
 
@@ -93,6 +104,8 @@ def catalog_entity(
     section: str = "",
     document_name: str = "",
     tags: str = "",
+    origin_type: str = "",
+    authority: str = "",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. All required fields + optional metadata."""
     return {
@@ -107,4 +120,6 @@ def catalog_entity(
         "section": (section or "")[:256],
         "document_name": (document_name or "")[:256],
         "tags": (tags or "")[:512],
+        "origin_type": (origin_type or "")[:32],
+        "authority": (authority or "")[:32],
     }

@@ -264,6 +264,8 @@ def index_licenses(
                 domain="license",
                 indexer_source="license",
                 tags=tags,
+                origin_type="curated",
+                authority="canonical",
             )
         )
 

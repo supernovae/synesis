@@ -598,14 +598,18 @@ and the trust-rating concept from Prompt Fencing (arxiv 2511.19727).
 **Layer 3 -- Datamarking** (Spotlighting)
 
 Beyond structural delimiters, every line of untrusted content carries a
-per-token provenance prefix:
+per-token provenance prefix with optional authority tier:
 
 - `[W]` -- web-sourced content (highest risk, external)
-- `[R]` -- RAG-sourced content (medium risk, internal but mutable)
+- `[R:canonical]` -- org-approved RAG content (highest authority)
+- `[R:vetted]` -- reviewed internal RAG content (high authority)
+- `[R:community]` -- official external docs (baseline authority)
+- `[R:external]` -- unreviewed external RAG content (lower authority)
+- `[R]` -- RAG content with unknown authority (backward compat)
 - No prefix -- trusted policy from system or admin
 
 This provides a continuous signal throughout the token stream, so the model
-can distinguish provenance even within a single context window.
+can distinguish both provenance and authority even within a single context window.
 
 **Layer 4 -- Instruction Hierarchy** (CaMeL-inspired)
 
@@ -678,6 +682,104 @@ System Prompt + Trust Policy ─────────────────
 When scanning is disabled, Layers 2-4 (delimiters, datamarking, instruction
 hierarchy) still provide passive defense since they are embedded in prompt
 templates.
+
+## RAG Provenance and Authority Weighting
+
+Synesis uses a **two-axis trust model** for RAG content, separating *security
+trust* (can this data hijack the model?) from *authority weight* (should the
+model prioritize this data in its reasoning?). This design is informed by
+RA-RAG (arxiv 2410.22954), SeCon-RAG (arxiv 2510.09710), and ClaimTrust
+(arxiv 2503.10702).
+
+### Two-Axis Design
+
+| Axis | Question | Implementation |
+|---|---|---|
+| **Security trust** | Can this data inject instructions? | Injection scanning + `<context trust="untrusted">` delimiters + TRUST POLICY. All RAG content is `untrusted` regardless of authority. |
+| **Authority weight** | Should the model weight this higher? | `origin_type` + `authority` fields in Milvus + authority-boosted re-ranking + `[R:authority]` datamarks in prompts. |
+
+Security trust is **never overridden** by authority. A `canonical` internal ADR
+is still scanned for injection and wrapped in untrusted delimiters. Authority
+only affects ranking precedence and the signal given to the LLM.
+
+### Authority Taxonomy
+
+| Authority | Weight | Description | Examples |
+|---|---|---|---|
+| `canonical` | 1.5x | Authored/approved by the org | Internal ADRs, `.synesis.yaml`, admin policy |
+| `vetted` | 1.3x | Reviewed/curated by the team | Knowledge-base docs, curated runbooks, architecture whitepapers |
+| `community` | 1.0x | High-quality external sources | Official project docs (OpenShift, K8s), API specs |
+| `external` | 0.7x | Unreviewed external content | External GitHub repos, web-scraped docs |
+
+### Origin Type
+
+| Origin | Description |
+|---|---|
+| `internal` | Authored within the organization |
+| `external` | From outside the organization |
+| `curated` | External content reviewed/selected by the team |
+
+### Indexer Defaults
+
+| Indexer | `origin_type` | `authority` | Rationale |
+|---|---|---|---|
+| `knowledge-base` | `internal` | `vetted` | Curated team knowledge |
+| `architecture` | `curated` | `vetted` | Selected whitepapers/design docs |
+| `domain` (official docs) | `curated` | `community` | Official project docs (OpenShift, etc.) |
+| `code` (internal repos) | `internal` | `vetted` | Team's own code |
+| `code` (external repos) | `external` | `external` | External GitHub repos |
+| `apispec` | `curated` | `community` | API specs from known services |
+| `license` | `curated` | `canonical` | SPDX/legal standards |
+
+### Authority-Weighted Re-Ranking
+
+After hybrid retrieval (vector + BM25 + RRF merge), Synesis applies an
+authority boost to final scores before the top-k cutoff. This follows the
+RA-RAG principle: source reliability should modulate retrieval ranking, not
+just relevance.
+
+```
+final_score = rrf_score × authority_boost
+```
+
+The boost factors are explicit, tunable, and require no model retraining.
+Chunks without authority metadata (legacy data) receive a 1.0x boost (no change).
+
+### Provenance-Aware Prompt Assembly
+
+Authority is surfaced to the LLM through datamarked prefixes on each RAG chunk:
+
+```
+<context source="rag" trust="untrusted">
+[R:vetted] Internal ADR: We use Postgres for OLTP workloads because...
+---
+[R:community] Kubernetes docs: Pod scheduling uses a two-phase approach...
+---
+[R:external] GitHub repo snippet: func main() { ... }
+</context>
+```
+
+The TRUST POLICY in every system prompt (Worker, Planner, Critic, Router)
+instructs the model to prefer higher-authority sources when they conflict with
+lower-authority ones, while still treating all RAG content as reference only.
+
+### Schema Migration
+
+The `origin_type` and `authority` fields are VARCHAR fields added to the Milvus
+`synesis_catalog` collection. Existing chunks without these fields receive empty
+strings, which map to `1.0x` boost (baseline behavior). No re-indexing is
+required immediately -- populate the fields at convenience by re-running indexers.
+
+### Research References (Provenance)
+
+| Paper | Key Contribution | How We Apply It |
+|---|---|---|
+| RA-RAG ([arxiv 2410.22954](https://arxiv.org/abs/2410.22954), EMNLP 2025) | Source reliability modulates retrieval ranking | Authority-weighted boost on RRF scores |
+| SeCon-RAG ([arxiv 2510.09710](https://arxiv.org/abs/2510.09710), NeurIPS 2025) | Conflict-aware filtering at inference time | Authority tiers surface conflicts to the LLM |
+| ClaimTrust ([arxiv 2503.10702](https://arxiv.org/abs/2503.10702)) | Propagation-based trust scoring via PageRank | Informs authority taxonomy design |
+| Engineering the RAG Stack ([arxiv 2601.05264](https://arxiv.org/abs/2601.05264)) | Provenance tracking as foundational | `origin_type` + `authority` in Milvus schema |
+| TrustRAG ([arxiv 2501.00879](https://arxiv.org/abs/2501.00879)) | Clustering-based corpus poisoning defense | Informs RAG scanning strategy |
+| Milvus Boost Ranker ([docs](https://milvus.io/docs/boost-ranker.md), v2.6.2+) | Native metadata-driven ranking | Future: replace application-level boost with native Milvus ranker |
 
 ## See Also
 

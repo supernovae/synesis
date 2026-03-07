@@ -228,6 +228,8 @@ def index_language(
                         domain=language,
                         indexer_source="code",
                         tags=tags[:512],
+                        origin_type="external",
+                        authority="external",
                     )
                 )
             count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
@@ -262,6 +264,8 @@ def index_language(
                             domain=language,
                             indexer_source="patterns",
                             tags=tags[:512],
+                            origin_type="external",
+                            authority="external",
                         )
                     )
                 count = writer.upsert_batch(SYNESIS_CATALOG, catalog_entities)
