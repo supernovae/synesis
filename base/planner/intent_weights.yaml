@@ -124,6 +124,7 @@ domain_keywords:
     keywords: ["k8s", "kubernetes", "openshift", "oc ", "kubectl", "pod", "deployment", "helm", "istio", "ingress", "manifest", "cluster", "namespace"]
   persistence_engines:
     domain: databases
+    min_hits: 2
     keywords: ["sql", "database", "db", "postgres", "redis", "mongo", "query", "table", "schema", "migrate", "cassandra", "dynamodb"]
   networking_infra:
     domain: networking
@@ -148,6 +149,7 @@ domain_keywords:
     keywords: ["unity", "unreal", "game engine", "sprite", "physics", "collision"]
   ml_ops:
     domain: ml_ops
+    min_hits: 2
     keywords: ["tensorflow", "pytorch", "mlflow", "model serving", "inference", "training"]
   bioinformatics:
     domain: bioinformatics
@@ -157,6 +159,7 @@ domain_keywords:
     keywords: ["gis", "shapefile", "geojson", "postgis", "coordinates", "lat", "lon"]
   audio_video:
     domain: creative_media
+    min_hits: 2
     keywords: ["ffmpeg", "video", "audio", "stream", "encode", "decode"]
   procedural:
     domain: procedural
@@ -166,12 +169,14 @@ domain_keywords:
     keywords: ["home assistant", "smart home", "hue", "zigbee", "homekit"]
   personal_finance:
     domain: personal_finance
+    min_hits: 2
     keywords: ["budget", "expense", "investment", "portfolio", "tax", "401k"]
   nutrition:
     domain: nutrition
     keywords: ["calories", "macro", "recipe", "meal plan", "nutrition"]
   athletics_running:
     domain: athletics_running
+    min_hits: 2
     keywords: ["marathon", "running", "training plan", "vo2max", "taper", "interval", "5k", "10k", "half marathon"]
   aerospace:
     domain: aerospace

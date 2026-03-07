@@ -49,18 +49,13 @@ def resolve_taxonomy_metadata(
     cfg = _load_config()
     taxonomies = {k: v for k, v in (cfg or {}).items() if isinstance(v, dict) and "path" in v}
 
-    # Pick first matching domain
+    # Pick first matching domain (exact match only)
     key = "generic"
     for ref in active_domain_refs or []:
         r = str(ref).strip().lower()
         if r in taxonomies:
             key = r
             break
-        # Partial match (e.g. athletics_running → athletics)
-        for k in taxonomies:
-            if k in r or r in k:
-                key = k
-                break
 
     node_cfg = taxonomies.get(key) or taxonomies.get("generic") or {}
     path = str(node_cfg.get("path", "General"))
@@ -203,24 +198,28 @@ def resolve_active_vertical(
     """Resolve canonical vertical from domain refs and platform context.
 
     Uses vertical_prompt data from taxonomy plugins (merged by plugin_weight_loader).
+    Scores each vertical by how many active_domain_refs match (exact only).
     Returns: medical | fintech | industrial | platform | scientific | lifestyle | generic
     """
     refs = [r.strip().lower() for r in (active_domain_refs or []) if r and str(r).strip()]
     ctx = (platform_context or "").strip().lower() if platform_context else ""
 
     verticals = _load_vertical_prompts()
+    best_name = "generic"
+    best_score = 0
     for vert_name, vert_data in verticals.items():
         if not isinstance(vert_data, dict):
             continue
         ref_list = [str(x).strip().lower() for x in (vert_data.get("active_domain_refs") or [])]
-        for r in refs:
-            if r in ref_list or any(r == ref or r in ref or ref in r for ref in ref_list):
-                return vert_name
+        score = sum(1 for r in refs if r in ref_list)
         aliases = [str(x).strip().lower() for x in (vert_data.get("platform_context_aliases") or [])]
-        if ctx and (ctx in aliases or any(a in ctx or ctx in a for a in aliases)):
-            return vert_name
+        if ctx and ctx in aliases:
+            score += 1
+        if score > best_score:
+            best_score = score
+            best_name = vert_name
 
-    return "generic"
+    return best_name
 
 
 def get_worker_persona_block(vertical: str) -> str:

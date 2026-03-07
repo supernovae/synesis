@@ -93,19 +93,20 @@ def _build_patterns(weight_map: dict[str, Any]) -> dict[str, tuple[int, re.Patte
     return patterns
 
 
-def _build_domain_patterns(domain_map: dict[str, Any]) -> dict[str, tuple[str, re.Pattern[str]]]:
-    """Build category -> (domain, pattern) from domain_keywords dict."""
-    patterns: dict[str, tuple[str, re.Pattern[str]]] = {}
+def _build_domain_patterns(domain_map: dict[str, Any]) -> dict[str, tuple[str, re.Pattern[str], int]]:
+    """Build category -> (domain, pattern, min_hits) from domain_keywords dict."""
+    patterns: dict[str, tuple[str, re.Pattern[str], int]] = {}
     for cat, data in domain_map.items():
         if not isinstance(data, dict) or "keywords" not in data:
             continue
         keywords = data.get("keywords", [])
         domain = str(data.get("domain", cat))
+        min_hits = int(data.get("min_hits", 1))
         if not keywords:
             continue
         escaped = [re.escape(str(k)) for k in keywords]
         pattern = re.compile(r"\b(" + "|".join(escaped) + r")\b", re.IGNORECASE)
-        patterns[cat] = (domain, pattern)
+        patterns[cat] = (domain, pattern, min_hits)
     return patterns
 
 
@@ -259,9 +260,9 @@ class ScoringEngine:
 
         # 3. Domain keywords (RAG only, no score)
         domain_hints: list[str] = []
-        for cat, (domain, pattern) in self._domain_patterns.items():
+        for cat, (domain, pattern, min_hits) in self._domain_patterns.items():
             matches = pattern.findall(t_lower)
-            if matches:
+            if len(set(matches)) >= min_hits:
                 domain_hints.append(cat)
                 if domain and domain not in active_domains:
                     active_domains.append(domain)
