@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synesis Prompt Test Harness — automated regression testing against the planner API.
 
-Reads test_prompts_100.yaml, sends each prompt to the planner's OpenAI-compatible
+Reads test_prompts.yaml, sends each prompt to the planner's OpenAI-compatible
 endpoint, parses SSE streams, captures timing/behavior metrics, and produces a
 structured YAML report with pass/warn/fail verdicts.
 
@@ -156,6 +156,36 @@ CATEGORY_DEFAULTS: dict[str, dict] = {
         "max_reasoning_ratio": 3.0,
         "token_budget_tier": "medium",
     },
+    "plan_session": {
+        "max_reasoning_s": 20,
+        "max_reasoning_ratio": 6.0,
+        "token_budget_tier": "hard",
+    },
+    "code_rescue": {
+        "max_reasoning_s": 10,
+        "max_reasoning_ratio": 4.0,
+        "token_budget_tier": "medium",
+    },
+    "taxonomy_discovery": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "medium",
+    },
+    "long_output": {
+        "max_reasoning_s": 12,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "hard",
+    },
+    "education": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "medium",
+    },
+    "boundary": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "medium",
+    },
 }
 
 # Fallback for unknown categories
@@ -173,6 +203,9 @@ def _derive_expected_phases(
 
     if category == "edge_case":
         return ["Analyzing"]
+
+    if category == "plan_session":
+        return ["Complex task detected", "Building execution plan"]
 
     if expected_deliverable == "explain_only":
         return ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
@@ -518,6 +551,8 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
             add("streaming", "warn", "Single chunk (buffered?)")
         else:
             add("streaming", "warn", "No content chunks received")
+    else:
+        add("streaming", "pass", f"Non-streaming ({metrics.content_chunks} chunks)")
 
     # Content check
     if metrics.content_text.strip():
@@ -880,13 +915,8 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load suite (accept old filename as fallback)
     if not args.suite.exists():
-        fallback = args.suite.parent / "test_prompts_100.yaml"
-        if fallback.exists():
-            args.suite = fallback
-        else:
-            sys.exit(f"Suite file not found: {args.suite}")
+        sys.exit(f"Suite file not found: {args.suite}")
     prompts = load_suite(args.suite)
     print(f"Loaded {len(prompts)} prompts from {args.suite}")
 

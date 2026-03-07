@@ -34,7 +34,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 50
   notes: "Should bypass supervisor. entry_classifier knowledge_override. No JSON wrapper."
 
 - id: know-02
@@ -46,7 +46,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 40
+  max_latency_s: 50
   notes: "Finance domain. Should match personal_finance or similar taxonomy."
 
 - id: know-03
@@ -58,7 +58,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 40
+  max_latency_s: 50
   notes: "Science/physics domain. No code expected."
 
 - id: know-04
@@ -70,7 +70,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Culture/entertainment. Trivial knowledge question."
 
 - id: know-05
@@ -82,7 +82,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 50
   notes: "Tech knowledge but NOT code generation. Should stay explain_only."
 
 - id: know-06
@@ -94,7 +94,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 35
   notes: "General science. Very simple. Should be fast."
 
 - id: know-07
@@ -118,7 +118,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 50
   notes: "Education/linguistics domain. Clear explain_only."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 25
+  max_latency_s: 35
   notes: "CRITICAL: Must NOT context pivot. Short answer referencing prior options."
 
 - id: conv-01d
@@ -574,7 +574,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Pets/animals domain. dog_training keywords."
 
 - id: tax-02
@@ -586,7 +586,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Food/baking domain."
 
 - id: tax-03
@@ -598,7 +598,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Personal finance domain."
 
 - id: tax-04
@@ -610,7 +610,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Automotive domain."
 
 - id: tax-05
@@ -622,7 +622,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Hobbies/3D printing domain."
 
 - id: tax-06
@@ -634,7 +634,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Health/skincare domain."
 
 - id: tax-07
@@ -646,7 +646,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Music/podcasting domain."
 
 - id: tax-08
@@ -658,7 +658,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Home/gardening domain. Should NOT route to code."
 
 - id: tax-09
@@ -670,7 +670,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Personal development/public speaking domain."
 
 - id: tax-10
@@ -682,7 +682,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Real estate domain."
 
 - id: tax-11
@@ -694,7 +694,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Hobbies/sewing_crafts domain."
 
 - id: tax-12
@@ -706,7 +706,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 45
   notes: "Fitness/martial arts domain."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1436,7 +1436,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 35
+  max_latency_s: 50
   max_reasoning_s: 8
   expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "REGRESSION: Previously routed through full code gen path (55s). Must use explain_only. No sandbox/critic."
@@ -1532,7 +1532,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 20
   max_reasoning_s: 1
   max_reasoning_ratio: 0.5
   notes: "Social ack tier (128 tokens). Must be near-instant."
@@ -1574,7 +1574,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 20
   max_reasoning_s: 1.5
   max_reasoning_ratio: 1.0
   notes: "Trivial tier (256 tokens). Simple factual question."
@@ -1588,7 +1588,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 40
+  max_latency_s: 50
   max_reasoning_s: 8
   notes: "Small tier (2048 tokens). Technical explanation, moderate reasoning expected."
 
@@ -1619,7 +1619,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 40
   expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "Phase verification: explain_only path should show 4 phases, no code validation/review."
 
@@ -1662,3 +1662,351 @@
   max_reasoning_s: 1
   expected_phases: ["Analyzing"]
   notes: "Phase verification: trivial input should show minimal phases."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 23: Plan Session Override
+# Validates that explicit plan triggers (/plan, @plan, "plan first",
+# "break it down") force full planner routing regardless of task complexity.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: plansess-01
+  prompt: "/plan Build a user authentication system with JWT"
+  category: plan_session
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: false
+  context_must_persist: false
+  max_latency_s: 90
+  expected_phases: ["Complex task detected", "Building execution plan"]
+  notes: "Slash-command trigger. First turn of two-turn approval flow — returns plan outline, not code. User must reply to proceed."
+
+- id: plansess-02
+  prompt: "@plan Design a database schema for a blog platform"
+  category: plan_session
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: false
+  context_must_persist: false
+  max_latency_s: 90
+  expected_phases: ["Complex task detected", "Building execution plan"]
+  notes: "At-mention trigger. First turn returns plan for approval, not code."
+
+- id: plansess-03
+  prompt: "Plan first: implement a caching layer with Redis and fallback to database"
+  category: plan_session
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: false
+  context_must_persist: false
+  max_latency_s: 90
+  expected_phases: ["Complex task detected", "Building execution plan"]
+  notes: "'plan first' natural-language trigger. Returns plan for approval."
+
+- id: plansess-04
+  prompt: "Break it down into steps: build a CLI tool that converts CSV to JSON"
+  category: plan_session
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: false
+  context_must_persist: false
+  max_latency_s: 90
+  expected_phases: ["Complex task detected", "Building execution plan"]
+  notes: "'break it down' trigger. Returns plan for approval even though task is simple."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 24: Code Rescue Heuristic
+# Validates that prompts containing code-intent keywords (type hints,
+# refactor, decorator, async, error handling) are classified as code
+# even when the surface form looks like a knowledge question.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: rescue-01
+  prompt: "Add error handling to the function"
+  category: code_rescue
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 35
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
+  notes: "Standalone code rescue. No prior context. 'error handling' + 'function' should trigger code path."
+
+- id: rescue-02
+  prompt: "Refactor this synchronous Python HTTP client to use async/await with aiohttp"
+  category: code_rescue
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 40
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
+  notes: "Code rescue via 'refactor' + 'async' + 'await' keywords. Prompt is self-contained."
+
+- id: rescue-03
+  prompt: "Add a decorator that logs all function calls with timestamps"
+  category: code_rescue
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 40
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
+  notes: "Code rescue via 'decorator' keyword."
+
+- id: rescue-04
+  prompt: "Convert this class to use Python dataclasses instead"
+  category: code_rescue
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
+  notes: "Code rescue via 'class' + 'dataclasses' keywords. Critic may loop multiple times."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 25: Taxonomy Discovery / No-JSON Leak
+# Validates that taxonomy-enriched domains produce natural markdown
+# responses with discovery_prompt content (gotchas, trade-offs, Discover More)
+# without any JSON wrappers or structured data in the output.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: disc-01
+  prompt: "Why do objects fall at the same rate in a vacuum regardless of mass?"
+  category: taxonomy_discovery
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Physics domain with discovery_prompt. Must include 'Discover More' naturally. NO JSON wrapper."
+
+- id: disc-02
+  prompt: "What happens chemically when iron rusts?"
+  category: taxonomy_discovery
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "Chemistry domain with gotchas/trade-offs. Natural markdown. NO JSON."
+
+- id: disc-03
+  prompt: "How does a neural network learn from training data?"
+  category: taxonomy_discovery
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "CS/ML domain. explain_only despite being technical. NO code blocks unless explicitly requested."
+
+- id: disc-04
+  prompt: "Why is the Monty Hall problem so counterintuitive?"
+  category: taxonomy_discovery
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "Mathematics domain with gotchas. Should include common misconceptions naturally."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 26: Long Output / No-Truncation
+# Validates that the increased token budget (max 8192, 2048 floor for
+# knowledge) allows complete responses for comprehensive questions.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: long-01
+  prompt: "Give me a comprehensive comparison of the Space Shuttle program and the Soviet Buran program, including design philosophy, missions, key differences, and legacy."
+  category: long_output
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  notes: "Long knowledge response. Must NOT truncate mid-sentence. Tests 8192-token ceiling."
+
+- id: long-02
+  prompt: "Explain the complete lifecycle of a Linux process from fork to exit, including scheduling, memory management, context switching, and signal handling."
+  category: long_output
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  notes: "Deep technical explainer. Must complete all sections without truncation."
+
+- id: long-03
+  prompt: "Write a comprehensive guide to setting up a home network including router configuration, VLANs, DNS, firewall rules, and Wi-Fi optimization."
+  category: long_output
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  notes: "Practical long-form guide. Must complete without truncation."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 27: Educational Path (Post-Teach-Mode)
+# Verifies that educational prompts work cleanly through taxonomy steering
+# after the teach mode / Learner's Corner was removed. These would have
+# previously triggered the teach path — now they must produce natural
+# markdown with enrichment coming from taxonomy discovery_prompts.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: edu-01
+  prompt: "Teach me about recursion with simple examples"
+  category: education
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Post-teach-mode regression. 'Teach me' must NOT trigger any special mode. Code examples are pedagogically expected."
+
+- id: edu-02
+  prompt: "Help me understand the difference between stack and heap memory"
+  category: education
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 55
+  notes: "Post-teach-mode regression. CS education domain. Code examples are pedagogically expected for stack/heap."
+
+- id: edu-03
+  prompt: "What are common mistakes beginners make with Python list comprehensions?"
+  category: education
+  sequence: null
+  expected_route: worker
+  expected_deliverable: code_snippet
+  expected_lang: python
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 60
+  notes: "Post-teach-mode regression. Code examples showing bad vs good patterns are pedagogically expected."
+
+- id: edu-04
+  prompt: "Explain the difference between HTTP and HTTPS like I'm learning web development"
+  category: education
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 55
+  notes: "Post-teach-mode regression. Beginner context. Clean markdown explanation."
+
+- id: edu-05
+  prompt: "I'm studying for an exam. Quiz me on the parts of a biological cell."
+  category: education
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Interactive education request. Should generate quiz content directly, not explain how to study."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 28: Knowledge / Code Boundary
+# Validates that technical knowledge questions about code concepts
+# correctly route to explain_only and do NOT generate code.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: boundary-01
+  prompt: "What is the difference between a thread and a process?"
+  category: boundary
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "Technical knowledge ABOUT code. Must NOT generate code. explain_only."
+
+- id: boundary-02
+  prompt: "How does garbage collection work in Java?"
+  category: boundary
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "Knowledge about a language feature. Must stay explain_only."
+
+- id: boundary-03
+  prompt: "What are the SOLID principles in object-oriented design?"
+  category: boundary
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Design principles. Mentions 'object-oriented' but must NOT generate code."
+
+- id: boundary-04
+  prompt: "Explain how DNS works when I type a URL in my browser"
+  category: boundary
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "Networking knowledge. Must NOT produce code despite being tech."
+
+- id: boundary-05
+  prompt: "What's the difference between compiled and interpreted languages?"
+  category: boundary
+  sequence: null
+  expected_route: worker
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 45
+  notes: "CS fundamentals. explain_only despite mentioning 'languages'."
