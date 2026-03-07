@@ -24,6 +24,7 @@ from typing import Any
 import httpx
 
 from .config import settings
+from .injection_scanner import reduce_context_on_injection, scan_web_content
 
 logger = logging.getLogger("synesis.web_search")
 
@@ -341,20 +342,44 @@ class WebSearchClient:
             return []
 
 
-def format_search_results(results: list[SearchResult]) -> list[str]:
-    """Format search results as readable strings for prompt injection.
+def _sanitize_search_result(result: SearchResult) -> SearchResult:
+    """Scan and redact injection payloads from a single search result.
 
+    Uses the extended web scanner (Tier-1 + Tier-2 patterns) including
+    homoglyph normalization and zero-width character stripping.
+    """
+    if result.fetched_content:
+        scan = scan_web_content(result.fetched_content, source=f"web_page:{result.url[:80]}")
+        if scan.detected:
+            result.fetched_content = reduce_context_on_injection(result.fetched_content, "")
+    if result.snippet:
+        scan = scan_web_content(result.snippet, source=f"web_snippet:{result.url[:80]}")
+        if scan.detected:
+            result.snippet = reduce_context_on_injection(result.snippet, "")
+    if result.title:
+        scan = scan_web_content(result.title, source=f"web_title:{result.url[:80]}")
+        if scan.detected:
+            result.title = reduce_context_on_injection(result.title, "")
+    return result
+
+
+def format_search_results(results: list[SearchResult]) -> list[str]:
+    """Format search results as readable strings with injection scanning.
+
+    Sanitizes each result via the extended web scanner before formatting.
     Prefers fetched_content (full page text) over snippet when available.
+    Applies [W] datamarking prefix per Spotlighting (arxiv 2403.14720).
     """
     formatted = []
     for r in results:
+        r = _sanitize_search_result(r)
         body = r.fetched_content.strip() if r.fetched_content else ""
         if not body:
             body = r.snippet[:300].replace("\n", " ").strip()
         if body:
-            formatted.append(f"[{r.title}]({r.url}): {body}")
+            formatted.append(f"[W] [{r.title}]({r.url}): {body}")
         else:
-            formatted.append(f"[{r.title}]({r.url})")
+            formatted.append(f"[W] [{r.title}]({r.url})")
     return formatted
 
 

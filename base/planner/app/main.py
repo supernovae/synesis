@@ -37,7 +37,7 @@ from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
 from .graph import graph
 from .history_summarizer import archive_to_l2, summarize_pivot_history
-from .injection_scanner import reduce_context_on_injection, scan_user_input
+from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_user_input
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
@@ -512,12 +512,24 @@ def _extract_content_and_metrics(
                 bool(patch_ops),
             )
 
+    # Output guardrail: detect signs of injection compliance before delivery
+    if content and settings.injection_scan_enabled:
+        output_scan = scan_model_output(content)
+        if output_scan.detected:
+            logger.warning(
+                "output_guardrail_triggered",
+                extra={
+                    "patterns": output_scan.patterns_found[:5],
+                    "excerpt": output_scan.excerpt[:200],
+                    "run_id": run_id,
+                },
+            )
+
     if settings.memory_enabled:
         if last_user_content:
             memory.store_turn(scope, "user", last_user_content)
         if content:
             memory.store_turn(scope, "assistant", content)
-        # Update last_active_language and last_context for next turn's pivot detection
         lang = result.get("target_language") or "markdown"
         if lang in ("", "infer"):
             lang = "markdown"
