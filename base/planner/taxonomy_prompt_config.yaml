@@ -1404,6 +1404,153 @@ protocols:
     - "Error Handling"
     - "Standards Compliance"
 
+# ─── Engineering: Software Architecture ───────────────────────────────────────
+
+software_architecture:
+  path: "Engineering > Software Architecture"
+  complexity: 0.9
+  persona: "Principal Engineer"
+  worker_explain_tone: "You are a principal engineer advising on system architecture. Be specific, opinionated, and honest about uncertainty. Prefer battle-tested approaches over trendy ones."
+  depth_instructions: "Address the specific constraints the user stated. Do not add requirements they did not mention. Name concrete technologies and justify each choice. Quantify latency, throughput, and cost where possible. Separate what you know from what you assume. Identify the top failure modes and how to detect them."
+  discovery_prompt: "End with 'Architecture Risks': the top 3-5 ways this system could fail, ordered by likelihood, with early warning signs and mitigations for each."
+  planner_decomposition_rules: |
+    For architecture/design tasks:
+    - Map each user-requested section to a plan step.
+    - If the user listed specific deliverables, each becomes a step.
+    - Do NOT invent requirements the user did not ask for.
+    - Final step: risks and failure modes.
+  required_elements:
+    - "Design Goals & Constraints"
+    - "Architecture & Components"
+    - "Technology Choices & Rationale"
+    - "Failure Modes & Mitigations"
+    - "Implementation Path"
+    - "Top Risks"
+
+# ─── Engineering: Cloud Architecture ──────────────────────────────────────────
+
+cloud:
+  path: "Engineering > Cloud Architecture"
+  complexity: 0.85
+  persona: "Solutions Architect"
+  worker_explain_tone: "You are a pragmatic solutions architect. Make tradeoffs explicit. Separate facts, assumptions, and recommendations. Be opinionated but honest about uncertainty."
+  depth_instructions: "Name concrete services and tools, not abstract categories. Quantify where possible (latency targets, cost estimates, team effort). Compare alternatives with pros/cons. Flag single points of failure. Consider Day-2 operations, not just Day-1 deployment."
+  discovery_prompt: "End with a brief 'Key Risks' section: the top 2-3 ways this approach could fail, early warning signs, and mitigations."
+  required_elements:
+    - "Design Goals & Constraints"
+    - "Architecture & Components"
+    - "Technology Choices & Rationale"
+    - "Tradeoffs & Alternatives"
+    - "Implementation Path"
+    - "Key Risks"
+
+# ─── Engineering: Kubernetes & Container Orchestration ────────────────────────
+
+kubernetes:
+  path: "Engineering > Kubernetes & Container Orchestration"
+  complexity: 0.85
+  persona: "Platform Engineer"
+  worker_explain_tone: "You are a hands-on platform engineer. Focus on operational reality over theoretical best practices. Assume production constraints."
+  depth_instructions: "Prioritize what works in production at scale. Flag common pitfalls and failure modes. Recommend specific tools and versions. Consider resource limits, scheduling, networking, and observability. Note upgrade and rollback implications."
+  discovery_prompt: "End with 'Operational Gotchas': 2-3 failure modes that commonly surprise teams and how to detect them early."
+  required_elements:
+    - "Architecture"
+    - "Resource & Scheduling Considerations"
+    - "Networking & Security"
+    - "Observability & Operations"
+    - "Tradeoffs"
+
+# ─── Engineering: Data & Storage ──────────────────────────────────────────────
+
+databases:
+  path: "Engineering > Data & Storage"
+  complexity: 0.8
+  persona: "Data Architect"
+  worker_explain_tone: "You are a pragmatic data architect. Optimize for the actual access patterns, not theoretical normalization."
+  depth_instructions: "Consider read/write ratios, consistency requirements, and scaling characteristics. Compare storage engines for the workload. Note backup, migration, and schema evolution implications. Quantify performance characteristics where relevant."
+  discovery_prompt: "End with 'Data Gotchas': common mistakes in schema design, indexing, or consistency model choice for this use case."
+  required_elements:
+    - "Data Model"
+    - "Access Patterns & Performance"
+    - "Consistency & Durability"
+    - "Tradeoffs"
+
+# ─── Engineering: Networking ──────────────────────────────────────────────────
+
+networking:
+  path: "Engineering > Networking"
+  complexity: 0.8
+  persona: "Network Engineer"
+  worker_explain_tone: "You are a network engineer. Focus on reliability, latency, and security at the network layer."
+  depth_instructions: "Consider failure domains, latency budgets, and encryption in transit. Note DNS, load balancing, and service mesh implications. Be specific about protocols and ports."
+  discovery_prompt: "End with 'Network Gotchas': common misconfigurations or failure modes that cause outages."
+  required_elements:
+    - "Topology"
+    - "Security & Encryption"
+    - "Reliability & Failover"
+    - "Tradeoffs"
+
+# ─── Engineering: Web Backend ─────────────────────────────────────────────────
+
+web_backend:
+  path: "Engineering > Web Backend"
+  complexity: 0.75
+  persona: "Backend Engineer"
+  worker_explain_tone: "You are a senior backend engineer. Focus on correctness, performance, and maintainability."
+  depth_instructions: "Consider error handling, concurrency, and observability from the start. Note authentication, rate limiting, and API versioning implications. Recommend specific patterns for the framework."
+  discovery_prompt: "End with 'Production Checklist': 2-3 things commonly forgotten before going live."
+  required_elements:
+    - "API Design"
+    - "Error Handling & Observability"
+    - "Performance Considerations"
+    - "Tradeoffs"
+
+# ─── Engineering: Web Frontend ────────────────────────────────────────────────
+
+web_frontend:
+  path: "Engineering > Web Frontend"
+  complexity: 0.7
+  persona: "Frontend Engineer"
+  worker_explain_tone: "You are a senior frontend engineer. Balance user experience, performance, and maintainability."
+  depth_instructions: "Consider bundle size, rendering strategy (SSR/CSR/ISR), accessibility, and state management. Note browser compatibility and mobile responsiveness."
+  discovery_prompt: "End with 'UX Gotchas': common usability or performance mistakes for this approach."
+  required_elements:
+    - "Component Architecture"
+    - "State Management"
+    - "Performance & Accessibility"
+    - "Tradeoffs"
+
+# ─── Engineering: ML Infrastructure ──────────────────────────────────────────
+
+ml_ops:
+  path: "Engineering > ML Infrastructure"
+  complexity: 0.85
+  persona: "ML Engineer"
+  worker_explain_tone: "You are an ML infrastructure engineer. Focus on reproducibility, cost efficiency, and serving latency."
+  depth_instructions: "Consider training vs serving tradeoffs, GPU utilization, model versioning, and experiment tracking. Note data pipeline reliability and feature drift monitoring. Quantify memory and compute requirements."
+  discovery_prompt: "End with 'ML Ops Gotchas': common failures in model serving, data pipelines, or experiment reproducibility."
+  required_elements:
+    - "Model Architecture & Sizing"
+    - "Training & Serving Infrastructure"
+    - "Data Pipeline"
+    - "Monitoring & Drift Detection"
+    - "Cost & Performance Tradeoffs"
+
+# ─── Engineering: Embedded Systems ────────────────────────────────────────────
+
+embedded:
+  path: "Engineering > Embedded Systems"
+  complexity: 0.8
+  persona: "Embedded Systems Engineer"
+  worker_explain_tone: "You are an embedded systems engineer. Focus on resource constraints, real-time behavior, and hardware/software interfaces."
+  depth_instructions: "Consider memory footprint, power consumption, real-time constraints, and hardware abstraction. Note interrupt handling, DMA, and peripheral configuration specifics."
+  discovery_prompt: "End with 'Embedded Gotchas': common timing, memory, or power issues for this approach."
+  required_elements:
+    - "Hardware/Software Interface"
+    - "Resource Constraints"
+    - "Real-time Considerations"
+    - "Tradeoffs"
+
 # Fallback when no domain match
 generic:
   path: "General"
@@ -1429,3 +1576,13 @@ deep_dive_domains:
   - religion_spirituality
   - linguistics
   - literature
+  - cloud
+  - kubernetes
+  - databases
+  - networking
+  - web_backend
+  - web_frontend
+  - ml_ops
+  - embedded
+  - software_architecture
+  - protocols

@@ -330,7 +330,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-        # Taxonomy-driven document depth check: when not is_code_task + high complexity, validate science depth
+        # Taxonomy-driven document depth check: knowledge deep-dives (engineering, science, etc.)
         is_code_task = state.get("is_code_task", True)
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
@@ -341,19 +341,22 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
 
             depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
-            doc_system = f"""You are a depth reviewer for document/knowledge responses.
+            doc_system = f"""You are a quality reviewer for structured knowledge responses.
 
 {depth_block}
 
 Evaluate the response below against required_elements for this domain.
-- approved=true if it covers required_elements with adequate rigor.
-- approved=false if sections are missing/superficial. Use evidence_refs ref_type="spec", id="taxonomy_depth".
+- approved=true if it covers required_elements with adequate depth and specificity.
+- approved=false if sections are missing, superficial, or generic. Use evidence_refs ref_type="spec", id="taxonomy_depth".
+- Check for hallucinated requirements: if the response adds constraints the user did not ask for (e.g. compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
+- Check for specificity: vague recommendations ("use a good framework") should be flagged; concrete ones ("use FastAPI with Pydantic") are preferred.
 - Minor suggestions → nonblocking.
 
 Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
             doc_prompt = (
                 f"## Task\n{task_desc}\n\n"
-                f"## Taxonomy\nRequired elements: {taxonomy_metadata.get('required_elements', [])}\n\n"
+                f"## Taxonomy\nDomain: {taxonomy_metadata.get('path', 'General')}\n"
+                f"Required elements: {taxonomy_metadata.get('required_elements', [])}\n\n"
                 f"## Executor Response (markdown)\n{generated_code[:8000]}"
             )
             try:

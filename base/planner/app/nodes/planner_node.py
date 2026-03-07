@@ -34,6 +34,20 @@ Reply with JSON:
 Keep plans concise. 1-3 steps for simple tasks; more for complex.
 """
 
+KNOWLEDGE_PLANNER_PROMPT = """\
+You are the Planner. Create a structured outline for a comprehensive response. You do NOT write the response itself.
+
+Reply with JSON only:
+{"plan":{"steps":[{"id":1,"action":"Section: title — what to cover in 1 sentence","dependencies":[]}],"open_questions":[],"assumptions":[]},"reasoning":"Brief","confidence":0.0-1.0}
+
+Rules:
+- Each step = one section of the final response.
+- Map the user's explicitly requested sections to steps. Do NOT invent sections they did not ask for.
+- 4-8 steps for complex topics; fewer for simple ones.
+- If the user listed numbered deliverables, preserve their order.
+- Final step should cover risks, caveats, or failure modes if relevant.
+"""
+
 planner_llm = ChatOpenAI(
     base_url=settings.planner_model_url,
     api_key="not-needed",
@@ -123,14 +137,23 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         from ..taxonomy_prompt_factory import get_planner_system_prompt_append
 
         taxonomy_append = get_planner_system_prompt_append(state.get("taxonomy_metadata") or {})
-        system_prompt = PLANNER_SYSTEM_PROMPT + taxonomy_append
+        is_code_task = state.get("is_code_task", True)
+        base_prompt = KNOWLEDGE_PLANNER_PROMPT if not is_code_task else PLANNER_SYSTEM_PROMPT
+        system_prompt = base_prompt + taxonomy_append
 
-        prompt = (
-            f"## Task\nLanguage: {target_lang}\n{task_desc}\n"
-            f"## Supervisor assumptions\n{assumptions_str}"
-            f"{context_block}{domain_rules_block}\n\n"
-            f"Produce a structured execution plan for the Executor to follow."
-        )
+        if is_code_task:
+            prompt = (
+                f"## Task\nLanguage: {target_lang}\n{task_desc}\n"
+                f"## Supervisor assumptions\n{assumptions_str}"
+                f"{context_block}{domain_rules_block}\n\n"
+                f"Produce a structured execution plan for the Executor to follow."
+            )
+        else:
+            prompt = (
+                f"## Task\n{task_desc}\n"
+                f"{context_block}{domain_rules_block}\n\n"
+                f"Produce a structured outline of sections for the response."
+            )
 
         messages = [
             SystemMessage(content=system_prompt),

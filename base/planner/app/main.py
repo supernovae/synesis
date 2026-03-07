@@ -428,10 +428,19 @@ STATUS_HARD: dict[str, str] = {
 }
 
 
+_STATUS_KNOWLEDGE: dict[str, str] = {
+    "supervisor": "Searching for context…",
+    "planner": "Building response outline…",
+    "context_curator": "Gathering context…",
+    "worker": "Generating response…",
+    "critic": "Reviewing quality…",
+}
+
+
 def _status_for_node(node: str, task_size: str, is_code_task: bool = True) -> str:
     """Return tier-matched status message for Open WebUI."""
-    if node == "worker" and not is_code_task:
-        return "Generating response…"
+    if not is_code_task and node in _STATUS_KNOWLEDGE:
+        return _STATUS_KNOWLEDGE[node]
     if task_size == "easy" and node in STATUS_EASY:
         return STATUS_EASY[node]
     if task_size == "medium" and node in STATUS_MEDIUM:
@@ -988,6 +997,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     task_size_val = output["task_size"]
                                 if "is_code_task" in output:
                                     is_code_task_val = output["is_code_task"]
+
+                                # Emit web search status when supervisor or context_curator ran web search
+                                if name in ("supervisor", "context_curator") and output.get("web_search_results"):
+                                    _ws_desc = "Searching the web…"
+                                    if _ws_desc != _last_status_desc:
+                                        _last_status_desc = _ws_desc
+                                        thinking_phases.append(_ws_desc)
+                                        yield _sse_status_chunk(
+                                            {"type": "status", "data": {"description": _ws_desc, "done": False, "hidden": False}}
+                                        )
+                                        await asyncio.sleep(0)
 
                                 # Emit planner reasoning + plan steps as status + thinking
                                 if name == "planner":

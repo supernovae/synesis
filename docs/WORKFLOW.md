@@ -26,66 +26,52 @@ Decoupling](#architecture-decision-sandboxlsp-decoupling)).
 
 | Role | Model | Hardware | Notes |
 |------|-------|----------|-------|
-| Supervisor / Planner / Critic | Qwen3-8B FP8-dynamic | GPU 1 (L40S) | Shared model, two K8s Services |
-| Worker (Executor) | DeepSeek R1-Distill-Qwen-32B FP8-dynamic | GPU 2 (L40S) | Chain-of-thought reasoning via `--reasoning-parser=deepseek_r1` |
+| Router / Planner / Critic | Qwen3-8B FP8-dynamic | GPU 1 (L40S) | Shared vLLM instance, two `--served-model-name` aliases (`synesis-router`, `synesis-critic`) |
+| Worker (Executor / General) | Qwen3-32B FP8 | GPU 2 (L40S) | Dense model; `enable_thinking: False` to suppress `<think>` blocks |
+| Coder | Qwen3-32B FP8 | GPU 3 (L40S) | Dedicated code generation (same model, separate instance) |
 | Summarizer | Qwen2.5-0.5B-Instruct | CPU | Pivot history summarization |
 | Embedder | all-MiniLM-L6-v2 | CPU | RAG embedding |
 
 ## Graph Flow
 
+There are three primary paths through the graph, selected by the
+Entry Classifier based on task complexity and type:
+
+```mermaid
+flowchart TD
+    EC["entry_classifier\n(deterministic)"] --> SA["strategic_advisor\n(domain alignment)"]
+    SA --> R1{"plan_required\n+ hard/medium\nor knowledge\ndeep-dive?"}
+    SA --> R2{"bypass_supervisor\n(easy/knowledge)?"}
+    SA --> R3["supervisor\n(LLM routing)"]
+
+    R1 -->|yes| PL["planner\n(code: atomic steps)\n(knowledge: section outline)"]
+    R2 -->|yes| CC["context_curator\nRAG + web search"]
+    R3 --> CC2["context_curator"]
+    R3 -->|"LLM routes to planner"| PL
+
+    PL --> CC
+    CC2 --> WK["worker\n(streaming markdown)"]
+    CC --> WK
+
+    WK -->|"is_code_task=true"| PIG["patch_integrity_gate"]
+    WK -->|"is_code_task=false\n+ high complexity"| CR["critic\n(section coverage)"]
+    WK -->|"is_code_task=false\nlow complexity"| RS["respond"]
+
+    PIG --> CR2["critic\n(evidence-gated)"]
+    CR --> RS
+    CR -->|"need_more_evidence"| R3
+    CR2 --> RS
+    CR2 -->|"revision loop"| R3
 ```
-                                    +--------------------+
-                                    |  entry_classifier  |  <- deterministic (no LLM)
-                                    +--------+-----------+
-                                             |
-                                             v
-                                    +--------------------+
-                                    | strategic_advisor  |  Domain classification
-                                    +--------+-----------+
-                                             |
-              +------------------------------+------------------+
-              |                              |                  |
-              v                              v                  v
-    +-----------------+            +-----------------+  +--------------+
-    | context_curator |            |   supervisor    |  |   planner    |
-    | (easy fast path)|            | (routing only)  |  | (hard path)  |
-    +--------+--------+            +--------+--------+  +------+-------+
-             |                              |                  |
-             |                    +---------+--------+         |
-             |                    v                  v         |
-             |            context_curator       planner        |
-             |                    |                  |         |
-             +--------------------+------------------+         |
-                                  v                            |
-                         +-----------------+                   |
-                         | context_curator |  RAG + context    |
-                         +--------+--------+                   |
-                                  |                            |
-                                  v                            |
-                         +-----------------+                   |
-                         |     worker      |  Markdown output  |
-                         +--------+--------+                   |
-                                  |                            |
-                    +-------------+--------------+             |
-                    | is_code_task?              |             |
-                    v                            v             |
-           +-----------------+          +-------------+       |
-           |patch_integrity_ |          |   respond   |       |
-           |     gate        |          |   (direct)  |       |
-           +--------+--------+          +-------------+       |
-                    |                                          |
-                    v                                          |
-            +-----------------+                                |
-            |     critic      |  Evidence-gated review         |
-            +--------+--------+                                |
-                     |                                         |
-            +--------+--------+                                |
-            v                 v                                |
-     +-------------+  +-------------+                          |
-     |   respond   |  |  supervisor |  (revision loop)         |
-     |     END     |  +------+------+                          |
-     +-------------+         +------->------>------>-----------+
-```
+
+**Path 1 — Easy/knowledge (bypass supervisor):**
+Entry Classifier → Context Curator → Worker → Respond
+
+**Path 2 — Knowledge deep-dive (plan_required + is_code_task=false):**
+Entry Classifier → Planner (KNOWLEDGE_PLANNER_PROMPT) → Context Curator (+ web search) → Worker → Critic (section coverage) → Respond
+
+**Path 3 — Code tasks (supervisor routing):**
+Entry Classifier → Supervisor (LLM routing + web search) → [Planner] → Context Curator → Worker → Patch Integrity Gate → Critic → Respond
 
 ## Classification System
 
@@ -133,7 +119,8 @@ acknowledgements get 256 tokens.
 
 **Taxonomy-driven passthroughs (no LLM):**
 - `task_size == "hard"` + `plan_required` -> skip LLM, route to `planner`
-- `is_code_task=false` (taxonomy) -> skip LLM, route to `worker`
+- `is_code_task=false` + `!plan_required` (taxonomy) -> skip LLM, route to `worker`
+- `is_code_task=false` + `plan_required` (knowledge deep-dive on critic retry) -> run LLM routing + web search
 
 ### After Planner
 
@@ -183,13 +170,16 @@ acknowledgements get 256 tokens.
    `routing_thresholds`. Taxonomy plugins provide domain keywords,
    complexity/risk weights, and vertical prompt data (worker
    persona, planner rules, critic mode).
-3. **Atomic Planner**: Each step max 3 files. Every step must have
-   `verification_command`. Protocol tasks (Fediverse,
-   ActivityPub): first step = discovery/WebFinger only.
-4. **Evidence-Gated Critic**: `approved=false` requires at least
-   one `blocking_issue` with valid `evidence_refs` (ref_type:
-   static_analysis, syntax, spec, code_smell, lsp, or sandbox).
-   No blocking on speculation.
+3. **Dual Planner Prompts**: Code tasks use `PLANNER_SYSTEM_PROMPT`
+   (atomic steps with files and verification commands). Knowledge
+   deep-dives use `KNOWLEDGE_PLANNER_PROMPT` (section outlines
+   mapped from the user's explicit requests). Protocol tasks:
+   first step = discovery/WebFinger only.
+4. **Evidence-Gated Critic**: For code: `approved=false` requires
+   `blocking_issue` with valid `evidence_refs`. For knowledge
+   deep-dives: Critic validates section coverage against taxonomy
+   `required_elements`, checks for hallucinated constraints the
+   user did not request, and flags vague recommendations.
 5. **Unified Markdown Output**: Worker always produces markdown.
    No JSON wrapper. Code is in fenced blocks; `code_extractor.py`
    extracts blocks for validation. `is_code_task` controls whether
@@ -224,9 +214,17 @@ engineering rigor.
 - **Tiered Critic** (lifestyle, LLM RAG/prompting/evaluation):
   basic -> advanced -> research tiers from taxonomy plugin YAML.
 - **Vertical Persona Injection**: Taxonomy plugins inject
-  domain-specific Worker persona blocks (HIPAA for medical,
-  PCI-DSS for fintech, etc.), Planner decomposition rules, and
-  Critic mode overrides.
+  domain-specific Worker persona blocks, Planner decomposition
+  rules, and Critic mode overrides. Compliance requirements
+  (FIPS, HIPAA, PCI-DSS, air-gap) are injected as **conditional
+  considerations** — they activate only when the user's context
+  signals them (e.g., "GovCloud" triggers FIPS, "healthcare"
+  triggers HIPAA), not by default.
+- **Knowledge Deep-Dive**: Engineering domains (cloud, kubernetes,
+  databases, software_architecture, etc.) in `deep_dive_domains`
+  route through Planner → Context Curator (with web search) →
+  Worker → Critic for structured, section-by-section generation
+  with quality review.
 
 ## Streaming Architecture
 
@@ -238,15 +236,23 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 | `is_code_task=false` | Worker returns `direct_stream_request` dict; `main.py` calls executor via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
 | `is_code_task=true` | Worker calls LLM via LangChain `ainvoke`; code extracted from markdown post-hoc | Full response needed for code extraction |
 
-**Reasoning content**: vLLM `--reasoning-parser=deepseek_r1`
-separates R1 thinking into `reasoning_content` in the SSE delta.
-Open WebUI v0.8.8+ renders this natively in a collapsible
-"Thinking" UI.
+**Status events**: Pipeline phases emit as SSE `event: status`
+with `{"type":"status","data":{"description":"...","done":false}}`
+payloads. Open WebUI renders these in a collapsible "Thinking" UI.
 
-**Status events**: Pipeline phases (`Analyzing request...`,
-`Detecting domain...`, `Creating your plan...`, `Finishing...`)
-emit as `reasoning_content` before the main response, appearing
-in the Thinking dropdown.
+**Knowledge-specific statuses**: When `is_code_task=false`, the
+pipeline emits context-aware messages:
+- "Searching for context..." (supervisor)
+- "Building response outline..." (planner)
+- "Searching the web..." (when web search returns results)
+- "Gathering context..." (context curator)
+- "Generating response..." (worker)
+- "Reviewing quality..." (critic)
+
+**Code task statuses** (tier-matched):
+- Easy: "Analyzing..." → "Generating code..."
+- Medium: "Generating code..."
+- Hard: "Complex task detected..." → "Architecting solution..."
 
 **Deduplication**: Consecutive identical status descriptions are
 suppressed to prevent duplicate phase indicators.
@@ -327,6 +333,31 @@ The following research informed this architecture decision:
    - Ref: Ong et al., "RouteLLM: Learning to Route LLMs with
      Preference Data" (2024), arXiv:2406.18665
 
+7. **Plan-and-Solve Prompting**: Decomposing complex tasks into
+   subtasks before generation improves accuracy by 3-15% on
+   reasoning benchmarks. Synesis implements this via the planner
+   node creating structured outlines for deep-dive knowledge
+   tasks (taxonomy domains with complexity > 0.6).
+   - Ref: Wang et al., "Plan-and-Solve Prompting: Improving
+     Zero-Shot Chain-of-Thought Reasoning by Large Language
+     Models" (2023), arXiv:2305.04091
+
+8. **Skeleton-of-Thought**: Generating a response outline first,
+   then filling sections produces better structure and enables
+   parallel generation. Synesis uses the planner's section
+   outline (KNOWLEDGE_PLANNER_PROMPT) to guide the worker's
+   structured generation for knowledge deep-dives.
+   - Ref: Ning et al., "Skeleton-of-Thought: Large Language
+     Models Can Do Parallel Decoding" (2023), arXiv:2307.15337
+
+9. **Self-Refine**: Iterative self-feedback without additional
+   training data improves open-ended generation quality on 7
+   diverse tasks. Synesis implements this via the critic node's
+   review loop, which validates section coverage against taxonomy
+   required_elements and checks for hallucinated constraints.
+   - Ref: Madaan et al., "Self-Refine: Iterative Refinement
+     with Self-Feedback" (2023), arXiv:2303.17651
+
 ### What Changed
 
 | Before | After |
@@ -341,26 +372,38 @@ The following research informed this architecture decision:
 ## Planner: When, Why, and Performance
 
 **When Planner runs:**
-1. Code: `task_size=hard` + `plan_required` (multi-step,
-   protocol-heavy)
-2. Document deep-dive: `is_code_task=false` + domain in
+1. **Code tasks**: `task_size=hard` + `plan_required` (multi-step,
+   protocol-heavy). Uses `PLANNER_SYSTEM_PROMPT` with atomic steps,
+   file manifests, and verification commands.
+2. **Knowledge deep-dives**: `is_code_task=false` + domain in
    `deep_dive_domains` + `complexity > 0.6` ->
-   `plan_required=true` -> Planner produces structured bullets;
-   Worker receives taxonomy depth block
-3. Simple document -> `plan_required=false` -> Supervisor
-   passthrough -> Worker -> Respond
+   `plan_required=true`. Uses `KNOWLEDGE_PLANNER_PROMPT` which
+   creates section outlines (not file plans) based on the user's
+   explicitly requested deliverables and taxonomy `required_elements`.
+3. **Simple knowledge**: `plan_required=false` -> bypass Supervisor
+   -> Context Curator -> Worker -> Respond (no Planner).
+
+**Deep-dive engineering domains** (trigger Planner for knowledge):
+`cloud`, `kubernetes`, `databases`, `networking`, `web_backend`,
+`web_frontend`, `ml_ops`, `embedded`, `software_architecture`,
+`protocols` — all with `complexity >= 0.7` and rich `required_elements`.
 
 **Taxonomy shaping:** Taxonomy plugin YAMLs inject
-`planner_decomposition_rules` per vertical. For lifestyle:
-"Standard atomic steps." For medical/fintech/industrial: Step 1
-audit/safety rules.
+`planner_decomposition_rules` per domain. For software architecture:
+"Map each user-requested section to a plan step. Do NOT invent
+requirements the user did not ask for." For protocols: "FIRST step
+= discovery/handshake only."
+
+**Web search for knowledge deep-dives:** Context Curator runs web
+search for `is_code_task=false` + `plan_required=true` tasks,
+providing the Worker with current web context alongside RAG results.
 
 **Performance levers:**
 1. **Routing:** Taxonomy sets `is_code_task=false` for (intent,
-   domain) -> `plan_required=false`; document tasks never hit
-   Planner.
-2. **max_tokens:** 1024 vs 2048 reduces generation time.
-3. **Prefix caching:** Supervisor and Critic share a runtime with
+   domain) -> `plan_required=false`; simple document tasks never
+   hit Planner. Only deep-dive domains trigger the full pipeline.
+2. **max_tokens:** 1024 for Planner/Critic vs 2048+ for Worker.
+3. **Prefix caching:** Router and Critic share a vLLM runtime with
    `--enable-prefix-caching`.
 
 ## Configuration System
@@ -372,7 +415,7 @@ YAML config -- no hardcoded if/else chains.
 |------|---------|
 | `intent_weights.yaml` | Core complexity/risk weights, intent classes, routing thresholds |
 | `plugins/weights/*.yaml` | Industry-specific keywords, weights, pairings, and vertical prompt data |
-| `taxonomy_prompt_config.yaml` | Domain -> persona, tone, depth instructions, required_elements |
+| `taxonomy_prompt_config.yaml` | Domain -> persona, tone, depth instructions, required_elements, discovery_prompt. 100+ domains including 10 engineering domains with deep guidance. `deep_dive_domains` list triggers Planner for knowledge tasks. |
 | `intent_prompts.yaml` | Intent -> Critic behavior overlay (hallucination-sensitive, evidence-required, etc.) |
 | `prompt_taxonomy.yaml` | Pivot summarizer routing, vertical aliases |
 

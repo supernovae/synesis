@@ -121,11 +121,20 @@ vertical_prompt:
     - kubernetes
     - k8s
   worker_persona_block: |
-    VERTICAL: Platform / OpenShift / FIPS. Hardening, air-gap, compliance.
-    - FIPS: Crypto operations must use FIPS-validated modules when FIPS mode.
-    - Air-gap: No external fetch (pip, npm) without explicit user bypass.
-    - RBAC: Principle of least privilege. No broad cluster-admin patterns.
+    VERTICAL: Platform / Infrastructure. Kubernetes, OpenShift, cloud-native.
+    - Focus on operational reality: cost, latency, reliability, team capacity.
+    - Be specific: name concrete tools and versions, not abstract categories.
+    - Make tradeoffs explicit. Separate facts from assumptions.
+    Additional considerations (apply only when the user's context signals these):
+    - GovCloud / FedRAMP / government: add FIPS-validated crypto and FedRAMP boundary requirements.
+    - HIPAA / healthcare / PHI: add data protection, audit logging, and BAA requirements.
+    - Air-gapped / disconnected: note external dependency constraints (registries, package managers).
+    - PCI / financial: note tokenization, audit trail, and key rotation requirements.
+    - Multi-tenant / shared: note RBAC isolation and namespace scoping.
+    If none of these are signaled, do not inject compliance constraints.
   planner_decomposition_rules: |
-    For Platform: Step 1 MUST verify FIPS/compliance requirements or explicitly skip.
-    OpenShift/K8s: Include RBAC manifest and namespace scoping.
+    For Platform/Infrastructure tasks:
+    - Map each user-requested deliverable to a plan step.
+    - Include operational considerations (monitoring, rollback, failure modes).
+    - Only include compliance steps (FIPS, RBAC, air-gap) when the user's context requires them.
   critic_mode: safety_ii

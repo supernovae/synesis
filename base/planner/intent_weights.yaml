@@ -187,6 +187,10 @@ domain_keywords:
   edtech:
     domain: edtech
     keywords: ["canvas", "moodle", "blackboard", "lms"]
+  software_architecture:
+    domain: software_architecture
+    min_hits: 2
+    keywords: ["architecture", "system design", "microservices", "monolith", "event-driven", "distributed system", "scalability", "high availability", "load balancing", "caching strategy", "api gateway", "design proposal", "design goals"]
 
 pairings:
   - keywords: ["delete", "database"]

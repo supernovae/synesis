@@ -67,7 +67,7 @@ def _should_search_supervisor(
     is_code_task: bool,
 ) -> tuple[bool, str, str]:
     """Decide whether to trigger a web search. Returns (should_search, query, profile)."""
-    if not settings.web_search_supervisor_enabled or not is_code_task:
+    if not settings.web_search_supervisor_enabled:
         return False, "", ""
     if confidence < 0.7:
         return True, task_description[:200], "web"
@@ -179,7 +179,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             )
 
         # ── Passthrough 2: is_code_task=false → Worker (no LLM) ──
-        if not is_code_task and iteration == 0:
+        # Skip passthrough when plan_required (critic retry loop needs full supervisor path)
+        if not is_code_task and iteration == 0 and not state.get("plan_required"):
             return _build_passthrough_result(
                 state,
                 next_node="worker",
@@ -277,7 +278,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         supervisor_guard = state.get("supervisor_clarification_only", False)
         if supervisor_guard and next_node == "planner":
             next_node = "worker"
-        if not is_code_task and next_node == "planner":
+        if not is_code_task and next_node == "planner" and not state.get("plan_required"):
             next_node = "worker"
 
         # ── RAG retrieval ──
@@ -355,7 +356,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         # ── Web search ──
         web_search_results: list[str] = []
         web_search_queries: list[str] = []
-        if is_code_task and rag_mode != "disabled" and settings.web_search_enabled:
+        if rag_mode != "disabled" and settings.web_search_enabled:
             should_search, search_query, search_profile = _should_search_supervisor(
                 task_description=task_desc,
                 confidence=decision.confidence,

@@ -20,6 +20,7 @@ from ..failure_store import query_similar_failures
 from ..history_summarizer import summarize_text
 from ..injection_scanner import reduce_context_on_injection, scan_text
 from ..rag_client import SYNESIS_CATALOG, retrieve_context
+from ..web_search import format_search_results, search_client
 from ..schemas import (
     ConflictWarning,
     ContextChunk,
@@ -1009,6 +1010,29 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
+    # Web search for knowledge deep-dives: when the planner path bypasses the
+    # supervisor (plan_required + is_code_task=False), web search never runs.
+    # Run it here so the worker gets current context for its structured response.
+    web_search_results: list[str] = list(state.get("web_search_results") or [])
+    is_code_task = state.get("is_code_task", True)
+    if (
+        not is_code_task
+        and state.get("plan_required")
+        and settings.web_search_enabled
+        and not web_search_results
+    ):
+        try:
+            search_query = task_desc[:200]
+            results = await search_client.search(search_query, profile="web")
+            web_search_results = format_search_results(results)
+            if web_search_results:
+                logger.info(
+                    "context_curator_web_search",
+                    extra={"results_count": len(web_search_results), "query": search_query[:120]},
+                )
+        except Exception as e:
+            logger.debug("context_curator_web_search_failed: %s", e)
+
     # Worker consumes curated context; build rag_context from pack for backward compat
     # When context_refs_enabled: use refs+cache to reduce payload between nodes
     rag_context: list[str] = []
@@ -1032,6 +1056,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "rag_context": rag_context,
         "rag_context_refs": rag_context_refs,
         "context_cache": context_cache,
+        "web_search_results": web_search_results,
         "generated_code": state.get("generated_code", ""),
         "code_explanation": state.get("code_explanation", ""),
         "patch_ops": state.get("patch_ops", []) or [],
