@@ -253,12 +253,30 @@ def _build_lsp_diagnostics_block(lsp_diagnostics: list[str]) -> str:
     )
 
 
-def _build_web_search_block(web_search_results: list[str]) -> str:
-    """Format web search results into a prompt section."""
+def _build_web_search_block(web_search_results: list[str], token_budget: int = 1500) -> str:
+    """Format web search results into a prompt section with token budget awareness.
+
+    Allocates space proportional to result position (earlier = more relevant from
+    the CRAG pipeline). Truncates once budget is exhausted.
+    """
     if not web_search_results:
         return ""
-    lines = "\n".join(f"- {r}" for r in web_search_results[:8])
-    return f"\n\n## Web Search Context\nRelevant information from the web:\n{lines}"
+    char_budget = token_budget * 4
+    lines = []
+    chars_used = 0
+    for r in web_search_results[:8]:
+        if chars_used >= char_budget:
+            break
+        remaining = char_budget - chars_used
+        entry = f"- {r[:remaining]}"
+        lines.append(entry)
+        chars_used += len(entry)
+
+    body = "\n".join(lines)
+    return (
+        f"\n\n## Web Search Context\n"
+        f"Relevant information from the web (BM25-ranked, relevance-filtered):\n{body}"
+    )
 
 
 def _extract_error_for_search(execution_result: str) -> str:
@@ -533,7 +551,8 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         if iteration > 0 and lsp_diagnostics:
             lsp_block = _build_lsp_diagnostics_block(lsp_diagnostics)
 
-        web_block = _build_web_search_block(web_search_results)
+        web_token_budget = 2500 if state.get("plan_required") else 1500
+        web_block = _build_web_search_block(web_search_results, token_budget=web_token_budget)
 
         previous_code = ""
         if iteration > 0 and state.get("generated_code"):

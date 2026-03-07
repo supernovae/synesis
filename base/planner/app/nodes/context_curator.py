@@ -20,7 +20,6 @@ from ..failure_store import query_similar_failures
 from ..history_summarizer import summarize_text
 from ..injection_scanner import reduce_context_on_injection, scan_text
 from ..rag_client import SYNESIS_CATALOG, retrieve_context
-from ..web_search import format_search_results, search_client
 from ..schemas import (
     ConflictWarning,
     ContextChunk,
@@ -30,6 +29,7 @@ from ..schemas import (
     OriginMetadata,
     SanitizationAction,
 )
+from ..web_search import format_search_results, search_and_process
 
 logger = logging.getLogger("synesis.context_curator")
 
@@ -232,7 +232,6 @@ def _build_pinned_context(
     # Tier 4b: Session preferences (deliverable shape) — taxonomy-aware
     if session_preferences:
         prefs = []
-        sandbox_flag = session_preferences.get("is_code_task", False)
         if is_document and plan_required:
             prefs.append("Deliverable: detailed_analysis")
             prefs.append("Cover each planner section thoroughly as a standalone deliverable")
@@ -1052,11 +1051,11 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-    # Web search for knowledge deep-dives: when the planner path bypasses the
-    # supervisor (plan_required + is_code_task=False), web search never runs.
-    # Run it here so the worker gets current context for its structured response.
-    # Build focused queries from planner section titles + domain refs instead of raw task text.
+    # Web search for knowledge deep-dives (CRAG pipeline: search → fetch → BM25 → dedup).
+    # When the planner path bypasses the supervisor, web search never runs.
+    # Run it here so the worker gets current, relevance-filtered context.
     web_search_results: list[str] = list(state.get("web_search_results") or [])
+    web_search_status: str = ""
     is_code_task = state.get("is_code_task", False)
     if (
         not is_code_task
@@ -1074,15 +1073,21 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                 "context_curator_web_search_queries",
                 extra={"queries": search_queries, "count": len(search_queries)},
             )
+            web_search_status = "searching"
             for sq in search_queries[:3]:
-                results = await search_client.search(sq, profile="web")
-                formatted = format_search_results(results)
+                ranked = await search_and_process(sq, profile="web", fetch_pages=True)
+                formatted = format_search_results(ranked)
                 if formatted:
                     web_search_results.extend(formatted)
                     logger.info(
                         "context_curator_web_search",
-                        extra={"results_count": len(formatted), "query": sq[:120]},
+                        extra={
+                            "results_count": len(formatted),
+                            "query": sq[:120],
+                            "pages_fetched": sum(1 for r in ranked if r.fetched_content),
+                        },
                     )
+            web_search_status = "complete" if web_search_results else ""
         except Exception as e:
             logger.debug("context_curator_web_search_failed: %s", e)
 
@@ -1110,6 +1115,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "rag_context_refs": rag_context_refs,
         "context_cache": context_cache,
         "web_search_results": web_search_results,
+        "web_search_status": web_search_status,
         "generated_code": state.get("generated_code", ""),
         "code_explanation": state.get("code_explanation", ""),
         "patch_ops": state.get("patch_ops", []) or [],

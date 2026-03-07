@@ -90,6 +90,7 @@ class GraphState(TypedDict, total=False):
     failure_type: str
     web_search_results: list[str]
     web_search_queries: list[str]
+    web_search_status: str
     lsp_diagnostics: list[str]
     lsp_languages_analyzed: list[str]
     lsp_analysis_skipped: bool
@@ -310,6 +311,7 @@ class SynesisState(BaseModel):
     # Web search context (SearXNG results injected by supervisor/worker/critic)
     web_search_results: list[str] = Field(default_factory=list)
     web_search_queries: list[str] = Field(default_factory=list)
+    web_search_status: str = ""
 
     # LSP deep analysis diagnostics (enriches failure recovery)
     lsp_diagnostics: list[str] = Field(default_factory=list)

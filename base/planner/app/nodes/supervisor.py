@@ -25,7 +25,7 @@ from ..llm_telemetry import get_llm_http_client
 from ..rag_client import retrieve_context, select_collections_for_task
 from ..schemas import RouterDecision, make_tool_ref, parse_and_validate
 from ..state import NodeOutcome, NodeTrace, RetrievalParams
-from ..web_search import format_search_results, search_client
+from ..web_search import format_search_results, search_and_process
 
 logger = logging.getLogger("synesis.supervisor")
 
@@ -353,9 +353,10 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             except Exception as e:
                 logger.warning("failure_store_query_failed: %s", e)
 
-        # ── Web search ──
+        # ── Web search (CRAG pipeline: search → fetch → BM25 filter → dedup) ──
         web_search_results: list[str] = []
         web_search_queries: list[str] = []
+        web_search_status: str = ""
         if rag_mode != "disabled" and settings.web_search_enabled:
             should_search, search_query, search_profile = _should_search_supervisor(
                 task_description=task_desc,
@@ -363,13 +364,24 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 is_code_task=is_code_task,
             )
             if should_search:
-                results = await search_client.search(search_query, profile=search_profile)
-                web_search_results = format_search_results(results)
-                if results:
+                web_search_status = "searching"
+                ranked = await search_and_process(
+                    search_query,
+                    profile=search_profile,
+                    fetch_pages=(search_profile == "web"),
+                )
+                web_search_results = format_search_results(ranked)
+                web_search_status = "complete"
+                if ranked:
                     web_search_queries.append(f"[{search_profile}] {search_query[:120]}")
                     logger.info(
                         "supervisor_web_search",
-                        extra={"profile": search_profile, "query": search_query[:120], "results_count": len(results)},
+                        extra={
+                            "profile": search_profile,
+                            "query": search_query[:120],
+                            "results_count": len(ranked),
+                            "pages_fetched": sum(1 for r in ranked if r.fetched_content),
+                        },
                     )
 
         source_counts = Counter(r.retrieval_source for r in rag_results)
@@ -440,6 +452,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "failure_context": failure_context,
             "web_search_results": web_search_results,
             "web_search_queries": web_search_queries,
+            "web_search_status": web_search_status,
             "current_node": node_name,
             "next_node": next_node,
             "generated_code": state.get("generated_code", ""),

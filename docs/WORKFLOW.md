@@ -399,6 +399,34 @@ The following research informed this architecture decision:
     - Ref: Stanford NLP IR Book, Ch. 11.4 "Okapi BM25"
       https://nlp.stanford.edu/IR-book/html/htmledition/okapi-bm25-a-non-binary-model-1.html
 
+11. **Corrective RAG (CRAG)**: Web search pipeline follows the CRAG
+    pattern -- a lightweight retrieval evaluator grades each document
+    as Correct/Ambiguous/Incorrect. Incorrect documents are discarded;
+    Ambiguous ones are decomposed and recomposed. Synesis implements
+    this via BM25 relevance scoring on fetched web results, filtering
+    below a relative threshold before injection into context.
+    - Ref: Yan et al., "Corrective Retrieval Augmented Generation"
+      (2024), arXiv:2401.15884
+
+12. **Self-RAG**: Adaptive retrieval with reflection tokens to assess
+    passage relevance. Synesis adopts the cheaper variant: BM25
+    relevance scoring on web results without a separate trained model.
+    - Ref: Asai et al., "Self-RAG: Learning to Retrieve, Generate,
+      and Critique through Self-Reflection" (2024), ICLR 2024
+
+13. **WebGPT**: Browser-assisted QA showing that fetching actual page
+    content (not just search snippets) dramatically improves answer
+    quality for knowledge-intensive tasks. Synesis fetches top-N
+    result pages and extracts readable text before relevance filtering.
+    - Ref: Nakano et al., "WebGPT: Browser-assisted question-answering
+      with human feedback" (2022), arXiv:2112.09332
+
+14. **ReFilter**: Latent-based fusion framework performing token-level
+    filtering to suppress irrelevant content from retrieved candidates,
+    reducing inference cost while maintaining accuracy.
+    - Ref: "ReFilter: Improving Robustness of Retrieval-Augmented
+      Generation via Gated Filter" (2025), arXiv:2602.12709
+
 ### What Changed
 
 | Before | After |
@@ -451,9 +479,28 @@ name specific tools/versions.
 only injected when `is_code_task=true`, preventing knowledge tasks
 from receiving file-creation instructions.
 
-**Web search for knowledge deep-dives:** Context Curator runs web
-search for `is_code_task=false` + `plan_required=true` tasks,
-providing the Worker with current web context alongside RAG results.
+**Web search pipeline (CRAG-inspired):** SearXNG provides meta-search
+across Google, Bing, DuckDuckGo, GitHub, and StackOverflow. The full
+pipeline follows the Corrective RAG pattern:
+
+1. **Search** -- SearXNG returns titles, URLs, and snippets.
+2. **Fetch** -- Top 3 result pages are fetched via `httpx` to get
+   full readable text (HTML stripped, ~2000 chars per page). Skips
+   video/social domains.
+3. **Relevance filter** -- BM25 scoring ranks each result against the
+   original query. Results below a relative threshold (50% of max
+   score) are discarded. Deduplication by URL.
+4. **Token-budgeted assembly** -- Worker allocates char budget
+   proportional to relevance score (higher-ranked results get more
+   space). Budget is 2500 tokens for planned knowledge tasks, 1500
+   for standard tasks.
+
+Trigger points: Supervisor (keyword/confidence-based), Context Curator
+(knowledge deep-dives when Supervisor was bypassed), Worker (error
+resolution on revision), Critic (CVE search, opt-in).
+
+Streaming status: "Searching the web..." emitted when supervisor or
+context_curator starts; "Found N relevant sources" on completion.
 
 **Performance levers:**
 1. **Routing:** Text mode is the default (`is_code_task=false`);

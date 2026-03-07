@@ -987,6 +987,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 )
                                 await asyncio.sleep(0)
 
+                            # Emit pre-search status for nodes that run web search
+                            if node_label in ("supervisor", "context_curator") and settings.web_search_enabled:
+                                _ws_pre = "Searching the web\u2026"
+                                if _ws_pre != _last_status_desc:
+                                    _last_status_desc = _ws_pre
+                                    thinking_phases.append(_ws_pre)
+                                    yield _sse_status_chunk(
+                                        {"type": "status", "data": {"description": _ws_pre, "done": False, "hidden": False}}
+                                    )
+                                    await asyncio.sleep(0)
+
                         # ── Node ended → accumulate state, emit plan steps ──
                         elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             output = event.get("data", {}).get("output")
@@ -1003,16 +1014,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 if "is_code_task" in output:
                                     is_code_task_val = output["is_code_task"]
 
-                                # Emit web search status when supervisor or context_curator ran web search
-                                if name in ("supervisor", "context_curator") and output.get("web_search_results"):
-                                    _ws_desc = "Searching the web…"
-                                    if _ws_desc != _last_status_desc:
-                                        _last_status_desc = _ws_desc
-                                        thinking_phases.append(_ws_desc)
-                                        yield _sse_status_chunk(
-                                            {"type": "status", "data": {"description": _ws_desc, "done": False, "hidden": False}}
-                                        )
-                                        await asyncio.sleep(0)
+                                # Emit post-search status: results found or search skipped
+                                if name in ("supervisor", "context_curator"):
+                                    ws_status = output.get("web_search_status", "")
+                                    ws_results = output.get("web_search_results")
+                                    if ws_status == "complete" and ws_results:
+                                        _ws_done = f"Found {len(ws_results)} relevant source{'s' if len(ws_results) != 1 else ''}"
+                                        if _ws_done != _last_status_desc:
+                                            _last_status_desc = _ws_done
+                                            thinking_phases.append(_ws_done)
+                                            yield _sse_status_chunk(
+                                                {"type": "status", "data": {"description": _ws_done, "done": False, "hidden": False}}
+                                            )
+                                            await asyncio.sleep(0)
 
                                 # Emit planner reasoning + plan steps as status + plan content
                                 if name == "planner":
