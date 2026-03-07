@@ -112,7 +112,6 @@ for role_name in target_roles:
         continue
 
     model_repo = assignment.get("model_override") or role_def.get("default_model", "")
-    pvc_size = role_def.get("pvc_size", "50Gi")
     pvc_subpath = role_def.get("pvc_subpath", f"{role_name}-model")
     deployment_name = role_def.get("deployment_name", f"synesis-{role_name}")
 
@@ -120,7 +119,6 @@ for role_name in target_roles:
     print(f"ROLE={role_name}")
     print(f"MODEL_REPO={model_repo}")
     print(f"PVC_NAME={pvc_name}")
-    print(f"PVC_SIZE={pvc_size}")
     print(f"PVC_SUBPATH={pvc_subpath}")
     print(f"DEPLOYMENT_NAME={deployment_name}")
     print("---")
@@ -287,7 +285,6 @@ echo "$ROLE_CONFIGS" | while IFS= read -r line; do
         ROLE=*) CURRENT_ROLE="${line#ROLE=}" ;;
         MODEL_REPO=*) CURRENT_MODEL="${line#MODEL_REPO=}" ;;
         PVC_NAME=*) CURRENT_PVC="${line#PVC_NAME=}" ;;
-        PVC_SIZE=*) CURRENT_SIZE="${line#PVC_SIZE=}" ;;
         PVC_SUBPATH=*) CURRENT_SUBPATH="${line#PVC_SUBPATH=}" ;;
         DEPLOYMENT_NAME=*) CURRENT_DEPLOY="${line#DEPLOYMENT_NAME=}" ;;
         ---)
