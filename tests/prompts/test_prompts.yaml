@@ -12,6 +12,10 @@
 #   sequence:               Conversation sequence (null = new chat; otherwise group_id:turn)
 #   expected_route:         worker | planner | respond
 #   expected_deliverable:   explain_only | code_snippet | code_project | document
+#   expected_pipeline:      (optional) bypass | knowledge_deep_dive | code_planner
+#                           Drives phase expectations and pipeline-specific checks.
+#                           knowledge_deep_dive expects: planner outline, critic review,
+#                           optional web search, and reject_terms hallucination guard.
 #   expected_lang:          Target language the system should infer
 #   should_stream:          Whether tokens should stream in real-time
 #   context_must_persist:   If true, prior turns in same sequence must be preserved
@@ -19,6 +23,8 @@
 #   max_reasoning_s:        (optional) Override max reasoning duration for this prompt
 #   max_reasoning_ratio:    (optional) Override max thinking-to-content ratio for this prompt
 #   expected_phases:        (optional) Override auto-derived expected pipeline phases
+#   reject_terms:           (optional) List of terms that must NOT appear in the response.
+#                           Used to catch hallucinated compliance/requirements injection.
 #   notes:                  What to look for in logs
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -990,8 +996,9 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 40
-  notes: "Database comparison. Architecture discussion, not code."
+  max_latency_s: 50
+  reject_terms: ["FIPS", "air-gap"]
+  notes: "Database comparison. May trigger databases deep-dive if complexity is high enough. Architecture discussion, not code."
 
 - id: compare-03
   prompt: "Should I use Next.js or Remix for my new project? I need SSR and good SEO."
@@ -1147,7 +1154,8 @@
   should_stream: true
   context_must_persist: false
   max_latency_s: 50
-  notes: "Role-play / expert persona. Architecture review."
+  reject_terms: ["FIPS", "air-gap", "FedRAMP"]
+  notes: "Role-play / expert persona. Architecture review. Must not hallucinate compliance — prompt says nothing about government/regulated industry."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CATEGORY 16: Stress / Performance
@@ -1155,15 +1163,17 @@
 
 - id: perf-01
   prompt: "Write a comprehensive guide to setting up a production Kubernetes cluster on bare metal, covering networking, storage, monitoring, logging, security hardening, and disaster recovery."
-  category: performance
+  category: knowledge_deep_dive
   sequence: null
-  expected_route: worker
+  expected_route: planner
   expected_deliverable: explain_only
   expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
   should_stream: true
   context_must_persist: false
-  max_latency_s: 90
-  notes: "Long output expected. Tests streaming under sustained generation."
+  max_latency_s: 120
+  reject_terms: ["FIPS", "FedRAMP"]
+  notes: "Kubernetes deep-dive. Should trigger kubernetes domain in deep_dive_domains. Full planner → critic pipeline. Previously was performance category but now validates the deep-dive path."
 
 - id: perf-02
   prompt: "Hi"
@@ -1594,16 +1604,18 @@
 
 - id: budget-06
   prompt: "Design a microservices architecture for an e-commerce platform with inventory management, order processing, payment gateway, and notification service. Include API contracts and data flow diagrams."
-  category: multi_step
+  category: knowledge_deep_dive
   sequence: null
   expected_route: planner
-  expected_deliverable: code_project
+  expected_deliverable: explain_only
   expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
   should_stream: true
   context_must_persist: false
   max_latency_s: 120
   max_reasoning_s: 25
-  notes: "Complex tier (4096 tokens). Heavy reasoning warranted. Full planner pipeline."
+  reject_terms: ["FIPS", "air-gap", "FedRAMP"]
+  notes: "Software architecture deep-dive. 'Design' keyword triggers _knowledge_style. Should route through KNOWLEDGE_PLANNER_PROMPT, not code planner. Critic validates section coverage."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CATEGORY 22: Phase Verification
@@ -1863,7 +1875,8 @@
   should_stream: true
   context_must_persist: false
   max_latency_s: 120
-  notes: "Deep technical explainer. Must complete all sections without truncation."
+  reject_terms: ["FIPS", "air-gap"]
+  notes: "Deep technical explainer. Must complete all sections without truncation. May or may not trigger deep-dive (embedded domain)."
 
 - id: long-03
   prompt: "Write a comprehensive guide to setting up a home network including router configuration, VLANs, DNS, firewall rules, and Wi-Fi optimization."
@@ -1875,7 +1888,8 @@
   should_stream: true
   context_must_persist: false
   max_latency_s: 120
-  notes: "Practical long-form guide. Must complete without truncation."
+  reject_terms: ["FIPS", "FedRAMP", "HIPAA"]
+  notes: "Practical long-form guide. May trigger networking deep-dive. Must complete without truncation."
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CATEGORY 27: Educational Path (Post-Teach-Mode)
@@ -2010,3 +2024,128 @@
   context_must_persist: false
   max_latency_s: 45
   notes: "CS fundamentals. explain_only despite mentioning 'languages'."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 29: Knowledge Deep-Dive (Engineering Domains)
+# Validates the full planner → context_curator (+ web search) → worker → critic
+# pipeline for complex knowledge requests in deep_dive_domains. These prompts
+# should trigger: plan_required=true, is_code_task=false, and produce
+# structured multi-section responses reviewed by the critic.
+#
+# New fields:
+#   expected_pipeline:  "knowledge_deep_dive" — asserts planner outline,
+#                       critic review, and optionally web search phases
+#   reject_terms:       Terms that should NOT appear (hallucination guard)
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: deep-01
+  prompt: "Propose a practical cloud architecture for migrating a monolithic Django application to microservices on AWS. The team has 6 engineers, the app handles 500 req/s, and the budget is limited. Explain tradeoffs between ECS and EKS, data migration strategy, and a phased rollout plan."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "air-gap", "FedRAMP"]
+  notes: "Cloud architecture deep-dive. Must route through planner (KNOWLEDGE_PLANNER_PROMPT), produce structured sections, and be reviewed by critic. No compliance hallucination — prompt says nothing about government or regulation."
+
+- id: deep-02
+  prompt: "Compare the tradeoffs of using PostgreSQL vs CockroachDB vs TiDB for a multi-region e-commerce platform that needs strong consistency, horizontal scaling, and sub-100ms read latency. Include operational complexity, cost implications, and failure mode analysis."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "air-gap", "FedRAMP"]
+  notes: "Databases deep-dive. Should trigger databases domain in deep_dive_domains. Structured comparison with failure modes."
+
+- id: deep-03
+  prompt: "Explain how to design a Kubernetes networking strategy for a platform with 200 microservices. Cover service mesh selection (Istio vs Linkerd vs Cilium), network policies, ingress architecture, and observability. The cluster runs on bare metal with Calico CNI."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "FedRAMP"]
+  notes: "Kubernetes + networking deep-dive. Should match kubernetes and/or networking domains. Expect structured sections with concrete tool comparisons."
+
+- id: deep-04
+  prompt: "Propose the architecture for an internal AI coding assistant that can answer questions about company docs, help write and review code, avoid hallucination, and escalate when uncertain. Team of 80 engineers, mix of public/private knowledge, must support Kubernetes and Python workflows. Budget is limited. Give design goals, architecture, model choices, retrieval strategy, failure modes, and a 90-day rollout plan."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "air-gap", "FedRAMP", "HIPAA", "PCI-DSS"]
+  notes: "Software architecture deep-dive. The canonical 'architecture proposal' prompt. Must NOT inject compliance requirements the user didn't ask for. Critic should validate section coverage."
+
+- id: deep-05
+  prompt: "Design a real-time data pipeline for processing 10 million events per day from IoT sensors. Compare Kafka vs Pulsar vs Redpanda for the message broker, explain exactly how backpressure should be handled, and propose a storage strategy for both hot and cold data. Include cost estimates and failure modes."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "air-gap"]
+  notes: "Networking + databases deep-dive. Complex data architecture question. Should produce structured comparison with quantified tradeoffs."
+
+- id: deep-06
+  prompt: "Explain how to build a production ML inference pipeline for serving a 7B parameter LLM with <200ms P99 latency. Cover model serving options (vLLM, TGI, Triton), batching strategies, GPU memory management, autoscaling, and monitoring. Assume Kubernetes on GPU nodes."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "FedRAMP"]
+  notes: "ML ops deep-dive. Should match ml_ops domain. Expect concrete tool recommendations with quantified performance characteristics."
+
+- id: deep-07
+  prompt: "Compare building a web backend in Go with Gin vs Rust with Axum vs TypeScript with Fastify for a high-throughput API serving 50k req/s. Cover developer productivity, performance, ecosystem maturity, deployment complexity, and hiring considerations."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "air-gap", "HIPAA"]
+  notes: "Web backend deep-dive. Should match web_backend domain. Structured framework comparison with hiring/cost dimensions."
+
+- id: deep-08
+  prompt: "Outline the architecture for a React frontend that needs to support offline-first operation, real-time collaboration, and accessibility compliance (WCAG 2.1 AA). Compare state management approaches (Redux Toolkit vs Zustand vs Jotai), discuss the data sync strategy, and propose a testing pyramid."
+  category: knowledge_deep_dive
+  sequence: null
+  expected_route: planner
+  expected_deliverable: explain_only
+  expected_lang: markdown
+  expected_pipeline: knowledge_deep_dive
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 120
+  reject_terms: ["FIPS", "FedRAMP", "air-gap"]
+  notes: "Web frontend deep-dive. Should match web_frontend domain. Structured sections covering state, sync, testing."

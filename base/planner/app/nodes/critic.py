@@ -345,16 +345,19 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
 {depth_block}
 
-Evaluate the response below against required_elements for this domain.
-- approved=true if it covers required_elements with adequate depth and specificity.
+Evaluate the response below against BOTH the taxonomy required_elements AND the user's explicit requests.
+- approved=true if it covers required_elements with adequate depth and specificity AND addresses the user's explicit deliverables.
 - approved=false if sections are missing, superficial, or generic. Use evidence_refs ref_type="spec", id="taxonomy_depth".
+- Check the user's task description for explicitly requested sections or structure. If the user listed specific deliverables (e.g., "State the main design goals," "Give a phased rollout plan"), verify each is present.
 - Check for hallucinated requirements: if the response adds constraints the user did not ask for (e.g. compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
-- Check for specificity: vague recommendations ("use a good framework") should be flagged; concrete ones ("use FastAPI with Pydantic") are preferred.
+- Check for specificity: listing "X or Y" alternatives without choosing one should be flagged. Concrete recommendations ("use FastAPI with Pydantic") are preferred over menus ("use FastAPI or Flask or Django").
+- Check for structural compliance: if the user asked to "separate facts from assumptions" or "make tradeoffs explicit," verify the response follows that structure.
 - Minor suggestions → nonblocking.
 
 Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
+            task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc
             doc_prompt = (
-                f"## Task\n{task_desc}\n\n"
+                f"## User Task (check for explicit structural requests)\n{task_summary}\n\n"
                 f"## Taxonomy\nDomain: {taxonomy_metadata.get('path', 'General')}\n"
                 f"Required elements: {taxonomy_metadata.get('required_elements', [])}\n\n"
                 f"## Executor Response (markdown)\n{generated_code[:8000]}"

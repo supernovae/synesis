@@ -186,6 +186,11 @@ CATEGORY_DEFAULTS: dict[str, dict] = {
         "max_reasoning_ratio": 3.0,
         "token_budget_tier": "medium",
     },
+    "knowledge_deep_dive": {
+        "max_reasoning_s": 20,
+        "max_reasoning_ratio": 4.0,
+        "token_budget_tier": "hard",
+    },
 }
 
 # Fallback for unknown categories
@@ -196,8 +201,24 @@ def _derive_expected_phases(
     expected_route: str,
     expected_deliverable: str,
     category: str,
+    expected_pipeline: str = "",
 ) -> list[str]:
-    """Derive expected pipeline status phases from the prompt's routing metadata."""
+    """Derive expected pipeline status phases from the prompt's routing metadata.
+
+    expected_pipeline values:
+      - "bypass"              : easy/knowledge fast-path (no supervisor)
+      - "knowledge_deep_dive" : planner outline → web search → worker → critic
+      - "code_planner"        : supervisor → planner → worker → critic (code)
+      - ""                    : auto-derive from category/route/deliverable
+    """
+    if expected_pipeline == "knowledge_deep_dive" or category == "knowledge_deep_dive":
+        return [
+            "Building response outline",
+            "Gathering context",
+            "Generating response",
+            "Reviewing quality",
+        ]
+
     if category in ("trivial", "performance"):
         return ["Analyzing"]
 
@@ -210,7 +231,7 @@ def _derive_expected_phases(
     if expected_deliverable == "explain_only":
         return ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
 
-    if expected_route == "planner" or expected_deliverable == "code_project":
+    if expected_pipeline == "code_planner" or expected_route == "planner" or expected_deliverable == "code_project":
         return [
             "Complex task detected",
             "Building execution plan",
@@ -622,6 +643,7 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
             prompt_spec.get("expected_route", "worker"),
             prompt_spec.get("expected_deliverable", "explain_only"),
             prompt_spec.get("category", ""),
+            prompt_spec.get("expected_pipeline", ""),
         )
 
     if metrics.phase_events:
@@ -640,6 +662,46 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
                 add("expected_phases", "pass", f"All {len(expected_phases)} expected phases seen")
     elif expected_phases:
         add("expected_phases", "warn", "No phase events received at all")
+
+    # ── Pipeline path checks ──
+    expected_pipeline = prompt_spec.get("expected_pipeline", "")
+
+    if expected_pipeline == "knowledge_deep_dive":
+        seen_statuses = [p.description for p in metrics.phase_events if p.description]
+        has_outline = any("outline" in s.lower() for s in seen_statuses)
+        has_quality = any("quality" in s.lower() or "review" in s.lower() for s in seen_statuses)
+        has_generate = any("generating response" in s.lower() for s in seen_statuses)
+
+        if has_outline:
+            add("deep_dive_planner", "pass", "Planner outline phase detected")
+        else:
+            add("deep_dive_planner", "warn", "No planner outline phase — expected 'Building response outline'")
+
+        if has_quality:
+            add("deep_dive_critic", "pass", "Critic review phase detected")
+        else:
+            add("deep_dive_critic", "warn", "No critic review phase — expected 'Reviewing quality'")
+
+        if has_generate:
+            add("deep_dive_worker", "pass", "Worker generation phase detected")
+        else:
+            add("deep_dive_worker", "warn", "No worker generation phase — expected 'Generating response'")
+
+        has_web = any("web" in s.lower() for s in seen_statuses)
+        if has_web:
+            add("deep_dive_web_search", "pass", "Web search status detected")
+        else:
+            add("deep_dive_web_search", "info", "No web search status (may be disabled or not triggered)")
+
+    # ── Hallucination guard for knowledge responses ──
+    hallucination_terms = prompt_spec.get("reject_terms")
+    if hallucination_terms and metrics.content_text:
+        content_lower = metrics.content_text.lower()
+        found = [t for t in hallucination_terms if t.lower() in content_lower]
+        if found:
+            add("hallucination_guard", "warn", f"Response contains unexpected terms: {found}")
+        else:
+            add("hallucination_guard", "pass", f"None of {len(hallucination_terms)} reject_terms found")
 
     return {"overall": overall, "checks": verdicts}
 
@@ -688,10 +750,12 @@ def run_batch(
                 "expected": {
                     "route": spec.get("expected_route"),
                     "deliverable": spec.get("expected_deliverable"),
+                    "pipeline": spec.get("expected_pipeline"),
                     "lang": spec.get("expected_lang"),
                     "max_latency_s": spec.get("max_latency_s"),
                     "context_must_persist": spec.get("context_must_persist", False),
                 },
+                "_full_response": metrics.content_text,
             }
             results.append(result)
 
@@ -913,6 +977,11 @@ def main():
         default=1.0,
         help="Seconds to pause between batches (default: 1.0)",
     )
+    parser.add_argument(
+        "--save-outputs",
+        action="store_true",
+        help="Save full response text for each prompt to a directory alongside the report",
+    )
     args = parser.parse_args()
 
     if not args.suite.exists():
@@ -987,6 +1056,22 @@ def main():
 
         if i < total_batches - 1:
             time.sleep(args.pause)
+
+    # Save full response outputs if requested
+    if args.save_outputs:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = Path(f"test_outputs_{ts}")
+        out_dir.mkdir(exist_ok=True)
+        for r in all_results:
+            full_resp = r.get("_full_response", "")
+            if full_resp:
+                safe_id = re.sub(r"[^\w\-]", "_", r["id"])
+                (out_dir / f"{safe_id}.md").write_text(full_resp, encoding="utf-8")
+        print(f"Saved {len(all_results)} response outputs to {out_dir}/")
+
+    # Strip internal field before report generation
+    for r in all_results:
+        r.pop("_full_response", None)
 
     # Report
     output_path = args.output or Path(f"test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")

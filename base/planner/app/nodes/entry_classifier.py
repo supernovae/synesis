@@ -218,23 +218,23 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["intent_class"] = "knowledge"
         out["target_language"] = "markdown"
         out["allowed_tools"] = ["none"]
-        # Knowledge queries need at least "medium" budget so the model has
-        # enough tokens for a substantive answer (easy budget is too tight).
+        # Easy knowledge queries need at least "medium" budget; hard tasks keep
+        # their scored complexity so the taxonomy deep-dive override works correctly.
         _prev_size = out.get("task_size", "easy")
-        if _prev_size in ("easy", "hard"):
+        if _prev_size == "easy":
             out["task_size"] = "medium"
             out["bypass_supervisor"] = True
             out["plan_required"] = False
-            if _prev_size == "hard":
-                logger.info(
-                    "entry_classifier_knowledge_downgrade",
-                    extra={"from": "hard", "to": "medium"},
-                )
-            else:
-                logger.info(
-                    "entry_classifier_knowledge_upgrade",
-                    extra={"from": _prev_size, "to": "medium"},
-                )
+            logger.info(
+                "entry_classifier_knowledge_upgrade",
+                extra={"from": _prev_size, "to": "medium"},
+            )
+        elif _prev_size == "hard":
+            out["bypass_supervisor"] = False
+            logger.info(
+                "entry_classifier_knowledge_hard_preserved",
+                extra={"task_size": "hard", "note": "complexity preserved for deep-dive routing"},
+            )
         logger.info(
             "entry_classifier_knowledge_override",
             extra={
@@ -243,6 +243,30 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
                 "preview": (last_content or "")[:60],
             },
         )
+    # Revision/continuation detection: if the prior turn was knowledge and the
+    # current prompt references or revises that response, inherit knowledge mode
+    # to prevent context loss on follow-ups like "Revise it" or "More detail."
+    _revision_re = re.compile(
+        r"(revis|rewrit|improv|refin|expand|more (detail|specif)|your previous|"
+        r"try again|too generic|update (it|this|that|the)|elaborate|"
+        r"can you (fix|redo|change)|make it (more|better)|not (good|specific) enough)",
+        re.IGNORECASE,
+    )
+    if (
+        out.get("is_code_task", True)
+        and state.get("last_active_language") == "markdown"
+        and state.get("conversation_history")
+        and _revision_re.search((last_content or "").strip()[:300])
+    ):
+        out["is_code_task"] = False
+        out["intent_class"] = "knowledge"
+        out["target_language"] = "markdown"
+        out["allowed_tools"] = ["none"]
+        logger.info(
+            "entry_classifier_revision_inheritance",
+            extra={"preview": (last_content or "")[:60], "prior_lang": "markdown"},
+        )
+
     # target_language: is_code_task=False→markdown; explicit lang→use it; else infer
     is_code_task = out.get("is_code_task", True)
     if not is_code_task:
@@ -301,6 +325,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
         if deep_dive or plan_session:
             out["plan_required"] = True
+            out["bypass_supervisor"] = False
             out["rag_mode"] = "normal" if deep_dive else "disabled"
         else:
             out["plan_required"] = False

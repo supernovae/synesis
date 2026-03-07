@@ -59,6 +59,16 @@ Be concise and clear. No code blocks unless the user explicitly asks.
 If you are not confident about a specific fact, say so briefly. Do not invent citations.
 """
 
+_DEEP_DIVE_SUFFIX = """
+
+When proposing architecture or making recommendations:
+- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one.
+- Separate facts (what you know) from assumptions (what you infer) from recommendations (what you advise).
+- If the user asked for specific sections or structure, follow their outline exactly.
+- Be specific: name tools, versions, and quantities. Avoid abstract categories.
+- Address the user's stated constraints directly. Do not add requirements they did not mention.
+"""
+
 
 def _build_explain_prompt_with_tone(tone: str) -> str:
     """Build a system prompt with a domain-specific tone preamble."""
@@ -578,7 +588,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                         line += f" — verify: `{verify}`"
                     plan_lines.append(line)
                 plan_block = "\n".join(plan_lines)
-        if len(touched_files) > 1:
+        if len(touched_files) > 1 and state.get("is_code_task", True):
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
 
         task_is_trivial = state.get("task_is_trivial", False)
@@ -589,11 +599,17 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             else ""
         )
         # Prefix-aware order: [Tier1-4, RAG, Task/History]. See docs/performance.md.
+        is_code = state.get("is_code_task", True)
+        task_header = (
+            f"\n\n## Task\nLanguage: {target_lang}\n{task_desc}{trivial_hint}"
+            if is_code
+            else f"\n\n## Task\n{task_desc}"
+        )
         prompt = (
             f"{pinned_block}"
             f"{context_block}"
             f"{milestone_banner}"
-            f"\n\n## Task\nLanguage: {target_lang}\n{task_desc}{trivial_hint}"
+            f"{task_header}"
             f"{plan_block}"
             f"{user_answer_block}"
             f"{conflict_block}"
@@ -636,6 +652,9 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             if tone:
                 taxonomy_key = (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")
                 logger.info("worker_taxonomy_tone", extra={"taxonomy_key": taxonomy_key})
+            if state.get("plan_required"):
+                system_prompt += _DEEP_DIVE_SUFFIX
+                logger.debug("worker_deep_dive_suffix_injected")
         else:
             system_prompt = WORKER_PROMPT
 

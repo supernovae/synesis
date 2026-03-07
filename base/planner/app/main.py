@@ -481,9 +481,13 @@ def _extract_content_and_metrics(
         patch_ops = result.get("patch_ops", []) or []
         lang = result.get("target_language", "python")
         expl = result.get("code_explanation", "")
+        is_code_task = result.get("is_code_task", True)
         parts = []
         if code.strip():
-            parts.append(f"```{lang}\n{code.strip()}\n```")
+            if is_code_task:
+                parts.append(f"```{lang}\n{code.strip()}\n```")
+            else:
+                parts.append(code.strip())
         elif patch_ops:
             for op in patch_ops:
                 p = op.get("path", "") if isinstance(op, dict) else getattr(op, "path", "")

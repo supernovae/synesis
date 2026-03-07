@@ -46,6 +46,8 @@ Rules:
 - 4-8 steps for complex topics; fewer for simple ones.
 - If the user listed numbered deliverables, preserve their order.
 - Final step should cover risks, caveats, or failure modes if relevant.
+- If the user specifies output constraints (e.g., "separate facts from assumptions," "make tradeoffs explicit," "be concise but specific"), capture them in "assumptions" as "User format constraints: ..." so the Writer enforces them.
+- If the user says "do not give a generic answer" or similar, add to assumptions: "User format constraints: choose concrete approaches, do not list alternatives without recommending one."
 """
 
 planner_llm = ChatOpenAI(
