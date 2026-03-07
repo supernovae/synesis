@@ -74,6 +74,7 @@ worker_llm = ChatOpenAI(
     streaming=True,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.executor_model_uds or None),
+    model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
 )
 
 
@@ -727,6 +728,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                     "messages": ds_messages,
                     "max_completion_tokens": token_budget,
                     "temperature": 0.2,
+                    "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
                 },
                 "code_explanation": "",
                 "files_touched": [],

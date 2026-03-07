@@ -1,0 +1,17 @@
+# Shared EFS PVC for all model weights.
+# Each role mounts via subPath (router-model/, general-model/, etc.).
+# EFS is elastic — no pre-provisioned size. The 500Gi is syntactically
+# required by Kubernetes but ignored by the EFS CSI driver.
+# Requires: efs-sc StorageClass (provisioned by Terraform).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synesis-models-efs
+  namespace: synesis-models
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc
+  resources:
+    requests:
+      storage: 500Gi

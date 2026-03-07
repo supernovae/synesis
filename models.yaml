@@ -23,21 +23,19 @@ roles:
     served_model_name: "synesis-router"
     service_name: "synesis-router"
     namespace: "synesis-models"
-    pvc_name: "synesis-router-pvc"
-    pvc_size: "25Gi"
+    pvc_name: "synesis-models-efs"
     pvc_subpath: "router-model"
     deployment_name: "synesis-router"
 
   general:
     description: "General reasoning, Open WebUI default, writer synthesis"
-    default_model: "Qwen/Qwen3.5-35B-A3B"
+    default_model: "RedHatAI/Qwen3-32B-FP8-dynamic"
     served_model_name: "synesis-general"
     service_name: "synesis-general"
     namespace: "synesis-models"
     also_serves:
       - writer
-    pvc_name: "synesis-general-pvc"
-    pvc_size: "100Gi"
+    pvc_name: "synesis-models-efs"
     pvc_subpath: "general-model"
     deployment_name: "synesis-general"
 
@@ -48,8 +46,7 @@ roles:
     service_name: "synesis-coder"
     namespace: "synesis-models"
     separate_endpoint: true
-    pvc_name: "synesis-coder-pvc"
-    pvc_size: "200Gi"
+    pvc_name: "synesis-models-efs"
     pvc_subpath: "coder-model"
     deployment_name: "synesis-coder"
 
@@ -60,8 +57,7 @@ roles:
     service_name: "synesis-critic"
     namespace: "synesis-models"
     openwebui_selectable: true
-    pvc_name: "synesis-critic-pvc"
-    pvc_size: "100Gi"
+    pvc_name: "synesis-models-efs"
     pvc_subpath: "critic-model"
     deployment_name: "synesis-critic"
 
@@ -127,7 +123,7 @@ profiles:
         gpu: 0
         tp: 1
         replicas: 1
-        pvc: "synesis-router-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "router-model"
         vllm_args:
           - "--max-model-len=32768"
@@ -140,25 +136,24 @@ profiles:
           keeps system prompts warm across users.
 
       general:
-        model_override: "Qwen/Qwen3.5-35B-A3B-FP8"
+        model_override: "RedHatAI/Qwen3-32B-FP8-dynamic"
         quant: "FP8"
         device: "gpu"
         gpu: 1
         tp: 1
         replicas: 1
-        pvc: "synesis-general-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "general-model"
         vllm_args:
           - "--max-model-len=32768"
-          - "--gpu-memory-utilization=0.92"
+          - "--gpu-memory-utilization=0.90"
           - "--enable-prefix-caching"
           - "--enable-chunked-prefill"
         notes: >
-          Qwen3.5-35B-A3B MoE (3B active) at FP8 (~35 GB weights).
-          Dedicated general/writer model — significant quality upgrade
-          over the 2-GPU layout where worker fell back to 8B. MoE KV
-          cache is efficient (~2-3 GB at 32K) so ~9 GB headroom is
-          enough for multiple concurrent users.
+          Qwen3-32B dense at FP8 (~16 GB weights). Fits easily on single
+          L40S with ~28 GB headroom for KV cache. Stronger per-request
+          quality than MoE at the cost of lower concurrency. Interim
+          choice until vLLM supports Qwen3.5 MoE architecture.
 
       coder:
         model_override: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
@@ -167,7 +162,7 @@ profiles:
         gpu: 2
         tp: 1
         replicas: 1
-        pvc: "synesis-coder-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "coder-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
@@ -184,14 +179,13 @@ profiles:
           for max quality.
 
       critic:
-        model_override: "uses-router"
         quant: "FP8"
         device: "gpu"
         gpu: 0
         tp: 1
         replicas: 0
         shared_with: "router"
-        pvc: "synesis-router-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "router-model"
         vllm_args: []
         notes: >
@@ -223,7 +217,7 @@ profiles:
         gpu: 3
         tp: 1
         replicas: 1
-        pvc: "synesis-router-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "router-model"
         vllm_args:
           - "--max-model-len=32768"
@@ -236,7 +230,7 @@ profiles:
         gpu: 0
         tp: 1
         replicas: 1
-        pvc: "synesis-general-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "general-model"
         vllm_args:
           - "--max-model-len=32768"
@@ -255,7 +249,7 @@ profiles:
           - 2
         tp: 2
         replicas: 1
-        pvc: "synesis-coder-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "coder-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
@@ -272,7 +266,7 @@ profiles:
         tp: 1
         replicas: 1
         shared_with: "router"
-        pvc: "synesis-critic-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "critic-model"
         vllm_args:
           - "--reasoning-parser=deepseek_r1"
@@ -301,7 +295,7 @@ profiles:
         gpu: 7
         tp: 1
         replicas: 2
-        pvc: "synesis-router-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "router-model"
         vllm_args:
           - "--max-model-len=32768"
@@ -317,7 +311,7 @@ profiles:
           - 1
         tp: 2
         replicas: 1
-        pvc: "synesis-general-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "general-model"
         vllm_args:
           - "--max-model-len=32768"
@@ -336,7 +330,7 @@ profiles:
           - 3
         tp: 2
         replicas: 2
-        pvc: "synesis-coder-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "coder-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
@@ -362,7 +356,7 @@ profiles:
           - 5
         tp: 2
         replicas: 1
-        pvc: "synesis-critic-pvc"
+        pvc: "synesis-models-efs"
         pvc_subpath: "critic-model"
         vllm_args:
           - "--reasoning-parser=deepseek_r1"

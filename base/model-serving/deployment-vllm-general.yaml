@@ -50,7 +50,7 @@ spec:
       volumes:
         - name: model-store
           persistentVolumeClaim:
-            claimName: synesis-general-pvc
+            claimName: synesis-models-efs
         - name: shm
           emptyDir:
             medium: Memory
@@ -68,8 +68,10 @@ spec:
             - --model=/mnt/models
             - --served-model-name=synesis-general
             - --tensor-parallel-size=1
-            - --max-model-len=32768
-            - --gpu-memory-utilization=0.92
+            - --max-model-len=16384
+            - --max-num-seqs=64
+            - --gpu-memory-utilization=0.95
+            - --kv-cache-dtype=fp8_e4m3
             - --generation-config=vllm
             - --enable-prefix-caching
             - --enable-chunked-prefill
@@ -110,7 +112,7 @@ spec:
             - name: shm
               mountPath: /dev/shm
       nodeSelector:
-        nvidia.com/gpu.product: NVIDIA-L40S
+        node-role.autonode/gpu: ""
       tolerations:
         - effect: NoSchedule
           key: nvidia.com/gpu

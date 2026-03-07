@@ -103,6 +103,10 @@ for role_name in target_roles:
     if role_name == "summarizer":
         continue
 
+    # Skip roles sharing another role's model (e.g. small critic shares router)
+    if assignment.get("shared_with"):
+        continue
+
     pvc_name = role_def.get("pvc_name", "")
     if not pvc_name:
         continue
@@ -124,29 +128,18 @@ PYEOF
 }
 
 ensure_pvc() {
-    local pvc_name="$1" pvc_size="$2"
+    local pvc_name="$1"
     if oc get pvc "$pvc_name" -n "$NS" &>/dev/null; then
         log "  PVC $pvc_name exists"
     else
-        log "  Creating PVC $pvc_name ($pvc_size, gp3-high)..."
-        local manifest_file="$PROJECT_ROOT/pipelines/manifests/${pvc_name}.yaml"
+        log "  Creating PVC $pvc_name..."
+        local manifest_file="$PROJECT_ROOT/pipelines/manifests/${pvc_name}-pvc.yaml"
         if [[ -f "$manifest_file" ]]; then
-            sed "s/NAMESPACE/$NS/" "$manifest_file" | oc apply -f -
+            oc apply -f "$manifest_file"
         else
-            cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: $pvc_name
-  namespace: $NS
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: gp3-high
-  resources:
-    requests:
-      storage: $pvc_size
-EOF
+            log "  ERROR: PVC manifest not found: $manifest_file"
+            log "  Ensure efs-sc StorageClass exists and apply: oc apply -f pipelines/manifests/synesis-models-efs-pvc.yaml"
+            exit 1
         fi
     fi
 }
@@ -274,16 +267,11 @@ log "=== Synesis Model Pipeline ==="
 [[ -n "$ROLE" ]] && log "Role: $ROLE"
 log ""
 
-# Ensure storage class exists
-if ! oc get storageclass gp3-high &>/dev/null; then
-    log "Applying gp3-high storage class..."
-    oc apply -f "$PROJECT_ROOT/pipelines/manifests/storage-class-gp3-high.yaml" 2>/dev/null || {
-        warn "Could not create gp3-high storage class (need cluster-admin)"
-    }
-fi
-
 # Ensure namespace exists
 oc create namespace "$NS" 2>/dev/null || true
+
+# Ensure shared EFS PVC exists (single PVC for all models)
+ensure_pvc "synesis-models-efs"
 
 # Resolve roles from models.yaml
 ROLE_CONFIGS=$(resolve_roles)
@@ -305,15 +293,14 @@ echo "$ROLE_CONFIGS" | while IFS= read -r line; do
         ---)
             log ""
             log "--- Deploying $CURRENT_ROLE: $CURRENT_MODEL ---"
-            log "  PVC: $CURRENT_PVC ($CURRENT_SIZE), subpath: $CURRENT_SUBPATH"
+            log "  PVC: $CURRENT_PVC, subpath: $CURRENT_SUBPATH"
             log "  Deployment: $CURRENT_DEPLOY"
 
             if [[ "$DRY_RUN" == "true" ]]; then
-                log "  [DRY RUN] Would: ensure PVC, scale down, run pipeline, scale up"
+                log "  [DRY RUN] Would: scale down, run pipeline, scale up"
                 continue
             fi
 
-            ensure_pvc "$CURRENT_PVC" "$CURRENT_SIZE"
             scale_down "$CURRENT_DEPLOY"
             run_pipeline_for_role "$CURRENT_MODEL" "$CURRENT_PVC" "$CURRENT_SUBPATH"
             scale_up "$CURRENT_DEPLOY" "${ORIGINAL_REPLICAS:-1}"

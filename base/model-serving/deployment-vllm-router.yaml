@@ -54,7 +54,7 @@ spec:
       volumes:
         - name: model-store
           persistentVolumeClaim:
-            claimName: synesis-router-pvc
+            claimName: synesis-models-efs
         - name: shm
           emptyDir:
             medium: Memory
@@ -76,7 +76,6 @@ spec:
             - --gpu-memory-utilization=0.90
             - --generation-config=vllm
             - --enable-prefix-caching
-            - --enable-reasoning
             - --reasoning-parser=qwen3
           resources:
             limits:
@@ -115,7 +114,7 @@ spec:
             - name: shm
               mountPath: /dev/shm
       nodeSelector:
-        nvidia.com/gpu.product: NVIDIA-L40S
+        node-role.autonode/gpu: ""
       tolerations:
         - effect: NoSchedule
           key: nvidia.com/gpu

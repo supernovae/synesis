@@ -50,6 +50,7 @@ synesis-models/
 *.pem
 *.key
 credentials.json
+scripts/setup-aws-permissions.sh
 
 # Kustomize build output
 output.txt

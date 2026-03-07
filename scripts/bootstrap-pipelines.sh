@@ -82,43 +82,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. PVCs — one per model role (source of truth: models.yaml)
+# 2. Shared EFS PVC (single volume for all model weights)
 # ---------------------------------------------------------------------------
-log "--- Model PVCs ---"
-
-# Read PVC names from models.yaml
-ROLE_PVCS=$("$PYTHON" -c "
-import yaml
-with open('$REPO_ROOT/models.yaml') as f:
-    cfg = yaml.safe_load(f)
-for role, rdef in cfg.get('roles', {}).items():
-    pvc = rdef.get('pvc_name', '')
-    if pvc:
-        print(pvc)
-" 2>/dev/null || echo "synesis-router-pvc synesis-critic-pvc synesis-coder-pvc synesis-general-pvc")
-
-NEED_CREATE=false
-for pvc in $ROLE_PVCS; do
-  if oc get pvc "$pvc" -n "$DS_PROJECT" &>/dev/null; then
-    log "PVC $pvc exists"
-  else
-    NEED_CREATE=true
-  fi
-done
-
-if [[ "$NEED_CREATE" == "true" ]]; then
-  log "Creating missing PVCs..."
-  echo "  oc apply -f pipelines/manifests/storage-class-gp3-high.yaml   # cluster-admin, once"
-  for pvc in $ROLE_PVCS; do
-    if ! oc get pvc "$pvc" -n "$DS_PROJECT" &>/dev/null; then
-      local_manifest="$REPO_ROOT/pipelines/manifests/${pvc}.yaml"
-      if [[ -f "$local_manifest" ]]; then
-        echo "  sed \"s/NAMESPACE/$DS_PROJECT/\" pipelines/manifests/${pvc}.yaml | oc apply -f -"
-      else
-        log "WARNING: No manifest for $pvc"
-      fi
-    fi
-  done
+log "--- Model PVC (EFS) ---"
+EFS_PVC="synesis-models-efs"
+if oc get pvc "$EFS_PVC" -n "$DS_PROJECT" &>/dev/null; then
+  log "PVC $EFS_PVC exists"
+else
+  log "Creating $EFS_PVC PVC (requires efs-sc StorageClass from Terraform)..."
+  oc apply -f "$REPO_ROOT/pipelines/manifests/synesis-models-efs-pvc.yaml"
 fi
 
 # ---------------------------------------------------------------------------
@@ -133,7 +105,10 @@ fi
 
 log ""
 log "Done. Run model pipelines:"
+echo ""
+echo "  # KFP connection (auto-discovered if oc is logged in, or set manually):"
 echo "  export KFP_HOST=${KFP_HOST:-https://<pipelines-route>}"
+echo "  export KFP_TOKEN=\$(oc whoami -t)   # optional — script runs 'oc whoami -t' if unset"
 echo "  export DS_PROJECT=$DS_PROJECT"
 [[ -n "$ECR_URI" ]] && echo "  export ECR_URI=$ECR_URI"
 echo ""

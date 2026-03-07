@@ -1,38 +1,34 @@
 # Synesis Model Pipelines
 
-Download models to per-role PVCs. Deployments mount these PVCs and load directly from persistent volumes — faster than OCI pull on worker nodes.
+Download models to a shared EFS volume. Deployments mount via `subPath` and load directly from persistent storage — faster than OCI pull on worker nodes. EFS is multi-AZ, so Karpenter has full flexibility to place GPU pods in whichever AZ has spot capacity.
 
 ## Namespace: synesis-models
 
-Pipelines, PVCs, and model deployments all use `synesis-models`. The scripts force pipeline runs into this namespace so they write to the same PVCs that deployments mount.
+Pipelines, PVC, and model deployments all use `synesis-models`. The scripts force pipeline runs into this namespace so they write to the same volume that deployments mount.
 
-## Model Roles and PVCs
+## Model Roles
 
-All model definitions, PVC names, and sizes come from [`models.yaml`](../models.yaml).
+All model definitions and subpaths come from [`models.yaml`](../models.yaml). All roles share a single EFS PVC (`synesis-models-efs`), each mounting its own `subPath`.
 
-| Role | Default Model | PVC | Size |
-|------|--------------|-----|------|
-| **Router** | Qwen3-8B FP8 | `synesis-router-pvc` | 25Gi |
-| **General** | Qwen3.5-35B-A3B | `synesis-general-pvc` | 100Gi |
-| **Coder** | Qwen3-Coder-Next | `synesis-coder-pvc` | 200Gi |
-| **Critic** | R1-Distill-32B FP8 | `synesis-critic-pvc` | 100Gi |
-| **Summarizer** | Qwen2.5-0.5B | (none — KServe `hf://`) | — |
+| Role | Default Model | subPath |
+|------|--------------|---------|
+| **Router** | Qwen3-8B FP8 | `router-model` |
+| **General** | Qwen3.5-35B-A3B | `general-model` |
+| **Coder** | Qwen3-Coder-30B-A3B FP8 | `coder-model` |
+| **Critic** | R1-Distill-32B FP8 | `critic-model` |
+| **Summarizer** | Qwen2.5-0.5B | (none — KServe `hf://`) |
 
-Storage class: `gp3-high` (16K IOPS, 1 GiB/s). PVC sizes include ~2.5x buffer over model weights for download working space.
+Storage: `efs-sc` StorageClass (provisioned by Terraform). EFS is elastic — no pre-provisioned size, pay only for stored data.
 
 ## Prerequisites
 
 - OpenShift AI with Data Science Pipelines (DSPA)
+- `efs-sc` StorageClass on the cluster (Terraform)
 - `hf-hub-secret` in **synesis-models** (optional, for gated models)
-- `gp3-high` StorageClass (apply once as cluster-admin):
-
-```bash
-oc apply -f pipelines/manifests/storage-class-gp3-high.yaml
-```
 
 ## Bootstrap (once)
 
-Create per-role PVCs:
+Creates the shared EFS PVC and HuggingFace secret:
 
 ```bash
 ./scripts/bootstrap-pipelines.sh
@@ -41,8 +37,42 @@ Create per-role PVCs:
 Or via `bootstrap.sh`:
 
 ```bash
-./scripts/bootstrap.sh --hf-token   # creates PVCs + HuggingFace token
+./scripts/bootstrap.sh --hf-token   # creates PVC + HuggingFace token
 ```
+
+## KFP Connection (KFP_HOST & KFP_TOKEN)
+
+`run-model-pipeline.sh` needs to reach the Kubeflow Pipelines API server. It tries auto-discovery first, but you can set the values explicitly.
+
+**Auto-discovery (recommended):** just be logged into `oc` and the script handles the rest:
+
+```bash
+oc login ...                      # ensure you have an active session
+./scripts/run-model-pipeline.sh --profile=small
+```
+
+The script discovers `KFP_HOST` from the DSPA status in `synesis-models`, and gets the token via `oc whoami -t`.
+
+**Manual override:** if auto-discovery fails (e.g. DSPA route not ready, non-standard namespace):
+
+```bash
+# From DSPA status (preferred)
+export KFP_HOST=$(oc get dspa -n synesis-models -o jsonpath='{.items[0].status.components.apiServer.externalUrl}')
+
+# Fallback: from route
+export KFP_HOST=https://$(oc get route -n synesis-models -o jsonpath='{.items[0].spec.host}')
+
+# Token from your oc session
+export KFP_TOKEN=$(oc whoami -t)
+```
+
+**Troubleshooting:**
+
+| Symptom | Fix |
+|---------|-----|
+| `ERROR: Set KFP_HOST` | DSPA not ready or you're not logged in. Run `oc get dspa -n synesis-models` to check. |
+| `401 Unauthorized` | Token expired. Run `oc login` again, then `export KFP_TOKEN=$(oc whoami -t)`. |
+| `Connection refused` | DSPA pod may not be running. Check `oc get pods -n synesis-models \| grep dspa`. |
 
 ## Download Models
 
@@ -56,7 +86,7 @@ Or via `bootstrap.sh`:
 ./scripts/run-model-pipeline.sh --role=critic
 ```
 
-The script reads `models.yaml`, ensures the PVC exists, scales down any existing deployment, runs the download pipeline, then scales back up.
+The script ensures the EFS PVC exists, scales down any existing deployment, runs the download pipeline, then scales back up.
 
 ## Clean and Re-download
 
@@ -88,9 +118,5 @@ oc apply -n synesis-models -f base/model-serving/deployment-vllm-coder.yaml
 | File | Purpose |
 |------|---------|
 | `model_pipeline.py` | Unified KFP pipeline: cleanup + download (parameterized by role) |
-| `manifests/synesis-router-pvc.yaml` | Router PVC (25Gi) |
-| `manifests/synesis-general-pvc.yaml` | General PVC (100Gi) |
-| `manifests/synesis-coder-pvc.yaml` | Coder PVC (200Gi) |
-| `manifests/synesis-critic-pvc.yaml` | Critic PVC (100Gi) |
-| `manifests/storage-class-gp3-high.yaml` | gp3-high StorageClass |
+| `manifests/synesis-models-efs-pvc.yaml` | Shared EFS PVC for all model weights |
 | `model-pvc-download/` | Pipeline container (uv + hf_hub) |

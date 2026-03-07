@@ -59,6 +59,11 @@ main() {
       --dry-run=client -o yaml | oc apply -f -
     envsubst < "$DSPA_DIR/dspa-s3-with-credentials.yaml" | oc apply -f -
   else
+    log "Creating placeholder S3 credentials secret $S3_CREDENTIALS_SECRET (IRSA handles auth)"
+    oc create secret generic "$S3_CREDENTIALS_SECRET" -n "$DS_PROJECT" \
+      --from-literal=AWS_ACCESS_KEY_ID="" \
+      --from-literal=AWS_SECRET_ACCESS_KEY="" \
+      --dry-run=client -o yaml | oc apply -f -
     envsubst < "$DSPA_DIR/dspa-s3.yaml" | oc apply -f -
   fi
 

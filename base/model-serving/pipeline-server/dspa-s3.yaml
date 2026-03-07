@@ -1,5 +1,7 @@
 # DataSciencePipelinesApplication — Pipeline Server with S3 (IRSA, no keys)
-# envsubst: DS_PROJECT, S3_BUCKET, S3_HOST, AWS_REGION, DSPA_NAME
+# envsubst: DS_PROJECT, S3_BUCKET, S3_HOST, AWS_REGION, DSPA_NAME, S3_CREDENTIALS_SECRET
+# Note: s3CredentialsSecret is required by the CRD even with IRSA.
+# The script creates a placeholder secret with empty values.
 ---
 apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
@@ -16,3 +18,7 @@ spec:
       host: ${S3_HOST}
       region: ${AWS_REGION}
       scheme: https
+      s3CredentialsSecret:
+        accessKey: AWS_ACCESS_KEY_ID
+        secretKey: AWS_SECRET_ACCESS_KEY
+        secretName: ${S3_CREDENTIALS_SECRET}
