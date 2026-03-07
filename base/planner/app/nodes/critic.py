@@ -331,7 +331,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             }
 
         # Taxonomy-driven document depth check: knowledge deep-dives (engineering, science, etc.)
-        is_code_task = state.get("is_code_task", True)
+        is_code_task = state.get("is_code_task", False)
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         taxonomy_complexity = float(taxonomy_metadata.get("complexity_score", 0))
         is_document_taxonomy_path = (

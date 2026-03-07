@@ -40,7 +40,7 @@ NODE_STATUS_MESSAGES = {
     "supervisor": "Planning…",
     "planner": "Building execution plan…",
     "context_curator": "Gathering context…",
-    "worker": "Generating code…",  # Override: deliverable_type=explain_only → "Creating your plan…"
+    "worker": "Generating code…",  # Override: text mode → "Generating response…"
     "patch_integrity_gate": "Validating code…",
     "sandbox": "Testing code…",
     "lsp_analyzer": "Analyzing types…",

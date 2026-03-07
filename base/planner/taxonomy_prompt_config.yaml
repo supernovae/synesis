@@ -7,7 +7,7 @@
 #   path: Human-readable tree path (e.g. "Science > Physics")
 #   complexity: 0.0–1.0 — drives required_bullets, depth_instructions
 #   persona: Worker/Planner persona label
-#   worker_explain_tone: 1-2 sentence role/style for explain_only prompts (soft default; user overrides naturally)
+#   worker_explain_tone: 1-2 sentence role/style for text mode prompts (soft default; user overrides naturally)
 #   depth_instructions: Appended to system prompt (adjust depth to match user's explicit request)
 #   required_elements: Bullet structure — Planner must produce steps for these (or Worker uses as outline)
 #   discovery_prompt: Optional enrichment instruction — adds a brief "Discover More" section to responses

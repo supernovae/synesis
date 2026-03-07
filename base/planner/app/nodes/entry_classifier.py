@@ -199,76 +199,18 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     if active_domains:
         out["active_domain_refs"] = active_domains
 
-    out["intent_class"] = analysis.get("intent_class", "code")
-    out["is_code_task"] = analysis.get("is_code_task", True)
+    out["intent_class"] = analysis.get("intent_class", "general")
+    out["is_code_task"] = analysis.get("is_code_task", False)
 
-    # Defensive: knowledge/educational-style messages must never get code path
-    _knowledge_style = re.compile(
-        r"^(what is|what are|how much|how many|when did|who was|who is|"
-        r"explain |define |describe |tell me about|why does|why do |how does |how do |"
-        r"help me (study|learn|practice|review|understand)|"
-        r"i ('m |am )?(studying|learning|practicing)|"
-        r"teach me|quiz me|test me on|"
-        r"propose |suggest |recommend |evaluate |compare |outline |"
-        r"you are (helping|going to help) me)",
-        re.IGNORECASE,
-    )
-    if _knowledge_style.match((last_content or "").strip()):
-        out["is_code_task"] = False
-        out["intent_class"] = "knowledge"
-        out["target_language"] = "markdown"
-        out["allowed_tools"] = ["none"]
-        # Easy knowledge queries need at least "medium" budget; hard tasks keep
-        # their scored complexity so the taxonomy deep-dive override works correctly.
-        _prev_size = out.get("task_size", "easy")
-        if _prev_size == "easy":
-            out["task_size"] = "medium"
-            out["bypass_supervisor"] = True
-            out["plan_required"] = False
-            logger.info(
-                "entry_classifier_knowledge_upgrade",
-                extra={"from": _prev_size, "to": "medium"},
-            )
-        elif _prev_size == "hard":
-            out["bypass_supervisor"] = False
-            logger.info(
-                "entry_classifier_knowledge_hard_preserved",
-                extra={"task_size": "hard", "note": "complexity preserved for deep-dive routing"},
-            )
-        logger.info(
-            "entry_classifier_knowledge_override",
-            extra={
-                "intent_class": "knowledge",
-                "is_code_task": False,
-                "preview": (last_content or "")[:60],
-            },
-        )
-    # Revision/continuation detection: if the prior turn was knowledge and the
-    # current prompt references or revises that response, inherit knowledge mode
-    # to prevent context loss on follow-ups like "Revise it" or "More detail."
-    _revision_re = re.compile(
-        r"(revis|rewrit|improv|refin|expand|more (detail|specif)|your previous|"
-        r"try again|too generic|update (it|this|that|the)|elaborate|"
-        r"can you (fix|redo|change)|make it (more|better)|not (good|specific) enough)",
-        re.IGNORECASE,
-    )
-    if (
-        out.get("is_code_task", True)
-        and state.get("last_active_language") == "markdown"
-        and state.get("conversation_history")
-        and _revision_re.search((last_content or "").strip()[:300])
-    ):
-        out["is_code_task"] = False
-        out["intent_class"] = "knowledge"
-        out["target_language"] = "markdown"
-        out["allowed_tools"] = ["none"]
-        logger.info(
-            "entry_classifier_revision_inheritance",
-            extra={"preview": (last_content or "")[:60], "prior_lang": "markdown"},
-        )
+    # Text tasks with easy budget get promoted to medium for adequate token budget
+    if not out.get("is_code_task") and task_size == "easy":
+        task_size = "medium"  # type: ignore[assignment]
+        out["task_size"] = "medium"
+        out["bypass_supervisor"] = True
+        logger.info("entry_classifier_text_budget_upgrade", extra={"from": "easy", "to": "medium"})
 
     # target_language: is_code_task=False→markdown; explicit lang→use it; else infer
-    is_code_task = out.get("is_code_task", True)
+    is_code_task = out.get("is_code_task", False)
     if not is_code_task:
         out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
@@ -306,7 +248,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         state.get("coding_client_detected")
         and out.get("intent_class") != "knowledge"
         and analysis.get("intent_class") == "general"
-        and not analysis.get("is_code_task", True)
+        and not analysis.get("is_code_task", False)
     ):
         out["is_code_task"] = True
         out["intent_class"] = "code"
@@ -315,13 +257,13 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     taxonomy_metadata = resolve_taxonomy_metadata(
         active_domain_refs=out.get("active_domain_refs") or [],
         task_size=out.get("task_size", "medium"),
-        intent_class=out.get("intent_class", "code"),
+        intent_class=out.get("intent_class", "general"),
         complexity_score=out.get("complexity_score", 0.5) or 0.5,
     )
     out["taxonomy_metadata"] = taxonomy_metadata
 
     # Taxonomy-driven: non-sandbox → usually skip Planner; BUT high-depth domains or explicit planning session
-    if not out.get("is_code_task", True):
+    if not out.get("is_code_task", False):
         deep_dive = should_plan_for_document(taxonomy_metadata, out.get("active_domain_refs") or [])
         if deep_dive or plan_session:
             out["plan_required"] = True
@@ -332,7 +274,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             out["rag_mode"] = "disabled"
         if not state.get("pending_question_continue") and not out.get("plan_required"):
             out["execution_plan"] = {}
-    elif state.get("pending_question_continue") and not state.get("is_code_task", True):
+    elif state.get("pending_question_continue") and not state.get("is_code_task", False):
         out["is_code_task"] = False
         out["plan_required"] = False
         out["rag_mode"] = "disabled"
@@ -342,7 +284,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:500]
-        if not out.get("is_code_task", True):
+        if not out.get("is_code_task", False):
             out["task_type"] = "general"
             out["allowed_tools"] = ["none"]
         else:

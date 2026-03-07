@@ -633,14 +633,14 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Explain-only / text output: plans, documents, training plans — bypass sandbox
     # When taxonomy_metadata indicates high complexity (e.g. physics, astronomy), route to critic for science-depth check
-    is_code_task = state.get("is_code_task", True)
+    is_code_task = state.get("is_code_task", False)
     if not is_code_task:
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         complexity = float(taxonomy_metadata.get("complexity_score", 0))
         route_to_critic = complexity > 0.6 and bool(taxonomy_metadata.get("required_elements"))
         next_node = "critic" if route_to_critic else "respond"
         logger.info(
-            "gate_explain_only_bypass",
+            "gate_text_mode_bypass",
             extra={
                 "is_code_task": is_code_task,
                 "next_node": next_node,

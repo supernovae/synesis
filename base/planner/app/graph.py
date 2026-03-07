@@ -106,7 +106,7 @@ def route_after_entry_classifier(state: dict[str, Any]) -> str:
 
     # Plan required (code, taxonomy-driven document, or explicit "lets plan"): bypass Supervisor, go to Planner
     if state.get("plan_required"):
-        if state.get("task_size") in ("hard", "medium") or not state.get("is_code_task", True):
+        if state.get("task_size") in ("hard", "medium") or not state.get("is_code_task", False):
             return "planner"
 
     # Bypass Supervisor: easy fast path, or knowledge-downgraded tasks that
@@ -422,7 +422,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             ):
                 parts.append("*If you'd prefer a different test framework or setup, just say so.*")
         if display_code:
-            if not state.get("is_code_task", True) or (patch_ops and not code):
+            if not state.get("is_code_task", False) or (patch_ops and not code):
                 parts.append(display_code)
             elif "```" in display_code:
                 # Already has fenced code blocks (markdown output from Worker)
@@ -454,7 +454,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                     parts.append(f"\n---\n**How I got here**\n{summary}")
         # Critic nonblocking suggestions: surface as collapsible section for code responses
         critic_nonblocking = state.get("critic_nonblocking") or []
-        if critic_nonblocking and state.get("is_code_task", True):
+        if critic_nonblocking and state.get("is_code_task", False):
             suggestion_lines = []
             for item in critic_nonblocking[:5]:
                 desc = item.get("description", str(item)) if isinstance(item, dict) else str(item)
@@ -585,7 +585,7 @@ def route_after_worker(state: dict[str, Any]) -> str:
         return "respond"
     # Explain-only fast path: skip patch_integrity_gate entirely.
     # High-complexity science domains route to critic for depth check; everything else goes direct.
-    if not state.get("is_code_task", True):
+    if not state.get("is_code_task", False):
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         complexity = float(taxonomy_metadata.get("complexity_score", 0))
         if complexity > 0.6 and taxonomy_metadata.get("required_elements"):

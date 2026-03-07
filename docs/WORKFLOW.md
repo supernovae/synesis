@@ -84,8 +84,30 @@ YAML-driven `ScoringEngine` with split axes:
 | `risk_score` | Destructive ops, secrets, compliance | `intent_weights.yaml` + plugin YAMLs |
 | `difficulty` | Normalized 0.0-1.0 | `complexity_score / (medium_max * 2)` |
 | `task_size` | `easy` / `medium` / `hard` | Derived from complexity + risk |
-| `is_code_task` | `true` (code) / `false` (explain) | From `intent_class` + domain |
+| `is_code_task` | `true` (code) / `false` (text, default) | From `intent_class` via ScoringEngine |
 | `intent_class` | `code_generation`, `knowledge`, `conversation`, etc. | Keyword matching against `intent_classes` |
+
+**Text-first classification**: The system defaults to
+`is_code_task=false` and `intent_class="general"`. Code is the
+minority class with high-salience features (language names, action
+verbs like "implement"/"debug"/"refactor"). The ScoringEngine
+detects code via 7 explicit `code_intents` classes; everything
+else stays on the text path. This follows One-Class Classification
+theory — define the minority class (code), default to majority
+(text). See the plan document for research references (Bayesian
+Decision Theory, Feature Salience Asymmetry, OCC).
+
+**Code detection layers** (all detect CODE, nothing detects "not code"):
+1. **ScoringEngine intent**: Primary. 7 code intent classes with
+   word-boundary keyword matching.
+2. **Code rescue regex**: Edge-case recovery for strong code terms
+   (`function`, `class`, `algorithm`) in otherwise non-code intents.
+3. **Coding client bias**: IDE contexts (Cursor, Claude Code) with
+   `general` intent assume code.
+
+**Easy text budget upgrade**: Easy text tasks are promoted to
+`medium` for adequate token budget. Hard tasks preserve their
+complexity score for deep-dive routing.
 
 **Token budget:** Continuous difficulty curve, not bucketed.
 `budget = 512 + (4096 - 512) * difficulty^1.5`. Social
@@ -105,7 +127,7 @@ acknowledgements get 256 tokens.
 | `pending_question_continue` | `context_curator` (if source=worker/planner) or source |
 | `message_origin == "ui_helper"` | `respond` |
 | `plan_required` + `task_size` in (hard, medium) or `is_code_task=false` | `planner` |
-| `bypass_supervisor` (easy tasks, knowledge-downgraded) | `context_curator` |
+| `bypass_supervisor` (easy knowledge tasks only) | `context_curator` |
 | else | `supervisor` |
 
 ### After Supervisor
@@ -120,7 +142,8 @@ acknowledgements get 256 tokens.
 **Taxonomy-driven passthroughs (no LLM):**
 - `task_size == "hard"` + `plan_required` -> skip LLM, route to `planner`
 - `is_code_task=false` + `!plan_required` (taxonomy) -> skip LLM, route to `worker`
-- `is_code_task=false` + `plan_required` (knowledge deep-dive on critic retry) -> run LLM routing + web search
+- `is_code_task=false` + `plan_required` (knowledge deep-dive) -> route to `planner` (supervisor skipped; `bypass_supervisor=false` when `plan_required=true`)
+- `is_code_task=false` + `plan_required` on critic retry -> run LLM routing + web search via supervisor
 
 ### After Planner
 
@@ -173,17 +196,24 @@ acknowledgements get 256 tokens.
 3. **Dual Planner Prompts**: Code tasks use `PLANNER_SYSTEM_PROMPT`
    (atomic steps with files and verification commands). Knowledge
    deep-dives use `KNOWLEDGE_PLANNER_PROMPT` (section outlines
-   mapped from the user's explicit requests). Protocol tasks:
-   first step = discovery/WebFinger only.
+   mapped from the user's explicit requests, with user format
+   constraints captured in `assumptions` so the Worker enforces
+   them). Protocol tasks: first step = discovery/WebFinger only.
 4. **Evidence-Gated Critic**: For code: `approved=false` requires
    `blocking_issue` with valid `evidence_refs`. For knowledge
    deep-dives: Critic validates section coverage against taxonomy
-   `required_elements`, checks for hallucinated constraints the
-   user did not request, and flags vague recommendations.
+   `required_elements` AND the user's explicit structural requests,
+   checks for hallucinated constraints the user did not request,
+   flags "X or Y" listing without concrete recommendations, and
+   verifies format compliance (e.g., "separate facts from
+   assumptions" if requested).
 5. **Unified Markdown Output**: Worker always produces markdown.
    No JSON wrapper. Code is in fenced blocks; `code_extractor.py`
    extracts blocks for validation. `is_code_task` controls whether
-   extraction happens.
+   extraction happens. The `Language:` header is omitted for text
+   tasks to prevent code-block format confusion. The fallback in
+   `main.py` skips code-fence wrapping for `is_code_task=false`
+   (text mode) responses stored in conversation memory.
 6. **Monotonic Retry** (`state.retry`): Failures, decisions,
    diversification_history only append. At `max_iterations`, force
    PASS and emit `carried_uncertainties_signal`.
@@ -233,15 +263,15 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 
 | Path | Mechanism | Reasoning |
 |------|-----------|-----------|
-| `is_code_task=false` | Worker returns `direct_stream_request` dict; `main.py` calls executor via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
-| `is_code_task=true` | Worker calls LLM via LangChain `ainvoke`; code extracted from markdown post-hoc | Full response needed for code extraction |
+| Text mode (`is_code_task=false`) | Worker returns `direct_stream_request` dict; `main.py` calls executor via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
+| Code mode (`is_code_task=true`) | Worker calls LLM via LangChain `ainvoke`; code extracted from markdown post-hoc | Full response needed for code extraction |
 
 **Status events**: Pipeline phases emit as SSE `event: status`
 with `{"type":"status","data":{"description":"...","done":false}}`
 payloads. Open WebUI renders these in a collapsible "Thinking" UI.
 
-**Knowledge-specific statuses**: When `is_code_task=false`, the
-pipeline emits context-aware messages:
+**Text mode statuses**: When `is_code_task=false` (the default),
+the pipeline emits context-aware messages:
 - "Searching for context..." (supervisor)
 - "Building response outline..." (planner)
 - "Searching the web..." (when web search returns results)
@@ -394,14 +424,30 @@ The following research informed this architecture decision:
 requirements the user did not ask for." For protocols: "FIRST step
 = discovery/handshake only."
 
+**User format constraints:** The `KNOWLEDGE_PLANNER_PROMPT` instructs
+the planner to capture user output constraints (e.g., "separate
+facts from assumptions," "make tradeoffs explicit") in the
+`assumptions` field. These flow through to the Worker, which sees
+them in the Execution Plan block.
+
+**Deep-dive suffix:** When `plan_required=true` and
+`is_code_task=false` (text mode), the Worker receives `_DEEP_DIVE_SUFFIX`:
+choose concrete approaches (no "X or Y" menus), separate facts /
+assumptions / recommendations, follow the user's outline, and
+name specific tools/versions.
+
+**Multi-File Task gating:** The `patch_ops` instruction block is
+only injected when `is_code_task=true`, preventing knowledge tasks
+from receiving file-creation instructions.
+
 **Web search for knowledge deep-dives:** Context Curator runs web
 search for `is_code_task=false` + `plan_required=true` tasks,
 providing the Worker with current web context alongside RAG results.
 
 **Performance levers:**
-1. **Routing:** Taxonomy sets `is_code_task=false` for (intent,
-   domain) -> `plan_required=false`; simple document tasks never
-   hit Planner. Only deep-dive domains trigger the full pipeline.
+1. **Routing:** Text mode is the default (`is_code_task=false`);
+   simple text tasks never hit Planner. Only deep-dive domains
+   trigger the full pipeline.
 2. **max_tokens:** 1024 for Planner/Critic vs 2048+ for Worker.
 3. **Prefix caching:** Router and Critic share a vLLM runtime with
    `--enable-prefix-caching`.

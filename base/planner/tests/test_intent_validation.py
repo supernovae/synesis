@@ -125,7 +125,7 @@ class TestEducationalPrompts:
             "what does this code do?",
         ],
     )
-    def test_educational_prompts_are_explain_only(self, prompt: str):
+    def test_educational_prompts_are_text_mode(self, prompt: str):
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert "interaction_mode" not in out, f'interaction_mode should not be set for "{prompt}"'

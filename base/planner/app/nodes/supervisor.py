@@ -102,7 +102,7 @@ def _build_passthrough_result(
     """Build a deterministic passthrough result (no LLM call)."""
     user_context = _get_user_context(state)
     task_desc = (user_context or "").strip()[:1000] or state.get("task_description", "")
-    is_code_task = state.get("is_code_task", True)
+    is_code_task = state.get("is_code_task", False)
     latency = (time.monotonic() - start) * 1000
 
     trace = NodeTrace(
@@ -165,7 +165,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
         conversation_history = state.get("conversation_history", [])
         user_context = _get_user_context(state)
         task_size = state.get("task_size", "medium")
-        is_code_task = state.get("is_code_task", True)
+        is_code_task = state.get("is_code_task", False)
 
         # ── Passthrough 1: hard + plan_required → Planner (no LLM) ──
         if task_size == "hard" and state.get("plan_required") and iteration == 0:
@@ -185,7 +185,7 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 state,
                 next_node="worker",
                 reasoning="Taxonomy: is_code_task=false → Worker",
-                log_event="supervisor_passthrough_explain_only",
+                log_event="supervisor_passthrough_text_mode",
                 start=start,
                 extra_fields={
                     "is_code_task": False,

@@ -169,12 +169,12 @@ class ConversationMemory:
     def set_last_context(self, user_id: str, is_code_task: bool | str, active_domain_refs: list[str]) -> None:
         """Store is_code_task and active_domain_refs after a turn for next-turn pivot detection.
 
-        is_code_task: True if sandbox required (code path); False if explain-only.
-        For backward compat, accepts str: 'explain_only' → False, else → True.
+        is_code_task: True if sandbox required (code path); False for text mode.
+        For backward compat, accepts str: 'text' → False, else → True.
         """
         with self._lock:
             if isinstance(is_code_task, str):
-                is_code_task = is_code_task != "explain_only"
+                is_code_task = is_code_task not in ("explain_only", "text")
             self._last_context[user_id] = (is_code_task, list(active_domain_refs or []))
             self._last_active[user_id] = time.time()
 

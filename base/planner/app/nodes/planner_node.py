@@ -79,8 +79,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         latency = (time.monotonic() - start) * 1000
         is_code_task = state.get("is_code_task", False)
         logger.info(
-            "planner_skipped_deliverable_explain_only",
-            extra={"label": "code" if is_code_task else "explanation", "latency_ms": latency},
+            "planner_skipped_text_mode",
+            extra={"label": "code" if is_code_task else "text", "latency_ms": latency},
         )
         return {
             "execution_plan": {
@@ -139,7 +139,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         from ..taxonomy_prompt_factory import get_planner_system_prompt_append
 
         taxonomy_append = get_planner_system_prompt_append(state.get("taxonomy_metadata") or {})
-        is_code_task = state.get("is_code_task", True)
+        is_code_task = state.get("is_code_task", False)
         base_prompt = KNOWLEDGE_PLANNER_PROMPT if not is_code_task else PLANNER_SYSTEM_PROMPT
         system_prompt = base_prompt + taxonomy_append
 
@@ -232,12 +232,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Defensive: is_code_task=False (explanation-only, taxonomy-driven) → skip approval unless explicit plan_session
+        # Text mode: skip approval unless explicit plan_session
         if needs_approval and not state.get("is_code_task", False) and not plan_session:
             needs_approval = False
             logger.info(
-                "planner_skip_approval_deliverable_explain_only",
-                extra={"label": "code" if state.get("is_code_task", False) else "explanation"},
+                "planner_skip_approval_text_mode",
+                extra={"label": "code" if state.get("is_code_task", False) else "text"},
             )
 
         next_node = "respond" if needs_approval else "worker"

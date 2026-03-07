@@ -135,7 +135,7 @@ def _build_pinned_context(
     output format and constraints — no sandbox/bash/code execution.
     """
     chunks: list[ContextChunk] = []
-    is_document = not (session_preferences or {}).get("is_code_task", True)
+    is_document = not (session_preferences or {}).get("is_code_task", False)
 
     # Tier 1: Trivial task override (Supervisor LLM classified this; Worker proceeds with minimal output)
     # Skip for document path (trivial = brief answer, not "minimal code")
@@ -227,8 +227,8 @@ def _build_pinned_context(
     # Tier 4b: Session preferences (deliverable shape) — taxonomy-aware
     if session_preferences:
         prefs = []
-        sandbox_flag = session_preferences.get("is_code_task", True)
-        prefs.append(f"Deliverable: {'code' if sandbox_flag else 'explain_only'}")
+        sandbox_flag = session_preferences.get("is_code_task", False)
+        prefs.append(f"Deliverable: {'code' if sandbox_flag else 'text'}")
         if is_document:
             prefs.append("Produce markdown/text response, no code execution")
         else:
@@ -645,7 +645,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     context_conflicts = tier2_tier3_conflicts
 
     session_prefs = {
-        "is_code_task": state.get("is_code_task", True),
+        "is_code_task": state.get("is_code_task", False),
         "include_tests": state.get("include_tests", True),
         "include_run_commands": state.get("include_run_commands", True),
     }
@@ -1014,7 +1014,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     # supervisor (plan_required + is_code_task=False), web search never runs.
     # Run it here so the worker gets current context for its structured response.
     web_search_results: list[str] = list(state.get("web_search_results") or [])
-    is_code_task = state.get("is_code_task", True)
+    is_code_task = state.get("is_code_task", False)
     if (
         not is_code_task
         and state.get("plan_required")

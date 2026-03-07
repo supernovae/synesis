@@ -228,7 +228,7 @@ def _derive_expected_phases(
     if category == "plan_session":
         return ["Complex task detected", "Building execution plan"]
 
-    if expected_deliverable == "explain_only":
+    if expected_deliverable == "text":
         return ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
 
     if expected_pipeline == "code_planner" or expected_route == "planner" or expected_deliverable == "code_project":
@@ -586,12 +586,12 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     # triple-backtick occurrence, which catches inline formatting in quizzes etc.
     _FENCED_CODE_RE = re.compile(r"^```\w*\s*$", re.MULTILINE)
     expected_deliv = prompt_spec.get("expected_deliverable", "")
-    if expected_deliv == "explain_only":
+    if expected_deliv == "text":
         has_code_blocks = bool(_FENCED_CODE_RE.search(metrics.content_text))
         if has_code_blocks and prompt_spec.get("category") not in ("review", "safety", "mixed"):
-            add("output_type", "warn", "explain_only but response contains code blocks")
+            add("output_type", "warn", "text mode but response contains code blocks")
         else:
-            add("output_type", "pass", "explain_only")
+            add("output_type", "pass", "text")
     elif expected_deliv in ("code_snippet", "code_project"):
         has_code = (
             bool(_FENCED_CODE_RE.search(metrics.content_text))
@@ -641,7 +641,7 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     if not expected_phases:
         expected_phases = _derive_expected_phases(
             prompt_spec.get("expected_route", "worker"),
-            prompt_spec.get("expected_deliverable", "explain_only"),
+            prompt_spec.get("expected_deliverable", "text"),
             prompt_spec.get("category", ""),
             prompt_spec.get("expected_pipeline", ""),
         )

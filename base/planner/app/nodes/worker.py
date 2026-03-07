@@ -52,7 +52,7 @@ If you cannot proceed (missing info, blocked dependency, safety concern), say so
 Be concise. Adjust depth to match the task complexity.
 """
 
-_EXPLAIN_SUFFIX = """
+_TEXT_SUFFIX = """
 
 Respond directly in markdown. Use headings, lists, and structure for clarity.
 Be concise and clear. No code blocks unless the user explicitly asks.
@@ -70,9 +70,9 @@ When proposing architecture or making recommendations:
 """
 
 
-def _build_explain_prompt_with_tone(tone: str) -> str:
+def _build_text_prompt_with_tone(tone: str) -> str:
     """Build a system prompt with a domain-specific tone preamble."""
-    return f"{tone}{_EXPLAIN_SUFFIX}"
+    return f"{tone}{_TEXT_SUFFIX}"
 
 
 worker_llm = ChatOpenAI(
@@ -588,7 +588,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                         line += f" — verify: `{verify}`"
                     plan_lines.append(line)
                 plan_block = "\n".join(plan_lines)
-        if len(touched_files) > 1 and state.get("is_code_task", True):
+        if len(touched_files) > 1 and state.get("is_code_task", False):
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
 
         task_is_trivial = state.get("task_is_trivial", False)
@@ -599,7 +599,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             else ""
         )
         # Prefix-aware order: [Tier1-4, RAG, Task/History]. See docs/performance.md.
-        is_code = state.get("is_code_task", True)
+        is_code = state.get("is_code_task", False)
         task_header = (
             f"\n\n## Task\nLanguage: {target_lang}\n{task_desc}{trivial_hint}"
             if is_code
@@ -640,7 +640,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             effective_size = "medium"
 
         # ── Build system prompt: universal base + taxonomy steering ──
-        is_code_task = state.get("is_code_task", True)
+        is_code_task = state.get("is_code_task", False)
 
         from ..taxonomy_prompt_factory import get_discovery_prompt, get_executor_depth_block, get_worker_explain_tone
 
@@ -648,7 +648,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
 
         if not is_code_task:
             tone = get_worker_explain_tone(state.get("taxonomy_metadata") or {})
-            system_prompt = _build_explain_prompt_with_tone(tone) if tone else WORKER_PROMPT
+            system_prompt = _build_text_prompt_with_tone(tone) if tone else WORKER_PROMPT
             if tone:
                 taxonomy_key = (state.get("taxonomy_metadata") or {}).get("taxonomy_key", "")
                 logger.info("worker_taxonomy_tone", extra={"taxonomy_key": taxonomy_key})
@@ -672,7 +672,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             discovery = get_discovery_prompt(state.get("taxonomy_metadata") or {})
             if discovery:
                 system_prompt = f"{system_prompt}\n\n{discovery}"
-            logger.info("worker_explain_only_mode", extra={"is_code_task": False})
+            logger.info("worker_text_mode", extra={"is_code_task": False})
 
         logger.debug("worker_effective_size=%s", effective_size)
 

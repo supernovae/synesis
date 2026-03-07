@@ -238,7 +238,7 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     if node == "entry_classifier":
         task_size = chunk.get("task_size", "")
         intent = chunk.get("intent_class", "")
-        is_code_task = chunk.get("is_code_task", True)
+        is_code_task = chunk.get("is_code_task", False)
         plan_req = chunk.get("plan_required", False)
         out.append(
             (
@@ -437,7 +437,7 @@ _STATUS_KNOWLEDGE: dict[str, str] = {
 }
 
 
-def _status_for_node(node: str, task_size: str, is_code_task: bool = True) -> str:
+def _status_for_node(node: str, task_size: str, is_code_task: bool = False) -> str:
     """Return tier-matched status message for Open WebUI."""
     if not is_code_task and node in _STATUS_KNOWLEDGE:
         return _STATUS_KNOWLEDGE[node]
@@ -481,7 +481,7 @@ def _extract_content_and_metrics(
         patch_ops = result.get("patch_ops", []) or []
         lang = result.get("target_language", "python")
         expl = result.get("code_explanation", "")
-        is_code_task = result.get("is_code_task", True)
+        is_code_task = result.get("is_code_task", False)
         parts = []
         if code.strip():
             if is_code_task:
@@ -525,7 +525,7 @@ def _extract_content_and_metrics(
             memory.set_last_active_language(scope, lang)
         memory.set_last_context(
             scope,
-            result.get("is_code_task", True),
+            result.get("is_code_task", False),
             result.get("active_domain_refs") or [],
         )
 
@@ -614,7 +614,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if last_ctx and conversation_history:
         engine = get_scoring_engine()
         current_analysis = engine.analyze(last_user_content[:800])
-        curr_is_code_task = current_analysis.get("is_code_task", True)
+        curr_is_code_task = current_analysis.get("is_code_task", False)
         curr_domains = set(str(d).strip().lower() for d in (current_analysis.get("active_domains") or []) if d)
         last_is_code_task, last_domains = last_ctx[0], set(str(d).strip().lower() for d in (last_ctx[1] or []) if d)
 
@@ -628,7 +628,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
         if deliverable_changed and not is_short_followup:
             context_pivot = True
-            pivot_to_label = f"{'explain_only' if not last_is_code_task else 'single_file'}→{'explain_only' if not curr_is_code_task else 'single_file'}"
+            pivot_to_label = f"{'text' if not last_is_code_task else 'single_file'}→{'text' if not curr_is_code_task else 'single_file'}"
         elif domains_differ and not is_short_followup:
             # Guard 2: Same sandbox mode — only hard-pivot when zero domain overlap.
             if not domains_have_overlap:
@@ -663,8 +663,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 active_domain_refs_for_summary = last_ctx[1] if last_ctx else None
             elif context_pivot and last_ctx and curr_is_code_task != last_is_code_task:
                 pivot_type = "deliverable"
-                from_era = "code" if last_is_code_task else "explain_only"
-                to_era = "code" if curr_is_code_task else "explain_only"
+                from_era = "code" if last_is_code_task else "text"
+                to_era = "code" if curr_is_code_task else "text"
                 active_domain_refs_for_summary = last_ctx[1]
             else:
                 pivot_type = "domain"
@@ -1245,7 +1245,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     content_streamed = True
                     sent_role = True
 
-                # ── Deferred direct stream for explain_only ──
+                # ── Deferred direct stream for text mode ──
                 # When the worker returns a direct_stream_request instead of
                 # calling langchain (which drops reasoning_content), we stream
                 # directly from the executor via the raw openai SDK. This
@@ -1459,7 +1459,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         result = chunk
                         node = chunk.get("current_node", "")
                         task_size = chunk.get("task_size", "")
-                        is_code_task_chunk = chunk.get("is_code_task", True)
+                        is_code_task_chunk = chunk.get("is_code_task", False)
                         exec_plan = chunk.get("execution_plan") or {}
                         steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
                         emitted_plan = False
