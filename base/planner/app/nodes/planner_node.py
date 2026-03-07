@@ -53,6 +53,7 @@ Rules:
 - Map the user's explicitly requested sections to steps. Do NOT invent sections they did not ask for.
 - CRITICAL: Count the user's explicitly numbered or bulleted deliverables. Create one step per deliverable. Do NOT merge multiple deliverables into a single step. If the user requests N sections, produce at least N steps.
 - Each step's action MUST state the concrete deliverable, not just the topic. Bad: "Design Goals — what to cover". Good: "Design Goals — state 3-5 prioritized goals with justification, explicit non-goals, and how each maps to stated constraints."
+- For steps involving technology/tool/model choices, include in the action: "Choose ONE concrete option per decision. Name one rejected alternative with justification."
 - If the user listed numbered deliverables, preserve their order and wording.
 - Final step should cover risks, caveats, or failure modes if relevant (unless the user already listed this as a deliverable).
 

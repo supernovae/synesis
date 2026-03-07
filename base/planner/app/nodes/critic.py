@@ -379,9 +379,11 @@ FAILURE MODE CHECK:
 ANTI-BOILERPLATE CHECK:
 - Flag as nonblocking: generic enterprise scaffolding (compliance checklists, GDPR/FedRAMP, retraining schedules, change management processes) that the user did not request and that displaces domain-specific analysis.
 
-SPECIFICITY CHECK:
-- Listing "X or Y" alternatives without choosing one should be flagged. Concrete recommendations are preferred over menus.
+SPECIFICITY / COMMITMENT CHECK:
+- Count instances of "X or Y" option-listing without a clear recommendation. If 3 or more major decisions list alternatives without choosing one, this is a BLOCKING issue — the response is a catalog, not a design. Flag as: "Option-listing without commitment on N decisions."
+- For each major decision (tool, model, database, framework), the response should choose ONE option and name ONE rejected alternative with justification. Menus are not designs.
 - Precise cost, latency, or infrastructure claims without labeled assumptions should be flagged as nonblocking (overconfident precision).
+- Casual mentions of fine-tuning/LoRA without justification for why it belongs in the stated timeline should be flagged as nonblocking (premature optimization).
 
 HALLUCINATION CHECK:
 - If the response adds constraints the user did not ask for (e.g., compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
