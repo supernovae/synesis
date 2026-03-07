@@ -14,7 +14,31 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 |------|----------------|----------------------|-------------|
 | 2026-03-06 | Pre-BM25, code path, no deep-dive steering | 4/10 | Baseline. Classified as code task; produced JSON patch ops. |
 | 2026-03-07a | Pre-BM25, code path, domain disambiguation | 5.5/10 | Better structure but still generic; model listed alternatives without choosing. |
-| 2026-03-07b | BM25 classification + deep-dive prompt strengthening + format constraints pipeline | TBD | Phases 1-7 of knowledge quality plan. |
+| 2026-03-07b | BM25 classification + deep-dive prompt strengthening + format constraints pipeline | 4.5/10 | Correct classification (knowledge path), but brevity-encouraging pinned context caused regression from 5.5. |
+| 2026-03-07c | Knowledge path depth fix: depth-encouraging pinned context, prescriptive planner, per-section depth rules, temp 0.3, improved web search queries, curated RAG docs | TBD | Strategies 1-3 of "Fix Knowledge Path Regression" plan. |
+
+---
+
+## Knowledge Path Regression Analysis (2026-03-07b → 2026-03-07c)
+
+The BM25 classification fix correctly moved the architecture benchmark prompt from the **code path** to the **knowledge path**. However, score dropped from 5.5 to 4.5 because the knowledge path was optimized for brevity, not depth.
+
+### Root causes identified
+
+1. **Pinned context signaled brevity**: `"Produce formatted text only"` and `"Deliverable: text"` primed the model toward summary mode. The code path's `"Deliverable: code"` accidentally forced more substantial per-file output.
+2. **Planner sections were too vague**: `"Section: Design Goals — what to cover"` told the model *what to write about* but not *how deep to go*. The code path's file-based steps (`design_goals.md`) forced the model to treat each as a standalone document.
+3. **No per-section depth enforcement**: `_DEEP_DIVE_SUFFIX` said "cover every section" but didn't say "treat each section as a substantial deliverable."
+4. **Temperature too high**: 0.4 produced varied but undisciplined output. Reverted to 0.3.
+5. **Web search queries unfocused**: Concatenating multiple section titles into one query diluted the search signal.
+
+### Fixes applied (2026-03-07c)
+
+- Pinned context for `plan_required + is_document` changed to depth-encouraging: `"Produce a thorough, detailed analysis"` and `"Deliverable: detailed_analysis"`.
+- `KNOWLEDGE_PLANNER_PROMPT` now requires concrete deliverable descriptions per step (not just topic labels).
+- `_DEEP_DIVE_SUFFIX` opens with `DEPTH RULES` emphasizing standalone-document-quality sections.
+- Temperature set to 0.3 for planned knowledge tasks.
+- Web search generates per-section queries instead of concatenated mega-queries.
+- 5 curated RAG documents created in `base/rag/knowledge-base/` for model grounding.
 
 ---
 
@@ -59,7 +83,7 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 
 ### Mitigation status
 
-- **Temperature raised** (Phase 5): 0.2 → 0.4 for knowledge deep-dives. Encourages more varied phrasing and opinionated responses.
+- **Temperature adjusted** (Phase 5 → regression fix): 0.2 → 0.4 → 0.3 for knowledge deep-dives. 0.4 was too aggressive (undisciplined output); 0.3 balances variety with structure.
 - **Prompt strengthening** (Phase 3): Added explicit anti-generic, timeline constraining, and uncertainty honesty rules to `_DEEP_DIVE_SUFFIX`.
 - **Format constraints pipeline** (Phase 1): Planner-captured format constraints now reach the worker as `## Response Constraints`.
 - **Compliance isolation** (Phase 6): Compliance terms removed from base vertical persona; injected only when user prompt contains trigger keywords.
@@ -93,7 +117,7 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 
 1. **Instruction following vs. model scale.** Both 8B and 32B models follow simple format instructions well (JSON schema, markdown structure, code blocks). Performance degrades with simultaneous meta-constraints. The 8B model struggles with >2 meta-constraints; the 32B model handles ~3-4 before dropping later ones.
 
-2. **Temperature-specificity tradeoff.** Lower temperature (0.1-0.2) produces consistent structure but generic content. Higher temperature (0.4-0.5) produces more opinionated content but less predictable structure. The sweet spot for knowledge deep-dives appears to be 0.3-0.4.
+2. **Temperature-specificity tradeoff.** Lower temperature (0.1-0.2) produces consistent structure but generic content. Higher temperature (0.4-0.5) produces more opinionated content but less predictable structure. After regression testing, 0.3 is the current sweet spot for knowledge deep-dives: maintains structural compliance while allowing more decisive language than 0.2.
 
 3. **Negative instruction priming.** "Do not mention X" or "Only include X when Y" reliably primes the model to include X. The only effective mitigation is to remove X from the prompt entirely and inject it dynamically only when needed.
 

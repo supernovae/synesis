@@ -61,12 +61,14 @@ If you are not confident about a specific fact, say so briefly. Do not invent ci
 
 _DEEP_DIVE_SUFFIX = """
 
-STRUCTURAL RULES — follow strictly:
+DEPTH RULES — this is a detailed analysis, not a summary:
+- Each section in the execution plan is a substantial deliverable. Write each section as if it were a standalone document with real depth.
+- Do NOT compress the response into a brief overview. The user expects thorough, multi-paragraph coverage per section.
 - The planner outlined sections based on the user's explicit requests. Cover EVERY section. Do not merge or skip any.
 - If the user asked for specific sections or structure, follow their outline exactly.
 
 SPECIFICITY RULES:
-- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one.
+- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one. For each major choice, state one rejected alternative and why you rejected it.
 - If you name a technology, state in one sentence why it beats alternatives for this specific use case.
 - Be specific: name tools, versions, and quantities. Avoid abstract categories.
 - When discussing model sizes, infrastructure, or cost, give concrete tiers with justification, not vague labels.
@@ -773,7 +775,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
                     "latency_ms": latency,
                 },
             )
-            knowledge_temp = 0.4 if state.get("plan_required") else 0.2
+            knowledge_temp = 0.3 if state.get("plan_required") else 0.2
             return {
                 "generated_code": "",
                 "direct_stream_request": {

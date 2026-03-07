@@ -129,6 +129,7 @@ def _build_pinned_context(
     project_manifest: list[ContextChunk],
     session_preferences: dict[str, Any] | None = None,
     task_is_trivial: bool = False,
+    plan_required: bool = False,
 ) -> list[ContextChunk]:
     """Hierarchical override: Tier 1 (global) → Tier 2 (org) → Tier 3 (project) → Tier 4 (session).
     Taxonomy-aware: when is_code_task=False (document path), use document-appropriate
@@ -161,7 +162,11 @@ def _build_pinned_context(
         )
 
     # Tier 1: Global policy (hardcoded) — always markdown output
-    if is_document:
+    # Planned knowledge tasks need depth-encouraging language, not brevity signals.
+    if is_document and plan_required:
+        t1 = "Respond in markdown. Produce a thorough, detailed analysis."
+        t2 = "Target language: markdown. This is a complex multi-section response. Cover each section with the depth of a standalone document."
+    elif is_document:
         t1 = "Respond directly in markdown. No code execution."
         t2 = "Target language: markdown. Produce formatted text only. No sandbox, no code execution, no bash."
     else:
@@ -228,8 +233,11 @@ def _build_pinned_context(
     if session_preferences:
         prefs = []
         sandbox_flag = session_preferences.get("is_code_task", False)
-        prefs.append(f"Deliverable: {'code' if sandbox_flag else 'text'}")
-        if is_document:
+        if is_document and plan_required:
+            prefs.append("Deliverable: detailed_analysis")
+            prefs.append("Cover each planner section thoroughly as a standalone deliverable")
+        elif is_document:
+            prefs.append("Deliverable: text")
             prefs.append("Produce markdown/text response, no code execution")
         else:
             prefs.append("Output code and run commands")
@@ -529,32 +537,32 @@ def _build_knowledge_search_queries(
     active_domain_refs: list[str] | None,
     task_desc: str,
 ) -> list[str]:
-    """Build focused search queries from planner sections + domain refs instead of raw task text."""
+    """Build focused per-section search queries from planner steps + domain refs.
+
+    Produces one query per section title (up to 3) so each search targets a specific
+    topic rather than concatenating titles into an unfocused mega-query.
+    """
     queries: list[str] = []
     domain_terms = " ".join(str(d).replace("_", " ") for d in (active_domain_refs or [])[:3])
 
     plan = execution_plan if isinstance(execution_plan, dict) else {}
     steps = plan.get("steps", [])
     if steps:
-        titles = []
-        for s in steps[:6]:
+        for s in steps[:5]:
             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
             clean = act.replace("Section:", "").replace("section:", "").strip()
             if " — " in clean:
                 clean = clean.split(" — ")[0].strip()
-            if clean:
-                titles.append(clean)
-        if titles:
-            queries.append(f"{' '.join(titles[:3])} {domain_terms}".strip()[:120])
-            if len(titles) > 3:
-                queries.append(f"{' '.join(titles[3:])} {domain_terms}".strip()[:120])
+            if clean and len(clean) > 5:
+                q = f"{clean} best practices {domain_terms}".strip()[:120]
+                queries.append(q)
 
     if not queries:
         first_sentence = task_desc.split(".")[0].strip()[:80] if task_desc else ""
         if first_sentence:
             queries.append(f"{first_sentence} {domain_terms}".strip()[:120])
 
-    return queries or [task_desc[:100]]
+    return queries[:3] or [task_desc[:100]]
 
 
 def _resolve_task_description(state: dict[str, Any]) -> str:
@@ -740,6 +748,7 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             project_manifest,
             session_prefs,
             task_is_trivial=task_is_trivial,
+            plan_required=bool(state.get("plan_required")),
         )
     )
     for c in tier2_tier3_conflicts:
@@ -1060,6 +1069,10 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
                 state.get("execution_plan", {}),
                 state.get("active_domain_refs", []),
                 task_desc,
+            )
+            logger.info(
+                "context_curator_web_search_queries",
+                extra={"queries": search_queries, "count": len(search_queries)},
             )
             for sq in search_queries[:3]:
                 results = await search_client.search(sq, profile="web")

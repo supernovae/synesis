@@ -1,0 +1,9 @@
+name: synesis-knowledge-base
+version: "1.0"
+language: knowledge
+description: >
+  Curated knowledge documents for grounding AI assistant responses.
+  ADR examples, model tiering strategy, failure mode catalog,
+  RAG architecture patterns, and phased rollout template.
+chunk_size: 800
+chunk_overlap: 100

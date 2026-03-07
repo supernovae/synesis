@@ -73,6 +73,7 @@ if [[ "$ENV" == "dev" ]]; then
     log "    ./scripts/load-language-pack.sh bash"
     log "    ./scripts/index-domain.sh"
     log "    ./scripts/index-code.sh"
+    log "    ./scripts/index-knowledge-base.sh"
 else
     log "Done. CronJobs are active ($ENV schedule)."
     log "  View: oc get cronjobs -n synesis-rag"

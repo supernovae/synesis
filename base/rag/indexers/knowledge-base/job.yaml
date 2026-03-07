@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: synesis-index-knowledge-base
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer-knowledge-base
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: indexer-knowledge-base
+        app.kubernetes.io/part-of: synesis
+    spec:
+      restartPolicy: OnFailure
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: indexer
+          image: synesis-indexer-knowledge-base:latest
+          args:
+            - --path
+            - /data/knowledge-base
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
