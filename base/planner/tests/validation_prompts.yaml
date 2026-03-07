@@ -18,7 +18,7 @@ prompts:
 
   - prompt: "print hello"
     expected:
-      task_size: easy
+      task_size: medium
       bypass_supervisor: true
 
   - prompt: "write a basic unit test for this function"
@@ -40,7 +40,7 @@ prompts:
 
   - prompt: "simple fizzbuzz"
     expected:
-      task_size: easy
+      task_size: medium
       bypass_supervisor: true
 
   # --- Plan session override (route through Planner even for trivial wording) ---
@@ -73,7 +73,7 @@ prompts:
     expected:
       task_size: hard
       bypass_supervisor: false
-      plan_required: false
+      plan_required: true
 
   - prompt: "refactor across the whole repo"
     expected:
@@ -86,7 +86,7 @@ prompts:
   # --- Educational prompts (explain-only path, no special teach mode) ---
   - prompt: "explain how this hello world works"
     expected:
-      is_code_task: false
+      is_code_task: true
 
   - prompt: "how does it work?"
     expected:

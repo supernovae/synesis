@@ -388,6 +388,17 @@ The following research informed this architecture decision:
    - Ref: Madaan et al., "Self-Refine: Iterative Refinement
      with Self-Feedback" (2023), arXiv:2303.17651
 
+10. **BM25 Intent Scoring**: Adapted Okapi BM25 ranking function for
+    deterministic keyword-based intent classification. BM25's term
+    frequency saturation (k1) prevents a single repeated keyword from
+    dominating, and document length normalization (b) prevents long
+    prompts from accumulating inflated scores. Code-intent priority
+    is preserved via 10% tie-breaking threshold.
+    - Ref: Robertson & Zaragoza, "The Probabilistic Relevance
+      Framework: BM25 and Beyond" (2009), Foundations and Trends in IR
+    - Ref: Stanford NLP IR Book, Ch. 11.4 "Okapi BM25"
+      https://nlp.stanford.edu/IR-book/html/htmledition/okapi-bm25-a-non-binary-model-1.html
+
 ### What Changed
 
 | Before | After |

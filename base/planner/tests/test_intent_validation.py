@@ -219,7 +219,7 @@ class TestExplainabilityPhase1:
         assert out.get("domain_hints") or out.get("active_domain_refs"), "Domain should be detected for RAG"
 
     def test_intent_class_emitted_for_keyword_match(self):
-        """Intent class drives critic overlay; first match wins."""
+        """Intent class drives critic overlay; BM25-scored, highest score wins."""
         state = {"messages": [{"content": "explain how decorators work in Python"}]}
         out = entry_classifier_node(state)
         assert out.get("intent_class") == "knowledge"
@@ -229,6 +229,34 @@ class TestExplainabilityPhase1:
         state3 = {"messages": [{"content": "parse this json and save to csv"}]}
         out3 = entry_classifier_node(state3)
         assert out3.get("intent_class") == "data_transform"
+
+    def test_bm25_long_prompt_picks_dominant_intent(self):
+        """BM25 scoring: long prompt with many planning/knowledge keywords
+        must not be hijacked by a single 'review' keyword match."""
+        architecture_prompt = (
+            "You are helping me design a production-ready AI assistant for a small "
+            "engineering organization.\n"
+            "Propose a practical architecture for an internal coding assistant that can:\n"
+            "1. answer questions about company docs,\n"
+            "2. help write and review code,\n"
+            "3. avoid confidently making up facts.\n"
+            "What I want from you:\n"
+            "- State the main design goals\n"
+            "- Propose a concrete architecture\n"
+            "- Explain model choices\n"
+            "- Explain how retrieval should work\n"
+            "- Describe failure modes and mitigations\n"
+            "- Give a phased rollout plan for 30, 60, and 90 days"
+        )
+        state = {"messages": [{"content": architecture_prompt}]}
+        out = entry_classifier_node(state)
+        assert out.get("intent_class") != "review", (
+            "BM25 should not let a single 'review' keyword hijack intent "
+            f"when planning/knowledge keywords dominate. Got: {out.get('intent_class')}"
+        )
+        assert out.get("is_code_task") is False, (
+            "Architecture proposal is a text/knowledge task, not code"
+        )
 
 
 class TestOutputTypeCoverage:

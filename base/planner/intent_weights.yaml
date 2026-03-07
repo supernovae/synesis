@@ -243,12 +243,12 @@ pairings:
     extra_weight: 50
     axis: risk
 
-# Intent classes: first match wins. Drives critic behavior overlay (hallucination, schema, tone, etc).
-# output_type: document = Planner skipped; Worker produces markdown. Code = Planner (if complex), Sandbox.
+# Intent classes: BM25-scored (highest score wins; code intents preferred within 10% ties).
+# Drives critic behavior overlay (hallucination, schema, tone, etc).
 # inherently_document: true = intent always produces text (explanations, ideas); no domain check.
 # document_domains: intent + these domains → document. Used when intent is mixed (e.g. planning, writing).
 intent_classes:
-  # First: greetings, meta, ambiguous → document. Must stay first (first match wins).
+  # Greetings, meta, ambiguous → document.
   conversation:
     keywords: [hi, hello, hey, howdy, what's up, what can you do, how does this work, thanks, ok, got it, cool]
     inherently_document: true

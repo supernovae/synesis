@@ -636,7 +636,7 @@ pairings:
     axis: risk
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INTENT CLASSES (first match wins; drives critic behavior overlay)
+# INTENT CLASSES (BM25-scored; drives critic behavior overlay)
 # ─────────────────────────────────────────────────────────────────────────────
 
 intent_classes:
