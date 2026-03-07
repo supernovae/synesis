@@ -256,6 +256,83 @@ engineering rigor.
   Worker → Critic for structured, section-by-section generation
   with quality review.
 
+## Depth Mode: Parallel Per-Section Generation
+
+For hard knowledge deep-dives, Synesis can generate each planner section
+as a **separate parallel worker call** with dedicated RAG retrieval and
+optional web search per section. This is the **Skeleton-of-Thought (SoT)**
+pattern (ICLR 2024) applied to our architecture.
+
+### Architecture
+
+```
+Planner → [plan with N steps]
+              │
+              ├── (depth_mode=false) → Context Curator → Worker (monolithic, all sections in one call)
+              │
+              └── (depth_mode=true) → Send() fan-out
+                    ├── section_worker(step 1) ← focused RAG + optional web search
+                    ├── section_worker(step 2) ← focused RAG + optional web search
+                    ├── section_worker(step N) ← focused RAG + optional web search
+                    └── merge_sections → writer_pass (synthesis) → respond
+```
+
+### Why Per-Section RAG Matters
+
+The key quality win comes from **decomposed retrieval** — each section gets a
+focused query instead of one generic query for the whole topic. Research shows:
+- ComposeRAG (arxiv 2506.00232): decomposed RAG beats monolithic by up to 15%
+- SParC-RAG (arxiv 2602.00083): per-query parallel retrieval +6.2 F1
+- A-MapReduce (arxiv 2602.01331): parallel retrieval, 45% time reduction
+
+### Activation
+
+Depth mode auto-activates when all conditions are met:
+
+| Signal | Threshold |
+|---|---|
+| `depth_mode` config | Not `"disabled"` |
+| `is_code_task` | `false` (knowledge tasks only) |
+| `task_size` | `"hard"` |
+| Domain | In `deep_dive_domains` |
+| Plan steps | >= `depth_mode_min_steps` (default: 4) |
+
+**Environment override** (`SYNESIS_DEPTH_MODE`):
+- `auto` (default): complexity-gated as above
+- `always`: force parallel for all planned non-code tasks (testing)
+- `disabled`: always monolithic single-call generation
+
+### Performance
+
+Parallel generation can reduce wall-clock time because vLLM batches
+concurrent requests efficiently. Five 2048-token requests complete faster
+than one 8192-token request due to better KV cache utilization and
+continuous batching. The writer pass adds ~20% overhead but produces
+better coherence across sections.
+
+Max parallel sections is capped at `depth_mode_max_parallel` (default: 4)
+to avoid GPU memory pressure.
+
+### Thinking Model Compatibility
+
+Depth mode naturally supports thinking models (R1, o3-style):
+- Each section_worker can enable thinking independently
+- Thinking tokens are per-section, so the model doesn't exhaust reasoning
+  budget on early sections
+- The writer pass runs without thinking (synthesis doesn't need deep reasoning)
+
+### Research References (Depth Mode)
+
+| Paper | Key Contribution | How We Apply It |
+|---|---|---|
+| Skeleton-of-Thought (ICLR 2024, [arxiv 2307.15337](https://arxiv.org/abs/2307.15337)) | Outline first, expand in parallel. 2-3.7x speedup. | Planner produces skeleton; section_workers expand in parallel. |
+| LLMxMapReduce ([arxiv 2410.09342](https://arxiv.org/abs/2410.09342)) | Map-reduce for long generation with inter-chunk protocols. | Section isolation + writer merge pattern. |
+| A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
+| SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
+| ComposeRAG ([arxiv 2506.00232](https://arxiv.org/abs/2506.00232)) | Decomposed RAG beats monolithic by up to 15% accuracy. | Validates per-section retrieval approach. |
+| PASTA (2025) | Parallel decoding with Pareto-optimal speed/quality tradeoffs. | Informs quality envelope expectations. |
+| Multiverse ([arxiv 2506.09991](https://arxiv.org/abs/2506.09991)) | MapReduce LLM generation; 2x speedup with parity. | Validates parallel section generation performance. |
+
 ## Streaming Architecture
 
 All responses stream via SSE (`text/event-stream`) through the

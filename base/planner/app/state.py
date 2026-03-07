@@ -34,6 +34,17 @@ class TaxonomyNode(TypedDict, total=False):
     taxonomy_key: str  # e.g. "physics", "general_greeting"
 
 
+def _merge_section_results(existing: list[dict[str, Any]], new: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reducer for section_results: append new section outputs, deduplicate by section_id."""
+    merged = list(existing)
+    seen = {s.get("section_id") for s in merged}
+    for s in new:
+        if s.get("section_id") not in seen:
+            merged.append(s)
+            seen.add(s.get("section_id"))
+    return merged
+
+
 class GraphState(TypedDict, total=False):
     """Typed schema for LangGraph StateGraph. All keys optional for partial updates.
 
@@ -158,6 +169,24 @@ class GraphState(TypedDict, total=False):
     rag_authority_labels: list[str]  # parallel to rag_context/rag_context_refs: authority tier per chunk
     rag_source_urls: list[str]  # parallel to rag_context/rag_context_refs: source URL per chunk
     direct_stream_request: dict[str, Any] | None  # deferred LLM call when not is_code_task (bypasses langchain)
+    # Depth mode: parallel per-section generation (Skeleton-of-Thought pattern)
+    depth_mode: bool  # True when parallel section generation is active for this request
+    section_results: Annotated[list[dict[str, Any]], _merge_section_results]  # outputs from section_worker fan-out
+
+
+class SectionWorkerState(TypedDict, total=False):
+    """State payload sent to each parallel section_worker via Send()."""
+
+    section_id: int
+    section_action: str
+    full_plan: dict[str, Any]
+    task_description: str
+    conversation_history: list[str]
+    target_language: str
+    is_code_task: bool
+    taxonomy_metadata: dict[str, Any]
+    web_search_enabled: bool
+    plan_required: bool
 
 
 class Confidence(float):

@@ -90,6 +90,50 @@ def _build_context_block(rag_context: list[str], authority_labels: list[str] | N
     )
 
 
+def _should_activate_depth_mode(state: dict[str, Any], steps: list) -> bool:
+    """Determine if parallel per-section generation should activate.
+
+    Conditions (all must be true for "auto" mode):
+      - depth_mode config is not "disabled"
+      - Task is not code (is_code_task=False)
+      - task_size is "hard"
+      - Plan has enough steps (>= depth_mode_min_steps)
+      - Domain is in deep_dive_domains (knowledge deep-dive)
+
+    "always" mode bypasses complexity checks for testing.
+    """
+    mode = settings.depth_mode
+    if mode == "disabled":
+        return False
+
+    if state.get("is_code_task", False):
+        return False
+
+    if mode == "always":
+        return len(steps) >= 2
+
+    # Auto mode: hard + deep_dive + enough steps
+    if state.get("task_size") != "hard":
+        return False
+
+    if len(steps) < settings.depth_mode_min_steps:
+        return False
+
+    taxonomy_metadata = state.get("taxonomy_metadata") or {}
+    taxonomy_key = taxonomy_metadata.get("taxonomy_key", "")
+    try:
+        from ..taxonomy_prompt_factory import get_deep_dive_domains
+        deep_dive = get_deep_dive_domains()
+    except Exception:
+        deep_dive = set()
+    if taxonomy_key and taxonomy_key not in deep_dive:
+        active_refs = set(state.get("active_domain_refs") or [])
+        if not active_refs & deep_dive:
+            return False
+
+    return True
+
+
 async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
@@ -264,10 +308,19 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         next_node = "respond" if needs_approval else "worker"
 
+        # Depth mode: parallel per-section generation (Skeleton-of-Thought)
+        activate_depth = _should_activate_depth_mode(state, steps)
+        if activate_depth:
+            logger.info(
+                "planner_depth_mode_activated",
+                extra={"steps": len(steps), "task_size": state.get("task_size")},
+            )
+
         out: dict[str, Any] = {
             "execution_plan": plan,
             "touched_files": touched_files,
             "plan_pending_approval": needs_approval,
+            "depth_mode": activate_depth,
             "current_node": node_name,
             "next_node": next_node,
             "node_traces": [trace],

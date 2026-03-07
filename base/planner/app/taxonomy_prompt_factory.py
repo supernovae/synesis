@@ -150,6 +150,12 @@ def get_executor_depth_block(metadata: dict[str, Any]) -> str:
     return f"\n\nTaxonomy depth: {depth}"
 
 
+def get_deep_dive_domains() -> set[str]:
+    """Return the set of domains that trigger planner for knowledge deep-dives."""
+    cfg = _load_config()
+    return set(cfg.get("deep_dive_domains") or [])
+
+
 def should_plan_for_document(metadata: dict[str, Any], active_domain_refs: list[str]) -> bool:
     """When is_code_task=False (explain-only), should we route to Planner for structured bullets?"""
     if not metadata:

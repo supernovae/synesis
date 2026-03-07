@@ -183,6 +183,15 @@ class Settings(BaseSettings):
     lsp_gateway_url: str = "http://lsp-gateway.synesis-lsp.svc:8000"
     lsp_timeout_seconds: int = 30
 
+    # Depth mode: parallel per-section generation for knowledge deep-dives.
+    # "auto" = activate when hard + deep_dive + 4+ plan steps (recommended).
+    # "always" = force parallel for all planned tasks (testing/research).
+    # "disabled" = always monolithic single-call generation.
+    depth_mode: Literal["auto", "always", "disabled"] = "auto"
+    depth_mode_min_steps: int = 4  # minimum plan steps to justify fan-out overhead
+    depth_mode_max_parallel: int = 4  # cap concurrent section workers (vLLM memory)
+    depth_mode_section_budget: int = 2048  # per-section token budget
+
     # Graph behavior
     max_iterations: int = 3
     require_plan_approval: bool = False  # Plan auto-proceeds to executor; set True for human-in-loop approval

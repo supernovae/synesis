@@ -15,6 +15,7 @@ from functools import wraps
 from typing import Any
 
 from langgraph.graph import END, StateGraph
+from langgraph.types import Send
 
 from .config import settings
 from .nodes import (
@@ -23,6 +24,7 @@ from .nodes import (
     entry_classifier_node,
     patch_integrity_gate_node,
     planner_node,
+    section_worker_node,
     strategic_advisor_node,
     supervisor_node,
     worker_node,
@@ -196,20 +198,32 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
 
         from .llm_telemetry import get_llm_http_client
 
+        is_depth = state.get("depth_mode", False)
+        writer_budget = 8192 if is_depth else 4096
+
         writer_llm = ChatOpenAI(
             base_url=writer_url,
             api_key="not-needed",
             model=writer_name,
             temperature=0.3,
-            max_completion_tokens=4096,
+            max_completion_tokens=writer_budget,
             streaming=False,
             use_responses_api=False,
             http_client=get_llm_http_client(),
         )
+
+        instruction = (
+            "Synthesize these independently-generated sections into a single coherent document. "
+            "Improve flow and transitions between sections. Remove redundancy. "
+            "Preserve all substantive content, code blocks, and markdown formatting verbatim."
+            if is_depth
+            else "Polish this multi-section response:"
+        )
+
         result = await writer_llm.ainvoke(
             [
                 SystemMessage(content=_WRITER_SYSTEM),
-                HumanMessage(content=f"Polish this multi-section response:\n\n{content}"),
+                HumanMessage(content=f"{instruction}\n\n{content}"),
             ]
         )
         polished = result.content.strip()
@@ -531,6 +545,59 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def merge_sections_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Assemble parallel section results into a unified response.
+
+    Orders sections by section_id, concatenates with heading separators,
+    and feeds the assembled content through the writer pass for synthesis.
+    This is the "Reduce" phase of the Skeleton-of-Thought map-reduce pattern.
+    """
+    section_results = state.get("section_results") or []
+    if not section_results:
+        logger.warning("merge_sections_empty")
+        return {
+            "generated_code": "*No sections were generated.*",
+            "current_node": "merge_sections",
+        }
+
+    ordered = sorted(section_results, key=lambda s: s.get("section_id", 0))
+
+    parts: list[str] = []
+    total_latency = 0
+    rag_count = 0
+    web_count = 0
+    for sec in ordered:
+        text = sec.get("text", "").strip()
+        if text:
+            parts.append(text)
+        total_latency += sec.get("latency_ms", 0)
+        if sec.get("had_rag"):
+            rag_count += 1
+        if sec.get("had_web"):
+            web_count += 1
+
+    assembled = "\n\n---\n\n".join(parts)
+
+    # Writer pass: synthesis and polish
+    assembled = await _writer_pass(assembled, state)
+
+    logger.info(
+        "merge_sections_complete",
+        extra={
+            "sections": len(ordered),
+            "assembled_len": len(assembled),
+            "total_section_latency_ms": total_latency,
+            "sections_with_rag": rag_count,
+            "sections_with_web": web_count,
+        },
+    )
+
+    return {
+        "generated_code": assembled,
+        "current_node": "merge_sections",
+    }
+
+
 timeout = settings.node_timeout_seconds
 
 graph_builder = StateGraph(GraphState)
@@ -543,6 +610,8 @@ graph_builder.add_node("context_curator", with_debug_node_timing(context_curator
 graph_builder.add_node("worker", with_debug_node_timing(with_timeout(timeout)(worker_node)))
 graph_builder.add_node("patch_integrity_gate", with_debug_node_timing(patch_integrity_gate_node))
 graph_builder.add_node("critic", with_debug_node_timing(with_timeout(timeout)(critic_node)))
+graph_builder.add_node("section_worker", with_debug_node_timing(section_worker_node))
+graph_builder.add_node("merge_sections", with_debug_node_timing(merge_sections_node))
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
 graph_builder.set_entry_point("entry_classifier")
@@ -559,19 +628,51 @@ graph_builder.add_conditional_edges(
 )
 
 
-def route_after_planner(state: dict[str, Any]) -> str:
-    """When plan needs approval, surface to user; else continue to context curator -> worker."""
+def route_after_planner(state: dict[str, Any]) -> str | list[Send]:
+    """Route after planner: approval, depth-mode fan-out, or monolithic path."""
     if state.get("plan_pending_approval"):
         return "respond"
+
+    # Depth mode: fan out to parallel section workers via Send() API
+    # (Skeleton-of-Thought pattern, ICLR 2024)
+    if state.get("depth_mode"):
+        steps = (state.get("execution_plan") or {}).get("steps", [])
+        if steps:
+            max_parallel = settings.depth_mode_max_parallel
+            sends = [
+                Send("section_worker", {
+                    "section_id": s.get("id", i + 1),
+                    "section_action": s.get("action", str(s)),
+                    "full_plan": state.get("execution_plan", {}),
+                    "task_description": state.get("task_description", ""),
+                    "conversation_history": (state.get("conversation_history") or [])[-4:],
+                    "target_language": state.get("target_language") or "markdown",
+                    "is_code_task": False,
+                    "taxonomy_metadata": state.get("taxonomy_metadata") or {},
+                    "web_search_enabled": settings.web_search_enabled,
+                    "plan_required": True,
+                })
+                for i, s in enumerate(steps[:max_parallel])
+            ]
+            # If more steps than max_parallel, remaining are serialized after merge
+            if len(steps) > max_parallel:
+                logger.info(
+                    "depth_mode_overflow",
+                    extra={"total_steps": len(steps), "parallel": max_parallel},
+                )
+            return sends
+
     return "context_curator"
 
 
 graph_builder.add_conditional_edges(
     "planner",
     route_after_planner,
-    {"context_curator": "context_curator", "respond": "respond"},
+    {"context_curator": "context_curator", "respond": "respond", "section_worker": "section_worker"},
 )
 graph_builder.add_edge("context_curator", "worker")
+graph_builder.add_edge("section_worker", "merge_sections")
+graph_builder.add_edge("merge_sections", "respond")
 
 
 def route_after_worker(state: dict[str, Any]) -> str:
