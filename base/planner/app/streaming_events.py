@@ -2,7 +2,7 @@
 
 - StatusQueueCallback: Custom callback that emits status descriptions as nodes run.
 - Planner: topic (reasoning) + plan steps yielded as 'status' for sidebar/header.
-- Executor: tool-call/debug bullets via callback (sandbox, lint, etc.).
+- Executor: tool-call/debug bullets via callback (lint, etc.).
 """
 
 from __future__ import annotations
@@ -25,8 +25,6 @@ KNOWN_NODE_NAMES: frozenset[str] = frozenset(
         "context_curator",
         "worker",
         "patch_integrity_gate",
-        "sandbox",
-        "lsp_analyzer",
         "critic",
         "respond",
     }
@@ -76,8 +74,6 @@ class StatusQueueCallback(AsyncCallbackHandler):
             self._put("Generating code…")
         elif "critic" in n:
             self._put("Reviewing…")
-        elif "sandbox" in n:
-            self._put("Testing code…")
         elif "patch_integrity" in n or "gate" in n:
             self._put("Validating code…")
         elif "context_curator" in n:

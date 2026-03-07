@@ -156,19 +156,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     plan_threshold = float(rt.get("plan_required_above", 0.7))
 
     bypass_supervisor = difficulty < bypass_threshold and not plan_session
-    bypass_planner = difficulty < bypass_threshold and not plan_session
-    requires_clarification = difficulty >= plan_threshold
-
     plan_required = plan_session or difficulty >= plan_threshold
-
-    # clarification_budget scales with difficulty
-    if difficulty < bypass_threshold:
-        clarification_budget = 0
-    elif difficulty < plan_threshold:
-        clarification_budget = 1
-    else:
-        clarification_budget = 2
-    # worker_persona and worker_prompt_tier are now derived from task_size
     # (easy→Minimalist, medium→Senior, hard→Architect). No longer set as separate state.
 
     # escalation_reason: set whenever routing to Supervisor (Phase 4 item 9)
@@ -201,11 +189,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "task_description": task_description,
         "target_language": "",  # set below from is_code_task and language detection
         "bypass_supervisor": bypass_supervisor,
-        "bypass_planner": bypass_planner,
-        "requires_clarification": requires_clarification,
         "plan_required": plan_required,
         "plan_session": plan_session,
-        "clarification_budget": clarification_budget,
         "intent_classifier_source": "deterministic",
         "escalation_reason": escalation_reason,
     }
@@ -237,10 +222,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         if _prev_size in ("easy", "hard"):
             out["task_size"] = "medium"
             out["bypass_supervisor"] = True
-            out["bypass_planner"] = True
             out["plan_required"] = False
-            out["requires_clarification"] = False
-            out["clarification_budget"] = 0
             if _prev_size == "hard":
                 logger.info(
                     "entry_classifier_knowledge_downgrade",
@@ -288,15 +270,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["reclassify_override"] = task_size_override
         # Recompute downstream fields for overridden task_size
         bypass_supervisor = difficulty < bypass_threshold
-        bypass_planner = difficulty < bypass_threshold
-        requires_clarification = difficulty >= plan_threshold
         plan_required = bool(plan_session or difficulty >= plan_threshold)
-        clarification_budget = 0 if difficulty < bypass_threshold else (1 if difficulty < plan_threshold else 2)
         out["bypass_supervisor"] = bypass_supervisor
-        out["bypass_planner"] = bypass_planner
-        out["requires_clarification"] = requires_clarification
         out["plan_required"] = plan_required
-        out["clarification_budget"] = clarification_budget
         out["escalation_reason"] = "reclassify_override" if not bypass_supervisor else ""
 
     # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias

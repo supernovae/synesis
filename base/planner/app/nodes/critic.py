@@ -105,9 +105,6 @@ async def _fetch_architecture_context(task_desc: str, code: str) -> str:
     """Query synesis_catalog for architecture context (indexer_source=architecture)."""
     try:
         arch_collections = [SYNESIS_CATALOG]
-        if not arch_collections:
-            return ""
-
         query = f"{task_desc}\n{code[:500]}"
         results = await retrieve_context(
             query=query,
@@ -371,10 +368,7 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                 logger.warning("critic_document_depth_failed", extra={"error": str(doc_err)[:200]})
                 doc_parsed = None
             if doc_parsed:
-                # Document path: skip evidence gate (no sandbox/lsp; taxonomy assessment is the evidence)
                 doc_approved = doc_parsed.approved
-                _ = getattr(doc_parsed, "blocking_issues", []) or []  # doc_blocking; reserved for future use
-                # If critic says not approved but blocking_issues lack refs, still honor the decision (document path)
                 doc_next = "respond" if doc_approved else "supervisor"
                 latency = (time.monotonic() - start) * 1000
                 result = {
@@ -759,7 +753,6 @@ blocking_issues: Only for confirmed sandbox/lsp failures. Suggestions → nonblo
             "critic_response_truncated": is_truncated,
             "critic_should_continue": critic_should_continue,
             "critic_continue_reason": critic_continue_reason,
-            "critic_needs_testing": getattr(parsed, "needs_testing", False),
             "need_more_evidence": parsed.need_more_evidence or False,
             "residual_risks": getattr(parsed, "residual_risks", []) or [],
             "critic_nonblocking": getattr(parsed, "nonblocking", []) or [],

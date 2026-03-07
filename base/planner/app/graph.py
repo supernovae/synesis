@@ -321,12 +321,12 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
                 "context": {
                     "task_description": state.get("task_description", ""),
                     "target_language": state.get("target_language", "python"),
-                    "rag_context": state.get("rag_context", []),
+                    "rag_context": _get_resolved_rag_context(state),
                     "is_code_task": state.get("is_code_task"),
                 },
                 "task_description": state.get("task_description", ""),
                 "target_language": state.get("target_language", "python"),
-                "rag_context": state.get("rag_context", []),
+                "rag_context": _get_resolved_rag_context(state),
                 "is_code_task": state.get("is_code_task"),
             },
         )
@@ -359,7 +359,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         ctx = {
             "task_description": state.get("task_description", ""),
             "target_language": state.get("target_language", "python"),
-            "rag_context": state.get("rag_context", []),
+            "rag_context": _get_resolved_rag_context(state),
             "execution_plan": state.get("execution_plan", {}),
             "assumptions": state.get("assumptions", []),
             "is_code_task": state.get("is_code_task"),
@@ -408,18 +408,9 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         is_minimalist = task_size == "easy"
         is_architect = task_size == "hard"
 
-        # Micro-ack: brief line when we have assumptions/defaults to surface (human, low-friction)
-        micro_ack_parts = []
+        # Micro-ack: brief line when we have defaults to surface (human, low-friction)
         defaults = state.get("defaults_used", [])
-        assume_struct = state.get("assumptions_structured", [])
-        if isinstance(assume_struct, list):
-            for a in assume_struct:
-                if isinstance(a, dict) and a.get("user_visible", True):
-                    val = a.get("value") or a.get("key", "")
-                    if val:
-                        micro_ack_parts.append(val)
-        if defaults:
-            micro_ack_parts.extend(defaults[:3])  # Cap at 3
+        micro_ack_parts = list(defaults[:3]) if defaults else []
         if not is_minimalist and micro_ack_parts and display_code:
             ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
             parts.append(ack)

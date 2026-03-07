@@ -223,7 +223,7 @@ def _build_pinned_context(
             )
         )
 
-    # Tier 4b: Session preferences (deliverable shape, interaction mode) — taxonomy-aware
+    # Tier 4b: Session preferences (deliverable shape) — taxonomy-aware
     if session_preferences:
         prefs = []
         sandbox_flag = session_preferences.get("is_code_task", True)

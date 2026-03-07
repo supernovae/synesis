@@ -408,8 +408,6 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     "context_curator": "Gathering context…",
     "worker": "Generating code…",
     "patch_integrity_gate": "Validating code…",
-    "sandbox": "Testing code…",
-    "lsp_analyzer": "Analyzing types…",
     "critic": "Reviewing…",
     "respond": "Finishing…",
 }
@@ -916,8 +914,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "context_curator",
                     "worker",
                     "patch_integrity_gate",
-                    "sandbox",
-                    "lsp_analyzer",
                     "critic",
                     "respond",
                 }

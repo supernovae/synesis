@@ -29,8 +29,6 @@ CODE_DEFAULTS: dict[str, Any] = {
         "python_with_tests": ["hello.py", "test_hello.py"],
     },
     "allow_questions_for_trivial": False,  # Hard fence
-    "plan_required_for_small": False,
-    "plan_required_for_trivial": False,
 }
 
 # Fields that cannot be overridden by YAML (safety/integrity)
@@ -82,8 +80,6 @@ class DefaultsPolicy:
         default_factory=lambda: {"single_file": "main.py", "python_project": ["hello.py", "test_hello.py"]}
     )
     allow_questions_for_trivial: bool = False
-    plan_required_for_small: bool = False
-    plan_required_for_trivial: bool = False
     # Optional: plan-approval thresholds, budget tuning (from YAML)
     plan_approval_min_steps: int = 0
     source: str = "code"
@@ -100,10 +96,6 @@ class DefaultsPolicy:
             if isinstance(files, dict)
             else {"single_file": "main.py", "python_project": ["hello.py", "test_hello.py"]},
             allow_questions_for_trivial=CODE_DEFAULTS["allow_questions_for_trivial"],  # Hard fence
-            plan_required_for_small=bool(data.get("plan_required_for_small", CODE_DEFAULTS["plan_required_for_small"])),
-            plan_required_for_trivial=bool(
-                data.get("plan_required_for_trivial", CODE_DEFAULTS["plan_required_for_trivial"])
-            ),
             plan_approval_min_steps=int(data.get("plan_approval_min_steps", 0)),
             source=data.get("_source", "merged"),
         )

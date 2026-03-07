@@ -128,16 +128,6 @@ class RouterDecision(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class PlanStep(BaseModel):
-    """A single step in the execution plan. Atomic: max 3 files, verification_command required."""
-
-    id: int = 0
-    action: str = ""
-    dependencies: list[int] = Field(default_factory=list)
-    files: list[str] = Field(default_factory=list)  # Max 3 files per step (enforced in prompt)
-    verification_command: str = ""  # Command to verify step (e.g. "python -c 'import m; m.test()'")
-
-
 class PlannerOut(BaseModel):
     """Validated output from the Planner node."""
 
@@ -332,25 +322,6 @@ class ContextPack(BaseModel):
 # ---------------------------------------------------------------------------
 # Evidence refs (structured IDs for UI, telemetry, citation)
 # ---------------------------------------------------------------------------
-
-
-class SpecRef(BaseModel):
-    doc_id: str = ""
-    section: str = ""
-    anchor: str = ""
-
-
-class LSPRef(BaseModel):
-    symbol: str = ""
-    uri: str = ""
-    range: dict[str, Any] = Field(default_factory=dict)
-
-
-class SandboxRef(BaseModel):
-    stage: int = 1  # 1=lint, 2=security, 3=execute
-    cmd: str = ""
-    exit_code: int = 0
-    log_excerpt_hash: str = ""
 
 
 def _blake2b_compact(data: str) -> str:
@@ -585,16 +556,6 @@ class BlockingIssue(BaseModel):
 # ---------------------------------------------------------------------------
 # Critic output schema
 # ---------------------------------------------------------------------------
-
-
-class CriticWhatIf(BaseModel):
-    """A single what-if analysis with optional line reference for evidence."""
-
-    scenario: str = ""
-    risk_level: str = "medium"  # low|medium|high|critical
-    explanation: str = ""
-    suggested_mitigation: str | None = None
-    line_reference: str | None = None  # e.g. "lines 12-15" for evidence
 
 
 class CriticOut(BaseModel):

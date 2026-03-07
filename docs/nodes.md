@@ -55,7 +55,6 @@ class GraphState(TypedDict, total=False):
     execution_plan: dict[str, Any]
     assumptions: list[str]
     defaults_used: list[str]
-    assumptions_structured: list[dict[str, Any]]
     is_code_task: bool
     include_tests: bool
     include_run_commands: bool
@@ -95,13 +94,11 @@ class GraphState(TypedDict, total=False):
     lsp_languages_analyzed: list[str]
     lsp_analysis_skipped: bool
     lsp_has_compile_errors: bool
-    lsp_eligible: bool
     what_if_analyses: list[Any]
     critic_feedback: str
     critic_approved: bool
     critic_should_continue: bool
     critic_continue_reason: str | None
-    critic_needs_testing: bool
     residual_risks: list[dict[str, Any]]
     critic_nonblocking: list[dict[str, Any]]
     need_more_evidence: bool
@@ -260,7 +257,6 @@ class SynesisState(BaseModel):
     execution_plan: dict[str, Any] = Field(default_factory=dict)
     assumptions: list[str] = Field(default_factory=list)
     defaults_used: list[str] = Field(default_factory=list)
-    assumptions_structured: list[dict[str, Any]] = Field(default_factory=list)
 
     # Supervisor: intent + output shape
     is_code_task: bool = True
