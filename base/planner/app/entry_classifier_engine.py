@@ -383,6 +383,25 @@ class ScoringEngine:
                 elif complexity_score <= self._medium_max:
                     task_size = "medium"
 
+        # 8c. Code rescue: non-code intent matched but strong code-construct
+        # signals present. "Write me a Python function" matches writing intent
+        # via bare "write", but "function" is unambiguously code. Rescue to
+        # code_generation so is_code_task=True and the worker uses the code path.
+        # Knowledge-style queries ("explain the function of X") are caught later
+        # by entry_classifier_node's _knowledge_style regex override.
+        if intent_class not in code_intents:
+            _code_rescue = re.compile(
+                r"\b(function|method|class|decorator|docstring|type hints?|"
+                r"return type|parameter|argument|variable|import|async|await|"
+                r"algorithm|data structure|subroutine|lambda|closure|interface|"
+                r"inheritance|polymorphism|generic|template|iterator|generator)\b",
+                re.IGNORECASE,
+            )
+            if _code_rescue.search(t_lower):
+                prev_intent = intent_class
+                intent_class = "code_generation"
+                hits.append(f"code_rescue:{prev_intent}→code_generation")
+
         # 9. is_code_task: False = text/document (explain), True = code/sandbox.
         # Non-code intents (writing, planning, personal_guidance) default to False
         # even without a domain match -- "write a sentence" is text, not code.

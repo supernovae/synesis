@@ -417,7 +417,7 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
 # Tier-specific overrides for Adaptive Rigor UX
 STATUS_EASY: dict[str, str] = {
     "entry_classifier": "Analyzing…",
-    "worker": "Generating your code…",
+    "worker": "Generating code…",
 }
 STATUS_MEDIUM: dict[str, str] = {
     "worker": "Generating code…",
@@ -433,7 +433,7 @@ STATUS_HARD: dict[str, str] = {
 def _status_for_node(node: str, task_size: str, is_code_task: bool = True) -> str:
     """Return tier-matched status message for Open WebUI."""
     if node == "worker" and not is_code_task:
-        return "Creating your plan…"
+        return "Generating response…"
     if task_size == "easy" and node in STATUS_EASY:
         return STATUS_EASY[node]
     if task_size == "medium" and node in STATUS_MEDIUM:

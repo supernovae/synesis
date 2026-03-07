@@ -34,7 +34,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Should bypass supervisor. entry_classifier knowledge_override. No JSON wrapper."
 
 - id: know-02
@@ -46,7 +46,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Finance domain. Should match personal_finance or similar taxonomy."
 
 - id: know-03
@@ -58,7 +58,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Science/physics domain. No code expected."
 
 - id: know-04
@@ -70,7 +70,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Culture/entertainment. Trivial knowledge question."
 
 - id: know-05
@@ -82,7 +82,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Tech knowledge but NOT code generation. Should stay explain_only."
 
 - id: know-06
@@ -94,7 +94,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
+  max_latency_s: 30
   notes: "General science. Very simple. Should be fast."
 
 - id: know-07
@@ -106,7 +106,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
+  max_latency_s: 30
   notes: "Automotive domain. Factual one-liner expected."
 
 - id: know-08
@@ -118,7 +118,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Education/linguistics domain. Clear explain_only."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Interactive exercise. Should produce fill-in-the-blank question."
 
 - id: conv-01b
@@ -146,7 +146,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "CRITICAL: Must NOT context pivot. Single letter answer to prior question."
 
 - id: conv-01c
@@ -158,7 +158,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "CRITICAL: Must NOT context pivot. Short answer referencing prior options."
 
 - id: conv-01d
@@ -170,7 +170,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Continuation request. Context must include prior exercise."
 
 - id: conv-02a
@@ -182,7 +182,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Trivial factual. Should be very fast."
 
 - id: conv-02b
@@ -194,7 +194,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Elliptical follow-up. Must understand 'And [what about] Germany?' from context."
 
 - id: conv-02c
@@ -206,7 +206,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Pronoun reference to prior cities. Context essential."
 
 - id: conv-03a
@@ -218,7 +218,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Code generation, simple."
 
 - id: conv-03b
@@ -230,7 +230,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: true
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Code refinement. Must remember the function from prior turn."
 
 - id: conv-03c
@@ -242,7 +242,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: true
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Iterative refinement. Third turn of same code conversation."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -258,7 +258,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Greeting. Should be instant. No supervisor needed."
 
 - id: triv-02
@@ -270,7 +270,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Trivial code. bypass_planner=true expected."
 
 - id: triv-03
@@ -282,7 +282,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Trivial math. Extremely fast expected."
 
 - id: triv-04
@@ -294,7 +294,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Acknowledgment. Should not trigger heavy processing."
 
 - id: triv-05
@@ -306,7 +306,7 @@
   expected_lang: bash
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Trivial bash. Single command."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -322,7 +322,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Simple Python script. Should include pandas or csv module."
 
 - id: code-02
@@ -334,7 +334,7 @@
   expected_lang: javascript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Multi-language snippet (CSS+JS). Supervisor should route correctly."
 
 - id: code-03
@@ -346,7 +346,7 @@
   expected_lang: go
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Go language detection. Clean function output."
 
 - id: code-04
@@ -358,7 +358,7 @@
   expected_lang: rust
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Rust detection. Should include fn main()."
 
 - id: code-05
@@ -370,7 +370,7 @@
   expected_lang: sql
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "SQL detection. Explain_only should NOT trigger."
 
 - id: code-06
@@ -382,7 +382,7 @@
   expected_lang: typescript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "TypeScript/React. May need supervisor for complexity assessment."
 
 - id: code-07
@@ -394,7 +394,7 @@
   expected_lang: java
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Java class. Standard data structure."
 
 - id: code-08
@@ -406,7 +406,7 @@
   expected_lang: bash
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Bash scripting. Should include set -euo pipefail."
 
 - id: code-09
@@ -418,7 +418,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Intermediate Python. Decorator pattern."
 
 - id: code-10
@@ -430,7 +430,7 @@
   expected_lang: dockerfile
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Dockerfile/DevOps. Language detection edge case."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -446,7 +446,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Fitness domain. Must NOT generate code. Document output."
 
 - id: plan-02
@@ -458,7 +458,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Food/cooking domain. Structured markdown output."
 
 - id: plan-03
@@ -470,7 +470,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Education/tech domain. Plan document, not code."
 
 - id: plan-04
@@ -482,7 +482,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Events planning domain. Real-world planning task."
 
 - id: plan-05
@@ -494,7 +494,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Business/entrepreneurship domain."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -510,7 +510,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Creative writing. No code. Should stream naturally."
 
 - id: creative-02
@@ -522,7 +522,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Parenting/creative domain. Practical advice."
 
 - id: creative-03
@@ -534,7 +534,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Fiction writing. Creative writing domain."
 
 - id: creative-04
@@ -546,7 +546,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
+  max_latency_s: 30
   notes: "Brainstorming. Quick list output."
 
 - id: creative-05
@@ -558,7 +558,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Very short creative output. Should be fast."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -574,7 +574,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Pets/animals domain. dog_training keywords."
 
 - id: tax-02
@@ -586,7 +586,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Food/baking domain."
 
 - id: tax-03
@@ -598,7 +598,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Personal finance domain."
 
 - id: tax-04
@@ -610,7 +610,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Automotive domain."
 
 - id: tax-05
@@ -622,7 +622,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Hobbies/3D printing domain."
 
 - id: tax-06
@@ -634,7 +634,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Health/skincare domain."
 
 - id: tax-07
@@ -646,7 +646,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Music/podcasting domain."
 
 - id: tax-08
@@ -658,7 +658,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Home/gardening domain. Should NOT route to code."
 
 - id: tax-09
@@ -670,7 +670,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Personal development/public speaking domain."
 
 - id: tax-10
@@ -682,7 +682,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Real estate domain."
 
 - id: tax-11
@@ -694,7 +694,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Hobbies/sewing_crafts domain."
 
 - id: tax-12
@@ -706,7 +706,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Fitness/martial arts domain."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -722,7 +722,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Single word. Should NOT generate code. Probably clarify or explain Python."
 
 - id: edge-02
@@ -734,7 +734,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Vague without context. Should ask for clarification or handle gracefully."
 
 - id: edge-03
@@ -746,7 +746,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Affirmative without context. Must NOT crash or pivot."
 
 - id: edge-04
@@ -758,7 +758,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "Open-ended. Should offer assistance, not generate code."
 
 - id: edge-05
@@ -770,7 +770,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Ellipsis only. Must not crash. Graceful handling."
 
 - id: edge-06
@@ -782,7 +782,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Meta-request about prior output. Context must persist."
 
 - id: edge-07
@@ -794,7 +794,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Explicit topic change. Pivot IS appropriate here."
 
 - id: edge-08
@@ -806,7 +806,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Refinement of prior output. Must NOT pivot."
 
 - id: edge-09
@@ -818,7 +818,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Emoji only. Must not crash."
 
 - id: edge-10
@@ -830,7 +830,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Translation request referencing prior output. Context must persist. Must NOT pivot to Spanish code."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -846,7 +846,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 60
+  max_latency_s: 90
   notes: "Multi-file project. Should go through planner. Multiple milestones."
 
 - id: multi-02
@@ -858,7 +858,7 @@
   expected_lang: go
   should_stream: true
   context_must_persist: false
-  max_latency_s: 60
+  max_latency_s: 90
   notes: "Multi-step Go project. Planner should break into milestones."
 
 - id: multi-03
@@ -870,7 +870,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 50
   notes: "Could go worker or planner. Single file but non-trivial."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -886,7 +886,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Bug identification. Missing colon. Should explain the fix."
 
 - id: review-02
@@ -898,7 +898,7 @@
   expected_lang: javascript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Scoping bug. Should explain block scope."
 
 - id: review-03
@@ -910,7 +910,7 @@
   expected_lang: sql
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "SQL optimization. Should suggest JOIN and index."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -926,7 +926,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Code generation first."
 
 - id: pivot-01b
@@ -938,7 +938,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Explicit pivot from code to explanation. Pivot is appropriate but should handle gracefully."
 
 - id: pivot-02a
@@ -950,7 +950,7 @@
   expected_lang: rust
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Rust context."
 
 - id: pivot-02b
@@ -962,7 +962,7 @@
   expected_lang: javascript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Explicit language change. Pivot is legitimate."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -978,7 +978,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Comparison document. Must NOT generate code for either language."
 
 - id: compare-02
@@ -990,7 +990,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Database comparison. Architecture discussion, not code."
 
 - id: compare-03
@@ -1002,7 +1002,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Framework comparison. Opinionated advice expected."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1018,7 +1018,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Explicit format request. Should use bullet points."
 
 - id: format-02
@@ -1030,7 +1030,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Constraint following. Exactly 3 sentences."
 
 - id: format-03
@@ -1042,7 +1042,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Table formatting. Markdown table output."
 
 - id: format-04
@@ -1054,7 +1054,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Numbered steps. How-to guide, not a script."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1070,7 +1070,7 @@
   expected_lang: terraform
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 50
   notes: "Mixed: explanation of options + code. Should handle both."
 
 - id: mixed-02
@@ -1082,7 +1082,7 @@
   expected_lang: javascript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 50
   notes: "Explanation + code in one request."
 
 - id: mixed-03
@@ -1094,7 +1094,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Practical problem + code solution."
 
 - id: mixed-04
@@ -1106,7 +1106,7 @@
   expected_lang: dockerfile
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Debugging + explanation. Should identify missing WORKDIR, requirements install."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1122,7 +1122,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Tone adaptation. Simple language expected."
 
 - id: tone-02
@@ -1134,7 +1134,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Brief summary requested. Should be concise."
 
 - id: tone-03
@@ -1146,7 +1146,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 25
+  max_latency_s: 50
   notes: "Role-play / expert persona. Architecture review."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1162,7 +1162,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 60
+  max_latency_s: 90
   notes: "Long output expected. Tests streaming under sustained generation."
 
 - id: perf-02
@@ -1174,7 +1174,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 3
+  max_latency_s: 5
   notes: "Minimum latency test. Should be near-instant."
 
 - id: perf-03
@@ -1186,7 +1186,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Trivial arithmetic. Tests minimum processing overhead."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1202,7 +1202,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "Should refuse or redirect. Tests model safety alignment."
 
 - id: safe-02
@@ -1214,7 +1214,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Gray area. Locksport is legitimate. Should handle thoughtfully."
 
 - id: safe-03
@@ -1226,7 +1226,7 @@
   expected_lang: sql
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   notes: "Educational security topic. Should explain with defensive context."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1242,7 +1242,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Quick list."
 
 - id: rapid-01b
@@ -1254,7 +1254,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 5
+  max_latency_s: 15
   notes: "Must remember context. Short follow-up."
 
 - id: rapid-01c
@@ -1266,7 +1266,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "References prior turns. Context essential."
 
 - id: rapid-01d
@@ -1278,7 +1278,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "CRITICAL: Single word follow-up. Must NOT pivot."
 
 - id: rapid-01e
@@ -1290,7 +1290,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   notes: "Soft topic shift within same domain. Pivot may or may not be appropriate."
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1307,9 +1307,9 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
+  max_latency_s: 30
   max_reasoning_s: 5
-  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "Knowledge query. Must bypass supervisor. entry_classifier knowledge_override should fire."
 
 - id: route-02
@@ -1321,7 +1321,7 @@
   expected_lang: typescript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 60
+  max_latency_s: 90
   max_reasoning_s: 20
   expected_phases: ["Complex task detected", "Building execution plan", "Architecting solution"]
   notes: "Complex project. Must route through supervisor AND planner. Full pipeline."
@@ -1335,7 +1335,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1.5
   max_reasoning_ratio: 0.5
   expected_phases: ["Analyzing"]
@@ -1350,8 +1350,8 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
-  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+  max_latency_s: 35
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "Tech knowledge about Docker. Must NOT route to code gen. knowledge_downgrade if scored complex."
 
 - id: route-05
@@ -1363,7 +1363,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
+  max_latency_s: 30
   expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
   notes: "Simple code snippet. Should NOT go to planner. Supervisor may or may not fire."
 
@@ -1376,7 +1376,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1
   max_reasoning_ratio: 0.5
   expected_phases: ["Analyzing"]
@@ -1391,8 +1391,8 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
-  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+  max_latency_s: 35
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "Technical comparison. knowledge_override + explain_only path. Must not generate code."
 
 - id: route-08
@@ -1404,7 +1404,7 @@
   expected_lang: cpp
   should_stream: true
   context_must_persist: false
-  max_latency_s: 30
+  max_latency_s: 50
   max_reasoning_s: 15
   expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
   notes: "Non-trivial code. Tests whether supervisor classifies correctly (small vs complex)."
@@ -1423,7 +1423,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   max_reasoning_s: 2
   notes: "REGRESSION: Short reply previously triggered false context pivot. Must not crash or hallucinate."
 
@@ -1436,9 +1436,9 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 15
+  max_latency_s: 35
   max_reasoning_s: 8
-  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "REGRESSION: Previously routed through full code gen path (55s). Must use explain_only. No sandbox/critic."
 
 - id: regr-03a
@@ -1450,7 +1450,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "REGRESSION: Context loss test setup."
 
 - id: regr-03b
@@ -1462,7 +1462,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 8
+  max_latency_s: 20
   notes: "REGRESSION: Previously lost conversation context. Must understand this refers to capitals."
 
 - id: regr-03c
@@ -1474,7 +1474,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: true
-  max_latency_s: 10
+  max_latency_s: 25
   notes: "REGRESSION: Pronoun resolution. Must reference France/Germany from prior turns."
 
 - id: regr-04
@@ -1486,7 +1486,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1.5
   max_reasoning_ratio: 0.5
   notes: "REGRESSION: Previously took 44s with excessive reasoning. Social ack budget must cap at 128 tokens."
@@ -1500,7 +1500,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1.5
   max_reasoning_ratio: 1.0
   notes: "REGRESSION: Trivial math previously took 20s with deep reasoning chain. Trivial budget (256)."
@@ -1514,7 +1514,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 8
+  max_latency_s: 20
   max_reasoning_s: 2
   notes: "REGRESSION: Single letter previously caused context pivot and hallucination."
 
@@ -1532,7 +1532,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1
   max_reasoning_ratio: 0.5
   notes: "Social ack tier (128 tokens). Must be near-instant."
@@ -1546,7 +1546,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1
   max_reasoning_ratio: 0.5
   notes: "Social ack tier (128 tokens). Multi-word social acknowledgment."
@@ -1560,7 +1560,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1
   max_reasoning_ratio: 0.5
   notes: "Social ack tier (128 tokens). Negative acknowledgment."
@@ -1574,7 +1574,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1.5
   max_reasoning_ratio: 1.0
   notes: "Trivial tier (256 tokens). Simple factual question."
@@ -1588,7 +1588,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   max_reasoning_s: 8
   notes: "Small tier (2048 tokens). Technical explanation, moderate reasoning expected."
 
@@ -1601,7 +1601,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 90
+  max_latency_s: 120
   max_reasoning_s: 25
   notes: "Complex tier (4096 tokens). Heavy reasoning warranted. Full planner pipeline."
 
@@ -1619,8 +1619,8 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 12
-  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+  max_latency_s: 30
+  expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
   notes: "Phase verification: explain_only path should show 4 phases, no code validation/review."
 
 - id: phase-02
@@ -1632,7 +1632,7 @@
   expected_lang: python
   should_stream: true
   context_must_persist: false
-  max_latency_s: 20
+  max_latency_s: 40
   expected_phases: ["Analyzing", "Detecting domain", "Gathering context", "Generating code"]
   notes: "Phase verification: code_snippet should show code generation phases."
 
@@ -1645,7 +1645,7 @@
   expected_lang: typescript
   should_stream: true
   context_must_persist: false
-  max_latency_s: 90
+  max_latency_s: 120
   expected_phases: ["Complex task detected", "Building execution plan", "Architecting solution", "Validating", "Reviewing"]
   notes: "Phase verification: complex project must go through full planner pipeline with all phases."
 
@@ -1658,7 +1658,7 @@
   expected_lang: markdown
   should_stream: true
   context_must_persist: false
-  max_latency_s: 5
+  max_latency_s: 15
   max_reasoning_s: 1
   expected_phases: ["Analyzing"]
   notes: "Phase verification: trivial input should show minimal phases."

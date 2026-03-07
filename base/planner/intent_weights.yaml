@@ -542,7 +542,12 @@ intent_classes:
   code_generation:
     keywords: [create script, implement, build, code for, script to, function to,
                class to, hello world, print statement, println, console.log,
-               add test, write code, write a script, go script, rust program]
+               add test, write code, write a script, go script, rust program,
+               write a function, write me a function, write a method, write a class,
+               write a program, create a function, create a class, create a method,
+               function that, method that, class that,
+               type hints, add type hints, docstring, add a docstring, add docstring,
+               return type, add tests, unit tests for, refactor this]
   data_transform:
     keywords: [parse, convert, transform, extract, schema, json, csv, yaml]
   tool_orchestrated:

@@ -174,7 +174,7 @@ def _derive_expected_phases(
         return ["Analyzing"]
 
     if expected_deliverable == "explain_only":
-        return ["Analyzing", "Detecting domain", "Gathering context", "Creating your plan"]
+        return ["Analyzing", "Detecting domain", "Gathering context", "Generating response"]
 
     if expected_route == "planner" or expected_deliverable == "code_project":
         return [
@@ -334,14 +334,40 @@ class SSEMetrics:
             return 0.0
         return round(len(self.reasoning_text) / max(len(self.content_text), 1), 2)
 
+    @property
+    def generation_duration_ms(self) -> int:
+        """Time spent generating tokens (first content token to stream end)."""
+        if not self.time_first_content or not self.time_complete:
+            return -1
+        return int((self.time_complete - self.time_first_content) * 1000)
+
+    @property
+    def chars_per_second(self) -> float:
+        """Output throughput in characters per second."""
+        dur = self.generation_duration_ms
+        if dur <= 0:
+            return 0.0
+        return round(len(self.content_text) / (dur / 1000), 1)
+
+    @property
+    def tokens_per_second(self) -> float:
+        """Estimated output throughput in tokens/s (~4 chars per token heuristic)."""
+        cps = self.chars_per_second
+        if cps <= 0:
+            return 0.0
+        return round(cps / 4, 1)
+
     def to_dict(self) -> dict:
         return {
             "ttfe_ms": self.ttfe_ms,
             "ttfr_ms": self.ttfr_ms,
             "ttfc_ms": self.ttfc_ms,
             "reasoning_duration_ms": self.reasoning_duration_ms,
+            "generation_duration_ms": self.generation_duration_ms,
             "total_ms": self.total_ms,
             "total_s": self.total_s,
+            "tokens_per_second": self.tokens_per_second,
+            "chars_per_second": self.chars_per_second,
             "reasoning_chunks": self.reasoning_chunks,
             "content_chunks": self.content_chunks,
             "reasoning_len": len(self.reasoning_text),
@@ -630,6 +656,8 @@ def run_batch(
 
             status_icon = {"pass": "✓", "warn": "⚠", "fail": "✗"}.get(evaluation["overall"], "?")
             timing = f"{metrics.total_s}s" if metrics.total_s > 0 else "err"
+            ttfc_info = f" ttfc:{metrics.ttfc_ms}ms" if metrics.ttfc_ms > 0 else ""
+            tps_info = f" {metrics.tokens_per_second}tok/s" if metrics.tokens_per_second > 0 else ""
             reason_info = ""
             if metrics.had_reasoning:
                 reason_info = f" think:{metrics.reasoning_duration_ms}ms"
@@ -639,7 +667,7 @@ def run_batch(
                 phase_info = f" STACKED:{len(dupes)}"
             print(
                 f"  {status_icon} {prompt_id}: {evaluation['overall'].upper()} "
-                f"({timing}, {metrics.content_chunks} chunks, "
+                f"({timing},{ttfc_info}{tps_info}, {metrics.content_chunks} chunks, "
                 f"{len(metrics.content_text)} chars,"
                 f" phases:{metrics.phase_count}{reason_info}{phase_info})",
                 flush=True,
@@ -660,6 +688,8 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
             "warn": 0,
             "fail": 0,
             "avg_latency_s": 0,
+            "avg_ttfc_ms": 0,
+            "avg_tps": 0.0,
             "avg_reasoning_ms": 0,
             "avg_phases": 0,
             "stacked_count": 0,
@@ -674,6 +704,12 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
         t = m.get("total_s", 0)
         if t > 0:
             category_breakdown[cat]["avg_latency_s"] += t
+        ttfc = m.get("ttfc_ms", 0)
+        if ttfc > 0:
+            category_breakdown[cat]["avg_ttfc_ms"] += ttfc
+        tps = m.get("tokens_per_second", 0)
+        if tps > 0:
+            category_breakdown[cat]["avg_tps"] += tps
         category_breakdown[cat]["avg_reasoning_ms"] += m.get("reasoning_duration_ms", 0)
         category_breakdown[cat]["avg_phases"] += m.get("phase_count", 0)
         if m.get("duplicate_phases"):
@@ -683,6 +719,8 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
         n = data["count"]
         if n > 0:
             data["avg_latency_s"] = round(data["avg_latency_s"] / n, 2)
+            data["avg_ttfc_ms"] = round(data["avg_ttfc_ms"] / n)
+            data["avg_tps"] = round(data["avg_tps"] / n, 1)
             data["avg_reasoning_ms"] = round(data["avg_reasoning_ms"] / n)
             data["avg_phases"] = round(data["avg_phases"] / n, 1)
 

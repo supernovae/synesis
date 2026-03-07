@@ -7,7 +7,7 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 | Model | Role | Quantization | VRAM | Deployment |
 |-------|------|-------------|------|------------|
 | **Qwen3-8B FP8-dynamic** | Router, Planner, Critic | FP8 (llm-compressor) | ~8 GB | `deployment-vllm-router.yaml` |
-| **Qwen3.5-35B-A3B-FP8** | General, Writer | FP8 (Qwen official) | ~35 GB | `deployment-vllm-general.yaml` |
+| **Qwen3-32B FP8-dynamic** | General, Writer | FP8 (dynamic quant) | ~32 GB | `deployment-vllm-general.yaml` |
 | **Qwen3-Coder-30B-A3B-FP8** | Coder (small) | FP8 (pre-quantized) | ~15 GB | `deployment-vllm-coder.yaml` |
 | **Qwen3-Coder-Next-FP8** | Coder (medium+) | FP8 (pre-quantized) | ~46 GB | `deployment-vllm-coder.yaml` |
 | **DeepSeek R1-Distill-Qwen-32B FP8** | Critic (medium+) | FP8 (llm-compressor) | ~33 GB | `deployment-vllm-critic.yaml` |
@@ -15,35 +15,39 @@ When debugging model serving (Deployments, vLLM args, OOM), consult the [vLLM Re
 
 See [models.yaml](../models.yaml) for the authoritative model registry.
 
-## General: Qwen3.5-35B-A3B FP8
+## General: Qwen3-32B FP8-dynamic
 
 Key vLLM args (from `base/model-serving/deployment-vllm-general.yaml`):
 
 ```
---max-model-len=32768
---gpu-memory-utilization=0.92
+--max-model-len=16384
+--max-num-seqs=64
+--gpu-memory-utilization=0.95
+--kv-cache-dtype=fp8_e4m3
 --enable-prefix-caching
 --enable-chunked-prefill
 ```
 
-- **Architecture**: 35B MoE with 3B active parameters per token. Qwen3.5 series — successor to Qwen3 with improved reasoning.
-- **FP8 weights ~35GB** — fits on a single L40S with ~9 GB headroom for KV cache.
-- **MoE KV cache efficiency**: Attention layers are sized for 3B active params, so KV cache is small (~2-3 GB at 32K context) despite the 35B total parameter count.
-- **Worker role**: Generates responses for Open WebUI users and the planner worker node. Quality upgrade over the 8B router fallback in the previous 2-GPU layout.
+- **Architecture**: Dense 32B transformer. Qwen3 series.
+- **FP8 weights ~32GB** — fits on a single L40S with careful memory budgeting.
+- **Dense model trade-off**: Unlike the MoE variant, every parameter is active on every token. This gives higher quality per-param but limits throughput to ~20-25 tok/s on a single L40S.
+- **Worker role**: Generates responses for Open WebUI users and the planner worker node.
 - **Prefix caching**: Enabled — caches system prompts and repeated context across concurrent users.
-- **No thinking flags**: The general deployment does not enable `--enable-reasoning`. Workers control thinking per-request via `chat_template_kwargs` if needed.
+- **FP8 KV cache**: `--kv-cache-dtype=fp8_e4m3` halves KV memory, allowing 16K context to fit alongside the 32GB model.
+- **No thinking flags**: The general deployment does not enable `--enable-reasoning`. Workers explicitly disable Qwen3's default thinking mode via `chat_template_kwargs: {"enable_thinking": false}`.
+- **Speculative decoding (future)**: The 8B draft model won't fit alongside the 32B on one GPU. However, ngram-based speculation (`--speculative-model=[ngram] --num-speculative-tokens=5 --ngram-prompt-lookup-max=4`) requires zero extra VRAM and can improve throughput 1.3-1.8x for predictable content.
 
 ### General VRAM budget (small profile, single L40S)
 
 | Component | Estimate |
 |-----------|----------|
-| FP8 weights (35B MoE, all experts) | ~35 GB |
-| KV cache (32K ctx) | ~3 GB |
-| Activation memory | ~1 GB |
-| **Total** | **~39 GB** |
-| L40S usable (0.92 util) | 44 GB |
+| FP8 weights (32B dense) | ~32 GB |
+| FP8 KV cache (16K ctx) | ~4.2 GB |
+| CUDA graphs + activation | ~2.5 GB |
+| **Total** | **~38.7 GB** |
+| L40S usable (0.95 util) | 42.3 GB |
 
-Tight but workable. If OOM occurs, reduce `--max-model-len` to 16384 first.
+Tight. If OOM occurs, reduce `--max-num-seqs` to 32 or `--max-model-len` to 8192.
 
 ## Coder: Profile-Dependent Model
 
@@ -122,14 +126,13 @@ Key vLLM args (from `base/model-serving/deployment-vllm-router.yaml`):
 --enable-prefix-caching
 --max-model-len=32768
 --gpu-memory-utilization=0.90
---enable-reasoning
 --reasoning-parser=qwen3
 ```
 
 - **No `--quantization` flag**: vLLM auto-detects compressed-tensors FP8 format from the model's `config.json`. Native FP8 tensor core ops on L40S.
 - **Prefix caching**: Enabled. Caches KV states for repeated system prompts across router/planner/critic roles.
 - **Dual model names**: Serves as both `synesis-router` and `synesis-critic`. In small profile, the `synesis-critic` Service selector is patched to target the router pod.
-- **Thinking mode (Qwen3)**: `--enable-reasoning --reasoning-parser=qwen3` separates `<think>` tokens into `reasoning_content`, keeping `content` clean for JSON parsing.
+- **Thinking mode (Qwen3)**: `--reasoning-parser=qwen3` separates `<think>` tokens into `reasoning_content`, keeping `content` clean for JSON parsing. Thinking is controlled per-request via `chat_template_kwargs`, not by a global server flag.
 - **Per-request thinking control**: Router/planner/advisor pass `enable_thinking=False` via `chat_template_kwargs` for fast ~100ms classification. Critic passes `enable_thinking=True` for chain-of-thought reasoning.
 - **Small profile GPU savings**: Eliminates the need for a separate R1 deployment. One 8B model on one GPU handles both routing and critiquing. Medium/large profiles deploy dedicated R1 for stronger critic reasoning.
 
