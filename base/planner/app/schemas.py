@@ -701,7 +701,7 @@ class StyleContract(BaseModel):
 
     direct_answer_first: bool = True
     concise: bool = True
-    max_section_paragraphs: int = 3
+    max_section_paragraphs: int = 5
     citation_required: bool = False
     verbosity_target: Literal["terse", "moderate", "thorough"] = "moderate"
 

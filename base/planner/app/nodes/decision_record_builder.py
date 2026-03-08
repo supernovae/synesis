@@ -35,8 +35,16 @@ RULES:
 - Classify each claim's support: "grounded" (cited evidence), "inferred" \
   (reasonable from context), "assumption" (stated or unstated), or \
   "unsupported" (no basis given).
-- Keep the output concise — this is LOSSY compression. Prefer 5-8 claims \
-  over 20.  Prefer 3-5 risks over 15.
+- PRESERVE SUBSTANCE: For each major claim, keep the concrete specifics — \
+  tool names, version numbers, rejected alternatives with reasons, and \
+  quantitative details. A claim like "use tiered models" is too thin; \
+  instead: "use Mistral-7B for routing (chosen over Phi-3 because X), \
+  Qwen3-32B for generation (chosen over Llama-3-70B because Y)."
+- For each section, extract 2-4 claims with evidence summaries. \
+  Aim for 10-20 total claims for complex queries, 5-8 for simpler ones.
+- Preserve rejected alternatives in answer_strategy.rejected_alternatives \
+  with the reason each was rejected.
+- Preserve concrete examples and domain-specific details in evidence_summary.
 - Do NOT invent content not present in the sections.
 - Output valid JSON matching the schema below. No markdown fences.
 
@@ -69,9 +77,9 @@ SCHEMA:
   "style_contract": {
     "direct_answer_first": true,
     "concise": true,
-    "max_section_paragraphs": 3,
+    "max_section_paragraphs": 5,
     "citation_required": false,
-    "verbosity_target": "moderate"
+    "verbosity_target": "thorough"
   }
 }
 """
@@ -116,25 +124,31 @@ async def decision_record_builder_node(state: dict[str, Any]) -> dict[str, Any]:
     else:
         verbosity = "moderate"
 
+    # Scale input window by difficulty — complex prompts need more section text
+    input_budget = 12000 if difficulty < 0.7 else 16000
+
     user_msg = (
         f"## User Task\n{task_desc[:2000]}\n\n"
         f"## Execution Plan\n{json.dumps(execution_plan.get('steps', [])[:10], default=str)[:1500]}\n\n"
         f"{task_recon_hint}\n\n"
         f"Target verbosity: {verbosity}\n\n"
         f"## Approved Sections (compress into DecisionRecord)\n"
-        f"{generated_code[:12000]}"
+        f"{generated_code[:input_budget]}"
     )
 
     writer_url = settings.writer_model_url or settings.executor_model_url
     writer_name = settings.writer_model_name or settings.executor_model_name
 
     try:
+        # Scale builder output budget: complex queries need richer records
+        builder_budget = 2048 if difficulty < 0.5 else (3072 if difficulty < 0.7 else 4096)
+
         llm = ChatOpenAI(
             base_url=writer_url,
             api_key="not-needed",
             model=writer_name,
             temperature=0.1,
-            max_completion_tokens=2048,
+            max_completion_tokens=builder_budget,
             streaming=False,
             use_responses_api=False,
             model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
@@ -148,8 +162,13 @@ async def decision_record_builder_node(state: dict[str, Any]) -> dict[str, Any]:
 
         dr = parse_and_validate(result.content, DecisionRecord)
 
-        # Override style contract verbosity from difficulty
+        # Scale style contract from difficulty
         dr.style_contract.verbosity_target = verbosity
+        if verbosity == "thorough":
+            dr.style_contract.max_section_paragraphs = max(dr.style_contract.max_section_paragraphs, 6)
+            dr.style_contract.concise = False
+        elif verbosity == "moderate":
+            dr.style_contract.max_section_paragraphs = max(dr.style_contract.max_section_paragraphs, 4)
 
         latency = (time.monotonic() - start) * 1000
         logger.info(

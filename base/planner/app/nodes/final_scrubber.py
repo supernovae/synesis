@@ -50,7 +50,7 @@ _FALSE_PRECISION_RE = re.compile(
 # Section heading detector (for overgrowth check)
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 
-_SECTION_OVERGROWTH_WORDS = 800
+_SECTION_OVERGROWTH_WORDS = 1200
 
 
 def _strip_leaked_artifacts(text: str) -> tuple[str, int]:

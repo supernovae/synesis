@@ -43,11 +43,15 @@ RULES:
 10. Prefer practical prioritization over completeness theater.
 
 VERBOSITY TARGETS:
-- "terse": 200-500 words.  Direct answer + key points only.
-- "moderate": 500-1500 words.  Answer + reasoning + alternatives.
-- "thorough": 1500-3000 words.  Full treatment with sections.
+- "terse": 300-600 words.  Direct answer + key points only.
+- "moderate": 800-2000 words.  Answer + reasoning + alternatives.
+- "thorough": 2000-4000 words.  Full treatment with headed sections, \
+  concrete examples, specific tool/version choices, rejected alternatives \
+  with reasons, and tradeoff analysis.  Each section should have \
+  multi-paragraph narrative depth — not just a topic sentence.
 
 Use the style_contract.verbosity_target to calibrate length.
+Use the style_contract.max_section_paragraphs as the per-section depth guide.
 
 OUTPUT: Markdown only.  No JSON wrapper.  No code fences around the \
 entire response.
@@ -70,7 +74,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
 
     difficulty = state.get("difficulty", 0.5)
     writer_budget = settings.scaled_writer_budget(difficulty)
-    writer_budget = max(2048, min(writer_budget, 8192))
+    writer_budget = max(2048, min(writer_budget, 12288))
 
     writer_url = settings.writer_model_url or settings.executor_model_url
     writer_name = settings.writer_model_name or settings.executor_model_name
