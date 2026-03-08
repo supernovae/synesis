@@ -141,21 +141,7 @@ Use overrides when the automatic classification is wrong. For example: *"The sys
 
 ---
 
-## 11. /test (Force Sandbox Execution)
-
-**`/test`** — Prefix your message with `/test` to force sandbox execution on the generated code, even if the system would normally skip it (e.g., for explain-only or trivial tasks).
-
-**Example:**
-
-```
-/test Write a Python function that reverses a string
-```
-
-**Effect:** The code goes through the full sandbox pipeline (lint, security scan, execution) regardless of task classification. Useful for validating code quality or catching runtime errors.
-
----
-
-## 12. /why and /reclassify
+## 11. /why and /reclassify
 
 **`/why`** — In a follow-up message, ask why the previous message was classified. Returns `complexity_score`, `risk_score`, reasons, and score breakdown. No graph run.
 

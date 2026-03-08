@@ -1,11 +1,13 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "langgraph_topology": {
-    "nodes": ["entry_classifier", "strategic_advisor", "supervisor", "planner", "context_curator", "worker", "patch_integrity_gate", "sandbox", "lsp_analyzer", "critic", "respond"],
-    "critic_incoming": ["sandbox"],
-    "critic_outgoing": ["respond", "supervisor"],
-    "retry_loop": "critic -> supervisor -> context_curator -> worker -> patch_integrity_gate -> sandbox -> critic",
-    "evidence_sources": ["sandbox", "lsp", "rag"]
+    "nodes": ["entry_classifier", "strategic_advisor", "supervisor", "planner", "context_curator", "worker", "section_worker", "merge_sections", "corrective_web", "patch_integrity_gate", "critic", "respond"],
+    "critic_incoming": ["merge_sections", "patch_integrity_gate"],
+    "critic_outgoing": ["respond", "supervisor", "corrective_web"],
+    "knowledge_path": "entry_classifier -> strategic_advisor -> planner -> section_worker(parallel) -> merge_sections -> critic -> respond",
+    "code_path": "entry_classifier -> strategic_advisor -> supervisor -> context_curator -> worker -> patch_integrity_gate -> critic -> respond",
+    "corrective_path": "critic -> corrective_web -> respond (one pass max)",
+    "evidence_sources": ["rag", "web_search"]
   },
   "state_schema": {
     "taxonomy": {
@@ -18,11 +20,12 @@
       "approved": "state.critic_approved",
       "should_continue": "state.critic_should_continue",
       "continue_reason": "state.critic_continue_reason",
-      "feedback": "state.critic_feedback"
+      "feedback": "state.critic_feedback",
+      "crag_triggers": "state.crag_triggers — CRAG:section_name:confidence flags for corrective web search"
     },
     "rag": {
       "evidence": "normalized from state.tool_refs; each: {evidence_id, source_type, source_ref, content, trust}",
-      "tool_refs": "state.tool_refs (sandbox, lsp, rag)"
+      "tool_refs": "state.tool_refs (rag, web_search)"
     },
     "retry": {
       "attempt": "state.iteration_count",
@@ -36,26 +39,26 @@
     }
   },
   "critic_policy_engine": {
-    "phases": ["advisory_bypass", "evidence_gate", "llm_eval", "retry_decision"],
-    "advisory_bypass": "When worker_persona != Architect OR (tiered + basic): skip LLM, approve if exit_code in (0,None) and lint+security passed",
-    "evidence_gate": "When approved=false: require >=1 blocking_issue with evidence_refs ref_type in (lsp, sandbox). Override to approved if missing",
-    "llm_eval": "Invoke critic LLM with base + domain_block + intent_block. Parse CriticOut",
-    "retry_decision": "PASS->respond; RETRY->supervisor when not approved and should_continue and attempt < max"
+    "phases": ["advisory_bypass", "toulmin_eval", "crag_assessment", "retry_decision"],
+    "advisory_bypass": "When difficulty < critic_skip_below_difficulty: skip critic entirely (routed by graph)",
+    "toulmin_eval": "Evaluate claims using Toulmin Model: grounds, warrant, qualifier, rebuttal. 3+ uncommitted X-or-Y decisions = BLOCKING.",
+    "crag_assessment": "Estimate factual grounding confidence per section. Below crag_web_trigger_threshold -> CRAG:section:confidence in residual_risks.",
+    "retry_decision": "PASS->respond; CRAG triggers->corrective_web; RETRY->supervisor when not approved and should_continue and attempt < max"
   },
   "scoring_model": {
     "pass_threshold": "approved=true",
-    "fail_threshold": "approved=false AND has_valid_evidence_refs",
+    "fail_threshold": "approved=false AND has_valid_evidence",
     "force_pass_at_max": "attempt >= max_attempts -> approved=true (degraded)",
-    "evidence_required_modes": ["debugging", "review"],
     "hallucination_sensitive_modes": ["knowledge"],
-    "schema_strict_modes": ["data_transform"]
+    "schema_strict_modes": ["data_transform"],
+    "continuous_scaling": "difficulty 0.0-1.0 scales critic strictness: lenient below critic_lenient_below_difficulty, strict above"
   },
   "evidence_gating": {
-    "valid_ref_types": ["lsp", "sandbox"],
+    "valid_ref_types": ["rag", "web_search"],
     "ref_id_format": "{tool}_{request_id[:8]}",
-    "when_blocking": "Every blocking_issue MUST have evidence_refs with ref_type in valid_ref_types",
+    "when_blocking": "Every blocking_issue should cite evidence when available",
     "when_missing": "Override approved to true; add nonblocking note",
-    "needs_more_evidence": "CriticOut.need_more_evidence; route to supervisor; emit evidence_needed (query_plan) without calling tools"
+    "needs_more_evidence": "CriticOut.need_more_evidence; route to supervisor; emit evidence_needed (query_plan)"
   },
   "retry_controller": {
     "increment_attempt": "When RETRY for needs_revision (NOT when need_more_evidence)",
@@ -81,33 +84,35 @@
   "node_specs": {
     "critic": {
       "node_name": "critic",
-      "purpose": "Evidence-gated evaluation; PASS/RETRY/FAIL; intent+domain aware",
-      "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "worker_persona", "execution_exit_code", "execution_lint_passed", "execution_security_passed"],
-      "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "need_more_evidence", "iteration_count", "next_node"],
-      "decision_logic": "advisory_bypass -> PASS if exit ok; else evidence_gate on LLM output; RETRY if not approved and attempt<max",
-      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append carried_uncertainties"]
+      "purpose": "Toulmin-based quality evaluation; CRAG assessment; PASS/RETRY/FAIL; intent+domain aware",
+      "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "difficulty", "taxonomy_metadata"],
+      "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "crag_triggers", "need_more_evidence", "iteration_count", "next_node"],
+      "decision_logic": "Toulmin rubric for quality; CRAG confidence for factual grounding; difficulty scales strictness",
+      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append carried_uncertainties", "crag_triggers -> route to corrective_web"]
     }
+  },
+  "mcp_tools_available": {
+    "sandbox_execute": "MCP tool for code execution in isolated K8s pod (base/mcp/tools/sandbox_tool.py). Not wired into graph; available for MCP-capable clients.",
+    "lsp_analyze": "MCP tool for LSP type analysis (base/mcp/tools/lsp_tool.py). Not wired into graph; available for MCP-capable clients."
   },
   "examples": [
     {
       "id": "example_1",
-      "scenario": "Code gen, sandbox passes, critic approves",
-      "initial_state": {"iteration_count": 0, "max_iterations": 3, "generated_code": "print('hi')", "execution_exit_code": 0, "execution_lint_passed": true, "tool_refs": [{"tool": "sandbox", "request_id": "abc12345"}]},
-      "attempt_0_candidate": "print('hi')",
+      "scenario": "Knowledge task, critic approves with CRAG triggers",
+      "initial_state": {"iteration_count": 0, "difficulty": 0.7, "depth_mode": true, "generated_code": "assembled sections"},
+      "critic_eval": {"approved": true, "crag_triggers": ["CRAG:retrieval_design:0.4"]},
+      "decision": "PASS with corrective web search",
+      "state_diff": {"crag_triggers": ["CRAG:retrieval_design:0.4"]},
+      "outcome": "Route to corrective_web -> respond"
+    },
+    {
+      "id": "example_2",
+      "scenario": "Code task, patch integrity passes, critic approves",
+      "initial_state": {"iteration_count": 0, "max_iterations": 3, "is_code_task": true, "generated_code": "print('hi')"},
       "critic_eval": {"approved": true},
       "decision": "PASS",
       "state_diff": {"iteration_count": 1},
       "outcome": "PASS; route to respond"
-    },
-    {
-      "id": "example_2",
-      "scenario": "Debugging intent, lint fails, blocking_issue cites sandbox",
-      "initial_state": {"iteration_count": 0, "intent_class": "debugging", "execution_exit_code": 1, "execution_lint_passed": false, "tool_refs": [{"tool": "sandbox", "request_id": "xyz67890", "result_hash": "abc"}]},
-      "attempt_0_candidate": "code with syntax error",
-      "critic_eval": {"approved": false, "blocking_issues": [{"evidence_refs": [{"ref_type": "sandbox", "id": "sandbox_stage_1"}]}]},
-      "decision": "RETRY",
-      "state_diff": {"iteration_count": 1, "retry.failures": [{"failure_type": "lint", "evidence_id": "sandbox_xyz67890"}], "retry.decisions": [{"decision": "RETRY", "rationale": "Lint failure"}]},
-      "outcome": "RETRY; route to supervisor->context_curator->worker"
     },
     {
       "id": "example_3",

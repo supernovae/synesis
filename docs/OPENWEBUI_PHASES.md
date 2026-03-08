@@ -42,9 +42,10 @@ NODE_STATUS_MESSAGES = {
     "planner": "Building execution plan…",
     "context_curator": "Gathering context…",
     "worker": "Generating code…",  # text mode → "Generating response…"
+    "section_worker": "Generating section…",
+    "merge_sections": "Assembling sections…",
+    "corrective_web": "Verifying sources…",
     "patch_integrity_gate": "Validating code…",
-    "sandbox": "Testing code…",
-    "lsp_analyzer": "Analyzing types…",
     "critic": "Reviewing…",
     "respond": "Finishing…",
 }

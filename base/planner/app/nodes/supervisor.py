@@ -449,6 +449,8 @@ async def supervisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "rag_mode": rag_mode,
             "rag_results": rag_results,
             "rag_context": rag_context,
+            "rag_authority_labels": [getattr(r, "authority", "") for r in rag_results],
+            "rag_source_urls": [getattr(r, "source_url", "") for r in rag_results],
             "rag_collections_queried": rag_collections,
             "tool_refs": tool_refs,
             "rag_retrieval_strategy": strategy,

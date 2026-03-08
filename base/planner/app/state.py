@@ -178,6 +178,16 @@ class GraphState(TypedDict, total=False):
     # Always-plan routing
     plan_required: bool
     task_is_trivial: bool
+    # Routing overrides (set by main.py, consumed by entry_classifier)
+    task_size_override: str  # forced task_size from API caller
+    coding_client_detected: bool  # IDE/agent detected (adjusts routing)
+    memory_scope: str  # user:conversation scope key for conversation memory
+    # Entry classifier outputs (for feedback/observability)
+    classification_reasons: list[str]  # human-readable reasons for classification
+    score_breakdown: dict[str, Any]  # detailed scoring from entry classifier engine
+    reclassify_override: str  # /reclassify command target
+    # Critic carried uncertainties (surfaced to user in respond)
+    carried_uncertainties_signal: dict[str, Any]  # known unknowns from critic at max iterations
 
 
 class SectionWorkerState(TypedDict, total=False):

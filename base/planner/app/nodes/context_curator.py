@@ -593,8 +593,6 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     iteration = state.get("iteration_count", 0)
     execution_result = state.get("execution_result", "")
     rag_collections = state.get("rag_collections_queried", []) or [f"{target_lang}_v1"]
-    # max_retrieval for future retrieval_budget_chars cap (~4 chars/token)
-    _ = settings.max_retrieval_tokens or 0
 
     # Cache check: inject verified reference from failfast_cache on exact match
     from ..failfast_cache import cache as failfast_cache

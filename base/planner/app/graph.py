@@ -846,7 +846,6 @@ graph_builder.add_conditional_edges(
         "respond": "respond",
         "supervisor": "supervisor",
         "patch_integrity_gate": "patch_integrity_gate",
-        "critic": "critic",
     },
 )
 graph_builder.add_conditional_edges(

@@ -37,7 +37,7 @@ from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
 from .graph import graph
 from .history_summarizer import archive_to_l2, summarize_pivot_history
-from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_user_input
+from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
@@ -255,8 +255,7 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
 
     elif node == "supervisor":
         next_n = chunk.get("next_node", "")
-        route = chunk.get("supervisor_route_reasoning", "")[:150]
-        out.append(("supervisor", "Router (Supervisor)", f"next_node={next_n} {route}"))
+        out.append(("supervisor", "Router (Supervisor)", f"next_node={next_n}"))
 
     elif node == "planner":
         exec_plan = chunk.get("execution_plan") or {}
@@ -390,15 +389,6 @@ class ThinkTagParser:
 # Other clients ignore these lines; only Open WebUI displays them.
 # strategic_advisor = Domain Aligner (conceptual). Internal node name; display alias for docs/UX.
 DOMAIN_ALIGNER_NODE = "strategic_advisor"
-NODE_DISPLAY_NAMES: dict[str, str] = {
-    DOMAIN_ALIGNER_NODE: "Domain Aligner",
-    "entry_classifier": "Entry Classifier",
-    "supervisor": "Supervisor",
-    "context_curator": "Context Curator",
-    "worker": "Worker",
-    "patch_integrity_gate": "Patch Integrity Gate",
-    "critic": "Critic",
-}
 # Adaptive Rigor: tier-matched status messages for Open WebUI
 NODE_STATUS_MESSAGES: dict[str, str] = {
     "entry_classifier": "Analyzing request…",
@@ -1733,9 +1723,18 @@ class KnowledgeSubmitRequest(BaseModel):
 @app.post("/v1/knowledge/submit")
 async def knowledge_submit(req: KnowledgeSubmitRequest):
     """Submit user knowledge to synesis_catalog. Fills gaps from knowledge backlog review."""
+    content = req.content.strip()
+    if settings.injection_scan_enabled:
+        result = scan_text(content, source="user_knowledge_submit")
+        if result.detected:
+            logger.warning(
+                "knowledge_submit_injection_blocked",
+                extra={"patterns": [p.pattern_name for p in result.matches[:5]]},
+            )
+            raise HTTPException(status_code=422, detail="Content rejected: potential prompt injection detected")
     chunk_id = await submit_user_knowledge(
         domain=req.domain.strip() or "generalist",
-        content=req.content.strip(),
+        content=content,
         source="user_submitted",
     )
     if chunk_id:

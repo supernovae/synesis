@@ -1,7 +1,7 @@
 """E2E smoke test: run the graph with mocked LLMs and assert we reach respond.
 
-Uses mocks for RAG, Worker LLM, Critic LLM. Sandbox is disabled so no HTTP.
-Verifies the full trivial path: entry_classifier → context_curator → worker → gate → sandbox → critic → respond.
+Uses mocks for RAG, Worker LLM, Critic LLM.
+Verifies the trivial path: entry_classifier -> strategic_advisor -> context_curator -> worker -> respond.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
-# Worker now outputs markdown with fenced code blocks (no JSON wrapper)
 EXECUTOR_OUT_MARKDOWN = """Here's a simple hello world script:
 
 ```python
@@ -54,7 +53,6 @@ def trivial_initial_state():
     }
 
 
-@patch("app.nodes.executor.settings")
 @patch("app.nodes.critic.critic_llm")
 @patch("app.nodes.worker.worker_llm")
 @patch("app.nodes.context_curator.retrieve_context")
@@ -65,7 +63,6 @@ async def test_graph_reaches_respond_trivial_path(
     mock_retrieve,
     mock_worker_llm,
     mock_critic_llm,
-    mock_sandbox_settings,
     trivial_initial_state,
 ):
     """Trivial path reaches respond with code in the final message."""
@@ -74,9 +71,6 @@ async def test_graph_reaches_respond_trivial_path(
     mock_worker_llm.bind.return_value.ainvoke = AsyncMock(return_value=AIMessage(content=EXECUTOR_OUT_MARKDOWN))
     critic_json = '{"what_if_analyses":[],"overall_assessment":"Acceptable.","approved":true,"revision_feedback":"","confidence":0.9,"reasoning":"Simple script, low risk.","should_continue":false,"need_more_evidence":false}'
     mock_critic_llm.bind.return_value.ainvoke = AsyncMock(return_value=AIMessage(content=critic_json))
-    mock_sandbox_settings.sandbox_enabled = False
-    mock_sandbox_settings.sandbox_warm_pool_enabled = False
-    mock_sandbox_settings.max_sandbox_minutes = 60.0
 
     from app.graph import graph
 

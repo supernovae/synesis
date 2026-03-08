@@ -233,14 +233,10 @@ class Settings(BaseSettings):
     max_lsp_calls: int = 5
     max_evidence_experiments: int = 3
     # Evidence experiments: max blast radius (§8.4)
-    experiment_timeout_seconds: int = 120
-    experiment_max_stdout_bytes: int = 1_000_000  # 1MB
-    experiment_max_files_created: int = 50  # under .synesis/experiments/<attempt_id>
     experiment_max_commands: int = 10  # max commands per experiment_plan
     # Per-node-class (optional; 0 = use global)
     max_executor_tokens: int = 0
     max_controller_tokens: int = 0
-    max_retrieval_tokens: int = 0
 
     # Patch Integrity Gate — path and file policy
     integrity_path_denylist: list[str] = Field(
@@ -261,7 +257,6 @@ class Settings(BaseSettings):
             "shellcheck",
         ]
     )
-    integrity_path_allowlist: list[str] = Field(default_factory=list)
     integrity_max_code_chars: int = 100_000
     integrity_max_patch_file_chars: int = 50_000  # §7.4: per-file limit for patch_ops
     integrity_target_workspace: str = ""  # Default workspace prefix; Planner can override

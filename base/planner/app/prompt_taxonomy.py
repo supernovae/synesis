@@ -34,34 +34,6 @@ def _load_config() -> dict[str, Any]:
     return _cached
 
 
-def get_prompt_components(
-    intent_class: str = "code",
-    vertical: str = "generic",
-    task_size: str = "medium",
-) -> dict[str, Any]:
-    """Resolve prompt components for (intent × vertical × task_size).
-
-    Merges default, by_intent, by_vertical, by_task_size. Later overrides earlier.
-    Returns dict with keys: summary_depth, summary_domain_focus, evidence_emphasis.
-    """
-    cfg = _load_config()
-    router = cfg.get("router_to_prompt") or {}
-    default = router.get("default") or {}
-    by_intent = router.get("by_intent") or {}
-    by_vertical = router.get("by_vertical") or {}
-    by_task_size = router.get("by_task_size") or {}
-
-    out: dict[str, Any] = dict(default)
-    if intent_class and intent_class in by_intent:
-        out.update({k: v for k, v in (by_intent[intent_class] or {}).items() if v is not None})
-    if vertical and vertical in by_vertical:
-        out.update({k: v for k, v in (by_vertical[vertical] or {}).items() if v is not None})
-    if task_size and task_size in by_task_size:
-        out.update({k: v for k, v in (by_task_size[task_size] or {}).items() if v is not None})
-
-    return out
-
-
 def get_summary_domain_suffix_key(vertical: str) -> str:
     """Return the domain_suffix_by_vertical key for the given vertical.
 
@@ -72,7 +44,3 @@ def get_summary_domain_suffix_key(vertical: str) -> str:
     return mapping.get(vertical) or mapping.get("generic") or "generic"
 
 
-def clear_cache() -> None:
-    """Reset cached config. Use in tests."""
-    global _cached
-    _cached = None
