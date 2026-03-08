@@ -216,7 +216,7 @@ acknowledgements get 256 tokens.
    (text mode) responses stored in conversation memory.
 6. **Monotonic Retry** (`state.retry`): Failures, decisions,
    diversification_history only append. At `max_iterations`, force
-   PASS and emit `carried_uncertainties_signal`.
+   PASS (degraded).
 7. **Continuous Token Budgets**: Difficulty-based curve (not
    bucketed). Social acknowledgements get minimal budget (256
    tokens). Thinking budgets scale with `task_size`.
@@ -376,7 +376,7 @@ These 5 principles are domain-agnostic and never change.
 
 Instead of hardcoded domain checks, the critic generates 3-5 evaluation
 criteria for THIS specific query using:
-- The reconstructed user task (`TaskReconstruction`)
+- The user task and stated requirements
 - Taxonomy hints (domain, complexity, typical elements, depth guidance)
 
 The critic scores each generated criterion 1-10.

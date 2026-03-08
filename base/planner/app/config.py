@@ -112,19 +112,6 @@ class Settings(BaseSettings):
     # BGE reranker service URL (only used when rag_reranker="bge")
     rag_bge_reranker_url: str = ""
 
-    # RAG: synesis_catalog only. Metadata (domain, indexer_source) drives retrieval.
-    rag_critic_arch_enabled: bool = True
-    rag_critic_license_enabled: bool = True
-
-    @field_validator("rag_critic_arch_enabled", "rag_critic_license_enabled", mode="before")
-    @classmethod
-    def _coerce_bool(cls, v: object) -> bool:
-        """Coerce overlay typos (e.g. 'none', 'debug') to bool."""
-        if isinstance(v, bool):
-            return v
-        s = str(v).lower().strip() if v else ""
-        return s not in ("false", "no", "0", "off", "none", "")
-
     # Sandbox execution
     sandbox_enabled: bool = True
     sandbox_namespace: str = "synesis-sandbox"
@@ -168,7 +155,6 @@ class Settings(BaseSettings):
     web_search_max_results: int = 5
     web_search_supervisor_enabled: bool = True
     web_search_worker_error_enabled: bool = True
-    web_search_critic_enabled: bool = False
 
     # Engine-to-authority map: SearXNG engine names -> trust tiers.
     # Results from mapped engines are treated as trusted internal sources

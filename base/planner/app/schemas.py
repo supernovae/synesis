@@ -576,24 +576,12 @@ FAILURE_MODE_TAXONOMY = frozenset({
 })
 
 SCORE_WEIGHTS = {
-    "task_faithfulness": 0.25,
-    "constraint_compliance": 0.15,
-    "coverage": 0.15,
+    "task_faithfulness": 0.30,
+    "constraint_compliance": 0.25,
+    "coverage": 0.25,
     "judgment_quality": 0.15,
-    "reasoning_support": 0.10,
-    "uncertainty_calibration": 0.08,
-    "clarity": 0.06,
-    "usefulness": 0.06,
+    "grounding": 0.05,
 }
-
-
-class TaskReconstruction(BaseModel):
-    """Layer 1: Critic's reconstruction of the user's actual task."""
-
-    main_question: str = ""
-    explicit_requirements: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
-    implied_success_criteria: list[str] = Field(default_factory=list)
 
 
 class RequirementCoverage(BaseModel):
@@ -611,10 +599,7 @@ class CriticScores(BaseModel):
     constraint_compliance: float = Field(ge=0, le=10, default=5.0)
     coverage: float = Field(ge=0, le=10, default=5.0)
     judgment_quality: float = Field(ge=0, le=10, default=5.0)
-    reasoning_support: float = Field(ge=0, le=10, default=5.0)
-    uncertainty_calibration: float = Field(ge=0, le=10, default=5.0)
-    clarity: float = Field(ge=0, le=10, default=5.0)
-    usefulness: float = Field(ge=0, le=10, default=5.0)
+    grounding: float = Field(ge=0, le=10, default=5.0)
     weighted_overall: float = Field(ge=0, le=10, default=5.0)
 
 
@@ -655,11 +640,7 @@ class CriticOut(BaseModel):
     # Sandbox escalation
     needs_testing: bool = False
 
-    # Postmortem (max_iterations)
-    carried_uncertainties_signal: dict[str, Any] | None = None
-
     # --- Task-faithful evaluation ---
-    task_reconstruction: TaskReconstruction | None = None
     requirement_coverage: list[RequirementCoverage] = Field(default_factory=list)
     failure_modes: list[str] = Field(default_factory=list)
     scores: CriticScores | None = None

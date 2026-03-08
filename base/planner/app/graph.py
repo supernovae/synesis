@@ -558,15 +558,6 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             if suggestion_lines:
                 suggestions_md = "\n".join(suggestion_lines)
                 parts.append(f"\n<details>\n<summary>Suggestions</summary>\n\n{suggestions_md}\n\n</details>")
-        # Carried uncertainties: known unknowns surfaced to user — any persona when relevant
-        carried = state.get("carried_uncertainties_signal") or {}
-        debt_items = carried.get("items") or []
-        if debt_items:
-            debt_lines = [
-                f"- {item.get('description', '')[:120]}" for item in debt_items[:3] if item.get("description")
-            ]
-            if debt_lines:
-                parts.append("\n---\n**What I'm carrying**\n" + "\n".join(debt_lines))
         # Budget Alert (Q1.3): high-score docs excluded for token limit
         context_pack = state.get("context_pack")
         if context_pack:

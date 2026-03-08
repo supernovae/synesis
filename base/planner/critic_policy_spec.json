@@ -15,8 +15,7 @@
       "active_vertical": "resolve_active_vertical(active_domain_refs, platform_context)"
     },
     "critic": {
-      "active_mode": "safety_ii|tiered|advisory from vertical_prompts",
-      "mode_spec": "intent_prompts.critic_behavior_block + vertical_prompts.critic_mode",
+      "active_mode": "advisory (easy/medium) | universal_principles (hard) | document_path (knowledge tasks)",
       "approved": "state.critic_approved",
       "should_continue": "state.critic_should_continue",
       "continue_reason": "state.critic_continue_reason",
@@ -69,8 +68,8 @@
   },
   "escalation_policy": {
     "trigger": "Repeated RETRY with same failure_pattern; at max_attempts",
-    "action": "Append to escalations; set carried_uncertainties_signal",
-    "mode_escalation": "tiered basic->advanced when iteration>0; no thrashing (do not downgrade)"
+    "action": "Append to escalations; force PASS (degraded)",
+    "mode_escalation": "none (unified universal-principles prompt)"
   },
   "monotonicity_invariants": [
     "retry.attempt only increments on needs_revision RETRY",
@@ -88,7 +87,7 @@
       "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "difficulty", "taxonomy_metadata"],
       "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "crag_triggers", "need_more_evidence", "iteration_count", "next_node"],
       "decision_logic": "Toulmin rubric for quality; CRAG confidence for factual grounding; difficulty scales strictness",
-      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS, append carried_uncertainties", "crag_triggers -> route to corrective_web"]
+      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS (degraded)", "crag_triggers -> route to corrective_web"]
     }
   },
   "mcp_tools_available": {
@@ -119,7 +118,7 @@
       "scenario": "Max iterations reached, force PASS",
       "initial_state": {"iteration_count": 3, "max_iterations": 3, "critic_approved": false},
       "decision": "PASS (forced)",
-      "state_diff": {"critic_approved": true, "carried_uncertainties_signal": {"failure_pattern": "runtime"}},
+      "state_diff": {"critic_approved": true},
       "outcome": "PASS forced; route to respond with degraded note"
     }
   ]

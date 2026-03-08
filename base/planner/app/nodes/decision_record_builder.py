@@ -35,6 +35,9 @@ RULES:
 - Classify each claim's support: "grounded" (cited evidence), "inferred" \
   (reasonable from context), "assumption" (stated or unstated), or \
   "unsupported" (no basis given).
+- COMMIT TO ONE CHOICE per decision point. answer_strategy.selected_approach \
+  must name ONE concrete approach, not "X or Y".  Put rejected options in \
+  rejected_alternatives with the reason each was eliminated.
 - PRESERVE SUBSTANCE: For each major claim, keep the concrete specifics — \
   tool names, version numbers, rejected alternatives with reasons, and \
   quantitative details. A claim like "use tiered models" is too thin; \
@@ -43,7 +46,7 @@ RULES:
 - For each section, extract 2-4 claims with evidence summaries. \
   Aim for 10-20 total claims for complex queries, 5-8 for simpler ones.
 - Preserve rejected alternatives in answer_strategy.rejected_alternatives \
-  with the reason each was rejected.
+  with the reason each was eliminated — not as open options.
 - Preserve concrete examples and domain-specific details in evidence_summary.
 - Do NOT invent content not present in the sections.
 - Output valid JSON matching the schema below. No markdown fences.

@@ -301,32 +301,3 @@ def get_intent_critic_block(intent_class: str) -> str:
     return (ic_data.get("critic_behavior_block") or "").strip()
 
 
-def get_critic_depth_prompt_block(metadata: dict[str, Any]) -> str:
-    """DEPRECATED: Replaced by taxonomy-as-hints in critic._build_taxonomy_hints().
-
-    Retained for backward compatibility only. The critic now uses Universal
-    Principles + Dynamic Rubric instead of hardcoded depth checks.
-    """
-    if not metadata:
-        return ""
-    complexity = float(metadata.get("complexity_score", 0.5))
-    required_elements = metadata.get("required_elements") or []
-    depth_instructions = (metadata.get("depth_instructions") or "").strip()
-    path = (metadata.get("path") or "").strip()
-
-    if complexity < 0.6 or not required_elements:
-        return ""
-
-    parts = [
-        "TAXONOMY DEPTH CHECK:",
-        f"Domain path: {path}. Expected complexity: {complexity:.1f}.",
-        f"The response MUST cover these sections: {'; '.join(required_elements)}.",
-    ]
-    if depth_instructions:
-        parts.append(f"Depth expectations: {depth_instructions}")
-    parts.append(
-        "Evaluate: Does the response meet the required scientific/technical depth? "
-        "Are the required_elements adequately addressed? "
-        "If any element is missing or superficial, add a blocking_issue with ref_type=taxonomy_depth."
-    )
-    return "\n".join(parts)
