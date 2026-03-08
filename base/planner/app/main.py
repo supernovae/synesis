@@ -960,7 +960,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 await asyncio.sleep(0)
                             elif phase and _current_phase and (now - _phase_start) >= _HEARTBEAT_AFTER_S:
                                 elapsed = int(now - _phase_start)
-                                heartbeat = f"{_current_phase.rstrip('\u2026')}… ({elapsed}s)"
+                                _phase_base = _current_phase.rstrip("\u2026")
+                                heartbeat = f"{_phase_base}… ({elapsed}s)"
                                 yield _sse_status_chunk(
                                     {"type": "status", "data": {"description": heartbeat, "done": False, "hidden": False}}
                                 )
