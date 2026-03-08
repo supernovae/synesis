@@ -274,9 +274,9 @@ EntryClassifier → [difficulty: 0.0-1.0]
                      └── all other knowledge → Planner
                            │
                            └── Send() fan-out (sections scaled by difficulty)
-                                 ├── section_worker(step 1) ← RAG always + web search if budget allows
-                                 ├── section_worker(step 2) ← RAG always + web search if budget allows
-                                 ├── section_worker(step N) ← RAG always + web search if budget allows
+                                 ├── section_worker(step 1) ← unified retrieval (RAG ∥ web, parallel)
+                                 ├── section_worker(step 2) ← unified retrieval (RAG ∥ web, parallel)
+                                 ├── section_worker(step N) ← unified retrieval (RAG ∥ web, parallel)
                                  └── merge_sections → critic (scaled strictness) → writer → respond
 ```
 
@@ -291,6 +291,28 @@ Difficulty (0.0-1.0) drives all budget decisions continuously:
 | Writer budget | 2048 | 12288 | `writer_budget_base/max` |
 | Web searches/run | 0 | 8 | `crag_max_web_queries` |
 | Critic | skipped | strict | `critic_skip_below_difficulty` |
+
+### Unified Parallel Retrieval
+
+Each section worker uses `unified_retrieval.retrieve_unified()` which runs
+RAG and web search **in parallel** via `asyncio.gather`, then merges results
+via authority-weighted Reciprocal Rank Fusion into one ranked context block.
+
+The authority system is preserved end-to-end:
+- RAG results carry `authority` from Milvus metadata (set by indexers),
+  boosted in `rag_client.py` (canonical=1.5x, vetted=1.3x, community=1.0x, external=0.7x)
+- Web results carry `authority` from `engine_authority_map` config;
+  the same boost multipliers are applied in `unified_retrieval.py`
+- Both produce `[R:authority]` or `[W]` datamarks in the prompt context block
+- The LLM trust policy (`[R:canonical] > [R:vetted] > ... > [W]`) is unchanged
+
+**Adaptive web gating** (L-RAG pattern, arxiv 2601.06551): when RAG returns
+3+ results, web slots are capped so RAG dominates. When RAG is empty or weak,
+web fills the context budget. This means:
+- Empty Milvus → web search fills the gap automatically
+- Strong RAG hits → web supplements but doesn't dominate
+- Internal search engines (via `engine_authority_map`) → `[R:canonical]` web
+  results rank alongside canonical RAG hits
 
 ### CRAG: Corrective Retrieval Augmented Generation
 
@@ -309,28 +331,27 @@ to the `corrective_web` node. This node:
 3. Runs `search_and_process()` for each section (capped by `scaled_web_budget`)
 4. Appends fetched web evidence as supplementary context to `generated_code`
 5. Sets `crag_correction_done = True` to prevent infinite loops
+6. Routes to the **DecisionRecord pipeline** (not directly to respond) so
+   corrective evidence is properly compiled into the final answer
 
 The corrective pass is limited to **one iteration** — if the result is still
-weak after augmentation, it proceeds to the writer/respond node as-is.
+weak after augmentation, it proceeds through the DR pipeline as-is.
 
-RAG always runs per section (provenance and citation value regardless of
-complexity). Proactive web search is budget-gated: total queries capped by
-`difficulty * crag_max_web_queries`.
-
-### Why Per-Section RAG Matters
+### Why Per-Section Retrieval Matters
 
 The key quality win comes from **decomposed retrieval** — each section gets a
 focused query instead of one generic query for the whole topic. Research shows:
 - ComposeRAG (arxiv 2506.00232): decomposed RAG beats monolithic by up to 15%
 - SParC-RAG (arxiv 2602.00083): per-query parallel retrieval +6.2 F1
 - A-MapReduce (arxiv 2602.01331): parallel retrieval, 45% time reduction
+- RAG-R1 (arxiv 2507.02962): multi-query parallelism, -11% latency +13% quality
+- Higress-RAG (arxiv 2602.23374): full-link RRF fusion across retrieval sources
 
 ### Performance
 
 Parallel generation reduces wall-clock time because vLLM batches
-concurrent requests efficiently. The writer pass adds ~20% overhead but
-produces better coherence across sections. Even simple 1-2 section
-queries benefit from structured planner output.
+concurrent requests efficiently. Unified retrieval runs RAG + web in parallel,
+saving ~3-4s per section compared to sequential retrieval.
 
 Max parallel sections is capped at `depth_mode_max_parallel` (default: 6)
 to avoid GPU memory pressure.
@@ -352,6 +373,9 @@ to avoid GPU memory pressure.
 | ComposeRAG ([arxiv 2506.00232](https://arxiv.org/abs/2506.00232)) | Decomposed RAG beats monolithic by up to 15% accuracy. | Validates per-section retrieval approach. |
 | A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
 | SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
+| RAG-R1 ([arxiv 2507.02962](https://arxiv.org/abs/2507.02962)) | Multi-query parallelism: -11% latency, +13% quality. | Parallel RAG + web in unified retrieval. |
+| Higress-RAG ([arxiv 2602.23374](https://arxiv.org/abs/2602.23374)) | Full-link RRF fusion, semantic caching, corrective RAG. | Authority-weighted RRF merge across retrieval sources. |
+| L-RAG ([arxiv 2601.06551](https://arxiv.org/abs/2601.06551)) | Entropy-based lazy loading; 26% retrieval reduction. | Adaptive web gating: skip web when RAG is strong. |
 
 ## Critic: Universal Principles + Dynamic Rubric
 
@@ -456,11 +480,11 @@ The worker consumes these as a numbered list instead of free-text feedback.
 After the critic approves a depth-mode response, content flows through:
 
 ```
-critic (approved) -> decision_record_builder -> final_answer_compiler -> format_rewriter -> final_scrubber -> respond
+critic (approved) -> decision_record_builder -> final_answer_compiler -> final_scrubber -> respond
 ```
 
-This pipeline creates a hard boundary between internal reasoning and user-facing output,
-and decouples content generation from presentation formatting (DECO-G principle).
+This pipeline creates a hard boundary between internal reasoning and user-facing output.
+The compiler handles both content and formatting in a single pass.
 
 ### DecisionRecord Schema
 
@@ -479,26 +503,13 @@ that is the ONLY input to the FinalAnswerCompiler:
 | Node | Type | Input | Output |
 |------|------|-------|--------|
 | **DecisionRecordBuilder** | LLM | Approved sections + execution plan + critic output | `DecisionRecord` JSON (~2-4K tokens) |
-| **FinalAnswerCompiler** | LLM | DecisionRecord ONLY (no raw text) | Plain prose with section headings (content only) |
-| **FormatRewriter** | LLM | Compiler prose | Presentation-enhanced markdown (tables, diagrams, lists) |
-| **FinalScrubber** | Deterministic | Format rewriter output | Cleaned output (no LLM) |
+| **FinalAnswerCompiler** | LLM | DecisionRecord ONLY (no raw text) | Well-formatted markdown with tables, lists, code blocks |
+| **FinalScrubber** | Deterministic | Compiler output | Cleaned output (no LLM) |
 
-### DECO-G: Decoupled Formatting
-
-The compiler and format rewriter are separated following the DECO-G principle
-(arXiv:2510.03595): mixing reasoning directives with formatting requirements
-creates competing goals that degrade both. Research findings:
-
-- **DECO-G** (arXiv:2510.03595): 1-6% quality gain by separating task-solving from formatting
-- **SLOT** (arXiv:2505.04016, EMNLP 2025): Lightweight formatter matches large models at 99.5% schema accuracy
-- **FMBench** (arXiv:2602.06384): Inherent tradeoff between semantic fidelity and structural correctness in single-pass generation
-
-The compiler writes **content only** — what to say, concrete decisions, evidence.
-The format rewriter handles **presentation only** — when to use tables, mermaid
-diagrams, numbered lists, bullet lists, or flowing prose. The rewriter uses
-**few-shot exemplars** (golden before/after pairs in `format_exemplars.yaml`)
-rather than directive rules, per research showing 2-3 high-quality examples
-outperform long rule lists by 15-25% on formatting tasks.
+The compiler handles both content and formatting in a single pass. Formatting
+rules (when to use tables, numbered lists, code blocks, etc.) are embedded in
+the compiler prompt rather than requiring a separate LLM call. This eliminates
+~30-60s of latency that a dedicated formatting pass would add.
 
 ### FinalScrubber Rules
 
@@ -519,8 +530,8 @@ The scrubber is a deterministic (<100ms) post-processor:
 | Generic/verbose output | Compiler writes from structured decisions, not raw text |
 | False precision (invented percentages) | FalsePrecisionGuard catches and relabels |
 | Critic prompt bloat | 5 universal principles + dynamic rubric replaces 5 hardcoded layers |
-| Infinite formatting rules in prompts | DECO-G separation: compiler does content, rewriter does presentation |
-| Lost tables/diagrams/lists | Format rewriter applies rich formatting via few-shot exemplars |
+| Infinite formatting rules in prompts | Compiler has concise formatting guidance (table/list/code triggers) |
+| Lost tables/diagrams/lists | Compiler applies formatting directly — no extra LLM call |
 
 ### Research References
 
@@ -554,7 +565,7 @@ payloads. Open WebUI renders these in a collapsible "Thinking" UI.
 | **Planning...** | entry_classifier, strategic_advisor, supervisor, planner | Fast (~2s total) |
 | **Researching...** | context_curator, worker, section_worker, merge_sections, corrective_web | Main wait — parallel section generation |
 | **Reviewing...** | patch_integrity_gate, critic | Quality review |
-| **Writing...** | decision_record_builder, final_answer_compiler, format_rewriter, final_scrubber, respond | Final assembly |
+| **Writing...** | decision_record_builder, final_answer_compiler, final_scrubber, respond | Final assembly |
 
 Only phase transitions emit new status events. During long-running phases
 (>5s), elapsed-time heartbeats update the status (e.g., "Researching... (15s)")

@@ -4,7 +4,6 @@ from .decision_record_builder import decision_record_builder_node
 from .entry_classifier import entry_classifier_node
 from .final_answer_compiler import final_answer_compiler_node
 from .final_scrubber import final_scrubber_node
-from .format_rewriter import format_rewriter_node
 from .patch_integrity_gate import patch_integrity_gate_node
 from .planner_node import planner_node
 from .section_worker import section_worker_node
@@ -19,7 +18,6 @@ __all__ = [
     "entry_classifier_node",
     "final_answer_compiler_node",
     "final_scrubber_node",
-    "format_rewriter_node",
     "patch_integrity_gate_node",
     "planner_node",
     "section_worker_node",

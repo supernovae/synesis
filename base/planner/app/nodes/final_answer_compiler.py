@@ -24,9 +24,7 @@ logger = logging.getLogger("synesis.final_answer_compiler")
 
 _COMPILER_SYSTEM = """\
 You are the Final Answer Writer. You receive a structured DecisionRecord \
-and produce a plain-prose markdown response for the user.
-
-Focus ONLY on content — a separate formatting pass handles presentation.
+and produce a well-formatted markdown response for the user.
 
 CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
@@ -40,12 +38,22 @@ CONTENT RULES:
 7. Include risks only when they have real mitigation value.
 8. No internal scaffolding, reasoning traces, or self-narration.
 
+FORMATTING — pick the right element for the content:
+- TABLE (pipe syntax with header row) when comparing options, models, \
+  tools, or alternatives side-by-side.
+- NUMBERED LIST when describing ordered steps or a procedure.
+- BULLET LIST when listing features, properties, or unordered items.
+- CODE BLOCK (```lang) when showing commands, config, or file paths.
+- PROSE when explaining reasoning, tradeoffs, or narrative analysis.
+- Use inline `backticks` for tool, command, and model names.
+- Do NOT bold keywords just to signal coverage.
+
 VERBOSITY (from style_contract.verbosity_target):
 - "terse": 300-600 words.
 - "moderate": 800-2000 words.
 - "thorough": 2000-4000 words with multi-paragraph sections.
 
-OUTPUT: Markdown with section headings.  No JSON wrapper.
+OUTPUT: Markdown with section headings. No JSON wrapper.
 """
 
 

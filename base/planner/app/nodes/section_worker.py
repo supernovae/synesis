@@ -1,17 +1,16 @@
 """Section Worker -- per-section generation for depth mode (Skeleton-of-Thought pattern).
 
 Each section_worker instance receives a single plan step and:
-1. Formulates a focused RAG retrieval query from the section action
-2. Runs vector + BM25 retrieval scoped to that section's topic
-3. Optionally runs web search for sections needing current information
-4. Generates one section's content with full token budget focused on depth
-5. Returns the section text + metadata to the merge reducer
+1. Runs unified parallel retrieval (RAG + web via asyncio.gather)
+2. Merges results via authority-weighted RRF into one ranked context block
+3. Generates one section's content with full token budget focused on depth
+4. Returns the section text + metadata to the merge reducer
 
 Research basis:
   - Skeleton-of-Thought (ICLR 2024, arxiv 2307.15337): outline first, expand in parallel
   - ComposeRAG (arxiv 2506.00232): decomposed RAG beats monolithic by up to 15%
   - SParC-RAG (arxiv 2602.00083): per-query parallel retrieval +6.2 F1
-  - A-MapReduce (arxiv 2602.01331): parallel agent retrieval, 45% time reduction
+  - RAG-R1 (arxiv 2507.02962): multi-query parallelism, -11% latency +13% quality
 """
 
 from __future__ import annotations
@@ -27,8 +26,7 @@ from langchain_openai import ChatOpenAI
 from ..config import settings
 from ..injection_scanner import reduce_context_on_injection
 from ..llm_telemetry import get_llm_http_client
-from ..rag_client import retrieve_context
-from ..web_search import format_search_results, search_and_process
+from ..unified_retrieval import format_unified_context, retrieve_unified
 
 logger = logging.getLogger("synesis.section_worker")
 
@@ -140,21 +138,6 @@ def _build_section_rag_query(section_action: str, task_description: str) -> str:
     return f"{section_topic} {task_description[:200]}"
 
 
-def _format_rag_for_section(results: list) -> str:
-    """Format RAG results with authority datamarks for section context."""
-    if not results:
-        return ""
-    chunks = []
-    for r in results[:5]:
-        auth = getattr(r, "authority", "") or ""
-        url = getattr(r, "source_url", "") or ""
-        prefix = f"[R:{auth}]" if auth else "[R]"
-        citation = f" (source: {url})" if url else ""
-        chunks.append(f"{prefix}{citation} {r.text[:1500]}")
-    joined = "\n---\n".join(chunks)
-    return f'\n<context source="rag" trust="untrusted">\n{joined}\n</context>'
-
-
 async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
     """Generate one section of a depth-mode response.
 
@@ -167,52 +150,32 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
     task_description = state.get("task_description", "")
     full_plan = state.get("full_plan", {})
     taxonomy_metadata = state.get("taxonomy_metadata") or {}
+    difficulty = state.get("difficulty", 0.5)
 
     logger.info(
         "section_worker_start",
         extra={"section_id": section_id, "action": section_action[:80]},
     )
 
-    rag_block = ""
-    web_block = ""
-
-    # Phase 1: Per-section RAG retrieval
+    # Unified retrieval: RAG + web in parallel, merged via authority-weighted RRF
+    context_block = ""
+    had_rag = False
+    had_web = False
     try:
-        rag_query = _build_section_rag_query(section_action, task_description)
-        rag_results = await retrieve_context(
-            query=rag_query,
-            collections=["synesis_catalog"],
-            top_k=5,
+        retrieval_query = _build_section_rag_query(section_action, task_description)
+        results = await retrieve_unified(
+            query=retrieval_query,
+            difficulty=difficulty,
+            top_k=8,
         )
-        if rag_results:
-            rag_block = _format_rag_for_section(rag_results)
-            logger.debug(
-                "section_worker_rag",
-                extra={"section_id": section_id, "chunks": len(rag_results)},
-            )
+        if results:
+            context_block = format_unified_context(results)
+            had_rag = any(r.retrieval_source == "rag" for r in results)
+            had_web = any(r.retrieval_source == "web" for r in results)
     except Exception:
-        logger.warning("section_worker_rag_failed", exc_info=True)
+        logger.warning("section_worker_retrieval_failed", exc_info=True)
 
-    # Phase 2: Web search — budget-gated by difficulty (CRAG pattern).
-    # Higher difficulty = more web queries allowed. RAG always runs (Phase 1).
-    difficulty = state.get("difficulty", 0.5)
-    web_budget = settings.scaled_web_budget(difficulty)
-    if settings.web_search_enabled and state.get("web_search_enabled", True) and web_budget > 0:
-        try:
-            web_query = _build_section_rag_query(section_action, "")
-            web_results = await search_and_process(web_query, profile="web", fetch_pages=True)
-            if web_results:
-                formatted = format_search_results(web_results[:3])
-                web_joined = "\n".join(formatted)
-                web_block = f'\n<context source="web_search" trust="untrusted">\n{web_joined}\n</context>'
-                logger.debug(
-                    "section_worker_web",
-                    extra={"section_id": section_id, "results": len(web_results), "web_budget": web_budget},
-                )
-        except Exception:
-            logger.debug("section_worker_web_failed", exc_info=True)
-
-    # Phase 3: Build prompt and generate
+    # Build prompt and generate
     plan_steps = full_plan.get("steps", [])
     outline_lines = []
     for s in plan_steps:
@@ -252,14 +215,12 @@ async def section_worker_node(state: dict[str, Any]) -> dict[str, Any]:
 {section_action}
 
 Write this section now with multi-paragraph narrative depth. Explain the reasoning behind each choice, not just the choice itself. This is a deep analysis, not a summary or a slide deck.
-{rag_block}
-{web_block}"""
+{context_block}"""
 
     # Scan for injection in assembled prompt
     user_prompt = reduce_context_on_injection(user_prompt, "section_worker")
 
     # Continuous budget scaling: difficulty drives token budget per section
-    difficulty = state.get("difficulty", 0.5)
     section_budget = settings.scaled_section_budget(difficulty)
 
     try:
@@ -300,8 +261,8 @@ Write this section now with multi-paragraph narrative depth. Explain the reasoni
             "section_id": section_id,
             "text_len": len(section_text),
             "latency_ms": round(latency_ms),
-            "had_rag": bool(rag_block),
-            "had_web": bool(web_block),
+            "had_rag": had_rag,
+            "had_web": had_web,
             "difficulty": round(difficulty, 2),
             "section_budget": section_budget,
         },
@@ -314,8 +275,8 @@ Write this section now with multi-paragraph narrative depth. Explain the reasoni
                 "section_action": section_action,
                 "text": section_text,
                 "latency_ms": round(latency_ms),
-                "had_rag": bool(rag_block),
-                "had_web": bool(web_block),
+                "had_rag": had_rag,
+                "had_web": had_web,
             }
         ],
     }

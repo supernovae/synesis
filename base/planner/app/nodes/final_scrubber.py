@@ -20,8 +20,8 @@ from ..state import NodeOutcome, NodeTrace
 logger = logging.getLogger("synesis.final_scrubber")
 
 # Safety-net: combined pattern for artifacts that should NEVER appear after
-# the DecisionRecord boundary (compiler + format_rewriter both use
-# enable_thinking=False and never see raw Toulmin-labeled section text).
+# the DecisionRecord boundary (compiler uses enable_thinking=False and
+# never sees raw Toulmin-labeled section text).
 # If this fires, something upstream is broken — log a warning.
 _SAFETY_NET_RE = re.compile(
     r"<think>.*?</think>"  # thinking blocks
@@ -147,11 +147,11 @@ def _detect_overgrown_sections(text: str) -> list[str]:
 
 
 async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Deterministic scrubber — no LLM, fast cleanup of format_rewriter output."""
+    """Deterministic scrubber — no LLM, fast cleanup of compiler output."""
     start = time.monotonic()
     node_name = "final_scrubber"
 
-    text = state.get("formatted_answer") or state.get("compiled_answer") or state.get("generated_code", "")
+    text = state.get("compiled_answer") or state.get("generated_code", "")
     if not text:
         return {
             "scrubbed_answer": "",

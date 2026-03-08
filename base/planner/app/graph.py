@@ -33,7 +33,6 @@ from .nodes import (
 from .nodes.decision_record_builder import decision_record_builder_node
 from .nodes.final_answer_compiler import final_answer_compiler_node
 from .nodes.final_scrubber import final_scrubber_node
-from .nodes.format_rewriter import format_rewriter_node
 from .state import GraphState, NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.graph")
@@ -765,7 +764,6 @@ graph_builder.add_node("merge_sections", with_debug_node_timing(merge_sections_n
 graph_builder.add_node("corrective_web", with_debug_node_timing(corrective_web_node))
 graph_builder.add_node("decision_record_builder", with_debug_node_timing(with_timeout(timeout)(decision_record_builder_node)))
 graph_builder.add_node("final_answer_compiler", with_debug_node_timing(with_timeout(timeout)(final_answer_compiler_node)))
-graph_builder.add_node("format_rewriter", with_debug_node_timing(with_timeout(timeout)(format_rewriter_node)))
 graph_builder.add_node("final_scrubber", with_debug_node_timing(final_scrubber_node))
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
@@ -909,11 +907,10 @@ graph_builder.add_conditional_edges(
         "decision_record_builder": "decision_record_builder",
     },
 )
-graph_builder.add_edge("corrective_web", "respond")
-# DecisionRecord pipeline: dr_builder -> compiler -> format_rewriter -> scrubber -> respond
+graph_builder.add_edge("corrective_web", "decision_record_builder")
+# DecisionRecord pipeline: dr_builder -> compiler -> scrubber -> respond
 graph_builder.add_edge("decision_record_builder", "final_answer_compiler")
-graph_builder.add_edge("final_answer_compiler", "format_rewriter")
-graph_builder.add_edge("format_rewriter", "final_scrubber")
+graph_builder.add_edge("final_answer_compiler", "final_scrubber")
 graph_builder.add_edge("final_scrubber", "respond")
 graph_builder.add_edge("respond", END)
 

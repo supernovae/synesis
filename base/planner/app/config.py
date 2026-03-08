@@ -201,6 +201,11 @@ class Settings(BaseSettings):
     crag_max_web_queries: int = 8             # ceiling on total web searches per run
     crag_proportionality_enabled: bool = True  # critic flags over-engineering for simple tasks
 
+    # Unified retrieval: adaptive web gating (L-RAG pattern, arxiv 2601.06551).
+    # When RAG returns 3+ results above this score, web slots are capped so
+    # RAG dominates.  When RAG is empty/weak, web fills the context budget.
+    rag_confidence_gate: float = 0.7
+
     # Critic scaling by difficulty
     critic_skip_below_difficulty: float = 0.15  # skip critic entirely for trivial tasks
     critic_lenient_below_difficulty: float = 0.4  # lenient critic (fast rubber-stamp) below this

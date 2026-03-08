@@ -406,7 +406,6 @@ _NODE_TO_PHASE: dict[str, str] = {
     "critic": "Reviewing\u2026",
     "decision_record_builder": "Writing\u2026",
     "final_answer_compiler": "Writing\u2026",
-    "format_rewriter": "Writing\u2026",
     "final_scrubber": "Writing\u2026",
     "respond": "Writing\u2026",
 }
