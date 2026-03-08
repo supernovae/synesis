@@ -402,6 +402,9 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     "corrective_web": "Verifying sources…",
     "patch_integrity_gate": "Validating code…",
     "critic": "Reviewing…",
+    "decision_record_builder": "Structuring decisions…",
+    "final_answer_compiler": "Writing final answer…",
+    "final_scrubber": "Polishing…",
     "respond": "Finishing…",
 }
 
@@ -430,6 +433,9 @@ _STATUS_KNOWLEDGE: dict[str, str] = {
     "merge_sections": "Assembling sections…",
     "corrective_web": "Verifying sources…",
     "critic": "Reviewing quality…",
+    "decision_record_builder": "Structuring decisions…",
+    "final_answer_compiler": "Writing final answer…",
+    "final_scrubber": "Polishing…",
 }
 
 
@@ -939,6 +945,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "corrective_web",
                     "patch_integrity_gate",
                     "critic",
+                    "decision_record_builder",
+                    "final_answer_compiler",
+                    "final_scrubber",
                     "respond",
                 }
             )

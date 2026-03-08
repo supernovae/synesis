@@ -353,46 +353,65 @@ to avoid GPU memory pressure.
 | A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
 | SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
 
-## Task-Faithful Critic (5-Layer Evaluation)
+## Critic: Universal Principles + Dynamic Rubric
 
-The critic uses a **task-faithful evaluation architecture** that prioritizes whether
-the response answers the user's actual question over whether it is well-structured
-or rhetorically polished. The Toulmin Model of Argumentation is retained as a
-subcomponent (Layer 4) for recommendation-heavy responses.
+The critic uses a **two-part evaluation** architecture inspired by G-Eval
+(NeurIPS 2023) and RRD (arxiv 2602.05125). Instead of hardcoded domain-specific
+layers, the critic applies 5 universal principles and generates a per-query
+dynamic rubric using taxonomy metadata as hints.
 
-### Evaluation Layers (Priority Order)
+### Part A: Universal Quality Principles (always applied)
 
-| Layer | Name | Weight | What It Checks |
-|---|---|---|---|
-| 1 | **Task Faithfulness** | 0.25 | Does the response answer the main question? Does it choose when asked to choose? Does it follow requested format/scope? |
-| 2 | **Constraint Compliance + Coverage** | 0.30 | Per-requirement map (met/partial/missed). Detects ignored constraints, instruction drift, partial answers. |
-| 3 | **Judgment Quality** | 0.15 | Sensible recommendations, no overconfidence, tradeoffs resolved not just listed, no buried lead. |
-| 4 | **Reasoning Support (Toulmin)** | 0.10 | Selective: major claims need grounds, warrant, rebuttal. 3+ uncommitted "X or Y" decisions = BLOCKING. |
-| 5 | **Communication Quality** | 0.12 | Directness, clarity, conciseness, practical usefulness. |
+| # | Principle | Catches |
+|---|-----------|---------|
+| 1 | Does the response answer the main question directly and early? | `buried_lead`, `non_answer` |
+| 2 | Does it address each stated requirement? | `partial_answer`, `format_miss` |
+| 3 | Is every specific claim either evidenced or labeled as an assumption? | `false_precision`, `unsupported_claim` |
+| 4 | Is the scope proportional to stated constraints? | `architecture_theater`, over-engineering |
+| 5 | Could someone act on this answer as written? | `non_actionable_answer`, `leaked_reasoning` |
 
-### Task Reconstruction (Layer 1)
+These 5 principles are domain-agnostic and never change.
 
-Before evaluating the response, the critic reconstructs the user's task:
-- **main_question**: The primary ask
-- **explicit_requirements**: Listed deliverables or outputs
-- **constraints**: Stated limits (timeline, budget, team size, etc.)
-- **implied_success_criteria**: What success looks like
+### Part B: Dynamic Rubric (generated per-query)
 
-This reconstruction anchors all subsequent evaluation. The response is scored
-against what the user asked, not against a generic quality checklist.
+Instead of hardcoded domain checks, the critic generates 3-5 evaluation
+criteria for THIS specific query using:
+- The reconstructed user task (`TaskReconstruction`)
+- Taxonomy hints (domain, complexity, typical elements, depth guidance)
 
-### Requirement Coverage Map (Layer 2)
+The critic scores each generated criterion 1-10.
 
-Each explicit requirement and taxonomy `required_element` is mapped to:
-- **met**: Fully addressed with substance
-- **partial**: Mentioned but shallow or incomplete
-- **missed**: Not addressed at all
+### Taxonomy-as-Hints Contract
 
-3+ missed requirements triggers the `partial_answer` critical failure mode.
+Taxonomy metadata is provided to the critic as domain context, **not** as
+mandatory evaluation criteria. The relationship is:
 
-### Failure Mode Taxonomy
+```
+taxonomy_prompt_config.yaml
+  -> required_elements, depth_instructions, persona
+    -> passed to critic as "taxonomy_hints" dict
+      -> critic uses hints to GENERATE per-query evaluation criteria
+        -> critic scores against GENERATED criteria, not raw taxonomy
+```
 
-The critic detects these failure modes (fixed taxonomy):
+This means:
+- Adding a new taxonomy domain does NOT require changing critic code
+- The critic adapts its evaluation to what the USER asked, not what
+  the taxonomy says is "typical" for that domain
+- A simple question in a complex domain gets a lenient rubric
+- A complex question in a simple domain gets a thorough rubric
+- The taxonomy provides the "lens" but the user's request sets the bar
+
+**Anti-patterns (do NOT do):**
+- Injecting taxonomy required_elements as "MUST cover" in critic prompt
+- Adding domain-specific failure modes to the critic
+- Hardcoding Toulmin or other frameworks as conditional checks
+- Making the critic prompt longer when we want better output
+
+### Failure Mode Vocabulary
+
+The critic picks from this vocabulary when flagging issues. Detection is
+not hardcoded — the dynamic rubric naturally surfaces them:
 
 | Mode | Description | Severity |
 |---|---|---|
@@ -406,10 +425,15 @@ The critic detects these failure modes (fixed taxonomy):
 | `failed_prioritization` | Describes but doesn't prioritize | MEDIUM |
 | `format_miss` | Didn't follow requested format/ordering | MEDIUM |
 | `genericity` | Generic template instead of specific answer | HIGH |
+| `leaked_reasoning` | Internal reasoning visible in output | HIGH |
+| `false_precision` | Unsupported specific numbers/percentages | MEDIUM |
+| `architecture_theater` | Over-engineered scope for stated constraints | MEDIUM |
+| `section_overgrowth` | Section exceeds proportional length | LOW |
+| `unsupported_specificity` | Specific claims without basis | MEDIUM |
 
 ### Score-Based Approval
 
-Instead of binary approved/not-approved, the critic produces weighted scores (0-10):
+The critic produces weighted scores (0-10):
 
 - `weighted_overall >= 7.0` and no critical failure modes → **approved**
 - `weighted_overall >= 5.0` with repair instructions → **approved with suggestions**
@@ -425,42 +449,69 @@ When the critic rejects, it produces prioritized repair instructions:
 {"priority": 1, "target": "Model Strategy section", "action": "Choose one model per tier, reject alternatives", "reason": "User asked for concrete choices"}
 ```
 
-The worker consumes these as a numbered list instead of free-text feedback,
-enabling targeted revision instead of wholesale rewrite.
+The worker consumes these as a numbered list instead of free-text feedback.
 
-### Sub-Framework Activation
+## DecisionRecord Pipeline (Depth-Mode Writer Isolation)
 
-| Sub-Framework | Activates When | Purpose |
-|---|---|---|
-| Toulmin (Layer 4) | `required_elements` contain "choice", "strategy", "architecture" | Evaluate argument structure of recommendations |
-| Evidence grounding | RAG context was provided | Verify response uses retrieved evidence |
-| Format compliance | User specified output format | Check structural compliance |
-| Code checks | `is_code_task` | Evidence-gated code review (unchanged) |
+After the critic approves a depth-mode response, content flows through:
 
-### Toulmin Components (Layer 4 Detail)
+```
+critic (approved) -> decision_record_builder -> final_answer_compiler -> final_scrubber -> respond
+```
 
-When activated, Toulmin checks major claims for:
+This pipeline creates a hard boundary between internal reasoning and user-facing output.
 
-| Component | What it means | If missing |
-|---|---|---|
-| **Claim** | The assertion or recommendation | No position taken |
-| **Grounds** | Evidence, facts, or data supporting it | Unsupported assertion |
-| **Warrant** | Reasoning linking grounds to claim | Incomplete argument |
-| **Qualifier** | Scope limits, conditions, assumptions | Overconfident claim |
-| **Rebuttal** | Rejected alternative with reason | Uncommitted choice |
+### DecisionRecord Schema
+
+The `DecisionRecord` is a structured intermediate artifact (~1.5-2.5K tokens)
+that is the ONLY input to the FinalAnswerCompiler:
+
+- `user_task`: Reconstructed question, requirements, constraints, success criteria
+- `answer_strategy`: Selected approach, rejected alternatives, priority order
+- `content_plan`: Sections, must-include, must-avoid
+- `grounded_claims[]`: Each claim tagged as grounded/inferred/assumption/unsupported
+- `assumptions[]`, `uncertainties[]`, `risks[]`
+- `style_contract`: Verbosity target, citation requirements, direct-answer-first
+
+### Node Responsibilities
+
+| Node | Type | Input | Output |
+|------|------|-------|--------|
+| **DecisionRecordBuilder** | LLM | Approved sections + execution plan + critic output | `DecisionRecord` JSON (~2K tokens) |
+| **FinalAnswerCompiler** | LLM | DecisionRecord ONLY (no raw text) | Polished markdown prose |
+| **FinalScrubber** | Deterministic | Compiler output | Cleaned output (no LLM) |
+
+### FinalScrubber Rules
+
+The scrubber is a deterministic (<100ms) post-processor:
+- Strip leaked `<think>` blocks
+- Strip CLAIM/GROUNDS/WARRANT labels
+- Strip self-narration ("Okay, I need to...")
+- Detect unsupported percentages/costs/latencies (False Precision Guard)
+- Detect and remove duplicate paragraphs (fuzzy match)
+- Detect section overgrowth (logged for observability)
+
+### Why This Design
+
+| Problem | How DecisionRecord Fixes It |
+|---------|----------------------------|
+| Writer context overflow (18K+ tokens) | DecisionRecord is ~2K tokens |
+| Leaked thinking / `<think>` blocks | DecisionRecord contains no raw text; scrubber catches residual |
+| Toulmin labels in output | Builder extracts claims without labels; compiler writes natural prose |
+| Generic/verbose output | Compiler writes from structured decisions, not raw text |
+| False precision (invented percentages) | FalsePrecisionGuard catches and relabels |
+| Critic prompt bloat | 5 universal principles + dynamic rubric replaces 5 hardcoded layers |
 
 ### Research References
 
 | Paper | Key Contribution | How We Apply It |
 |---|---|---|
-| Toulmin zero-shot (ACL 2024, [Gupta et al.](https://aclanthology.org/2024.acl-long.552/)) | LLMs extract claim/grounds/warrant structure | Layer 4: argumentation completeness |
+| G-Eval (NeurIPS 2023) | LLM-based evaluation with generated criteria | Dynamic rubric generation |
+| RRD Rubric Refinement ([arxiv 2602.05125](https://arxiv.org/abs/2602.05125)) | Rubric decomposition + filtering | Improve rubric quality per-query |
 | LLM-Rubric (ACL 2024, [Microsoft](https://github.com/microsoft/LLM-Rubric)) | Multi-dimensional calibrated text evaluation | Multi-score evaluation framework |
-| Argument Quality Assessment ([arxiv 2403.16084](https://arxiv.org/abs/2403.16084)) | Instruction-following LLMs + argumentation theory | General-purpose quality rubric |
 | Selective Abstraction ([arxiv 2602.11908](https://arxiv.org/abs/2602.11908)) | Trade specificity for reliability when uncertain | Honest abstraction > fake commitment |
 | MetaFaith ([arxiv 2505.24858](https://arxiv.org/abs/2505.24858)) | Faithful uncertainty expression calibrated to knowledge | Uncertainty calibration scoring |
-| Hedge detection ([arxiv 2405.13319](https://arxiv.org/abs/2405.13319)) | Joint models for detecting hedging in text | Detect waffling language |
-| RRD Rubric Refinement ([arxiv 2602.05125](https://arxiv.org/abs/2602.05125)) | Rubric decomposition + filtering, +17.7 points accuracy | Improve rubric quality systematically |
-| CRAG ([arxiv 2401.15884](https://arxiv.org/abs/2401.15884)) | Confidence-triggered corrective web search | Factual grounding assessment per section |
+| CRAG ([arxiv 2401.15884](https://arxiv.org/abs/2401.15884)) | Confidence-triggered corrective web search | Factual grounding per section |
 
 ## Streaming Architecture
 

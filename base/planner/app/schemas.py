@@ -568,6 +568,11 @@ FAILURE_MODE_TAXONOMY = frozenset({
     "failed_prioritization",
     "format_miss",
     "genericity",
+    "leaked_reasoning",
+    "false_precision",
+    "architecture_theater",
+    "section_overgrowth",
+    "unsupported_specificity",
 })
 
 SCORE_WEIGHTS = {
@@ -653,9 +658,77 @@ class CriticOut(BaseModel):
     # Postmortem (max_iterations)
     carried_uncertainties_signal: dict[str, Any] | None = None
 
-    # --- Task-faithful evaluation (5-layer) ---
+    # --- Task-faithful evaluation ---
     task_reconstruction: TaskReconstruction | None = None
     requirement_coverage: list[RequirementCoverage] = Field(default_factory=list)
     failure_modes: list[str] = Field(default_factory=list)
     scores: CriticScores | None = None
     repair_instructions: list[RepairInstruction] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# DecisionRecord — structured intermediate artifact for writer isolation
+# ---------------------------------------------------------------------------
+
+
+class UserTask(BaseModel):
+    """Reconstructed user task used by both the critic and the DecisionRecord."""
+
+    main_question: str = ""
+    explicit_requirements: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    requested_format: str = ""
+    success_criteria: list[str] = Field(default_factory=list)
+
+
+class GroundedClaim(BaseModel):
+    """A single claim with its support status."""
+
+    claim: str
+    support_status: Literal["grounded", "inferred", "assumption", "unsupported"] = "inferred"
+    evidence_summary: str = ""
+
+
+class RiskItem(BaseModel):
+    """A risk with optional mitigation."""
+
+    risk: str
+    mitigation: str = ""
+
+
+class StyleContract(BaseModel):
+    """Output style constraints for the final answer compiler."""
+
+    direct_answer_first: bool = True
+    concise: bool = True
+    max_section_paragraphs: int = 3
+    citation_required: bool = False
+    verbosity_target: Literal["terse", "moderate", "thorough"] = "moderate"
+
+
+class DecisionRecord(BaseModel):
+    """Structured intermediate artifact — the ONLY input the FinalAnswerCompiler receives.
+
+    Creates a hard boundary between internal reasoning and user-facing output.
+    Size target: ~1500-2500 tokens of JSON (vs. 18K+ of raw section text).
+    """
+
+    user_task: UserTask = Field(default_factory=UserTask)
+    answer_strategy: dict[str, Any] = Field(default_factory=dict)
+    content_plan: dict[str, Any] = Field(default_factory=dict)
+    grounded_claims: list[GroundedClaim] = Field(default_factory=list)
+    assumptions: list[dict[str, Any]] = Field(default_factory=list)
+    uncertainties: list[dict[str, Any]] = Field(default_factory=list)
+    risks: list[RiskItem] = Field(default_factory=list)
+    repair_constraints: list[dict[str, Any]] = Field(default_factory=list)
+    style_contract: StyleContract = Field(default_factory=StyleContract)
+
+
+class FinalAnswerAudit(BaseModel):
+    """Post-scrubber audit trail attached to the response for observability."""
+
+    false_precision_count: int = 0
+    leaked_artifacts_stripped: int = 0
+    duplicate_paragraphs_removed: int = 0
+    overgrown_sections: list[str] = Field(default_factory=list)
+    scrubber_applied: bool = False

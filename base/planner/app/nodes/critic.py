@@ -33,6 +33,39 @@ from ..web_search import format_search_results, search_client
 
 logger = logging.getLogger("synesis.critic")
 
+
+def _build_taxonomy_hints(metadata: dict[str, Any], difficulty: float) -> str:
+    """Build taxonomy hints string for the critic's dynamic rubric generation.
+
+    TAXONOMY-AS-HINTS CONTRACT: These hints inform rubric generation — the
+    critic decides which are relevant to THIS user's question.  Adding a new
+    taxonomy domain does NOT require changing this function or the critic prompt.
+
+    Anti-patterns (do NOT do):
+    - Injecting required_elements as "MUST cover" mandates
+    - Adding domain-specific failure modes here
+    - Hardcoding Toulmin or other frameworks as conditional checks
+    """
+    domain = (metadata.get("path") or "General").strip()
+    complexity = float(metadata.get("complexity_score", 0.5))
+    required_elements = metadata.get("required_elements") or []
+    depth_instructions = (metadata.get("depth_instructions") or "").strip()
+    persona = (metadata.get("persona_instructions") or "").strip()
+
+    lines = [
+        f"Domain: {domain}",
+        f"Complexity: {complexity:.1f}",
+    ]
+    if required_elements:
+        lines.append(f"Typical elements for this domain: {', '.join(str(e) for e in required_elements)}")
+    if depth_instructions:
+        lines.append(f"Depth guidance: {depth_instructions}")
+    if persona:
+        lines.append(f"Tone/persona: {persona}")
+    lines.append(f"Difficulty: {difficulty:.2f}")
+    return "\n".join(lines)
+
+
 # ── Critic prompts: evidence-gated review ──
 # Hard tasks get full analysis; easy/medium get gentle review.
 _CRITIC_TRUST_POLICY = """
@@ -349,85 +382,46 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             not is_code_task and bool(taxonomy_metadata.get("required_elements"))
         )
         if is_document_taxonomy_path:
-            from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
+            # --- TAXONOMY-AS-HINTS CONTRACT ---
+            # Taxonomy metadata is domain context for rubric generation, NOT a
+            # mandatory checklist.  The critic generates per-query evaluation
+            # criteria using these hints + the reconstructed user task.
+            # Adding a new taxonomy domain does NOT require changing critic code.
+            taxonomy_hints = _build_taxonomy_hints(taxonomy_metadata, difficulty)
 
-            depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
-            required_elements = taxonomy_metadata.get("required_elements", [])
+            doc_system = f"""You are a quality reviewer. Evaluate whether the response satisfies the user's request.
 
-            # Sub-framework activation: Toulmin for recommendation-heavy tasks
-            _re_lower = " ".join(str(e).lower() for e in required_elements)
-            use_toulmin = any(kw in _re_lower for kw in ("choice", "strategy", "architecture", "decision", "recommendation", "tradeoff", "rationale"))
-            has_rag = bool(state.get("rag_context_refs") or state.get("rag_context"))
+UNIVERSAL PRINCIPLES (always check):
+1. Does the response answer the main question directly and early?
+2. Does it address each stated requirement?
+3. Is every specific claim either evidenced or labeled as an assumption?
+4. Is the scope proportional to stated constraints (timeline, budget, team size)?
+5. Could someone act on this answer as written?
 
-            toulmin_block = """
-LAYER 4 — REASONING SUPPORT (Toulmin — major claims only):
-For each MAJOR recommendation or decision, check:
-- CLAIM: Is the recommendation stated clearly?
-- GROUNDS: Does it cite evidence, data, or facts?
-- WARRANT: Is there reasoning linking grounds to claim?
-- QUALIFIER: Are scope limits or assumptions stated?
-- REBUTTAL: Is at least one rejected alternative named with reason?
-"X or Y" without resolution = uncommitted. 3+ uncommitted major decisions = BLOCKING.
-Hedging ("could", "might", "one option is") on decisions that should be committed = nonblocking unless the response states what info is missing.
-""" if use_toulmin else ""
+TASK-SPECIFIC EVALUATION:
+Given the user's task and domain context below, generate 3-5 specific evaluation criteria for THIS response. Then score each criterion 1-10.
 
-            evidence_block = """
-EVIDENCE GROUNDING CHECK:
-RAG context was provided. Verify the response uses retrieved evidence where relevant.
-Flag claims that could be grounded by the provided context but are not.
-""" if has_rag else ""
+Domain hints (use as context, not as mandatory checklist):
+{taxonomy_hints}
 
-            doc_system = f"""You are a task-faithful quality reviewer. Your job is to evaluate whether the response ANSWERS THE USER'S ACTUAL QUESTION and satisfies their requirements — not just whether it is well-written or well-structured.
-
-{depth_block}
-
-Evaluate in this PRIORITY ORDER:
-
-LAYER 1 — TASK FAITHFULNESS (highest priority, weight 0.25):
-First, reconstruct the user's task:
-- What is the main question or request?
-- What explicit outputs did the user list?
-- What constraints did the user state?
-- What would success look like (implied criteria)?
-Then check: Does the response directly answer the main question FIRST (not buried)? Did it address what was asked, or did it drift into a related but different topic? Did it choose when a choice was required? Did it follow the requested format, ordering, and scope?
-
-LAYER 2 — CONSTRAINT COMPLIANCE AND COVERAGE (weight 0.30):
-For each user requirement and taxonomy required_element, determine: met, partial, or missed.
-Required elements: {required_elements}
-Detect: ignored constraints, instruction drift, partial-answer failure, format or ordering misses, failure to address all required dimensions.
-approved=false if any CRITICAL requirement is missed entirely.
-
-LAYER 3 — JUDGMENT QUALITY (weight 0.15):
-- Is the recommendation sensible for the scenario?
-- Does it detect overconfidence in debatable cases?
-- Does it avoid shallow "essay-shaped" answers that describe but don't prioritize?
-- Does it optimize for the right thing (user's stated goal, not generic completeness)?
-- Are tradeoffs described AND resolved, not just listed?
-{toulmin_block}{evidence_block}
-LAYER 5 — COMMUNICATION QUALITY (weight 0.06 each for clarity + usefulness):
-- Directness: does it lead with the answer?
-- Conciseness: no filler, no repetition
-- Practical usefulness: could someone act on this?
-
-FAILURE MODE DETECTION:
-Flag any of these that apply: non_answer, partial_answer, instruction_drift, unsupported_claim, false_certainty, verbosity_inflation, buried_lead, failed_prioritization, format_miss, genericity.
-Critical failure modes (non_answer, partial_answer with 3+ missed requirements) → approved=false regardless of score.
-
-{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or missed requirements. Scoring can be generous." if is_lenient else ""}
-{f"PROPORTIONALITY CHECK: If difficulty < 0.4, flag sections that are over-engineered relative to the task complexity." if settings.crag_proportionality_enabled else ""}
+{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient — approve if roughly correct and helpful. Only block for factual errors or missed requirements." if is_lenient else ""}
+{f"PROPORTIONALITY: Flag sections that are over-engineered relative to the task complexity." if settings.crag_proportionality_enabled and difficulty < 0.4 else ""}
 
 CRAG ASSESSMENT: For each section, estimate factual grounding confidence (0.0-1.0). Below {settings.crag_web_trigger_threshold} → note in residual_risks as "CRAG:section_name:confidence".
 
-SCORING (1-10 scale for each):
-- task_faithfulness (0.25), constraint_compliance (0.15), coverage (0.15), judgment_quality (0.15), reasoning_support (0.10), uncertainty_calibration (0.08), clarity (0.06), usefulness (0.06)
-- Compute weighted_overall = sum(score * weight).
+FAILURE MODE VOCABULARY (use when flagging issues — pick from this list):
+non_answer, partial_answer, instruction_drift, unsupported_claim, false_certainty, verbosity_inflation, buried_lead, failed_prioritization, format_miss, genericity, leaked_reasoning, false_precision, architecture_theater, section_overgrowth, unsupported_specificity.
+Critical (non_answer, partial_answer with 3+ missed requirements) → approved=false.
 
-Reply with JSON containing ALL of these fields:
+SCORING (1-10 for each, compute weighted_overall):
+task_faithfulness (0.25), constraint_compliance (0.15), coverage (0.15), judgment_quality (0.15), reasoning_support (0.10), uncertainty_calibration (0.08), clarity (0.06), usefulness (0.06).
+
+Reply with JSON:
 - task_reconstruction: {{main_question, explicit_requirements[], constraints[], implied_success_criteria[]}}
 - requirement_coverage: [{{requirement, status: "met"|"partial"|"missed", evidence}}]
-- failure_modes: [] (from the fixed taxonomy above)
+- failure_modes: []
 - scores: {{task_faithfulness, constraint_compliance, coverage, judgment_quality, reasoning_support, uncertainty_calibration, clarity, usefulness, weighted_overall}}
-- repair_instructions: [{{priority: 1-5, target: "section or claim", action: "what to fix", reason: "why"}}]
+- repair_instructions: [{{priority: 1-5, target, action, reason}}]
 - overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks"""
 
             task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc

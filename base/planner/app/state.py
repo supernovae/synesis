@@ -188,10 +188,15 @@ class GraphState(TypedDict, total=False):
     reclassify_override: str  # /reclassify command target
     # Critic carried uncertainties (surfaced to user in respond)
     carried_uncertainties_signal: dict[str, Any]  # known unknowns from critic at max iterations
-    # Task-faithful critic outputs (5-layer evaluation)
+    # Task-faithful critic outputs
     repair_instructions: list[dict[str, Any]]  # structured repairs from critic, consumed by worker
     requirement_coverage: list[dict[str, Any]]  # per-requirement met/partial/missed
     failure_modes_detected: list[str]  # from critic failure mode taxonomy
+    # DecisionRecord pipeline (depth-mode: critic -> dr_builder -> compiler -> scrubber -> respond)
+    decision_record: dict[str, Any] | None  # structured intermediate artifact from DR builder
+    compiled_answer: str  # polished prose from FinalAnswerCompiler
+    scrubbed_answer: str  # post-scrubber cleaned output
+    final_answer_audit: dict[str, Any] | None  # FinalAnswerAudit from scrubber
 
 
 class SectionWorkerState(TypedDict, total=False):

@@ -30,6 +30,9 @@ from .nodes import (
     supervisor_node,
     worker_node,
 )
+from .nodes.decision_record_builder import decision_record_builder_node
+from .nodes.final_answer_compiler import final_answer_compiler_node
+from .nodes.final_scrubber import final_scrubber_node
 from .state import GraphState, NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.graph")
@@ -142,7 +145,7 @@ def route_after_supervisor(state: dict[str, Any]) -> str:
 
 
 def route_after_critic(state: dict[str, Any]) -> str:
-    """Respond unless need_more_evidence, CRAG correction needed, or (not approved & should_continue)."""
+    """Route after critic: DecisionRecord pipeline for approved depth-mode, else standard paths."""
     if state.get("error"):
         return "respond"
 
@@ -159,12 +162,16 @@ def route_after_critic(state: dict[str, Any]) -> str:
 
     iteration = state.get("iteration_count", 0)
     max_iter = state.get("max_iterations", settings.max_iterations)
-    if state.get("critic_approved", True) and not state.get("need_more_evidence"):
-        return "respond"
-    if iteration >= max_iter:
-        return "respond"
-    need_evidence = state.get("need_more_evidence", False)
+
     approved = state.get("critic_approved", True)
+    need_evidence = state.get("need_more_evidence", False)
+
+    if (approved and not need_evidence) or iteration >= max_iter:
+        # Depth-mode approved: route through DecisionRecord pipeline
+        if state.get("depth_mode"):
+            return "decision_record_builder"
+        return "respond"
+
     should_continue = state.get("critic_should_continue", False)
     if need_evidence:
         return "supervisor"
@@ -454,6 +461,19 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": "respond",
         }
 
+    # DecisionRecord pipeline: if scrubbed_answer is available, use it directly
+    scrubbed = state.get("scrubbed_answer", "")
+    if scrubbed and state.get("depth_mode"):
+        content = scrubbed
+        logger.info(
+            "respond_using_scrubbed_answer",
+            extra={"len": len(content), "depth_mode": True},
+        )
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
     parts: list[str] = []
     if error:
         content = f"I encountered an issue while processing your request: {error}"
@@ -687,9 +707,9 @@ async def corrective_web_node(state: dict[str, Any]) -> dict[str, Any]:
 async def merge_sections_node(state: dict[str, Any]) -> dict[str, Any]:
     """Assemble parallel section results into a unified response.
 
-    Orders sections by section_id, concatenates with heading separators,
-    and feeds the assembled content through the writer pass for synthesis.
-    This is the "Reduce" phase of the Skeleton-of-Thought map-reduce pattern.
+    Orders sections by section_id, concatenates with heading separators.
+    The DecisionRecord pipeline (dr_builder -> compiler -> scrubber) handles
+    synthesis and polish for depth-mode; no writer pass here.
     """
     section_results = state.get("section_results") or []
     if not section_results:
@@ -718,9 +738,6 @@ async def merge_sections_node(state: dict[str, Any]) -> dict[str, Any]:
             web_count += 1
 
     assembled = "\n\n---\n\n".join(parts)
-
-    # Writer pass: synthesis and polish
-    assembled = await _writer_pass(assembled, state)
 
     logger.info(
         "merge_sections_complete",
@@ -754,6 +771,9 @@ graph_builder.add_node("critic", with_debug_node_timing(with_timeout(timeout)(cr
 graph_builder.add_node("section_worker", with_debug_node_timing(section_worker_node))
 graph_builder.add_node("merge_sections", with_debug_node_timing(merge_sections_node))
 graph_builder.add_node("corrective_web", with_debug_node_timing(corrective_web_node))
+graph_builder.add_node("decision_record_builder", with_debug_node_timing(with_timeout(timeout)(decision_record_builder_node)))
+graph_builder.add_node("final_answer_compiler", with_debug_node_timing(with_timeout(timeout)(final_answer_compiler_node)))
+graph_builder.add_node("final_scrubber", with_debug_node_timing(final_scrubber_node))
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
 graph_builder.set_entry_point("entry_classifier")
@@ -886,8 +906,21 @@ graph_builder.add_conditional_edges(
         "critic": "critic",
     },
 )
-graph_builder.add_conditional_edges("critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor", "corrective_web": "corrective_web"})
+graph_builder.add_conditional_edges(
+    "critic",
+    route_after_critic,
+    {
+        "respond": "respond",
+        "supervisor": "supervisor",
+        "corrective_web": "corrective_web",
+        "decision_record_builder": "decision_record_builder",
+    },
+)
 graph_builder.add_edge("corrective_web", "respond")
+# DecisionRecord pipeline: dr_builder -> compiler -> scrubber -> respond
+graph_builder.add_edge("decision_record_builder", "final_answer_compiler")
+graph_builder.add_edge("final_answer_compiler", "final_scrubber")
+graph_builder.add_edge("final_scrubber", "respond")
 graph_builder.add_edge("respond", END)
 
 graph = graph_builder.compile()

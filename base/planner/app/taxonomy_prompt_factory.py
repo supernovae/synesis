@@ -302,7 +302,11 @@ def get_intent_critic_block(intent_class: str) -> str:
 
 
 def get_critic_depth_prompt_block(metadata: dict[str, Any]) -> str:
-    """Return prompt block for Critic science-depth validation. Taxonomy-aware."""
+    """DEPRECATED: Replaced by taxonomy-as-hints in critic._build_taxonomy_hints().
+
+    Retained for backward compatibility only. The critic now uses Universal
+    Principles + Dynamic Rubric instead of hardcoded depth checks.
+    """
     if not metadata:
         return ""
     complexity = float(metadata.get("complexity_score", 0.5))
