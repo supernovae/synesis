@@ -27,7 +27,7 @@ from ..config import settings
 from ..injection_scanner import reduce_context_on_injection, scan_text
 from ..llm_telemetry import get_llm_http_client
 from ..state import NodeOutcome, NodeTrace
-from ..web_search import format_search_results, search_client
+from ..web_search import format_search_results, search_and_process
 
 logger = logging.getLogger("synesis.worker")
 
@@ -648,7 +648,7 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             error_msg = _extract_error_for_search(execution_result)
             if error_msg:
                 search_query = f"{error_msg} {target_lang}"
-                results = await search_client.search(search_query, profile="code")
+                results = await search_and_process(search_query, profile="code", fetch_pages=True)
                 new_results = format_search_results(results)
                 if new_results:
                     web_search_results = list(web_search_results) + new_results

@@ -409,6 +409,7 @@ NODE_STATUS_MESSAGES: dict[str, str] = {
     "worker": "Generating code…",
     "section_worker": "Generating section…",
     "merge_sections": "Assembling sections…",
+    "corrective_web": "Verifying sources…",
     "patch_integrity_gate": "Validating code…",
     "critic": "Reviewing…",
     "respond": "Finishing…",
@@ -437,6 +438,7 @@ _STATUS_KNOWLEDGE: dict[str, str] = {
     "worker": "Generating response…",
     "section_worker": "Generating section…",
     "merge_sections": "Assembling sections…",
+    "corrective_web": "Verifying sources…",
     "critic": "Reviewing quality…",
 }
 
@@ -944,6 +946,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "worker",
                     "section_worker",
                     "merge_sections",
+                    "corrective_web",
                     "patch_integrity_gate",
                     "critic",
                     "respond",

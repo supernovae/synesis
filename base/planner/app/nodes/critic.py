@@ -441,6 +441,7 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                     "critic_should_continue": not doc_approved,
                     "critic_continue_reason": "needs_depth_revision" if not doc_approved else None,
                     "residual_risks": getattr(doc_parsed, "residual_risks", []) or [],
+                    "crag_triggers": crag_triggers,
                     "current_node": node_name,
                     "next_node": doc_next,
                     "generated_code": state.get("generated_code", ""),

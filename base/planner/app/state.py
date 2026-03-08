@@ -172,6 +172,12 @@ class GraphState(TypedDict, total=False):
     # Depth mode: parallel per-section generation (Skeleton-of-Thought pattern)
     depth_mode: bool  # True when parallel section generation is active for this request
     section_results: Annotated[list[dict[str, Any]], _merge_section_results]  # outputs from section_worker fan-out
+    # CRAG corrective loop (arxiv 2401.15884): critic flags low-confidence sections
+    crag_triggers: list[str]  # e.g. ["CRAG:retrieval_design:0.4"] — sections needing web augmentation
+    crag_correction_done: bool  # guard against infinite corrective loops (one pass max)
+    # Always-plan routing
+    plan_required: bool
+    task_is_trivial: bool
 
 
 class SectionWorkerState(TypedDict, total=False):

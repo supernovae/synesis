@@ -296,11 +296,25 @@ Difficulty (0.0-1.0) drives all budget decisions continuously:
 
 The critic evaluates each section and estimates factual grounding confidence.
 When confidence is below `crag_web_trigger_threshold` (default: 0.6), the
-section is flagged for corrective web search in `residual_risks` as
-`CRAG:section_name:confidence`. This enables future iterative correction.
+section is flagged as `CRAG:section_name:confidence` and written to
+`crag_triggers` in the graph state.
+
+After the critic runs, `route_after_critic` checks for CRAG triggers. If
+triggers exist, the request hasn't already had a corrective pass
+(`crag_correction_done` is false), and web budget remains, the graph routes
+to the `corrective_web` node. This node:
+
+1. Parses each trigger to extract section name and confidence score
+2. Sorts flagged sections by confidence (lowest first)
+3. Runs `search_and_process()` for each section (capped by `scaled_web_budget`)
+4. Appends fetched web evidence as supplementary context to `generated_code`
+5. Sets `crag_correction_done = True` to prevent infinite loops
+
+The corrective pass is limited to **one iteration** — if the result is still
+weak after augmentation, it proceeds to the writer/respond node as-is.
 
 RAG always runs per section (provenance and citation value regardless of
-complexity). Web search is budget-gated: total queries capped by
+complexity). Proactive web search is budget-gated: total queries capped by
 `difficulty * crag_max_web_queries`.
 
 ### Why Per-Section RAG Matters

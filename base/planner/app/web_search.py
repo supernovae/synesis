@@ -406,42 +406,6 @@ def format_search_results(results: list[SearchResult]) -> list[str]:
     return formatted
 
 
-def format_search_results_budgeted(
-    results: list[SearchResult],
-    token_budget: int = 1500,
-) -> list[str]:
-    """Token-aware formatting: allocate budget proportional to relevance score.
-
-    Higher-relevance results get more of the token budget.
-    Uses ~4 chars/token as a rough approximation.
-    """
-    if not results:
-        return []
-
-    chars_budget = token_budget * 4
-    total_relevance = sum(r.relevance for r in results) or 1.0
-
-    formatted = []
-    chars_used = 0
-    for r in results:
-        if chars_used >= chars_budget:
-            break
-        share = max(200, int(chars_budget * (r.relevance / total_relevance)))
-        remaining = chars_budget - chars_used
-        allowed = min(share, remaining)
-
-        body = r.fetched_content.strip() if r.fetched_content else ""
-        if not body:
-            body = r.snippet.replace("\n", " ").strip()
-        body = body[:allowed]
-
-        entry = f"[{r.title}]({r.url}): {body}" if body else f"[{r.title}]({r.url})"
-        formatted.append(entry)
-        chars_used += len(entry)
-
-    return formatted
-
-
 async def search_and_process(
     query: str,
     profile: str = "web",

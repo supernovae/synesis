@@ -141,9 +141,21 @@ def route_after_supervisor(state: dict[str, Any]) -> str:
 
 
 def route_after_critic(state: dict[str, Any]) -> str:
-    """Respond unless need_more_evidence or (not approved & should_continue)."""
+    """Respond unless need_more_evidence, CRAG correction needed, or (not approved & should_continue)."""
     if state.get("error"):
         return "respond"
+
+    # CRAG corrective loop: if critic flagged low-confidence sections and
+    # we haven't already done a corrective pass, route to corrective_web.
+    crag_triggers = state.get("crag_triggers") or []
+    if (
+        crag_triggers
+        and not state.get("crag_correction_done")
+        and state.get("depth_mode")
+        and settings.scaled_web_budget(state.get("difficulty", 0.5)) > 0
+    ):
+        return "corrective_web"
+
     iteration = state.get("iteration_count", 0)
     max_iter = state.get("max_iterations", settings.max_iterations)
     if state.get("critic_approved", True) and not state.get("need_more_evidence"):
@@ -564,6 +576,86 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def corrective_web_node(state: dict[str, Any]) -> dict[str, Any]:
+    """CRAG corrective web search: fetch grounding evidence for low-confidence sections.
+
+    Triggered when the critic flags sections via CRAG:section_name:confidence
+    entries in residual_risks. Runs web search for each flagged section (budget-gated),
+    appends the results as supplementary context to generated_code, and sets
+    crag_correction_done to prevent infinite loops.
+
+    Research basis: CRAG (arxiv 2401.15884) — confidence-triggered corrective retrieval.
+    """
+    from .web_search import format_search_results, search_and_process
+
+    crag_triggers = state.get("crag_triggers") or []
+    difficulty = state.get("difficulty", 0.5)
+    web_budget = settings.scaled_web_budget(difficulty)
+
+    if not crag_triggers or web_budget <= 0:
+        return {"crag_correction_done": True, "current_node": "corrective_web"}
+
+    parsed: list[tuple[str, float]] = []
+    for trigger in crag_triggers:
+        parts = trigger.split(":")
+        if len(parts) >= 3:
+            section_name = parts[1]
+            try:
+                confidence = float(parts[2])
+            except (ValueError, IndexError):
+                confidence = 0.0
+            parsed.append((section_name, confidence))
+
+    parsed.sort(key=lambda x: x[1])
+    queries_to_run = parsed[:web_budget]
+
+    supplementary_blocks: list[str] = []
+    for section_name, confidence in queries_to_run:
+        try:
+            results = await search_and_process(
+                f"{section_name} best practices evidence",
+                profile="web",
+                fetch_pages=True,
+            )
+            if results:
+                formatted = format_search_results(results[:3])
+                block = (
+                    f"\n\n## Corrective Web Evidence: {section_name}\n"
+                    f"(Critic confidence: {confidence:.2f} — web search triggered)\n\n"
+                    + "\n".join(formatted)
+                )
+                supplementary_blocks.append(block)
+                logger.info(
+                    "crag_corrective_search",
+                    extra={
+                        "section": section_name,
+                        "confidence": round(confidence, 2),
+                        "results": len(results),
+                    },
+                )
+        except Exception:
+            logger.warning("crag_corrective_search_failed", extra={"section": section_name}, exc_info=True)
+
+    result: dict[str, Any] = {
+        "crag_correction_done": True,
+        "current_node": "corrective_web",
+    }
+
+    if supplementary_blocks:
+        existing = state.get("generated_code", "")
+        augmented = existing + "\n\n---\n\n# Additional Evidence (CRAG)\n" + "\n".join(supplementary_blocks)
+        result["generated_code"] = augmented
+        logger.info(
+            "crag_corrective_complete",
+            extra={
+                "sections_augmented": len(supplementary_blocks),
+                "total_triggers": len(crag_triggers),
+            },
+        )
+
+    return result
+
+
 async def merge_sections_node(state: dict[str, Any]) -> dict[str, Any]:
     """Assemble parallel section results into a unified response.
 
@@ -631,6 +723,7 @@ graph_builder.add_node("patch_integrity_gate", with_debug_node_timing(patch_inte
 graph_builder.add_node("critic", with_debug_node_timing(with_timeout(timeout)(critic_node)))
 graph_builder.add_node("section_worker", with_debug_node_timing(section_worker_node))
 graph_builder.add_node("merge_sections", with_debug_node_timing(merge_sections_node))
+graph_builder.add_node("corrective_web", with_debug_node_timing(corrective_web_node))
 graph_builder.add_node("respond", with_debug_node_timing(respond_node))
 
 graph_builder.set_entry_point("entry_classifier")
@@ -764,7 +857,8 @@ graph_builder.add_conditional_edges(
         "critic": "critic",
     },
 )
-graph_builder.add_conditional_edges("critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor"})
+graph_builder.add_conditional_edges("critic", route_after_critic, {"respond": "respond", "supervisor": "supervisor", "corrective_web": "corrective_web"})
+graph_builder.add_edge("corrective_web", "respond")
 graph_builder.add_edge("respond", END)
 
 graph = graph_builder.compile()
