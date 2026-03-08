@@ -91,10 +91,10 @@ DEPTH RULES — this is a detailed analysis, not a summary:
 - The planner outlined sections based on the user's explicit requests. Cover EVERY section. Do not merge or skip any.
 - If the user asked for specific sections or structure, follow their outline exactly.
 
-ARGUMENTATION RULES (Toulmin Model — applies to all domains):
-- Every major claim or decision needs: CLAIM (what), GROUNDS (evidence), WARRANT (why the evidence supports this), and REBUTTAL (one rejected alternative with reason).
-- A claim without a warrant is an opinion. A decision without a rebuttal is not a decision.
-- Do NOT list "X or Y" alternatives without recommending one. If you name a technology, state why it beats alternatives for this specific use case.
+DECISION QUALITY (internal checklist — do NOT output these labels):
+- For every major claim or recommendation: state your choice, explain why with evidence, name one rejected alternative with justification.
+- Do NOT list "X or Y" alternatives without recommending one. Pick one, explain why.
+- Do NOT output lines starting with "CLAIM:", "GROUNDS:", "WARRANT:", "REBUTTAL:", or "QUALIFIER:". Write natural prose that embeds these elements without scaffolding labels.
 - Be specific: name tools, versions, and quantities. Avoid abstract categories.
 - When discussing model sizes, infrastructure, or cost, explain the tiering rationale: what each tier handles, why roles are separated, and when to escalate between tiers.
 
@@ -594,12 +594,24 @@ async def worker_node(state: dict[str, Any]) -> dict[str, Any]:
             )
 
         revision_note = ""
-        if iteration > 0 and critic_feedback:
-            revision_note = (
-                f"\n\n## Revision Required (iteration {iteration})\n"
-                f"The safety critic flagged these concerns:\n{critic_feedback}\n"
-                f"Address each concern in your revised code."
-            )
+        if iteration > 0:
+            repair_instructions = state.get("repair_instructions") or []
+            if repair_instructions:
+                repairs = "\n".join(
+                    f"{i + 1}. [{r.get('target', '?')}] {r.get('action', '')} — {r.get('reason', '')}"
+                    for i, r in enumerate(repair_instructions[:5])
+                )
+                revision_note = (
+                    f"\n\n## Required Repairs (iteration {iteration}, priority order)\n"
+                    f"{repairs}\n"
+                    f"Address each repair. Do NOT re-explain what was already correct."
+                )
+            elif critic_feedback:
+                revision_note = (
+                    f"\n\n## Revision Required (iteration {iteration})\n"
+                    f"The quality reviewer flagged these concerns:\n{critic_feedback}\n"
+                    f"Address each concern in your revised response."
+                )
         # Patch Integrity Gate failure (before sandbox) - no iteration increment
         integrity_feedback = ""
         if state.get("integrity_failure_reason"):

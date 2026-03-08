@@ -353,55 +353,114 @@ to avoid GPU memory pressure.
 | A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
 | SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
 
-## Toulmin Argumentation Model
+## Task-Faithful Critic (5-Layer Evaluation)
 
-The critic, section_worker, and planner use the **Toulmin Model of Argumentation**
-(ACL 2024) as a domain-agnostic quality rubric. This generalizes beyond any
-specific prompt — it works for architecture designs, training plans, explanations,
-or any complex response.
+The critic uses a **task-faithful evaluation architecture** that prioritizes whether
+the response answers the user's actual question over whether it is well-structured
+or rhetorically polished. The Toulmin Model of Argumentation is retained as a
+subcomponent (Layer 4) for recommendation-heavy responses.
 
-### Toulmin Components
+### Evaluation Layers (Priority Order)
 
-Every major claim or decision in a response should have:
+| Layer | Name | Weight | What It Checks |
+|---|---|---|---|
+| 1 | **Task Faithfulness** | 0.25 | Does the response answer the main question? Does it choose when asked to choose? Does it follow requested format/scope? |
+| 2 | **Constraint Compliance + Coverage** | 0.30 | Per-requirement map (met/partial/missed). Detects ignored constraints, instruction drift, partial answers. |
+| 3 | **Judgment Quality** | 0.15 | Sensible recommendations, no overconfidence, tradeoffs resolved not just listed, no buried lead. |
+| 4 | **Reasoning Support (Toulmin)** | 0.10 | Selective: major claims need grounds, warrant, rebuttal. 3+ uncommitted "X or Y" decisions = BLOCKING. |
+| 5 | **Communication Quality** | 0.12 | Directness, clarity, conciseness, practical usefulness. |
+
+### Task Reconstruction (Layer 1)
+
+Before evaluating the response, the critic reconstructs the user's task:
+- **main_question**: The primary ask
+- **explicit_requirements**: Listed deliverables or outputs
+- **constraints**: Stated limits (timeline, budget, team size, etc.)
+- **implied_success_criteria**: What success looks like
+
+This reconstruction anchors all subsequent evaluation. The response is scored
+against what the user asked, not against a generic quality checklist.
+
+### Requirement Coverage Map (Layer 2)
+
+Each explicit requirement and taxonomy `required_element` is mapped to:
+- **met**: Fully addressed with substance
+- **partial**: Mentioned but shallow or incomplete
+- **missed**: Not addressed at all
+
+3+ missed requirements triggers the `partial_answer` critical failure mode.
+
+### Failure Mode Taxonomy
+
+The critic detects these failure modes (fixed taxonomy):
+
+| Mode | Description | Severity |
+|---|---|---|
+| `non_answer` | Response doesn't answer the actual question | CRITICAL |
+| `partial_answer` | Multiple requirements missed | CRITICAL (3+) |
+| `instruction_drift` | Drifts to related but different topic | HIGH |
+| `unsupported_claim` | Major claims without evidence | MEDIUM |
+| `false_certainty` | Overconfident on debatable topics | MEDIUM |
+| `verbosity_inflation` | Filler, repetition, unnecessary scope | LOW |
+| `buried_lead` | Answer buried under preamble | MEDIUM |
+| `failed_prioritization` | Describes but doesn't prioritize | MEDIUM |
+| `format_miss` | Didn't follow requested format/ordering | MEDIUM |
+| `genericity` | Generic template instead of specific answer | HIGH |
+
+### Score-Based Approval
+
+Instead of binary approved/not-approved, the critic produces weighted scores (0-10):
+
+- `weighted_overall >= 7.0` and no critical failure modes → **approved**
+- `weighted_overall >= 5.0` with repair instructions → **approved with suggestions**
+- `weighted_overall < 5.0` or critical failure modes → **rejected**, retry with repairs
+
+Config: `critic_approval_threshold` (default 7.0), `critic_retry_threshold` (default 5.0).
+
+### Structured Repair Instructions
+
+When the critic rejects, it produces prioritized repair instructions:
+
+```json
+{"priority": 1, "target": "Model Strategy section", "action": "Choose one model per tier, reject alternatives", "reason": "User asked for concrete choices"}
+```
+
+The worker consumes these as a numbered list instead of free-text feedback,
+enabling targeted revision instead of wholesale rewrite.
+
+### Sub-Framework Activation
+
+| Sub-Framework | Activates When | Purpose |
+|---|---|---|
+| Toulmin (Layer 4) | `required_elements` contain "choice", "strategy", "architecture" | Evaluate argument structure of recommendations |
+| Evidence grounding | RAG context was provided | Verify response uses retrieved evidence |
+| Format compliance | User specified output format | Check structural compliance |
+| Code checks | `is_code_task` | Evidence-gated code review (unchanged) |
+
+### Toulmin Components (Layer 4 Detail)
+
+When activated, Toulmin checks major claims for:
 
 | Component | What it means | If missing |
 |---|---|---|
 | **Claim** | The assertion or recommendation | No position taken |
 | **Grounds** | Evidence, facts, or data supporting it | Unsupported assertion |
-| **Warrant** | Reasoning linking grounds to claim ("because...") | Incomplete argument |
+| **Warrant** | Reasoning linking grounds to claim | Incomplete argument |
 | **Qualifier** | Scope limits, conditions, assumptions | Overconfident claim |
 | **Rebuttal** | Rejected alternative with reason | Uncommitted choice |
 
-### How It's Applied
-
-- **Section worker** base prompt instructs the model to produce Toulmin-structured claims
-- **Critic** evaluates each major claim for completeness: grounds, warrant, rebuttal
-- **Blocking rule**: 3+ major decisions with "X or Y" hedging without resolution = BLOCKING
-- **Scaling**: Low-difficulty tasks get lenient Toulmin evaluation; high-difficulty get strict
-
-### Why This Matters
-
-The Toulmin model catches quality problems that domain-specific checklists miss:
-- "FAISS or Weaviate" in an architecture prompt → missing rebuttal (uncommitted)
-- "Run 3 or 4 days" in a training plan → missing rebuttal (uncommitted)
-- "Use spot instances" without why → missing warrant (unjustified)
-- "Confidence > 75%" without signal decomposition → missing grounds (unsupported)
-
-All detected by the same rubric, no domain knowledge needed.
-
-### Research References (Argumentation Quality)
+### Research References
 
 | Paper | Key Contribution | How We Apply It |
 |---|---|---|
-| Toulmin zero-shot (ACL 2024, [Gupta et al.](https://aclanthology.org/2024.acl-long.552/)) | LLMs extract claim/grounds/warrant structure | Critic evaluates argumentation completeness |
-| Argument Quality Assessment ([arxiv 2403.16084](https://arxiv.org/abs/2403.16084)) | Instruction-following LLMs + argumentation theory | Framework for general-purpose quality rubric |
-| LLM-Rubric (ACL 2024, [Microsoft](https://github.com/microsoft/LLM-Rubric)) | Multi-dimensional calibrated text evaluation | Dimension-based quality scoring |
+| Toulmin zero-shot (ACL 2024, [Gupta et al.](https://aclanthology.org/2024.acl-long.552/)) | LLMs extract claim/grounds/warrant structure | Layer 4: argumentation completeness |
+| LLM-Rubric (ACL 2024, [Microsoft](https://github.com/microsoft/LLM-Rubric)) | Multi-dimensional calibrated text evaluation | Multi-score evaluation framework |
+| Argument Quality Assessment ([arxiv 2403.16084](https://arxiv.org/abs/2403.16084)) | Instruction-following LLMs + argumentation theory | General-purpose quality rubric |
 | Selective Abstraction ([arxiv 2602.11908](https://arxiv.org/abs/2602.11908)) | Trade specificity for reliability when uncertain | Honest abstraction > fake commitment |
-| MetaFaith ([arxiv 2505.24858](https://arxiv.org/abs/2505.24858)) | Faithful uncertainty expression calibrated to knowledge | Model expresses uncertainty honestly |
-| Hedge detection ([arxiv 2405.13319](https://arxiv.org/abs/2405.13319)) | Joint models for detecting hedging in text | Detect waffling language programmatically |
-| ArgLLMs ([arxiv 2405.02079](https://arxiv.org/abs/2405.02079)) | Formal argumentation for explainable LLM outputs | Contestable, structured reasoning |
-| Critical questions for LLM reasoning ([arxiv 2412.15177](https://arxiv.org/abs/2412.15177)) | Toulmin critical questions improve reasoning accuracy | Probe quality of model's own reasoning |
+| MetaFaith ([arxiv 2505.24858](https://arxiv.org/abs/2505.24858)) | Faithful uncertainty expression calibrated to knowledge | Uncertainty calibration scoring |
+| Hedge detection ([arxiv 2405.13319](https://arxiv.org/abs/2405.13319)) | Joint models for detecting hedging in text | Detect waffling language |
 | RRD Rubric Refinement ([arxiv 2602.05125](https://arxiv.org/abs/2602.05125)) | Rubric decomposition + filtering, +17.7 points accuracy | Improve rubric quality systematically |
+| CRAG ([arxiv 2401.15884](https://arxiv.org/abs/2401.15884)) | Confidence-triggered corrective web search | Factual grounding assessment per section |
 
 ## Streaming Architecture
 

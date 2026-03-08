@@ -218,6 +218,8 @@ class Settings(BaseSettings):
     # Critic scaling by difficulty
     critic_skip_below_difficulty: float = 0.15  # skip critic entirely for trivial tasks
     critic_lenient_below_difficulty: float = 0.4  # lenient critic (fast rubber-stamp) below this
+    critic_approval_threshold: float = 7.0  # weighted_overall score for auto-approval
+    critic_retry_threshold: float = 5.0  # below this, reject and retry with repair instructions
 
     # Graph behavior
     max_iterations: int = 3

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from functools import wraps
 from typing import Any
 
@@ -181,12 +182,38 @@ def _get_resolved_rag_context(state: dict[str, Any]) -> list[str]:
     return get_resolved_rag_context(state)
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_TOULMIN_LABEL_RE = re.compile(r"^(CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:", re.MULTILINE)
+_SELF_NARRATION_RE = re.compile(
+    r"^(Okay,? (?:I need|let me|let's)|Let me (?:start|think|tackle)|"
+    r"I think |I should |Wait, |Hmm,? |Now,? I need |"
+    r"Putting it all together|I need to ).*?(?:\n\n|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+
+def _clean_section_artifacts(text: str) -> str:
+    """Strip model thinking blocks, Toulmin scaffolding labels, and self-narration."""
+    text = _THINK_RE.sub("", text)
+    text = _TOULMIN_LABEL_RE.sub("", text)
+    text = _SELF_NARRATION_RE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 _WRITER_SYSTEM = (
     "You are the Writer for Synesis. You receive assembled sections from "
     "specialist nodes (code, explanation, safety analysis, suggestions). "
     "Your job is to synthesize these into a single, coherent, well-structured "
     "response. Do not add information — only improve flow, tone, and structure. "
-    "Preserve all code blocks and markdown formatting verbatim."
+    "Preserve all code blocks and markdown formatting verbatim.\n\n"
+    "CRITICAL CLEANUP RULES:\n"
+    "- REMOVE any <think>...</think> blocks or model reasoning artifacts.\n"
+    "- REMOVE any lines starting with 'CLAIM:', 'GROUNDS:', 'WARRANT:', 'REBUTTAL:', 'QUALIFIER:'.\n"
+    "  These are internal scaffolding, not user-facing prose. The underlying reasoning should "
+    "  already be embedded naturally in the text — just remove the labels.\n"
+    "- REMOVE any 'Okay, I need to...' or 'Let me think about...' self-narration.\n"
+    "- The output must read as polished professional prose, not internal notes."
 )
 
 
@@ -233,6 +260,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             max_completion_tokens=writer_budget,
             streaming=False,
             use_responses_api=False,
+            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
             http_client=get_llm_http_client(),
         )
 
@@ -257,7 +285,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
                 HumanMessage(content=f"{instruction}\n\n{content}"),
             ]
         )
-        polished = result.content.strip()
+        polished = _clean_section_artifacts(result.content.strip())
         if polished and len(polished) > len(content) * 0.5:
             logger.info("writer_pass applied, original=%d polished=%d", len(content), len(polished))
             return polished
@@ -679,6 +707,8 @@ async def merge_sections_node(state: dict[str, Any]) -> dict[str, Any]:
     web_count = 0
     for sec in ordered:
         text = sec.get("text", "").strip()
+        if text:
+            text = _clean_section_artifacts(text)
         if text:
             parts.append(text)
         total_latency += sec.get("latency_ms", 0)

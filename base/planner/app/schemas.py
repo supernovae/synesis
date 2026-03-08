@@ -554,28 +554,92 @@ class BlockingIssue(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Critic output schema
+# Critic output schema — 5-layer task-faithful evaluation
 # ---------------------------------------------------------------------------
+
+FAILURE_MODE_TAXONOMY = frozenset({
+    "non_answer",
+    "partial_answer",
+    "instruction_drift",
+    "unsupported_claim",
+    "false_certainty",
+    "verbosity_inflation",
+    "buried_lead",
+    "failed_prioritization",
+    "format_miss",
+    "genericity",
+})
+
+SCORE_WEIGHTS = {
+    "task_faithfulness": 0.25,
+    "constraint_compliance": 0.15,
+    "coverage": 0.15,
+    "judgment_quality": 0.15,
+    "reasoning_support": 0.10,
+    "uncertainty_calibration": 0.08,
+    "clarity": 0.06,
+    "usefulness": 0.06,
+}
+
+
+class TaskReconstruction(BaseModel):
+    """Layer 1: Critic's reconstruction of the user's actual task."""
+
+    main_question: str = ""
+    explicit_requirements: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    implied_success_criteria: list[str] = Field(default_factory=list)
+
+
+class RequirementCoverage(BaseModel):
+    """Layer 2: Per-requirement coverage status."""
+
+    requirement: str
+    status: Literal["met", "partial", "missed"]
+    evidence: str = ""
+
+
+class CriticScores(BaseModel):
+    """Weighted multi-dimensional scores (0-10 scale)."""
+
+    task_faithfulness: float = Field(ge=0, le=10, default=5.0)
+    constraint_compliance: float = Field(ge=0, le=10, default=5.0)
+    coverage: float = Field(ge=0, le=10, default=5.0)
+    judgment_quality: float = Field(ge=0, le=10, default=5.0)
+    reasoning_support: float = Field(ge=0, le=10, default=5.0)
+    uncertainty_calibration: float = Field(ge=0, le=10, default=5.0)
+    clarity: float = Field(ge=0, le=10, default=5.0)
+    usefulness: float = Field(ge=0, le=10, default=5.0)
+    weighted_overall: float = Field(ge=0, le=10, default=5.0)
+
+
+class RepairInstruction(BaseModel):
+    """Concrete, prioritized repair for the generator."""
+
+    priority: int = 1
+    target: str = ""
+    action: str = ""
+    reason: str = ""
 
 
 class CriticOut(BaseModel):
-    """Validated output from the Critic node. Pointer-only evidence for token efficiency."""
+    """Validated output from the Critic node. 5-layer task-faithful evaluation."""
 
     what_if_analyses: list[dict[str, Any]] = Field(default_factory=list)
     overall_assessment: str = ""
     approved: bool = True
     revision_feedback: str = ""
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
-    reasoning: str = ""  # Limit to 2 sentences per blocking issue; EvidenceRef does heavy lifting
+    reasoning: str = ""
 
     # Stop condition (separate from approved)
     should_continue: bool = False
-    continue_reason: str | None = None  # "needs_evidence" | "needs_revision" | "blocked_external"
+    continue_reason: str | None = None
 
     # Evidence gate
     need_more_evidence: bool = False
     evidence_gap: str | None = None
-    route_to: str | None = None  # "lsp" | "worker" | "respond"
+    route_to: str | None = None
     evidence_needed: dict[str, Any] | None = None
 
     # Structured evidence: pointer-only; UI hydrates from hash
@@ -583,8 +647,15 @@ class CriticOut(BaseModel):
     nonblocking: list[dict[str, Any]] = Field(default_factory=list)
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
-    # Sandbox escalation: critic requests sandbox verification for risky code
+    # Sandbox escalation
     needs_testing: bool = False
 
-    # Postmortem (max_iterations): weak signal for system brittleness aggregation
-    carried_uncertainties_signal: dict[str, Any] | None = None  # known unknowns surfaced to user
+    # Postmortem (max_iterations)
+    carried_uncertainties_signal: dict[str, Any] | None = None
+
+    # --- Task-faithful evaluation (5-layer) ---
+    task_reconstruction: TaskReconstruction | None = None
+    requirement_coverage: list[RequirementCoverage] = Field(default_factory=list)
+    failure_modes: list[str] = Field(default_factory=list)
+    scores: CriticScores | None = None
+    repair_instructions: list[RepairInstruction] = Field(default_factory=list)

@@ -352,58 +352,90 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
 
             depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
-            doc_system = f"""You are a rigorous quality reviewer using the Toulmin Model of Argumentation.
+            required_elements = taxonomy_metadata.get("required_elements", [])
+
+            # Sub-framework activation: Toulmin for recommendation-heavy tasks
+            _re_lower = " ".join(str(e).lower() for e in required_elements)
+            use_toulmin = any(kw in _re_lower for kw in ("choice", "strategy", "architecture", "decision", "recommendation", "tradeoff", "rationale"))
+            has_rag = bool(state.get("rag_context_refs") or state.get("rag_context"))
+
+            toulmin_block = """
+LAYER 4 — REASONING SUPPORT (Toulmin — major claims only):
+For each MAJOR recommendation or decision, check:
+- CLAIM: Is the recommendation stated clearly?
+- GROUNDS: Does it cite evidence, data, or facts?
+- WARRANT: Is there reasoning linking grounds to claim?
+- QUALIFIER: Are scope limits or assumptions stated?
+- REBUTTAL: Is at least one rejected alternative named with reason?
+"X or Y" without resolution = uncommitted. 3+ uncommitted major decisions = BLOCKING.
+Hedging ("could", "might", "one option is") on decisions that should be committed = nonblocking unless the response states what info is missing.
+""" if use_toulmin else ""
+
+            evidence_block = """
+EVIDENCE GROUNDING CHECK:
+RAG context was provided. Verify the response uses retrieved evidence where relevant.
+Flag claims that could be grounded by the provided context but are not.
+""" if has_rag else ""
+
+            doc_system = f"""You are a task-faithful quality reviewer. Your job is to evaluate whether the response ANSWERS THE USER'S ACTUAL QUESTION and satisfies their requirements — not just whether it is well-written or well-structured.
 
 {depth_block}
 
-EVALUATION METHOD: TOULMIN ARGUMENTATION RUBRIC
-(Domain-agnostic — applies to architecture, training plans, explanations, or any complex response.)
+Evaluate in this PRIORITY ORDER:
 
-For each MAJOR CLAIM or DECISION in the response, check these 5 components:
+LAYER 1 — TASK FAITHFULNESS (highest priority, weight 0.25):
+First, reconstruct the user's task:
+- What is the main question or request?
+- What explicit outputs did the user list?
+- What constraints did the user state?
+- What would success look like (implied criteria)?
+Then check: Does the response directly answer the main question FIRST (not buried)? Did it address what was asked, or did it drift into a related but different topic? Did it choose when a choice was required? Did it follow the requested format, ordering, and scope?
 
-1. GROUNDS (evidence/facts): Does the claim cite evidence, data, or stated facts?
-   A claim without grounds is an unsupported assertion. Flag as BLOCKING if 3+ major claims lack grounds.
+LAYER 2 — CONSTRAINT COMPLIANCE AND COVERAGE (weight 0.30):
+For each user requirement and taxonomy required_element, determine: met, partial, or missed.
+Required elements: {required_elements}
+Detect: ignored constraints, instruction drift, partial-answer failure, format or ordering misses, failure to address all required dimensions.
+approved=false if any CRITICAL requirement is missed entirely.
 
-2. WARRANT (reasoning): Is there reasoning linking the evidence to the claim — the "why"?
-   "Use Elasticsearch" needs "because the team already operates it and it supports hybrid search."
-   "Run 4 days/week" needs "because your current base supports progressive overload at this frequency."
-   A claim with grounds but no warrant is an incomplete argument. Flag as nonblocking per instance.
+LAYER 3 — JUDGMENT QUALITY (weight 0.15):
+- Is the recommendation sensible for the scenario?
+- Does it detect overconfidence in debatable cases?
+- Does it avoid shallow "essay-shaped" answers that describe but don't prioritize?
+- Does it optimize for the right thing (user's stated goal, not generic completeness)?
+- Are tradeoffs described AND resolved, not just listed?
+{toulmin_block}{evidence_block}
+LAYER 5 — COMMUNICATION QUALITY (weight 0.06 each for clarity + usefulness):
+- Directness: does it lead with the answer?
+- Conciseness: no filler, no repetition
+- Practical usefulness: could someone act on this?
 
-3. QUALIFIER (scope/limits): Are limitations or conditions stated?
-   "Assuming no existing injuries." "For teams under 100 engineers." "[Assumption] based on spot pricing."
-   Missing qualifiers on confident claims → flag as nonblocking (overconfident).
+FAILURE MODE DETECTION:
+Flag any of these that apply: non_answer, partial_answer, instruction_drift, unsupported_claim, false_certainty, verbosity_inflation, buried_lead, failed_prioritization, format_miss, genericity.
+Critical failure modes (non_answer, partial_answer with 3+ missed requirements) → approved=false regardless of score.
 
-4. REBUTTAL (rejected alternatives): Is at least one alternative acknowledged and rejected with reason?
-   "We chose X over Y because [reason]" is complete. "Use X or Y" with no resolution is INCOMPLETE.
-   Count instances of "X or Y" option-listing without resolution. If 3+ major decisions hedge
-   this way, this is BLOCKING — "a catalog is not a design, a menu is not a plan."
-
-5. HEDGE DETECTION: Does the response use waffling language ("could", "might", "one option is",
-   "consider using") on decisions that should be committed? Hedging is acceptable ONLY when the
-   response explicitly states what information is missing to decide. Otherwise flag as nonblocking.
-
-COVERAGE CHECK:
-- Verify the response covers the taxonomy required_elements: {taxonomy_metadata.get('required_elements', [])}.
-- Verify the user's explicitly listed deliverables are each present and substantive.
-- approved=false if required sections are missing or superficial.
-
-USER INSTRUCTION COMPLIANCE:
-- If the user asked to "separate facts from assumptions" or similar, verify the response uses explicit labels or headings. Blending into undifferentiated prose = MISSING.
-- If the response adds constraints the user did not ask for (compliance mandates, regulatory requirements), flag as nonblocking with a note to remove.
-- Casual mentions of fine-tuning/LoRA/retraining without justification for the stated timeline → nonblocking (premature optimization).
-
-{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or complete misunderstanding. Toulmin completeness is nice-to-have, not mandatory." if is_lenient else ""}
+{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or missed requirements. Scoring can be generous." if is_lenient else ""}
 {f"PROPORTIONALITY CHECK: If difficulty < 0.4, flag sections that are over-engineered relative to the task complexity." if settings.crag_proportionality_enabled else ""}
 
 CRAG ASSESSMENT: For each section, estimate factual grounding confidence (0.0-1.0). Below {settings.crag_web_trigger_threshold} → note in residual_risks as "CRAG:section_name:confidence".
 
-Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
+SCORING (1-10 scale for each):
+- task_faithfulness (0.25), constraint_compliance (0.15), coverage (0.15), judgment_quality (0.15), reasoning_support (0.10), uncertainty_calibration (0.08), clarity (0.06), usefulness (0.06)
+- Compute weighted_overall = sum(score * weight).
+
+Reply with JSON containing ALL of these fields:
+- task_reconstruction: {{main_question, explicit_requirements[], constraints[], implied_success_criteria[]}}
+- requirement_coverage: [{{requirement, status: "met"|"partial"|"missed", evidence}}]
+- failure_modes: [] (from the fixed taxonomy above)
+- scores: {{task_faithfulness, constraint_compliance, coverage, judgment_quality, reasoning_support, uncertainty_calibration, clarity, usefulness, weighted_overall}}
+- repair_instructions: [{{priority: 1-5, target: "section or claim", action: "what to fix", reason: "why"}}]
+- overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks"""
+
             task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc
             doc_prompt = (
-                f"## User Task (check for explicit structural requests)\n{task_summary}\n\n"
+                f"## User Task\n{task_summary}\n\n"
                 f"## Taxonomy\nDomain: {taxonomy_metadata.get('path', 'General')}\n"
-                f"Required elements: {taxonomy_metadata.get('required_elements', [])}\n\n"
-                f"## Executor Response (markdown)\n{generated_code[:8000]}"
+                f"Required elements: {required_elements}\n\n"
+                f"## Response to Evaluate\n{generated_code[:8000]}"
             )
             try:
                 doc_response = await critic_llm.ainvoke(
@@ -417,9 +449,26 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                 logger.warning("critic_document_depth_failed", extra={"error": str(doc_err)[:200]})
                 doc_parsed = None
             if doc_parsed:
-                doc_approved = doc_parsed.approved
-                doc_next = "respond" if doc_approved else "supervisor"
                 latency = (time.monotonic() - start) * 1000
+
+                # Score-based approval: prefer weighted scores over binary LLM judgment
+                scores = doc_parsed.scores
+                failure_modes = doc_parsed.failure_modes or []
+                critical_failures = {"non_answer", "partial_answer"} & set(failure_modes)
+                missed_reqs = sum(1 for r in (doc_parsed.requirement_coverage or []) if r.status == "missed")
+                if missed_reqs >= 3:
+                    critical_failures.add("partial_answer")
+
+                if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
+                    doc_approved = True
+                elif scores and scores.weighted_overall < settings.critic_retry_threshold:
+                    doc_approved = False
+                elif critical_failures:
+                    doc_approved = False
+                else:
+                    doc_approved = doc_parsed.approved
+
+                doc_next = "respond" if doc_approved else "supervisor"
 
                 # CRAG: detect sections needing corrective web search
                 residual = getattr(doc_parsed, "residual_risks", []) or []
@@ -434,14 +483,37 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                         },
                     )
 
+                # Build repair-oriented feedback for the worker
+                repair_list = [r.model_dump() for r in doc_parsed.repair_instructions] if doc_parsed.repair_instructions else []
+                coverage_list = [r.model_dump() for r in doc_parsed.requirement_coverage] if doc_parsed.requirement_coverage else []
+
+                if scores:
+                    logger.info(
+                        "critic_task_faithful_scores",
+                        extra={
+                            "weighted_overall": round(scores.weighted_overall, 1),
+                            "task_faithfulness": round(scores.task_faithfulness, 1),
+                            "constraint_compliance": round(scores.constraint_compliance, 1),
+                            "coverage": round(scores.coverage, 1),
+                            "judgment_quality": round(scores.judgment_quality, 1),
+                            "failure_modes": failure_modes,
+                            "missed_requirements": missed_reqs,
+                            "approved": doc_approved,
+                            "difficulty": round(difficulty, 2),
+                        },
+                    )
+
                 result = {
                     "what_if_analyses": [],
                     "critic_feedback": doc_parsed.revision_feedback or doc_parsed.overall_assessment or "",
                     "critic_approved": doc_approved,
                     "critic_should_continue": not doc_approved,
                     "critic_continue_reason": "needs_depth_revision" if not doc_approved else None,
-                    "residual_risks": getattr(doc_parsed, "residual_risks", []) or [],
+                    "residual_risks": residual,
                     "crag_triggers": crag_triggers,
+                    "repair_instructions": repair_list,
+                    "requirement_coverage": coverage_list,
+                    "failure_modes_detected": failure_modes,
                     "current_node": node_name,
                     "next_node": doc_next,
                     "generated_code": state.get("generated_code", ""),
@@ -450,7 +522,7 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                     "node_traces": [
                         NodeTrace(
                             node_name=node_name,
-                            reasoning=doc_parsed.reasoning or f"Taxonomy depth check: approved={doc_approved}",
+                            reasoning=doc_parsed.reasoning or f"Task-faithful review: approved={doc_approved} score={scores.weighted_overall:.1f}" if scores else f"Task-faithful review: approved={doc_approved}",
                             confidence=doc_parsed.confidence,
                             outcome=NodeOutcome.SUCCESS if doc_approved else NodeOutcome.NEEDS_REVISION,
                             latency_ms=latency,
@@ -459,7 +531,7 @@ Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, no
                 }
                 if not doc_approved:
                     record_critic_rejection()
-                    result["supervisor_clarification_only"] = True  # Passthrough to Worker for revision
+                    result["supervisor_clarification_only"] = True
                 return result
             # Fallback on error: approve (degraded) and continue
             return {

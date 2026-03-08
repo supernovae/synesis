@@ -53,7 +53,7 @@ Rules:
 - Map the user's explicitly requested sections to steps. Do NOT invent sections they did not ask for.
 - CRITICAL: Count the user's explicitly numbered or bulleted deliverables. Create one step per deliverable. Do NOT merge multiple deliverables into a single step. If the user requests N sections, produce at least N steps.
 - Each step's action MUST state the concrete deliverable, not just the topic. Bad: "Design Goals — what to cover". Good: "Design Goals — state 3-5 prioritized goals with justification, explicit non-goals, and how each maps to stated constraints."
-- TOULMIN STRUCTURE: Every step that involves a decision or recommendation must instruct the writer to provide: (1) the claim/choice, (2) grounds (evidence/facts), (3) warrant (why the evidence supports this choice), (4) one rejected alternative with reason. This applies to ANY domain — architecture, training plans, explanations, or proposals.
+- DECISION QUALITY: Every step that involves a decision or recommendation must instruct the writer to: (1) state a clear recommendation, (2) explain the evidence/reasoning, (3) name one rejected alternative with justification. The writer should produce natural narrative prose — NOT labeled scaffolding like "CLAIM:", "GROUNDS:", etc.
 - If the user listed numbered deliverables, preserve their order and wording.
 - Final step should cover risks, caveats, or failure modes if relevant (unless the user already listed this as a deliverable).
 

@@ -17,6 +17,7 @@ Research basis:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -31,6 +32,14 @@ from ..web_search import format_search_results, search_and_process
 
 logger = logging.getLogger("synesis.section_worker")
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> blocks that leak from models with always-on CoT."""
+    return _THINK_RE.sub("", text).strip()
+
+
 _SECTION_SYSTEM = """\
 You are writing ONE section of a larger document. Focus deeply on this section only.
 
@@ -39,17 +48,16 @@ WRITING STYLE:
 - Bullet points are fine for lists of items, but each major point should be accompanied by explanatory prose that provides the "why" and "how."
 - Do NOT produce a wall of bullet points with no connecting narrative. Each section should read like a well-written technical document, not a slide deck.
 
-ARGUMENTATION STRUCTURE (Toulmin Model — critical):
-Every major claim or decision MUST have these components:
-- CLAIM: State your recommendation or assertion clearly.
-- GROUNDS: Cite the evidence, facts, or data that support it.
-- WARRANT: Explain WHY the grounds support this claim — the reasoning link.
-- REBUTTAL: Name ONE rejected alternative and state why you rejected it.
-- QUALIFIER: State scope limits or assumptions with [Assumption] labels.
-Do NOT list "X or Y or Z" without choosing — that is a catalog, not a design.
-A claim without a warrant is an opinion. A decision without a rebuttal is not a decision.
-If you genuinely cannot choose without information the user hasn't provided, say
-"This depends on [specific missing info]" — do not hide indecision behind option lists.
+DECISION QUALITY (internal checklist — do NOT output these labels):
+Before writing each major recommendation, verify you have:
+1. A clear recommendation (not "X or Y" — pick one).
+2. Evidence or reasoning that supports it.
+3. An explanation of WHY this evidence leads to this choice.
+4. At least one rejected alternative with a reason for rejection.
+5. Scope limits or assumptions stated with [Assumption] labels.
+The reader should see a well-reasoned narrative, NOT labeled scaffolding.
+Do NOT output lines starting with "CLAIM:", "GROUNDS:", "WARRANT:", "REBUTTAL:", or "QUALIFIER:".
+Write naturally: state your recommendation, explain why with evidence, note what you considered and rejected, and flag assumptions inline.
 
 Rules:
 - Write this section as a standalone, substantial deliverable with real depth.
@@ -267,13 +275,20 @@ Write this section now with multi-paragraph narrative depth. Explain the reasoni
             streaming=False,
             use_responses_api=False,
             http_client=get_llm_http_client(),
+            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
         )
 
         result = await llm.ainvoke([
             SystemMessage(content=full_system),
             HumanMessage(content=user_prompt),
         ])
-        section_text = result.content.strip()
+        raw_text = result.content.strip()
+        section_text = _strip_think_blocks(raw_text)
+        if len(section_text) < len(raw_text):
+            logger.debug(
+                "section_worker_stripped_thinking",
+                extra={"section_id": section_id, "removed_chars": len(raw_text) - len(section_text)},
+            )
     except Exception as e:
         logger.error("section_worker_llm_failed", extra={"section_id": section_id}, exc_info=True)
         section_text = f"*[Section generation failed: {e!s}]*"
