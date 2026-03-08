@@ -952,6 +952,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 stream_content = True
                 content_streamed = False
+                _plan_headlines_streamed = False
                 sent_role = False
                 task_size_val = ""
                 is_code_task_val = False
@@ -1039,40 +1040,52 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             )
                                             await asyncio.sleep(0)
 
-                                # Emit planner reasoning + plan steps as status + plan content
+                                # Emit plan step headlines as early visible content
+                                # so the user sees what's being worked on while sections
+                                # generate in parallel. Only headlines, no planner internals.
                                 if name == "planner":
                                     exec_plan = output.get("execution_plan") or {}
                                     if isinstance(exec_plan, dict):
-                                        reasoning = ""
-                                        node_traces = output.get("node_traces", []) or []
-                                        for t in node_traces:
-                                            if isinstance(t, dict) and t.get("reasoning"):
-                                                reasoning = str(t["reasoning"]).strip()
-                                                break
-                                            if hasattr(t, "reasoning") and t.reasoning:
-                                                reasoning = str(t.reasoning).strip()
-                                                break
-                                        if not reasoning and exec_plan.get("reasoning"):
-                                            reasoning = str(exec_plan.get("reasoning", "")).strip()
-                                        if reasoning:
-                                            short = reasoning[:80] + "…" if len(reasoning) > 80 else reasoning
-                                            plan_content_lines.append(f"**Plan:** {short}")
-                                            yield _sse_status_chunk(
-                                                {
-                                                    "type": "status",
-                                                    "data": {
-                                                        "description": f"Plan: {short}",
-                                                        "done": False,
-                                                        "hidden": False,
-                                                    },
-                                                }
-                                            )
-                                            await asyncio.sleep(0)
                                         steps = exec_plan.get("steps", [])
-                                        for i, s in enumerate(steps, 1):
+                                        if steps and not is_code_task_val:
+                                            # Extract short headline from each step action
+                                            headlines: list[str] = []
+                                            for s in steps:
+                                                act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+                                                if act:
+                                                    # Trim to just the headline portion (before " — ")
+                                                    headline = act.split("—")[0].strip().rstrip(" -") if "—" in act else act
+                                                    if ":" in headline:
+                                                        headline = headline.split(":", 1)[0].strip()
+                                                    headlines.append(headline[:80])
+
+                                            if headlines:
+                                                outline = "\n".join(f"- {h}" for h in headlines)
+                                                plan_block = f"**Sections:**\n{outline}\n\n---\n\n"
+
+                                                if not sent_role:
+                                                    yield _sse_content_delta(
+                                                        chat_id,
+                                                        {"role": "assistant", "content": plan_block},
+                                                        run_id=run_id,
+                                                    )
+                                                    sent_role = True
+                                                else:
+                                                    yield _sse_content_delta(
+                                                        chat_id,
+                                                        {"content": plan_block},
+                                                        run_id=run_id,
+                                                    )
+                                                content_streamed = True
+                                                _plan_headlines_streamed = True
+                                                thinking_block_emitted = True
+                                                await asyncio.sleep(0)
+
+                                        # Still emit steps as status events for the indicator
+                                        for s in steps:
                                             act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
                                             if act:
-                                                plan_content_lines.append(f"{i}. {act}")
+                                                plan_content_lines.append(act)
                                                 yield _sse_status_chunk(
                                                     {
                                                         "type": "status",
@@ -1377,26 +1390,24 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 # Stop status animation
                 yield _sse_status_chunk({"type": "status", "data": {"description": "", "done": True, "hidden": False}})
 
-                if content_streamed:
-                    _extract_content_and_metrics(
-                        accumulated_state,
-                        user_id,
-                        last_user_content,
-                        run_id=run_id,
-                        memory_scope=memory_scope,
-                        model=request.model,
-                    )
-                    record_chat_success(time.monotonic() - start)
+                content, _ = _extract_content_and_metrics(
+                    accumulated_state,
+                    user_id,
+                    last_user_content,
+                    run_id=run_id,
+                    memory_scope=memory_scope,
+                    model=request.model,
+                )
+                record_chat_success(time.monotonic() - start)
+
+                if _plan_headlines_streamed:
+                    # Plan headlines already visible — append the assembled body
+                    remaining = content.strip() if content else ""
+                    if remaining and remaining not in ("No response generated.",):
+                        yield _sse_content_delta(chat_id, {"content": remaining}, run_id=run_id)
+                elif content_streamed:
+                    pass
                 else:
-                    content, _ = _extract_content_and_metrics(
-                        accumulated_state,
-                        user_id,
-                        last_user_content,
-                        run_id=run_id,
-                        memory_scope=memory_scope,
-                        model=request.model,
-                    )
-                    record_chat_success(time.monotonic() - start)
                     plan_prefix = ""
                     if not thinking_block_emitted and not is_code_task_val and plan_content_lines:
                         status_labels = [p for p in thinking_phases if not p.startswith("  →")]
