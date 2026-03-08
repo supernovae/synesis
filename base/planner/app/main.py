@@ -389,67 +389,35 @@ class ThinkTagParser:
 # Other clients ignore these lines; only Open WebUI displays them.
 # strategic_advisor = Domain Aligner (conceptual). Internal node name; display alias for docs/UX.
 DOMAIN_ALIGNER_NODE = "strategic_advisor"
-# Adaptive Rigor: tier-matched status messages for Open WebUI
-NODE_STATUS_MESSAGES: dict[str, str] = {
-    "entry_classifier": "Analyzing request…",
-    "strategic_advisor": "Detecting domain…",
-    "supervisor": "Planning…",
-    "planner": "Building execution plan…",
-    "context_curator": "Gathering context…",
-    "worker": "Generating code…",
-    "section_worker": "Generating section…",
-    "merge_sections": "Assembling sections…",
-    "corrective_web": "Verifying sources…",
-    "patch_integrity_gate": "Validating code…",
-    "critic": "Reviewing…",
-    "decision_record_builder": "Structuring decisions…",
-    "final_answer_compiler": "Writing final answer…",
-    "final_scrubber": "Polishing…",
-    "respond": "Finishing…",
+
+# Phase-based status: collapse many fast nodes into meaningful user-facing phases.
+# Each node maps to a phase label.  Only phase transitions emit a new status event.
+_NODE_TO_PHASE: dict[str, str] = {
+    "entry_classifier": "Planning\u2026",
+    "strategic_advisor": "Planning\u2026",
+    "supervisor": "Planning\u2026",
+    "planner": "Planning\u2026",
+    "context_curator": "Researching\u2026",
+    "worker": "Researching\u2026",
+    "section_worker": "Researching\u2026",
+    "merge_sections": "Researching\u2026",
+    "corrective_web": "Researching\u2026",
+    "patch_integrity_gate": "Reviewing\u2026",
+    "critic": "Reviewing\u2026",
+    "decision_record_builder": "Writing\u2026",
+    "final_answer_compiler": "Writing\u2026",
+    "format_rewriter": "Writing\u2026",
+    "final_scrubber": "Writing\u2026",
+    "respond": "Writing\u2026",
 }
 
-# Tier-specific overrides for Adaptive Rigor UX
-STATUS_EASY: dict[str, str] = {
-    "entry_classifier": "Analyzing…",
-    "worker": "Generating code…",
-}
-STATUS_MEDIUM: dict[str, str] = {
-    "worker": "Generating code…",
-}
-STATUS_HARD: dict[str, str] = {
-    "entry_classifier": "Complex task detected. Building execution plan…",
-    "strategic_advisor": "Complex task detected. Building execution plan…",
-    "planner": "Architecting solution…",
-    "worker": "Architecting solution…",
-}
+# Heartbeat interval: re-emit status with elapsed time during long phases
+_HEARTBEAT_AFTER_S = 5.0
 
 
-_STATUS_KNOWLEDGE: dict[str, str] = {
-    "supervisor": "Searching for context…",
-    "planner": "Building response outline…",
-    "context_curator": "Gathering context…",
-    "worker": "Generating response…",
-    "section_worker": "Generating section…",
-    "merge_sections": "Assembling sections…",
-    "corrective_web": "Verifying sources…",
-    "critic": "Reviewing quality…",
-    "decision_record_builder": "Structuring decisions…",
-    "final_answer_compiler": "Writing final answer…",
-    "final_scrubber": "Polishing…",
-}
-
-
-def _status_for_node(node: str, task_size: str, is_code_task: bool = False) -> str:
-    """Return tier-matched status message for Open WebUI."""
-    if not is_code_task and node in _STATUS_KNOWLEDGE:
-        return _STATUS_KNOWLEDGE[node]
-    if task_size == "easy" and node in STATUS_EASY:
-        return STATUS_EASY[node]
-    if task_size == "medium" and node in STATUS_MEDIUM:
-        return STATUS_MEDIUM[node]
-    if task_size == "hard" and node in STATUS_HARD:
-        return STATUS_HARD[node]
-    return NODE_STATUS_MESSAGES.get(node, "")
+def _phase_for_node(node: str) -> str:
+    """Return the user-facing phase label for a node."""
+    return _NODE_TO_PHASE.get(node, "")
 
 
 # StreamingCodeExtractor removed — Worker now produces plain markdown.
@@ -932,25 +900,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         if settings.streaming_events_enabled:
             # ── astream_events(v2): token-level streaming + inline node status ──
 
-            _KNOWN_NODES = frozenset(
-                {
-                    "entry_classifier",
-                    "strategic_advisor",
-                    "supervisor",
-                    "planner",
-                    "context_curator",
-                    "worker",
-                    "section_worker",
-                    "merge_sections",
-                    "corrective_web",
-                    "patch_integrity_gate",
-                    "critic",
-                    "decision_record_builder",
-                    "final_answer_compiler",
-                    "final_scrubber",
-                    "respond",
-                }
-            )
+            _KNOWN_NODES = frozenset(_NODE_TO_PHASE.keys())
 
             async def sse_generator() -> object:
                 yield _sse_status_chunk(
@@ -961,15 +911,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 stream_content = True
                 content_streamed = False
-                _plan_headlines_streamed = False
                 sent_role = False
                 task_size_val = ""
                 is_code_task_val = False
                 thinking_phases: list[str] = []
-                plan_content_lines: list[str] = []
                 thinking_block_emitted = False
                 first_content_logged = False
-                _last_status_desc = ""
+                _current_phase = ""
+                _phase_start = 0.0
                 token_count_estimate = 0
                 t_start = time.monotonic()
                 # Diagnostic counters for reasoning vs content tokens
@@ -996,30 +945,28 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         meta = event.get("metadata", {})
                         lg_node = meta.get("langgraph_node", "")
 
-                        # ── Node started → status SSE + accumulate thinking phases ──
+                        # ── Node started → phase-based status with elapsed heartbeat ──
                         if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             node_label = name if name in _KNOWN_NODES else lg_node
-                            desc = _status_for_node(node_label, task_size_val, is_code_task_val)
-                            if desc and desc != _last_status_desc:
-                                _last_status_desc = desc
-                                thinking_phases.append(desc)
+                            phase = _phase_for_node(node_label)
+                            now = time.monotonic()
+                            if phase and phase != _current_phase:
+                                _current_phase = phase
+                                _phase_start = now
+                                thinking_phases.append(phase)
                                 yield _sse_status_chunk(
-                                    {"type": "status", "data": {"description": desc, "done": False, "hidden": False}}
+                                    {"type": "status", "data": {"description": phase, "done": False, "hidden": False}}
+                                )
+                                await asyncio.sleep(0)
+                            elif phase and _current_phase and (now - _phase_start) >= _HEARTBEAT_AFTER_S:
+                                elapsed = int(now - _phase_start)
+                                heartbeat = f"{_current_phase.rstrip('\u2026')}… ({elapsed}s)"
+                                yield _sse_status_chunk(
+                                    {"type": "status", "data": {"description": heartbeat, "done": False, "hidden": False}}
                                 )
                                 await asyncio.sleep(0)
 
-                            # Emit pre-search status for nodes that run web search
-                            if node_label in ("supervisor", "context_curator") and settings.web_search_enabled:
-                                _ws_pre = "Searching the web\u2026"
-                                if _ws_pre != _last_status_desc:
-                                    _last_status_desc = _ws_pre
-                                    thinking_phases.append(_ws_pre)
-                                    yield _sse_status_chunk(
-                                        {"type": "status", "data": {"description": _ws_pre, "done": False, "hidden": False}}
-                                    )
-                                    await asyncio.sleep(0)
-
-                        # ── Node ended → accumulate state, emit plan steps ──
+                        # ── Node ended → accumulate state ──
                         elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             output = event.get("data", {}).get("output")
                             if isinstance(output, dict):
@@ -1035,74 +982,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 if "is_code_task" in output:
                                     is_code_task_val = output["is_code_task"]
 
-                                # Emit post-search status: results found or search skipped
-                                if name in ("supervisor", "context_curator"):
-                                    ws_status = output.get("web_search_status", "")
-                                    ws_results = output.get("web_search_results")
-                                    if ws_status == "complete" and ws_results:
-                                        _ws_done = f"Found {len(ws_results)} relevant source{'s' if len(ws_results) != 1 else ''}"
-                                        if _ws_done != _last_status_desc:
-                                            _last_status_desc = _ws_done
-                                            thinking_phases.append(_ws_done)
-                                            yield _sse_status_chunk(
-                                                {"type": "status", "data": {"description": _ws_done, "done": False, "hidden": False}}
-                                            )
-                                            await asyncio.sleep(0)
-
-                                # Emit plan step headlines as early visible content
-                                # so the user sees what's being worked on while sections
-                                # generate in parallel. Only headlines, no planner internals.
-                                if name == "planner":
-                                    exec_plan = output.get("execution_plan") or {}
-                                    if isinstance(exec_plan, dict):
-                                        steps = exec_plan.get("steps", [])
-                                        if steps and not is_code_task_val:
-                                            # Extract short headline from each step action
-                                            headlines: list[str] = []
-                                            for s in steps:
-                                                act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
-                                                if act:
-                                                    # Trim to just the headline portion (before " — ")
-                                                    headline = act.split("—")[0].strip().rstrip(" -") if "—" in act else act
-                                                    if ":" in headline:
-                                                        headline = headline.split(":", 1)[0].strip()
-                                                    headlines.append(headline[:80])
-
-                                            if headlines:
-                                                outline = "\n".join(f"- {h}" for h in headlines)
-                                                plan_block = f"**Sections:**\n{outline}\n\n---\n\n"
-
-                                                if not sent_role:
-                                                    yield _sse_content_delta(
-                                                        chat_id,
-                                                        {"role": "assistant", "content": plan_block},
-                                                        run_id=run_id,
-                                                    )
-                                                    sent_role = True
-                                                else:
-                                                    yield _sse_content_delta(
-                                                        chat_id,
-                                                        {"content": plan_block},
-                                                        run_id=run_id,
-                                                    )
-                                                content_streamed = True
-                                                _plan_headlines_streamed = True
-                                                thinking_block_emitted = True
-                                                await asyncio.sleep(0)
-
-                                        # Still emit steps as status events for the indicator
-                                        for s in steps:
-                                            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
-                                            if act:
-                                                plan_content_lines.append(act)
-                                                yield _sse_status_chunk(
-                                                    {
-                                                        "type": "status",
-                                                        "data": {"description": act, "done": False, "hidden": False},
-                                                    }
-                                                )
-                                                await asyncio.sleep(0)
-
                         # ── Token streaming from worker LLM ──
                         elif kind == "on_chat_model_stream" and lg_node == "worker" and stream_content:
                             chunk_obj = event.get("data", {}).get("chunk")
@@ -1110,6 +989,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 continue
                             _diag_stream_events += 1
                             elapsed_now = int((time.monotonic() - t_start) * 1000)
+
+                            # Phase heartbeat during long-running LLM calls
+                            if _current_phase and (time.monotonic() - _phase_start) >= _HEARTBEAT_AFTER_S:
+                                _hb_elapsed = int(time.monotonic() - _phase_start)
+                                _hb_msg = f"{_current_phase.rstrip(chr(0x2026))}… ({_hb_elapsed}s)"
+                                yield _sse_status_chunk(
+                                    {"type": "status", "data": {"description": _hb_msg, "done": False, "hidden": False}}
+                                )
+                                _phase_start = time.monotonic()
 
                             if _diag_stream_events == 1:
                                 _ak = getattr(chunk_obj, "additional_kwargs", {}) or {}
@@ -1238,22 +1126,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 for fragment in fragments:
                                     if not fragment:
                                         continue
-                                    if not thinking_block_emitted:
-                                        thinking_block_emitted = True
-                                        if not is_code_task_val and plan_content_lines:
-                                            status_labels = [p for p in thinking_phases if not p.startswith("  →")]
-                                            header = " | ".join(status_labels) if status_labels else ""
-                                            steps_text = "\n".join(f"> {l}" for l in plan_content_lines)
-                                            plan_block = ""
-                                            if header:
-                                                plan_block += f"> **{header}**\n>\n"
-                                            plan_block += steps_text + "\n\n"
-                                            yield _sse_content_delta(
-                                                chat_id,
-                                                {"role": "assistant", "content": plan_block},
-                                                run_id=run_id,
-                                            )
-                                            sent_role = True
+                                    thinking_block_emitted = True
                                     delta: dict[str, str] = {"content": fragment}
                                     if not sent_role:
                                         delta["role"] = "assistant"
@@ -1409,26 +1282,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
                 record_chat_success(time.monotonic() - start)
 
-                if _plan_headlines_streamed:
-                    # Plan headlines already visible — append the assembled body
-                    remaining = content.strip() if content else ""
-                    if remaining and remaining not in ("No response generated.",):
-                        yield _sse_content_delta(chat_id, {"content": remaining}, run_id=run_id)
-                elif content_streamed:
+                if content_streamed:
                     pass
                 else:
-                    plan_prefix = ""
-                    if not thinking_block_emitted and not is_code_task_val and plan_content_lines:
-                        status_labels = [p for p in thinking_phases if not p.startswith("  →")]
-                        header = " | ".join(status_labels) if status_labels else ""
-                        steps_text = "\n".join(f"> {l}" for l in plan_content_lines)
-                        plan_prefix = ""
-                        if header:
-                            plan_prefix += f"> **{header}**\n>\n"
-                        plan_prefix += steps_text + "\n\n"
                     yield _sse_content_delta(
                         chat_id,
-                        {"role": "assistant", "content": plan_prefix + content},
+                        {"role": "assistant", "content": content},
                         run_id=run_id,
                     )
 
@@ -1540,9 +1399,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     emitted_plan = True
                         if node:
-                            desc = _status_for_node(node, task_size or "", is_code_task_chunk)
-                            if emitted_plan and node == "planner":
-                                desc = ""
+                            desc = _phase_for_node(node)
                             if desc:
                                 yield _sse_status_chunk(
                                     {

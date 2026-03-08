@@ -456,18 +456,19 @@ The worker consumes these as a numbered list instead of free-text feedback.
 After the critic approves a depth-mode response, content flows through:
 
 ```
-critic (approved) -> decision_record_builder -> final_answer_compiler -> final_scrubber -> respond
+critic (approved) -> decision_record_builder -> final_answer_compiler -> format_rewriter -> final_scrubber -> respond
 ```
 
-This pipeline creates a hard boundary between internal reasoning and user-facing output.
+This pipeline creates a hard boundary between internal reasoning and user-facing output,
+and decouples content generation from presentation formatting (DECO-G principle).
 
 ### DecisionRecord Schema
 
-The `DecisionRecord` is a structured intermediate artifact (~1.5-2.5K tokens)
+The `DecisionRecord` is a structured intermediate artifact (~2-4K tokens)
 that is the ONLY input to the FinalAnswerCompiler:
 
 - `user_task`: Reconstructed question, requirements, constraints, success criteria
-- `answer_strategy`: Selected approach, rejected alternatives, priority order
+- `answer_strategy`: Selected approach, rejected alternatives with reasons, priority order
 - `content_plan`: Sections, must-include, must-avoid
 - `grounded_claims[]`: Each claim tagged as grounded/inferred/assumption/unsupported
 - `assumptions[]`, `uncertainties[]`, `risks[]`
@@ -477,15 +478,32 @@ that is the ONLY input to the FinalAnswerCompiler:
 
 | Node | Type | Input | Output |
 |------|------|-------|--------|
-| **DecisionRecordBuilder** | LLM | Approved sections + execution plan + critic output | `DecisionRecord` JSON (~2K tokens) |
-| **FinalAnswerCompiler** | LLM | DecisionRecord ONLY (no raw text) | Polished markdown prose |
-| **FinalScrubber** | Deterministic | Compiler output | Cleaned output (no LLM) |
+| **DecisionRecordBuilder** | LLM | Approved sections + execution plan + critic output | `DecisionRecord` JSON (~2-4K tokens) |
+| **FinalAnswerCompiler** | LLM | DecisionRecord ONLY (no raw text) | Plain prose with section headings (content only) |
+| **FormatRewriter** | LLM | Compiler prose | Presentation-enhanced markdown (tables, diagrams, lists) |
+| **FinalScrubber** | Deterministic | Format rewriter output | Cleaned output (no LLM) |
+
+### DECO-G: Decoupled Formatting
+
+The compiler and format rewriter are separated following the DECO-G principle
+(arXiv:2510.03595): mixing reasoning directives with formatting requirements
+creates competing goals that degrade both. Research findings:
+
+- **DECO-G** (arXiv:2510.03595): 1-6% quality gain by separating task-solving from formatting
+- **SLOT** (arXiv:2505.04016, EMNLP 2025): Lightweight formatter matches large models at 99.5% schema accuracy
+- **FMBench** (arXiv:2602.06384): Inherent tradeoff between semantic fidelity and structural correctness in single-pass generation
+
+The compiler writes **content only** — what to say, concrete decisions, evidence.
+The format rewriter handles **presentation only** — when to use tables, mermaid
+diagrams, numbered lists, bullet lists, or flowing prose. The rewriter uses
+**few-shot exemplars** (golden before/after pairs in `format_exemplars.yaml`)
+rather than directive rules, per research showing 2-3 high-quality examples
+outperform long rule lists by 15-25% on formatting tasks.
 
 ### FinalScrubber Rules
 
 The scrubber is a deterministic (<100ms) post-processor:
-- Strip leaked `<think>` blocks
-- Strip CLAIM/GROUNDS/WARRANT labels
+- Safety-net pattern for artifacts that should never appear (think blocks, Toulmin labels)
 - Strip self-narration ("Okay, I need to...")
 - Detect unsupported percentages/costs/latencies (False Precision Guard)
 - Detect and remove duplicate paragraphs (fuzzy match)
@@ -495,12 +513,14 @@ The scrubber is a deterministic (<100ms) post-processor:
 
 | Problem | How DecisionRecord Fixes It |
 |---------|----------------------------|
-| Writer context overflow (18K+ tokens) | DecisionRecord is ~2K tokens |
+| Writer context overflow (18K+ tokens) | DecisionRecord is ~2-4K tokens |
 | Leaked thinking / `<think>` blocks | DecisionRecord contains no raw text; scrubber catches residual |
 | Toulmin labels in output | Builder extracts claims without labels; compiler writes natural prose |
 | Generic/verbose output | Compiler writes from structured decisions, not raw text |
 | False precision (invented percentages) | FalsePrecisionGuard catches and relabels |
 | Critic prompt bloat | 5 universal principles + dynamic rubric replaces 5 hardcoded layers |
+| Infinite formatting rules in prompts | DECO-G separation: compiler does content, rewriter does presentation |
+| Lost tables/diagrams/lists | Format rewriter applies rich formatting via few-shot exemplars |
 
 ### Research References
 
@@ -527,22 +547,18 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 with `{"type":"status","data":{"description":"...","done":false}}`
 payloads. Open WebUI renders these in a collapsible "Thinking" UI.
 
-**Text mode statuses**: When `is_code_task=false` (the default),
-the pipeline emits context-aware messages:
-- "Searching for context..." (supervisor)
-- "Building response outline..." (planner)
-- "Searching the web..." (when web search returns results)
-- "Gathering context..." (context curator)
-- "Generating response..." (worker)
-- "Reviewing quality..." (critic)
+**Phase-based status**: Nodes are grouped into 4 user-facing phases:
 
-**Code task statuses** (tier-matched):
-- Easy: "Analyzing..." → "Generating code..."
-- Medium: "Generating code..."
-- Hard: "Complex task detected..." → "Architecting solution..."
+| Phase | Nodes | Description |
+|-------|-------|-------------|
+| **Planning...** | entry_classifier, strategic_advisor, supervisor, planner | Fast (~2s total) |
+| **Researching...** | context_curator, worker, section_worker, merge_sections, corrective_web | Main wait — parallel section generation |
+| **Reviewing...** | patch_integrity_gate, critic | Quality review |
+| **Writing...** | decision_record_builder, final_answer_compiler, format_rewriter, final_scrubber, respond | Final assembly |
 
-**Deduplication**: Consecutive identical status descriptions are
-suppressed to prevent duplicate phase indicators.
+Only phase transitions emit new status events. During long-running phases
+(>5s), elapsed-time heartbeats update the status (e.g., "Researching... (15s)")
+so the user knows the system hasn't stalled.
 
 ## Architecture Decision: Sandbox/LSP Decoupling
 

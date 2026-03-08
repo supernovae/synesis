@@ -728,7 +728,6 @@ class FinalAnswerAudit(BaseModel):
     """Post-scrubber audit trail attached to the response for observability."""
 
     false_precision_count: int = 0
-    leaked_artifacts_stripped: int = 0
     duplicate_paragraphs_removed: int = 0
     overgrown_sections: list[str] = Field(default_factory=list)
     scrubber_applied: bool = False

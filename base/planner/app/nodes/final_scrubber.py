@@ -1,7 +1,9 @@
 """FinalScrubberNode — deterministic post-writer cleanup (no LLM).
 
-Removes leaked reasoning, false precision, duplicate paragraphs,
-and other artifacts that may survive the compiler.  Fast (<100ms).
+Handles false precision labeling, duplicate paragraph removal, and
+overgrown section detection.  A single safety-net pattern catches any
+residual model artifacts that should no longer appear after the
+DecisionRecord isolation boundary.  Fast (<100ms).
 """
 
 from __future__ import annotations
@@ -17,13 +19,15 @@ from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.final_scrubber")
 
-# ── Regexes for artifact detection ──
-
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-
-_TOULMIN_LABEL_RE = re.compile(
-    r"^(CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:.*$",
-    re.MULTILINE,
+# Safety-net: combined pattern for artifacts that should NEVER appear after
+# the DecisionRecord boundary (compiler + format_rewriter both use
+# enable_thinking=False and never see raw Toulmin-labeled section text).
+# If this fires, something upstream is broken — log a warning.
+_SAFETY_NET_RE = re.compile(
+    r"<think>.*?</think>"  # thinking blocks
+    r"|^(?:CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:.*$"  # Toulmin labels
+    r"|(?:Thought|Thinking) for (?:less than )?\w+ seconds?\.?\n*",  # "Thought for X seconds"
+    re.DOTALL | re.MULTILINE | re.IGNORECASE,
 )
 
 _SELF_NARRATION_RE = re.compile(
@@ -33,43 +37,46 @@ _SELF_NARRATION_RE = re.compile(
     re.MULTILINE | re.DOTALL,
 )
 
-_THOUGHT_FOR_RE = re.compile(r"(?:Thought|Thinking) for (?:less than )?\w+ seconds?\.?\n*", re.IGNORECASE)
-
 # False Precision Guard: detect unsupported specific numbers
 _FALSE_PRECISION_RE = re.compile(
-    r"(?<!\[Estimate\]\s)"  # not already labeled
+    r"(?<!\[Estimate\]\s)"
     r"(?:"
-    r"~?\d{1,3}(?:\.\d+)?%"  # percentages like 70%, ~85.3%
-    r"|\$[\d,]+(?:\.\d{2})?"  # dollar amounts like $500, $1,200.00
-    r"|(?:~?\d+(?:\.\d+)?\s*(?:ms|milliseconds?|seconds?|minutes?|hours?))"  # latency
-    r"|(?:\d+(?:\.\d+)?x\s+(?:faster|slower|improvement|reduction|increase))"  # multipliers
+    r"~?\d{1,3}(?:\.\d+)?%"
+    r"|\$[\d,]+(?:\.\d{2})?"
+    r"|(?:~?\d+(?:\.\d+)?\s*(?:ms|milliseconds?|seconds?|minutes?|hours?))"
+    r"|(?:\d+(?:\.\d+)?x\s+(?:faster|slower|improvement|reduction|increase))"
     r")",
     re.IGNORECASE,
 )
 
-# Section heading detector (for overgrowth check)
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 
 _SECTION_OVERGROWTH_WORDS = 1200
 
 
-def _strip_leaked_artifacts(text: str) -> tuple[str, int]:
-    """Remove thinking blocks, Toulmin labels, self-narration, and thought-for lines."""
+def _strip_artifacts(text: str) -> tuple[str, int]:
+    """Strip self-narration and any safety-net matches."""
     count = 0
-    for pattern in (_THINK_RE, _TOULMIN_LABEL_RE, _SELF_NARRATION_RE, _THOUGHT_FOR_RE):
-        matches = pattern.findall(text)
-        count += len(matches)
-        text = pattern.sub("", text)
+
+    safety_matches = _SAFETY_NET_RE.findall(text)
+    if safety_matches:
+        count += len(safety_matches)
+        logger.warning(
+            "scrubber_safety_net_fired",
+            extra={"matches": len(safety_matches), "sample": str(safety_matches[0])[:120]},
+        )
+        text = _SAFETY_NET_RE.sub("", text)
+
+    narration_matches = _SELF_NARRATION_RE.findall(text)
+    count += len(narration_matches)
+    text = _SELF_NARRATION_RE.sub("", text)
+
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip(), count
 
 
 def _detect_false_precision(text: str) -> tuple[str, int]:
-    """Find unsupported specific numbers and label them as estimates.
-
-    For each match, wraps it with [Estimate] unless it appears inside a
-    code block or already has the label.
-    """
+    """Find unsupported specific numbers and label them as estimates."""
     code_block_ranges: list[tuple[int, int]] = []
     for m in re.finditer(r"```.*?```", text, re.DOTALL):
         code_block_ranges.append((m.start(), m.end()))
@@ -82,7 +89,6 @@ def _detect_false_precision(text: str) -> tuple[str, int]:
     for m in _FALSE_PRECISION_RE.finditer(text):
         if _in_code_block(m.start()):
             continue
-        # Check if within a table row (don't modify tables)
         line_start = text.rfind("\n", 0, m.start() + offset)
         line = text[line_start:m.end() + offset] if line_start >= 0 else ""
         if "|" in line:
@@ -106,7 +112,6 @@ def _remove_duplicate_paragraphs(text: str) -> tuple[str, int]:
         if not stripped:
             result.append(para)
             continue
-        # Skip headings and short lines from dedup
         if stripped.startswith("#") or len(stripped) < 80:
             seen.append(stripped)
             result.append(para)
@@ -142,35 +147,26 @@ def _detect_overgrown_sections(text: str) -> list[str]:
 
 
 async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Deterministic scrubber — no LLM, fast cleanup of compiler output."""
+    """Deterministic scrubber — no LLM, fast cleanup of format_rewriter output."""
     start = time.monotonic()
     node_name = "final_scrubber"
 
-    text = state.get("compiled_answer") or state.get("generated_code", "")
+    text = state.get("formatted_answer") or state.get("compiled_answer") or state.get("generated_code", "")
     if not text:
         return {
             "scrubbed_answer": "",
             "current_node": node_name,
         }
 
-    # Step 1: Strip leaked artifacts
-    text, leak_count = _strip_leaked_artifacts(text)
-
-    # Step 2: False precision guard
+    text, artifact_count = _strip_artifacts(text)
     text, fp_count = _detect_false_precision(text)
-
-    # Step 3: Remove duplicate paragraphs
     text, dup_count = _remove_duplicate_paragraphs(text)
-
-    # Step 4: Detect overgrown sections (logged, not trimmed — would need LLM)
     overgrown = _detect_overgrown_sections(text)
 
-    # Collapse excessive whitespace
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
 
     audit = FinalAnswerAudit(
         false_precision_count=fp_count,
-        leaked_artifacts_stripped=leak_count,
         duplicate_paragraphs_removed=dup_count,
         overgrown_sections=overgrown,
         scrubber_applied=True,
@@ -180,7 +176,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     logger.info(
         "scrubber_complete",
         extra={
-            "leaks_stripped": leak_count,
+            "artifacts_stripped": artifact_count,
             "false_precision": fp_count,
             "duplicates_removed": dup_count,
             "overgrown_sections": len(overgrown),
@@ -196,7 +192,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "node_traces": [
             NodeTrace(
                 node_name=node_name,
-                reasoning=f"Scrubbed: {leak_count} leaks, {fp_count} false precision, {dup_count} dupes",
+                reasoning=f"Scrubbed: {artifact_count} artifacts, {fp_count} false precision, {dup_count} dupes",
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
                 latency_ms=latency,

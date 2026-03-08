@@ -24,37 +24,28 @@ logger = logging.getLogger("synesis.final_answer_compiler")
 
 _COMPILER_SYSTEM = """\
 You are the Final Answer Writer. You receive a structured DecisionRecord \
-and produce a polished, concise markdown response for the user.
+and produce a plain-prose markdown response for the user.
 
-RULES:
+Focus ONLY on content — a separate formatting pass handles presentation.
+
+CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
 2. Satisfy explicit requirements in the order they appear.
-3. For each grounded claim, weave the evidence naturally into prose.
-4. For assumptions, use inline [Assumption] labels only when materially \
-   relevant to the user's decision.
-5. For unsupported claims, either qualify with "roughly" / "approximately" \
-   or omit if not essential.
-6. For risks, include only those with real mitigation value.
-7. Remove speculative implementation detail unless the user asked for it.
-8. Do NOT expose internal frameworks, scaffolding labels, or reasoning \
-   traces.  No "CLAIM:", "GROUNDS:", "WARRANT:", etc.
-9. Do NOT use "thought for X seconds", "Let me think about...", or \
-   any self-narration.
-10. Prefer practical prioritization over completeness theater.
+3. COMMIT to one choice per decision point. Present the chosen approach \
+   with reasoning; mention rejected alternatives only to explain why \
+   the chosen path won.
+4. Weave evidence naturally into prose for grounded claims.
+5. Label assumptions inline only when materially relevant.
+6. Qualify unsupported claims with "roughly" / "approximately" or omit.
+7. Include risks only when they have real mitigation value.
+8. No internal scaffolding, reasoning traces, or self-narration.
 
-VERBOSITY TARGETS:
-- "terse": 300-600 words.  Direct answer + key points only.
-- "moderate": 800-2000 words.  Answer + reasoning + alternatives.
-- "thorough": 2000-4000 words.  Full treatment with headed sections, \
-  concrete examples, specific tool/version choices, rejected alternatives \
-  with reasons, and tradeoff analysis.  Each section should have \
-  multi-paragraph narrative depth — not just a topic sentence.
+VERBOSITY (from style_contract.verbosity_target):
+- "terse": 300-600 words.
+- "moderate": 800-2000 words.
+- "thorough": 2000-4000 words with multi-paragraph sections.
 
-Use the style_contract.verbosity_target to calibrate length.
-Use the style_contract.max_section_paragraphs as the per-section depth guide.
-
-OUTPUT: Markdown only.  No JSON wrapper.  No code fences around the \
-entire response.
+OUTPUT: Markdown with section headings.  No JSON wrapper.
 """
 
 
@@ -74,7 +65,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
 
     difficulty = state.get("difficulty", 0.5)
     writer_budget = settings.scaled_writer_budget(difficulty)
-    writer_budget = max(2048, min(writer_budget, 12288))
+    writer_budget = max(2048, min(writer_budget, 8192))
 
     writer_url = settings.writer_model_url or settings.executor_model_url
     writer_name = settings.writer_model_name or settings.executor_model_name
