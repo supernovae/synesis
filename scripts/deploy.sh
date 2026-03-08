@@ -266,7 +266,7 @@ migrate_stale_selectors() {
         done
 
         # Jobs: only migrate when we're applying jobs (staging/prod). In dev, jobs are
-        # managed by deploy-jobs.sh — don't delete them here.
+        # managed by deploy-indexer.sh — don't delete them here.
         if [[ "$ENV" != "dev" ]]; then
             local jobs
             jobs=$(oc get jobs -n "$ns" -l app.kubernetes.io/part-of=synesis \
@@ -435,7 +435,7 @@ log "  Web UI:        https://$WEBUI_HOST"
 log "============================================================"
 log ""
 log "Next: deploy indexer CronJobs (after Milvus is healthy):"
-log "  ./scripts/deploy-jobs.sh $ENV"
+log "  ./scripts/deploy-indexer.sh $ENV"
 log ""
 log "Open WebUI:"
 log "  Browse to https://$WEBUI_HOST"

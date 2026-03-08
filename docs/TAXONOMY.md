@@ -486,7 +486,7 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 | Layer | Convention |
 |-------|------------|
 | **Taxonomy** | `domain_keywords.athletics` → `domain: athletics_running`. Add `music` with subdomains `music_piano`, `music_synthesizer` as separate entries. |
-| **Indexers** | Tag chunks with `domain=<taxonomy_id>` when upserting. `sources.yaml` or indexer config: use taxonomy domain IDs (e.g. `domain: music_piano`). |
+| **Indexer** | Tag chunks with `domain=<taxonomy_id>` when upserting. Each source in `sources-*.yaml` specifies `domain: <taxonomy_id>` (e.g. `domain: music_piano`). |
 | **RAG client** | `select_collections_for_task` builds `domain in ["athletics_running", "music"]` from `active_domain_refs`. Milvus vector search applies filter. |
 
 **Adding a new vertical (e.g. music):**
@@ -495,7 +495,7 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 3. Index music docs with `domain="music_piano"` or `domain="music_synthesizer"` in catalog schema.
 4. RAG will filter by `active_domain_refs` when user query matches.
 
-Existing indexers (domain, architecture, code) use their own domain extraction (e.g. `domain_openshift` → `openshift`). Align by configuring indexer `domain` to match a taxonomy ID where applicable.
+The unified indexer (`base/rag/indexer/`) uses the `domain` field in each source configuration entry. Align by setting `domain` to match a taxonomy ID in the appropriate `sources-*.yaml` file.
 
 ---
 

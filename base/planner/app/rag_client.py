@@ -32,7 +32,7 @@ from .url_utils import ensure_url_protocol
 logger = logging.getLogger("synesis.rag")
 
 # Unified catalog (synesis_catalog) — single collection, one BM25 index.
-# Schema must match base/rag/catalog_schema.py for indexer compatibility.
+# Schema must match base/rag/indexer/app/schema.py for indexer compatibility.
 SYNESIS_CATALOG = "synesis_catalog"
 
 _http_client: httpx.AsyncClient | None = None
@@ -111,9 +111,14 @@ class _CachedChunk:
     chunk_id: str
     origin_type: str = ""
     authority: str = ""
-    indexer_source: str = ""
     domain: str = ""
     source_url: str = ""
+    heading_path: str = ""
+    context_prefix: str = ""
+    chunk_summary: str = ""
+    document_name: str = ""
+    handler: str = ""
+    source_type: str = ""
 
 
 class BM25Index:
@@ -133,6 +138,20 @@ class BM25Index:
 
     def _tokenize(self, text: str) -> list[str]:
         return text.lower().split()
+
+    @staticmethod
+    def _enriched_text(chunk: _CachedChunk) -> str:
+        """Build enriched BM25 corpus text: heading_path + chunk_summary + text.
+
+        Richer keyword matching from headings, summaries, and document names.
+        """
+        parts = []
+        if chunk.heading_path:
+            parts.append(chunk.heading_path)
+        if chunk.chunk_summary:
+            parts.append(chunk.chunk_summary)
+        parts.append(chunk.text)
+        return " ".join(parts)
 
     def _needs_refresh(self, collection: str) -> bool:
         last = self._last_refresh.get(collection, 0.0)
@@ -156,8 +175,9 @@ class BM25Index:
                     filter="",
                     output_fields=[
                         "chunk_id", "text", "source",
-                        "origin_type", "authority", "indexer_source", "domain",
-                        "source_url",
+                        "origin_type", "authority", "domain", "source_url",
+                        "heading_path", "context_prefix", "chunk_summary",
+                        "document_name", "handler", "source_type",
                     ],
                     limit=1000,
                     offset=offset,
@@ -190,9 +210,14 @@ class BM25Index:
                             chunk_id=row.get("chunk_id", ""),
                             origin_type=row.get("origin_type", ""),
                             authority=row.get("authority", ""),
-                            indexer_source=row.get("indexer_source", ""),
                             domain=row.get("domain", ""),
                             source_url=row.get("source_url", ""),
+                            heading_path=row.get("heading_path", ""),
+                            context_prefix=row.get("context_prefix", ""),
+                            chunk_summary=row.get("chunk_summary", ""),
+                            document_name=row.get("document_name", ""),
+                            handler=row.get("handler", ""),
+                            source_type=row.get("source_type", ""),
                         )
                     )
                 if len(results) < batch_size:
@@ -203,7 +228,7 @@ class BM25Index:
                 logger.info(f"BM25 refresh: no chunks in '{collection}'")
                 return
 
-            tokenized = [self._tokenize(c.text) for c in all_chunks]
+            tokenized = [self._tokenize(self._enriched_text(c)) for c in all_chunks]
             index = BM25Okapi(tokenized)
 
             with self._lock:
@@ -249,9 +274,14 @@ class BM25Index:
                     "bm25_score": float(score),
                     "origin_type": chunk.origin_type,
                     "authority": chunk.authority,
-                    "indexer_source": chunk.indexer_source,
                     "domain": chunk.domain,
                     "source_url": chunk.source_url,
+                    "heading_path": chunk.heading_path,
+                    "context_prefix": chunk.context_prefix,
+                    "chunk_summary": chunk.chunk_summary,
+                    "document_name": chunk.document_name,
+                    "handler": chunk.handler,
+                    "source_type": chunk.source_type,
                 }
             )
 
@@ -262,7 +292,7 @@ _bm25_index = BM25Index()
 
 
 # ---------------------------------------------------------------------------
-# Unified catalog bootstrap (schema must match base/rag/catalog_schema.py)
+# Unified catalog bootstrap (schema must match base/rag/indexer/app/schema.py)
 # ---------------------------------------------------------------------------
 
 _catalog_ensured = False
@@ -284,16 +314,23 @@ def _ensure_synesis_catalog() -> None:
         schema = CollectionSchema(
             fields=[
                 FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+                FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
+                FieldSchema(name="chunk_index", dtype=DataType.INT64),
                 FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
-                FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
-                FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
-                FieldSchema(name="expertise_level", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="indexer_source", dtype=DataType.VARCHAR, max_length=64),
+                FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
+                FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
+                FieldSchema(name="heading_path", dtype=DataType.VARCHAR, max_length=512),
                 FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
                 FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
+                FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="handler", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
                 FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
+                FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
+                FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
+                FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
+                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
             ],
             description="Synesis unified RAG catalog",
         )
@@ -302,9 +339,9 @@ def _ensure_synesis_catalog() -> None:
         index_params = MilvusClient.prepare_index_params()
         index_params.add_index(
             field_name="embedding",
-            index_type="IVF_FLAT",
+            index_type="HNSW",
             metric_type="COSINE",
-            params={"nlist": 128},
+            params={"M": 16, "efConstruction": 200},
         )
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=index_params)
         client.load_collection(collection_name=SYNESIS_CATALOG)
@@ -334,16 +371,23 @@ async def submit_user_knowledge(
 
     entity = {
         "chunk_id": chunk_id,
+        "doc_id": f"user:{domain}:{chunk_id[:32]}",
+        "chunk_index": 0,
         "text": content.strip()[:8192],
-        "source": f"{source}:{domain}"[:512],
-        "language": "general",
-        "embedding": embedding,
-        "domain": (domain or "generalist")[:64],
-        "expertise_level": "",
-        "indexer_source": "user_submitted",
+        "context_prefix": f"User-submitted knowledge for domain '{domain}'.",
+        "chunk_summary": "",
+        "heading_path": "",
         "section": "",
         "document_name": source[:256],
+        "source_type": "user_submitted",
+        "handler": "user_submitted",
+        "domain": (domain or "generalist")[:64],
         "tags": "",
+        "keywords": "",
+        "origin_type": "internal",
+        "authority": "vetted",
+        "source_url": "",
+        "embedding": embedding,
     }
 
     try:
@@ -433,8 +477,9 @@ async def _vector_search(
         "limit": top_k,
         "output_fields": [
             "text", "source", "chunk_id",
-            "origin_type", "authority", "indexer_source", "domain",
-            "source_url",
+            "origin_type", "authority", "domain", "source_url",
+            "heading_path", "context_prefix", "chunk_summary",
+            "document_name", "handler", "source_type",
         ],
     }
     if filter_expr:
@@ -469,9 +514,14 @@ async def _vector_search(
                     "vector_score": float(score),
                     "origin_type": entity.get("origin_type", ""),
                     "authority": entity.get("authority", ""),
-                    "indexer_source": entity.get("indexer_source", ""),
                     "domain": entity.get("domain", ""),
                     "source_url": entity.get("source_url", ""),
+                    "heading_path": entity.get("heading_path", ""),
+                    "context_prefix": entity.get("context_prefix", ""),
+                    "chunk_summary": entity.get("chunk_summary", ""),
+                    "document_name": entity.get("document_name", ""),
+                    "handler": entity.get("handler", ""),
+                    "source_type": entity.get("source_type", ""),
                 }
             )
 
@@ -507,7 +557,11 @@ def _reciprocal_rank_fusion(
 
     RRF score = sum(1 / (k + rank_i)) across retrievers.
     """
-    _PROVENANCE_KEYS = ("origin_type", "authority", "indexer_source", "domain", "source_url")
+    _PROVENANCE_KEYS = (
+        "origin_type", "authority", "domain", "source_url",
+        "heading_path", "context_prefix", "chunk_summary",
+        "document_name", "handler", "source_type",
+    )
 
     doc_map: dict[str, dict[str, Any]] = {}
 
@@ -579,13 +633,15 @@ async def _rerank_flashrank(
     if not results:
         return results
 
-    # Build passages; skip entries without valid text (defensive)
+    # Build passages using context_prefix + text (matches embedding input)
     passages = []
     valid_indices = []
     for i, r in enumerate(results):
         text = r.get("text") if isinstance(r, dict) else None
         if text and isinstance(text, str) and text.strip():
-            passages.append({"id": i, "text": text[:8000]})
+            prefix = r.get("context_prefix", "") if isinstance(r, dict) else ""
+            rerank_text = f"{prefix} {text}".strip() if prefix else text
+            passages.append({"id": i, "text": rerank_text[:8000]})
             valid_indices.append(i)
 
     if not passages:
@@ -771,9 +827,14 @@ async def retrieve_context(
             rerank_score=doc.get("rerank_score", 0.0),
             origin_type=doc.get("origin_type", ""),
             authority=doc.get("authority", ""),
-            indexer_source=doc.get("indexer_source", ""),
             domain=doc.get("domain", ""),
             source_url=doc.get("source_url", ""),
+            heading_path=doc.get("heading_path", ""),
+            context_prefix=doc.get("context_prefix", ""),
+            chunk_summary=doc.get("chunk_summary", ""),
+            document_name=doc.get("document_name", ""),
+            handler=doc.get("handler", ""),
+            source_type=doc.get("source_type", ""),
         )
         for doc in all_merged
     ]

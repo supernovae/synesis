@@ -1067,23 +1067,25 @@ cite it in your response. Prefer internal/canonical sources over external."
 
 ### Web-Docs Batch Crawler
 
-The `web-docs` indexer uses **Crawl4AI** (Apache-2.0 license) for batch crawling
-trusted URLs into the RAG corpus. Configuration lives in
-`base/rag/indexers/web-docs/sources.yaml`:
+The unified indexer's `web_page` handler uses **Crawl4AI** (Apache-2.0 license)
+for batch crawling trusted URLs into the RAG corpus. Configuration lives in
+`base/rag/indexer/sources-docs.yaml`:
 
 ```yaml
-sites:
+sources:
   - name: internal-wiki
+    handler: web_page
     url: https://wiki.internal.example.com/engineering
     authority: canonical
     origin_type: internal
-    follow_links: true
+    domain: engineering
     tags: [wiki, engineering]
 ```
 
-Each site specifies its own `authority` and `origin_type`, so a single crawl
+Each source specifies its own `authority` and `origin_type`, so a single crawl
 run can ingest both canonical internal wikis and vetted external documentation.
-The crawler converts HTML to Markdown, chunks by heading, embeds via the shared
+The handler converts HTML to Markdown, chunks by heading with heading_path
+tracking, enriches with context_prefix and keywords, embeds via the shared
 embedding service, and upserts to Milvus with full provenance metadata.
 
 ### SearchProvider Protocol
@@ -1104,11 +1106,14 @@ etc.).
 
 ### Schema Migration
 
-The `origin_type`, `authority`, and `source_url` fields are VARCHAR fields added
-to the Milvus `synesis_catalog` collection. Existing chunks without these fields
-receive empty strings, which map to `1.0x` boost and no citation (baseline
-behavior). No re-indexing is required immediately -- populate the fields at
-convenience by re-running indexers.
+The unified indexer schema (`base/rag/indexer/app/schema.py`) defines
+`synesis_catalog` with enrichment fields: `context_prefix`, `chunk_summary`,
+`heading_path`, `keywords`, `document_name`, `source_type`, `handler`,
+plus provenance fields `origin_type`, `authority`, `source_url`. The
+`authority` field is a partition key for filtered retrieval. Legacy fields
+(`expertise_level`, `indexer_source`, overloaded `language`, concatenated
+`source`) have been dropped. Re-index with the unified indexer to populate
+all enrichment fields.
 
 ### Research References (Provenance)
 

@@ -53,6 +53,10 @@ class UnifiedResult:
     score: float = 0.0
     is_trusted: bool = False
     title: str = ""
+    heading_path: str = ""
+    context_prefix: str = ""
+    chunk_summary: str = ""
+    document_name: str = ""
 
 
 def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
@@ -60,6 +64,8 @@ def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
 
     RAG results arrive with authority boost already applied in rag_client.py,
     so scores reflect the [R:canonical] > [R:vetted] > ... ordering.
+    Enrichment fields (heading_path, context_prefix, chunk_summary, document_name)
+    are passed through for the context formatter.
     """
     out: list[UnifiedResult] = []
     for r in rag_results:
@@ -75,6 +81,10 @@ def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
                 score=score,
                 is_trusted=bool(auth and auth != "external"),
                 title=getattr(r, "source", "") or "",
+                heading_path=getattr(r, "heading_path", "") or "",
+                context_prefix=getattr(r, "context_prefix", "") or "",
+                chunk_summary=getattr(r, "chunk_summary", "") or "",
+                document_name=getattr(r, "document_name", "") or "",
             )
         )
     return out
@@ -223,31 +233,11 @@ def format_unified_context(
     results: list[UnifiedResult],
     max_chars: int = 1500,
 ) -> str:
-    """Format unified results as one <context> block with authority datamarks.
+    """Format unified results as one <context> block with enriched metadata.
 
-    Preserves existing datamark conventions:
-      - [R:authority] for trusted sources (RAG with authority, mapped web engines)
-      - [R] for RAG with no authority set
-      - [W] for untrusted web sources
+    Delegates to the shared context_formatter.format_context_block() which
+    uses heading_path, document_name, chunk_summary, and authority markers.
     """
-    if not results:
-        return ""
+    from .context_formatter import format_context_block
 
-    chunks: list[str] = []
-    for r in results:
-        text = r.text[:max_chars]
-        if r.retrieval_source == "rag":
-            prefix = f"[R:{r.authority}]" if r.authority else "[R]"
-            citation = f" (source: {r.source_url})" if r.source_url else ""
-            chunks.append(f"{prefix}{citation} {text}")
-        else:
-            prefix = f"[R:{r.authority}]" if r.is_trusted else "[W]"
-            if r.source_url and r.title:
-                chunks.append(f"{prefix} [{r.title}]({r.source_url}): {text}")
-            elif r.source_url:
-                chunks.append(f"{prefix} ({r.source_url}): {text}")
-            else:
-                chunks.append(f"{prefix} {text}")
-
-    joined = "\n---\n".join(chunks)
-    return f'\n<context trust="untrusted">\n{joined}\n</context>'
+    return format_context_block(results, max_chars_per_chunk=max_chars)

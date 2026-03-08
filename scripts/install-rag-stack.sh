@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Installs Milvus (etcd + standalone) + embedder in synesis-rag.
 # Use this for standalone RAG infra setup. deploy.sh applies this
-# as part of the full stack; deploy-jobs.sh handles CronJobs separately.
+# as part of the full stack; deploy-indexer.sh handles CronJobs separately.
 #
 # Usage: ./scripts/install-rag-stack.sh [--wait]
 
@@ -83,7 +83,7 @@ log ""
 log "=== RAG stack install complete ==="
 log ""
 log "Next steps:"
-log "  1. Deploy indexer CronJobs:  ./scripts/deploy-jobs.sh dev"
+log "  1. Deploy indexer CronJobs:  ./scripts/deploy-indexer.sh dev"
 log "  2. Load knowledge:           ./scripts/load-language-pack.sh bash"
 log "  3. Run full deploy:          ./scripts/deploy.sh dev"
 log ""

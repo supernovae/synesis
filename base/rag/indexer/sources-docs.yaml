@@ -1,0 +1,110 @@
+# Unified source config: documentation (runbooks, architecture, patterns, web docs)
+# Used by: synesis-indexer-docs CronJob
+#
+# Each source specifies handler type, authority, origin_type, domain, and
+# handler-specific config. The unified indexer reads this and routes to
+# the appropriate handler plugin.
+
+sources:
+  # --- Domain Runbooks (GitHub Markdown) ---
+  - name: "OpenShift Runbooks"
+    handler: github_markdown
+    origin_type: curated
+    authority: community
+    source_type: markdown
+    domain: openshift
+    config:
+      repo: "openshift/runbooks"
+      branch: master
+      path: "alerts"
+      tags: [ocp, runbooks, alerts]
+
+  - name: "OCS/ODF Storage SOPs"
+    handler: github_markdown
+    origin_type: curated
+    authority: community
+    source_type: markdown
+    domain: openshift
+    config:
+      repo: "red-hat-storage/ocs-sop"
+      branch: main
+      path: "sop"
+      tags: [ods, ocs, storage, odf]
+
+  # --- Architecture Documents (PDF) ---
+  - name: "AWS Well-Architected Framework"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf"
+      tags: [cloud, architecture, reliability, security, performance, cost, sustainability]
+
+  - name: "AWS Reliability Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/reliability-pillar/wellarchitected-reliability-pillar.pdf"
+      tags: [reliability, fault-tolerance, resilience, disaster-recovery]
+
+  - name: "AWS Security Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/security-pillar/wellarchitected-security-pillar.pdf"
+      tags: [security, identity, encryption, detection]
+
+  - name: "AWS Operational Excellence Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/operational-excellence-pillar/wellarchitected-operational-excellence-pillar.pdf"
+      tags: [operations, monitoring, incident-response, automation]
+
+  # --- Architecture Documents (HTML) ---
+  - name: "Twelve-Factor App"
+    handler: html_document
+    origin_type: curated
+    authority: vetted
+    source_type: html
+    domain: architecture
+    config:
+      url: "https://12factor.net/"
+      tags: [twelve-factor, saas, cloud-native, best-practices]
+
+  # --- Architecture Documents (Markdown from GitHub) ---
+  - name: "Cloud Design Patterns (Microsoft)"
+    handler: github_markdown
+    origin_type: curated
+    authority: vetted
+    source_type: markdown
+    domain: architecture
+    config:
+      repo: "MicrosoftDocs/architecture-center"
+      branch: main
+      path: "docs/patterns"
+      tags: [patterns, microservices, resilience, scalability]
+
+  # --- Web Docs (Crawl4AI) ---
+  # Uncomment and configure for your environment:
+  # - name: "Internal Architecture Decisions"
+  #   handler: web_page
+  #   origin_type: internal
+  #   authority: canonical
+  #   source_type: web_page
+  #   domain: architecture
+  #   config:
+  #     url: "https://wiki.internal.example.com/engineering/adrs"
+  #     follow_links: true
+  #     tags: [adr, architecture, internal]

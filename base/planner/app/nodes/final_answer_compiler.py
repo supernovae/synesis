@@ -53,6 +53,16 @@ VERBOSITY (from style_contract.verbosity_target):
 - "moderate": 800-2000 words.
 - "thorough": 2000-4000 words with multi-paragraph sections.
 
+CITATION RULES:
+- When grounded_claims include sources, use numbered inline references \
+  [1], [2], etc. at the point of use.
+- Authority badges: mark cited sources as [Canonical], [Vetted], \
+  [Community], or [External] based on the source's authority tier.
+- At the end of the response, add a "## Sources" section listing all \
+  cited sources in order: [N] Document Name — URL (Authority badge).
+- Only include sources that are actually referenced in the body text.
+- If no claims have source citations, omit the Sources section entirely.
+
 OUTPUT: Markdown with section headings. No JSON wrapper.
 """
 

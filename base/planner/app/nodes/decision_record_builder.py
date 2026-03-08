@@ -48,6 +48,12 @@ RULES:
 - Preserve rejected alternatives in answer_strategy.rejected_alternatives \
   with the reason each was eliminated — not as open options.
 - Preserve concrete examples and domain-specific details in evidence_summary.
+- CITATION PRESERVATION: When sections cite sources (document names, URLs,
+  authority tiers like [R:canonical]), carry them into grounded_claims:
+  - Set evidence_summary to include the document name and URL
+  - Each claim citing a source should have a "sources" array in its object
+    with {"document_name": "...", "url": "...", "authority": "..."}
+  - The compiler will use these to build a Sources section in the final output.
 - Do NOT invent content not present in the sections.
 - Output valid JSON matching the schema below. No markdown fences.
 
@@ -71,7 +77,7 @@ SCHEMA:
     "must_avoid": ["..."]
   },
   "grounded_claims": [
-    {"claim": "...", "support_status": "grounded|inferred|assumption|unsupported", "evidence_summary": ""}
+    {"claim": "...", "support_status": "grounded|inferred|assumption|unsupported", "evidence_summary": "", "sources": [{"document_name": "", "url": "", "authority": ""}]}
   ],
   "assumptions": [{"assumption": "...", "importance": "low|medium|high"}],
   "uncertainties": [{"issue": "...", "user_visible": true}],

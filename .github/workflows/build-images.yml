@@ -8,8 +8,7 @@ on:
       - 'base/**/requirements.txt'
       - 'base/**/app/**'
       - 'base/sandbox/image/**'
-      - 'base/rag/ingestion/**'
-      - 'base/rag/indexers/**'
+      - 'base/rag/indexer/**'
       - 'base/rag/knowledge-base/**'
       - '.github/workflows/build-images.yml'
   workflow_dispatch:
@@ -52,26 +51,8 @@ jobs:
           - name: bge-reranker
             dockerfile: base/planner/bge-reranker/Dockerfile
             context: base/planner/bge-reranker
-          - name: ingestor
-            dockerfile: base/rag/ingestion/Dockerfile
-            context: base/rag
-          - name: indexer-code
-            dockerfile: base/rag/indexers/code/Dockerfile
-            context: base/rag
-          - name: indexer-apispec
-            dockerfile: base/rag/indexers/apispec/Dockerfile
-            context: base/rag
-          - name: indexer-architecture
-            dockerfile: base/rag/indexers/architecture/Dockerfile
-            context: base/rag
-          - name: indexer-license
-            dockerfile: base/rag/indexers/license/Dockerfile
-            context: base/rag
-          - name: indexer-domain
-            dockerfile: base/rag/indexers/domain/Dockerfile
-            context: base/rag
-          - name: indexer-knowledge-base
-            dockerfile: base/rag/indexers/knowledge-base/Dockerfile
+          - name: indexer
+            dockerfile: base/rag/indexer/Dockerfile
             context: base/rag
 
     steps:

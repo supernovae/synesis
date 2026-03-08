@@ -854,8 +854,11 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     min_score = getattr(settings, "curator_min_rerank_score", 0.6) or 0.0
     sanitization_actions: list[SanitizationAction] = []
 
-    # Build candidates and apply injection scan; track source_url for citation
+    # Build candidates and apply injection scan; track enrichment metadata for citation
     _text_to_source_url: dict[str, str] = {}
+    _text_to_heading_path: dict[str, str] = {}
+    _text_to_document_name: dict[str, str] = {}
+    _text_to_chunk_summary: dict[str, str] = {}
     candidates: list[ContextChunk] = []
     for i, r in enumerate(rag_results):
         text = getattr(r, "text", str(r)) if hasattr(r, "text") else str(r)
@@ -865,8 +868,18 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         authority = getattr(r, "authority", "") or ""
         origin_type = getattr(r, "origin_type", "") or ""
         source_url = getattr(r, "source_url", "") or ""
+        heading_path = getattr(r, "heading_path", "") or ""
+        document_name = getattr(r, "document_name", "") or ""
+        chunk_summary = getattr(r, "chunk_summary", "") or ""
+        h = _hash_chunk(text)
         if source_url:
-            _text_to_source_url[_hash_chunk(text)] = source_url
+            _text_to_source_url[h] = source_url
+        if heading_path:
+            _text_to_heading_path[h] = heading_path
+        if document_name:
+            _text_to_document_name[h] = document_name
+        if chunk_summary:
+            _text_to_chunk_summary[h] = chunk_summary
         if settings.injection_scan_enabled and text:
             scan = scan_text(text, source=f"rag_{doc_id}")
             if scan.detected:
@@ -1105,9 +1118,12 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
     rag_context_refs: list[str] = []
     context_cache: dict[str, str] = dict(state.get("context_cache") or {})
 
-    # Parallel authority labels and source URLs for provenance-aware datamarking in worker
+    # Parallel provenance/enrichment lists for context_formatter in worker
     rag_authority_labels: list[str] = []
     rag_source_urls: list[str] = []
+    rag_heading_paths: list[str] = []
+    rag_document_names: list[str] = []
+    rag_chunk_summaries: list[str] = []
 
     if getattr(settings, "context_refs_enabled", True):
         for c in retrieved:
@@ -1118,6 +1134,9 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             authority = (om.source_label.split(":")[-1] if om and ":" in om.source_label else "") if om else ""
             rag_authority_labels.append(authority)
             rag_source_urls.append(_text_to_source_url.get(h, ""))
+            rag_heading_paths.append(_text_to_heading_path.get(h, ""))
+            rag_document_names.append(_text_to_document_name.get(h, ""))
+            rag_chunk_summaries.append(_text_to_chunk_summary.get(h, ""))
     else:
         for c in retrieved:
             h = _hash_chunk(c.text)
@@ -1126,6 +1145,9 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
             authority = (om.source_label.split(":")[-1] if om and ":" in om.source_label else "") if om else ""
             rag_authority_labels.append(authority)
             rag_source_urls.append(_text_to_source_url.get(h, ""))
+            rag_heading_paths.append(_text_to_heading_path.get(h, ""))
+            rag_document_names.append(_text_to_document_name.get(h, ""))
+            rag_chunk_summaries.append(_text_to_chunk_summary.get(h, ""))
 
     auth_dist: dict[str, int] = {}
     for lbl in rag_authority_labels:
@@ -1150,6 +1172,9 @@ async def context_curator_node(state: dict[str, Any]) -> dict[str, Any]:
         "rag_context_refs": rag_context_refs,
         "rag_authority_labels": rag_authority_labels,
         "rag_source_urls": rag_source_urls,
+        "rag_heading_paths": rag_heading_paths,
+        "rag_document_names": rag_document_names,
+        "rag_chunk_summaries": rag_chunk_summaries,
         "context_cache": context_cache,
         "web_search_results": web_search_results,
         "web_search_status": web_search_status,

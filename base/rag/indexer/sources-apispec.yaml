@@ -1,0 +1,43 @@
+# Unified source config: API specifications
+# Used by: synesis-indexer-apispec CronJob
+
+sources:
+  - name: "Kubernetes Core v1 API"
+    handler: openapi_spec
+    origin_type: curated
+    authority: community
+    source_type: openapi
+    domain: kubernetes
+    config:
+      url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/api__v1_openapi.json"
+      tags: [kubernetes, api, core]
+
+  - name: "Kubernetes Apps v1 API"
+    handler: openapi_spec
+    origin_type: curated
+    authority: community
+    source_type: openapi
+    domain: kubernetes
+    config:
+      url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apps__v1_openapi.json"
+      tags: [kubernetes, api, apps, deployments]
+
+  - name: "Kubernetes Batch v1 API"
+    handler: openapi_spec
+    origin_type: curated
+    authority: community
+    source_type: openapi
+    domain: kubernetes
+    config:
+      url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__batch__v1_openapi.json"
+      tags: [kubernetes, api, batch, jobs]
+
+  - name: "Kubernetes Networking v1 API"
+    handler: openapi_spec
+    origin_type: curated
+    authority: community
+    source_type: openapi
+    domain: kubernetes
+    config:
+      url: "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1_openapi.json"
+      tags: [kubernetes, api, networking, ingress]

@@ -710,5 +710,6 @@ class FinalAnswerAudit(BaseModel):
 
     false_precision_count: int = 0
     duplicate_paragraphs_removed: int = 0
+    uncited_sources_removed: int = 0
     overgrown_sections: list[str] = Field(default_factory=list)
     scrubber_applied: bool = False

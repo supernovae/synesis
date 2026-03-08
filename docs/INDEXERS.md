@@ -1,156 +1,163 @@
-# Knowledge Indexers
+# Unified RAG Indexer
 
-Synesis includes four classes of **RAG knowledge indexers** that go beyond the basic language pack corpus. These indexers run as Kubernetes Jobs (manual trigger) or CronJobs (automated weekly refresh) and populate the unified `synesis_catalog` Milvus collection. The planner automatically queries the catalog based on task context, and the Critic uses architecture knowledge for its analysis.
+Synesis uses a **single config-driven indexer container** with handler plugins that consolidates all RAG knowledge indexing. The indexer runs as Kubernetes CronJobs (automated refresh) or one-shot Jobs (manual trigger) and populates the `synesis_catalog` Milvus collection with enriched chunks.
 
-## Indexer 1: Code Repository Indexer
+## Architecture
 
-Clones 50 high-quality open-source repositories across Python, Go, Rust, TypeScript, and Java, parses source files using **tree-sitter** for AST-aware chunking (functions, classes, methods as self-contained semantic units), and optionally extracts merged PR descriptions and commit messages via the GitHub API.
+One container image (`base/rag/indexer/`) replaces the previous 7 per-indexer containers. Each document type is handled by a **handler plugin** that implements fetch, parse, and chunk operations. Source configurations are YAML files mounted as ConfigMaps.
 
-**Why tree-sitter matters:** Line-count-based chunking breaks functions mid-body, producing garbled embeddings. Tree-sitter extracts complete semantic units — a function with its docstring, a class with its methods — that embedding models can reason about meaningfully. PR/commit patterns capture the "why" behind code changes.
-
-**Collections created:**
-
-| Collection | Contents |
-|------------|----------|
-| `code_{lang}_v1` | AST-chunked functions, classes, methods with `symbol_name` and `symbol_type` metadata |
-| `patterns_{lang}_v1` | PR descriptions and merge commit messages with author, date, changed files |
-
-**Repositories indexed** (configurable via `base/rag/indexers/code/sources.yaml`):
-
-| Language | Projects |
-|----------|----------|
-| Python | FastAPI, Django, Requests, Pytest, SQLAlchemy, Airflow, Celery, Pydantic, Black, Home Assistant |
-| Go | Kubernetes, Prometheus, Etcd, Traefik, Hugo, Terraform, Gin, GORM, Docker, Go-ethereum |
-| Rust | Tokio, rust-analyzer, Actix-web, Rocket, Diesel, Ripgrep, Cargo, Polars, Firecracker, Tauri |
-| TypeScript | VS Code, Next.js, NestJS, Redux, Prisma, Axios, Tailwind CSS, D3.js, Express, Electron |
-| Java | Spring Boot, JUnit 5, Guava, Elasticsearch, Kafka, Jenkins, Maven, Mockito, Spark, Hadoop |
-
-**Running the indexer:**
-
-```bash
-./scripts/index-code.sh                              # Index all languages and repos
-./scripts/index-code.sh --language python             # Index only Python
-./scripts/index-code.sh --language python --repo tiangolo/fastapi  # Single repo
+```
+base/rag/indexer/
+├── app/
+│   ├── cli.py              # Unified CLI entrypoint
+│   ├── pipeline.py          # Orchestration: fetch → parse → chunk → enrich → embed → upsert
+│   ├── schema.py            # Milvus collection schema (synesis_catalog)
+│   ├── chunking.py          # Heading-aware split with overlap
+│   ├── enrichment.py        # KeyBERT keywords, context_prefix, optional LLM summary
+│   ├── embed_client.py      # Batch embedding via TEI
+│   ├── milvus_writer.py     # Idempotent upsert with content-hash dedup
+│   └── handlers/            # Handler plugins (auto-discovered)
+│       ├── github_markdown.py
+│       ├── github_code.py
+│       ├── openapi_spec.py
+│       ├── web_page.py
+│       ├── pdf_document.py
+│       ├── html_document.py
+│       ├── markdown_file.py
+│       └── license_spdx.py
+├── sources-docs.yaml        # Documentation sources (runbooks, architecture, web pages)
+├── sources-code.yaml        # Code repository sources
+├── sources-apispec.yaml     # API specification sources
+├── sources-license.yaml     # License compliance sources
+├── Dockerfile
+├── requirements.txt
+├── kustomization.yaml
+├── cronjob-docs.yaml
+├── cronjob-code.yaml
+├── cronjob-apispec.yaml
+└── cronjob-license.yaml
 ```
 
-**GitHub PR extraction:** If you provide a GitHub PAT, the indexer uses the GitHub API to fetch merged PR descriptions with titles, labels, changed files, and merge commit messages. Without a PAT, it falls back to `git log --merges`:
+## Handler Types
+
+| Handler | Source Type | What It Does |
+|---------|-----------|--------------|
+| `github_markdown` | GitHub repos | Fetches .md files via GitHub API, heading-aware chunking with heading_path tracking |
+| `github_code` | GitHub repos | AST-aware chunking via tree-sitter (functions, classes as semantic units) |
+| `openapi_spec` | URLs | Parses OpenAPI 3.x / Swagger 2.0 into endpoint-level chunks |
+| `web_page` | URLs | Crawl4AI-based web crawling, HTML→Markdown conversion, heading-aware chunking |
+| `pdf_document` | URLs | PyMuPDF text extraction, section-based splitting |
+| `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
+| `markdown_file` | Local paths | Reads local .md files, heading-aware chunking |
+| `license_spdx` | SPDX/Fedora/choosealicense | License data from three authoritative sources plus compatibility rules |
+
+## Schema (synesis_catalog)
+
+Single collection with `authority` as partition key and HNSW index on embeddings.
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `chunk_id` | VARCHAR(64) | Primary key (SHA256 content hash) |
+| `doc_id` | VARCHAR(128) | Document identifier for grouped operations |
+| `chunk_index` | INT64 | Position within document |
+| `text` | VARCHAR(8192) | Chunk content |
+| `context_prefix` | VARCHAR(512) | Contextual sentence prepended before embedding (Contextual Retrieval) |
+| `chunk_summary` | VARCHAR(1024) | 1-2 sentence neutral description (optional, LLM-generated) |
+| `heading_path` | VARCHAR(512) | Document structure breadcrumb ("Arch > Retrieval > BM25") |
+| `section` | VARCHAR(256) | Immediate section heading |
+| `document_name` | VARCHAR(256) | Source document name (for citation) |
+| `source_type` | VARCHAR(32) | Source category (github, web, local, spdx) |
+| `handler` | VARCHAR(32) | Handler that produced this chunk |
+| `domain` | VARCHAR(64) | Taxonomy domain ID |
+| `tags` | VARCHAR(512) | Comma-separated tags |
+| `keywords` | VARCHAR(512) | KeyBERT-extracted keywords |
+| `origin_type` | VARCHAR(32) | Provenance: internal, external, curated |
+| `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external (partition key) |
+| `source_url` | VARCHAR(512) | Citation URL |
+| `embedding` | FLOAT_VECTOR(384) | all-MiniLM-L6-v2 embedding |
+
+## Enrichment Pipeline
+
+Every chunk passes through a two-tier enrichment pipeline before embedding:
+
+**Tier 1 (always, zero cost):**
+- `context_prefix`: Template-based from document_name + heading_path (e.g., "From 'vLLM Deployment Guide', section 'GPU Parallelism > Tensor Parallel'.")
+- `keywords`: KeyBERT extraction (up to 8 terms per chunk)
+
+**Tier 2 (optional, uses synesis-general LLM):**
+- `chunk_summary`: 1-2 sentence neutral description via LLM
+- Enhanced `context_prefix`: LLM-generated contextual sentence
+
+Tier 1 alone captures most of the Contextual Retrieval benefit because heading_path and document_name are the primary context signals.
+
+## Running the Indexer
 
 ```bash
-oc create secret generic synesis-github-token \
-  --from-literal=token=ghp_YOUR_TOKEN_HERE \
-  -n synesis-rag
+# Deploy all CronJobs
+./scripts/deploy-indexer.sh dev
+
+# Trigger a one-shot indexing job
+./scripts/deploy-indexer.sh dev --trigger docs
+./scripts/deploy-indexer.sh dev --trigger code
+./scripts/deploy-indexer.sh dev --trigger apispec
+./scripts/deploy-indexer.sh dev --trigger license
+
+# Run locally (for development)
+cd base/rag/indexer
+python -m app --sources sources-docs.yaml
+python -m app --sources sources-code.yaml --enrich full  # with LLM enrichment
 ```
 
-Or run `./scripts/bootstrap.sh --github-token` (prompts) or `./scripts/bootstrap.sh --ghcr-creds` (same token for GHCR + RAG).
+## Adding Sources
 
-## Indexer 2: API Spec Indexer
-
-Fetches OpenAPI 3.x / Swagger 2.0 specs from URLs, parses them into **endpoint-level chunks** (one chunk per path+method with parameters, request body, response schema, and description), and stores in the catalog. This gives the Worker accurate API knowledge when generating code that interacts with Kubernetes, OpenShift, or cloud APIs.
-
-**Collections created:**
-
-| Collection | Specs Included |
-|------------|----------------|
-| `apispec_kubernetes_v1` | Core v1, Apps v1, Batch v1, Networking v1 APIs |
-| `apispec_openshift_v1` | OpenShift Route API |
-
-**Running the indexer:**
-
-```bash
-./scripts/index-apispec.sh                            # Index all specs
-./scripts/index-apispec.sh --spec kubernetes-core-v1  # Index only Kubernetes
-```
-
-**Adding custom API specs:** Edit `base/rag/indexers/apispec/sources.yaml`:
+Edit the appropriate `sources-*.yaml` file in `base/rag/indexer/`:
 
 ```yaml
-specs:
-  - name: "my-internal-api"
-    url: "https://my-api.example.com/openapi.json"
-    description: "My internal service API"
-    collection: "apispec_myapi_v1"
+sources:
+  - name: my-internal-docs
+    handler: github_markdown
+    repo: my-org/my-repo
+    branch: main
+    paths: ["docs/"]
+    domain: engineering
+    authority: canonical
+    origin_type: internal
+    tags: [internal, docs]
 ```
-
-## Indexer 3: Architecture Whitepaper Indexer
-
-Downloads whitepapers and design pattern documentation (PDFs, HTML, Markdown), converts to text, and chunks by section. This gives the **Critic** node access to architectural best practices for its analysis.
-
-**Collections created:**
-
-| Collection | Documents |
-|------------|-----------|
-| `arch_well_architected_v1` | AWS Well-Architected Framework, Reliability Pillar, Security Pillar, Operational Excellence Pillar |
-| `arch_cloud_patterns_v1` | Microsoft Cloud Design Patterns (Circuit Breaker, Retry, Bulkhead, CQRS, Event Sourcing, Sidecar), Twelve-Factor App |
-
-**Running the indexer:**
-
-```bash
-./scripts/index-architecture.sh
-```
-
-**Adding documents:** Edit `base/rag/indexers/architecture/sources.yaml`:
-
-```yaml
-documents:
-  - name: "My Architecture Guide"
-    url: "https://example.com/guide.pdf"
-    type: pdf
-    collection: "arch_my_guide_v1"
-    tags: ["custom", "internal"]
-```
-
-## Indexer 4: License Compliance Indexer
-
-Indexes open source license data from three authoritative sources plus a built-in compatibility matrix, then makes this knowledge available to the Critic for compliance checking. The code indexer is also enhanced to detect and tag every code chunk with its source repository's SPDX license identifier.
-
-**Data sources:**
-
-| Source | What It Provides |
-|--------|-----------------|
-| [SPDX License List](https://spdx.org/licenses/) | 500+ licenses with SPDX ID, name, full text, OSI approval status |
-| [Fedora License Data](https://docs.fedoraproject.org/en-US/legal/) | Red Hat / Fedora approval status (`allowed`, `allowed-content`, `not-allowed`) |
-| [choosealicense.com](https://choosealicense.com/) | Structured permissions, conditions, and limitations per license |
-| Built-in compatibility matrix | Pairwise license compatibility rules (e.g., "MIT -> Apache-2.0: compatible") |
-
-**Running the indexer:**
-
-```bash
-./scripts/index-license.sh                     # Index all licenses
-./scripts/index-license.sh --license MIT       # Index a single license
-./scripts/index-license.sh --force             # Re-index everything
-```
-
-**Customizing compatibility rules:** Edit `base/rag/indexers/license/compatibility.yaml`.
-
-## How the Planner Uses Indexed Knowledge
-
-**Unified catalog:** All tasks query `synesis_catalog` only. Metadata (`domain`, `indexer_source`) drives retrieval gravity — domain runbooks, code, API specs, architecture docs, and license data share the same collection.
-
-The Critic receives architecture and design pattern context as part of its prompt when relevant. License metadata travels with code patterns from the code indexer, allowing the Critic to flag compatibility issues.
 
 ## CronJob Schedules
 
-| Environment | Code Indexer | API Spec Indexer | Architecture Indexer | License Indexer |
-|------------|-------------|-----------------|---------------------|-----------------|
-| **Dev** | Suspended (manual only) | Suspended (manual only) | Suspended (manual only) | Suspended (manual only) |
-| **Staging** | 1st & 15th of month | 1st & 15th of month | 1st & 15th of month | 1st & 15th of month |
-| **Prod** | Weekly (Sunday 3am) | Weekly (Sunday 4am) | Weekly (Sunday 5am) | Weekly (Sunday 6am) |
+| Environment | Docs | Code | API Spec | License |
+|------------|------|------|----------|---------|
+| **Dev** | Suspended | Suspended | Suspended | Suspended |
+| **Staging** | 1st & 15th | 1st & 15th | 1st & 15th | 1st & 15th |
+| **Prod** | Weekly (Sun 3am) | Weekly (Sun 3am) | Weekly (Sun 4am) | Weekly (Sun 5am) |
+
+## Idempotency
+
+The indexer uses **content-hash chunk IDs** (`chunk_id_hash`) and `existing_chunk_ids()` to skip re-embedding unchanged content. On re-run:
+
+- **Same source data** → existing chunks skipped, only new/changed chunks embedded and upserted
+- **Upsert by primary key** → same chunk_id overwrites in place (no duplicates)
+- Use `--force` to re-embed everything (e.g., after embedding model change)
+
+## Resource Requirements
+
+| Job | CPU Request | Memory | Typical Runtime |
+|-----|-----------|--------|-----------------|
+| Docs (all sources) | 500m | 2Gi | 10-30 minutes |
+| Code (all repos) | 1 core | 4Gi | 2-6 hours |
+| API Spec | 500m | 1Gi | 5-15 minutes |
+| License | 250m | 512Mi | 5-10 minutes |
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RAG_CRITIC_ARCH_ENABLED` | `true` | Give the Critic architecture context from synesis_catalog |
-| `RAG_CRITIC_LICENSE_ENABLED` | `true` | Give the Critic license compliance context from synesis_catalog |
-
-## Resource Requirements
-
-| Indexer | CPU Request | Memory | Disk | Typical Runtime |
-|---------|------------|--------|------|-----------------|
-| Code (all 50 repos) | 1 core | 2-8Gi | 50Gi (clone cache) | 2-6 hours |
-| API Spec | 500m | 1-2Gi | minimal | 5-15 minutes |
-| Architecture | 500m | 1-2Gi | minimal | 5-15 minutes |
-| License | 250m | 512Mi | minimal | 5-10 minutes |
+| `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
+| `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) |
+| `RAG_CRITIC_ARCH_ENABLED` | `true` | Give the Critic architecture context |
+| `RAG_CRITIC_LICENSE_ENABLED` | `true` | Give the Critic license compliance context |
 
 ---
 

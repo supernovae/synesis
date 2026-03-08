@@ -173,9 +173,9 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 Run after `deploy.sh` so Milvus and embedder are healthy first:
 
 ```bash
-./scripts/deploy-jobs.sh dev       # CronJobs suspended (manual trigger)
-./scripts/deploy-jobs.sh staging   # Bi-weekly schedule
-./scripts/deploy-jobs.sh prod      # Weekly schedule
+./scripts/deploy-indexer.sh dev       # CronJobs suspended (manual trigger)
+./scripts/deploy-indexer.sh staging   # Bi-weekly schedule
+./scripts/deploy-indexer.sh prod      # Weekly schedule
 ```
 
 ### 6. Connect your tools

@@ -20,8 +20,11 @@ def make_canonical_chunk(text: str = "Internal ADR: Use event sourcing for audit
         rrf_score=0.042,
         origin_type="internal",
         authority="canonical",
-        indexer_source="knowledge_base",
         domain="knowledge",
+        heading_path="Architecture > Event Sourcing > Decision",
+        document_name="ADR: Event Sourcing for Audit Trail",
+        handler="github_markdown",
+        source_type="github",
     )
 
 
@@ -35,9 +38,12 @@ def make_vetted_chunk(text: str = "AWS Well-Architected: design for failure with
         rrf_score=0.035,
         origin_type="curated",
         authority="vetted",
-        indexer_source="architecture",
         domain="cloud",
         source_url="https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf",
+        heading_path="Reliability > Design Principles",
+        document_name="AWS Well-Architected Framework",
+        handler="pdf_document",
+        source_type="web",
     )
 
 
@@ -51,9 +57,12 @@ def make_community_chunk(text: str = "OpenShift runbook: restart failing etcd po
         rrf_score=0.028,
         origin_type="curated",
         authority="community",
-        indexer_source="domain",
         domain="openshift",
         source_url="https://github.com/openshift/runbooks/blob/master/alerts/etcd.md",
+        heading_path="Alerts > etcd > Remediation",
+        document_name="OpenShift Runbooks: etcd",
+        handler="github_markdown",
+        source_type="github",
     )
 
 
@@ -67,9 +76,12 @@ def make_external_chunk(text: str = "FastAPI uses Starlette for ASGI and Pydanti
         rrf_score=0.018,
         origin_type="external",
         authority="external",
-        indexer_source="code",
         domain="python",
         source_url="https://github.com/tiangolo/fastapi",
+        heading_path="",
+        document_name="fastapi/main.py",
+        handler="github_code",
+        source_type="github",
     )
 
 

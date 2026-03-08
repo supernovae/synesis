@@ -1,6 +1,6 @@
 # Hybrid RAG Pipeline
 
-Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection for all domain knowledge. Indexers (language packs, domain runbooks, code, API specs, etc.) write to this catalog with metadata (`domain`, `indexer_source`). A hybrid retrieval pipeline combines semantic vector search with keyword-based BM25 over the catalog, merged via Reciprocal Rank Fusion (RRF), and refined by a cross-encoder re-ranker. Semantic search catches paraphrases; BM25 catches exact syntax (critical for code).
+Synesis uses a **unified catalog** (`synesis_catalog`) — a single Milvus collection with `authority` as partition key for all domain knowledge. The unified indexer (`base/rag/indexer/`) writes to this catalog with enrichment fields (`context_prefix`, `heading_path`, `chunk_summary`, `keywords`, `document_name`) and provenance metadata (`authority`, `origin_type`, `source_url`). A hybrid retrieval pipeline combines semantic vector search with keyword-based BM25 over the catalog, merged via Reciprocal Rank Fusion (RRF), and refined by a cross-encoder re-ranker. Semantic search catches paraphrases; BM25 catches exact syntax (critical for code). The BM25 corpus includes heading_path and chunk_summary for richer keyword matching, and the reranker input uses context_prefix + text to match the embedding input.
 
 ## How It Works
 
@@ -60,7 +60,7 @@ All retrieval settings are environment variables (prefixed `SYNESIS_`):
 | `RAG_BM25_REFRESH_INTERVAL_SECONDS` | `600` | BM25 index rebuild interval |
 | `RAG_RRF_K` | `60` | RRF fusion constant |
 | `RAG_BGE_RERANKER_URL` | (empty) | BGE service URL (enable accuracy mode) |
-| `RAG_UNIFIED_CATALOG` | `true` | Use single synesis_catalog (false = legacy multi-collection) |
+| `RAG_UNIFIED_CATALOG` | `true` | Use single synesis_catalog |
 
 ## Observability
 

@@ -168,6 +168,9 @@ class GraphState(TypedDict, total=False):
     rag_context_refs: list[str]  # list of content_hash for resolved retrieval chunks
     rag_authority_labels: list[str]  # parallel to rag_context/rag_context_refs: authority tier per chunk
     rag_source_urls: list[str]  # parallel to rag_context/rag_context_refs: source URL per chunk
+    rag_heading_paths: list[str]  # parallel: heading breadcrumb per chunk
+    rag_document_names: list[str]  # parallel: source document name per chunk
+    rag_chunk_summaries: list[str]  # parallel: enrichment summary per chunk
     direct_stream_request: dict[str, Any] | None  # deferred LLM call when not is_code_task (bypasses langchain)
     # Depth mode: parallel per-section generation (Skeleton-of-Thought pattern)
     depth_mode: bool  # True when parallel section generation is active for this request
@@ -251,6 +254,12 @@ class RetrievalResult(BaseModel):
     Two-axis trust model (RA-RAG, arxiv 2410.22954):
       - Security trust: handled at prompt level (injection scanning, delimiters)
       - Authority weight: origin_type + authority modulate ranking and LLM signal
+
+    Enrichment fields (from unified indexer, Contextual Retrieval pattern):
+      - heading_path: document structure breadcrumb ("Arch > Retrieval > BM25")
+      - context_prefix: contextual sentence prepended at index time
+      - chunk_summary: 1-2 sentence neutral description
+      - document_name: source document for citation
     """
 
     text: str
@@ -264,9 +273,14 @@ class RetrievalResult(BaseModel):
     repo_license: str = ""
     origin_type: str = ""
     authority: str = ""
-    indexer_source: str = ""
     domain: str = ""
     source_url: str = ""
+    heading_path: str = ""
+    context_prefix: str = ""
+    chunk_summary: str = ""
+    document_name: str = ""
+    handler: str = ""
+    source_type: str = ""
 
 
 class RetrievalParams(BaseModel):
@@ -341,6 +355,9 @@ class SynesisState(BaseModel):
     rag_context_refs: list[str] = Field(default_factory=list)
     rag_authority_labels: list[str] = Field(default_factory=list)
     rag_source_urls: list[str] = Field(default_factory=list)
+    rag_heading_paths: list[str] = Field(default_factory=list)
+    rag_document_names: list[str] = Field(default_factory=list)
+    rag_chunk_summaries: list[str] = Field(default_factory=list)
     rag_collections_queried: list[str] = Field(default_factory=list)
     # Federated RAG / Strategic Advisor (platform-aware SOP routing)
     platform_context: str = ""  # Domain from fast LLM classifier (openshift, kubernetes, generic, etc.)

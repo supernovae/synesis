@@ -53,6 +53,12 @@ _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 
 _SECTION_OVERGROWTH_WORDS = 1200
 
+# Sources section validation patterns
+_SOURCES_HEADING_RE = re.compile(r"^##\s+Sources\s*$", re.MULTILINE)
+_INLINE_REF_RE = re.compile(r"\[(\d+)\]")
+_SOURCE_LINE_RE = re.compile(r"^\[(\d+)\]\s+.+", re.MULTILINE)
+_AUTHORITY_BADGE_RE = re.compile(r"\[(Canonical|Vetted|Community|External)\]", re.IGNORECASE)
+
 
 def _strip_artifacts(text: str) -> tuple[str, int]:
     """Strip self-narration and any safety-net matches."""
@@ -146,6 +152,45 @@ def _detect_overgrown_sections(text: str) -> list[str]:
     return overgrown
 
 
+def _validate_sources_section(text: str) -> tuple[str, int]:
+    """Validate the ## Sources section: strip uncited sources, normalize badges.
+
+    Returns (cleaned_text, sources_removed_count).
+    """
+    sources_match = _SOURCES_HEADING_RE.search(text)
+    if not sources_match:
+        return text, 0
+
+    body_before_sources = text[:sources_match.start()]
+    sources_section = text[sources_match.start():]
+
+    # Find all inline refs [N] in the body (before Sources heading)
+    cited_nums = set(_INLINE_REF_RE.findall(body_before_sources))
+
+    # Parse source lines and keep only cited ones
+    source_lines = _SOURCE_LINE_RE.findall(sources_section)
+    kept_lines: list[str] = []
+    removed = 0
+    for line in source_lines:
+        line_match = re.match(r"^\[(\d+)\]", line)
+        if line_match and line_match.group(1) in cited_nums:
+            # Normalize authority badge formatting
+            normalized = _AUTHORITY_BADGE_RE.sub(
+                lambda m: f"[{m.group(1).title()}]", line
+            )
+            kept_lines.append(normalized)
+        else:
+            removed += 1
+
+    if not kept_lines:
+        # No cited sources remain — remove the entire Sources section
+        return body_before_sources.rstrip() + "\n", removed
+
+    # Rebuild the Sources section
+    new_sources = "## Sources\n\n" + "\n".join(kept_lines) + "\n"
+    return body_before_sources.rstrip() + "\n\n" + new_sources, removed
+
+
 async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     """Deterministic scrubber — no LLM, fast cleanup of compiler output."""
     start = time.monotonic()
@@ -161,6 +206,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     text, artifact_count = _strip_artifacts(text)
     text, fp_count = _detect_false_precision(text)
     text, dup_count = _remove_duplicate_paragraphs(text)
+    text, sources_removed = _validate_sources_section(text)
     overgrown = _detect_overgrown_sections(text)
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -168,6 +214,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     audit = FinalAnswerAudit(
         false_precision_count=fp_count,
         duplicate_paragraphs_removed=dup_count,
+        uncited_sources_removed=sources_removed,
         overgrown_sections=overgrown,
         scrubber_applied=True,
     )
@@ -179,6 +226,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
             "artifacts_stripped": artifact_count,
             "false_precision": fp_count,
             "duplicates_removed": dup_count,
+            "uncited_sources_removed": sources_removed,
             "overgrown_sections": len(overgrown),
             "output_len": len(text),
             "latency_ms": round(latency, 1),
