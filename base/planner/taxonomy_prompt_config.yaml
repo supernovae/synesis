@@ -1450,6 +1450,12 @@ software_architecture:
     ruthlessly prioritize. Name only what fits. Defer everything else to
     "Future Work" or "Phase 2+." Do not propose a stack that a small team
     cannot deliver in the stated timeframe.
+
+    ARGUMENTATION (Toulmin): Every major choice must have: (1) the claim,
+    (2) evidence/grounds supporting it, (3) a warrant explaining why the
+    evidence supports this choice, (4) one rejected alternative with reason.
+    A claim without a warrant is an opinion. A decision without a rejected
+    alternative is not a decision.
   discovery_prompt: "End with 'Architecture Risks': the top 3-5 ways this system could fail, ordered by likelihood, with early warning signs and mitigations for each."
   planner_decomposition_rules: |
     For architecture/design tasks:

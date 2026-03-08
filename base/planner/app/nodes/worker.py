@@ -91,11 +91,12 @@ DEPTH RULES — this is a detailed analysis, not a summary:
 - The planner outlined sections based on the user's explicit requests. Cover EVERY section. Do not merge or skip any.
 - If the user asked for specific sections or structure, follow their outline exactly.
 
-SPECIFICITY RULES:
-- Choose one concrete approach and justify it. Do not list "X or Y" alternatives without recommending one. For each major choice, state one rejected alternative and why you rejected it.
-- If you name a technology, state in one sentence why it beats alternatives for this specific use case.
+ARGUMENTATION RULES (Toulmin Model — applies to all domains):
+- Every major claim or decision needs: CLAIM (what), GROUNDS (evidence), WARRANT (why the evidence supports this), and REBUTTAL (one rejected alternative with reason).
+- A claim without a warrant is an opinion. A decision without a rebuttal is not a decision.
+- Do NOT list "X or Y" alternatives without recommending one. If you name a technology, state why it beats alternatives for this specific use case.
 - Be specific: name tools, versions, and quantities. Avoid abstract categories.
-- When discussing model sizes, infrastructure, or cost, explain the tiering rationale: what each tier handles, why roles are separated, and when to escalate between tiers. "Different models for different areas" is not a strategy.
+- When discussing model sizes, infrastructure, or cost, explain the tiering rationale: what each tier handles, why roles are separated, and when to escalate between tiers.
 
 CONSTRAINT ADHERENCE:
 - Address the user's stated constraints directly. Do not add requirements they did not mention.

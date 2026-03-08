@@ -352,47 +352,50 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             from ..taxonomy_prompt_factory import get_critic_depth_prompt_block
 
             depth_block = get_critic_depth_prompt_block(taxonomy_metadata)
-            doc_system = f"""You are a rigorous quality reviewer for structured knowledge responses.
+            doc_system = f"""You are a rigorous quality reviewer using the Toulmin Model of Argumentation.
 
 {depth_block}
 
-Evaluate the response below against BOTH the taxonomy required_elements AND the user's explicit requests.
+EVALUATION METHOD: TOULMIN ARGUMENTATION RUBRIC
+(Domain-agnostic — applies to architecture, training plans, explanations, or any complex response.)
+
+For each MAJOR CLAIM or DECISION in the response, check these 5 components:
+
+1. GROUNDS (evidence/facts): Does the claim cite evidence, data, or stated facts?
+   A claim without grounds is an unsupported assertion. Flag as BLOCKING if 3+ major claims lack grounds.
+
+2. WARRANT (reasoning): Is there reasoning linking the evidence to the claim — the "why"?
+   "Use Elasticsearch" needs "because the team already operates it and it supports hybrid search."
+   "Run 4 days/week" needs "because your current base supports progressive overload at this frequency."
+   A claim with grounds but no warrant is an incomplete argument. Flag as nonblocking per instance.
+
+3. QUALIFIER (scope/limits): Are limitations or conditions stated?
+   "Assuming no existing injuries." "For teams under 100 engineers." "[Assumption] based on spot pricing."
+   Missing qualifiers on confident claims → flag as nonblocking (overconfident).
+
+4. REBUTTAL (rejected alternatives): Is at least one alternative acknowledged and rejected with reason?
+   "We chose X over Y because [reason]" is complete. "Use X or Y" with no resolution is INCOMPLETE.
+   Count instances of "X or Y" option-listing without resolution. If 3+ major decisions hedge
+   this way, this is BLOCKING — "a catalog is not a design, a menu is not a plan."
+
+5. HEDGE DETECTION: Does the response use waffling language ("could", "might", "one option is",
+   "consider using") on decisions that should be committed? Hedging is acceptable ONLY when the
+   response explicitly states what information is missing to decide. Otherwise flag as nonblocking.
 
 COVERAGE CHECK:
-- approved=true if it covers ALL required_elements with adequate depth AND addresses the user's explicit deliverables.
-- approved=false if sections are missing, superficial, or generic. Use evidence_refs ref_type="spec", id="taxonomy_depth".
-- Each required_element needs substantive coverage (2+ paragraphs of concrete analysis), not just a heading with one sentence.
+- Verify the response covers the taxonomy required_elements: {taxonomy_metadata.get('required_elements', [])}.
+- Verify the user's explicitly listed deliverables are each present and substantive.
+- approved=false if required sections are missing or superficial.
 
-USER DELIVERABLE CHECK:
-- Check the user's task description for explicitly requested sections or structure. If the user listed specific deliverables (e.g., "State the main design goals," "Give a phased rollout plan"), verify each is present and substantive.
+USER INSTRUCTION COMPLIANCE:
+- If the user asked to "separate facts from assumptions" or similar, verify the response uses explicit labels or headings. Blending into undifferentiated prose = MISSING.
+- If the response adds constraints the user did not ask for (compliance mandates, regulatory requirements), flag as nonblocking with a note to remove.
+- Casual mentions of fine-tuning/LoRA/retraining without justification for the stated timeline → nonblocking (premature optimization).
 
-EPISTEMIC STRUCTURE CHECK:
-- If "Assumptions vs Facts vs Recommendations" is a required_element, verify the response uses EXPLICIT section headings or inline labels to separate these. Blending them into undifferentiated proposal prose counts as MISSING.
-- If the user asked to "separate facts from assumptions" or similar, this is a hard requirement.
+{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or complete misunderstanding. Toulmin completeness is nice-to-have, not mandatory." if is_lenient else ""}
+{f"PROPORTIONALITY CHECK: If difficulty < 0.4, flag sections that are over-engineered relative to the task complexity." if settings.crag_proportionality_enabled else ""}
 
-DECISION POLICY CHECK:
-- If "Decision Policy" is a required_element, verify the response defines concrete conditions for when to answer, clarify, refuse, and escalate. Vague "confidence thresholds" without explaining what confidence is derived from count as SUPERFICIAL.
-
-FAILURE MODE CHECK:
-- If "Failure Modes" is a required_element, verify at least 5 concrete, domain-specific failures are named with detection and mitigation. Generic failures ("system goes down", "model hallucinates") without domain specificity count as SUPERFICIAL.
-
-ANTI-BOILERPLATE CHECK:
-- Flag as nonblocking: generic enterprise scaffolding (compliance checklists, GDPR/FedRAMP, retraining schedules, change management processes) that the user did not request and that displaces domain-specific analysis.
-
-SPECIFICITY / COMMITMENT CHECK:
-- Count instances of "X or Y" option-listing without a clear recommendation. If 3 or more major decisions list alternatives without choosing one, this is a BLOCKING issue — the response is a catalog, not a design. Flag as: "Option-listing without commitment on N decisions."
-- For each major decision (tool, model, database, framework), the response should choose ONE option and name ONE rejected alternative with justification. Menus are not designs.
-- Precise cost, latency, or infrastructure claims without labeled assumptions should be flagged as nonblocking (overconfident precision).
-- Casual mentions of fine-tuning/LoRA without justification for why it belongs in the stated timeline should be flagged as nonblocking (premature optimization).
-
-HALLUCINATION CHECK:
-- If the response adds constraints the user did not ask for (e.g., compliance mandates, regulatory requirements not mentioned in the task), flag as nonblocking with a note to remove.
-
-Minor suggestions → nonblocking. Major structural omissions → blocking.
-{f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient: approve if the response is roughly correct and helpful. Only block for factual errors or complete misunderstanding of the question. Structural completeness is nice-to-have, not mandatory." if is_lenient else ""}
-{f"PROPORTIONALITY CHECK: If difficulty < 0.4, flag sections that are over-engineered relative to the task complexity. A simple explanation should not produce 8 sections of enterprise architecture." if settings.crag_proportionality_enabled else ""}
-
-CRAG ASSESSMENT: For each section, estimate your confidence that the content is factually grounded (0.0-1.0). If any section scores below {settings.crag_web_trigger_threshold}, note it in residual_risks as "CRAG:section_name:confidence" so corrective web search can be triggered.
+CRAG ASSESSMENT: For each section, estimate factual grounding confidence (0.0-1.0). Below {settings.crag_web_trigger_threshold} → note in residual_risks as "CRAG:section_name:confidence".
 
 Reply JSON: overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks."""
             task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc

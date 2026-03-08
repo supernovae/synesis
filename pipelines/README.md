@@ -13,7 +13,7 @@ All model definitions and subpaths come from [`models.yaml`](../models.yaml). Al
 | Role | Default Model | subPath |
 |------|--------------|---------|
 | **Router** | Qwen3-8B FP8 | `router-model` |
-| **General** | Qwen3.5-35B-A3B | `general-model` |
+| **General** | Qwen3-32B FP8 | `general-model` |
 | **Coder** | Qwen3-Coder-30B-A3B FP8 | `coder-model` |
 | **Critic** | R1-Distill-32B FP8 | `critic-model` |
 | **Summarizer** | Qwen2.5-0.5B | (none — KServe `hf://`) |

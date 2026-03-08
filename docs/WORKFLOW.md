@@ -339,6 +339,56 @@ to avoid GPU memory pressure.
 | A-MapReduce ([arxiv 2602.01331](https://arxiv.org/abs/2602.01331)) | Parallel agent retrieval; 5-17% accuracy gain, 45% time reduction. | Per-section RAG + web search. |
 | SParC-RAG ([arxiv 2602.00083](https://arxiv.org/abs/2602.00083)) | Adaptive sequential-parallel RAG; +6.2 F1 on multi-hop QA. | Targeted per-section retrieval queries. |
 
+## Toulmin Argumentation Model
+
+The critic, section_worker, and planner use the **Toulmin Model of Argumentation**
+(ACL 2024) as a domain-agnostic quality rubric. This generalizes beyond any
+specific prompt — it works for architecture designs, training plans, explanations,
+or any complex response.
+
+### Toulmin Components
+
+Every major claim or decision in a response should have:
+
+| Component | What it means | If missing |
+|---|---|---|
+| **Claim** | The assertion or recommendation | No position taken |
+| **Grounds** | Evidence, facts, or data supporting it | Unsupported assertion |
+| **Warrant** | Reasoning linking grounds to claim ("because...") | Incomplete argument |
+| **Qualifier** | Scope limits, conditions, assumptions | Overconfident claim |
+| **Rebuttal** | Rejected alternative with reason | Uncommitted choice |
+
+### How It's Applied
+
+- **Section worker** base prompt instructs the model to produce Toulmin-structured claims
+- **Critic** evaluates each major claim for completeness: grounds, warrant, rebuttal
+- **Blocking rule**: 3+ major decisions with "X or Y" hedging without resolution = BLOCKING
+- **Scaling**: Low-difficulty tasks get lenient Toulmin evaluation; high-difficulty get strict
+
+### Why This Matters
+
+The Toulmin model catches quality problems that domain-specific checklists miss:
+- "FAISS or Weaviate" in an architecture prompt → missing rebuttal (uncommitted)
+- "Run 3 or 4 days" in a training plan → missing rebuttal (uncommitted)
+- "Use spot instances" without why → missing warrant (unjustified)
+- "Confidence > 75%" without signal decomposition → missing grounds (unsupported)
+
+All detected by the same rubric, no domain knowledge needed.
+
+### Research References (Argumentation Quality)
+
+| Paper | Key Contribution | How We Apply It |
+|---|---|---|
+| Toulmin zero-shot (ACL 2024, [Gupta et al.](https://aclanthology.org/2024.acl-long.552/)) | LLMs extract claim/grounds/warrant structure | Critic evaluates argumentation completeness |
+| Argument Quality Assessment ([arxiv 2403.16084](https://arxiv.org/abs/2403.16084)) | Instruction-following LLMs + argumentation theory | Framework for general-purpose quality rubric |
+| LLM-Rubric (ACL 2024, [Microsoft](https://github.com/microsoft/LLM-Rubric)) | Multi-dimensional calibrated text evaluation | Dimension-based quality scoring |
+| Selective Abstraction ([arxiv 2602.11908](https://arxiv.org/abs/2602.11908)) | Trade specificity for reliability when uncertain | Honest abstraction > fake commitment |
+| MetaFaith ([arxiv 2505.24858](https://arxiv.org/abs/2505.24858)) | Faithful uncertainty expression calibrated to knowledge | Model expresses uncertainty honestly |
+| Hedge detection ([arxiv 2405.13319](https://arxiv.org/abs/2405.13319)) | Joint models for detecting hedging in text | Detect waffling language programmatically |
+| ArgLLMs ([arxiv 2405.02079](https://arxiv.org/abs/2405.02079)) | Formal argumentation for explainable LLM outputs | Contestable, structured reasoning |
+| Critical questions for LLM reasoning ([arxiv 2412.15177](https://arxiv.org/abs/2412.15177)) | Toulmin critical questions improve reasoning accuracy | Probe quality of model's own reasoning |
+| RRD Rubric Refinement ([arxiv 2602.05125](https://arxiv.org/abs/2602.05125)) | Rubric decomposition + filtering, +17.7 points accuracy | Improve rubric quality systematically |
+
 ## Streaming Architecture
 
 All responses stream via SSE (`text/event-stream`) through the

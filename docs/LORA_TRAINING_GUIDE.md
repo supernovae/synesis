@@ -200,6 +200,28 @@ The following priorities are ordered by impact. Each describes the specific beha
 
 **Signal to train:** When keyword expansion + pairing rules still misclassify >15% of complex prompts on the benchmark set. This is a longer-term investment — keyword improvements should be exhausted first.
 
+### Priority 5: Toulmin Argumentation LoRA (Qwen3-32B base) — FUTURE
+
+**Target behavior:** Model produces claims with complete Toulmin structure (grounds, warrant, qualifier, rebuttal) by default, without requiring extensive system prompt steering. This would reduce dependence on long system prompts for argumentation quality.
+
+**Observed gap:** Current models produce incomplete arguments — claims without warrants ("Use Elasticsearch"), decisions without rebuttals ("X or Y"), and unqualified confidence claims ("75% threshold"). The Toulmin rubric in the critic catches these, but ideally the generation model would produce complete arguments natively.
+
+**Training data shape:**
+
+| Input | Output |
+|-------|--------|
+| Architecture prompt + system instructions | Response with explicit claim/grounds/warrant/rebuttal structure for each major decision |
+| Training plan prompt | Response with committed choices, rejected alternatives, qualified scope limits |
+| Explanation prompt | Response with grounded claims, sourced evidence, stated limitations |
+
+**Data sources:** (1) Production responses that score 8+/10 on the Toulmin critic rubric. (2) Synthetic paired examples: weak response (option-listing) → strong response (committed, warranted). (3) External critic feedback as reward signal.
+
+**Evaluation metric:** Toulmin completeness score from the critic (% of major claims with all 5 components). Target: 80%+ claims complete. Current baseline: estimated ~30-40%.
+
+**Signal to train:** When prompt-only Toulmin steering plateaus below 7/10 on the external critic benchmark across diverse domains (not just architecture).
+
+**Research basis:** Toulmin zero-shot argument mining (ACL 2024, Gupta et al.), ArgLLMs (arxiv 2405.02079), Critical Questions for LLM Reasoning (arxiv 2412.15177).
+
 ---
 
 ## Evaluation Framework

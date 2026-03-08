@@ -9,7 +9,7 @@ Synesis deploys GPU models via vLLM and loads weights from a shared EFS volume (
 | synesis-router | Router | 1 × L40S | router-model | Qwen3-8B FP8 |
 | synesis-general | General | 1 × L40S | general-model | Qwen3-32B FP8 |
 | synesis-critic | Critic | 1 × L40S | critic-model | R1-Distill-32B FP8 |
-| synesis-coder | Coder | 1 × L40S | coder-model | Qwen3-Coder-Next |
+| synesis-coder | Coder | 1 × L40S | coder-model | Qwen3-Coder-30B-A3B FP8 |
 | synesis-summarizer | Summarizer | CPU | (hf:// direct) | Qwen2.5-0.5B |
 
 All models share a single PVC (`synesis-models-efs`) backed by AWS EFS via `efs-sc` StorageClass. Each deployment mounts a different `subPath`.

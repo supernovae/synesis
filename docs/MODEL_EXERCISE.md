@@ -20,6 +20,7 @@ We use a complex multi-constraint architecture prompt as the primary benchmark. 
 | 2026-03-07e | Fix domain keywords, epistemic enforcement in taxonomy/worker/critic, anti-boilerplate steering | ~7/10 (structure 8, specificity 7, prompt compliance 5) | Depth mode activated (process diagrams visible). Private/public split, deterministic tooling, practical roadmap. Still missing epistemic structure, decision policy, concrete failure modes, retrieval realism. |
 | 2026-03-07f | Planner guarantees dedicated steps for decision policy/epistemic/failure modes; section-type-specific rules in section_worker; writer preserves epistemic labels; token budget increase (section 3072, writer 12288); narrative depth steering | TBD | Addressing prompt compliance gap. |
 | 2026-03-07g | **Always-plan architecture**: all non-trivial knowledge tasks flow through planner → section_workers → critic → writer. Continuous difficulty (0-1) scales section count, token budgets, web search budget, critic strictness. CRAG-style corrective retrieval detection. Supervisor removed from knowledge path. | TBD | Major architectural simplification. Depth is a dial, not a gate. |
+| 2026-03-07h | **Toulmin argumentation rubric**: critic evaluates claim/grounds/warrant/rebuttal structure instead of domain-specific checklists. Section worker and planner instruct Toulmin structure. 3+ uncommitted "X or Y" decisions = BLOCKING. Domain-agnostic quality enforcement. | TBD | Generalizable commitment enforcement across all domains. |
 
 ---
 

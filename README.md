@@ -24,7 +24,7 @@ The architecture doesn't even require a full agent. For lighter use cases, a gui
 
 ## Architecture
 
-Synesis separates concerns across specialized model roles. A fast router classifies intent and steers requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. All model assignments, vLLM tuning, and deployment profiles are driven from a single [`models.yaml`](models.yaml).
+Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. All model assignments, vLLM tuning, and deployment profiles are driven from a single [`models.yaml`](models.yaml).
 
 ```mermaid
 flowchart LR
@@ -38,20 +38,24 @@ flowchart LR
         MCPSrv[MCP Server]
     end
 
-    subgraph planner [Synesis Planner]
+    subgraph pipeline [Synesis Planner — Always-Plan Architecture]
         Entry[EntryClassifier]
-        RouterNode[Router]
+        Advisor[StrategicAdvisor]
         PlannerNode[Planner]
-        WorkerNode[Worker]
+        SectionWorkers[SectionWorkers]
+        Merge[MergeSections]
         CriticNode[Critic]
+        Writer[Writer]
         RespondNode[Respond]
+        Supervisor[Supervisor]
+        Worker[Worker]
     end
 
-    subgraph models [Model Serving]
+    subgraph models [Model Serving — EFS-backed]
         RouterLLM["Router · Qwen3-8B"]
-        GeneralLLM["General · Qwen3.5-35B"]
+        GeneralLLM["General · Qwen3-32B FP8"]
         CoderLLM["Coder · Qwen3-Coder-30B-A3B"]
-        CriticLLM["Critic · R1-32B"]
+        CriticLLM["Critic · R1-32B FP8"]
     end
 
     subgraph support [Supporting Services]
@@ -64,24 +68,33 @@ flowchart LR
     IDE --> MCPSrv
     MCPSrv --> LiteLLM
     LiteLLM --> Entry
-    Entry --> RouterNode
-    RouterNode --> PlannerNode
-    RouterNode --> WorkerNode
-    WorkerNode --> CriticNode
-    CriticNode --> RespondNode
-    RouterNode -.-> RouterLLM
-    WorkerNode -.-> GeneralLLM
+    Entry --> Advisor
+    Advisor -->|knowledge| PlannerNode
+    Advisor -->|code| Supervisor
+    PlannerNode --> SectionWorkers
+    SectionWorkers --> Merge
+    Merge --> CriticNode
+    CriticNode --> Writer
+    Writer --> RespondNode
+    Supervisor --> Worker
+    Worker --> CriticNode
+    SectionWorkers -.-> RAGSvc
+    SectionWorkers -.-> SearchSvc
+    PlannerNode -.-> RouterLLM
+    Supervisor -.-> RouterLLM
+    SectionWorkers -.-> GeneralLLM
+    Worker -.-> GeneralLLM
     CriticNode -.-> CriticLLM
-    WorkerNode -.-> RAGSvc
-    RouterNode -.-> SearchSvc
 ```
 
 **Key design decisions:**
 
+- **Always-plan architecture** — all non-trivial knowledge tasks flow through Planner → SectionWorkers → Critic → Writer → Respond. Continuous difficulty (0.0–1.0) scales section count, token budgets, web search budget, and critic strictness. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
+- **Toulmin argumentation rubric** — the critic evaluates claim/grounds/warrant/rebuttal structure instead of domain-specific checklists. Three or more uncommitted "X or Y" decisions is a blocking issue. Domain-agnostic quality enforcement.
 - **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no LangGraph overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
-- **Open WebUI users get the full pipeline** — Router classifies intent, Worker generates with RAG context, Critic validates with thinking budget, Respond assembles the final message.
 - **Sandbox and LSP are exception-flow tools** — they fire on code validation failures, not on every request. This keeps the happy path fast. See [docs/SANDBOX.md](docs/SANDBOX.md) and [docs/LSP.md](docs/LSP.md).
 - **Taxonomy-driven prompt shaping** — domain behavior, critic depth, worker persona, and planner decomposition rules are all YAML-configurable. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
+- **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
 ## Model Roles
 
@@ -89,10 +102,10 @@ All model definitions live in [`models.yaml`](models.yaml) — the single source
 
 | Role | Default Model | Purpose |
 |------|--------------|---------|
-| **Router** | Qwen3-8B FP8 | Fast intent classification and taxonomy routing |
-| **General** | Qwen3.5-35B-A3B | General reasoning, writer synthesis, Open WebUI default |
-| **Coder** | Qwen3-Coder-30B-A3B (small) / Next (med+) | Agentic coding for IDE clients (direct vLLM endpoint) |
-| **Critic** | DeepSeek R1-Distill-32B FP8 | Deep reasoning critic with configurable thinking budget |
+| **Router** | Qwen3-8B FP8 | Fast intent classification, supervisor, planner, strategic advisor |
+| **General** | Qwen3-32B FP8 | Section generation, writer synthesis, Open WebUI default |
+| **Coder** | Qwen3-Coder-30B-A3B FP8 | Agentic coding for IDE clients (direct vLLM endpoint) |
+| **Critic** | DeepSeek R1-Distill-32B FP8 | Toulmin-based quality review with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
 
 Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML). See [`base/model-serving/README.md`](base/model-serving/README.md) for deployment examples.
@@ -181,8 +194,8 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | Capability | Description | Documentation |
 |-----------|-------------|---------------|
 | **Taxonomy-Driven Prompt Shaping** | YAML-configurable behavior per domain — tone, depth, critic mode, planner rules | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
-| **Hybrid RAG** | Vector + BM25 retrieval, Reciprocal Rank Fusion, cross-encoder re-ranking | [docs/RAG.md](docs/RAG.md) |
-| **Knowledge Indexers** | Code (tree-sitter AST), API specs, architecture whitepapers, license compliance | [docs/INDEXERS.md](docs/INDEXERS.md) |
+| **Hybrid RAG** | Vector + BM25 retrieval, Reciprocal Rank Fusion, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
+| **Knowledge Indexers** | Code (tree-sitter AST), API specs, architecture docs, license, web-docs (Crawl4AI) | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Code Sandbox** | Exception-flow validation: lint, security scan, execute in isolated pods | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **LSP Intelligence** | 6-language deep diagnostics (Python, Go, TypeScript, Bash, Java, Rust) | [docs/LSP.md](docs/LSP.md) |
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
@@ -199,8 +212,8 @@ synesis/
 ├── docs/                       # Architecture, guides, and capability deep-dives
 ├── base/
 │   ├── planner/                # FastAPI + LangGraph orchestrator
-│   │   ├── app/graph.py        # Entry → Router → Planner/Worker → Critic → Respond
-│   │   ├── app/nodes/          # Node implementations (supervisor, worker, critic, etc.)
+│   │   ├── app/graph.py        # Entry → Advisor → Planner → SectionWorkers → Critic → Writer → Respond
+│   │   ├── app/nodes/          # Node implementations (section_worker, worker, critic, planner, etc.)
 │   │   ├── taxonomy_prompt_config.yaml   # Domain behavior configuration
 │   │   ├── intent_weights.yaml           # Intent classification + routing thresholds
 │   │   └── plugins/weights/              # Vertical domain overlays
@@ -228,10 +241,12 @@ synesis/
 
 | Document | Description |
 |----------|-------------|
-| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Full graph flow, routing logic, plan approval, needs_input |
+| [docs/WORKFLOW.md](docs/WORKFLOW.md) | Full graph flow, always-plan architecture, Toulmin rubric, CRAG |
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
-| [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, re-ranker options, resilience |
-| [docs/INDEXERS.md](docs/INDEXERS.md) | Code, API spec, architecture, and license indexers |
+| [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
+| [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — 100+ verticals |
+| [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, provenance, authority weighting |
+| [docs/INDEXERS.md](docs/INDEXERS.md) | Code, API spec, architecture, license, and web-docs indexers |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
 | [docs/LSP.md](docs/LSP.md) | LSP Gateway architecture, supported languages, circuit breakers |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |
@@ -244,6 +259,8 @@ synesis/
 | [docs/VLLM_RECIPES.md](docs/VLLM_RECIPES.md) | Model-specific vLLM args and troubleshooting |
 | [docs/GPU_TOPOLOGY.md](docs/GPU_TOPOLOGY.md) | GPU topology and scheduling |
 | [docs/DEVELOPMENT_CHECKS.md](docs/DEVELOPMENT_CHECKS.md) | Local development and CI checks |
+| [docs/MODEL_EXERCISE.md](docs/MODEL_EXERCISE.md) | Observed model limitations, benchmark history |
+| [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
 
 ## Changing Models
 

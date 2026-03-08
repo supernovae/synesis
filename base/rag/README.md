@@ -17,13 +17,25 @@ The full `./scripts/deploy.sh dev` also installs the RAG stack as part of the ov
 |-----------|---------|
 | **milvus-standalone.yaml** | etcd + Milvus standalone Deployments, Service `synesis-milvus` on port 19530 |
 | **embedder/** | TEI (sentence-transformers/all-MiniLM-L6-v2) for indexers and planner |
-| **indexers/** | Domain (runbooks), code, apispec, architecture, license — all write to `synesis_catalog` |
+| **indexers/** | Domain (runbooks), code, apispec, architecture, license, web-docs (Crawl4AI) — all write to `synesis_catalog` |
 
 ## Optional: LlamaStackDistribution
 
 If you have **Llama Stack Operator** enabled in OpenShift AI 3, you can optionally add the full Llama Stack RAG (OpenAI-compatible APIs). See `llamastack-distribution.yaml` for the CR and secret setup instructions.
 
 The LlamaStackDistribution connects to the same Milvus (`synesis-milvus`) and can use your deployed vLLM models. It is **not required** for Synesis — our planner and indexers work with Milvus + embedder directly.
+
+## Provenance and Authority
+
+Every chunk in `synesis_catalog` carries provenance metadata:
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `authority` | Trust tier: canonical, vetted, community, external | `canonical` (internal ADRs) |
+| `origin_type` | Source category: internal, external, curated | `internal` |
+| `source_url` | URL for citation | `https://github.com/org/repo` |
+
+Authority tiers influence retrieval ranking: canonical > vetted > community > external. The planner and section workers cite `source_url` in responses when available.
 
 ## Indexer Idempotency
 

@@ -39,10 +39,17 @@ WRITING STYLE:
 - Bullet points are fine for lists of items, but each major point should be accompanied by explanatory prose that provides the "why" and "how."
 - Do NOT produce a wall of bullet points with no connecting narrative. Each section should read like a well-written technical document, not a slide deck.
 
-COMMITMENT RULE (critical):
-- For every major decision (tool, model, database, framework, protocol), CHOOSE ONE concrete option and justify it. Do NOT list "X or Y or Z" — that is a catalog, not a design.
-- For each choice, name ONE rejected alternative and state in one sentence why you rejected it.
-- If you genuinely cannot choose without information the user hasn't provided, say "This depends on [specific missing info]" — do not hide indecision behind option lists.
+ARGUMENTATION STRUCTURE (Toulmin Model — critical):
+Every major claim or decision MUST have these components:
+- CLAIM: State your recommendation or assertion clearly.
+- GROUNDS: Cite the evidence, facts, or data that support it.
+- WARRANT: Explain WHY the grounds support this claim — the reasoning link.
+- REBUTTAL: Name ONE rejected alternative and state why you rejected it.
+- QUALIFIER: State scope limits or assumptions with [Assumption] labels.
+Do NOT list "X or Y or Z" without choosing — that is a catalog, not a design.
+A claim without a warrant is an opinion. A decision without a rebuttal is not a decision.
+If you genuinely cannot choose without information the user hasn't provided, say
+"This depends on [specific missing info]" — do not hide indecision behind option lists.
 
 Rules:
 - Write this section as a standalone, substantial deliverable with real depth.
