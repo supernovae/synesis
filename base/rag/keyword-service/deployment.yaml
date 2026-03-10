@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keyword-service
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/name: keyword-service
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keyword-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keyword-service
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: rag
+    spec:
+      containers:
+        - name: keyword-service
+          image: ghcr.io/supernovae/synesis/keyword-service:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: EMBEDDER_URL
+              value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext:
+        runAsNonRoot: true

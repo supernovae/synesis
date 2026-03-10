@@ -1,0 +1,107 @@
+# Golden before/after exemplars for the FormatRewriter.
+# Each entry: { input: "...", output: "..." }
+# The rewriter's few-shot prompt shows these pairs so it learns the
+# target aesthetic by example, not by an ever-growing list of rules.
+#
+# Guidelines for adding exemplars:
+#   - Keep each pair short (<600 words per side) to save context tokens.
+#   - Show ONE formatting transformation per exemplar, not everything at once.
+#   - Preserve all semantic content — never add or remove meaning.
+
+- id: comparison
+  description: "Technical comparison → table + mermaid architecture diagram"
+  input: |
+    ## Database Selection
+
+    For the primary data store we chose PostgreSQL over MySQL because PostgreSQL
+    has better JSON support and advanced indexing (GIN, GiST) for our mixed
+    workload. For the cache layer we chose Redis over Memcached because Redis
+    supports sorted sets and pub/sub which we need for the leaderboard and
+    real-time notifications. For the search index we chose OpenSearch because it
+    runs on our existing Kubernetes cluster without a managed service dependency.
+
+    ## Data Flow
+
+    The client sends a request to the API. The API checks the Redis cache
+    first. On a miss it queries PostgreSQL. Write operations go to PostgreSQL
+    first, then invalidate the cache. Background workers sync changes to
+    OpenSearch for full-text search.
+  output: |
+    ## Database Selection
+
+    | Role | Choice | Why chosen | Rejected alternative | Rejection reason |
+    |------|--------|-----------|---------------------|-----------------|
+    | Primary store | PostgreSQL | JSON support, GIN/GiST indexing | MySQL | Weaker JSON and advanced index support |
+    | Cache | Redis | Sorted sets, pub/sub for leaderboard + notifications | Memcached | No data structures beyond key-value |
+    | Search | OpenSearch | Runs on existing K8s cluster | Elasticsearch | Requires managed service or separate license |
+
+    ## Data Flow
+
+    ```mermaid
+    flowchart LR
+        Client --> API
+        API --> Redis
+        Redis -->|miss| PostgreSQL
+        API -->|write| PostgreSQL --> Redis
+        PostgreSQL --> Worker[Background Worker] --> OpenSearch
+    ```
+
+- id: process
+  description: "Step-by-step deployment → numbered list + code block"
+  input: |
+    ## Deployment
+
+    First create the namespace for the models. Then apply the
+    InferenceService manifest for each model. After the pods are running,
+    verify health by hitting the health endpoint. Finally update the gateway
+    config to point at the new service URLs and restart the gateway pod.
+  output: |
+    ## Deployment
+
+    1. Create the namespace:
+       ```bash
+       kubectl create namespace synesis-models
+       ```
+    2. Apply the InferenceService manifests:
+       ```bash
+       kubectl apply -f manifests/inference-services/ -n synesis-models
+       ```
+    3. Verify pods are healthy:
+       ```bash
+       kubectl wait --for=condition=ready pod -l app=synesis --timeout=300s -n synesis-models
+       curl http://synesis-general.synesis-models.svc.cluster.local:8080/health
+       ```
+    4. Update the gateway config with the new service URLs and restart:
+       ```bash
+       kubectl rollout restart deployment/synesis-gateway -n synesis
+       ```
+
+- id: analysis
+  description: "Narrative analysis → flowing prose with inline code + bullet summary"
+  input: |
+    ## Retrieval Strategy
+
+    The retrieval system uses a hybrid approach combining BM25 keyword search
+    with dense vector search using BGE-M3 embeddings. Results from both are
+    merged using reciprocal rank fusion. This handles the common failure mode
+    where pure vector search misses exact terminology like specific error codes
+    or CLI flag names, while pure keyword search misses semantic similarity.
+    The system indexes internal documentation, code repositories, and
+    architecture decision records. Each source is tagged with an authority tier
+    so that canonical internal docs outweigh community blog posts in the final
+    ranking. Re-ranking is handled by FlashRank to keep latency under 200ms.
+  output: |
+    ## Retrieval Strategy
+
+    The retrieval system uses a hybrid approach: BM25 for keyword matching and
+    BGE-M3 dense vectors for semantic similarity, merged via reciprocal rank
+    fusion. This matters because pure vector search misses exact terminology
+    (error codes, CLI flags like `--tensor-parallel-size`) while pure keyword
+    search misses semantic similarity.
+
+    Each indexed source carries an authority tier — canonical internal docs outrank community blog posts in the final ranking. `FlashRank` handles re-ranking to keep latency under 200ms.
+
+    Indexed sources:
+    - Internal documentation and architecture decision records (canonical)
+    - Code repositories (vetted)
+    - External references (community/external, lower authority)

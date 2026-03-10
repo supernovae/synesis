@@ -1,0 +1,76 @@
+# Synesis Relationships Plugin
+# Focus: Dating, marriage, communication, conflict resolution, social skills.
+
+complexity_weights:
+  relationship_dynamics:
+    weight: 7
+    keywords:
+      - attachment style
+      - love language
+      - communication pattern
+      - conflict cycle
+      - boundary setting
+
+risk_weights:
+  sensitive_topics:
+    weight: 20
+    keywords:
+      - domestic violence
+      - abuse
+      - crisis
+      - stalking
+      - harassment
+  mental_health_crisis:
+    weight: 25
+    keywords:
+      - suicidal
+      - self harm
+      - helpline
+
+domain_keywords:
+  relationships:
+    domain: relationships
+    keywords:
+      - relationship
+      - dating
+      - marriage
+      - divorce
+      - couples
+      - long distance
+      - friendship
+      - boundaries
+      - love language
+      - attachment
+      - breakup
+      - dating app
+      - partner
+      - spouse
+      - significant other
+      - commitment
+      - trust
+      - jealousy
+      - anniversary
+  communication_skills:
+    domain: communication_skills
+    keywords:
+      - communication
+      - conflict resolution
+      - active listening
+      - empathy
+      - emotional intelligence
+      - assertiveness
+      - social skills
+      - introvert
+      - extrovert
+      - small talk
+      - difficult conversation
+      - apology
+      - forgiveness
+
+pairings:
+  - keywords: [relationship, abuse]
+    extra_weight: 25
+    axis: risk
+  - keywords: [divorce, custody]
+    extra_weight: 12
+    axis: risk

@@ -1,0 +1,16 @@
+# Trivy misconfig suppressions for Synesis
+#
+# KSV-0014: readOnlyRootFilesystem
+# Requires emptyDir mounts per container for /tmp, model caches, HF_HOME, etc.
+# Too invasive to enable safely across all services without per-service testing.
+# First-party images already run as non-root with dropped capabilities.
+KSV-0014
+
+# KSV-0118: Default security context (no securityContext configured)
+# Suppressed for third-party images where we don't control runtime behavior:
+#   - litellm (ghcr.io/berriai/litellm)
+#   - vLLM (registry.redhat.io/rhaiis/vllm-cuda-rhel9, quay.io vllm-cpu)
+#   - KServe ServingRuntime templates
+# First-party deployments (planner, supervisor, mcp, bge-reranker, indexers)
+# have securityContext configured directly in their manifests.
+KSV-0118

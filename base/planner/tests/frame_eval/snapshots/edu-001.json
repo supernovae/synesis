@@ -1,0 +1,25 @@
+{
+  "problem": "Can you give me a curriculum outline with weekly topics, a list of hands-on exercises that don't require coding, an assessment strategy, and recommended tools?",
+  "goals": [
+    "Can you give me a curriculum outline with weekly topics, a list of hands-on exercises that don't require coding, an assessment strategy, and recommended tools?"
+  ],
+  "constraints": [
+    "I have a budget of $15K for course development."
+  ],
+  "context_facts": [
+    "I'm designing a 12-week online course on data literacy for non-technical business professionals.",
+    "The audience is mid-career managers at Fortune 500 companies who need to make better data-driven decisions but don't want to learn to code.",
+    "Class size will be about 30 people per cohort."
+  ],
+  "deliverables": [
+    "Curriculum outline"
+  ],
+  "meta_requirements": [
+    "Keep it practical, not academic.",
+    "Avoid jargon."
+  ],
+  "uncertainties": [],
+  "domain": "education",
+  "output_format": "prose",
+  "needs_web": false
+}

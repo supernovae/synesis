@@ -1,0 +1,88 @@
+# Synesis Legal & Privacy Compliance Vertical
+# GDPR, CCPA, Legal workflows, e-discovery.
+# Works alongside compliance_healthcare and compliance_fintech.
+
+risk_weights:
+  gdpr_privacy:
+    weight: 18
+    domain: legal_compliance
+    keywords:
+      - gdpr
+      - ccpa
+      - right to be forgotten
+      - data subject request
+      - dsar
+      - consent management
+      - data retention
+      - privacy policy
+  legal_sensitive:
+    weight: 15
+    domain: legal_compliance
+    keywords:
+      - e-discovery
+      - legal hold
+      - privileged
+      - attorney-client
+      - deposition
+      - litigation
+
+complexity_weights:
+  regulatory_workflow:
+    weight: 12
+    keywords:
+      - compliance workflow
+      - audit trail
+      - retention policy
+      - data mapping
+      - ropa
+      - dpia
+
+domain_keywords:
+  privacy_tools:
+    domain: legal_compliance
+    keywords:
+      - one trust
+      - trustarc
+      - bigid
+      - datagrail
+      - cookie consent
+  legal_tech:
+    domain: legal_compliance
+    keywords:
+      - contract analysis
+      - clause
+      - signature
+      - docusign
+
+pairings:
+  - keywords: [gdpr, delete]
+    extra_weight: 25
+    axis: risk
+  - keywords: [pii, export]
+    extra_weight: 20
+    axis: risk
+  - keywords: [consent, api]
+    extra_weight: 15
+    axis: complexity
+
+
+vertical_prompt:
+  name: fintech
+  active_domain_refs:
+    - fintech_compliance
+    - fintech
+  platform_context_aliases:
+    - fintech
+    - banking
+    - payments
+  worker_persona_block: |
+    VERTICAL: Fintech / PCI-DSS. You operate as a Fintech Auditor in training.
+    - Ledger: No direct modification of transaction records without audit trail.
+    - PCI: Never log, store, or transmit raw card data. Tokenize.
+    - KYC/AML: Identity checks and anti-fraud logic require explicit design.
+    - Four-Eyes: Destructive ops (delete, truncate ledger) MUST have justification.
+  planner_decomposition_rules: |
+    For Fintech: Step 1 MUST implement or verify audit log for ledger/transaction access.
+    Payment steps: Include idempotency and reconciliation check.
+    KYC/AML: Separate step for identity verification logic.
+  critic_mode: safety_ii

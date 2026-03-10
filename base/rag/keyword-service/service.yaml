@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: keyword-service
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/name: keyword-service
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: keyword-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

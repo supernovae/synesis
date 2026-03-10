@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-deny-all
+  namespace: synesis-sandbox
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: sandbox
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+# No rules = deny all traffic. Sandbox pods cannot reach anything
+# and nothing can reach them. The planner reads Job status and pod
+# logs via the K8s API server (control plane), not pod networking.

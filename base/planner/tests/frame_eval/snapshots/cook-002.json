@@ -1,0 +1,26 @@
+{
+  "problem": "Please plan:",
+  "goals": [
+    "Please plan:"
+  ],
+  "constraints": [
+    "My budget is $100 for everything.",
+    "A three-course menu that accommodates all dietary needs",
+    "A shopping list organized by store section",
+    "A cooking timeline so everything is ready by 7pm",
+    "I want the meal to feel elegant but I'm an intermediate cook, so nothing that requires professional technique.",
+    "Suggest wine pairings if you can but acknowledge you don't know my guests' preferences."
+  ],
+  "context_facts": [
+    "I'm hosting a dinner party for 8 people this Saturday. Two guests are vegetarian, one is gluten-free, and one has a nut allergy.",
+    "I have a standard home kitchen with an oven, stovetop, and a slow cooker."
+  ],
+  "deliverables": [
+    "Dinner party plan"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "cooking",
+  "output_format": "prose",
+  "needs_web": false
+}

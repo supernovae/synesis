@@ -1,0 +1,25 @@
+sources:
+  - name: "adr-template-and-examples"
+    path: "adr-template-and-examples.md"
+    type: markdown
+    tags: ["adr", "architecture", "decisions", "tradeoffs"]
+
+  - name: "model-tiering-strategy"
+    path: "model-tiering-strategy.md"
+    type: markdown
+    tags: ["models", "tiering", "gpu", "cost", "latency"]
+
+  - name: "ai-assistant-failure-modes"
+    path: "ai-assistant-failure-modes.md"
+    type: markdown
+    tags: ["failure-modes", "detection", "mitigation", "hallucination", "quality"]
+
+  - name: "rag-retrieval-architecture"
+    path: "rag-retrieval-architecture.md"
+    type: markdown
+    tags: ["rag", "retrieval", "vector-search", "milvus", "chunking"]
+
+  - name: "phased-rollout-template"
+    path: "phased-rollout-template.md"
+    type: markdown
+    tags: ["rollout", "phased", "timeline", "mvp", "planning"]

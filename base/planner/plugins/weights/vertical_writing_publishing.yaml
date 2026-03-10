@@ -1,0 +1,84 @@
+# Synesis Writing & Publishing Plugin
+# Focus: Creative writing, blogging, self-publishing, journalism, copywriting.
+
+complexity_weights:
+  fiction_craft:
+    weight: 8
+    keywords:
+      - plot structure
+      - character arc
+      - worldbuilding
+      - point of view
+      - show dont tell
+      - dialogue
+      - pacing
+  publishing_industry:
+    weight: 8
+    keywords:
+      - query letter
+      - literary agent
+      - manuscript
+      - slush pile
+      - advance
+      - royalties
+      - isbn
+
+domain_keywords:
+  creative_writing:
+    domain: creative_writing
+    keywords:
+      - creative writing
+      - fiction
+      - nonfiction
+      - short story
+      - novel writing
+      - screenplay
+      - playwriting
+      - poetry writing
+      - worldbuilding
+      - character development
+      - plot
+      - narrative
+      - flash fiction
+      - fanfiction
+      - writing prompt
+      - nanowrimo
+  publishing:
+    domain: publishing
+    keywords:
+      - self-publishing
+      - publishing
+      - query letter
+      - literary agent
+      - manuscript
+      - editing
+      - proofreading
+      - book cover
+      - isbn
+      - kindle direct
+      - amazon kdp
+      - book marketing
+      - book launch
+      - beta reader
+  journalism:
+    domain: journalism
+    keywords:
+      - journalism
+      - article
+      - newsletter
+      - copywriting
+      - content writing
+      - ghostwriting
+      - blog
+      - blogging
+      - technical writing
+      - style guide
+      - ap style
+      - press release
+      - op-ed
+      - substack
+
+pairings:
+  - keywords: [publish, legal]
+    extra_weight: 8
+    axis: risk

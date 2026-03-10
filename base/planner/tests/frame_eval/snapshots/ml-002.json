@@ -1,0 +1,32 @@
+{
+  "problem": "Task: Build an automated ticket classification system. ",
+  "goals": [
+    "Task: Build an automated ticket classification system. ",
+    "- Model selection comparison (at least 3 approaches)",
+    "- Data preprocessing pipeline",
+    "- Evaluation methodology"
+  ],
+  "constraints": [
+    "- Must exceed 90% accuracy on top 20 categories",
+    "- Inference latency under 200ms",
+    "- Must handle tickets in English and Spanish",
+    "- Needs a human-in-the-loop for low-confidence predictions",
+    "Note: We use AWS and prefer SageMaker if possible. Don't overthink the infrastructure — focus on the ML approach. "
+  ],
+  "context_facts": [
+    "Context: I have a dataset of 10M customer support tickets with resolution categories. Currently agents manually categorize them. Accuracy of manual categorization is about 85%. ",
+    "Requirements: ",
+    "Deliver: "
+  ],
+  "deliverables": [
+    "Automated ticket classification system",
+    "Model selection comparison",
+    "Data preprocessing pipeline",
+    "Evaluation methodology"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "machine_learning",
+  "output_format": "prose",
+  "needs_web": false
+}

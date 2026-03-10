@@ -1,0 +1,5 @@
+# Bypass LiteLLM: point Open WebUI directly at the planner.
+# Enable in overlays/dev/kustomization.yaml patches with target Deployment/open-webui.
+- op: replace
+  path: /spec/template/spec/containers/0/env/0/value
+  value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"

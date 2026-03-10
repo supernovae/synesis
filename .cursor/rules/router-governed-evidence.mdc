@@ -1,0 +1,87 @@
+---
+description: Router-governed evidence architecture — retrieval discipline, evidence packets, node boundaries, hybrid cache
+globs: base/planner/app/nodes/*.py,base/planner/app/graph.py,base/planner/app/retrieval_cache.py,base/planner/app/semantic_index.py,base/planner/app/state.py
+alwaysApply: false
+---
+
+# Router-Governed Evidence Architecture
+
+The Router is the **single retrieval orchestrator**. All retrieval (RAG, web search, unified retrieval) flows through the Router node. No other node may touch retrieval backends.
+
+## Node Boundaries
+
+| Node | May Retrieve? | Evidence Role |
+|------|:---:|---|
+| **Router** | YES | Generates queries, retrieves, summarizes into evidence packets |
+| **Planner** | NO | Consumes evidence packets; emits `evidence_requests` for gaps |
+| **Executor** | NO | Consumes evidence packets; produces code |
+| **Writer** | NO | Consumes evidence packets; produces knowledge responses |
+| **Critic** | NO | Validates against evidence packets; sets `need_more_evidence` |
+
+**Enforcement:** Non-router nodes must NOT import `rag_client`, `web_search`, `unified_retrieval`, `query_distiller`, or `context_formatter`. Static import analysis in `test_router_governance.py` verifies this.
+
+## Evidence Packets
+
+All evidence flows as structured `EvidencePacket` objects (Pydantic model in `state.py`):
+
+```python
+class EvidencePacket(BaseModel):
+    query: str
+    sources: list[EvidenceSource] = []
+    snippets: list[EvidenceSnippet] = []
+    summary: str = ""
+    confidence: float = Field(ge=0.0, le=1.0, default=0.0)
+    retrieval_notes: str = ""
+    section_id: int | None = None
+```
+
+State field: `evidence_packets` with `_merge_evidence_packets` reducer (deduplicates by `(query, section_id)`).
+
+## Router Internal Flow
+
+```
+generate_query() → LLM call
+retrieve()       → unified_retrieval / web_search (bounded)
+summarize()      → LLM call → EvidencePacket
+refine_query()   → LLM call (if confidence < 0.4)
+dedupe()         → deterministic
+parallel_dispatch() → asyncio.gather for independent requests
+```
+
+**Bounds:** `MAX_DOCS_PER_QUERY=5`, `MAX_SNIPPETS_PER_PACKET=20`, `MAX_SUMMARY_TOKENS=2000` per packet, `MAX_REFINEMENT_ROUNDS=2`.
+
+## Hybrid Retrieval Cache
+
+`HybridRetrievalCache` in `retrieval_cache.py` — singleton via `get_retrieval_cache()`.
+
+- **Layer 1:** Exact-match dict (normalized query string)
+- **Layer 2:** `NumpySemanticIndex` (cosine similarity on query embeddings)
+- **TTL:** 24h default (`retrieval_cache_ttl`)
+- **Eviction:** LRU + TTL
+- **Structured query bypass:** File paths, K8s objects, Terraform identifiers skip semantic lookup
+- **Confidence threshold:** 0.6 — low-confidence packets are not cached for semantic reuse
+- **Similarity threshold:** 0.85 — semantic matches must exceed this
+
+**Cache invalidation:** Anti-oscillation detector calls `cache.invalidate_by_section(section_id)` when the critic repeatedly flags evidence for the same section. Explicit `cache.invalidate(query)` is available for verdict-based invalidation.
+
+## Adding a New Node
+
+If you add a new content-producing node:
+
+1. Do NOT add retrieval imports — request evidence via `evidence_requests` in state
+2. Consume `state["evidence_packets"]` for grounding
+3. Register in `_NODE_TO_PHASE` (main.py) and `KNOWN_NODE_NAMES` (streaming_events.py)
+4. Add to `graph.py` node registrations and edge definitions
+5. If the node produces `generated_code`, wrap with `validated_node()` validators
+
+## Graph Topology
+
+```
+Entry → Advisor → FrameExtractor → Router
+Router → Planner | Executor | Writer | Respond
+Planner → Router (evidence requests or plan ready)
+Executor → PatchIntegrityGate → Critic
+Writer → Critic | FinalScrubber
+Critic → Router (refinement) | FinalScrubber | Respond
+FinalScrubber → Respond → END
+```

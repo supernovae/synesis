@@ -1,0 +1,89 @@
+# Synesis LLM RAG Vertical
+# RAG pipelines, retrieval, embeddings, chunking. For users building with LLMs.
+# Critic: retrieval correctness, chunk boundaries, source attribution.
+
+complexity_weights:
+  rag_pipeline:
+    weight: 10
+    keywords:
+      - rag
+      - retrieval
+      - retrieval-augmented
+      - embed
+      - embedding
+      - vector store
+      - chroma
+      - pinecone
+      - qdrant
+      - faiss
+  chunking_strategy:
+    weight: 8
+    keywords:
+      - chunk
+      - chunking
+      - splitter
+      - overlap
+      - token limit
+      - semantic split
+  reranking:
+    weight: 10
+    keywords:
+      - rerank
+      - cross-encoder
+      - hybrid search
+      - bm25
+      - sparse
+  rag_architecture:
+    weight: 12
+    keywords:
+      - multi-index
+      - document pipeline
+      - ingestion
+      - sync pipeline
+      - source attribution
+
+domain_keywords:
+  llm_rag:
+    domain: llm_rag
+    keywords:
+      - langchain
+      - llama-index
+      - haystack
+      - retrieval
+      - rag
+
+pairings:
+  - keywords: [rag, production]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [embedding, delete]
+    extra_weight: 15
+    axis: risk
+
+
+vertical_prompt:
+  name: llm_rag
+  active_domain_refs:
+    - llm_rag
+  platform_context_aliases:
+    - rag
+    - retrieval
+  worker_persona_block: |
+    VERTICAL: LLM RAG. Retrieval-augmented generation, embeddings, chunking.
+    - Chunking: Sensible overlap; avoid mid-sentence splits. Document boundaries matter.
+    - Retrieval: Prefer semantic + sparse (hybrid) when relevant. Reranking improves precision.
+    - Attribution: Outputs citing retrieved chunks MUST trace back to source.
+  planner_decomposition_rules: |
+    RAG tasks: Step 1 = chunking/embedding OR retrieval logic. Multi-step: retrieval → rerank → generate.
+    Each step needs verification_command (e.g., run retrieval on sample doc).
+  critic_mode: tiered
+  critic_tiers:
+    basic: |
+      Approve if code runs. Check retrieval returns results; chunking produces non-empty chunks.
+      No What-If. Brief note on obvious issues (empty results, wrong chunk size).
+    advanced: |
+      Check: chunk boundaries (no mid-sentence cuts), overlap settings, source attribution in output.
+      Suggest: reranking if missing, hybrid search for multi-domain. Nonblocking for minor issues.
+    research: |
+      Full pipeline review: ingestion pipeline, index freshness, eval coverage.
+      Flag: missing evals, unclear retrieval strategy, potential staleness.

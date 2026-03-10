@@ -1,0 +1,123 @@
+---
+description: How to add new RAG indexer handler plugins (source types) to the unified indexer
+globs: base/rag/indexer/**/*.py,base/rag/indexer/sources-*.yaml,base/rag/indexer/cronjob-*.yaml,base/rag/indexer/kustomization.yaml
+alwaysApply: false
+---
+
+# Adding RAG Indexer Handler Plugins
+
+The unified indexer at `base/rag/indexer/` uses a plugin architecture. Adding a new source type (e.g. arxiv papers, Confluence pages, Slack threads) requires only a handler module, a source config entry, and a registry import — no pipeline changes.
+
+## Step-by-step checklist
+
+### 1. Create the handler module
+
+Create `base/rag/indexer/app/handlers/<your_handler>.py`:
+
+```python
+from __future__ import annotations
+from typing import Any
+from ..chunking import heading_aware_split  # or chunk_text_simple for non-markdown
+from . import register
+from .base import BaseHandler, Chunk, RawDocument
+
+@register
+class YourHandler:
+    handler_type = "your_handler"   # must be unique, used in sources.yaml
+    source_type = "your_source"     # category: github, web, api, local, etc.
+
+    def fetch(self, source_config: dict[str, Any]) -> list[RawDocument]:
+        """Fetch documents. source_config is the full source entry from YAML."""
+        config = source_config.get("config", {})
+        # ... fetch logic, return RawDocument(doc_id, name, content, source_url)
+
+    def parse_and_chunk(self, doc: RawDocument) -> list[Chunk]:
+        """Parse content and split into chunks with heading_path tracking."""
+        # Use heading_aware_split for markdown/structured text
+        # Use chunk_text_simple for flat text (PDFs, transcripts)
+        # Return Chunk(text, section, heading_path, chunk_index, metadata)
+```
+
+**Key contracts:**
+- `fetch()` receives the full source entry dict; handler-specific config lives under `config:`
+- `parse_and_chunk()` must populate `heading_path` when structure exists — this drives the context_prefix enrichment and consumption-side display
+- Return `RawDocument.source_url` for every document — enables citation in the planner
+- Set `Chunk.metadata["source_url"]` to override per-chunk if URLs differ from the document URL
+
+### 2. Register the handler
+
+Add the import to `base/rag/indexer/app/handlers/__init__.py` in `_discover()`:
+
+```python
+from . import (
+    ...,
+    your_handler,  # add here
+)
+```
+
+### 3. Add source config
+
+Add entries to an existing `sources-*.yaml` or create a new `sources-<category>.yaml`:
+
+```yaml
+sources:
+  - name: "Human-readable source name"
+    handler: your_handler          # matches handler_type
+    origin_type: external          # internal | external | curated
+    authority: community           # canonical | vetted | community | external
+    domain: generalist             # taxonomy domain ID
+    config:
+      # handler-specific fields
+      api_key_env: "ARXIV_TOKEN"   # example: env var name for secrets
+      tags: [research, ml]
+```
+
+**Authority assignment guidelines:**
+- `canonical`: internal org-approved content (ADRs, runbooks you own)
+- `vetted`: reviewed content from trusted external sources (AWS docs, Red Hat docs)
+- `community`: official external docs (GitHub READMEs, CNCF project docs)
+- `external`: unreviewed external content (blog posts, forum answers, arxiv papers)
+
+### 4. Add dependencies (if any)
+
+Add new Python packages to `base/rag/indexer/requirements.txt`.
+
+### 5. Create CronJob (if new category)
+
+If you created a new `sources-<category>.yaml`, add:
+- `base/rag/indexer/cronjob-<category>.yaml` (copy an existing one, update ConfigMap name and source file)
+- Add the ConfigMap and CronJob to `base/rag/indexer/kustomization.yaml`
+- Add suspend/schedule patches to `overlays/jobs*/kustomization.yaml`
+
+## Enrichment pipeline (automatic)
+
+The pipeline in `pipeline.py` automatically enriches every chunk from every handler:
+
+1. **context_prefix** (Tier 1, free): Template from `document_name` + `heading_path` — this is why `heading_path` matters
+2. **keywords** (Tier 1, free): KeyBERT extraction (8 terms)
+3. **chunk_summary** (Tier 2, optional): LLM-generated via `--enrich full`
+4. **Embedding input**: `context_prefix + text` (Contextual Retrieval pattern)
+5. **Deduplication**: `chunk_id_hash(text, source)` skips unchanged content
+
+No handler code needed for enrichment — just return good `heading_path` and `document_name` values.
+
+## Schema fields (automatic, v4)
+
+The pipeline maps handler output to schema fields via `catalog_entity()`. Handlers don't touch Milvus directly. Fields populated from source config: `authority`, `origin_type`, `domain`, `source_type`, `handler`. Fields populated from handler output: `text`, `heading_path`, `section`, `document_name`, `source_url`, `doc_id`, `chunk_index`.
+
+**Removed in v4:** `intended_roles` — the Router owns all retrieval; per-node role tagging is not used.
+
+## Chunking utilities
+
+- `heading_aware_split(content, document_name)` — Markdown/structured text: splits by H1-H6, tracks heading_path ancestry, preserves code blocks and tables, word-based overlap. Hard cap at 8192 bytes (Milvus text field limit) prevents silent truncation.
+- `chunk_text_simple(text, max_chars)` — Flat text: paragraph-boundary splitting for PDFs, transcripts, etc. Default 4000 chars.
+- `SCHEMA_MAX_BYTES = 8192` — chunks exceeding this after block restoration are re-split automatically.
+
+## Testing locally
+
+```bash
+cd base/rag/indexer
+python -m app --sources sources-<category>.yaml --dry-run        # validate without Milvus
+python -m app --sources sources-<category>.yaml --source "Name"  # index one source
+python -m app --sources sources-<category>.yaml --enrich full    # with LLM enrichment
+```

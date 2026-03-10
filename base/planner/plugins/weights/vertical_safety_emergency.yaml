@@ -1,0 +1,84 @@
+# Synesis Safety & Emergency Preparedness Plugin
+# Focus: Emergency preparedness, disaster readiness, home safety, self-defense.
+
+complexity_weights:
+  disaster_planning:
+    weight: 8
+    keywords:
+      - evacuation plan
+      - emergency kit
+      - go bag
+      - 72 hour kit
+      - shelter in place
+      - communication plan
+  survival_skills:
+    weight: 10
+    keywords:
+      - water purification
+      - fire starting
+      - navigation
+      - signaling
+      - first aid wilderness
+      - shelter building
+
+risk_weights:
+  emergency_situations:
+    weight: 20
+    keywords:
+      - active emergency
+      - flood warning
+      - tornado warning
+      - earthquake
+      - evacuation order
+  weapons_safety:
+    weight: 15
+    keywords:
+      - firearm
+      - gun safety
+      - weapon
+
+domain_keywords:
+  emergency_preparedness:
+    domain: emergency_preparedness
+    keywords:
+      - emergency preparedness
+      - disaster
+      - earthquake
+      - hurricane
+      - tornado
+      - flood
+      - wildfire
+      - evacuation
+      - emergency kit
+      - shelter
+      - survival
+      - water purification
+      - emergency plan
+      - power outage
+      - generator
+      - weather radio
+      - stockpile
+      - prepper
+  home_safety:
+    domain: home_safety
+    keywords:
+      - fire safety
+      - smoke detector
+      - carbon monoxide
+      - childproofing
+      - self defense
+      - situational awareness
+      - security system
+      - fire extinguisher
+      - escape plan
+      - first aid kit
+      - neighborhood watch
+      - flood insurance
+
+pairings:
+  - keywords: [emergency, immediate]
+    extra_weight: 25
+    axis: risk
+  - keywords: [disaster, plan]
+    extra_weight: 6
+    axis: complexity

@@ -1,0 +1,73 @@
+# Synesis Events & Planning Plugin
+# Focus: Weddings, parties, event coordination, hosting, entertaining.
+
+complexity_weights:
+  large_events:
+    weight: 8
+    keywords:
+      - wedding planning
+      - venue booking
+      - seating chart
+      - catering
+      - vendor coordination
+      - timeline
+      - budget
+  event_logistics:
+    weight: 7
+    keywords:
+      - guest list
+      - invitation
+      - rsvp
+      - decoration
+      - entertainment
+      - photographer
+      - dj
+
+domain_keywords:
+  events_planning:
+    domain: events_planning
+    keywords:
+      - event planning
+      - party
+      - birthday
+      - celebration
+      - ceremony
+      - venue
+      - invitation
+      - decoration
+      - theme
+      - guest list
+      - entertainment
+      - anniversary
+      - baby shower
+      - bridal shower
+      - reception
+      - host
+      - entertaining
+      - dinner party
+      - potluck
+      - holiday party
+  weddings:
+    domain: weddings
+    keywords:
+      - wedding
+      - bride
+      - groom
+      - bridal
+      - registry
+      - catering
+      - florist
+      - photographer
+      - officiant
+      - rehearsal dinner
+      - honeymoon
+      - engagement
+      - wedding dress
+      - tuxedo
+      - seating chart
+      - wedding budget
+
+pairings:
+  - keywords: [wedding, budget]
+    extra_weight: 6
+    axis: complexity

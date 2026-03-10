@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-mcp
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-mcp
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: mcp
+spec:
+  selector:
+    app.kubernetes.io/name: synesis-mcp
+  ports:
+    - name: http
+      port: 8100
+      targetPort: 8100

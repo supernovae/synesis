@@ -1,0 +1,392 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'base/**/Dockerfile'
+      - 'base/**/requirements.txt'
+      - 'base/**/app/**'
+      - 'base/images/**'
+      - 'base/sandbox/image/**'
+      - 'base/rag/indexer/**'
+      - 'base/rag/knowledge-base/**'
+      - '.github/workflows/build-images.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag (e.g., v0.1.0). Defaults to sha-<commit>.'
+        required: false
+        type: string
+      images:
+        description: 'Comma-separated list of images to build (empty = all)'
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/synesis
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Detect which paths changed so we only rebuild affected images.
+  # workflow_dispatch bypasses detection and builds everything (or --images).
+  # -----------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      base-api: ${{ steps.filter.outputs.base-api }}
+      base-ml: ${{ steps.filter.outputs.base-ml }}
+      base-devtools: ${{ steps.filter.outputs.base-devtools }}
+      planner: ${{ steps.filter.outputs.planner }}
+      admin: ${{ steps.filter.outputs.admin }}
+      lsp-gateway: ${{ steps.filter.outputs.lsp-gateway }}
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+      bge-reranker: ${{ steps.filter.outputs.bge-reranker }}
+      indexer: ${{ steps.filter.outputs.indexer }}
+      keyword-service: ${{ steps.filter.outputs.keyword-service }}
+      gliner-service: ${{ steps.filter.outputs.gliner-service }}
+      any-base: ${{ steps.aggregate.outputs.any-base }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            base-api:
+              - 'base/images/base-api/**'
+            base-ml:
+              - 'base/images/base-ml/**'
+            base-devtools:
+              - 'base/images/base-devtools/**'
+            planner:
+              - 'base/planner/Dockerfile'
+              - 'base/planner/requirements.txt'
+              - 'base/planner/app/**'
+              - 'base/planner/*.yaml'
+              - 'base/planner/plugins/**'
+            admin:
+              - 'base/admin/**'
+            lsp-gateway:
+              - 'base/lsp/gateway/**'
+            sandbox:
+              - 'base/sandbox/image/**'
+            bge-reranker:
+              - 'base/planner/bge-reranker/**'
+            indexer:
+              - 'base/rag/indexer/**'
+            keyword-service:
+              - 'base/rag/keyword-service/**'
+            gliner-service:
+              - 'base/rag/gliner-service/**'
+
+      - name: Aggregate base changes
+        id: aggregate
+        run: |
+          if [[ "${{ steps.filter.outputs.base-api }}" == "true" \
+             || "${{ steps.filter.outputs.base-ml }}" == "true" \
+             || "${{ steps.filter.outputs.base-devtools }}" == "true" ]]; then
+            echo "any-base=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any-base=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  determine-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=sha-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get build metadata
+        id: meta
+        run: |
+          echo "timestamp=$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+
+  # -----------------------------------------------------------------------
+  # Stage 1: Base images — only rebuilt when their files change.
+  # -----------------------------------------------------------------------
+  build-base-api:
+    needs: [determine-tag, detect-changes]
+    if: >-
+      needs.detect-changes.outputs.base-api == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Filter by input
+        id: filter
+        if: inputs.images != ''
+        run: |
+          if ! echo ",${{ inputs.images }}," | grep -qi ",synesis-base-api,"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/login-action@v4
+        if: steps.filter.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-api
+          file: base/images/base-api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/synesis-base-api:latest
+          cache-from: type=gha,scope=synesis-base-api
+          cache-to: type=gha,mode=max,scope=synesis-base-api
+
+  build-base-devtools:
+    needs: [determine-tag, detect-changes]
+    if: >-
+      needs.detect-changes.outputs.base-devtools == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Filter by input
+        id: filter
+        if: inputs.images != ''
+        run: |
+          if ! echo ",${{ inputs.images }}," | grep -qi ",synesis-base-devtools,"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/login-action@v4
+        if: steps.filter.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-devtools
+          file: base/images/base-devtools/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/synesis-base-devtools:latest
+          cache-from: type=gha,scope=synesis-base-devtools
+          cache-to: type=gha,mode=max,scope=synesis-base-devtools
+
+  build-base-ml:
+    needs: [determine-tag, detect-changes, build-base-api]
+    if: >-
+      needs.detect-changes.outputs.base-ml == 'true'
+      || needs.detect-changes.outputs.base-api == 'true'
+      || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Filter by input
+        id: filter
+        if: inputs.images != ''
+        run: |
+          if ! echo ",${{ inputs.images }}," | grep -qi ",synesis-base-ml,"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.filter.outputs.skip != 'true'
+      - uses: docker/login-action@v4
+        if: steps.filter.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve base-api tag
+        if: steps.filter.outputs.skip != 'true'
+        id: base
+        run: |
+          if [[ "${{ needs.detect-changes.outputs.base-api }}" == "true" ]]; then
+            echo "tag=${{ needs.determine-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        if: steps.filter.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-ml
+          file: base/images/base-ml/Dockerfile
+          push: true
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/synesis-base-api:${{ steps.base.outputs.tag }}
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/synesis-base-ml:latest
+          cache-from: type=gha,scope=synesis-base-ml
+          cache-to: type=gha,mode=max,scope=synesis-base-ml
+
+  # -----------------------------------------------------------------------
+  # Stage 2: Service images — only rebuilt when their files (or base) change.
+  # When base images are unchanged, services reference :latest from GHCR.
+  # -----------------------------------------------------------------------
+  build-services:
+    needs: [determine-tag, detect-changes, build-base-api, build-base-devtools, build-base-ml]
+    if: always() && needs.determine-tag.result == 'success' && needs.detect-changes.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: planner
+            dockerfile: base/planner/Dockerfile
+            context: base/planner
+            base_arg: synesis-base-api
+            change_key: planner
+            base_change_key: base-api
+          - name: admin
+            dockerfile: base/admin/Dockerfile
+            context: base/admin
+            base_arg: synesis-base-api
+            change_key: admin
+            base_change_key: base-api
+          - name: lsp-gateway
+            dockerfile: base/lsp/gateway/Dockerfile
+            context: base/lsp/gateway
+            base_arg: synesis-base-devtools
+            change_key: lsp-gateway
+            base_change_key: base-devtools
+          - name: sandbox
+            dockerfile: base/sandbox/image/Dockerfile
+            context: base/sandbox/image
+            base_arg: synesis-base-devtools
+            change_key: sandbox
+            base_change_key: base-devtools
+          - name: bge-reranker
+            dockerfile: base/planner/bge-reranker/Dockerfile
+            context: base/planner/bge-reranker
+            base_arg: synesis-base-ml
+            change_key: bge-reranker
+            base_change_key: base-ml
+          - name: indexer
+            dockerfile: base/rag/indexer/Dockerfile
+            context: base/rag/indexer
+            base_arg: ""
+            change_key: indexer
+            base_change_key: ""
+          - name: keyword-service
+            dockerfile: base/rag/keyword-service/Dockerfile
+            context: base/rag/keyword-service
+            base_arg: synesis-base-api
+            change_key: keyword-service
+            base_change_key: base-api
+          - name: gliner-service
+            dockerfile: base/rag/gliner-service/Dockerfile
+            context: base/rag/gliner-service
+            base_arg: synesis-base-ml
+            change_key: gliner-service
+            base_change_key: base-ml
+
+    steps:
+      - name: Check if build needed
+        id: check
+        run: |
+          DISPATCH="${{ github.event_name == 'workflow_dispatch' }}"
+          INPUT_FILTER="${{ inputs.images }}"
+          SELF_CHANGED='${{ toJSON(needs.detect-changes.outputs) }}'
+          CHANGE_KEY="${{ matrix.change_key }}"
+          BASE_KEY="${{ matrix.base_change_key }}"
+
+          # workflow_dispatch with no filter -> build all
+          if [[ "$DISPATCH" == "true" && -z "$INPUT_FILTER" ]]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # workflow_dispatch with filter -> check if this image is in the list
+          if [[ "$DISPATCH" == "true" && -n "$INPUT_FILTER" ]]; then
+            if echo ",$INPUT_FILTER," | grep -qi ",${{ matrix.name }},"; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # push event -> check if service or its base changed
+          SELF=$(echo "$SELF_CHANGED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$CHANGE_KEY','false'))")
+          BASE="false"
+          if [[ -n "$BASE_KEY" ]]; then
+            BASE=$(echo "$SELF_CHANGED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$BASE_KEY','false'))")
+          fi
+
+          if [[ "$SELF" == "true" || "$BASE" == "true" ]]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.skip != 'true'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.check.outputs.skip != 'true'
+      - uses: docker/login-action@v4
+        if: steps.check.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve base image tag
+        if: steps.check.outputs.skip != 'true' && matrix.base_arg != ''
+        id: base
+        run: |
+          BASE_KEY="${{ matrix.base_change_key }}"
+          SELF_CHANGED='${{ toJSON(needs.detect-changes.outputs) }}'
+          BASE_CHANGED=$(echo "$SELF_CHANGED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$BASE_KEY','false'))")
+          if [[ "$BASE_CHANGED" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:${{ needs.determine-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ needs.determine-tag.outputs.timestamp }}
+            ${{ steps.base.outputs.arg }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.determine-tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

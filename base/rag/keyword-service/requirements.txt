@@ -1,0 +1,2 @@
+# All core deps (fastapi, uvicorn, pydantic, httpx, numpy) provided by synesis-base-api.
+# Add service-specific deps below if needed.

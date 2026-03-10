@@ -1,0 +1,46 @@
+{
+  "problem": "- Model architecture recommendations",
+  "goals": [
+    "- Model architecture recommendations",
+    "- Infrastructure design",
+    "- Deployment strategy",
+    "- Success metrics and thresholds"
+  ],
+  "constraints": [
+    "  - Which algorithms to evaluate",
+    "  - Feature engineering strategy",
+    "  - How to handle class imbalance",
+    "  - Real-time inference requirements (< 100ms per transaction)",
+    "  - Training pipeline",
+    "  - Model monitoring and drift detection",
+    "  - Shadow mode testing",
+    "  - Gradual rollout plan",
+    "  - A/B testing framework",
+    "- Must be explainable (regulatory requirement)",
+    "- Cannot increase false positive rate above current 5%",
+    "- Must process transactions in under 100ms p99",
+    "- System must be auditable"
+  ],
+  "context_facts": [
+    "Project: Build a fraud detection system for a fintech processing 2M transactions per day.",
+    "- No ML in production yet",
+    "- Rules-based system catches ~60% of fraud",
+    "- False positive rate is 5% (too high, costs us $200K/month in manual review)",
+    "- We have 18 months of labeled transaction data",
+    "- ML team: 2 senior engineers, 1 junior"
+  ],
+  "deliverables": [
+    "Model architecture recommendations",
+    "Infrastructure design",
+    "Deployment strategy",
+    "Success metrics and thresholds"
+  ],
+  "meta_requirements": [
+    "Be precise about tradeoffs between precision and recall.",
+    "Acknowledge where you're speculating."
+  ],
+  "uncertainties": [],
+  "domain": "machine_learning",
+  "output_format": "prose",
+  "needs_web": false
+}

@@ -1,0 +1,9 @@
+# Namespace for Perses dashboards. Create when using COO + Perses.
+# COO may create this automatically when Perses is enabled; this ensures it exists.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: perses-dev
+  labels:
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: synesis

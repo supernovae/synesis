@@ -1,0 +1,21 @@
+{
+  "problem": "What's the best way to make sourdough bread at home?",
+  "goals": [
+    "What's the best way to make sourdough bread at home?",
+    "Give me a troubleshooting guide and a reliable recipe."
+  ],
+  "constraints": [],
+  "context_facts": [
+    "I've tried twice and it didn't rise properly.",
+    "I'm keeping my starter at room temperature and feeding it daily."
+  ],
+  "deliverables": [
+    "Sourdough bread making guide",
+    "Troubleshooting guide and recipe"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "cooking",
+  "output_format": "prose",
+  "needs_web": false
+}

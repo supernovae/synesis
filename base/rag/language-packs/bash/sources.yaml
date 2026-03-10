@@ -1,0 +1,64 @@
+sources:
+  # === Style Guides ===
+  - name: "Google Shell Style Guide"
+    url: "https://raw.githubusercontent.com/google/styleguide/gh-pages/shellguide.md"
+    type: markdown
+    description: >
+      Authoritative formatting, naming, and structural conventions.
+      Covers when to use shell, file headers, function comments,
+      quoting rules, and naming conventions.
+
+  # === Reference Manuals ===
+  - name: "Bash Reference Manual (GNU)"
+    url: "https://www.gnu.org/software/bash/manual/bash.txt"
+    type: text
+    description: >
+      Complete GNU Bash language specification. Covers builtins,
+      parameter expansion, pattern matching, process substitution,
+      and all shell grammar.
+
+  # === Pitfalls & Best Practices ===
+  - name: "ShellCheck Wiki - Common Issues"
+    url: "https://raw.githubusercontent.com/koalaman/shellcheck/master/README.md"
+    type: markdown
+    description: >
+      ShellCheck static analysis rules covering 300+ common shell
+      scripting pitfalls with explanations and fixes.
+
+  - name: "Greg's Wiki - BashPitfalls"
+    url: "https://mywiki.wooledge.org/BashPitfalls?action=raw"
+    type: text
+    description: >
+      Community-curated list of common bash scripting mistakes
+      with correct alternatives. Essential for defensive coding.
+
+  - name: "Greg's Wiki - BashFAQ"
+    url: "https://mywiki.wooledge.org/BashFAQ?action=raw"
+    type: text
+    description: >
+      Frequently asked questions about bash scripting with detailed
+      answers covering parsing, quoting, arrays, and process management.
+
+  - name: "Greg's Wiki - BashGuide"
+    url: "https://mywiki.wooledge.org/BashGuide?action=raw"
+    type: text
+    description: >
+      Comprehensive guide to bash scripting from basics to advanced
+      topics. Good for establishing foundational patterns.
+
+  # === Defensive Programming ===
+  - name: "Defensive Bash Programming"
+    url: "https://raw.githubusercontent.com/kfir-lavi/defensive-bash-programming/master/README.md"
+    type: markdown
+    description: >
+      Patterns for robust shell scripts: set -euo pipefail, trap handlers,
+      input validation, error handling, and safe temp file management.
+
+  # === Pure Bash Patterns ===
+  - name: "Pure Bash Bible"
+    url: "https://raw.githubusercontent.com/dylanaraps/pure-bash-bible/master/README.md"
+    type: markdown
+    description: >
+      Builtin-only solutions for common tasks. Eliminates external
+      dependencies for string manipulation, file operations, math,
+      arrays, and terminal control.

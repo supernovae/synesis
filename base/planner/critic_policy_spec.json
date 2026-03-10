@@ -1,0 +1,124 @@
+{
+  "version": "2.0",
+  "langgraph_topology": {
+    "nodes": ["entry_classifier", "strategic_advisor", "supervisor", "planner", "context_curator", "worker", "evidence_gatherer", "compile_evidence", "structured_writer", "patch_integrity_gate", "critic", "final_scrubber", "respond"],
+    "critic_incoming": ["structured_writer", "patch_integrity_gate"],
+    "critic_outgoing": ["respond", "supervisor", "final_scrubber"],
+    "knowledge_path": "entry_classifier -> strategic_advisor -> planner -> evidence_gatherer(parallel) -> compile_evidence -> structured_writer -> critic -> final_scrubber -> respond",
+    "code_path": "entry_classifier -> strategic_advisor -> supervisor -> context_curator -> worker -> patch_integrity_gate -> critic -> respond",
+    "evidence_sources": ["rag", "web_search"]
+  },
+  "state_schema": {
+    "taxonomy": {
+      "selected_class": "state.intent_class (knowledge|writing|code|debugging|review|planning|data_transform|tool_orchestrated|personal_guidance|creative_ideation)",
+      "active_vertical": "resolve_active_vertical(active_domain_refs, platform_context)"
+    },
+    "critic": {
+      "active_mode": "advisory (easy/medium) | universal_principles (hard) | document_path (knowledge tasks)",
+      "approved": "state.critic_approved",
+      "should_continue": "state.critic_should_continue",
+      "continue_reason": "state.critic_continue_reason",
+      "feedback": "state.critic_feedback",
+      "crag_triggers": "state.crag_triggers — CRAG:section_name:confidence flags for corrective web search"
+    },
+    "rag": {
+      "evidence": "normalized from state.tool_refs; each: {evidence_id, source_type, source_ref, content, trust}",
+      "tool_refs": "state.tool_refs (rag, web_search)"
+    },
+    "retry": {
+      "attempt": "state.iteration_count",
+      "max_attempts": "state.max_iterations",
+      "failures": "append-only; from failure_context, failure_ids_seen, failure_type",
+      "used_evidence_ids": "ids from tool_refs cited in blocking_issues",
+      "decisions": "append-only PASS|RETRY|FAIL with rationale",
+      "diversification_history": "state.revision_strategies_tried",
+      "escalations": "append-only when mode escalated",
+      "constraints": "state.revision_constraints (append-only keys)"
+    }
+  },
+  "critic_policy_engine": {
+    "phases": ["advisory_bypass", "toulmin_eval", "crag_assessment", "retry_decision"],
+    "advisory_bypass": "When difficulty < critic_skip_below_difficulty: skip critic entirely (routed by graph)",
+    "toulmin_eval": "Evaluate claims using Toulmin Model: grounds, warrant, qualifier, rebuttal. 3+ uncommitted X-or-Y decisions = BLOCKING.",
+    "crag_assessment": "Estimate factual grounding confidence per section. Below crag_web_trigger_threshold -> CRAG:section:confidence in residual_risks.",
+    "retry_decision": "PASS->respond; CRAG triggers->corrective_web; RETRY->supervisor when not approved and should_continue and attempt < max"
+  },
+  "scoring_model": {
+    "pass_threshold": "approved=true",
+    "fail_threshold": "approved=false AND has_valid_evidence",
+    "force_pass_at_max": "attempt >= max_attempts -> approved=true (degraded)",
+    "hallucination_sensitive_modes": ["knowledge"],
+    "schema_strict_modes": ["data_transform"],
+    "continuous_scaling": "difficulty 0.0-1.0 scales critic strictness: lenient below critic_lenient_below_difficulty, strict above"
+  },
+  "evidence_gating": {
+    "valid_ref_types": ["rag", "web_search"],
+    "ref_id_format": "{tool}_{request_id[:8]}",
+    "when_blocking": "Every blocking_issue should cite evidence when available",
+    "when_missing": "Override approved to true; add nonblocking note",
+    "needs_more_evidence": "CriticOut.need_more_evidence; route to supervisor; emit evidence_needed (query_plan)"
+  },
+  "retry_controller": {
+    "increment_attempt": "When RETRY for needs_revision (NOT when need_more_evidence)",
+    "max_attempts_default": 3,
+    "diversification": "revision_strategy from strategy_candidates; append to revision_strategies_tried",
+    "same_failure_shortcircuit": "failure_id in failure_ids_seen -> skip retry, route to critic->respond",
+    "fail_fast": "iteration >= max_iterations -> PASS (forced), route to respond"
+  },
+  "escalation_policy": {
+    "trigger": "Repeated RETRY with same failure_pattern; at max_attempts",
+    "action": "Append to escalations; force PASS (degraded)",
+    "mode_escalation": "none (unified universal-principles prompt)"
+  },
+  "monotonicity_invariants": [
+    "retry.attempt only increments on needs_revision RETRY",
+    "retry.failures only appends",
+    "retry.used_evidence_ids only appends unique",
+    "retry.decisions only appends",
+    "retry.diversification_history only appends",
+    "retry.escalations only appends",
+    "retry.constraints only add keys; never delete"
+  ],
+  "node_specs": {
+    "critic": {
+      "node_name": "critic",
+      "purpose": "Toulmin-based quality evaluation; CRAG assessment; PASS/RETRY/FAIL; intent+domain aware",
+      "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "difficulty", "taxonomy_metadata"],
+      "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "crag_triggers", "need_more_evidence", "iteration_count", "next_node"],
+      "decision_logic": "Toulmin rubric for quality; CRAG confidence for factual grounding; difficulty scales strictness",
+      "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS (degraded)", "crag_triggers -> route to corrective_web"]
+    }
+  },
+  "mcp_tools_available": {
+    "sandbox_execute": "MCP tool for code execution in isolated K8s pod (base/mcp/tools/sandbox_tool.py). Not wired into graph; available for MCP-capable clients.",
+    "lsp_analyze": "MCP tool for LSP type analysis (base/mcp/tools/lsp_tool.py). Not wired into graph; available for MCP-capable clients."
+  },
+  "examples": [
+    {
+      "id": "example_1",
+      "scenario": "Knowledge task, critic approves with CRAG triggers",
+      "initial_state": {"iteration_count": 0, "difficulty": 0.7, "depth_mode": true, "generated_code": "assembled sections"},
+      "critic_eval": {"approved": true, "crag_triggers": ["CRAG:retrieval_design:0.4"]},
+      "decision": "PASS with corrective web search",
+      "state_diff": {"crag_triggers": ["CRAG:retrieval_design:0.4"]},
+      "outcome": "Route to corrective_web -> respond"
+    },
+    {
+      "id": "example_2",
+      "scenario": "Code task, patch integrity passes, critic approves",
+      "initial_state": {"iteration_count": 0, "max_iterations": 3, "is_code_task": true, "generated_code": "print('hi')"},
+      "critic_eval": {"approved": true},
+      "decision": "PASS",
+      "state_diff": {"iteration_count": 1},
+      "outcome": "PASS; route to respond"
+    },
+    {
+      "id": "example_3",
+      "scenario": "Max iterations reached, force PASS",
+      "initial_state": {"iteration_count": 3, "max_iterations": 3, "critic_approved": false},
+      "decision": "PASS (forced)",
+      "state_diff": {"critic_approved": true},
+      "outcome": "PASS forced; route to respond with degraded note"
+    }
+  ]
+}

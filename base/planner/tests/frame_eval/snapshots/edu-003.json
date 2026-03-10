@@ -1,0 +1,21 @@
+{
+  "problem": "Can you give me a lesson plan that includes a clear explanation, three progressively harder exercises, and common misconceptions to address?",
+  "goals": [
+    "Can you give me a lesson plan that includes a clear explanation, three progressively harder exercises, and common misconceptions to address?"
+  ],
+  "constraints": [],
+  "context_facts": [
+    "I need to explain recursion to a group of high school students who are learning Python.",
+    "They understand loops and functions."
+  ],
+  "deliverables": [
+    "Recursion lesson plan"
+  ],
+  "meta_requirements": [
+    "Use analogies they'd relate to."
+  ],
+  "uncertainties": [],
+  "domain": "education",
+  "output_format": "prose",
+  "needs_web": false
+}

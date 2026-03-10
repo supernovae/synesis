@@ -1,0 +1,14 @@
+# ODH URI connection for HuggingFace model (dashboard/catalog)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: synesis-summarizer
+  labels:
+    opendatahub.io/dashboard: "true"
+  annotations:
+    opendatahub.io/connection-type-protocol: uri
+    opendatahub.io/connection-type-ref: uri-v1
+    openshift.io/display-name: Synesis Summarizer (Qwen2.5-0.5B-Instruct)
+type: Opaque
+stringData:
+  URI: "hf://Qwen/Qwen2.5-0.5B-Instruct"

@@ -1,0 +1,2 @@
+# torch, transformers, fastapi, uvicorn, pydantic provided by synesis-base-ml.
+# Add service-specific deps below if needed.

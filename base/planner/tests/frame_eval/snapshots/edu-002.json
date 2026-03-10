@@ -1,0 +1,45 @@
+{
+  "problem": "I'm redesigning our computer science curriculum for a liberal arts college.",
+  "goals": [
+    "I'm redesigning our computer science curriculum for a liberal arts college.",
+    "Language selection analysis",
+    "Four-year curriculum map",
+    "Assessment and outcomes framework",
+    "Implementation plan"
+  ],
+  "constraints": [
+    "We have limited server infrastructure",
+    "Compare Python, JavaScript, Rust, and Java for our context",
+    "Consider both intro and upper-level courses",
+    "Required courses",
+    "Elective tracks (AI/ML, Systems, Web)",
+    "How to measure if the curriculum works",
+    "Industry alignment metrics",
+    "Faculty retraining needs",
+    "Transition timeline",
+    "Resource requirements",
+    "We value breadth over depth at the intro level",
+    "Employability matters but so does intellectual curiosity"
+  ],
+  "context_facts": [
+    "Small department: 4 faculty members",
+    "60 majors, 200 students take intro CS",
+    "We currently teach Java but considering switching",
+    "Students go into industry (60%), grad school (20%), or unrelated fields (20%)"
+  ],
+  "deliverables": [
+    "Curriculum redesign plan",
+    "Language selection analysis",
+    "Four-year curriculum map",
+    "Assessment and outcomes framework",
+    "Implementation plan"
+  ],
+  "meta_requirements": [
+    "Acknowledge that you don't know our specific student population",
+    "Don't just copy what Stanford does — we're not Stanford"
+  ],
+  "uncertainties": [],
+  "domain": "education",
+  "output_format": "prose",
+  "needs_web": false
+}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Failure Detail - Synesis Admin{% endblock %}
+{% block content %}
+{% if failure %}
+<h1>Failure {{ failure.get('failure_id', '')[:16] }}...</h1>
+
+<div class="stat-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="card stat">
+        <div class="value"><span class="badge badge-{{ failure.get('error_type', 'runtime') }}" style="font-size: 1rem;">{{ failure.get('error_type', '?') }}</span></div>
+        <div class="label">Error Type</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ failure.get('language', '?') }}</div>
+        <div class="label">Language</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ failure.get('exit_code', '?') }}</div>
+        <div class="label">Exit Code</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{% if failure.get('resolution') %}<span style="color: var(--green);">Yes</span>{% else %}<span style="color: var(--red);">No</span>{% endif %}</div>
+        <div class="label">Resolved</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Task Description</h2>
+    <p>{{ failure.get('task_description', 'N/A') }}</p>
+</div>
+
+<div class="card">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Failed Code</h2>
+    <pre><code>{{ failure.get('code', 'N/A') }}</code></pre>
+</div>
+
+<div class="card">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Error Output</h2>
+    <pre><code>{{ failure.get('error_output', 'N/A') }}</code></pre>
+</div>
+
+{% if failure.get('resolution') %}
+<div class="card">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Resolution</h2>
+    <pre><code>{{ failure.get('resolution', '') }}</code></pre>
+</div>
+{% endif %}
+
+<p style="margin-top: 1rem;"><a class="link" href="/admin/failures">&larr; Back to failures</a></p>
+{% else %}
+<div class="empty">Failure not found.</div>
+{% endif %}
+{% endblock %}

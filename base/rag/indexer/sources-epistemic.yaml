@@ -1,0 +1,23 @@
+# Epistemic Foundations: cross-domain reference knowledge for grounding
+# Synesis across architecture, writing, science, law, music, and
+# security domains.
+#
+# Reads seed-corpus.json as the single source of truth.  Each entry
+# in the JSON carries its own domain and tags which override the
+# source-level defaults below at chunk time.
+#
+# The term "epistemic" is deliberate — this corpus provides the
+# foundational knowledge priors that help the Router produce
+# better-grounded evidence packets.  It is NOT exclusive: general
+# retrieval still sees all indexed knowledge.
+
+sources:
+
+  - name: "Epistemic Foundations"
+    handler: seed_corpus
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      path: seed-corpus.json
+      tags: [epistemic, foundations, cross-domain, reference]

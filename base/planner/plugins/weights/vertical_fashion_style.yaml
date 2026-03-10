@@ -1,0 +1,61 @@
+# Synesis Fashion & Style Plugin
+# Focus: Clothing, wardrobe, grooming, accessories, trends.
+
+complexity_weights:
+  fashion_industry:
+    weight: 7
+    keywords:
+      - fashion design
+      - pattern making
+      - textile
+      - fabric
+      - haute couture
+      - fashion week
+      - runway
+
+domain_keywords:
+  fashion:
+    domain: fashion
+    keywords:
+      - fashion
+      - outfit
+      - wardrobe
+      - style
+      - clothing
+      - dress code
+      - accessories
+      - shoes
+      - jewelry
+      - trend
+      - vintage fashion
+      - sustainable fashion
+      - capsule wardrobe
+      - tailoring
+      - formal wear
+      - casual wear
+      - streetwear
+      - menswear
+      - womenswear
+      - thrift store
+      - color matching
+      - business casual
+  grooming:
+    domain: grooming
+    keywords:
+      - grooming
+      - beard
+      - haircut
+      - hairstyle
+      - shaving
+      - cologne
+      - perfume
+      - nail care
+      - manicure
+      - pedicure
+      - barber
+      - salon
+
+pairings:
+  - keywords: [fashion, sustainable]
+    extra_weight: 3
+    axis: complexity

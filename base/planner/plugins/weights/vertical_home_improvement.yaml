@@ -1,0 +1,128 @@
+# Synesis Home Improvement Plugin
+# Focus: DIY home repair, renovation, interior design, organization, smart home.
+# Absorbs home_automation from deleted vertical_lifestyle.yaml.
+
+complexity_weights:
+  renovation:
+    weight: 10
+    keywords:
+      - renovation
+      - remodel
+      - load bearing
+      - permit
+      - contractor
+      - subfloor
+      - framing
+  electrical_plumbing:
+    weight: 12
+    keywords:
+      - electrical wiring
+      - circuit breaker
+      - plumbing
+      - pipe
+      - drain
+      - water heater
+      - sump pump
+  smart_home:
+    weight: 10
+    keywords:
+      - home assistant
+      - node-red
+      - automations
+      - zigbee
+      - z-wave
+      - mqtt
+      - esphome
+      - tasmota
+
+risk_weights:
+  home_safety:
+    weight: 15
+    keywords:
+      - electrical work
+      - gas line
+      - asbestos
+      - lead paint
+      - structural
+      - load bearing wall
+
+domain_keywords:
+  home_improvement:
+    domain: home_improvement
+    keywords:
+      - home repair
+      - renovation
+      - remodel
+      - plumbing
+      - electrical
+      - drywall
+      - flooring
+      - tile
+      - paint
+      - roofing
+      - siding
+      - deck
+      - fence
+      - concrete
+      - insulation
+      - hvac
+      - handyman
+      - contractor
+  interior_design:
+    domain: interior_design
+    keywords:
+      - interior design
+      - decor
+      - furniture
+      - color scheme
+      - accent wall
+      - curtains
+      - rug
+      - lighting
+      - mid century modern
+      - farmhouse
+      - bohemian
+      - scandinavian
+      - staging
+  home_organization:
+    domain: home_organization
+    keywords:
+      - organization
+      - declutter
+      - minimalism
+      - storage
+      - closet
+      - pantry
+      - garage organization
+      - marie kondo
+      - tidying
+      - label
+      - bins
+      - shelf
+  home_automation:
+    domain: home_automation
+    keywords:
+      - smart home
+      - home assistant
+      - alexa
+      - google home
+      - homekit
+      - matter
+      - zigbee
+      - z-wave
+      - philips hue
+      - smart thermostat
+      - smart lock
+      - ring doorbell
+      - security camera
+
+pairings:
+  - keywords: [electrical, diy]
+    extra_weight: 15
+    axis: risk
+  - keywords: [plumbing, main line]
+    extra_weight: 12
+    axis: risk
+  - keywords: [renovation, permit]
+    extra_weight: 8
+    axis: complexity

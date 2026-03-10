@@ -1,0 +1,33 @@
+{
+  "problem": "I need:",
+  "goals": [
+    "I need:",
+    "- A setting bible (2-3 pages)",
+    "- Five character classes with unique abilities",
+    "- A magic system that ties to radiation exposure",
+    "- Three sample encounters"
+  ],
+  "constraints": [
+    "- Combat should be fast (5-10 minutes per encounter)",
+    "- Magic should have meaningful costs",
+    "- Rules should be simple enough for new players"
+  ],
+  "context_facts": [
+    "I'm developing a tabletop RPG set in a post-apocalyptic world where magic has returned to Earth after a nuclear war. The game uses a d20 system.",
+    "Design principles:"
+  ],
+  "deliverables": [
+    "Development requirements",
+    "Setting bible",
+    "Character class designs",
+    "Radiation-based magic system",
+    "Sample encounters"
+  ],
+  "meta_requirements": [
+    "- The tone should be hopeful, not grimdark"
+  ],
+  "uncertainties": [],
+  "domain": "creative_writing",
+  "output_format": "prose",
+  "needs_web": false
+}

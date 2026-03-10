@@ -1,0 +1,32 @@
+{
+  "problem": "Please give me a week-by-week training plan",
+  "goals": [
+    "Please give me a week-by-week training plan",
+    "a strength routine I can do at home",
+    "nutrition guidelines for training days vs rest days",
+    "and a race day strategy"
+  ],
+  "constraints": [
+    "My goal is to run a half marathon in under 2 hours within 16 weeks.",
+    "I can train 5 days a week maximum."
+  ],
+  "context_facts": [
+    "I'm a 35-year-old male, 180 lbs, 5'10\".",
+    "I currently run 3 times a week doing about 3 miles each time at a 9:30 pace.",
+    "I don't have access to a gym but I have a foam roller and resistance bands at home.",
+    "I've never run more than 6 miles at once."
+  ],
+  "deliverables": [
+    "Training plan",
+    "Strength routine",
+    "Nutrition guidelines",
+    "Race day strategy"
+  ],
+  "meta_requirements": [
+    "Don't give me generic advice — tailor everything to my current fitness level."
+  ],
+  "uncertainties": [],
+  "domain": "general",
+  "output_format": "prose",
+  "needs_web": false
+}

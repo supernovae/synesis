@@ -1,0 +1,27 @@
+# Synesis Language Pack Template
+#
+# To add a new language:
+# 1. Copy this _template/ directory to language-packs/<language>/
+# 2. Edit manifest.yaml with language-specific metadata
+# 3. Edit sources.yaml with document URLs and local paths
+# 4. Run: ./scripts/load-language-pack.sh <language>
+#
+# The ingestion pipeline will:
+#   - Fetch documents from URLs in sources.yaml
+#   - Chunk them using the strategy in manifest.yaml
+#   - Embed and store in a Milvus collection named by 'collection'
+
+name: "LANGUAGE_NAME"
+version: "1.0"
+language: "LANGUAGE_ID"
+collection: "LANGUAGE_ID_v1"
+description: >
+  Description of what this language pack covers and what quality
+  of output it enables.
+
+chunk_size: 512
+chunk_overlap: 64
+doc_type: "markdown"
+
+tags:
+  - LANGUAGE_ID

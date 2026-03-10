@@ -1,0 +1,21 @@
+# ServiceMonitor for vLLM model-serving pods.
+# Scrapes Prometheus metrics (TTFT, throughput, cache hits, GPU util) from /metrics.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-models
+  namespace: synesis-models
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: model-serving
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - synesis-models

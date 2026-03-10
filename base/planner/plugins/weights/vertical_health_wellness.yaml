@@ -1,0 +1,79 @@
+# Synesis Health & Wellness Plugin
+# Focus: General health, mental wellness, sleep, physical therapy, skincare, weight management, first aid, aging.
+# Note: Risk weight for medical advice to encourage appropriate disclaimers.
+
+complexity_weights:
+  clinical_knowledge:
+    weight: 10
+    keywords: ["diagnosis", "differential diagnosis", "contraindication", "drug interaction", "dosage", "side effects"]
+  therapy_modalities:
+    weight: 8
+    keywords: ["cbt", "cognitive behavioral", "dbt", "emdr", "exposure therapy", "psychotherapy", "counseling"]
+
+risk_weights:
+  medical_advice:
+    weight: 15
+    domain: health
+    keywords: ["diagnosis", "prescribe", "medication", "dosage", "symptoms of", "treatment for", "side effects"]
+
+domain_keywords:
+  health:
+    domain: health
+    keywords: ["health", "wellness", "symptoms", "remedy", "vitamin", "supplement", "hydration", "immune system", "blood pressure", "cholesterol", "first aid"]
+  mental_health:
+    domain: mental_health
+    keywords: ["anxiety", "depression", "stress", "mindfulness", "meditation", "therapy", "mental health", "self care", "journaling", "gratitude", "breathing exercise", "coping"]
+  sleep:
+    domain: sleep
+    keywords: ["sleep", "insomnia", "sleep hygiene", "circadian rhythm", "melatonin", "nap", "sleep schedule", "rem", "deep sleep"]
+  physical_therapy:
+    domain: physical_therapy
+    keywords: ["physical therapy", "pt exercises", "rehabilitation", "mobility", "stretching", "foam rolling", "posture", "ergonomics"]
+
+  skincare:
+    domain: skincare
+    keywords: ["skincare", "moisturizer", "sunscreen", "acne", "retinol", "serum",
+               "cleanser", "exfoliate", "dermatology", "anti-aging", "hair care",
+               "grooming", "skin routine", "spf", "toner", "eczema", "rosacea"]
+  weight_management:
+    domain: weight_management
+    keywords: ["weight loss", "weight gain", "bmi", "calorie deficit", "metabolism", "portion control", "body composition", "bulking", "cutting", "body fat", "scale", "waist measurement"]
+  first_aid:
+    domain: first_aid
+    keywords: ["first aid", "cpr", "wound", "burn", "choking", "bandage", "splint", "emergency medicine", "aed", "triage", "bleeding", "fracture", "concussion", "poison control"]
+  aging_senior:
+    domain: aging_senior
+    keywords: ["aging", "senior", "elderly", "retirement health", "mobility", "fall prevention", "dementia", "caregiver", "assisted living", "alzheimer", "geriatric", "bone density", "osteoporosis"]
+
+pairings:
+  - keywords: ["chest", "pain"]
+    extra_weight: 25
+    axis: risk
+  - keywords: ["suicidal", "thoughts"]
+    extra_weight: 50
+    axis: risk
+  - keywords: ["overdose", "poison"]
+    extra_weight: 30
+    axis: risk
+
+
+vertical_prompt:
+  name: medical
+  active_domain_refs:
+    - healthcare_compliance
+    - healthcare
+    - bioinformatics
+  platform_context_aliases:
+    - healthcare
+    - medical
+  worker_persona_block: |
+    VERTICAL: Healthcare / HIPAA. You operate as a HIPAA Compliance Officer in training.
+    - PHI: Never log, store, or transmit patient-identifiable data without explicit masking.
+    - FHIR/DICOM: Follow HL7 and DICOM conventions for interoperability.
+    - Audit: All PHI access MUST be auditable. No silent access.
+    - Default: When unsure, mask or de-identify. Err on the side of privacy.
+  planner_decomposition_rules: |
+    For Healthcare tasks: Step 1 MUST establish audit logging for PHI access OR explicitly state "no PHI in scope".
+    FHIR/DICOM steps: Each resource touch must include validation command.
+    Multi-step: De-identification before any export or public exposure.
+  critic_mode: safety_ii

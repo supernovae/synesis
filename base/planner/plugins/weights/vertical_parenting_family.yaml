@@ -1,0 +1,111 @@
+# Synesis Parenting & Family Plugin
+# Focus: Parenting, pregnancy, child development, family activities.
+# Moved from vertical_culture_history.yaml for better organizational alignment.
+
+complexity_weights:
+  child_development:
+    weight: 7
+    keywords:
+      - developmental milestone
+      - speech delay
+      - motor skills
+      - cognitive development
+      - sensory play
+      - sleep regression
+  pregnancy:
+    weight: 8
+    keywords:
+      - trimester
+      - prenatal
+      - ultrasound
+      - gestational
+      - labor
+      - delivery
+      - postpartum
+      - nicu
+
+risk_weights:
+  child_safety:
+    weight: 15
+    keywords:
+      - choking hazard
+      - childproof
+      - car seat
+      - safe sleep
+      - fever
+      - allergic reaction
+
+domain_keywords:
+  parenting:
+    domain: parenting
+    keywords:
+      - parenting
+      - baby
+      - toddler
+      - child
+      - kids
+      - children
+      - newborn
+      - breastfeeding
+      - potty training
+      - bedtime routine
+      - school
+      - homework help
+      - family
+      - discipline
+      - co-parenting
+      - blended family
+      - adoption
+      - daycare
+      - babysitter
+  pregnancy:
+    domain: pregnancy
+    keywords:
+      - pregnancy
+      - pregnant
+      - prenatal
+      - postpartum
+      - trimester
+      - due date
+      - morning sickness
+      - maternity
+      - birth plan
+      - midwife
+      - doula
+      - fertility
+      - ivf
+      - conception
+  child_development:
+    domain: child_development
+    keywords:
+      - milestone
+      - developmental
+      - speech therapy
+      - occupational therapy
+      - sensory
+      - iep
+      - early intervention
+      - gifted
+      - learning disability
+      - autism spectrum
+      - adhd child
+  family_activities:
+    domain: family_activities
+    keywords:
+      - family activity
+      - kids crafts
+      - family game night
+      - road trip with kids
+      - family vacation
+      - birthday party kids
+      - rainy day activities
+      - screen time
+      - chores for kids
+
+pairings:
+  - keywords: [child, emergency]
+    extra_weight: 20
+    axis: risk
+  - keywords: [pregnancy, complication]
+    extra_weight: 20
+    axis: risk

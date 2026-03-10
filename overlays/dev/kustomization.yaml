@@ -1,0 +1,168 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev overlay: single replica, relaxed resources, debug logging,
+# CPU-only supervisor model, reduced model context lengths
+
+resources:
+  - ../../base/model-serving
+  - ../../base/gateway
+  - ../../base/planner
+  - ../../base/rag
+  - ../../base/supervisor
+  - ../../base/observability
+  - ../../base/sandbox
+  - ../../base/admin
+  - ../../base/lsp
+  - ../../base/search
+  - ../../base/webui
+
+patches:
+  # Debug logging, disable FlashRank, reduce resources for dev.
+  # Uses strategic merge patch (targets env by name, immune to index drift).
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: synesis-planner
+      spec:
+        template:
+          spec:
+            containers:
+              - name: planner
+                env:
+                  - name: SYNESIS_LOG_LEVEL
+                    value: "debug"
+                  - name: SYNESIS_RAG_RERANKER
+                    value: "none"
+                resources:
+                  requests:
+                    cpu: "250m"
+                    memory: "512Mi"
+
+  # Reduce LiteLLM resources
+  - target:
+      kind: Deployment
+      name: litellm-proxy
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+
+  # Reduce LSP gateway resources for dev
+  - target:
+      kind: Deployment
+      name: lsp-gateway
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+
+  # Reduce SearXNG resources for dev
+  - target:
+      kind: Deployment
+      name: searxng
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "256Mi"
+
+  # Small profile: no dedicated R1 critic — Qwen2.5-14B-Instruct handles critic
+  # via prompt-based CoT on the router pod. Scale R1 deployment to 0.
+  - target:
+      kind: Deployment
+      name: synesis-critic
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 0
+
+  # Small profile: redirect synesis-critic Service to router pod.
+  # The router serves model name "synesis-critic" via --served-model-name alias.
+  - target:
+      kind: Service
+      name: synesis-critic
+    patch: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: synesis-critic
+      spec:
+        selector:
+          app: synesis-router
+
+  # Scale warm pool to 1 replica in dev
+  - target:
+      kind: Deployment
+      name: synesis-warm-pool
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Reduce Open WebUI resources for dev
+  - target:
+      kind: Deployment
+      name: open-webui
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+
+  # Bypass LiteLLM: Open WebUI talks directly to planner (fixes connection errors)
+  - target:
+      kind: Deployment
+      name: open-webui
+    path: openwebui-direct-planner.yaml
+
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: dev
+    includeSelectors: false

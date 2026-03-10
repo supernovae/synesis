@@ -1,0 +1,75 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Staging indexer CronJobs: unsuspended, bi-weekly schedule.
+# Usage: ./scripts/deploy-indexer.sh staging
+
+resources:
+  - ../../base/rag/indexer
+
+patches:
+  - target:
+      kind: CronJob
+      name: synesis-indexer-docs
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 3 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-code
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 3 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-apispec
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 4 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-license
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 5 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-research
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 1 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-epistemic-band2
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 5 1,15 * *"
+
+  - target:
+      kind: CronJob
+      name: synesis-indexer-epistemic-developer
+    patch: |
+      - op: replace
+        path: /spec/schedule
+        value: "0 6 1,15 * *"
+
+images:
+  - name: synesis-indexer
+    newName: ghcr.io/supernovae/synesis/indexer
+    newTag: latest
+
+labels:
+  - pairs:
+      synesis.io/environment: staging
+    includeSelectors: false

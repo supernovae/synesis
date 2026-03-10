@@ -1,0 +1,66 @@
+# Synesis Aerospace & Automotive Safety-Critical Plugin
+# Focus: DO-178C, ISO 26262, flight control, ADAS.
+# Extends master's safety_critical risk and aerospace/automotive domains.
+
+risk_weights:
+  flight_safety:
+    weight: 22
+    domain: aerospace
+    keywords:
+      - do-178c
+      - do-178
+      - do-254
+      - arp4754
+      - certifiable
+      - flight critical
+  automotive_safety:
+    weight: 20
+    domain: automotive
+    keywords:
+      - iso 26262
+      - asil
+      - functional safety
+      - misra
+      - autosar
+
+complexity_weights:
+  flight_software:
+    weight: 14
+    keywords:
+      - fcs
+      - flight control
+      - fly-by-wire
+      - stall protection
+      - envelope protection
+  adas_stack:
+    weight: 14
+    keywords:
+      - adas
+      - autonomous driving
+      - object detection
+      - path planning
+      - sensor fusion
+
+domain_keywords:
+  avionics:
+    domain: aerospace
+    keywords:
+      - arinc 429
+      - mil-std-1553
+      - afdx
+      - xplane
+  vehicle_ecosystem:
+    domain: automotive
+    keywords:
+      - can fd
+      - flexray
+      - ethernet automotive
+      - ros 2
+
+pairings:
+  - keywords: [flight, certifiable]
+    extra_weight: 25
+    axis: risk
+  - keywords: [asil, production]
+    extra_weight: 20
+    axis: risk

@@ -1,0 +1,163 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [python]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  trivy:
+    name: Trivy Config Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Trivy SARIF report
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          trivyignores: '.trivyignore'
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-config'
+
+      - name: Fail on HIGH/CRITICAL misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          severity: 'HIGH,CRITICAL'
+          format: 'table'
+          exit-code: '1'
+          trivyignores: '.trivyignore'
+
+  bandit:
+    name: Bandit (Python Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: Run Bandit (report)
+        run: |
+          bandit -r base/ \
+            --severity-level medium \
+            --confidence-level medium \
+            -f json -o bandit-report.json || true
+
+      - name: Run Bandit (gate)
+        run: |
+          bandit -r base/ \
+            --severity-level medium \
+            --confidence-level medium
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  pip-audit:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: planner
+            dir: base/planner
+          - name: admin
+            dir: base/admin
+          - name: indexer
+            dir: base/rag/indexer
+          - name: lsp-gateway
+            dir: base/lsp/gateway
+          - name: mcp
+            dir: base/mcp
+          - name: bge-reranker
+            dir: base/planner/bge-reranker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Audit ${{ matrix.name }}
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: ${{ matrix.dir }}/requirements.txt
+          vulnerability-service: osv
+
+  semgrep:
+    name: Semgrep (Python/OWASP Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep (report)
+        run: |
+          semgrep scan \
+            --config "https://semgrep.dev/p/python" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --error --include "*.py" \
+            --json --json-output=semgrep-results.json \
+            base/planner/app/ base/rag/indexer/app/ base/admin/app/ base/mcp/app/ || true
+
+      - name: Run Semgrep (gate)
+        run: |
+          semgrep scan \
+            --config "https://semgrep.dev/p/python" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --error --include "*.py" \
+            base/planner/app/ base/rag/indexer/app/ base/admin/app/ base/mcp/app/
+
+      - name: Upload Semgrep results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.json

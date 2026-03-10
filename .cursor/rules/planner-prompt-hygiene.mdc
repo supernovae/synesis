@@ -1,0 +1,49 @@
+---
+description: Protect planner node prompt roles — no domain-specific bias in generic prompts, difficulty-driven depth, taxonomy-only domain rules
+globs: base/planner/app/nodes/*.py,base/planner/app/graph.py,base/planner/app/format_exemplars.yaml
+alwaysApply: false
+---
+
+# Planner Prompt Hygiene
+
+Guard against encoding test-prompt behavior into generic planner nodes. Each node has a role; prompts must serve that role without assuming a particular task shape.
+
+## Node Roles (what belongs in each prompt)
+
+| Node | Role | Allowed prompt content |
+|------|------|----------------------|
+| **Router** | Retrieval orchestrator (no planning, no critiquing) | Query generation prompts, summarization prompts, refinement prompts |
+| **Planner** | Decompose into steps/sections | JSON schema, step granularity, format constraint capture |
+| **Executor** | Execute a single code task | Language, format, trust policy, anti-boilerplate |
+| **Writer** | Produce knowledge response from evidence + plan | Section scope, trust policy, evidence packet consumption |
+| **Critic** | Quality gate — approve or reject | Quality principles, scoring rubric, failure vocabulary |
+
+## What does NOT belong in node prompts
+
+- **Domain-specific rules** (e.g., "name 5 failure modes", "explain model tiering", "use Toulmin framework") — these belong in `taxonomy_prompt_config.yaml` under the relevant domain's `depth_instructions`.
+- **Anti-recommendations** (e.g., "do not recommend fine-tuning/LoRA") — the system should not steer what the LLM recommends unless the user asks.
+- **Output shape mandates** from a specific test prompt (e.g., "rejected alternatives table", "separate facts from assumptions as headings") — these should only appear when the user explicitly requests them or taxonomy drives them.
+- **Hardcoded examples** referencing specific models, tools, or architectures (e.g., "Mistral-7B for routing") — use generic examples in `format_exemplars.yaml`.
+
+## Where domain-specific rules DO belong
+
+1. **`taxonomy_prompt_config.yaml`** — `depth_instructions` per domain (e.g., `software_architecture`, `cloud`). These fire only when the taxonomy matches AND difficulty is high enough.
+2. **`plugins/weights/*.yaml`** — keyword weights and domain triggers.
+3. **`intent_weights.yaml` / `master_intent_weights.yaml`** — intent classification keywords, brevity weights, routing thresholds.
+
+## Difficulty drives depth, not hardcoded prompts
+
+- Prompt verbosity scales with `difficulty` (0-1), not discrete tiers.
+- `brevity_weights` in YAML reduce complexity for "snippet", "brief", "quick" cues.
+- Token budgets scale continuously: `_MIN_BUDGET + (_MAX_BUDGET - _MIN_BUDGET) * difficulty^1.5`.
+- Planning triggers at `difficulty >= plan_required_above` (0.7), not by default.
+
+## When adding new prompt instructions
+
+1. Ask: "Does this apply to ALL tasks, or only tasks in a specific domain?"
+   - All tasks → node prompt (keep it short and neutral)
+   - Specific domain → `taxonomy_prompt_config.yaml`
+2. Ask: "Am I encoding the output of a specific test prompt, or a general quality principle?"
+   - Test prompt output → do not add; let difficulty + taxonomy handle it
+   - General quality → add to the appropriate node, keep neutral
+3. Never use a test prompt's ideal output as a template for universal instructions.

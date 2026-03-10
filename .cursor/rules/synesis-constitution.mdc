@@ -1,0 +1,59 @@
+---
+description: Synesis system constitution — router-governed evidence, deterministic triage, evidence-gated critique, anti-oscillation
+globs: base/planner/**/*.py,base/planner/plugins/weights/*.yaml
+alwaysApply: false
+---
+
+# Synesis System Constitution
+
+These are architectural guidance, not hard rules. Follow the planner's existing patterns rather than enforcing rigid formality. When modifying the planner graph, router, or entry classifier, keep these conventions in mind.
+
+## 1. Router Owns All Retrieval
+
+Only the **Router** node touches RAG and web search. Evidence packets are the data contract.
+
+- **Evidence packets** flow through `state['evidence_packets']` — structured `EvidencePacket` objects (query, sources, snippets, summary, confidence).
+- No node may import or call retrieval modules directly. Planner, Executor, Writer, and Critic consume packets from state only.
+- The Router merges new packets via `_merge_evidence_packets` reducer (append + deduplicate by `(query, section_id)`).
+
+## 2. Delegation First
+
+If a task involves a **protocol** (ActivityPub, OAuth, gRPC), **multiple files**, or **system architecture**, route through Router → Planner for complex tasks.
+
+- **Protocol triggers** live in `plugins/weights/domain_protocols.yaml` — fediverse, activitypub, oauth, etc.
+- When `difficulty >= plan_required_above` (0.7), Router routes to Planner (no fast-path through Executor).
+
+## 3. Deterministic Triage
+
+Use the EntryClassifier (regex + YAML weights + continuous difficulty 0-1) to bypass the LLM for trivial tasks.
+
+- **Trivial** (`difficulty < 0.15`): Router → Writer/Respond (no planning).
+- **Complex** (`difficulty >= 0.7`): Router → Planner → Router (re-retrieval if needed) → Executor/Writer.
+- Mid-range: Router may route to Executor or Writer directly with optional RAG evidence.
+
+## 4. Evidence-Gated Critique
+
+No critique can exist without evidence. The Critic validates against `evidence_packets`.
+
+- Missing or insufficient evidence triggers `need_more_evidence` → Router re-retrieval.
+- Critic cites evidence when rejecting; `evidence_requests` flow from Planner/Critic back to Router.
+
+## 5. Anti-Oscillation
+
+Deterministic controls prevent style drift, decision oscillation, and grounding loss across the graph.
+
+- **SemanticFrame is set-once.** If you need to change it, you have a design bug. The `_set_once_dict` reducer in `state.py` enforces this — only `frame_extractor` should return `semantic_frame`.
+- **Writer reads `decision_ledger`, not `execution_plan` prose.** The planner emits structured `DecisionEntry` objects; the writer consumes those directly.
+- **Critic compares draft against `decision_ledger` and `style_contract_locked`.** The `_build_ledger_rubric()` function injects ledger entries into the critic prompt.
+- **Changing a frozen decision requires an `OverrideRequest`** with `override_reason` and `override_scope`. Narrow scope auto-approves; broad scope requires critic confirmation.
+- **Validators run deterministically before/after nodes** via `validated_node()` wrapper in `graph.py`. Do not bypass the wrapper when adding new content-producing nodes.
+- **Oscillation detector** scores style, decision, retrieval, section churn, and unsupported overrides. Runs in `route_after_critic`; force-terminates when score exceeds `oscillation_threshold`.
+- **Retrieval churn detection** invalidates cache entries when evidence loops repeatedly without resolution.
+
+## 6. Code Style
+
+Python 3.11+, Pytest, Ruff. Use `patch_ops` for multi-file edits to maintain Two-Phase Commit.
+
+## Adding New Protocols
+
+Drop keywords into `plugins/weights/domain_protocols.yaml`. No code changes. High weight (15–25) forces `task_size=hard`.

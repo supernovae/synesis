@@ -1,0 +1,39 @@
+{
+  "problem": "I need you to:",
+  "goals": [
+    "I need you to:",
+    "1. Evaluate Jenkins vs GitHub Actions vs GitLab CI vs Tekton for our use case",
+    "2. Propose a migration path from Jenkins to the recommended tool",
+    "3. Design the pipeline architecture for a typical microservice",
+    "4. Explain how to handle secrets and credentials",
+    "5. Show how to implement canary deployments",
+    "6. Create a rollback strategy"
+  ],
+  "constraints": [
+    "Requirements:",
+    "- Zero downtime during migration",
+    "- Must integrate with ArgoCD for GitOps",
+    "- Cannot exceed $2000/month in CI/CD tooling costs",
+    "- Migration must complete within one quarter",
+    "- All pipelines must include security scanning"
+  ],
+  "context_facts": [
+    "We run a microservices platform on AWS EKS with 40 services. Our current CI/CD uses Jenkins but it's become a bottleneck. The platform team is 6 people. We deploy to 3 environments: dev, staging, production."
+  ],
+  "deliverables": [
+    "CI/CD tool evaluation",
+    "Migration plan",
+    "Pipeline architecture design",
+    "Secrets and credentials handling",
+    "Canary deployment implementation",
+    "Rollback strategy"
+  ],
+  "meta_requirements": [
+    "Be opinionated. Don't just list pros and cons — make a recommendation and justify it.",
+    "If you're unsure about a cost estimate, say so rather than guessing."
+  ],
+  "uncertainties": [],
+  "domain": "software_architecture",
+  "output_format": "prose",
+  "needs_web": false
+}

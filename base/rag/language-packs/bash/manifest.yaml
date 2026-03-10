@@ -1,0 +1,22 @@
+name: "Bash Shell Scripting"
+version: "1.0"
+language: "bash"
+collection: "bash_v1"
+description: >
+  Comprehensive bash/shell scripting knowledge base covering style guides,
+  best practices, common pitfalls, defensive programming patterns, and
+  POSIX compatibility. Designed to produce safe, clean, well-structured
+  shell scripts following industry standards.
+
+chunk_size: 512
+chunk_overlap: 64
+doc_type: "markdown"
+
+# Metadata for the Synesis system
+tags:
+  - shell
+  - bash
+  - scripting
+  - posix
+  - sre
+  - devops

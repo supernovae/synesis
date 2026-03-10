@@ -1,0 +1,89 @@
+# Synesis Personal Development Plugin
+# Focus: Career, productivity, public speaking, leadership, self-improvement.
+
+complexity_weights:
+  career_strategy:
+    weight: 8
+    keywords:
+      - career change
+      - salary negotiation
+      - promotion strategy
+      - professional development
+      - performance review
+  leadership:
+    weight: 8
+    keywords:
+      - team management
+      - delegation
+      - conflict management
+      - organizational culture
+      - change management
+
+domain_keywords:
+  career:
+    domain: career
+    keywords:
+      - career
+      - resume
+      - cover letter
+      - interview
+      - job search
+      - linkedin
+      - networking
+      - promotion
+      - salary
+      - negotiation
+      - job offer
+      - career change
+      - professional development
+      - internship
+      - mentorship
+  productivity:
+    domain: productivity
+    keywords:
+      - productivity
+      - time management
+      - gtd
+      - getting things done
+      - pomodoro
+      - habit
+      - goal setting
+      - focus
+      - deep work
+      - bullet journal
+      - notion
+      - obsidian
+      - second brain
+      - planning system
+  public_speaking:
+    domain: public_speaking
+    keywords:
+      - public speaking
+      - presentation
+      - toastmasters
+      - speech
+      - slide deck
+      - keynote
+      - stage fright
+      - persuasion
+      - storytelling
+      - audience engagement
+  leadership:
+    domain: leadership
+    keywords:
+      - leadership
+      - management
+      - mentorship
+      - coaching
+      - work-life balance
+      - burnout
+      - team building
+      - delegation
+      - emotional intelligence
+      - executive presence
+      - feedback
+
+pairings:
+  - keywords: [resume, review]
+    extra_weight: 5
+    axis: complexity

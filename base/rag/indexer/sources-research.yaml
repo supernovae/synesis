@@ -1,0 +1,472 @@
+# LLM & AI research sources: papers, blogs, and reference documentation.
+# Converted from llm_rag_sources.jsonl.
+#
+# Arxiv papers are batched by research category (one source entry per category).
+# Blog posts and official docs use the web_page handler individually.
+# GitHub project docs use web_page for their doc sites.
+
+sources:
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # ARXIV PAPERS — batched by research category
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "RAG & Retrieval Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [rag, retrieval, dense-retrieval, search]
+      papers:
+        - id: "2005.11401"
+          title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"
+        - id: "2002.08909"
+          title: "REALM: Retrieval-Augmented Language Model Pre-Training"
+        - id: "2004.04906"
+          title: "Dense Passage Retrieval for Open-Domain Question Answering"
+        - id: "2004.12832"
+          title: "ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT"
+        - id: "2112.09118"
+          title: "Contriever: Unsupervised Dense Information Retrieval with Contrastive Learning"
+        - id: "2212.10496"
+          title: "Precise Zero-Shot Dense Retrieval without Relevance Labels"
+        - id: "2310.11511"
+          title: "Self-RAG: Learning to Retrieve, Generate, and Critique through Self-Reflection"
+        - id: "2401.15884"
+          title: "Corrective Retrieval Augmented Generation"
+        - id: "2403.14403"
+          title: "Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity"
+        - id: "2401.18059"
+          title: "RAPTOR: Recursive Abstractive Processing for Tree-Organized Retrieval"
+        - id: "2404.16130"
+          title: "From Local to Global: A GraphRAG Approach to Query-Focused Summarization"
+        - id: "2407.01219"
+          title: "Searching for Best Practices in Retrieval-Augmented Generation"
+        - id: "2312.10997"
+          title: "Retrieval-Augmented Generation for Large Language Models: A Survey"
+        - id: "2501.09136"
+          title: "Agentic Retrieval-Augmented Generation: A Survey on Agentic RAG"
+        - id: "2307.03172"
+          title: "Lost in the Middle: How Language Models Use Long Contexts"
+        - id: "2502.14802"
+          title: "Lost in the Middle, and In-Between: How Language Models Use Long Contexts for Key Information Retrieval"
+        - id: "2309.11447"
+          title: "LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models"
+        - id: "2310.06839"
+          title: "LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression"
+
+  - name: "Reasoning & Agent Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [reasoning, agents, chain-of-thought, tool-use, planning]
+      papers:
+        - id: "2201.11903"
+          title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models"
+        - id: "2205.11916"
+          title: "Large Language Models are Zero-Shot Reasoners"
+        - id: "2203.11171"
+          title: "Self-Consistency Improves Chain of Thought Reasoning in Language Models"
+        - id: "2205.10625"
+          title: "Least-to-Most Prompting Enables Complex Reasoning in Large Language Models"
+        - id: "2305.04091"
+          title: "Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning by Large Language Models"
+        - id: "2305.10601"
+          title: "Tree of Thoughts: Deliberate Problem Solving with Large Language Models"
+        - id: "2308.09687"
+          title: "Graph of Thoughts: Solving Elaborate Problems with Large Language Models"
+        - id: "2210.03629"
+          title: "ReAct: Synergizing Reasoning and Acting in Language Models"
+        - id: "2302.04761"
+          title: "Toolformer: Language Models Can Teach Themselves to Use Tools"
+        - id: "2211.10435"
+          title: "Program-Aided Language Models"
+        - id: "2211.12588"
+          title: "Program of Thoughts Prompting: Disentangling Computation from Reasoning for Numerical Reasoning Tasks"
+        - id: "2303.17651"
+          title: "Self-Refine: Iterative Refinement with Self-Feedback"
+        - id: "2303.11366"
+          title: "Reflexion: Language Agents with Verbal Reinforcement Learning"
+        - id: "2310.04406"
+          title: "Language Agent Tree Search Unifies Reasoning, Acting, and Planning in Language Models"
+        - id: "2310.03714"
+          title: "DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines"
+        - id: "2407.03238"
+          title: "LLMCompiler: An Optimizing Compiler for Parallel Function Calling in Large Language Models"
+        - id: "2308.08155"
+          title: "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation"
+
+  - name: "Evaluation & Reliability Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [evaluation, hallucination, calibration, reliability, safety]
+      papers:
+        - id: "2503.16416"
+          title: "Survey on Evaluation of LLM-based Agents"
+        - id: "2311.05232"
+          title: "A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions"
+        - id: "2309.01219"
+          title: "Siren's Song in the AI Ocean: A Survey on Hallucination in Large Language Models"
+        - id: "2412.05563"
+          title: "A Survey of Confidence Estimation and Calibration in Large Language Models"
+        - id: "2502.08235"
+          title: "Uncertainty Quantification and Confidence Calibration in Large Language Models: A Survey"
+        - id: "2312.09300"
+          title: "Self-Evaluation Improves Selective Generation in Large Language Models"
+        - id: "2402.00274"
+          title: "Benchmarking Uncertainty Calibration in Large Language Models"
+        - id: "2504.12068"
+          title: "Can LLMs Be Trusted for Evaluating RAG Systems? A Study and Survey"
+        - id: "2212.08073"
+          title: "Constitutional AI: Harmlessness from AI Feedback"
+        - id: "2403.20042"
+          title: "Asking LLMs to Verify First Before Answering: A Simple Way to Improve Reliability"
+
+  - name: "Software Engineering Agent Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [code-generation, swe-bench, software-agents, programming]
+      papers:
+        - id: "2107.03374"
+          title: "Evaluating Large Language Models Trained on Code"
+        - id: "2108.07732"
+          title: "Program Synthesis with Large Language Models"
+        - id: "2211.11501"
+          title: "DS-1000: A Natural and Reliable Benchmark for Data Science Code Generation"
+        - id: "2303.12570"
+          title: "RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation"
+        - id: "2306.03091"
+          title: "RepoBench: Benchmarking Repository-Level Code Auto-Completion Systems"
+        - id: "2310.06770"
+          title: "SWE-bench: Can Language Models Resolve Real-World GitHub Issues?"
+        - id: "2410.03859"
+          title: "SWE-bench Multimodal"
+        - id: "2410.20777"
+          title: "SetupBench: Assessing Software Engineering Agents' Ability to Bootstrap Development Environments"
+        - id: "2503.15223"
+          title: "Are Solved Issues in SWE-bench Really Solved Correctly?"
+        - id: "2503.16427"
+          title: "Challenges and Paths Towards AI for Software Engineering"
+        - id: "2501.05040"
+          title: "SWE-Fixer: Training LLMs for Real World Github Issue Resolution"
+        - id: "2501.18438"
+          title: "Verbal Process Supervision Elicits Better Coding Agents"
+
+  - name: "IaC & Infrastructure Ops Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [iac, infrastructure, terraform, kubernetes, config-drift]
+      papers:
+        - id: "2504.01183"
+          title: "Automated Cloud Infrastructure-as-Code Reconciliation with LLM Agents"
+        - id: "2406.10098"
+          title: "IaC Generation with Large Language Models: An Error Taxonomy and A Study of Injection and Knowledge-Guided Improvement"
+        - id: "2502.12137"
+          title: "Leveraging LLM Agents for Reliable Configuration Drift Detection"
+
+  - name: "Model Architecture Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [transformers, llm, architecture, scaling, pre-training]
+      papers:
+        - id: "1706.03762"
+          title: "Attention Is All You Need"
+        - id: "1810.04805"
+          title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding"
+        - id: "2005.14165"
+          title: "Language Models are Few-Shot Learners"
+        - id: "2001.08361"
+          title: "Scaling Laws for Neural Language Models"
+        - id: "2203.15556"
+          title: "Training Compute-Optimal Large Language Models"
+        - id: "2204.02311"
+          title: "PaLM: Scaling Language Modeling with Pathways"
+        - id: "2205.01068"
+          title: "OPT: Open Pre-trained Transformer Language Models"
+        - id: "2211.05100"
+          title: "BLOOM: A 176B-Parameter Open-Access Multilingual Language Model"
+        - id: "2210.02414"
+          title: "GLM-130B: An Open Bilingual Pre-trained Model"
+        - id: "2302.13971"
+          title: "LLaMA: Open and Efficient Foundation Language Models"
+        - id: "2307.09288"
+          title: "Llama 2: Open Foundation and Fine-Tuned Chat Models"
+        - id: "2310.06825"
+          title: "Mistral 7B"
+        - id: "2401.04088"
+          title: "Mixtral of Experts"
+        - id: "2402.00838"
+          title: "OLMo: Accelerating the Science of Language Models"
+        - id: "2404.14219"
+          title: "Phi-3 Technical Report"
+        - id: "2407.10671"
+          title: "Qwen2 Technical Report"
+        - id: "2101.03961"
+          title: "Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity"
+        - id: "2006.16668"
+          title: "GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding"
+
+  - name: "Inference & Efficiency Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [inference, attention, efficiency, mamba, flash-attention]
+      papers:
+        - id: "2104.09864"
+          title: "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+        - id: "2108.12409"
+          title: "Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation"
+        - id: "1911.02150"
+          title: "Fast Transformer Decoding: One Write-Head is All You Need"
+        - id: "2305.13245"
+          title: "GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints"
+        - id: "2205.14135"
+          title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness"
+        - id: "2307.08691"
+          title: "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning"
+        - id: "2312.00752"
+          title: "Mamba: Linear-Time Sequence Modeling with Selective State Spaces"
+        - id: "2405.21060"
+          title: "Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality"
+        - id: "2501.06425"
+          title: "Tensor Product Attention Is All You Need"
+        - id: "2405.06018"
+          title: "QCQA: Quality and Capacity-aware Grouped Query Attention"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # BLOG POSTS — AI research labs
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Anthropic: Contextual Retrieval"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      url: "https://www.anthropic.com/news/contextual-retrieval"
+      tags: [rag, contextual-retrieval, anthropic]
+
+  - name: "Anthropic: Building Effective AI Agents"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      url: "https://www.anthropic.com/research/building-effective-agents"
+      tags: [agents, anthropic, multi-agent]
+
+  - name: "Anthropic: Effective Context Engineering for AI Agents"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      url: "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents"
+      tags: [context-engineering, agents, anthropic]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # OFFICIAL DOCUMENTATION — tools and frameworks
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OpenAI Prompt Engineering Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://help.openai.com/en/articles/6654000-how-to-use-advanced-prompting-techniques"
+      tags: [prompt-engineering, openai]
+
+  - name: "OpenAI Prompt Tips"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://help.openai.com/en/articles/4936848-how-do-i-create-a-good-prompt-for-an-ai-model"
+      tags: [prompt-engineering, openai]
+
+  - name: "LangGraph Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://langchain-ai.github.io/langgraph/"
+      follow_links: true
+      tags: [langgraph, langchain, agents, graph]
+
+  - name: "LangChain Retrieval Concepts"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://python.langchain.com/docs/concepts/retrieval/"
+      tags: [langchain, retrieval, rag]
+
+  - name: "Pinecone Data Modeling"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.pinecone.io/guides/index-data/data-modeling"
+      tags: [pinecone, vector-db, data-modeling]
+
+  - name: "Pinecone Increase Relevance"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.pinecone.io/guides/optimize/increase-relevance"
+      tags: [pinecone, relevance, optimization]
+
+  - name: "Azure Advanced RAG"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation"
+      tags: [azure, rag, microsoft]
+
+  - name: "Azure RAG Chunking Phase"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-chunking-phase"
+      tags: [azure, rag, chunking]
+
+  - name: "Azure RAG Enrichment Phase"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase"
+      tags: [azure, rag, enrichment]
+
+  - name: "Azure RAG vs Fine-Tuning"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/developer/ai/augment-llm-rag-fine-tuning"
+      tags: [azure, rag, fine-tuning]
+
+  - name: "Terraform Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://developer.hashicorp.com/terraform/docs"
+      tags: [terraform, iac, hashicorp]
+
+  - name: "Terraform Language Docs"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://developer.hashicorp.com/terraform/language"
+      tags: [terraform, hcl, iac]
+
+  - name: "Kubernetes Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/"
+      tags: [kubernetes, k8s, orchestration]
+
+  - name: "kubectl Reference"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/reference/kubectl/"
+      tags: [kubernetes, kubectl, cli]
+
+  - name: "Python Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.python.org/3/"
+      tags: [python, stdlib]
+
+  - name: "Pydantic Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.pydantic.dev/"
+      tags: [pydantic, validation, python]
+
+  - name: "FastAPI Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://fastapi.tiangolo.com/"
+      tags: [fastapi, api, python]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # GITHUB PROJECTS — doc sites and READMEs
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OpenHands (All-Hands-AI)"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/All-Hands-AI/OpenHands"
+      tags: [openhands, coding-agent, open-source]
+
+  - name: "Aider"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/Aider-AI/aider"
+      tags: [aider, coding-agent, open-source]
+
+  - name: "Cursor Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.cursor.com/"
+      follow_links: true
+      tags: [cursor, ide, coding-agent]

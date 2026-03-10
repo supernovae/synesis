@@ -1,0 +1,522 @@
+"""ScoringEngine for EntryClassifier — YAML-driven complexity scoring.
+
+Universal Intent Ontology v3: Split axes
+- complexity_score: steps, uncertainty, scope → easy/medium/hard tier
+- risk_score: destructive, secrets, compliance → veto to complex if >= risk_high
+- domain_hints: k8s, openshift, etc. → RAG only, never escalate
+
+Intent classification uses BM25-inspired scoring (term frequency saturation,
+document length normalization, IDF weighting) instead of first-match.
+See docs/WORKFLOW.md ref #10 for design rationale.
+
+Plugin system: Drop industry YAMLs into plugins/weights/*.yaml.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+import re
+from pathlib import Path
+from typing import Any, Literal
+
+logger = logging.getLogger("synesis.entry_classifier")
+
+TaskSize = Literal["easy", "medium", "hard"]
+
+# BM25 parameters for intent classification scoring.
+# Ref: Robertson & Zaragoza, "The Probabilistic Relevance Framework: BM25
+# and Beyond" (2009). Stanford NLP IR Book Ch. 11.4.
+_BM25_K1 = 1.5  # TF saturation (slightly above default 1.2 for multi-word keyword phrases)
+_BM25_B = 0.75  # document length normalization
+_BM25_AVG_DL = 50  # assumed average prompt length in words
+
+# Prefer intent_weights.yaml (v3 ontology), fallback to entry_classifier_weights.yaml
+_PLANNER_ROOT = Path(__file__).parent.parent
+_PLUGIN_DIR = _PLANNER_ROOT / "plugins" / "weights"
+
+
+def _resolve_config_path(explicit: str | Path | None) -> Path | None:
+    """Resolve core config path: explicit > intent_weights > entry_classifier_weights."""
+    if explicit:
+        p = Path(explicit)
+        if p.exists():
+            return p
+    for name in ("intent_weights.yaml", "entry_classifier_weights.yaml"):
+        candidate = _PLANNER_ROOT / name
+        if candidate.exists():
+            return candidate
+    return _PLANNER_ROOT / "intent_weights.yaml"
+
+
+def _load_config_with_plugins(core_path: Path | None, plugin_dir: Path) -> dict[str, Any] | None:
+    """Load core + all plugin YAMLs. Returns None if plugins disabled."""
+    import os
+
+    if os.environ.get("SYNESIS_ENTRY_CLASSIFIER_PLUGINS_DISABLED", "").lower() in ("1", "true", "yes"):
+        return None
+    try:
+        from .plugin_weight_loader import load_config_with_plugins
+
+        return load_config_with_plugins(core_path=core_path, plugin_dir=plugin_dir)
+    except Exception as e:
+        logger.warning("plugin_load_failed error=%s, falling back to core only", e)
+        return None
+
+
+def _builtin_fallback() -> dict[str, Any]:
+    """Minimal built-in config when YAML missing."""
+    return {
+        "thresholds": {
+            "easy_max": 4,
+            "medium_max": 15,
+            "density_threshold": 3,
+            "density_tax": 10,
+            "risk_high": 15,
+        },
+        "pairings": [],
+        "complexity_weights": {
+            "io_basic": {"weight": 1, "keywords": ["print", "hello"]},
+            "logic_basic": {"weight": 2, "keywords": ["basic", "simple"]},
+            "data_processing": {"weight": 5, "keywords": ["parse", "json", "api"]},
+        },
+        "risk_weights": {"destructive": {"weight": 20, "keywords": ["delete", "wipe"]}},
+        "domain_keywords": {},
+        "overrides": {
+            "plan_session": ["[STRICT]", "/plan", "/manual", "/strict", "@plan", "plan first", "break it down"],
+        },
+    }
+
+
+def _build_patterns(weight_map: dict[str, Any]) -> dict[str, tuple[int, re.Pattern[str]]]:
+    """Build category -> (weight, pattern) from weights dict."""
+    patterns: dict[str, tuple[int, re.Pattern[str]]] = {}
+    for cat, data in weight_map.items():
+        if not isinstance(data, dict) or "keywords" not in data:
+            continue
+        keywords = data.get("keywords", [])
+        weight = int(data.get("weight", 0))
+        if not keywords:
+            continue
+        escaped = [re.escape(str(k)) for k in keywords]
+        pattern = re.compile(r"\b(" + "|".join(escaped) + r")\b", re.IGNORECASE)
+        patterns[cat] = (weight, pattern)
+    return patterns
+
+
+def _build_domain_patterns(domain_map: dict[str, Any]) -> dict[str, tuple[str, re.Pattern[str], int]]:
+    """Build category -> (domain, pattern, min_hits) from domain_keywords dict."""
+    patterns: dict[str, tuple[str, re.Pattern[str], int]] = {}
+    for cat, data in domain_map.items():
+        if not isinstance(data, dict) or "keywords" not in data:
+            continue
+        keywords = data.get("keywords", [])
+        domain = str(data.get("domain", cat))
+        min_hits = int(data.get("min_hits", 1))
+        if not keywords:
+            continue
+        escaped = [re.escape(str(k)) for k in keywords]
+        pattern = re.compile(r"\b(" + "|".join(escaped) + r")\b", re.IGNORECASE)
+        patterns[cat] = (domain, pattern, min_hits)
+    return patterns
+
+
+_NUMBERED_ITEM_RE = re.compile(r"^\s*\d+[.)]\s", re.MULTILINE)
+_DASH_BULLET_RE = re.compile(r"^\s*[-*]\s+\S", re.MULTILINE)
+_ACTION_VERB_RE = re.compile(
+    r"^\s*[-*]?\s*(?:state|propose|explain|describe|list|give|show|provide|outline|define|identify|compare|evaluate|recommend|summarize|discuss|design|analyze|assess|justify|prioritize)\b",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _count_explicit_deliverables(text: str) -> int:
+    """Count explicit deliverables the user is asking for.
+
+    Detects numbered lists (1. / 2.), dash-bullet asks (- Explain X),
+    and action-verb sentence starters. Returns the max of any pattern
+    to avoid double-counting overlapping formats.
+    """
+    numbered = len(_NUMBERED_ITEM_RE.findall(text))
+    dashed = len(_DASH_BULLET_RE.findall(text))
+    action_verbs = len(_ACTION_VERB_RE.findall(text))
+    return max(numbered, dashed, action_verbs)
+
+
+class ScoringEngine:
+    """YAML-driven complexity scorer. Split axes: complexity | risk | domain."""
+
+    def __init__(self, config_path: str | Path | None = None):
+        path = _resolve_config_path(config_path)
+        plugin_config = _load_config_with_plugins(path, _PLUGIN_DIR)
+        if plugin_config:
+            self._config = plugin_config
+            logger.info("entry_classifier_plugins_loaded plugins_dir=%s", _PLUGIN_DIR)
+        else:
+            import yaml
+
+            p = Path(path)
+            if p.exists():
+                try:
+                    with open(p) as f:
+                        raw = yaml.safe_load(f)
+                    self._config = raw if isinstance(raw, dict) else _builtin_fallback()
+                except Exception:
+                    self._config = _builtin_fallback()
+            else:
+                self._config = _builtin_fallback()
+
+        cw = self._config.get("complexity_weights") or {}
+        rw = self._config.get("risk_weights") or {}
+        dk = self._config.get("domain_keywords") or {}
+        bw = self._config.get("brevity_weights") or {}
+
+        self._complexity_patterns = _build_patterns(cw)
+        self._risk_patterns = _build_patterns(rw)
+        self._domain_patterns = _build_domain_patterns(dk)
+        self._brevity_patterns = _build_patterns(bw)
+        self._overrides = self._config.get("overrides", {})
+        self._pairings = self._config.get("pairings", [])
+
+        th = self._config.get("thresholds") or {}
+        self._easy_max = int(th.get("easy_max", th.get("trivial_max", 4)))
+        self._medium_max = int(th.get("medium_max", th.get("small_max", 15)))
+        self._density_threshold = int(th.get("density_threshold", 3))
+        self._density_tax = int(th.get("density_tax", 10))
+
+        self._risk_high = int(th.get("risk_high", 15))
+        self._max_easy_len = int(th.get("max_easy_message_length", th.get("max_trivial_message_length", 200)) or 200)
+        self._risk_veto_triggers: list[str] = list(
+            self._config.get("risk_veto_triggers", []) or th.get("risk_veto_triggers", [])
+        )
+
+        rt = self._config.get("routing_thresholds") or {}
+        self._bypass_supervisor_below = float(rt.get("bypass_supervisor_below", 0.2))
+        self._plan_required_above = float(rt.get("plan_required_above", 0.7))
+        self._critic_required_above = float(rt.get("critic_required_above", 0.6))
+
+    def _check_risk_veto(self, text: str) -> bool:
+        """If any veto trigger matches, block easy fast path. E.g. pip install, curl | bash."""
+        if not text or not self._risk_veto_triggers:
+            return False
+        t_lower = (text or "").strip()[:800].lower()
+        return any(trigger and trigger.lower() in t_lower for trigger in self._risk_veto_triggers)
+
+    def _check_override(self, text: str, override_name: str) -> bool:
+        """Check if any trigger in override list matches."""
+        triggers = self._overrides.get(override_name, [])
+        if not triggers:
+            return False
+        t = (text or "").strip()[:800]
+        if not t:
+            return False
+        t_lower = t.lower()
+        for trigger in triggers:
+            trigger = str(trigger).strip()
+            if not trigger:
+                continue
+            if trigger.startswith(("/", "@", "#")):
+                if t_lower.startswith(trigger.lower()):
+                    return True
+                if re.match(rf"^[^\w]*{re.escape(trigger)}[\s:]", t_lower):
+                    return True
+                if trigger.lower() in t_lower:
+                    return True
+            elif trigger.lower() in t_lower:
+                return True
+        return False
+
+    def analyze(self, text: str) -> dict[str, Any]:
+        """Score text and return IntentEnvelope params. Split axes: complexity, risk, domain."""
+        t = (text or "").strip()[:800]
+        if not t:
+            return {
+                "task_size": "medium",
+                "score": 0,
+                "complexity_score": 0,
+                "risk_score": 0,
+                "domain_hints": [],
+                "intent_class": "code",
+                "plan_session": False,
+                "classification_hits": [],
+                "classification_reasons": [],
+                "score_breakdown": {},
+                "categories_touched": [],
+                "active_domains": [],
+            }
+
+        if self._check_override(t, "plan_session"):
+            return {
+                "task_size": "hard",
+                "score": 99,
+                "complexity_score": 0,
+                "risk_score": 99,
+                "domain_hints": [],
+                "intent_class": "planning",
+                "plan_session": True,
+                "classification_hits": ["plan_session"],
+                "classification_reasons": ["plan_session"],
+                "score_breakdown": {"plan_session": 99},
+                "categories_touched": [],
+                "active_domains": [],
+            }
+
+        t_lower = t.lower()
+        hits: list[str] = []
+        score_breakdown: dict[str, int] = {}
+        hits_by_category: dict[str, list[str]] = {}
+        active_domains: list[str] = []
+
+        # 1. Complexity score (steps, scope)
+        complexity_score = 0
+        for cat, (weight, pattern) in self._complexity_patterns.items():
+            matches = pattern.findall(t_lower)
+            if matches:
+                complexity_score += weight
+                hits.append(f"{cat}(+{weight})")
+                hits_by_category[cat] = list(set(matches))
+                score_breakdown[cat] = score_breakdown.get(cat, 0) + weight
+
+        # 2. Risk score (veto axis)
+        risk_score = 0
+        for cat, (weight, pattern) in self._risk_patterns.items():
+            matches = pattern.findall(t_lower)
+            if matches:
+                risk_score += weight
+                hits.append(f"{cat}(+{weight})")
+                hits_by_category[cat] = list(set(matches))
+                score_breakdown[f"risk_{cat}"] = score_breakdown.get(f"risk_{cat}", 0) + weight
+                cat_data = self._config.get("risk_weights") or {}
+                rd = cat_data.get(cat, {}) if isinstance(cat_data, dict) else {}
+                if isinstance(rd, dict) and rd.get("domain"):
+                    d = str(rd["domain"]).strip()
+                    if d and d not in active_domains:
+                        active_domains.append(d)
+
+        # 3. Domain keywords (RAG only, no score)
+        domain_hints: list[str] = []
+        for cat, (domain, pattern, min_hits) in self._domain_patterns.items():
+            matches = pattern.findall(t_lower)
+            if len(set(matches)) >= min_hits:
+                domain_hints.append(cat)
+                if domain and domain not in active_domains:
+                    active_domains.append(domain)
+                hits.append(f"domain:{cat}")
+
+        # 4. Pairings (risk or complexity)
+        for pair in self._pairings:
+            kw_list = pair.get("keywords", [])
+            if not kw_list or not all(re.search(rf"\b{re.escape(k)}\b", t_lower) for k in kw_list):
+                continue
+            extra = int(pair.get("extra_weight", 0))
+            axis = (pair.get("axis") or "risk").lower()
+            pair_key = f"pairing({'+'.join(kw_list)})"
+            hits.append(f"{pair_key}(+{extra})")
+            score_breakdown[pair_key] = score_breakdown.get(pair_key, 0) + extra
+            if axis == "risk":
+                risk_score += extra
+            else:
+                complexity_score += extra
+            domain = pair.get("domain")
+            if domain and isinstance(domain, str) and domain.strip() and domain.strip() not in active_domains:
+                active_domains.append(domain.strip())
+
+        # 5. Density tax on complexity (exclude trivial anchors: weight<=2)
+        complexity_categories = [
+            c for c in hits_by_category if c in self._complexity_patterns and self._complexity_patterns[c][0] > 2
+        ]
+        if len(complexity_categories) >= self._density_threshold:
+            complexity_score += self._density_tax
+            hits.append(f"density_tax(+{self._density_tax})")
+            score_breakdown["density_tax"] = self._density_tax
+
+        # 5b. Brevity weights: negative adjustments for simplicity/brevity cues.
+        # Reduces complexity_score (floors at 0) to push difficulty toward 0.
+        # Research: CIE (arXiv:2505.13448) — continuous signals > discrete for
+        # verbosity control. UCL (arXiv:2601.00880) — over-specification
+        # degrades output; reducing complexity for simple tasks improves quality.
+        brevity_score = 0
+        for cat, (weight, pattern) in self._brevity_patterns.items():
+            matches = pattern.findall(t_lower)
+            if matches:
+                abs_weight = abs(weight)
+                brevity_score += abs_weight
+                complexity_score = max(0, complexity_score + weight)
+                hits.append(f"brevity:{cat}({weight})")
+                score_breakdown[f"brevity_{cat}"] = weight
+
+        # 6. Deliverable counter: detect explicit numbered/bulleted asks.
+        # Research: IFScale (arXiv:2507.11538) — LLMs degrade on multi-instruction
+        # following; structural enforcement of instruction count outperforms reliance
+        # on the LLM alone. AdaCtrl (arXiv:2505.18822) — difficulty-aware budgets.
+        explicit_deliverables = _count_explicit_deliverables(t)
+        if explicit_deliverables > 3:
+            bonus = (explicit_deliverables - 3) * 2
+            complexity_score += bonus
+            hits.append(f"deliverable_bonus(+{bonus},count={explicit_deliverables})")
+            score_breakdown["deliverable_bonus"] = bonus
+
+        # 7. Derive task_size: risk veto first, then complexity
+        if risk_score >= self._risk_high:
+            task_size: TaskSize = "hard"
+        elif complexity_score <= self._easy_max:
+            if self._check_risk_veto(t):
+                task_size = "medium"
+                hits.append("risk_veto(easy_blocked)")
+                score_breakdown["risk_veto"] = 0
+            elif len(t) > self._max_easy_len:
+                task_size = "medium"
+                hits.append(f"length_veto(>{self._max_easy_len} chars)")
+                score_breakdown["length_veto"] = 0
+            else:
+                task_size = "easy"
+        elif complexity_score <= self._medium_max:
+            task_size = "medium"
+        else:
+            task_size = "hard"
+
+        # 8. Intent class — BM25-scored: score all intents, highest wins.
+        # Code intents preferred within 10% of best score (tie-breaking).
+        intent_classes = self._config.get("intent_classes") or {}
+        code_intents = {
+            "debugging",
+            "review",
+            "code_generation",
+            "data_transform",
+            "tool_orchestrated",
+            "migration",
+            "documentation",
+        }
+        intent_class = "general"  # no match = discussion/document
+
+        doc_len = max(1, len(t_lower.split()))
+        n_intents = max(1, sum(1 for v in intent_classes.values() if isinstance(v, dict)))
+
+        # IDF: keywords appearing in fewer intent classes are more discriminating
+        kw_intent_count: dict[str, int] = {}
+        for ic_data in intent_classes.values():
+            if not isinstance(ic_data, dict):
+                continue
+            seen_in_class: set[str] = set()
+            for kw in ic_data.get("keywords", []):
+                kw_key = str(kw).lower()
+                if kw_key not in seen_in_class:
+                    kw_intent_count[kw_key] = kw_intent_count.get(kw_key, 0) + 1
+                    seen_in_class.add(kw_key)
+
+        len_norm = 1.0 - _BM25_B + _BM25_B * (doc_len / _BM25_AVG_DL)
+
+        intent_scores: dict[str, float] = {}
+        intent_matched_kws: dict[str, list[str]] = {}
+        for ic_name, ic_data in intent_classes.items():
+            if not isinstance(ic_data, dict):
+                continue
+            ic_score = 0.0
+            matched: list[str] = []
+            for kw in ic_data.get("keywords", []):
+                kw_str = str(kw)
+                tf = len(re.findall(rf"\b{re.escape(kw_str)}\b", t_lower))
+                if tf > 0:
+                    n_containing = kw_intent_count.get(kw_str.lower(), 1)
+                    idf = math.log((n_intents - n_containing + 0.5) / (n_containing + 0.5) + 1.0)
+                    saturated_tf = (tf * (_BM25_K1 + 1.0)) / (tf + _BM25_K1 * len_norm)
+                    ic_score += idf * saturated_tf
+                    matched.append(kw_str)
+            if ic_score > 0:
+                intent_scores[ic_name] = ic_score
+                intent_matched_kws[ic_name] = matched
+
+        if intent_scores:
+            best_score = max(intent_scores.values())
+            threshold = best_score * 0.9
+            candidates = [ic for ic, sc in intent_scores.items() if sc >= threshold]
+            code_candidates = [ic for ic in candidates if ic in code_intents]
+            intent_class = code_candidates[0] if code_candidates else candidates[0]
+            hits.append(
+                f"intent:{intent_class}"
+                f"(bm25={intent_scores[intent_class]:.2f}"
+                f",kws={intent_matched_kws.get(intent_class, [])})"
+            )
+
+        # 8b. Complexity exemption: io_basic/query_basic keywords ("print", "show",
+        # "what is") inflate complexity for non-code queries. Subtract them.
+        if intent_class not in code_intents:
+            exempted = False
+            for exempt_cat in ("io_basic", "query_basic"):
+                if exempt_cat in score_breakdown:
+                    discount = score_breakdown[exempt_cat]
+                    complexity_score = max(0, complexity_score - discount)
+                    hits.append(f"complexity_exempt:{exempt_cat}(-{discount})")
+                    exempted = True
+            if exempted:
+                if complexity_score <= self._easy_max:
+                    task_size = "easy"
+                elif complexity_score <= self._medium_max:
+                    task_size = "medium"
+
+        # 9. is_code_task — semantic classifier replaces regex code_rescue.
+        # Embedding-based cosine similarity handles "mention vs intent" naturally:
+        # "Write a Python function" → code; "architecture supporting Python" → knowledge.
+        # Research: Semantic Router (Aurelio Labs), Routesplain (arXiv:2511.09373),
+        # VecStat/NormStat (ICLR 2026) — embedding methods outperform keyword classifiers
+        # for ambiguous and out-of-distribution prompts.
+        from .semantic_intent import classify_code_intent
+
+        ic_data = intent_classes.get(intent_class) if isinstance(intent_classes.get(intent_class), dict) else {}
+        semantic_threshold = float((self._config.get("semantic_classifier") or {}).get("confidence_threshold", 0.05))
+        if ic_data.get("inherently_document"):
+            is_code_task = False
+            hits.append("is_code_task:false(inherent)")
+        else:
+            is_code, margin = classify_code_intent(t, threshold=semantic_threshold)
+            is_code_task = is_code
+            hits.append(f"is_code_task:{is_code_task}(semantic:{margin:.2f})")
+
+        # 10. Surface taxonomy gaps: log when nothing matched
+        if intent_class == "general" and not active_domains:
+            hits.append("surfaced_gap:no_intent_no_domain")
+
+        score = complexity_score + risk_score
+        # Normalized difficulty (0.0-1.0) for continuous budget curve and routing
+        difficulty = min(1.0, float(complexity_score) / max(1, self._medium_max * 2))
+        return {
+            "task_size": task_size,
+            "score": score,
+            "complexity_score": complexity_score,
+            "brevity_score": brevity_score,
+            "difficulty": difficulty,
+            "risk_score": risk_score,
+            "explicit_deliverables": explicit_deliverables,
+            "domain_hints": domain_hints,
+            "intent_class": intent_class,
+            "is_code_task": is_code_task,
+            "plan_session": False,
+            "classification_hits": hits,
+            "classification_reasons": hits,
+            "score_breakdown": score_breakdown,
+            "intent_scores": {k: round(v, 3) for k, v in intent_scores.items()},
+            "categories_touched": list(hits_by_category.keys()),
+            "active_domains": active_domains,
+            "routing_thresholds": {
+                "bypass_supervisor_below": self._bypass_supervisor_below,
+                "plan_required_above": self._plan_required_above,
+                "critic_required_above": self._critic_required_above,
+            },
+        }
+
+
+# Singleton for hot path
+_engine: ScoringEngine | None = None
+
+
+def get_scoring_engine(config_path: str | Path | None = None) -> ScoringEngine:
+    """Lazy-load singleton ScoringEngine."""
+    global _engine
+    if _engine is None:
+        _engine = ScoringEngine(config_path)
+    return _engine
+
+
+def reset_scoring_engine() -> None:
+    """Reset singleton. Use in tests."""
+    global _engine
+    _engine = None

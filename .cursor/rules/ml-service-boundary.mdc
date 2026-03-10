@@ -1,0 +1,78 @@
+---
+description: Prevents ML framework bloat in application images by routing keyword extraction and embedding through shared microservices
+alwaysApply: true
+---
+
+# ML Service Boundary Rule
+
+Application service images (planner, indexer, admin, etc.) **must not** include heavy ML frameworks. All embedding and keyword extraction goes through shared microservices.
+
+## Banned dependencies in app images
+
+Never add these to `requirements.txt` of planner, indexer, admin, or any new application service:
+- `torch` / `pytorch`
+- `sentence-transformers`
+- `keybert`
+- `transformers` (the HuggingFace library; transitive via sentence-transformers)
+- `ragatouille` / `colbert-ai` (removed — reranking now uses BGE service or FlashRank)
+
+## Keyword extraction — use the keyword-service
+
+**Service:** `keyword-service.synesis-rag.svc.cluster.local:8080`
+
+### Single document
+```
+POST /v1/keywords
+{
+  "text": "...",
+  "top_n": 8,
+  "ngram_range": [1, 2],
+  "use_mmr": true,
+  "diversity": 0.5
+}
+→ {"keywords": [["term", 0.82], ...]}
+```
+
+### Batch
+```
+POST /v1/keywords/batch
+{
+  "texts": ["...", "..."],
+  "top_n": 8,
+  "ngram_range": [1, 2],
+  "use_mmr": true,
+  "diversity": 0.5
+}
+→ {"results": [[["term", 0.82], ...], ...]}
+```
+
+## Text embedding — use the TEI embedder
+
+**Service:** `embedder.synesis-rag.svc.cluster.local:8080`
+
+```
+POST /v1/embeddings
+{"input": ["text1", "text2"], "model": "sentence-transformers/all-MiniLM-L6-v2"}
+→ {"data": [{"embedding": [0.1, ...]}, ...]}
+```
+
+## Client patterns to reuse
+
+- Indexer: `base/rag/indexer/app/embed_client.py` — synchronous httpx client for TEI
+- Planner: `base/planner/app/embed_client.py` — synchronous httpx client for TEI with singleton via `get_embed_client()`
+- Keyword-service: `base/rag/keyword-service/app/embed_client.py` — TEI client with numpy L2 normalisation
+
+## Adding new ML capabilities
+
+If a new feature needs ML inference (NER, classification, summarization, etc.):
+
+1. **First choice:** Add a new endpoint to the keyword-service if it fits (lightweight, CPU-only, delegates embedding to TEI)
+2. **Second choice:** Create a new dedicated microservice under `base/rag/` with its own Dockerfile, deployment, and service manifests
+3. **Never:** Add ML model loading or heavy ML deps directly to an application service image
+
+## Config references
+
+- Planner config: `base/planner/app/config.py` — `embedder_url`, `keyword_service_url`
+- Planner deployment: `base/planner/deployment.yaml` — `SYNESIS_EMBEDDER_URL`, `SYNESIS_KEYWORD_SERVICE_URL`
+- Indexer enrichment: `base/rag/indexer/app/enrichment.py` — `KEYWORD_SERVICE_URL` env var
+- Keyword-service deployment: `base/rag/keyword-service/deployment.yaml` — `EMBEDDER_URL` env var

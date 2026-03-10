@@ -1,0 +1,54 @@
+{
+  "problem": "We need to design a disaster recovery plan for our multi-region SaaS platform.",
+  "goals": [
+    "We need to design a disaster recovery plan for our multi-region SaaS platform.",
+    "- DR architecture design",
+    "- Runbook templates",
+    "- Testing framework",
+    "- Cost optimization"
+  ],
+  "constraints": [
+    "- RPO: < 1 hour",
+    "- RTO: < 4 hours",
+    "- Must handle both regional failures and service-level failures",
+    "- Must test quarterly without customer impact",
+    "- Budget: $30K/month additional for DR infrastructure",
+    "  - Active-active vs active-passive recommendation",
+    "  - Data replication strategy",
+    "  - DNS failover approach",
+    "  - Regional failover procedure",
+    "  - Service-level recovery procedure",
+    "  - Database recovery procedure",
+    "  - Chaos engineering approach",
+    "  - Game day schedule",
+    "  - Success criteria",
+    "  - How to minimize DR costs without compromising RPO/RTO"
+  ],
+  "context_facts": [
+    "Infrastructure:",
+    "- Primary: us-east-1 (AWS)",
+    "- Secondary: eu-west-1",
+    "- Database: Aurora PostgreSQL with cross-region replicas",
+    "- 50 microservices on EKS",
+    "- Redis for caching, SQS for queues",
+    "- S3 for file storage",
+    "Requirements:",
+    "Deliverables:",
+    "We're a team of 8 platform engineers."
+  ],
+  "deliverables": [
+    "Disaster recovery plan design",
+    "DR architecture design",
+    "Runbook templates",
+    "Testing framework",
+    "Cost optimization"
+  ],
+  "meta_requirements": [
+    "Be thorough but practical.",
+    "Don't design something that requires a 50-person SRE team to operate."
+  ],
+  "uncertainties": [],
+  "domain": "software_architecture",
+  "output_format": "prose",
+  "needs_web": false
+}

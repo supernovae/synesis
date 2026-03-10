@@ -1,0 +1,104 @@
+# Synesis Personal Legal Plugin
+# Focus: Consumer legal, insurance, personal taxes, estate planning.
+# Note: This covers personal/consumer legal topics. Enterprise legal (GDPR, e-discovery)
+# is in vertical_compliance_legal.yaml.
+
+complexity_weights:
+  estate_planning:
+    weight: 10
+    keywords:
+      - will
+      - trust
+      - power of attorney
+      - estate planning
+      - executor
+      - probate
+      - beneficiary
+  tax_complexity:
+    weight: 8
+    keywords:
+      - itemized deduction
+      - capital gains
+      - amended return
+      - estimated tax
+      - schedule c
+      - self-employment tax
+
+risk_weights:
+  legal_advice:
+    weight: 18
+    keywords:
+      - legal advice
+      - sue
+      - lawsuit
+      - attorney
+      - court
+      - liability
+  financial_commitment:
+    weight: 12
+    keywords:
+      - contract signing
+      - binding agreement
+      - penalty
+
+domain_keywords:
+  personal_legal:
+    domain: personal_legal
+    keywords:
+      - will
+      - estate planning
+      - power of attorney
+      - tenant rights
+      - lease agreement
+      - contract
+      - small claims
+      - consumer rights
+      - copyright
+      - trademark
+      - notary
+      - legal document
+      - prenup
+      - custody
+      - child support
+  insurance:
+    domain: insurance
+    keywords:
+      - insurance
+      - health insurance
+      - car insurance
+      - home insurance
+      - life insurance
+      - renters insurance
+      - deductible
+      - premium
+      - coverage
+      - claim
+      - policy
+      - underwriting
+      - copay
+      - out of pocket
+  taxes_personal:
+    domain: taxes_personal
+    keywords:
+      - tax return
+      - tax deduction
+      - tax credit
+      - filing taxes
+      - irs
+      - turbotax
+      - w-2
+      - 1099
+      - standard deduction
+      - tax bracket
+      - withholding
+      - extension
+      - refund
+      - state tax
+
+pairings:
+  - keywords: [legal, urgent]
+    extra_weight: 10
+    axis: risk
+  - keywords: [tax, audit]
+    extra_weight: 12
+    axis: risk

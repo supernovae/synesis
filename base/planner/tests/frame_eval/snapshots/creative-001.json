@@ -1,0 +1,28 @@
+{
+  "problem": "I need help with worldbuilding.",
+  "goals": [
+    "I need help with worldbuilding.",
+    "Give me a description of their social structure",
+    "their relationship with the ship's AI",
+    "and three potential conflicts that could drive the plot."
+  ],
+  "constraints": [],
+  "context_facts": [
+    "I'm writing a sci-fi short story set on a generation ship 200 years into a 500-year voyage.",
+    "The inhabitants have developed their own culture distinct from Earth."
+  ],
+  "deliverables": [
+    "Worldbuilding assistance",
+    "Social structure description",
+    "AI relationship description",
+    "Plot conflict ideas"
+  ],
+  "meta_requirements": [
+    "Make it feel lived-in and real, not sterile.",
+    "Surprise me with at least one unconventional idea."
+  ],
+  "uncertainties": [],
+  "domain": "creative_writing",
+  "output_format": "prose",
+  "needs_web": false
+}

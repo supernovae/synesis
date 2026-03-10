@@ -1,0 +1,45 @@
+# Intent Class → Critic Behavior Overlay
+# Combined with Domain vertical: critic = base + domain_block + intent_block
+# Intent is orthogonal to domain (Knowledge+medical = hallucination + HIPAA).
+#
+# Routing: Debugging→LSP-on-failure; Planning→Planner; Review→stricter bar.
+
+intent_classes:
+  knowledge:
+    critic_behavior_block: |
+      HALLUCINATION SENSITIVE: Flag claims not grounded in RAG/source. Block on invented facts.
+      Nonblocking: suggest citations for key claims. Output must not invent new facts.
+  writing:
+    critic_behavior_block: |
+      TONE/VOICE: Check audience fit, clarity, consistency. No code-style blocking.
+      Nonblocking: style suggestions. Block only on incoherence or off-topic.
+  code:
+    critic_behavior_block: ""
+  debugging:
+    critic_behavior_block: |
+      EVIDENCE REQUIRED: Blocking issues MUST cite sandbox or LSP evidence. No speculation.
+      Fix suggestions must trace to specific failure (line, stage, artifact).
+  review:
+    critic_behavior_block: |
+      STRICT: Block on style violations, security concerns, edge cases. Higher bar than run-only.
+      Nonblocking: nitpicks. Block: security, correctness, maintainability issues.
+  planning:
+    critic_behavior_block: |
+      DECOMPOSITION: Each step must have verification_command. Flag underspecified steps.
+      Nonblocking: alternative orderings. Block: unverifiable steps.
+  data_transform:
+    critic_behavior_block: |
+      SCHEMA: Validate output shape matches stated schema. Flag type mismatches, extra/missing fields.
+      Block: malformed output, wrong format.
+  tool_orchestrated:
+    critic_behavior_block: |
+      IDEMPOTENCY: Multi-step tasks—check step consistency. Flag cross-step drift.
+      Block: contradictory outputs across steps.
+  personal_guidance:
+    critic_behavior_block: |
+      SAFETY GATE: No medical/legal/financial advice. Flag unsupported recommendations.
+      Block: prescriptions, diagnoses, legal/financial advice. Nonblocking: general tips.
+  creative_ideation:
+    critic_behavior_block: |
+      LIGHT: No blocking on style. Approve if output is coherent and on-topic.
+      Nonblocking only. Do not block for creativity choices.

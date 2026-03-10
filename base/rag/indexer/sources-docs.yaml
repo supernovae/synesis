@@ -1,0 +1,888 @@
+# Unified source config: documentation (runbooks, architecture, patterns, web docs)
+# Used by: synesis-indexer-docs CronJob
+#
+# Each source specifies handler type, authority, origin_type, domain, and
+# handler-specific config. The unified indexer reads this and routes to
+# the appropriate handler plugin.
+
+sources:
+  # --- Domain Runbooks (GitHub Markdown) ---
+  - name: "OpenShift Runbooks"
+    handler: github_markdown
+    origin_type: curated
+    authority: community
+    source_type: markdown
+    domain: openshift
+    config:
+      repo: "openshift/runbooks"
+      branch: master
+      path: "alerts"
+      tags: [ocp, runbooks, alerts]
+
+  - name: "OCS/ODF Storage SOPs"
+    handler: github_markdown
+    origin_type: curated
+    authority: community
+    source_type: markdown
+    domain: openshift
+    config:
+      repo: "red-hat-storage/ocs-sop"
+      branch: main
+      path: "sop"
+      tags: [ods, ocs, storage, odf]
+
+  # --- Architecture Documents (PDF) ---
+  - name: "AWS Well-Architected Framework"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf"
+      tags: [cloud, architecture, reliability, security, performance, cost, sustainability]
+
+  - name: "AWS Reliability Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/reliability-pillar/wellarchitected-reliability-pillar.pdf"
+      tags: [reliability, fault-tolerance, resilience, disaster-recovery]
+
+  - name: "AWS Security Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/security-pillar/wellarchitected-security-pillar.pdf"
+      tags: [security, identity, encryption, detection]
+
+  - name: "AWS Operational Excellence Pillar"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/operational-excellence-pillar/wellarchitected-operational-excellence-pillar.pdf"
+      tags: [operations, monitoring, incident-response, automation]
+
+  # --- Architecture Documents (HTML) ---
+  - name: "Twelve-Factor App"
+    handler: html_document
+    origin_type: curated
+    authority: vetted
+    source_type: html
+    domain: architecture
+    config:
+      url: "https://12factor.net/"
+      tags: [twelve-factor, saas, cloud-native, best-practices]
+
+  # --- Architecture Documents (Markdown from GitHub) ---
+  - name: "Cloud Design Patterns (Microsoft)"
+    handler: github_markdown
+    origin_type: curated
+    authority: vetted
+    source_type: markdown
+    domain: architecture
+    config:
+      repo: "MicrosoftDocs/architecture-center"
+      branch: main
+      path: "docs/patterns"
+      tags: [patterns, microservices, resilience, scalability]
+
+  # --- Web Docs (Crawl4AI) ---
+  # Uncomment and configure for your environment:
+  # - name: "Internal Architecture Decisions"
+  #   handler: web_page
+  #   origin_type: internal
+  #   authority: canonical
+  #   source_type: web_page
+  #   domain: architecture
+  #   config:
+  #     url: "https://wiki.internal.example.com/engineering/adrs"
+  #     follow_links: true
+  #     tags: [adr, architecture, internal]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Cloud Architecture Frameworks
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "AWS Architecture Center"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://aws.amazon.com/architecture/"
+      tags: [aws, cloud, architecture, reference-architectures]
+
+  - name: "AWS Well-Architected Labs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://wellarchitectedlabs.com/"
+      follow_links: true
+      tags: [aws, well-architected, labs, hands-on]
+
+  - name: "Azure Well-Architected Framework"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/well-architected/"
+      follow_links: true
+      tags: [azure, well-architected, reliability, security, cost, performance]
+
+  - name: "Azure Architecture Center"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/architecture/"
+      follow_links: true
+      tags: [azure, architecture, patterns, reference-architectures]
+
+  - name: "Azure Well-Architected Review"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://learn.microsoft.com/en-us/assessments/azure-architecture-review/"
+      tags: [azure, well-architected, assessment, governance]
+
+  - name: "Google Cloud Architecture Framework"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.cloud.google.com/architecture/framework"
+      follow_links: true
+      tags: [gcp, architecture, framework, best-practices]
+
+  - name: "Google Cloud Architecture Center"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.cloud.google.com/architecture"
+      tags: [gcp, architecture, reference-architectures]
+
+  - name: "Google Cloud Whitepapers"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/whitepapers"
+      tags: [gcp, whitepapers, cloud]
+
+  - name: "Google Cloud Well-Architected Framework Overview"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/blog/products/application-modernization/well-architected-framework-to-accelerate-your-cloud-journey"
+      tags: [gcp, well-architected, overview]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Architecture Patterns & Methodologies
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Martin Fowler: Microservices Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/microservices/"
+      follow_links: true
+      tags: [microservices, patterns, distributed-systems]
+
+  - name: "Martin Fowler: Microservices"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/articles/microservices.html"
+      tags: [microservices, definition, architecture]
+
+  - name: "Martin Fowler: Software Architecture Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/architecture/"
+      follow_links: true
+      tags: [architecture, patterns, design]
+
+  - name: "Twelve-Factor App: Config"
+    handler: html_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://12factor.net/config"
+      tags: [twelve-factor, config, environment]
+
+  - name: "Twelve-Factor App: Logs"
+    handler: html_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://12factor.net/logs"
+      tags: [twelve-factor, logs, observability]
+
+  - name: "Twelve-Factor App: Dev/Prod Parity"
+    handler: html_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://12factor.net/dev-prod-parity"
+      tags: [twelve-factor, dev-prod-parity, environments]
+
+  - name: "C4 Model"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://c4model.com/"
+      follow_links: true
+      tags: [c4, diagramming, architecture-documentation, visualization]
+
+  - name: "arc42 Architecture Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://arc42.org/"
+      follow_links: true
+      tags: [arc42, documentation, templates, architecture]
+
+  - name: "arc42 Quality Model"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://quality.arc42.org/articles/quality-models"
+      tags: [arc42, quality, quality-attributes, nfr]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # SRE, Reliability & DORA
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Google SRE"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://sre.google/"
+      follow_links: true
+      tags: [sre, reliability, google, toil, slo]
+
+  - name: "Google Cloud SRE Overview"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/sre"
+      tags: [sre, gcp, reliability]
+
+  - name: "The Site Reliability Workbook"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://sre.google/workbook/table-of-contents/"
+      follow_links: true
+      tags: [sre, workbook, practices, on-call, monitoring]
+
+  - name: "DORA Research & Metrics"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://dora.dev/research/"
+      follow_links: true
+      tags: [dora, metrics, devops, deployment-frequency, lead-time, mttr]
+
+  - name: "DORA Metrics Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://dora.dev/guides/dora-metrics/"
+      tags: [dora, metrics, measurement, engineering-excellence]
+
+  - name: "DORA Continuous Delivery Capability"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://dora.dev/capabilities/continuous-delivery/"
+      tags: [dora, continuous-delivery, capabilities]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Platform Engineering
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "State of Platform Engineering Report Vol. 3"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-3"
+      tags: [platform-engineering, report, idp, humanitec]
+
+  - name: "State of Platform Engineering Report Vol. 2"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-2"
+      tags: [platform-engineering, report, idp, humanitec]
+
+  - name: "Platform as a Product: Evolution of DevOps"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://humanitec.com/blog/platform-as-a-product-the-evolution-of-devops-and-platform-engineering"
+      tags: [platform-engineering, devops, platform-as-product]
+
+  - name: "Evaluating DevOps Maturity"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://humanitec.com/blog/devops-maturity"
+      tags: [devops, maturity-model, assessment]
+
+  - name: "Build Your IDP with Humanitec & Cortex"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://humanitec.com/blog/build-your-internal-developer-platform-with-humanitec-cortex"
+      tags: [idp, platform-engineering, developer-experience]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Security Architecture
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OWASP Cheat Sheet Series"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cheatsheetseries.owasp.org/index.html"
+      follow_links: true
+      tags: [owasp, security, cheat-sheets, best-practices]
+
+  - name: "OWASP Threat Modeling Cheat Sheet"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html"
+      tags: [owasp, threat-modeling, security]
+
+  - name: "OWASP Threat Modeling Process"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://owasp.org/www-community/Threat_Modeling_Process"
+      tags: [owasp, threat-modeling, process]
+
+  - name: "OWASP Practical Threat Modeling"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://devguide.owasp.org/en/04-design/01-threat-modeling/07-practical-threat-modeling/"
+      tags: [owasp, threat-modeling, practical]
+
+  - name: "OWASP Threat Dragon"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://owasp.org/www-project-threat-dragon/"
+      tags: [owasp, threat-dragon, tooling, threat-modeling]
+
+  - name: "Delivering Software Securely (Google)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/resources/delivering-software-securely"
+      tags: [supply-chain, security, slsa, google]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Platform & Container Systems
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Borg, Omega, and Kubernetes (Google Research)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/borg-omega-and-kubernetes/"
+      tags: [borg, omega, kubernetes, cluster-management, google]
+
+  - name: "Large-scale Cluster Management at Google with Borg"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/large-scale-cluster-management-at-google-with-borg/"
+      tags: [borg, cluster-management, scheduling, google]
+
+  - name: "Omega: Flexible Scalable Schedulers for Large Compute Clusters"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/"
+      tags: [omega, scheduling, cluster-management, google]
+
+  - name: "Kubernetes Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://kubernetes.io/docs/"
+      tags: [kubernetes, k8s, orchestration, containers]
+
+  - name: "Kubernetes Concepts"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://kubernetes.io/docs/concepts/"
+      follow_links: true
+      tags: [kubernetes, concepts, pods, services, deployments]
+
+  - name: "Kubernetes Best Practices: Organizing with Namespaces"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/blog/products/containers-kubernetes/kubernetes-best-practices-organizing-with-namespaces"
+      tags: [kubernetes, namespaces, best-practices, multi-tenancy]
+
+  - name: "Best Practices for VPC Design (Google Cloud)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.cloud.google.com/architecture/best-practices-vpc-design"
+      tags: [vpc, networking, gcp, best-practices]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Distributed Systems Classics
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "MapReduce: Simplified Data Processing on Large Clusters"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/"
+      tags: [mapreduce, distributed-systems, batch-processing, google]
+
+  - name: "The Google File System"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/the-google-file-system/"
+      tags: [gfs, distributed-storage, google]
+
+  - name: "Bigtable: A Distributed Storage System for Structured Data"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/"
+      tags: [bigtable, distributed-storage, nosql, google]
+
+  - name: "Dynamo: Amazon's Highly Available Key-value Store"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf"
+      tags: [dynamo, eventual-consistency, partitioning, amazon]
+
+  - name: "Spanner: Google's Globally-Distributed Database"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/spanner-googles-globally-distributed-database-2/"
+      tags: [spanner, distributed-database, consistency, google]
+
+  - name: "Spanner: Becoming a SQL System"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/spanner-becoming-a-sql-system/"
+      tags: [spanner, sql, distributed-database, google]
+
+  - name: "Amazon DynamoDB: A Scalable NoSQL Database Service"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.usenix.org/system/files/atc22-elhemali.pdf"
+      tags: [dynamodb, nosql, serverless, amazon]
+
+  - name: "In Search of an Understandable Consensus Algorithm (Raft)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://raft.github.io/raft.pdf"
+      tags: [raft, consensus, distributed-systems]
+
+  - name: "Raft Consensus Algorithm"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://raft.github.io/"
+      tags: [raft, consensus, visualization]
+
+  - name: "ZooKeeper: Wait-free Coordination for Internet-scale Systems"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.usenix.org/legacy/event/atc10/tech/full_papers/Hunt.pdf"
+      tags: [zookeeper, coordination, consensus, distributed-systems]
+
+  - name: "Paxos Made Simple"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://lamport.azurewebsites.net/pubs/paxos-simple.pdf"
+      tags: [paxos, consensus, lamport]
+
+  - name: "Time, Clocks, and the Ordering of Events in a Distributed System"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://lamport.azurewebsites.net/pubs/time-clocks.pdf"
+      tags: [lamport-clocks, ordering, causality, distributed-systems]
+
+  - name: "Dapper: Large-Scale Distributed Systems Tracing Infrastructure"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://research.google/pubs/dapper-a-large-scale-distributed-systems-tracing-infrastructure/"
+      tags: [dapper, tracing, observability, google]
+
+  - name: "The Log: What Every Software Engineer Should Know"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://www.confluent.io/blog/log-what-every-software-engineer-should-know-about-real-time-data/"
+      tags: [log, streaming, kafka, event-sourcing, confluent]
+
+  - name: "Designing Data-Intensive Applications"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://dataintensive.net/"
+      tags: [ddia, distributed-systems, data-systems, kleppmann]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Integration & API Standards
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "gRPC Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://grpc.io/docs/"
+      follow_links: true
+      tags: [grpc, rpc, protobuf, api]
+
+  - name: "OpenAPI Specification"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://spec.openapis.org/oas/latest.html"
+      tags: [openapi, rest, api-spec, swagger]
+
+  - name: "AsyncAPI Specification"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://www.asyncapi.com/docs/reference/specification/latest"
+      tags: [asyncapi, event-driven, messaging, api-spec]
+
+  - name: "CloudEvents Specification"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://cloudevents.io/"
+      tags: [cloudevents, cncf, event-driven, messaging]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Observability
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OpenTelemetry Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://opentelemetry.io/docs/"
+      follow_links: true
+      tags: [opentelemetry, otel, tracing, metrics, logging, cncf]
+
+  - name: "Prometheus Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://prometheus.io/docs/introduction/overview/"
+      tags: [prometheus, metrics, monitoring, alerting, cncf]
+
+  - name: "OpenMetrics"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://openmetrics.io/"
+      tags: [openmetrics, metrics, exposition-format]
+
+  - name: "Distributed Systems Observability (O'Reilly)"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://www.oreilly.com/library/view/distributed-systems-observability/9781492033431/"
+      tags: [observability, distributed-systems, monitoring, book]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Delivery & Operations
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Martin Fowler: Continuous Delivery"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/books/continuousDelivery.html"
+      tags: [continuous-delivery, deployment, release]
+
+  - name: "Martin Fowler: Continuous Integration"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/articles/continuousIntegration.html"
+      tags: [continuous-integration, ci, build, testing]
+
+  - name: "Trunk Based Development"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://trunkbaseddevelopment.com/"
+      follow_links: true
+      tags: [trunk-based, branching, version-control, ci]
+
+  - name: "GitOps Principles (OpenGitOps)"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://opengitops.dev/"
+      tags: [gitops, declarative, reconciliation, cncf]
+
+  - name: "Argo CD Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://argo-cd.readthedocs.io/en/stable/"
+      follow_links: true
+      tags: [argocd, gitops, kubernetes, cncf]
+
+  - name: "Flux CD Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://fluxcd.io/flux/"
+      follow_links: true
+      tags: [flux, gitops, kubernetes, cncf]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Resilience & Chaos Engineering
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Release It! (Second Edition)"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://pragprog.com/titles/mnee2/release-it-second-edition/"
+      tags: [resilience, stability, circuit-breaker, release]
+
+  - name: "Principles of Chaos Engineering"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://principlesofchaos.org/"
+      tags: [chaos-engineering, resilience, fault-injection]
+
+  - name: "Chaos Mesh Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://chaos-mesh.org/docs/"
+      follow_links: true
+      tags: [chaos-mesh, chaos-engineering, kubernetes, cncf]
+
+  - name: "Gremlin Reliability & Chaos Engineering Tutorials"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://www.gremlin.com/community/tutorials"
+      tags: [gremlin, chaos-engineering, reliability, tutorials]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Event-Driven & Serverless Architecture
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Martin Fowler: Serverless Architectures"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://martinfowler.com/articles/serverless.html"
+      tags: [serverless, faas, lambda, architecture]
+
+  - name: "AWS Event-Driven Architecture"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://aws.amazon.com/event-driven-architecture/"
+      tags: [aws, event-driven, eventbridge, sqs, sns]
+
+  - name: "Azure Event-Driven Architecture Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/architecture/guide/architecture-styles/event-driven"
+      tags: [azure, event-driven, architecture-styles]
+
+  - name: "Google Cloud Event-Driven Architectures"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cloud.google.com/eventarc/docs/event-driven-architectures"
+      tags: [gcp, eventarc, event-driven, pub-sub]

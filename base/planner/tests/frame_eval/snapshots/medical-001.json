@@ -1,0 +1,28 @@
+{
+  "problem": "I need guidance on the regulatory requirements for telehealth in both states",
+  "goals": [
+    "I need guidance on the regulatory requirements for telehealth in both states",
+    "a technology stack recommendation for the platform",
+    "a patient acquisition strategy",
+    "and a financial model template"
+  ],
+  "constraints": [],
+  "context_facts": [
+    "I'm a nurse practitioner starting a telehealth practice focused on chronic disease management, primarily diabetes and hypertension.",
+    "I'll be operating in Texas and California.",
+    "I have 10 years of clinical experience but no business background."
+  ],
+  "deliverables": [
+    "Regulatory guidance",
+    "Technology stack recommendation",
+    "Patient acquisition strategy",
+    "Financial model template"
+  ],
+  "meta_requirements": [
+    "Be upfront about areas where I should definitely consult a healthcare attorney rather than relying on your output."
+  ],
+  "uncertainties": [],
+  "domain": "medical",
+  "output_format": "prose",
+  "needs_web": false
+}

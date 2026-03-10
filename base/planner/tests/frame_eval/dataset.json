@@ -1,0 +1,1696 @@
+[
+  {
+    "id": "arch-001",
+    "domain": "software_architecture",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "You are helping me design a production-ready AI assistant for a small engineering organization.\n\nTask:\nPropose a practical architecture for an internal coding assistant that can:\n1. answer questions about company docs,\n2. help write and review code,\n3. avoid confidently making up facts,\n4. escalate when it lacks enough evidence,\n5. keep latency and cost reasonable.\n\nConstraints:\n- Team size: 80 engineers\n- Mix of public and private knowledge\n- Must support Kubernetes, Terraform, and Python workflows\n- Budget is limited, so expensive always-on large models are undesirable\n- Security matters, but the company is not in a highly regulated industry\n- The system should be useful within 90 days, not as a multi-year research project\n\nWhat I want from you:\n- State the main design goals\n- Propose a concrete architecture\n- Explain model choices and where small vs large models should be used\n- Explain how retrieval should work\n- Describe failure modes and mitigations\n- Explain how the system should decide when to ask clarifying questions, when to answer, and when to refuse\n- Give a phased rollout plan for 30, 60, and 90 days\n- List the top 5 risks or mistakes likely to cause failure\n\nImportant:\n- Do not give a generic answer\n- Make tradeoffs explicit\n- Separate facts, assumptions, and recommendations\n- If something is uncertain, say so clearly\n- Be concise but specific",
+    "expected": {
+      "deliverable_count": 8,
+      "deliverables_must_include": [
+        "design goals",
+        "architecture",
+        "model",
+        "retrieval",
+        "failure",
+        "clarif",
+        "rollout",
+        "risk"
+      ],
+      "deliverables_must_not_include": [
+        "tradeoff",
+        "concise",
+        "generic",
+        "uncertain"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "budget",
+        "90 day",
+        "security"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "80 engineer",
+        "public and private"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "tradeoff",
+        "uncertain"
+      ],
+      "meta_requirements_must_not_include": [
+        "architecture",
+        "rollout",
+        "retrieval"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "cook-001",
+    "domain": "cooking",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "Hey, I need a weeknight dinner recipe that feeds 4 people. We're a family with two young kids who are picky eaters. I have a well-stocked pantry but no fresh fish today. Keep it under 30 minutes total. Something with chicken would be great. Give me the full recipe with ingredient list and step-by-step instructions.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "recipe"
+      ],
+      "deliverables_must_not_include": [
+        "30 minute",
+        "picky",
+        "kids"
+      ],
+      "constraint_count_min": 2,
+      "constraints_must_include": [
+        "30 minute"
+      ],
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "family",
+        "pantry"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "cooking",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "devops-001",
+    "domain": "devops",
+    "complexity": "high",
+    "structural_pattern": "numbered_list",
+    "prompt": "We run a microservices platform on AWS EKS with 40 services. Our current CI/CD uses Jenkins but it's become a bottleneck. The platform team is 6 people. We deploy to 3 environments: dev, staging, production.\n\nI need you to:\n1. Evaluate Jenkins vs GitHub Actions vs GitLab CI vs Tekton for our use case\n2. Propose a migration path from Jenkins to the recommended tool\n3. Design the pipeline architecture for a typical microservice\n4. Explain how to handle secrets and credentials\n5. Show how to implement canary deployments\n6. Create a rollback strategy\n\nRequirements:\n- Zero downtime during migration\n- Must integrate with ArgoCD for GitOps\n- Cannot exceed $2000/month in CI/CD tooling costs\n- Migration must complete within one quarter\n- All pipelines must include security scanning\n\nBe opinionated. Don't just list pros and cons — make a recommendation and justify it. If you're unsure about a cost estimate, say so rather than guessing.",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "evaluat",
+        "migration",
+        "pipeline",
+        "secret",
+        "canary",
+        "rollback"
+      ],
+      "deliverables_must_not_include": [
+        "opinionated",
+        "justify",
+        "cost estimate"
+      ],
+      "constraint_count_min": 4,
+      "constraints_must_include": [
+        "zero downtime",
+        "ArgoCD",
+        "$2000",
+        "quarter"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "40 service",
+        "Jenkins",
+        "EKS"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "opinionated",
+        "unsure"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "fitness-001",
+    "domain": "fitness",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "prompt": "I'm a 35-year-old male, 180 lbs, 5'10\". I currently run 3 times a week doing about 3 miles each time at a 9:30 pace. My goal is to run a half marathon in under 2 hours within 16 weeks. I don't have access to a gym but I have a foam roller and resistance bands at home. I can train 5 days a week maximum. I've never run more than 6 miles at once. Please give me a week-by-week training plan, a strength routine I can do at home, nutrition guidelines for training days vs rest days, and a race day strategy. Don't give me generic advice — tailor everything to my current fitness level.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "training plan",
+        "strength",
+        "nutrition",
+        "race day"
+      ],
+      "deliverables_must_not_include": [
+        "generic",
+        "tailor"
+      ],
+      "constraint_count_min": 2,
+      "constraints_must_include": [
+        "5 days",
+        "16 week"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "35-year",
+        "180",
+        "9:30"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "generic"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "fitness",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "data-001",
+    "domain": "data_engineering",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "Background:\nWe have a legacy data warehouse on Oracle that's reaching end-of-life. Our data team is 12 people (4 analysts, 5 engineers, 3 scientists). Daily data volume is about 500GB of new records. We use Airflow for orchestration and have some dbt models.\n\nObjective:\nMigrate to a modern lakehouse architecture.\n\nDeliverables:\n- Architecture diagram (describe it textually)\n- Technology selection with justification (Snowflake vs Databricks vs BigQuery)\n- Data modeling approach (medallion architecture or alternative)\n- Migration strategy with phases\n- Cost estimation framework\n- Governance and quality framework\n- Team skill gap analysis and training plan\n\nConstraints:\n- Budget cap: $500K for first year including licensing\n- Must maintain existing Oracle pipelines during migration\n- Cannot have more than 4 hours of analyst downtime\n- Must be SOC2 compliant\n- Migration timeline: 9 months maximum\n\nGuidelines:\n- Compare alternatives before recommending\n- Separate what you know from what you're assuming\n- Give concrete numbers where possible, estimates where not\n- Flag risks early",
+    "expected": {
+      "deliverable_count": 7,
+      "deliverables_must_include": [
+        "architecture",
+        "technology",
+        "model",
+        "migration",
+        "cost",
+        "governance",
+        "skill"
+      ],
+      "deliverables_must_not_include": [
+        "compare",
+        "concrete",
+        "flag risk"
+      ],
+      "constraint_count_min": 4,
+      "constraints_must_include": [
+        "$500K",
+        "4 hour",
+        "SOC2",
+        "9 month"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "Oracle",
+        "12 people",
+        "500GB"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "compare",
+        "assum"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "data_engineering",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "product-001",
+    "domain": "product_management",
+    "complexity": "medium",
+    "structural_pattern": "mixed",
+    "prompt": "I'm a PM at a B2B SaaS company with 200 customers and $5M ARR. We're seeing 8% monthly churn which is way too high. Our NPS is 32.\n\nI need a churn reduction strategy. Specifically:\n- Root cause analysis framework\n- Prioritized list of interventions\n- Metrics dashboard specification\n- 90-day action plan\n\nDon't assume you know why customers are churning. Propose a data-driven approach to figure it out first. Be specific about what data to collect and how to analyze it.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "root cause",
+        "intervention",
+        "metric",
+        "action plan"
+      ],
+      "deliverables_must_not_include": [
+        "data-driven",
+        "specific"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "200 customer",
+        "$5M",
+        "8%"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "assum",
+        "data-driven"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "product_management",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "ml-001",
+    "domain": "machine_learning",
+    "complexity": "high",
+    "structural_pattern": "nested_bullets",
+    "prompt": "Project: Build a fraud detection system for a fintech processing 2M transactions per day.\n\nCurrent state:\n- No ML in production yet\n- Rules-based system catches ~60% of fraud\n- False positive rate is 5% (too high, costs us $200K/month in manual review)\n- We have 18 months of labeled transaction data\n- ML team: 2 senior engineers, 1 junior\n\nWhat I need:\n- Model architecture recommendations\n  - Which algorithms to evaluate\n  - Feature engineering strategy\n  - How to handle class imbalance\n- Infrastructure design\n  - Real-time inference requirements (< 100ms per transaction)\n  - Training pipeline\n  - Model monitoring and drift detection\n- Deployment strategy\n  - Shadow mode testing\n  - Gradual rollout plan\n  - A/B testing framework\n- Success metrics and thresholds\n\nRules:\n- Must be explainable (regulatory requirement)\n- Cannot increase false positive rate above current 5%\n- Must process transactions in under 100ms p99\n- System must be auditable\n\nBe precise about tradeoffs between precision and recall. Acknowledge where you're speculating.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "model",
+        "infrastructure",
+        "deploy",
+        "metric"
+      ],
+      "deliverables_must_not_include": [
+        "tradeoff",
+        "specul",
+        "precise"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "explainable",
+        "5%",
+        "100ms"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "2M transaction",
+        "60%",
+        "18 month"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "tradeoff",
+        "specul"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "machine_learning",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "edu-001",
+    "domain": "education",
+    "complexity": "medium",
+    "structural_pattern": "conversational",
+    "prompt": "I'm designing a 12-week online course on data literacy for non-technical business professionals. The audience is mid-career managers at Fortune 500 companies who need to make better data-driven decisions but don't want to learn to code. Class size will be about 30 people per cohort. I have a budget of $15K for course development. Can you give me a curriculum outline with weekly topics, a list of hands-on exercises that don't require coding, an assessment strategy, and recommended tools? Keep it practical, not academic. Avoid jargon.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "curriculum",
+        "exercise",
+        "assessment",
+        "tool"
+      ],
+      "deliverables_must_not_include": [
+        "practical",
+        "jargon",
+        "academic"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "$15K"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "12-week",
+        "non-technical",
+        "Fortune 500"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "practical",
+        "jargon"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "education",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "legal-001",
+    "domain": "legal",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "prompt": "We're a 50-person startup that just raised Series B and we need to set up a proper data privacy compliance program. We operate in the US and EU, process personal data from about 100K users, and our engineering team handles most compliance manually right now. We don't have a dedicated legal team yet — just outside counsel. I need you to outline the key regulatory frameworks we must comply with, propose an implementation roadmap, recommend tools for consent management and data mapping, and identify the biggest compliance gaps a startup at our stage typically has. Please be specific to our situation rather than giving textbook definitions of GDPR and CCPA.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "regulatory",
+        "roadmap",
+        "tool",
+        "gap"
+      ],
+      "deliverables_must_not_include": [
+        "specific",
+        "textbook"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "50-person",
+        "Series B",
+        "100K user"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "specific"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "legal",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "creative-001",
+    "domain": "creative_writing",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I'm writing a sci-fi short story set on a generation ship 200 years into a 500-year voyage. The inhabitants have developed their own culture distinct from Earth. I need help with worldbuilding. Give me a description of their social structure, their relationship with the ship's AI, and three potential conflicts that could drive the plot. Make it feel lived-in and real, not sterile. Surprise me with at least one unconventional idea.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "social",
+        "AI",
+        "conflict"
+      ],
+      "deliverables_must_not_include": [
+        "sterile",
+        "surprise",
+        "unconventional"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "generation ship",
+        "200 year"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "lived-in",
+        "unconventional"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "creative_writing",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "devops-002",
+    "domain": "devops",
+    "complexity": "simple",
+    "structural_pattern": "numbered_list",
+    "prompt": "I need to containerize a Python Flask app that uses PostgreSQL and Redis. The app currently runs on a bare metal server. Please:\n1. Write a Dockerfile\n2. Write a docker-compose.yml\n3. Explain how to handle environment variables securely",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "Dockerfile",
+        "docker-compose",
+        "environment"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "Flask"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "code"
+    }
+  },
+  {
+    "id": "strategy-001",
+    "domain": "business_strategy",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "Company Profile:\nWe're a mid-size manufacturing company ($50M revenue, 300 employees) making industrial sensors. Our margins have been declining for 3 years due to Chinese competition. We have strong R&D capability and 12 patents.\n\nStrategic Question:\nShould we pivot to IoT-as-a-service or double down on hardware differentiation?\n\nAnalysis Requested:\n- Market analysis of both paths\n- Financial modeling framework (not actual numbers, but what to model)\n- Competitive positioning assessment\n- Organizational capability gap analysis\n- Risk assessment for each path\n- Recommended decision and rationale\n\nGround Rules:\n- Don't sugarcoat — if one option is clearly better, say so\n- Separate market facts from your assumptions\n- Consider that we're not a tech company and cultural change is hard\n- Be realistic about timelines\n- Think about second-order effects",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "market",
+        "financial",
+        "competitive",
+        "capability",
+        "risk",
+        "recommend"
+      ],
+      "deliverables_must_not_include": [
+        "sugarcoat",
+        "realistic",
+        "second-order"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "$50M",
+        "300 employee",
+        "12 patent"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "sugarcoat",
+        "assum",
+        "realistic"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "business_strategy",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "cook-002",
+    "domain": "cooking",
+    "complexity": "medium",
+    "structural_pattern": "mixed",
+    "prompt": "I'm hosting a dinner party for 8 people this Saturday. Two guests are vegetarian, one is gluten-free, and one has a nut allergy. My budget is $100 for everything. I have a standard home kitchen with an oven, stovetop, and a slow cooker.\n\nPlease plan:\n- A three-course menu that accommodates all dietary needs\n- A shopping list organized by store section\n- A cooking timeline so everything is ready by 7pm\n\nI want the meal to feel elegant but I'm an intermediate cook, so nothing that requires professional technique. Suggest wine pairings if you can but acknowledge you don't know my guests' preferences.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "menu",
+        "shopping",
+        "timeline"
+      ],
+      "deliverables_must_not_include": [
+        "elegant",
+        "wine",
+        "intermediate"
+      ],
+      "constraint_count_min": 2,
+      "constraints_must_include": [
+        "$100",
+        "gluten-free"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "8 people",
+        "Saturday"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "acknowledge"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "cooking",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "arch-002",
+    "domain": "software_architecture",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "prompt": "We have a monolithic Rails app serving 50K daily active users that's becoming hard to maintain. The team is 15 developers. We're considering breaking it into microservices but I've heard horror stories about premature decomposition. I want you to help me decide whether to decompose or modularize the monolith. Give me a decision framework, criteria for identifying service boundaries if we do decompose, and a risk analysis for both approaches. Don't assume microservices are the answer. Our deploys take 45 minutes right now which is our main pain point.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "decision",
+        "boundar",
+        "risk"
+      ],
+      "deliverables_must_not_include": [
+        "assume"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "Rails",
+        "50K",
+        "15 developer"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "assume"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "medical-001",
+    "domain": "medical",
+    "complexity": "medium",
+    "structural_pattern": "conversational",
+    "prompt": "I'm a nurse practitioner starting a telehealth practice focused on chronic disease management, primarily diabetes and hypertension. I'll be operating in Texas and California. I have 10 years of clinical experience but no business background. I need guidance on the regulatory requirements for telehealth in both states, a technology stack recommendation for the platform, a patient acquisition strategy, and a financial model template. Be upfront about areas where I should definitely consult a healthcare attorney rather than relying on your output.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "regulat",
+        "technology",
+        "patient",
+        "financial"
+      ],
+      "deliverables_must_not_include": [
+        "attorney",
+        "upfront"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "nurse practitioner",
+        "Texas",
+        "10 year"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "attorney"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "medical",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "fitness-002",
+    "domain": "fitness",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I just turned 50 and I've been sedentary for years. My doctor cleared me for exercise but said to start slowly. I want to get into strength training. I have a home gym with dumbbells up to 50 lbs, a bench, and a pull-up bar. Give me a beginner program for the first 8 weeks. Three days a week max.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "program"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "three day"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "50",
+        "sedentary",
+        "dumbbell"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "fitness",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "data-002",
+    "domain": "data_engineering",
+    "complexity": "medium",
+    "structural_pattern": "numbered_list",
+    "prompt": "Our Spark jobs on EMR are running 3x slower than last quarter and costs have doubled. Cluster config: r5.2xlarge instances, 20-node cluster, Spark 3.3. We process about 2TB of parquet data daily across 50 jobs.\n\nI need you to:\n1. Provide a diagnostic checklist to identify the root cause\n2. Suggest Spark tuning parameters to try\n3. Recommend an approach for right-sizing the cluster\n4. Propose a cost monitoring and alerting setup\n\nGive me specific commands and config values, not just general advice.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "diagnostic",
+        "tuning",
+        "right-siz",
+        "cost monitor"
+      ],
+      "deliverables_must_not_include": [
+        "specific",
+        "general advice"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "r5.2xlarge",
+        "20-node",
+        "2TB"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "specific"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "data_engineering",
+      "output_format": "code"
+    }
+  },
+  {
+    "id": "product-002",
+    "domain": "product_management",
+    "complexity": "simple",
+    "structural_pattern": "flat_paragraph",
+    "prompt": "I need to write a PRD for a feature that lets users export their data from our SaaS platform. We've been getting requests from enterprise customers and GDPR requires it. The feature should support CSV and JSON formats. Give me a complete PRD template filled in for this feature.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "PRD"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "GDPR"
+      ],
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "enterprise customer"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "product_management",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "ml-002",
+    "domain": "machine_learning",
+    "complexity": "medium",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "Context:\nI have a dataset of 10M customer support tickets with resolution categories. Currently agents manually categorize them. Accuracy of manual categorization is about 85%.\n\nTask:\nBuild an automated ticket classification system.\n\nRequirements:\n- Must exceed 90% accuracy on top 20 categories\n- Inference latency under 200ms\n- Must handle tickets in English and Spanish\n- Needs a human-in-the-loop for low-confidence predictions\n\nDeliver:\n- Model selection comparison (at least 3 approaches)\n- Data preprocessing pipeline\n- Evaluation methodology\n\nNote: We use AWS and prefer SageMaker if possible. Don't overthink the infrastructure — focus on the ML approach.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "model",
+        "preprocess",
+        "evaluat"
+      ],
+      "deliverables_must_not_include": [
+        "overthink",
+        "focus"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "90%",
+        "200ms",
+        "English and Spanish"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "10M",
+        "85%"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "overthink"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "machine_learning",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-001",
+    "domain": "software_architecture",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "edge_case": "constraints_as_context",
+    "prompt": "We're a 5-person startup. We have no DevOps engineer. Our entire infrastructure is on Heroku. We need to migrate to AWS because Heroku costs are killing us at $3000/month for what should be a $500 workload. Design us a simple, cheap AWS setup. We don't need Kubernetes — we need something a full-stack developer can manage.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "AWS"
+      ],
+      "constraint_count_min": 2,
+      "constraints_must_include": [
+        "Kubernetes",
+        "$500"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "5-person",
+        "Heroku"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-002",
+    "domain": "general",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "edge_case": "no_explicit_deliverables",
+    "prompt": "How should I think about choosing between PostgreSQL and MongoDB for a new project? It's a social media app with user profiles, posts, comments, and a feed. We expect to hit 100K users in the first year. The team knows SQL well but has no NoSQL experience.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "compar"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "social media",
+        "100K"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-003",
+    "domain": "general",
+    "complexity": "medium",
+    "structural_pattern": "mixed",
+    "edge_case": "meta_as_deliverable",
+    "prompt": "I'm preparing a presentation on microservices for my CTO. I need:\n- Executive summary (1 page)\n- Technical deep-dive (5-10 pages)\n- Comparison table of monolith vs microservices vs modular monolith\n- Risk register\n\nTone should be persuasive but honest. Include counterarguments to my position. Explain your reasoning for each recommendation. Use diagrams where they add clarity.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "summary",
+        "deep-dive",
+        "comparison",
+        "risk"
+      ],
+      "deliverables_must_not_include": [
+        "persuasive",
+        "honest",
+        "counterargument",
+        "reasoning",
+        "diagram"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "CTO"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "persuasive",
+        "counterargument",
+        "reasoning"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "edge-004",
+    "domain": "general",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "edge_case": "needs_web_true",
+    "prompt": "What are the latest changes to the React Server Components API in 2026? I'm migrating a Next.js 14 app to the newest version and want to understand what breaking changes to expect. Give me a migration checklist.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "migration"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "Next.js 14"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_engineering",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-005",
+    "domain": "general",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "edge_case": "contradictory_signals",
+    "prompt": "Give me an exhaustive, comprehensive guide to setting up a Kubernetes cluster from scratch on bare metal. Cover networking, storage, security, monitoring, and backup. But keep each section short and focused — I don't need walls of text. Use bullet points. Skip theory, just give me the practical steps.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "guide"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 0,
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "short",
+        "bullet",
+        "theory"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-006",
+    "domain": "general",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "edge_case": "ambiguous_constraint_vs_context",
+    "prompt": "We're a tiny team — just me and one other developer. We need to build an MVP for a food delivery app in 6 weeks. Neither of us has done mobile development before. What tech stack should we use and what's the fastest path to a working prototype?",
+    "expected": {
+      "deliverable_count": 2,
+      "deliverables_must_include": [
+        "tech stack",
+        "path"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "6 week"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "two",
+        "mobile"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_engineering",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "cook-003",
+    "domain": "cooking",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "I'm planning to open a small bakery in Portland, Oregon.\n\nBackground:\n- I've been baking professionally for 5 years at a restaurant\n- Budget: $80K in savings plus a $50K small business loan\n- Target opening: 6 months from now\n- Space: I found a 900 sq ft retail space with a basic commercial kitchen\n\nWhat I need:\n1. Menu strategy — what to sell and what margins to target\n2. Equipment list with estimated costs\n3. Staffing plan for the first year\n4. Marketing and customer acquisition strategy\n5. Financial projections template\n6. Permitting and licensing checklist for Oregon\n\nRules:\n- Be realistic about failure rates for new bakeries\n- Don't assume I have unlimited time — I'll be the head baker AND owner\n- Give me actual numbers where you can, ranges where you can't\n- Tell me what you don't know about the Portland market specifically",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "menu",
+        "equipment",
+        "staff",
+        "marketing",
+        "financial",
+        "permit"
+      ],
+      "deliverables_must_not_include": [
+        "realistic",
+        "failure",
+        "unlimited"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "5 year",
+        "$80K",
+        "Portland"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "realistic",
+        "actual number",
+        "don't know"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "business_strategy",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "edu-002",
+    "domain": "education",
+    "complexity": "high",
+    "structural_pattern": "nested_bullets",
+    "prompt": "I'm redesigning our computer science curriculum for a liberal arts college.\n\nContext:\n- Small department: 4 faculty members\n- 60 majors, 200 students take intro CS\n- We currently teach Java but considering switching\n- Students go into industry (60%), grad school (20%), or unrelated fields (20%)\n- We have limited server infrastructure\n\nDeliverables:\n- Language selection analysis\n  - Compare Python, JavaScript, Rust, and Java for our context\n  - Consider both intro and upper-level courses\n- Four-year curriculum map\n  - Required courses\n  - Elective tracks (AI/ML, Systems, Web)\n- Assessment and outcomes framework\n  - How to measure if the curriculum works\n  - Industry alignment metrics\n- Implementation plan\n  - Faculty retraining needs\n  - Transition timeline\n  - Resource requirements\n\nPhilosophy:\n- We value breadth over depth at the intro level\n- Employability matters but so does intellectual curiosity\n- Acknowledge that you don't know our specific student population\n- Don't just copy what Stanford does — we're not Stanford",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "language",
+        "curriculum",
+        "assessment",
+        "implementation"
+      ],
+      "deliverables_must_not_include": [
+        "breadth",
+        "employab",
+        "Stanford"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "4 faculty",
+        "60 major",
+        "Java"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "breadth",
+        "acknowledge",
+        "Stanford"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "education",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "legal-002",
+    "domain": "legal",
+    "complexity": "high",
+    "structural_pattern": "numbered_list",
+    "prompt": "Our company just acquired a competitor. The target company has 500 employees, operations in Germany and the UK, and several ongoing contracts with government entities.\n\nI need analysis on:\n1. Employment law implications in Germany and UK post-acquisition\n2. Contract assignment and novation requirements for government contracts\n3. Data privacy considerations for merging customer databases\n4. Intellectual property audit checklist\n5. Integration timeline with key legal milestones\n6. Regulatory filings required in each jurisdiction\n\nConstraints:\n- Closing date is in 60 days\n- We cannot terminate more than 10% of the acquired workforce in the first year (per the acquisition agreement)\n- All German works council consultations must be completed before Day 1\n- Budget for external legal counsel: $300K\n\nImportant: I am NOT a lawyer. Explain things in plain language. Flag anything where I absolutely must get jurisdiction-specific legal counsel rather than relying on general guidance.",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "employment",
+        "contract",
+        "privacy",
+        "intellectual",
+        "timeline",
+        "regulat"
+      ],
+      "deliverables_must_not_include": [
+        "plain language",
+        "flag"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "60 day",
+        "10%",
+        "$300K"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "500 employee",
+        "Germany"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "plain language",
+        "flag"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "legal",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "creative-002",
+    "domain": "creative_writing",
+    "complexity": "medium",
+    "structural_pattern": "mixed",
+    "prompt": "I'm developing a tabletop RPG set in a post-apocalyptic world where magic has returned to Earth after a nuclear war. The game uses a d20 system.\n\nI need:\n- A setting bible (2-3 pages)\n- Five character classes with unique abilities\n- A magic system that ties to radiation exposure\n- Three sample encounters\n\nDesign principles:\n- The tone should be hopeful, not grimdark\n- Combat should be fast (5-10 minutes per encounter)\n- Magic should have meaningful costs\n- Rules should be simple enough for new players",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "setting",
+        "class",
+        "magic system",
+        "encounter"
+      ],
+      "deliverables_must_not_include": [
+        "hopeful",
+        "grimdark",
+        "fast",
+        "simple"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "5-10 minute"
+      ],
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "post-apocalyptic",
+        "d20"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "hopeful",
+        "simple"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "creative_writing",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "arch-003",
+    "domain": "software_architecture",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "## Situation\nWe run a real-time bidding (RTB) platform processing 500K requests per second. Our current system is written in C++ and handles 99.9% of requests under 10ms. But the codebase is 15 years old, poorly documented, and only 2 engineers understand it fully.\n\n## Challenge\nDo we rewrite, refactor, or wrap? And in what language?\n\n## What I need\n- Decision framework for rewrite vs refactor vs wrap\n- Language evaluation (Rust, Go, C++ modernization) against our specific requirements\n- Architecture proposal for the chosen approach\n- Risk analysis with probability and impact estimates\n- Team scaling plan (we need to hire)\n- Timeline and milestone proposal\n\n## Hard constraints\n- Cannot degrade below current 10ms p99 latency\n- Cannot reduce throughput during migration\n- Engineering budget: $2M/year for this project\n- Must maintain PCI DSS compliance throughout\n\n## How I want this written\n- Be decisive — don't give me three options and say 'it depends'\n- Support every claim with reasoning\n- Distinguish between 'industry standard practice' and 'my recommendation'\n- If you're not sure about RTB-specific patterns, say so",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "decision",
+        "language",
+        "architecture",
+        "risk",
+        "team",
+        "timeline"
+      ],
+      "deliverables_must_not_include": [
+        "decisive",
+        "reasoning",
+        "industry standard"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "10ms",
+        "$2M",
+        "PCI DSS"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "500K",
+        "C++",
+        "15 year"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "decisive",
+        "reasoning",
+        "not sure"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "medical-002",
+    "domain": "medical",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I'm a hospital administrator looking at our emergency department wait times. Average wait is 4.5 hours, well above the national average. We see about 200 patients per day with 30 beds. What are evidence-based strategies to reduce ED wait times? Just give me a prioritized list with expected impact for each.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "strateg"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "4.5 hour",
+        "200 patient"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "evidence"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "medical",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "strategy-002",
+    "domain": "business_strategy",
+    "complexity": "medium",
+    "structural_pattern": "conversational",
+    "prompt": "I run a 20-person digital marketing agency. Revenue is $3M but growth has stalled at 5% YoY. Most of our revenue comes from 3 large clients (70% concentration). I'm worried about client concentration risk and want to diversify. I also think we should add a productized service offering. Help me think through a growth strategy for the next 2 years. I want a client diversification plan, a productized service concept, a hiring roadmap, and financial targets. Be honest about what usually goes wrong when agencies try to productize.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "diversif",
+        "productize",
+        "hiring",
+        "financial"
+      ],
+      "deliverables_must_not_include": [
+        "honest",
+        "wrong"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "20-person",
+        "$3M",
+        "70%"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "honest"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "business_strategy",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "devops-003",
+    "domain": "devops",
+    "complexity": "high",
+    "structural_pattern": "nested_bullets",
+    "prompt": "We need to design a disaster recovery plan for our multi-region SaaS platform.\n\nInfrastructure:\n- Primary: us-east-1 (AWS)\n- Secondary: eu-west-1\n- Database: Aurora PostgreSQL with cross-region replicas\n- 50 microservices on EKS\n- Redis for caching, SQS for queues\n- S3 for file storage\n\nRequirements:\n- RPO: < 1 hour\n- RTO: < 4 hours\n- Must handle both regional failures and service-level failures\n- Must test quarterly without customer impact\n- Budget: $30K/month additional for DR infrastructure\n\nDeliverables:\n- DR architecture design\n  - Active-active vs active-passive recommendation\n  - Data replication strategy\n  - DNS failover approach\n- Runbook templates\n  - Regional failover procedure\n  - Service-level recovery procedure\n  - Database recovery procedure\n- Testing framework\n  - Chaos engineering approach\n  - Game day schedule\n  - Success criteria\n- Cost optimization\n  - How to minimize DR costs without compromising RPO/RTO\n\nBe thorough but practical. We're a team of 8 platform engineers. Don't design something that requires a 50-person SRE team to operate.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "architecture",
+        "runbook",
+        "testing",
+        "cost"
+      ],
+      "deliverables_must_not_include": [
+        "thorough",
+        "practical"
+      ],
+      "constraint_count_min": 4,
+      "constraints_must_include": [
+        "1 hour",
+        "4 hour",
+        "quarterly",
+        "$30K"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "us-east-1",
+        "Aurora",
+        "50 microservice"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "practical"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "ml-003",
+    "domain": "machine_learning",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I have a CSV of 50K product reviews and I need to do sentiment analysis. I've never done NLP before. What's the simplest approach that will give me reasonable results? I just need positive, negative, and neutral labels. I'm comfortable with Python but not with ML frameworks.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "approach"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "50K",
+        "CSV"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "simplest"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "machine_learning",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-007",
+    "domain": "general",
+    "complexity": "medium",
+    "structural_pattern": "numbered_list",
+    "edge_case": "deliverables_in_constraints_section",
+    "prompt": "Build me a personal finance dashboard.\n\nConstraints:\n1. Must track income and expenses by category\n2. Must show monthly trends over the past 12 months\n3. Must include a budget vs actual comparison\n4. Must work offline\n5. Use React and TypeScript\n6. No backend — local storage only\n7. Must be responsive for mobile\n\nKeep the code clean and well-commented.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "dashboard"
+      ],
+      "constraint_count_min": 4,
+      "constraints_must_include": [
+        "React",
+        "offline",
+        "local storage",
+        "responsive"
+      ],
+      "context_facts_count_min": 0,
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "clean"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_engineering",
+      "output_format": "code"
+    }
+  },
+  {
+    "id": "edge-008",
+    "domain": "general",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "edge_case": "needs_web_news",
+    "prompt": "What happened at Google I/O this year? Give me a summary of the major announcements, focusing on AI and developer tools. I want the key takeaways for a mobile developer.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "summary"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "technology",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "fitness-003",
+    "domain": "fitness",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "Athlete Profile:\n- Competitive CrossFit athlete, 28F\n- 5'6\", 145 lbs, ~18% body fat\n- Current lifts: Back squat 225, deadlift 275, snatch 135, clean & jerk 175\n- Weakness: gymnastics (can't do muscle-ups, limited handstand walking)\n- Strength: aerobic engine and Olympic lifts\n- Training 5-6 days/week for past 3 years\n- Goal: qualify for CrossFit Quarterfinals next season\n\nProgram Request:\n- 16-week periodized training program\n- Skill development plan for gymnastics weaknesses\n- Nutrition and recovery protocol\n- Competition preparation strategy\n\nCriteria:\n- Maintain current strength while improving weaknesses\n- Cannot add more than 6 training hours per week\n- Must include deload weeks\n- Account for the fact that I also coach 3 classes per day which is fatiguing\n\nExpertise note: If you're not confident about competitive CrossFit programming, say so. I'd rather know your limitations than get bad programming advice.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "training program",
+        "skill",
+        "nutrition",
+        "competition"
+      ],
+      "deliverables_must_not_include": [
+        "confident",
+        "limitation"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "6 training hour",
+        "deload",
+        "maintain"
+      ],
+      "context_facts_count_min": 4,
+      "context_facts_must_include": [
+        "28F",
+        "225",
+        "muscle-up",
+        "3 year"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "confident"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "fitness",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "data-003",
+    "domain": "data_engineering",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I need to set up a basic data pipeline that extracts data from a REST API every hour, transforms it, and loads it into BigQuery. We're using Python and GCP. What's the simplest reliable way to do this? Show me the code.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "pipeline"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "Python",
+        "GCP"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "simplest"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "data_engineering",
+      "output_format": "code"
+    }
+  },
+  {
+    "id": "product-003",
+    "domain": "product_management",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "## Context\nI'm the VP of Product at a horizontal SaaS platform (project management tool). We have 5,000 paying customers, mostly SMBs. Revenue is $12M ARR growing 40% YoY. We're considering moving upmarket to enterprise.\n\n## Questions I need answered\n1. Enterprise readiness assessment — what features are we likely missing?\n2. Pricing model transformation — how to move from per-seat to value-based pricing\n3. Sales process design — PLG to sales-assisted for enterprise\n4. Customer success model for enterprise accounts\n5. Product roadmap priorities for the next 4 quarters\n6. Competitive landscape analysis framework\n7. Go-to-market strategy\n\n## Constraints\n- Cannot break existing SMB product experience\n- Engineering team: 25 people, no dedicated enterprise team yet\n- Must show enterprise traction within 6 months (board commitment)\n- Limited brand recognition in enterprise market\n\n## How to approach this\n- Don't boil the ocean — sequence the work\n- Be specific about what to do in what order\n- Acknowledge trade-offs between SMB and enterprise needs\n- Tell me what you're assuming about our product based on the category\n- I want actionable output, not MBA frameworks",
+    "expected": {
+      "deliverable_count": 7,
+      "deliverables_must_include": [
+        "enterprise",
+        "pricing",
+        "sales",
+        "success",
+        "roadmap",
+        "competitive",
+        "go-to-market"
+      ],
+      "deliverables_must_not_include": [
+        "boil the ocean",
+        "sequence",
+        "MBA",
+        "actionable"
+      ],
+      "constraint_count_min": 3,
+      "constraints_must_include": [
+        "25 people",
+        "6 month",
+        "brand recognition"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "5,000",
+        "$12M",
+        "40%"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "sequence",
+        "trade-off",
+        "assuming"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "product_management",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "creative-003",
+    "domain": "creative_writing",
+    "complexity": "high",
+    "structural_pattern": "numbered_list",
+    "prompt": "I'm writing a fantasy novel and need help with my magic system. Here's what I have so far: magic is drawn from emotional resonance — different emotions fuel different abilities. The world has seven kingdoms, each culturally aligned with a dominant emotion.\n\nI need you to:\n1. Flesh out the seven emotion-magic pairings with specific abilities\n2. Design the limitations and costs of each type\n3. Create rules for how magic interacts when multiple types are combined\n4. Develop the societal implications — how does this magic shape politics and warfare?\n5. Propose three characters who each have an unusual or forbidden combination\n6. Identify potential plot holes in the system and suggest fixes\n\nStyle guidance:\n- Be creative and specific, not vague\n- Each magic type should feel genuinely different in practice\n- The system should be internally consistent\n- Don't make any single type clearly overpowered\n- Show your work — explain why you made each design choice",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "emotion",
+        "limitation",
+        "interact",
+        "societ",
+        "character",
+        "plot hole"
+      ],
+      "deliverables_must_not_include": [
+        "creative",
+        "consistent",
+        "overpowered"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "emotional resonance",
+        "seven kingdom"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "creative",
+        "consistent",
+        "overpowered"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "creative_writing",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-009",
+    "domain": "general",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "edge_case": "pure_question_no_deliverable_section",
+    "prompt": "Why is my Python script running slowly when processing a 2GB CSV file? I'm using pandas read_csv to load the whole file into memory and then filtering rows. Should I switch to Dask or Polars?",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "recommend"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "2GB",
+        "pandas"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "data_engineering",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "edge-010",
+    "domain": "general",
+    "complexity": "medium",
+    "structural_pattern": "conversational",
+    "edge_case": "implicit_deliverables_only",
+    "prompt": "I'm starting a YouTube channel about home woodworking. I have a small garage workshop, a table saw, a router, and basic hand tools. I've been woodworking for about 2 years as a hobby. I want to make content that stands out from the hundreds of other woodworking channels. My target audience is beginners who are intimidated by the hobby. How should I approach this? I could use help thinking about content strategy, what equipment I need for filming, how to structure my first 10 videos, and how to grow an audience from zero.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "content strateg",
+        "equipment",
+        "video",
+        "audience"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "garage",
+        "2 year",
+        "table saw"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "content_creation",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "arch-004",
+    "domain": "software_architecture",
+    "complexity": "medium",
+    "structural_pattern": "flat_paragraph",
+    "prompt": "I need to design an event-driven architecture for an e-commerce platform. We currently process orders synchronously which causes timeouts during peak sales. The system handles about 10K orders per hour normally but spikes to 100K during flash sales. We're on AWS. I want you to propose the event architecture, recommend specific AWS services, and give me a before/after comparison showing how the async flow handles the flash sale scenario. Also show failure handling — what happens when a downstream service is down.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "event architecture",
+        "AWS service",
+        "comparison",
+        "failure"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "10K order",
+        "100K"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "cook-004",
+    "domain": "cooking",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "What's the best way to make sourdough bread at home? I've tried twice and it didn't rise properly. I'm keeping my starter at room temperature and feeding it daily. Give me a troubleshooting guide and a reliable recipe.",
+    "expected": {
+      "deliverable_count": 2,
+      "deliverables_must_include": [
+        "troubleshoot",
+        "recipe"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "starter"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "cooking",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "devops-004",
+    "domain": "devops",
+    "complexity": "medium",
+    "structural_pattern": "mixed",
+    "prompt": "Situation: Our Terraform codebase has grown to 200+ modules and it takes 20 minutes to plan. We have 4 AWS accounts (dev, staging, prod, shared-services) and a monorepo.\n\nI need:\n- A strategy to restructure the codebase for faster plans\n- State management best practices (we currently have one giant state file per account)\n- A PR workflow with automated plan previews\n- Security scanning integration\n\nPrefer Terragrunt if it makes sense but don't force it. Explain trade-offs between approaches. We've tried Terraform workspaces before and it was a mess, so explain why your recommendation is different.",
+    "expected": {
+      "deliverable_count": 4,
+      "deliverables_must_include": [
+        "restructur",
+        "state",
+        "PR workflow",
+        "security"
+      ],
+      "deliverables_must_not_include": [
+        "trade-off",
+        "explain why"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "200+",
+        "4 AWS account"
+      ],
+      "meta_requirements_count_min": 2,
+      "meta_requirements_must_include": [
+        "trade-off",
+        "explain why"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "strategy-003",
+    "domain": "business_strategy",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "Should I raise a seed round or bootstrap my SaaS? I have a working MVP with 50 beta users and $2K MRR. My monthly burn rate is $5K (just my salary that I'm not taking). The market is B2B HR tech. Give me a framework for making this decision.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "framework"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "50 beta",
+        "$2K MRR",
+        "HR tech"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "business_strategy",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "medical-003",
+    "domain": "medical",
+    "complexity": "high",
+    "structural_pattern": "sectioned_with_headers",
+    "prompt": "## Background\nI'm building a clinical decision support system for primary care physicians. The system will analyze patient records and suggest potential diagnoses and recommended tests.\n\n## Technical Context\n- EHR integration via FHIR APIs\n- Patient database: 500K records\n- Regulatory: must comply with FDA Software as Medical Device (SaMD) guidance\n- Deployment: on-premise at hospital data centers (no cloud allowed for PHI)\n\n## Deliverables\n1. System architecture for on-premise deployment\n2. ML model approach for diagnosis suggestion (must be explainable)\n3. FHIR integration design\n4. Regulatory compliance roadmap (FDA SaMD pathway)\n5. Clinical validation study design\n6. Risk analysis (patient safety perspective)\n\n## Non-negotiable requirements\n- All predictions must include confidence scores and contributing factors\n- Must handle missing data gracefully (EHR data is notoriously incomplete)\n- Latency: suggestions must appear within 3 seconds during patient encounter\n- Must include audit trail for every suggestion\n\n## Professional responsibility\n- You are not a medical professional and neither am I\n- Clearly distinguish between technical recommendations and clinical judgments\n- Flag any area where a clinical advisor should review your suggestions\n- Do not make claims about clinical efficacy",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "architecture",
+        "ML model",
+        "FHIR",
+        "regulat",
+        "validation",
+        "risk"
+      ],
+      "deliverables_must_not_include": [
+        "distinguish",
+        "clinical judgment",
+        "efficacy"
+      ],
+      "constraint_count_min": 4,
+      "constraints_must_include": [
+        "explainable",
+        "no cloud",
+        "3 second",
+        "audit trail"
+      ],
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "FHIR",
+        "500K",
+        "primary care"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "distinguish",
+        "flag",
+        "efficacy"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "medical",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "edu-003",
+    "domain": "education",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I need to explain recursion to a group of high school students who are learning Python. They understand loops and functions. Can you give me a lesson plan that includes a clear explanation, three progressively harder exercises, and common misconceptions to address? Use analogies they'd relate to.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "explanation",
+        "exercise",
+        "misconception"
+      ],
+      "deliverables_must_not_include": [
+        "analogies"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 1,
+      "context_facts_must_include": [
+        "high school"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "analog"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "education",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "arch-005",
+    "domain": "software_architecture",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "What's the best way to implement rate limiting in a REST API? We're using Node.js with Express and expect about 1000 RPM per user. Give me the implementation with Redis.",
+    "expected": {
+      "deliverable_count": 1,
+      "deliverables_must_include": [
+        "implement"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "Node.js",
+        "1000 RPM"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_engineering",
+      "output_format": "code"
+    }
+  },
+  {
+    "id": "edge-011",
+    "domain": "general",
+    "complexity": "high",
+    "structural_pattern": "flat_paragraph",
+    "edge_case": "everything_in_one_block",
+    "prompt": "I'm a senior engineering manager at a 500-person company thinking about adopting an internal developer platform. We currently have 15 teams, each managing their own CI/CD, infrastructure, and deployments with significant duplication. Average time to onboard a new service is 3 weeks. I need you to evaluate Backstage vs Port vs Cortex vs building custom, propose an implementation roadmap, design the team structure needed to build and maintain it, create an ROI model showing the business case, and identify the top political and organizational challenges we'll face. I want you to be realistic about the organizational change management needed. Don't just focus on the tech. Separate what you know about these tools from what you're guessing. If any of these tools have changed significantly in 2026, mention that your knowledge might be outdated.",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "evaluat",
+        "roadmap",
+        "team",
+        "ROI",
+        "challenge"
+      ],
+      "deliverables_must_not_include": [
+        "realistic",
+        "separate",
+        "outdated"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 3,
+      "context_facts_must_include": [
+        "500-person",
+        "15 team",
+        "3 week"
+      ],
+      "meta_requirements_count_min": 3,
+      "meta_requirements_must_include": [
+        "realistic",
+        "separate",
+        "outdated"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "mixed"
+    }
+  },
+  {
+    "id": "legal-003",
+    "domain": "legal",
+    "complexity": "simple",
+    "structural_pattern": "conversational",
+    "prompt": "I'm a freelance software developer and I need a contract template for project-based work. I'm in California. What should the key clauses be? Give me a template I can use as a starting point. Note that I'm not a lawyer and this shouldn't be taken as legal advice.",
+    "expected": {
+      "deliverable_count": 2,
+      "deliverables_must_include": [
+        "clause",
+        "template"
+      ],
+      "constraint_count_min": 0,
+      "context_facts_count_min": 2,
+      "context_facts_must_include": [
+        "freelance",
+        "California"
+      ],
+      "meta_requirements_count_min": 1,
+      "meta_requirements_must_include": [
+        "legal advice"
+      ],
+      "uncertainty_count_min": 0,
+      "domain": "legal",
+      "output_format": "prose"
+    }
+  }
+]

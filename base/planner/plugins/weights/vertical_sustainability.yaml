@@ -1,0 +1,67 @@
+# Synesis Sustainability Plugin
+# Focus: Green living, renewable energy, zero waste, eco-friendly practices.
+
+complexity_weights:
+  renewable_systems:
+    weight: 10
+    keywords:
+      - solar array
+      - inverter
+      - grid tie
+      - net metering
+      - battery storage
+      - wind turbine
+  energy_efficiency:
+    weight: 8
+    keywords:
+      - energy audit
+      - r-value
+      - insulation
+      - heat pump
+      - weatherization
+      - blower door test
+
+domain_keywords:
+  green_living:
+    domain: green_living
+    keywords:
+      - sustainability
+      - eco-friendly
+      - green living
+      - zero waste
+      - recycle
+      - upcycle
+      - carbon footprint
+      - plastic free
+      - sustainable fashion
+      - ethical consumption
+      - climate action
+      - reusable
+      - compost
+      - reduce reuse
+      - thrift
+      - environmental
+  renewable_energy:
+    domain: renewable_energy
+    keywords:
+      - solar panel
+      - solar
+      - wind energy
+      - renewable
+      - energy efficiency
+      - insulation
+      - heat pump
+      - geothermal
+      - ev charger
+      - battery storage
+      - net metering
+      - green energy
+      - carbon neutral
+
+pairings:
+  - keywords: [solar, installation]
+    extra_weight: 8
+    axis: complexity
+  - keywords: [electrical, solar]
+    extra_weight: 10
+    axis: risk

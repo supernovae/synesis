@@ -1,0 +1,43 @@
+{
+  "problem": "Migrate to a modern lakehouse architecture.",
+  "goals": [
+    "Migrate to a modern lakehouse architecture.",
+    "Architecture diagram (describe it textually)",
+    "Technology selection with justification (Snowflake vs Databricks vs BigQuery)",
+    "Data modeling approach (medallion architecture or alternative)",
+    "Migration strategy with phases",
+    "Cost estimation framework",
+    "Governance and quality framework",
+    "Team skill gap analysis and training plan"
+  ],
+  "constraints": [
+    "Budget cap: $500K for first year including licensing",
+    "Must maintain existing Oracle pipelines during migration",
+    "Cannot have more than 4 hours of analyst downtime",
+    "Must be SOC2 compliant",
+    "Migration timeline: 9 months maximum"
+  ],
+  "context_facts": [
+    "We have a legacy data warehouse on Oracle that's reaching end-of-life. Our data team is 12 people (4 analysts, 5 engineers, 3 scientists). Daily data volume is about 500GB of new records. We use Airflow for orchestration and have some dbt models."
+  ],
+  "deliverables": [
+    "Lakehouse migration plan",
+    "Architecture diagram description",
+    "Technology selection justification",
+    "Data modeling approach",
+    "Migration strategy phases",
+    "Cost estimation framework",
+    "Governance and quality framework",
+    "Skill gap analysis and training plan"
+  ],
+  "meta_requirements": [
+    "Compare alternatives before recommending",
+    "Separate what you know from what you're assuming",
+    "Give concrete numbers where possible, estimates where not",
+    "Flag risks early"
+  ],
+  "uncertainties": [],
+  "domain": "data_engineering",
+  "output_format": "prose",
+  "needs_web": false
+}

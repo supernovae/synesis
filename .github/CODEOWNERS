@@ -1,0 +1,12 @@
+# Default owner for everything
+* @supernovae
+
+# OpenShift / Kustomize manifests
+base/ @supernovae
+overlays/ @supernovae
+
+# Scripts
+scripts/ @supernovae
+
+# CI/CD
+.github/ @supernovae

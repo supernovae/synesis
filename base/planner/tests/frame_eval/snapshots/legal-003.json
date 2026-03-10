@@ -1,0 +1,24 @@
+{
+  "problem": "I'm a freelance software developer and I need a contract template for project-based work.",
+  "goals": [
+    "I'm a freelance software developer and I need a contract template for project-based work.",
+    "What should the key clauses be?",
+    "Give me a template I can use as a starting point."
+  ],
+  "constraints": [],
+  "context_facts": [
+    "I'm in California."
+  ],
+  "deliverables": [
+    "Contract template for freelance software developer",
+    "Key clauses for contract",
+    "Starting point template"
+  ],
+  "meta_requirements": [
+    "Note that I'm not a lawyer and this shouldn't be taken as legal advice."
+  ],
+  "uncertainties": [],
+  "domain": "legal",
+  "output_format": "prose",
+  "needs_web": false
+}

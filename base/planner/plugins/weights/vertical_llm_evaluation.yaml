@@ -1,0 +1,76 @@
+# Synesis LLM Evaluation Vertical
+# Eval harnesses, benchmarks, hallucination detection. For users measuring LLM quality.
+# Critic: methodology, eval set validity, metric choice.
+
+complexity_weights:
+  eval_harness:
+    weight: 10
+    keywords:
+      - eval
+      - evaluation
+      - benchmark
+      - harness
+      - evals
+  hallucination:
+    weight: 10
+    keywords:
+      - hallucination
+      - factuality
+      - grounded
+      - citation
+      - source check
+  eval_metrics:
+    weight: 8
+    keywords:
+      - bleu
+      - rouge
+      - perplexity
+      - accuracy
+      - f1
+      - human eval
+
+domain_keywords:
+  llm_evaluation:
+    domain: llm_evaluation
+    keywords:
+      - trulens
+      - lm-eval
+      - ragas
+      - deepeval
+      - helm
+
+pairings:
+  - keywords: [eval, production]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [hallucination, deploy]
+    extra_weight: 15
+    axis: risk
+
+
+vertical_prompt:
+  name: llm_evaluation
+  active_domain_refs:
+    - llm_evaluation
+  platform_context_aliases:
+    - eval
+    - evaluation
+    - benchmarking
+  worker_persona_block: |
+    VERTICAL: LLM Evaluation. Eval harnesses, metrics, hallucination detection.
+    - Reproducibility: Fix seeds, version eval sets. Document metric definitions.
+    - Validity: Eval set should reflect target distribution; avoid train/test bleed.
+    - Hallucination: Grounded evals need source attribution or NLI-style checks.
+  planner_decomposition_rules: |
+    Eval tasks: Step 1 = eval set definition OR metric selection. Each step verifiable (run subset).
+  critic_mode: tiered
+  critic_tiers:
+    basic: |
+      Approve if harness runs. Check eval set non-empty, metrics produce values.
+      Brief note on obvious issues (wrong metric for task).
+    advanced: |
+      Check: eval set balance, metric appropriateness, hallucination vs factuality distinction.
+      Suggest: additional metrics, stratified reporting. Nonblocking for minor gaps.
+    research: |
+      Full methodology review: eval set provenance, metric validity, statistical significance.
+      Flag: data leakage, biased eval set, inadequate sample size.

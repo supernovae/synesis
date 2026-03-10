@@ -1,0 +1,125 @@
+# Synesis Creative Media Vertical
+# Digital Art, Video Editing, Procedural Generation, Illustration, Graphic Design, Crafts.
+# vertical_music_audio.yaml covers audio production; this covers visual and procedural.
+
+complexity_weights:
+  video_processing:
+    weight: 10
+    keywords:
+      - ffmpeg
+      - video encode
+      - video decode
+      - transcoding
+      - stream
+      - h264
+      - h265
+      - vp9
+      - av1
+      - subtitle
+      - timeline
+  digital_art:
+    weight: 8
+    keywords:
+      - canvas
+      - svg
+      - generative art
+      - procedural texture
+      - shader
+      - raymarching
+      - raytracing
+  procedural_generation:
+    weight: 12
+    keywords:
+      - procedural
+      - perlin
+      - simplex
+      - voronoi
+      - l-system
+      - fractal
+      - noise function
+      - terrain generation
+      - worldgen
+
+domain_keywords:
+  video_tools:
+    domain: creative_media
+    keywords:
+      - premiere
+      - davinci
+      - shotcut
+      - handbrake
+      - obs
+      - stream
+  generative:
+    domain: procedural
+    keywords:
+      - processing
+      - p5js
+      - touchdesigner
+      - max msp
+      - pure data
+  creative_ml:
+    domain: creative_ml
+    keywords:
+      - stable diffusion
+      - dalle
+      - midjourney
+      - img2img
+      - inpainting
+      - controlnet
+
+  illustration_animation:
+    domain: illustration
+    keywords:
+      - illustration
+      - animation
+      - storyboard
+      - character design
+      - concept art
+      - manga
+      - comic
+      - pixel art
+      - vector art
+      - motion graphics
+      - 2d animation
+      - stop motion
+  graphic_design:
+    domain: graphic_design
+    keywords:
+      - graphic design
+      - typography
+      - branding
+      - logo
+      - layout
+      - poster
+      - infographic
+      - figma
+      - canva
+      - adobe
+      - photoshop
+      - illustrator
+      - indesign
+  crafts_diy_art:
+    domain: crafts_diy_art
+    keywords:
+      - calligraphy
+      - lettering
+      - scrapbooking
+      - origami
+      - paper craft
+      - screen printing
+      - tie dye
+      - resin art
+      - printmaking
+      - linocut
+
+pairings:
+  - keywords: [video, stream]
+    extra_weight: 10
+    axis: complexity
+  - keywords: [procedural, real-time]
+    extra_weight: 12
+    axis: complexity
+  - keywords: [generative, production]
+    extra_weight: 8
+    axis: complexity

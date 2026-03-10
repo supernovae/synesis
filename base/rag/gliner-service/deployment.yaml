@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gliner-service
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/name: gliner-service
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gliner-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gliner-service
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: rag
+    spec:
+      containers:
+        - name: gliner-service
+          image: ghcr.io/supernovae/synesis/gliner-service:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: GLINER_MODEL
+              value: "knowledgator/gliner-multitask-large-v0.5"
+            - name: GLINER_THRESHOLD
+              value: "0.4"
+            - name: HF_HOME
+              value: "/tmp/hf_home"
+            - name: TRANSFORMERS_CACHE
+              value: "/tmp/hf_home"
+            - name: XDG_CACHE_HOME
+              value: "/tmp/.cache"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext:
+        runAsNonRoot: true

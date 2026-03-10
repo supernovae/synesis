@@ -1,0 +1,1154 @@
+{
+  "version": 4,
+  "description": "Programming languages, web standards, containers, cloud CLIs, and developer tooling corpus. Excludes URLs already covered by docs, research, epistemic, and epistemic-band2 indexer groups.",
+  "_mapping_notes": {
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+  },
+  "sources": [
+    {
+      "category": "programming_python",
+      "domain": "python",
+      "priority": 1,
+      "title": "The Python Tutorial",
+      "url": "https://docs.python.org/3/tutorial/index.html",
+      "tags": [
+        "python",
+        "tutorial",
+        "language",
+        "stdlib"
+      ]
+    },
+    {
+      "category": "programming_python",
+      "domain": "python",
+      "priority": 1,
+      "title": "Python Standard Library",
+      "url": "https://docs.python.org/3/library/index.html",
+      "tags": [
+        "python",
+        "stdlib",
+        "reference"
+      ]
+    },
+    {
+      "category": "programming_python",
+      "domain": "python",
+      "priority": 1,
+      "title": "pdb \u2014 The Python Debugger",
+      "url": "https://docs.python.org/3/library/pdb.html",
+      "tags": [
+        "python",
+        "debugger",
+        "pdb",
+        "troubleshooting"
+      ]
+    },
+    {
+      "category": "programming_python",
+      "domain": "python",
+      "priority": 2,
+      "title": "logging \u2014 Logging facility for Python",
+      "url": "https://docs.python.org/3/library/logging.html",
+      "tags": [
+        "python",
+        "logging",
+        "observability",
+        "debugging"
+      ]
+    },
+    {
+      "category": "programming_javascript",
+      "domain": "javascript",
+      "priority": 1,
+      "title": "JavaScript Guide",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide",
+      "tags": [
+        "javascript",
+        "guide",
+        "language",
+        "web"
+      ]
+    },
+    {
+      "category": "programming_javascript",
+      "domain": "javascript",
+      "priority": 1,
+      "title": "JavaScript Reference Overview",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript",
+      "tags": [
+        "javascript",
+        "reference",
+        "language"
+      ]
+    },
+    {
+      "category": "programming_javascript",
+      "domain": "javascript",
+      "priority": 1,
+      "title": "JavaScript Modules",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules",
+      "tags": [
+        "javascript",
+        "modules",
+        "esm",
+        "imports"
+      ]
+    },
+    {
+      "category": "programming_javascript",
+      "domain": "javascript",
+      "priority": 2,
+      "title": "JavaScript Debugging and Error Handling",
+      "url": "https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Debugging_JavaScript",
+      "tags": [
+        "javascript",
+        "debugging",
+        "errors",
+        "tooling"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 1,
+      "title": "TypeScript Handbook",
+      "url": "https://www.typescriptlang.org/docs/handbook/intro.html",
+      "tags": [
+        "typescript",
+        "handbook",
+        "language",
+        "types"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 1,
+      "title": "TypeScript Documentation Home",
+      "url": "https://www.typescriptlang.org/docs/",
+      "tags": [
+        "typescript",
+        "docs",
+        "language",
+        "compiler"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 1,
+      "title": "TSConfig Reference",
+      "url": "https://www.typescriptlang.org/tsconfig/",
+      "tags": [
+        "typescript",
+        "tsconfig",
+        "compiler",
+        "build"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 2,
+      "title": "What is a tsconfig.json",
+      "url": "https://www.typescriptlang.org/docs/handbook/tsconfig-json.html",
+      "tags": [
+        "typescript",
+        "tsconfig",
+        "project-config"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 2,
+      "title": "tsc CLI Options",
+      "url": "https://www.typescriptlang.org/docs/handbook/compiler-options.html",
+      "tags": [
+        "typescript",
+        "tsc",
+        "cli",
+        "compiler"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 2,
+      "title": "Project References",
+      "url": "https://www.typescriptlang.org/docs/handbook/project-references.html",
+      "tags": [
+        "typescript",
+        "monorepo",
+        "project-references",
+        "build"
+      ]
+    },
+    {
+      "category": "programming_typescript",
+      "domain": "typescript",
+      "priority": 2,
+      "title": "moduleResolution",
+      "url": "https://www.typescriptlang.org/tsconfig/moduleResolution.html",
+      "tags": [
+        "typescript",
+        "module-resolution",
+        "esm",
+        "build"
+      ]
+    },
+    {
+      "category": "programming_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "Java Documentation",
+      "url": "https://docs.oracle.com/en/java/",
+      "tags": [
+        "java",
+        "docs",
+        "reference",
+        "tutorials"
+      ]
+    },
+    {
+      "category": "programming_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "The Java Tutorials",
+      "url": "https://docs.oracle.com/javase/tutorial/index.html",
+      "tags": [
+        "java",
+        "tutorial",
+        "language",
+        "core"
+      ]
+    },
+    {
+      "category": "programming_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "Learning the Java Language",
+      "url": "https://docs.oracle.com/javase/tutorial/java/index.html",
+      "tags": [
+        "java",
+        "language",
+        "oop",
+        "basics"
+      ]
+    },
+    {
+      "category": "programming_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "Language Basics",
+      "url": "https://docs.oracle.com/javase/tutorial/java/nutsandbolts/index.html",
+      "tags": [
+        "java",
+        "basics",
+        "syntax",
+        "control-flow"
+      ]
+    },
+    {
+      "category": "programming_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "JDBC Database Access",
+      "url": "https://docs.oracle.com/javase/tutorial/jdbc/index.html",
+      "tags": [
+        "java",
+        "jdbc",
+        "database",
+        "sql"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 1,
+      "title": "Go Documentation",
+      "url": "https://go.dev/doc/",
+      "tags": [
+        "go",
+        "docs",
+        "tutorial",
+        "language",
+        "toolchain"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 1,
+      "title": "Create a Go Module",
+      "url": "https://go.dev/doc/tutorial/create-module",
+      "tags": [
+        "go",
+        "modules",
+        "tutorial",
+        "packaging"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 1,
+      "title": "Go Modules Reference",
+      "url": "https://go.dev/ref/mod",
+      "tags": [
+        "go",
+        "modules",
+        "dependency-management",
+        "reference"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 2,
+      "title": "Add a Test",
+      "url": "https://go.dev/doc/tutorial/add-a-test",
+      "tags": [
+        "go",
+        "testing",
+        "go-test",
+        "tutorial"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 2,
+      "title": "Debugging Go Code with GDB",
+      "url": "https://go.dev/doc/gdb",
+      "tags": [
+        "go",
+        "debugging",
+        "gdb",
+        "delve"
+      ]
+    },
+    {
+      "category": "programming_go",
+      "domain": "golang",
+      "priority": 2,
+      "title": "Delve Debugger",
+      "url": "https://github.com/go-delve/delve",
+      "tags": [
+        "go",
+        "debugger",
+        "delve",
+        "dap"
+      ]
+    },
+    {
+      "category": "programming_rust",
+      "domain": "rust",
+      "priority": 1,
+      "title": "Rust Documentation Portal",
+      "url": "https://doc.rust-lang.org/",
+      "tags": [
+        "rust",
+        "docs",
+        "book",
+        "cargo",
+        "clippy"
+      ]
+    },
+    {
+      "category": "programming_rust",
+      "domain": "rust",
+      "priority": 1,
+      "title": "Useful Development Tools",
+      "url": "https://doc.rust-lang.org/book/appendix-04-useful-development-tools.html",
+      "tags": [
+        "rust",
+        "clippy",
+        "rustfmt",
+        "development-tools"
+      ]
+    },
+    {
+      "category": "programming_rust",
+      "domain": "rust",
+      "priority": 2,
+      "title": "cargo fmt",
+      "url": "https://doc.rust-lang.org/cargo/commands/cargo-fmt.html",
+      "tags": [
+        "rust",
+        "cargo",
+        "formatting",
+        "rustfmt"
+      ]
+    },
+    {
+      "category": "programming_rust",
+      "domain": "rust",
+      "priority": 2,
+      "title": "Cargo Environment Variables",
+      "url": "https://doc.rust-lang.org/cargo/reference/environment-variables.html",
+      "tags": [
+        "rust",
+        "cargo",
+        "env",
+        "build"
+      ]
+    },
+    {
+      "category": "programming_rust",
+      "domain": "rust",
+      "priority": 2,
+      "title": "Rust Reference: Attributes",
+      "url": "https://doc.rust-lang.org/reference/attributes.html",
+      "tags": [
+        "rust",
+        "attributes",
+        "reference",
+        "syntax"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 1,
+      "title": "Logging in .NET and ASP.NET Core",
+      "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging/?view=aspnetcore-10.0",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "logging",
+        "aspnet",
+        "observability"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 1,
+      "title": "Create a NuGet package with the dotnet CLI",
+      "url": "https://learn.microsoft.com/en-us/nuget/create-packages/creating-a-package-dotnet-cli",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "nuget",
+        "packaging"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet-dump",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "dump",
+        "debugging"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet-counters",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-counters",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "performance",
+        "counters",
+        "diagnostics"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet-debugger-extensions",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-debugger-extensions",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "debugger",
+        "lldb",
+        "windbg"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet publish",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "publish",
+        "build"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet restore",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-restore",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "restore",
+        "dependencies"
+      ]
+    },
+    {
+      "category": "programming_csharp",
+      "domain": "csharp",
+      "priority": 2,
+      "title": "dotnet package add",
+      "url": "https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-package-add",
+      "tags": [
+        "csharp",
+        "dotnet",
+        "package",
+        "nuget"
+      ]
+    },
+    {
+      "category": "programming_cpp_c",
+      "domain": "cpp",
+      "priority": 1,
+      "title": "cppreference C++ Language",
+      "url": "https://en.cppreference.com/w/cpp/language",
+      "tags": [
+        "cpp",
+        "c++",
+        "reference",
+        "language"
+      ]
+    },
+    {
+      "category": "programming_cpp_c",
+      "domain": "cpp",
+      "priority": 1,
+      "title": "cppreference C Language",
+      "url": "https://en.cppreference.com/w/c/language",
+      "tags": [
+        "c",
+        "reference",
+        "language"
+      ]
+    },
+    {
+      "category": "programming_cpp_c",
+      "domain": "cpp",
+      "priority": 1,
+      "title": "CMake Documentation",
+      "url": "https://cmake.org/documentation/",
+      "tags": [
+        "c",
+        "cpp",
+        "cmake",
+        "build-system"
+      ]
+    },
+    {
+      "category": "programming_cpp_c",
+      "domain": "cpp",
+      "priority": 2,
+      "title": "GDB Documentation",
+      "url": "https://www.gnu.org/software/gdb/documentation/",
+      "tags": [
+        "c",
+        "cpp",
+        "gdb",
+        "debugging"
+      ]
+    },
+    {
+      "category": "programming_cpp_c",
+      "domain": "cpp",
+      "priority": 2,
+      "title": "LLDB Documentation",
+      "url": "https://lldb.llvm.org/",
+      "tags": [
+        "c",
+        "cpp",
+        "lldb",
+        "debugging"
+      ]
+    },
+    {
+      "category": "programming_php",
+      "domain": "php",
+      "priority": 1,
+      "title": "PHP Manual",
+      "url": "https://www.php.net/manual/en/index.php",
+      "tags": [
+        "php",
+        "manual",
+        "language",
+        "reference"
+      ]
+    },
+    {
+      "category": "programming_php",
+      "domain": "php",
+      "priority": 2,
+      "title": "Autoloading Classes",
+      "url": "https://www.php.net/manual/en/language.oop5.autoload.php",
+      "tags": [
+        "php",
+        "autoload",
+        "composer",
+        "oop"
+      ]
+    },
+    {
+      "category": "programming_php",
+      "domain": "php",
+      "priority": 2,
+      "title": "Built-in Web Server",
+      "url": "https://www.php.net/manual/en/features.commandline.webserver.php",
+      "tags": [
+        "php",
+        "cli",
+        "webserver",
+        "dev-server"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 1,
+      "title": "Ruby Documentation",
+      "url": "https://www.ruby-lang.org/en/documentation/",
+      "tags": [
+        "ruby",
+        "docs",
+        "language",
+        "tutorials"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 1,
+      "title": "Bundler Documentation",
+      "url": "https://bundler.io/docs.html",
+      "tags": [
+        "ruby",
+        "bundler",
+        "dependencies",
+        "tooling"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 1,
+      "title": "Bundler in Gems",
+      "url": "https://bundler.io/guides/rubygems.html",
+      "tags": [
+        "ruby",
+        "bundler",
+        "gems",
+        "packaging"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 1,
+      "title": "RubyGems Guides",
+      "url": "https://guides.rubygems.org/",
+      "tags": [
+        "ruby",
+        "rubygems",
+        "packaging",
+        "distribution"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 2,
+      "title": "Make Your Own Gem",
+      "url": "https://guides.rubygems.org/make-your-own-gem/",
+      "tags": [
+        "ruby",
+        "rubygems",
+        "packaging",
+        "tutorial"
+      ]
+    },
+    {
+      "category": "programming_ruby",
+      "domain": "ruby",
+      "priority": 2,
+      "title": "RSpec",
+      "url": "https://rspec.info/",
+      "tags": [
+        "ruby",
+        "rspec",
+        "testing",
+        "bdd"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "Maven Getting Started Guide",
+      "url": "https://maven.apache.org/guides/getting-started/",
+      "tags": [
+        "java",
+        "maven",
+        "build",
+        "dependencies"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "Maven in 5 Minutes",
+      "url": "https://maven.apache.org/guides/getting-started/maven-in-five-minutes.html",
+      "tags": [
+        "java",
+        "maven",
+        "quickstart"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "Maven Documentation Guides",
+      "url": "https://maven.apache.org/guides/",
+      "tags": [
+        "java",
+        "maven",
+        "docs",
+        "build"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 1,
+      "title": "Gradle User Manual",
+      "url": "https://docs.gradle.org/",
+      "tags": [
+        "java",
+        "gradle",
+        "build",
+        "plugins"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "Gradle Getting Started",
+      "url": "https://docs.gradle.org/current/userguide/getting_started_eng.html",
+      "tags": [
+        "java",
+        "gradle",
+        "tutorial"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "Gradle Core Concepts",
+      "url": "https://docs.gradle.org/current/userguide/gradle_basics.html",
+      "tags": [
+        "java",
+        "gradle",
+        "core-concepts",
+        "build"
+      ]
+    },
+    {
+      "category": "build_tools_java",
+      "domain": "java",
+      "priority": 2,
+      "title": "Introduction to Plugins",
+      "url": "https://docs.gradle.org/current/userguide/plugins.html",
+      "tags": [
+        "java",
+        "gradle",
+        "plugins",
+        "extension-model"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 1,
+      "title": "HTML Standard",
+      "url": "https://html.spec.whatwg.org/",
+      "tags": [
+        "web",
+        "html",
+        "standard",
+        "whatwg"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 1,
+      "title": "HTML on MDN",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTML",
+      "tags": [
+        "web",
+        "html",
+        "mdn",
+        "reference"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 1,
+      "title": "HTTP Semantics (RFC 9110)",
+      "url": "https://datatracker.ietf.org/doc/html/rfc9110",
+      "tags": [
+        "web",
+        "http",
+        "rfc",
+        "semantics"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 1,
+      "title": "Fetch Standard",
+      "url": "https://fetch.spec.whatwg.org/",
+      "tags": [
+        "web",
+        "fetch",
+        "standard",
+        "cors"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 2,
+      "title": "CORS Guide",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS",
+      "tags": [
+        "web",
+        "cors",
+        "http",
+        "security"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 2,
+      "title": "HTTP Resources and Specifications",
+      "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications",
+      "tags": [
+        "web",
+        "http",
+        "spec-index",
+        "reference"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 2,
+      "title": "Web Standards Model",
+      "url": "https://developer.mozilla.org/en-US/docs/Learn_web_development/Getting_started/Web_standards/The_web_standards_model",
+      "tags": [
+        "web",
+        "standards",
+        "html",
+        "css",
+        "js"
+      ]
+    },
+    {
+      "category": "web_standards",
+      "domain": "generalist",
+      "priority": 2,
+      "title": "Fetch Metadata Request Headers",
+      "url": "https://www.w3.org/TR/fetch-metadata/",
+      "tags": [
+        "web",
+        "security",
+        "fetch-metadata",
+        "headers"
+      ]
+    },
+    {
+      "category": "api_and_schema",
+      "domain": "generalist",
+      "priority": 2,
+      "title": "Arazzo Specification",
+      "url": "https://spec.openapis.org/arazzo/latest.html",
+      "tags": [
+        "api",
+        "workflow",
+        "openapi",
+        "orchestration"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 1,
+      "title": "Dockerfile Reference",
+      "url": "https://docs.docker.com/reference/dockerfile/",
+      "tags": [
+        "docker",
+        "dockerfile",
+        "build",
+        "reference"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 1,
+      "title": "Dockerfile Overview",
+      "url": "https://docs.docker.com/build/concepts/dockerfile/",
+      "tags": [
+        "docker",
+        "dockerfile",
+        "overview",
+        "images"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 1,
+      "title": "Building Best Practices",
+      "url": "https://docs.docker.com/build/building/best-practices/",
+      "tags": [
+        "docker",
+        "best-practices",
+        "images",
+        "security"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 1,
+      "title": "Compose File Reference",
+      "url": "https://docs.docker.com/reference/compose-file/",
+      "tags": [
+        "docker",
+        "compose",
+        "yaml",
+        "reference"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Compose Build Specification",
+      "url": "https://docs.docker.com/reference/compose-file/build/",
+      "tags": [
+        "docker",
+        "compose",
+        "build",
+        "spec"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Docker Compose Quickstart",
+      "url": "https://docs.docker.com/compose/gettingstarted/",
+      "tags": [
+        "docker",
+        "compose",
+        "quickstart",
+        "dev-workflow"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "How Compose Works",
+      "url": "https://docs.docker.com/compose/intro/compose-application-model/",
+      "tags": [
+        "docker",
+        "compose",
+        "application-model",
+        "merge-rules"
+      ]
+    },
+    {
+      "category": "containers_and_devops",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Compose Env Var Best Practices",
+      "url": "https://docs.docker.com/compose/how-tos/environment-variables/best-practices/",
+      "tags": [
+        "docker",
+        "compose",
+        "env",
+        "secrets",
+        "best-practices"
+      ]
+    },
+    {
+      "category": "cloud_native",
+      "domain": "terraform",
+      "priority": 2,
+      "title": "OpenTofu Documentation",
+      "url": "https://opentofu.org/docs/",
+      "tags": [
+        "opentofu",
+        "iac",
+        "terraform-compatible",
+        "docs"
+      ]
+    },
+    {
+      "category": "cloud_native",
+      "domain": "terraform",
+      "priority": 2,
+      "title": "OpenTofu Language Documentation",
+      "url": "https://opentofu.org/docs/language/",
+      "tags": [
+        "opentofu",
+        "language",
+        "iac",
+        "reference"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "AWS CLI Documentation",
+      "url": "https://docs.aws.amazon.com/cli/",
+      "tags": [
+        "aws",
+        "cli",
+        "cloud",
+        "tooling"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "AWS CLI Command Reference",
+      "url": "https://docs.aws.amazon.com/cli/latest/reference/",
+      "tags": [
+        "aws",
+        "cli",
+        "reference",
+        "automation"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "AWS CLI Getting Started",
+      "url": "https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html",
+      "tags": [
+        "aws",
+        "cli",
+        "getting-started",
+        "automation"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Azure CLI Documentation",
+      "url": "https://learn.microsoft.com/en-us/cli/azure/?view=azure-cli-latest",
+      "tags": [
+        "azure",
+        "cli",
+        "cloud",
+        "tooling"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Get Started with Azure CLI",
+      "url": "https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli?view=azure-cli-latest",
+      "tags": [
+        "azure",
+        "cli",
+        "getting-started"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "Google Cloud SDK Documentation",
+      "url": "https://docs.cloud.google.com/sdk/docs",
+      "tags": [
+        "gcp",
+        "gcloud",
+        "sdk",
+        "cloud"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "gcloud CLI Overview",
+      "url": "https://docs.cloud.google.com/sdk/gcloud",
+      "tags": [
+        "gcp",
+        "gcloud",
+        "cli",
+        "overview"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 2,
+      "title": "gcloud Reference",
+      "url": "https://docs.cloud.google.com/sdk/gcloud/reference",
+      "tags": [
+        "gcp",
+        "gcloud",
+        "reference",
+        "automation"
+      ]
+    },
+    {
+      "category": "cloud_clis",
+      "domain": "cloud",
+      "priority": 3,
+      "title": "gcloud CLI Cheat Sheet",
+      "url": "https://docs.cloud.google.com/sdk/docs/cheatsheet",
+      "tags": [
+        "gcp",
+        "gcloud",
+        "cheatsheet",
+        "commands"
+      ]
+    }
+  ]
+}

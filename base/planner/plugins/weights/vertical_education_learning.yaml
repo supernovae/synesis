@@ -1,0 +1,39 @@
+# Synesis Education & Learning Plugin
+# Focus: Study aids, language learning, test prep, tutoring, interactive learning.
+
+complexity_weights:
+  curriculum_design:
+    weight: 10
+    keywords: ["curriculum", "syllabus", "lesson plan", "learning objectives", "rubric", "grading criteria"]
+  assessment:
+    weight: 8
+    keywords: ["assessment", "standardized test", "sat", "gre", "gmat", "mcat", "lsat", "ap exam", "ielts", "toefl"]
+  pedagogy:
+    weight: 6
+    keywords: ["spaced repetition", "active recall", "bloom taxonomy", "scaffolding", "differentiated instruction"]
+
+domain_keywords:
+  education:
+    domain: education
+    keywords: ["study", "vocabulary", "grammar", "quiz", "flashcard", "homework",
+               "exam", "test prep", "tutor", "tutoring", "lesson", "learning",
+               "student", "teacher", "classroom", "study guide", "practice test",
+               "fill in the blank", "multiple choice"]
+  language_learning:
+    domain: language_learning
+    keywords: ["duolingo", "anki", "rosetta stone", "babbel", "conjugation", "declension", "immersion", "translation", "foreign language", "esl", "second language", "pronunciation", "fluency"]
+  test_prep:
+    domain: test_prep
+    keywords: ["sat prep", "gre prep", "gmat prep", "mcat prep", "bar exam", "cpa exam", "certification exam", "practice questions", "study schedule"]
+
+  study_skills:
+    domain: study_skills
+    keywords: ["study tips", "note taking", "spaced repetition", "anki", "flashcard strategy", "exam strategy", "cornell notes", "active recall", "pomodoro study", "mind map", "study group"]
+  homeschool:
+    domain: homeschool
+    keywords: ["homeschool", "homeschooling", "unschooling", "curriculum", "montessori", "waldorf", "classical education", "charlotte mason", "co-op", "home education"]
+
+pairings:
+  - keywords: ["exam", "tomorrow"]
+    extra_weight: 5
+    axis: complexity

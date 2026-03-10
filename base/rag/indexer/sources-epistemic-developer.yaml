@@ -1,0 +1,23 @@
+# Epistemic Developer: programming languages, web standards, containers,
+# cloud CLIs, and developer tooling.
+#
+# Reads seed-corpus-developer.json as the single source of truth.  Each
+# entry in the JSON carries its own domain and tags which override the
+# source-level defaults below at chunk time.
+#
+# This layer complements epistemic (foundational) and epistemic-band2
+# (general lifestyle) with developer-focused reference material.  All
+# URLs are deduplicated against docs, research, epistemic, and
+# epistemic-band2 indexer groups; no overlap exists.
+
+sources:
+
+  - name: "Epistemic Developer"
+    handler: seed_corpus
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      path: seed-corpus-developer.json
+      doc_id_prefix: epistemic-developer
+      tags: [epistemic, developer, programming, cloud, reference]

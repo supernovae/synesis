@@ -1,0 +1,30 @@
+{
+  "problem": "I need:",
+  "goals": [
+    "I need:",
+    "A strategy to restructure the codebase for faster plans",
+    "State management best practices (we currently have one giant state file per account)",
+    "A PR workflow with automated plan previews",
+    "Security scanning integration"
+  ],
+  "constraints": [
+    "We've tried Terraform workspaces before and it was a mess, so explain why your recommendation is different."
+  ],
+  "context_facts": [
+    "Situation: Our Terraform codebase has grown to 200+ modules and it takes 20 minutes to plan. We have 4 AWS accounts (dev, staging, prod, shared-services) and a monorepo."
+  ],
+  "deliverables": [
+    "Codebase restructuring strategy",
+    "State management best practices",
+    "PR workflow with automated plan previews",
+    "Security scanning integration"
+  ],
+  "meta_requirements": [
+    "Prefer Terragrunt if it makes sense but don't force it.",
+    "Explain trade-offs between approaches."
+  ],
+  "uncertainties": [],
+  "domain": "devops",
+  "output_format": "prose",
+  "needs_web": false
+}

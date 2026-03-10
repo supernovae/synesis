@@ -1,0 +1,23 @@
+{
+  "problem": "I want to get into strength training.",
+  "goals": [
+    "I want to get into strength training."
+  ],
+  "constraints": [
+    "My doctor cleared me for exercise but said to start slowly.",
+    "Give me a beginner program for the first 8 weeks.",
+    "Three days a week max."
+  ],
+  "context_facts": [
+    "I just turned 50 and I've been sedentary for years.",
+    "I have a home gym with dumbbells up to 50 lbs, a bench, and a pull-up bar."
+  ],
+  "deliverables": [
+    "Strength training program"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "fitness",
+  "output_format": "prose",
+  "needs_web": false
+}

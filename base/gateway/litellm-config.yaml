@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    # Synesis V3 Model Endpoints
+    # See models.yaml for profile-specific model assignments and GPU sizing.
+    #
+    # synesis-agent: Open WebUI default — routes through Synesis planner pipeline
+    # synesis-coder: IDE direct endpoint — bypasses planner, agentic coding
+    # synesis-thinking: Optional R1 thinking model — user-selectable in Open WebUI
+    model_list:
+      # Primary pipeline endpoint (Open WebUI → LangGraph pipeline)
+      - model_name: synesis-agent
+        litellm_params:
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Router (Qwen2.5-14B-Instruct FP8) — supervisor, planner, advisor roles
+      - model_name: synesis-router
+        litellm_params:
+          model: openai/synesis-router
+          api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.3
+
+      # Critic — routes to synesis-critic Service.
+      # Small profile: resolves to Qwen2.5-14B-Instruct (router pod, prompt-based CoT).
+      # Medium/large: resolves to R1-Distill (critic pod) when deployed.
+      # The critic Service selector is profile-aware via Kustomize overlays.
+      - model_name: synesis-critic
+        litellm_params:
+          model: openai/synesis-critic
+          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 4096
+          temperature: 0.1
+
+      # General (Qwen3.5-35B-A3B FP8) — worker/writer response generation
+      - model_name: synesis-general
+        litellm_params:
+          model: openai/synesis-general
+          api_base: http://synesis-general.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.3
+
+      # Coder (Qwen3-Coder-Next-FP8) — direct IDE endpoint, agentic coding
+      - model_name: synesis-coder
+        litellm_params:
+          model: openai/synesis-coder
+          api_base: http://synesis-coder.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 16384
+          temperature: 0.2
+
+      # Thinking model — Open WebUI optional "think out loud" model.
+      # Small: uses Qwen2.5-14B-Instruct (router pod); medium/large: uses R1 via critic.
+      - model_name: synesis-thinking
+        litellm_params:
+          model: openai/synesis-critic
+          api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 300
+
+    general_settings:
+      master_key: "sk-synesis-change-me"
+      forward_client_headers_to_llm_api: true
+      background_health_checks: false

@@ -1,0 +1,39 @@
+{
+  "problem": "Do we rewrite, refactor, or wrap? And in what language?",
+  "goals": [
+    "Do we rewrite, refactor, or wrap? And in what language?",
+    "- Language evaluation (Rust, Go, C++ modernization) against our specific requirements",
+    "- Architecture proposal for the chosen approach",
+    "- Risk analysis with probability and impact estimates",
+    "- Team scaling plan (we need to hire)",
+    "- Timeline and milestone proposal"
+  ],
+  "constraints": [
+    "- Decision framework for rewrite vs refactor vs wrap",
+    "Cannot degrade below current 10ms p99 latency",
+    "Cannot reduce throughput during migration",
+    "Engineering budget: $2M/year for this project",
+    "Must maintain PCI DSS compliance throughout"
+  ],
+  "context_facts": [
+    "We run a real-time bidding (RTB) platform processing 500K requests per second. Our current system is written in C++ and handles 99.9% of requests under 10ms. But the codebase is 15 years old, poorly documented, and only 2 engineers understand it fully."
+  ],
+  "deliverables": [
+    "Decision framework for rewrite vs refactor vs wrap",
+    "Language evaluation",
+    "Architecture proposal",
+    "Risk analysis",
+    "Team scaling plan",
+    "Timeline and milestone proposal"
+  ],
+  "meta_requirements": [
+    "Be decisive — don't give me three options and say 'it depends'",
+    "Support every claim with reasoning",
+    "Distinguish between 'industry standard practice' and 'my recommendation'",
+    "If you're not sure about RTB-specific patterns, say so"
+  ],
+  "uncertainties": [],
+  "domain": "software_engineering",
+  "output_format": "prose",
+  "needs_web": false
+}

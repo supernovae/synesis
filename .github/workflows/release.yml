@@ -1,0 +1,254 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v0.3.0). Required.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run — build but do not push images or create release'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}/synesis
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Resolve the release version from tag or manual input.
+  # -----------------------------------------------------------------------
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      timestamp: ${{ steps.meta.outputs.timestamp }}
+      is_dry_run: ${{ steps.meta.outputs.is_dry_run }}
+    steps:
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          # Strip leading 'v' for image tags (v0.3.0 -> 0.3.0)
+          CLEAN="${VERSION#v}"
+          echo "version=$CLEAN" >> "$GITHUB_OUTPUT"
+          echo "Release version: $CLEAN"
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "timestamp=$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+          echo "is_dry_run=${{ inputs.dry_run || 'false' }}" >> "$GITHUB_OUTPUT"
+
+  # -----------------------------------------------------------------------
+  # Stage 1: Build all base images (always — release builds everything).
+  # base-api and base-devtools can build in parallel, base-ml follows.
+  # -----------------------------------------------------------------------
+  build-base-api:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-api
+          file: base/images/base-api/Dockerfile
+          push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-api:${{ needs.prepare.outputs.version }}
+            ${{ env.REGISTRY }}/synesis-base-api:latest
+          cache-from: type=gha,scope=synesis-base-api
+          cache-to: type=gha,mode=max,scope=synesis-base-api
+
+  build-base-devtools:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-devtools
+          file: base/images/base-devtools/Dockerfile
+          push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.prepare.outputs.version }}
+            ${{ env.REGISTRY }}/synesis-base-devtools:latest
+          cache-from: type=gha,scope=synesis-base-devtools
+          cache-to: type=gha,mode=max,scope=synesis-base-devtools
+
+  build-base-ml:
+    needs: [prepare, build-base-api]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: base/images/base-ml
+          file: base/images/base-ml/Dockerfile
+          push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
+          build-args: |
+            BASE_IMAGE=${{ env.REGISTRY }}/synesis-base-api:${{ needs.prepare.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.prepare.outputs.version }}
+            ${{ env.REGISTRY }}/synesis-base-ml:latest
+          cache-from: type=gha,scope=synesis-base-ml
+          cache-to: type=gha,mode=max,scope=synesis-base-ml
+
+  # -----------------------------------------------------------------------
+  # Stage 2: Build all service images in parallel.
+  # -----------------------------------------------------------------------
+  build-services:
+    needs: [prepare, build-base-api, build-base-devtools, build-base-ml]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: planner
+            dockerfile: base/planner/Dockerfile
+            context: base/planner
+            base_arg: synesis-base-api
+          - name: admin
+            dockerfile: base/admin/Dockerfile
+            context: base/admin
+            base_arg: synesis-base-api
+          - name: lsp-gateway
+            dockerfile: base/lsp/gateway/Dockerfile
+            context: base/lsp/gateway
+            base_arg: synesis-base-devtools
+          - name: sandbox
+            dockerfile: base/sandbox/image/Dockerfile
+            context: base/sandbox/image
+            base_arg: synesis-base-devtools
+          - name: bge-reranker
+            dockerfile: base/planner/bge-reranker/Dockerfile
+            context: base/planner/bge-reranker
+            base_arg: synesis-base-ml
+          - name: indexer
+            dockerfile: base/rag/indexer/Dockerfile
+            context: base/rag/indexer
+            base_arg: ""
+          - name: keyword-service
+            dockerfile: base/rag/keyword-service/Dockerfile
+            context: base/rag/keyword-service
+            base_arg: synesis-base-api
+          - name: gliner-service
+            dockerfile: base/rag/gliner-service/Dockerfile
+            context: base/rag/gliner-service
+            base_arg: synesis-base-ml
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve base image arg
+        if: matrix.base_arg != ''
+        id: base
+        run: |
+          echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:${{ needs.prepare.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIMESTAMP=${{ needs.prepare.outputs.timestamp }}
+            ${{ steps.base.outputs.arg }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.prepare.outputs.version }}
+            ${{ env.REGISTRY }}/${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  # -----------------------------------------------------------------------
+  # Stage 3: Post-release summary — update release notes with image manifest.
+  # -----------------------------------------------------------------------
+  release-summary:
+    needs: [prepare, build-services]
+    if: github.event_name == 'release' && needs.prepare.outputs.is_dry_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Append image manifest to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          TAG="${{ github.event.release.tag_name }}"
+
+          MANIFEST=$(cat <<MANIFEST
+
+          ---
+
+          ### Container Images
+
+          All images tagged \`${VERSION}\` and \`latest\`:
+
+          | Image | Pull |
+          |-------|------|
+          | synesis-base-api | \`${REGISTRY}/synesis-base-api:${VERSION}\` |
+          | synesis-base-ml | \`${REGISTRY}/synesis-base-ml:${VERSION}\` |
+          | synesis-base-devtools | \`${REGISTRY}/synesis-base-devtools:${VERSION}\` |
+          | planner | \`${REGISTRY}/planner:${VERSION}\` |
+          | admin | \`${REGISTRY}/admin:${VERSION}\` |
+          | lsp-gateway | \`${REGISTRY}/lsp-gateway:${VERSION}\` |
+          | sandbox | \`${REGISTRY}/sandbox:${VERSION}\` |
+          | bge-reranker | \`${REGISTRY}/bge-reranker:${VERSION}\` |
+          | indexer | \`${REGISTRY}/indexer:${VERSION}\` |
+          | keyword-service | \`${REGISTRY}/keyword-service:${VERSION}\` |
+          | gliner-service | \`${REGISTRY}/gliner-service:${VERSION}\` |
+
+          **Deploy:**
+          \`\`\`bash
+          # Update kustomize overlay image tags to ${VERSION}, then:
+          ./scripts/deploy.sh dev
+          \`\`\`
+          MANIFEST
+          )
+
+          EXISTING=$(gh release view "$TAG" --json body -q '.body' 2>/dev/null || echo "")
+          gh release edit "$TAG" --notes "${EXISTING}${MANIFEST}"

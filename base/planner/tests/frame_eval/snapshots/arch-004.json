@@ -1,0 +1,27 @@
+{
+  "problem": "I need to design an event-driven architecture for an e-commerce platform.",
+  "goals": [
+    "I need to design an event-driven architecture for an e-commerce platform.",
+    "I want you to propose the event architecture",
+    "recommend specific AWS services",
+    "and give me a before/after comparison showing how the async flow handles the flash sale scenario.",
+    "Also show failure handling — what happens when a downstream service is down."
+  ],
+  "constraints": [],
+  "context_facts": [
+    "We currently process orders synchronously which causes timeouts during peak sales.",
+    "The system handles about 10K orders per hour normally but spikes to 100K during flash sales.",
+    "We're on AWS."
+  ],
+  "deliverables": [
+    "Event architecture proposal",
+    "AWS service recommendations",
+    "Before/after comparison",
+    "Failure handling scenario"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "general",
+  "output_format": "prose",
+  "needs_web": false
+}

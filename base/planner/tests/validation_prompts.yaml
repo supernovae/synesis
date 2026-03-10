@@ -1,0 +1,140 @@
+# Canonical prompts for intent-flow validation.
+#
+# Run: cd base/planner && pip install -r requirements.txt -r requirements-test.txt && pytest tests/test_intent_validation.py -v
+#
+# EntryClassifier is deterministic — no LLM needed. These assert expected
+# routing decisions driven by continuous difficulty (0.0-1.0).
+#
+# Routing thresholds (from intent_weights.yaml):
+#   trivial_below: 0.15   → task_is_trivial, bypass_supervisor, rag disabled
+#   bypass_supervisor_below: 0.20  → mid-range bypass (difficulty >= threshold)
+#   plan_required_above: 0.70  → plan_required, planner path
+#
+# Non-code tasks always get target_language: markdown.
+
+prompts:
+  # --- Trivial (fast path, bypass Supervisor) ---
+  - prompt: "hello world in python"
+    expected:
+      bypass_supervisor: true
+      task_is_trivial: true
+      rag_mode: disabled
+      target_language: markdown
+      is_code_task: false
+
+  - prompt: "print hello"
+    expected:
+      bypass_supervisor: true
+      task_is_trivial: true
+
+  - prompt: "simple fizzbuzz"
+    expected:
+      bypass_supervisor: true
+      task_is_trivial: true
+
+  # --- Mid-range (bypass supervisor, no planning) ---
+  - prompt: "write a basic unit test for this function"
+    expected:
+      bypass_supervisor: true
+      is_code_task: true
+
+  - prompt: "parse this json"
+    expected:
+      bypass_supervisor: true
+      is_code_task: true
+
+  # Phase 2: domain never escalates — kubectl/orchestration is RAG-only
+  - prompt: "kubectl get pods"
+    expected:
+      bypass_supervisor: true
+
+  - prompt: "write a script that fetches data from an API and saves to csv"
+    expected:
+      bypass_supervisor: true
+      is_code_task: true
+
+  - prompt: "add error handling to this function"
+    expected:
+      bypass_supervisor: true
+
+  # --- Plan session override (route through Planner even for trivial wording) ---
+  - prompt: "[STRICT] hello world in python"
+    expected:
+      bypass_supervisor: false
+      plan_required: true
+
+  - prompt: "/plan create a simple script that prints hello"
+    expected:
+      bypass_supervisor: false
+      plan_required: true
+
+  # --- Complex (plan_required, planner path) ---
+  - prompt: "design the architecture for our microservices migration"
+    expected:
+      bypass_supervisor: false
+      plan_required: true
+
+  - prompt: "refactor across the whole repo"
+    expected:
+      bypass_supervisor: true
+      is_code_task: false
+
+  - prompt: "connect to AWS and sync credentials"
+    expected:
+      is_code_task: false
+
+  # --- Educational prompts (explain-only path, no special teach mode) ---
+  - prompt: "explain how this hello world works"
+    expected:
+      is_code_task: false
+
+  - prompt: "how does it work?"
+    expected:
+      is_code_task: false
+
+  - prompt: "teach me how context managers work"
+    expected:
+      is_code_task: false
+
+  # --- Language detection ---
+  - prompt: "hello world"
+    expected:
+      target_language: markdown
+
+  - prompt: "write a go script that prints hi"
+    expected:
+      target_language: go
+
+  - prompt: "create a rust program"
+    expected:
+      target_language: rust
+
+  # --- UI helper ---
+  - prompt: "suggest 3-5 follow-up questions"
+    expected:
+      message_origin: ui_helper
+
+  # --- is_code_task=false (taxonomy-driven) ---
+  - prompt: "explain how marathon taper works"
+    expected:
+      intent_class: knowledge
+      is_code_task: false
+  - prompt: "brainstorm names for a running app"
+    expected:
+      intent_class: creative_ideation
+      is_code_task: false
+  - prompt: "create a marathon training plan for intermediate runner"
+    expected:
+      intent_class: planning
+      is_code_task: false
+  - prompt: "how can I improve my running form"
+    expected:
+      intent_class: personal_guidance
+      is_code_task: false
+  - prompt: "write a blog post about marathon training"
+    expected:
+      intent_class: writing
+      is_code_task: false
+  - prompt: "write a python script to parse json"
+    expected:
+      is_code_task: true

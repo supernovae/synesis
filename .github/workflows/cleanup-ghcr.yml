@@ -1,0 +1,23 @@
+name: Cleanup old container images
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'  # weekly Sunday 3am
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: [planner, indexer, keyword-service, admin, sandbox, lsp-gateway, bge-reranker]
+    steps:
+      - uses: actions/delete-package-versions@v5
+        with:
+          package-name: synesis/${{ matrix.package }}
+          package-type: container
+          min-versions-to-keep: 3
+          delete-only-untagged-versions: true

@@ -1,0 +1,62 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-rag
+
+resources:
+  - cronjob-docs.yaml
+  - cronjob-code.yaml
+  - cronjob-apispec.yaml
+  - cronjob-license.yaml
+  - cronjob-research.yaml
+  - cronjob-epistemic.yaml
+  - cronjob-epistemic-band2.yaml
+  - cronjob-epistemic-developer.yaml
+
+configMapGenerator:
+  - name: synesis-indexer-docs-sources
+    files:
+      - sources.yaml=sources-docs.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-code-sources
+    files:
+      - sources.yaml=sources-code.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-apispec-sources
+    files:
+      - sources.yaml=sources-apispec.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-license-sources
+    files:
+      - sources.yaml=sources-license.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-research-sources
+    files:
+      - sources.yaml=sources-research.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-epistemic-sources
+    files:
+      - sources.yaml=sources-epistemic.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-epistemic-band2-sources
+    files:
+      - sources.yaml=sources-epistemic-band2.yaml
+    options:
+      disableNameSuffixHash: true
+
+  - name: synesis-indexer-epistemic-developer-sources
+    files:
+      - sources.yaml=sources-epistemic-developer.yaml
+    options:
+      disableNameSuffixHash: true

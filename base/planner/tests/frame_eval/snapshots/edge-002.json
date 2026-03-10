@@ -1,0 +1,21 @@
+{
+  "problem": "How should I think about choosing between PostgreSQL and MongoDB for a new project?",
+  "goals": [
+    "How should I think about choosing between PostgreSQL and MongoDB for a new project?"
+  ],
+  "constraints": [
+    "We expect to hit 100K users in the first year."
+  ],
+  "context_facts": [
+    "It's a social media app with user profiles, posts, comments, and a feed.",
+    "The team knows SQL well but has no NoSQL experience."
+  ],
+  "deliverables": [
+    "Database choice guidance"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "general",
+  "output_format": "prose",
+  "needs_web": false
+}

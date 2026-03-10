@@ -1,0 +1,23 @@
+{
+  "problem": "We need to migrate to AWS because Heroku costs are killing us at $3000/month for what should be a $500 workload.",
+  "goals": [
+    "We need to migrate to AWS because Heroku costs are killing us at $3000/month for what should be a $500 workload."
+  ],
+  "constraints": [
+    "Design us a simple, cheap AWS setup.",
+    "We don't need Kubernetes — we need something a full-stack developer can manage."
+  ],
+  "context_facts": [
+    "We're a 5-person startup.",
+    "We have no DevOps engineer.",
+    "Our entire infrastructure is on Heroku."
+  ],
+  "deliverables": [
+    "AWS migration plan"
+  ],
+  "meta_requirements": [],
+  "uncertainties": [],
+  "domain": "devops",
+  "output_format": "prose",
+  "needs_web": false
+}

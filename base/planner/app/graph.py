@@ -1,0 +1,718 @@
+"""Synesis LangGraph -- the core orchestration loop.
+
+All paths:
+  [User] -> EntryClassifier -> StrategicAdvisor -> FrameExtractor -> Router
+  -> Planner -> Router -> Executor/Writer -> Critic -> FinalScrubber -> Respond
+
+The Router is the single retrieval orchestrator. No other node touches
+retrieval backends (rag_client, web_search, unified_retrieval).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from functools import wraps
+from typing import Any
+
+from langgraph.graph import END, StateGraph
+
+from .config import settings
+from .contract_validator import (
+    validate_citation_preservation,
+    validate_critique_resolutions,
+    validate_decision_drift,
+    validate_required_sections,
+    validate_style_compliance,
+    validated_node,
+)
+from .nodes import (
+    critic_node,
+    entry_classifier_node,
+    executor_node,
+    final_scrubber_node,
+    frame_extractor_node,
+    patch_integrity_gate_node,
+    planner_node,
+    router_node,
+    strategic_advisor_node,
+    writer_node,
+)
+from .oscillation_detector import detect_oscillation
+from .state import GraphState, NodeOutcome, NodeTrace
+
+logger = logging.getLogger("synesis.graph")
+
+
+def with_debug_node_timing(func):
+    """Log node exit at DEBUG with latency for performance tuning."""
+
+    @wraps(func)
+    async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
+        import time
+
+        start = time.monotonic()
+        coro_or_result = func(state)
+        result = await coro_or_result if asyncio.iscoroutine(coro_or_result) else coro_or_result
+        latency_ms = (time.monotonic() - start) * 1000
+        node_name = func.__name__.replace("_node", "")
+        traces = result.get("node_traces") or []
+        if traces and hasattr(traces[-1], "latency_ms") and traces[-1].latency_ms > 0:
+            latency_ms = traces[-1].latency_ms
+        logger.debug("Node %s took %.0fms", node_name, latency_ms)
+        return result
+
+    return wrapper
+
+
+def with_timeout(timeout_seconds: float):
+    """Erlang-style timeout wrapper. Node either returns or gets killed."""
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
+            try:
+                return await asyncio.wait_for(
+                    func(state),
+                    timeout=timeout_seconds,
+                )
+            except TimeoutError:
+                node_name = func.__name__.replace("_node", "")
+                logger.error(f"Node '{node_name}' timed out after {timeout_seconds}s")
+                return {
+                    "current_node": node_name,
+                    "next_node": "respond",
+                    "error": f"Node '{node_name}' timed out after {timeout_seconds}s",
+                    "generated_code": state.get("generated_code", ""),
+                    "code_explanation": state.get("code_explanation", ""),
+                    "patch_ops": state.get("patch_ops", []) or [],
+                    "node_traces": [
+                        NodeTrace(
+                            node_name=node_name,
+                            reasoning=f"Timeout after {timeout_seconds}s",
+                            confidence=0.0,
+                            outcome=NodeOutcome.TIMEOUT,
+                            latency_ms=timeout_seconds * 1000,
+                        )
+                    ],
+                }
+
+        return wrapper
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Routing functions
+# ---------------------------------------------------------------------------
+
+
+def route_after_entry_classifier(state: dict[str, Any]) -> str:
+    """After entry classifier + strategic advisor + frame extractor -> always router.
+
+    The Router handles all retrieval and decides the next step.
+    """
+    if state.get("pending_question_continue"):
+        return "router"
+
+    if state.get("message_origin") == "ui_helper":
+        return "respond"
+
+    return "router"
+
+
+def route_after_router(state: dict[str, Any]) -> str:
+    """Router sets next_node based on mode detection."""
+    if state.get("error"):
+        return "respond"
+    next_node = state.get("next_node", "planner")
+    if next_node in ("planner", "executor", "writer", "respond"):
+        return next_node
+    return "planner"
+
+
+def route_after_planner(state: dict[str, Any]) -> str:
+    """After planner: approval, evidence requests, or proceed to router for section evidence."""
+    if state.get("plan_pending_approval"):
+        return "respond"
+
+    evidence_requests = state.get("evidence_requests") or []
+    if evidence_requests:
+        return "router"
+
+    return "router"
+
+
+def route_after_executor(state: dict[str, Any]) -> str:
+    """Route after executor (code tasks)."""
+    if state.get("needs_input_question"):
+        return "respond"
+    stop_reason = state.get("stop_reason", "")
+    if stop_reason:
+        return "respond"
+    if not state.get("is_code_task", False):
+        return "respond"
+    return "patch_integrity_gate"
+
+
+def route_after_writer(state: dict[str, Any]) -> str:
+    """After writer: critic if difficulty warrants it, else scrubber."""
+    difficulty = state.get("difficulty", 0.5)
+    if difficulty < settings.critic_skip_below_difficulty:
+        return "final_scrubber"
+    return "critic"
+
+
+def route_after_patch_integrity_gate(state: dict[str, Any]) -> str:
+    """Gate pass -> critic; Gate fail -> router (for evidence re-retrieval)."""
+    if not state.get("integrity_passed", True):
+        return "router"
+    return "critic"
+
+
+def route_after_critic(state: dict[str, Any]) -> str:
+    """Route after critic: router for refinement, scrubber for approval."""
+    if state.get("error"):
+        return "respond"
+
+    osc_report = detect_oscillation(state)
+    if osc_report.total_score > settings.oscillation_threshold:
+        logger.warning(
+            "oscillation_threshold_exceeded",
+            extra={
+                "total": round(osc_report.total_score, 2),
+                "style": round(osc_report.style_score, 2),
+                "decision": round(osc_report.decision_score, 2),
+            },
+        )
+        return "final_scrubber"
+
+    iteration = state.get("iteration_count", 0)
+    max_iter = state.get("max_iterations", settings.max_iterations)
+
+    approved = state.get("critic_approved", True)
+    need_evidence = state.get("need_more_evidence", False)
+
+    if (approved and not need_evidence) or iteration >= max_iter:
+        return "final_scrubber"
+
+    should_continue = state.get("critic_should_continue", False)
+    if need_evidence:
+        return "router"
+    if not approved and should_continue:
+        return "router"
+    if state.get("critic_continue_reason") in ("blocked_external", "needs_input"):
+        return "respond"
+
+    return "respond"
+
+
+# ---------------------------------------------------------------------------
+# Text cleanup utilities (used by respond_node and writer pass)
+# ---------------------------------------------------------------------------
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_TOULMIN_LABEL_RE = re.compile(r"^(CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:", re.MULTILINE)
+_SELF_NARRATION_RE = re.compile(
+    r"^(Okay,? (?:I need|let me|let's)|Let me (?:start|think|tackle)|"
+    r"I think |I should |Wait, |Hmm,? |Now,? I need |"
+    r"Putting it all together|I need to ).*?(?:\n\n|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
+_HEADING_DELIVERABLE_SUFFIX_RE = re.compile(
+    r"^(#{1,3}\s+(?:Section:\s*)?)"
+    r"(.+?)"
+    r"\s*[—–\-]\s+"
+    r"(?:outline|describe|explain|propose|list|give|state|provide|detail|cover|specify|discuss)\b"
+    r".*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+_HEADING_SECTION_PREFIX_RE = re.compile(
+    r"^(#{1,3})\s+Section:\s*",
+    re.MULTILINE,
+)
+
+_FENCED_CODE_RE = re.compile(r"(```[^\n]*\n.*?```)", re.DOTALL)
+
+
+def _clean_section_artifacts(text: str) -> str:
+    """Strip model thinking blocks, Toulmin scaffolding labels, self-narration, and heading artifacts."""
+    blocks: list[str] = []
+
+    def _stash(m: re.Match) -> str:
+        blocks.append(m.group(0))
+        return f"\x00FENCED{len(blocks) - 1}\x00"
+
+    text = _FENCED_CODE_RE.sub(_stash, text)
+    text = _THINK_RE.sub("", text)
+    text = _TOULMIN_LABEL_RE.sub("", text)
+    text = _SELF_NARRATION_RE.sub("", text)
+    text = _HEADING_DELIVERABLE_SUFFIX_RE.sub(r"\1\2", text)
+    text = _HEADING_SECTION_PREFIX_RE.sub(r"\1 ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+
+    for i, block in enumerate(blocks):
+        text = text.replace(f"\x00FENCED{i}\x00", block)
+
+    return text.strip()
+
+
+# ---------------------------------------------------------------------------
+# Writer pass (synthesis / polish)
+# ---------------------------------------------------------------------------
+
+_WRITER_SYSTEM = (
+    "You are the Writer for Synesis. You receive assembled sections from "
+    "specialist nodes (code, explanation, safety analysis, suggestions). "
+    "Your job is to synthesize these into a single, coherent, well-structured "
+    "response. Do not add information — only improve flow, tone, and structure. "
+    "Preserve all code blocks and markdown formatting verbatim.\n\n"
+    "CRITICAL CLEANUP RULES:\n"
+    "- REMOVE any <think>...</think> blocks or model reasoning artifacts.\n"
+    "- REMOVE any 'Okay, I need to...' or 'Let me think about...' self-narration.\n"
+    "- The output must read as polished professional prose, not internal notes."
+)
+
+
+async def _writer_pass(content: str, state: dict[str, Any]) -> str:
+    """Writer synthesis pass for polishing assembled output."""
+    difficulty = state.get("difficulty", 0.5)
+    rt = state.get("routing_thresholds") or {}
+    writer_threshold = float(rt.get("writer_pass_above", 0.2))
+    if difficulty < writer_threshold:
+        return content
+    section_count = content.count("\n---\n") + content.count("\n**")
+    if section_count < 3:
+        return content
+
+    if len(content) < 500:
+        return content
+
+    writer_url = settings.writer_model_url or settings.general_model_url
+    writer_name = settings.writer_model_name or settings.general_model_name
+    if not writer_url:
+        return content
+
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
+
+        from .llm_telemetry import get_llm_http_client
+
+        writer_budget = settings.scaled_writer_budget(difficulty)
+
+        writer_llm = ChatOpenAI(
+            base_url=writer_url,
+            api_key="not-needed",
+            model=writer_name,
+            temperature=0.3,
+            max_completion_tokens=writer_budget,
+            streaming=False,
+            use_responses_api=False,
+            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+            http_client=get_llm_http_client(),
+        )
+
+        frame = state.get("user_task") or {}
+        frame_deliverables = frame.get("deliverables") or []
+        frame_output_format = frame.get("requested_format", "")
+
+        preserve_hints = ""
+        if frame_deliverables:
+            preserve_hints += (
+                " The user requested these deliverables — ensure each appears in the output: "
+                + "; ".join(frame_deliverables[:8])
+                + "."
+            )
+        if frame_output_format and frame_output_format != "prose":
+            preserve_hints += f" Expected output format: {frame_output_format}."
+
+        instruction = (
+            "Synthesize these independently-generated sections into a single coherent document. "
+            "Improve flow and transitions between sections. Remove exact duplicate sentences only. "
+            "PRESERVE the following verbatim: all code blocks, markdown formatting, "
+            "and any structured headings the user explicitly requested. "
+            "Do NOT add generic compliance scaffolding or enterprise boilerplate "
+            "that was not present in the source sections. "
+            "Match your depth to the source material — do not compress or inflate." + preserve_hints
+        )
+
+        result = await writer_llm.ainvoke(
+            [
+                SystemMessage(content=_WRITER_SYSTEM),
+                HumanMessage(content=f"{instruction}\n\n{content}"),
+            ]
+        )
+        polished = _clean_section_artifacts((result.content or "").strip())
+        if polished and len(polished) > len(content) * 0.5:
+            logger.info("writer_pass applied, original=%d polished=%d", len(content), len(polished))
+            return polished
+        logger.warning("writer_pass output too short, using original")
+        return content
+    except Exception:
+        logger.warning("writer_pass failed, using original", exc_info=True)
+        return content
+
+
+# ---------------------------------------------------------------------------
+# Respond node
+# ---------------------------------------------------------------------------
+
+
+async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
+    """Terminal node -- assembles the final response for the user."""
+    from langchain_core.messages import AIMessage
+
+    from .config import settings
+    from .conversation_memory import memory
+    from .decision_summary import build_decision_summary
+
+    code = state.get("generated_code", "")
+    logger.debug(
+        "respond_received generated_code_len=%d patch_ops=%d", len(code or ""), len(state.get("patch_ops") or [])
+    )
+    patch_ops = state.get("patch_ops", []) or []
+    explanation = state.get("code_explanation", "")
+    what_ifs = state.get("what_if_analyses", [])
+    error = state.get("error")
+    traces = state.get("node_traces", [])
+    clarification_question = state.get("clarification_question", "")
+    clarification_options = state.get("clarification_options", [])
+    needs_input_question = state.get("needs_input_question", "")
+    execution_plan = state.get("execution_plan", {})
+    plan_pending_approval = state.get("plan_pending_approval", False)
+    user_id = state.get("user_id", "anonymous")
+    memory_scope = state.get("memory_scope") or user_id
+
+    if state.get("message_origin") == "ui_helper" and not code and not error:
+        return {
+            "messages": [AIMessage(content="[UI helper request; no coding task to process.]")],
+            "current_node": "respond",
+        }
+
+    if plan_pending_approval and execution_plan and not code and not error:
+        memory.store_pending_question(
+            user_id,
+            {
+                "run_id": state.get("run_id", ""),
+                "turn_id": str(state.get("iteration_count", 0)),
+                "source_node": "planner",
+                "question": "Reply to proceed or suggest changes.",
+                "context": {
+                    "execution_plan": execution_plan,
+                    "task_description": state.get("task_description", ""),
+                    "target_language": state.get("target_language") or "markdown",
+                    "task_type": state.get("task_type", "general"),
+                    "assumptions": state.get("assumptions", []),
+                    "failure_context": state.get("failure_context", []),
+                    "is_code_task": state.get("is_code_task"),
+                },
+                "execution_plan": execution_plan,
+                "task_description": state.get("task_description", ""),
+            },
+        )
+        steps = execution_plan.get("steps", [])
+        lines = ["**Execution plan:**"]
+        for s in steps:
+            act = s.get("action", str(s)) if isinstance(s, dict) else str(s)
+            lines.append(f"- {act}")
+        oq = execution_plan.get("open_questions", [])
+        if oq:
+            lines.append("\n**Open questions:** " + "; ".join(oq))
+        lines.append("\nReply with any message to proceed, or describe changes you'd like.")
+        content = "\n".join(lines)
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
+    if clarification_question and not code and not error:
+        content = f"**I need a bit more information to proceed:**\n\n{clarification_question}"
+        if clarification_options:
+            content += "\n\nOptions:\n" + "\n".join(f"- {opt}" for opt in clarification_options)
+        memory.store_pending_question(
+            memory_scope,
+            {
+                "run_id": state.get("run_id", ""),
+                "turn_id": str(state.get("iteration_count", 0)),
+                "source_node": "router",
+                "question": clarification_question,
+                "context": {
+                    "task_description": state.get("task_description", ""),
+                    "target_language": state.get("target_language") or "markdown",
+                    "is_code_task": state.get("is_code_task"),
+                },
+            },
+        )
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
+    stop_reason = state.get("stop_reason", "")
+    if stop_reason and not code and not error:
+        reason_msg = {
+            "blocked_external": "Missing dependency, credential, or network access.",
+            "cannot_reproduce": "Sandbox environment doesn't match requirements.",
+            "unsafe_request": "Task conflicts with safety policy.",
+        }.get(stop_reason, stop_reason)
+        content = f"**I cannot proceed:** {reason_msg}"
+        expl = state.get("stop_reason_explanation", "").strip()
+        if expl:
+            content += f"\n\n{expl}"
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
+    if needs_input_question and not code and not error:
+        content = f"**I need a bit more information:**\n\n{needs_input_question}"
+        ctx = {
+            "task_description": state.get("task_description", ""),
+            "target_language": state.get("target_language") or "markdown",
+            "execution_plan": state.get("execution_plan", {}),
+            "assumptions": state.get("assumptions", []),
+            "is_code_task": state.get("is_code_task"),
+        }
+        memory.store_pending_question(
+            memory_scope,
+            {
+                "run_id": state.get("run_id", ""),
+                "turn_id": str(state.get("iteration_count", 0)),
+                "source_node": "executor",
+                "question": needs_input_question,
+                "context": ctx,
+                "needs_input_question": needs_input_question,
+                **ctx,
+            },
+        )
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
+    scrubbed = state.get("scrubbed_answer", "")
+    if scrubbed:
+        content = scrubbed
+        logger.info(
+            "respond_using_scrubbed_answer",
+            extra={"len": len(content)},
+        )
+        return {
+            "messages": [AIMessage(content=content)],
+            "current_node": "respond",
+        }
+
+    parts: list[str] = []
+    if error:
+        content = f"I encountered an issue while processing your request: {error}"
+        if code:
+            content += f"\n\nPartial result:\n```\n{code}\n```"
+    else:
+        lang = state.get("target_language") or "markdown"
+        display_code = code
+        if not (display_code or "").strip() and patch_ops:
+            blocks = []
+            for op in patch_ops:
+                p = op.get("path", "") if isinstance(op, dict) else getattr(op, "path", "")
+                t = (
+                    op.get("text", "") or op.get("content", "")
+                    if isinstance(op, dict)
+                    else getattr(op, "text", "") or getattr(op, "content", "")
+                )
+                if p and (t or "").strip():
+                    blocks.append(f"**{p}**\n```{lang}\n{t.strip()}\n```")
+            if blocks:
+                display_code = "\n\n".join(blocks)
+
+        difficulty = state.get("difficulty", 0.5)
+        rt = state.get("routing_thresholds") or {}
+        is_minimalist = difficulty < float(rt.get("trivial_below", 0.15))
+        is_architect = difficulty >= float(rt.get("include_tests_above", 0.7))
+
+        defaults = state.get("defaults_used", [])
+        micro_ack_parts = list(defaults[:3]) if defaults else []
+        if not is_minimalist and micro_ack_parts and display_code:
+            ack = f"Got it — {lang} + " + ", ".join(str(x) for x in micro_ack_parts[:3]) + ". Here are the file(s):"
+            parts.append(ack)
+        if display_code:
+            if not state.get("is_code_task", False) or (patch_ops and not code) or "```" in display_code:
+                parts.append(display_code)
+            else:
+                parts.append(f"```{lang}\n{display_code}\n```")
+        if is_minimalist:
+            one_line = (explanation or "").strip() or (micro_ack_parts[0] if micro_ack_parts else "Done.")
+            parts.append(one_line[:200])
+        else:
+            if explanation:
+                parts.append(f"\n**Approach:** {explanation}")
+            if is_architect and what_ifs:
+                parts.append("\n**Safety Analysis:**")
+                for wif in what_ifs:
+                    risk_icon = {"low": "~", "medium": "!", "high": "!!", "critical": "!!!"}
+                    icon = risk_icon.get(getattr(wif, "risk_level", "low"), "?")
+                    scenario = getattr(wif, "scenario", str(wif))
+                    expl = getattr(wif, "explanation", "")
+                    mitigation = getattr(wif, "suggested_mitigation", "")
+                    parts.append(f"- [{icon}] {scenario}: {expl}")
+                    if mitigation:
+                        parts.append(f"  Mitigation: {mitigation}")
+            if is_architect and settings.decision_summary_enabled:
+                summary = build_decision_summary(state)
+                if summary:
+                    parts.append(f"\n---\n**How I got here**\n{summary}")
+        critic_nonblocking = state.get("critic_nonblocking") or []
+        if critic_nonblocking and state.get("is_code_task", False):
+            suggestion_lines = []
+            for item in critic_nonblocking[:5]:
+                desc = item.get("description", str(item)) if isinstance(item, dict) else str(item)
+                desc = desc.strip()
+                if desc:
+                    suggestion_lines.append(f"- {desc}")
+            if suggestion_lines:
+                suggestions_md = "\n".join(suggestion_lines)
+                parts.append(f"\n<details>\n<summary>Suggestions</summary>\n\n{suggestions_md}\n\n</details>")
+        advisory = (state.get("advisory_message") or "").strip()
+        knowledge_gap = (state.get("knowledge_gap_message") or "").strip()
+        if advisory:
+            parts.append(f"\n---\n**{advisory}**")
+        if knowledge_gap:
+            parts.append(f"\n---\n**{knowledge_gap}**")
+        if not parts:
+            logger.warning(
+                "respond_empty_parts code_len=%d patch_ops=%d has_explanation=%s",
+                len(code or ""),
+                len(patch_ops),
+                bool(explanation),
+            )
+            content = "I processed your request but have no output to show."
+        else:
+            content = "\n".join(parts)
+            content = await _writer_pass(content, state)
+
+    avg_confidence = 0.0
+    if traces:
+        confidences = [t.confidence for t in traces if isinstance(t, NodeTrace)]
+        if confidences:
+            avg_confidence = sum(confidences) / len(confidences)
+
+    logger.info(
+        "response_assembled",
+        extra={
+            "has_code": bool(code),
+            "has_patch_ops": len(patch_ops),
+            "has_display": bool(parts),
+            "has_error": bool(error),
+            "what_if_count": len(what_ifs),
+            "iterations": state.get("iteration_count", 0),
+            "avg_confidence": avg_confidence,
+        },
+    )
+
+    return {
+        "messages": [AIMessage(content=content)],
+        "current_node": "respond",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Graph construction
+# ---------------------------------------------------------------------------
+
+timeout = settings.node_timeout_seconds
+
+graph_builder = StateGraph(GraphState)
+
+graph_builder.add_node("entry_classifier", with_debug_node_timing(with_timeout(timeout)(entry_classifier_node)))
+graph_builder.add_node("strategic_advisor", with_debug_node_timing(with_timeout(timeout)(strategic_advisor_node)))
+graph_builder.add_node("frame_extractor", with_debug_node_timing(with_timeout(timeout)(frame_extractor_node)))
+graph_builder.add_node("router", with_debug_node_timing(with_timeout(timeout)(router_node)))
+graph_builder.add_node("planner", with_debug_node_timing(with_timeout(timeout)(planner_node)))
+graph_builder.add_node(
+    "executor",
+    with_debug_node_timing(
+        with_timeout(timeout)(
+            validated_node(
+                executor_node,
+                validators_before=[validate_decision_drift, validate_style_compliance],
+                validators_after=[validate_required_sections, validate_citation_preservation],
+            )
+        )
+    ),
+)
+graph_builder.add_node("writer", with_debug_node_timing(with_timeout(timeout)(writer_node)))
+graph_builder.add_node("patch_integrity_gate", with_debug_node_timing(with_timeout(timeout)(patch_integrity_gate_node)))
+graph_builder.add_node(
+    "critic",
+    with_debug_node_timing(
+        with_timeout(timeout)(
+            validated_node(
+                critic_node,
+                validators_after=[validate_critique_resolutions],
+            )
+        )
+    ),
+)
+graph_builder.add_node("final_scrubber", with_debug_node_timing(with_timeout(timeout)(final_scrubber_node)))
+graph_builder.add_node("respond", with_debug_node_timing(with_timeout(timeout)(respond_node)))
+
+# Entry flow: always -> router
+graph_builder.set_entry_point("entry_classifier")
+graph_builder.add_edge("entry_classifier", "strategic_advisor")
+graph_builder.add_edge("strategic_advisor", "frame_extractor")
+graph_builder.add_conditional_edges(
+    "frame_extractor",
+    route_after_entry_classifier,
+    {"router": "router", "respond": "respond"},
+)
+
+# Router -> planner | executor | writer | respond
+graph_builder.add_conditional_edges(
+    "router",
+    route_after_router,
+    {"planner": "planner", "executor": "executor", "writer": "writer", "respond": "respond"},
+)
+
+# Planner -> router (always — router decides next step)
+graph_builder.add_conditional_edges(
+    "planner",
+    route_after_planner,
+    {"router": "router", "respond": "respond"},
+)
+
+# Executor -> patch_integrity_gate | respond
+graph_builder.add_conditional_edges(
+    "executor",
+    route_after_executor,
+    {"respond": "respond", "patch_integrity_gate": "patch_integrity_gate"},
+)
+
+# Writer -> critic | final_scrubber
+graph_builder.add_conditional_edges(
+    "writer",
+    route_after_writer,
+    {"critic": "critic", "final_scrubber": "final_scrubber"},
+)
+
+# Patch integrity gate -> critic | router
+graph_builder.add_conditional_edges(
+    "patch_integrity_gate",
+    route_after_patch_integrity_gate,
+    {"router": "router", "critic": "critic"},
+)
+
+# Critic -> router (refinement) | final_scrubber (approved) | respond
+graph_builder.add_conditional_edges(
+    "critic",
+    route_after_critic,
+    {"router": "router", "final_scrubber": "final_scrubber", "respond": "respond"},
+)
+
+# Terminal edges
+graph_builder.add_edge("final_scrubber", "respond")
+graph_builder.add_edge("respond", END)
+
+graph = graph_builder.compile()

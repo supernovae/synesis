@@ -1,0 +1,29 @@
+{
+  "problem": "1. Provide a diagnostic checklist to identify the root cause",
+  "goals": [
+    "1. Provide a diagnostic checklist to identify the root cause",
+    "2. Suggest Spark tuning parameters to try",
+    "3. Recommend an approach for right-sizing the cluster",
+    "4. Propose a cost monitoring and alerting setup"
+  ],
+  "constraints": [],
+  "context_facts": [
+    "Our Spark jobs on EMR are running 3x slower than last quarter and costs have doubled.",
+    "Cluster config: r5.2xlarge instances, 20-node cluster, Spark 3.3.",
+    "We process about 2TB of parquet data daily across 50 jobs."
+  ],
+  "deliverables": [
+    "Diagnostic checklist",
+    "Spark tuning parameters",
+    "Cluster right-sizing approach",
+    "Cost monitoring and alerting setup"
+  ],
+  "meta_requirements": [
+    "I need you to:",
+    "Give me specific commands and config values, not just general advice."
+  ],
+  "uncertainties": [],
+  "domain": "data_engineering",
+  "output_format": "prose",
+  "needs_web": false
+}

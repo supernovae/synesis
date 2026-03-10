@@ -1,0 +1,20 @@
+# Synesis DefaultsPolicy override (optional)
+# Mount at /etc/synesis/defaults.yaml or set SYNESIS_DEFAULTS_PATH
+# Precedence: Code constants → this file
+# Hard fences (allow_questions_for_trivial) cannot be overridden.
+
+default_language: python
+default_test_runner: pytest
+default_python_version: "3.11"
+
+default_files:
+  single_file: main.py
+  python_project:
+    - hello.py
+    - test_hello.py
+  python_with_tests:
+    - hello.py
+    - test_hello.py
+
+# Minimum plan steps to trigger approval (0 = use require_plan_approval from config)
+plan_approval_min_steps: 0

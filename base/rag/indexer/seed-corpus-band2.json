@@ -1,0 +1,531 @@
+{
+  "version": 3,
+  "description": "Broader high-signal corpus for general-purpose LLM grounding across common user verticals: health, finance, taxes, business, travel, food safety, career guidance, and consumer protection.",
+  "_mapping_notes": {
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+  },
+  "sources": [
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 1,
+      "title": "WHO Health Topics",
+      "url": "https://www.who.int/health-topics",
+      "tags": [
+        "health",
+        "public-health",
+        "conditions",
+        "wellbeing",
+        "reference"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 1,
+      "title": "CDC Healthy Weight, Nutrition, and Physical Activity",
+      "url": "https://www.cdc.gov/healthyweight/index.html/",
+      "tags": [
+        "health",
+        "nutrition",
+        "physical-activity",
+        "sleep",
+        "stress",
+        "reference"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 1,
+      "title": "CDC Physical Activity Basics and Your Health",
+      "url": "https://www.cdc.gov/physical-activity-basics/about/index.html",
+      "tags": [
+        "health",
+        "exercise",
+        "physical-activity",
+        "wellbeing"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 2,
+      "title": "CDC Benefits of Physical Activity",
+      "url": "https://www.cdc.gov/physical-activity-basics/benefits/index.html",
+      "tags": [
+        "health",
+        "exercise",
+        "benefits",
+        "sleep",
+        "function"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "sleep",
+      "priority": 2,
+      "title": "NHLBI: How Sleep Affects Your Health",
+      "url": "https://www.nhlbi.nih.gov/health/sleep-deprivation/health-effects",
+      "tags": [
+        "health",
+        "sleep",
+        "mental-health",
+        "physical-health"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 2,
+      "title": "WHO Noncommunicable Diseases",
+      "url": "https://www.who.int/health-topics/noncommunicable-diseases",
+      "tags": [
+        "health",
+        "chronic-disease",
+        "risk-factors",
+        "prevention"
+      ]
+    },
+    {
+      "category": "health_wellness",
+      "domain": "health",
+      "priority": 2,
+      "title": "WHO Alcohol",
+      "url": "https://www.who.int/health-topics/alcohol",
+      "tags": [
+        "health",
+        "alcohol",
+        "risk",
+        "public-health"
+      ]
+    },
+    {
+      "category": "personal_finance",
+      "domain": "personal_finance",
+      "priority": 1,
+      "title": "CFPB Your Money, Your Goals Toolkit",
+      "url": "https://www.consumerfinance.gov/consumer-tools/educator-tools/your-money-your-goals/toolkit/",
+      "tags": [
+        "finance",
+        "budgeting",
+        "credit",
+        "debt",
+        "savings",
+        "consumer-finance"
+      ]
+    },
+    {
+      "category": "personal_finance",
+      "domain": "personal_finance",
+      "priority": 1,
+      "title": "CFPB Get Your Money Situation in Order",
+      "url": "https://www.consumerfinance.gov/owning-a-home/prepare/get-your-money-situation-in-order/",
+      "tags": [
+        "finance",
+        "credit",
+        "mortgage",
+        "planning",
+        "consumer-finance"
+      ]
+    },
+    {
+      "category": "personal_finance",
+      "domain": "personal_finance",
+      "priority": 2,
+      "title": "CFPB Budgeting: How to Create a Budget and Stick With It",
+      "url": "https://www.consumerfinance.gov/about-us/blog/budgeting-how-to-create-a-budget-and-stick-with-it/",
+      "tags": [
+        "finance",
+        "budgeting",
+        "savings",
+        "cash-flow"
+      ]
+    },
+    {
+      "category": "taxes_retirement",
+      "domain": "taxes_personal",
+      "priority": 1,
+      "title": "IRS Seniors & Retirees",
+      "url": "https://www.irs.gov/individuals/seniors-retirees",
+      "tags": [
+        "tax",
+        "retirement",
+        "irs",
+        "social-security",
+        "reference"
+      ]
+    },
+    {
+      "category": "taxes_retirement",
+      "domain": "taxes_personal",
+      "priority": 1,
+      "title": "IRS Topic No. 410, Pensions and Annuities",
+      "url": "https://www.irs.gov/taxtopics/tc410",
+      "tags": [
+        "tax",
+        "pensions",
+        "annuities",
+        "withholding"
+      ]
+    },
+    {
+      "category": "taxes_retirement",
+      "domain": "taxes_personal",
+      "priority": 2,
+      "title": "IRS About Form W-4P",
+      "url": "https://www.irs.gov/forms-pubs/about-form-w-4-p",
+      "tags": [
+        "tax",
+        "withholding",
+        "retirement",
+        "form"
+      ]
+    },
+    {
+      "category": "taxes_retirement",
+      "domain": "taxes_personal",
+      "priority": 2,
+      "title": "IRS Reporting IRA and Retirement Plan Transactions",
+      "url": "https://www.irs.gov/retirement-plans/reporting-ira-and-retirement-plan-transactions",
+      "tags": [
+        "tax",
+        "ira",
+        "retirement",
+        "forms",
+        "reference"
+      ]
+    },
+    {
+      "category": "small_business",
+      "domain": "entrepreneurship",
+      "priority": 1,
+      "title": "SBA Plan Your Business",
+      "url": "https://www.sba.gov/business-guide/plan-your-business",
+      "tags": [
+        "business",
+        "startup",
+        "planning",
+        "operations",
+        "small-business"
+      ]
+    },
+    {
+      "category": "small_business",
+      "domain": "entrepreneurship",
+      "priority": 1,
+      "title": "SBA Write Your Business Plan",
+      "url": "https://www.sba.gov/business-guide/plan-your-business/write-your-business-plan",
+      "tags": [
+        "business",
+        "business-plan",
+        "planning",
+        "template"
+      ]
+    },
+    {
+      "category": "small_business",
+      "domain": "business",
+      "priority": 1,
+      "title": "SBA Manage Your Business",
+      "url": "https://www.sba.gov/business-guide/manage-your-business",
+      "tags": [
+        "business",
+        "finance",
+        "compliance",
+        "operations"
+      ]
+    },
+    {
+      "category": "small_business",
+      "domain": "marketing",
+      "priority": 2,
+      "title": "SBA Marketing and Sales",
+      "url": "https://www.sba.gov/business-guide/manage-your-business/marketing-sales",
+      "tags": [
+        "business",
+        "marketing",
+        "sales",
+        "planning"
+      ]
+    },
+    {
+      "category": "small_business",
+      "domain": "marketing",
+      "priority": 2,
+      "title": "SBA Marketing Plan Example",
+      "url": "https://www.sba.gov/document/support-marketing-plan-example",
+      "tags": [
+        "business",
+        "marketing",
+        "template",
+        "example"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "travel",
+      "priority": 1,
+      "title": "Travel.State.gov International Travel",
+      "url": "https://travel.state.gov/en/international-travel.html",
+      "tags": [
+        "travel",
+        "international",
+        "entry-requirements",
+        "safety",
+        "government"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "travel",
+      "priority": 1,
+      "title": "Travel Advisories",
+      "url": "https://travel.state.gov/en/international-travel/travel-advisories.html",
+      "tags": [
+        "travel",
+        "safety",
+        "risk",
+        "advisories"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "travel",
+      "priority": 1,
+      "title": "International Travel Checklist",
+      "url": "https://travel.state.gov/en/international-travel/planning/checklist.html",
+      "tags": [
+        "travel",
+        "checklist",
+        "passport",
+        "planning"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "outdoors",
+      "priority": 2,
+      "title": "NPS Plan Your Visit",
+      "url": "https://www.nps.gov/planyourvisit/index.htm",
+      "tags": [
+        "travel",
+        "outdoors",
+        "parks",
+        "planning",
+        "safety"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "outdoors",
+      "priority": 2,
+      "title": "NPS Trip Planning Guide - Health & Safety",
+      "url": "https://www.nps.gov/subjects/healthandsafety/trip-planning-guide.htm",
+      "tags": [
+        "outdoors",
+        "safety",
+        "trip-planning",
+        "health"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "outdoors",
+      "priority": 2,
+      "title": "NPS Hike Smart",
+      "url": "https://www.nps.gov/articles/hiking-safety.htm",
+      "tags": [
+        "outdoors",
+        "hiking",
+        "safety",
+        "preparation"
+      ]
+    },
+    {
+      "category": "travel_and_outdoors",
+      "domain": "outdoors",
+      "priority": 2,
+      "title": "NPS Camping Safety",
+      "url": "https://www.nps.gov/subjects/camping/staying-safe.htm",
+      "tags": [
+        "outdoors",
+        "camping",
+        "safety",
+        "trip-planning"
+      ]
+    },
+    {
+      "category": "food_and_home",
+      "domain": "cooking",
+      "priority": 2,
+      "title": "University of Minnesota Extension Safe Food Handling Basics",
+      "url": "https://extension.umn.edu/preserving-and-preparing/safe-food-handling-basics",
+      "tags": [
+        "food",
+        "food-safety",
+        "home",
+        "cooking"
+      ]
+    },
+    {
+      "category": "food_and_home",
+      "domain": "cooking",
+      "priority": 2,
+      "title": "University of Minnesota Extension Food Safety Basics",
+      "url": "https://extension.umn.edu/safe-food-production/food-safety-basics",
+      "tags": [
+        "food",
+        "food-safety",
+        "temperature",
+        "cooking"
+      ]
+    },
+    {
+      "category": "food_and_home",
+      "domain": "cooking",
+      "priority": 2,
+      "title": "University of Minnesota Extension Cooking Safely for a Crowd",
+      "url": "https://extension.umn.edu/food-safety-basics/cooking-safely-crowd",
+      "tags": [
+        "food",
+        "cooking",
+        "safety",
+        "events"
+      ]
+    },
+    {
+      "category": "food_and_home",
+      "domain": "cooking",
+      "priority": 2,
+      "title": "University of Minnesota Extension Preparing Food Without Power",
+      "url": "https://extension.umn.edu/preserving-and-preparing/preparing-food-without-power",
+      "tags": [
+        "food",
+        "emergency",
+        "cooking",
+        "preparedness"
+      ]
+    },
+    {
+      "category": "career_guidance",
+      "domain": "career",
+      "priority": 1,
+      "title": "BLS Occupational Outlook Handbook",
+      "url": "https://www.bls.gov/ooh/",
+      "tags": [
+        "career",
+        "jobs",
+        "salary",
+        "outlook",
+        "occupations"
+      ]
+    },
+    {
+      "category": "career_guidance",
+      "domain": "career",
+      "priority": 2,
+      "title": "BLS Occupation Finder",
+      "url": "https://www.bls.gov/ooh/occupation-finder.htm",
+      "tags": [
+        "career",
+        "job-search",
+        "matching",
+        "occupations"
+      ]
+    },
+    {
+      "category": "career_guidance",
+      "domain": "career",
+      "priority": 2,
+      "title": "BLS Career Outlook",
+      "url": "https://www.bls.gov/careeroutlook/",
+      "tags": [
+        "career",
+        "education",
+        "planning",
+        "trends"
+      ]
+    },
+    {
+      "category": "career_guidance",
+      "domain": "career",
+      "priority": 2,
+      "title": "BLS Field of Degree",
+      "url": "https://www.bls.gov/ooh/field-of-degree/",
+      "tags": [
+        "career",
+        "education",
+        "majors",
+        "occupations"
+      ]
+    },
+    {
+      "category": "consumer_safety",
+      "domain": "consumer_protection",
+      "priority": 1,
+      "title": "FTC Identity Theft and Online Security",
+      "url": "https://consumer.ftc.gov/identity-theft-online-security",
+      "tags": [
+        "consumer",
+        "security",
+        "identity-theft",
+        "privacy",
+        "scams"
+      ]
+    },
+    {
+      "category": "consumer_safety",
+      "domain": "consumer_protection",
+      "priority": 1,
+      "title": "FTC What To Know About Identity Theft",
+      "url": "https://consumer.ftc.gov/articles/what-know-about-identity-theft",
+      "tags": [
+        "consumer",
+        "identity-theft",
+        "fraud",
+        "recovery"
+      ]
+    },
+    {
+      "category": "consumer_safety",
+      "domain": "consumer_protection",
+      "priority": 1,
+      "title": "FTC Credit Freezes and Fraud Alerts",
+      "url": "https://consumer.ftc.gov/articles/credit-freezes-and-fraud-alerts",
+      "tags": [
+        "consumer",
+        "credit",
+        "fraud",
+        "identity-theft"
+      ]
+    },
+    {
+      "category": "consumer_safety",
+      "domain": "consumer_protection",
+      "priority": 2,
+      "title": "FTC How To Recognize and Avoid Phishing Scams",
+      "url": "https://consumer.ftc.gov/articles/how-recognize-avoid-phishing-scams",
+      "tags": [
+        "consumer",
+        "phishing",
+        "security",
+        "fraud"
+      ]
+    },
+    {
+      "category": "consumer_safety",
+      "domain": "consumer_protection",
+      "priority": 2,
+      "title": "FTC Identity Theft Can Happen to Anyone",
+      "url": "https://consumer.ftc.gov/identity-theft-can-happen-anyone",
+      "tags": [
+        "consumer",
+        "identity-theft",
+        "prevention",
+        "awareness"
+      ]
+    }
+  ]
+}

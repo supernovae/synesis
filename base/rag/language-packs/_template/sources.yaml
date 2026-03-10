@@ -1,0 +1,18 @@
+# Add document sources for this language pack.
+# Each source can be a URL (fetched at ingestion time) or a local file path.
+#
+# Supported types: markdown, text, man, rst
+#
+# Example:
+#   sources:
+#     - name: "Style Guide"
+#       url: "https://example.com/style-guide.md"
+#       type: markdown
+#       description: "Official style guide"
+#
+#     - name: "Local Patterns"
+#       path: "docs/patterns.md"
+#       type: markdown
+#       description: "Internal best practices"
+
+sources: []

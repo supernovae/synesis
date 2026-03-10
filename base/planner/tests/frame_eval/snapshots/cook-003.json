@@ -1,0 +1,38 @@
+{
+  "problem": "1. Menu strategy — what to sell and what margins to target",
+  "goals": [
+    "1. Menu strategy — what to sell and what margins to target",
+    "2. Equipment list with estimated costs",
+    "3. Staffing plan for the first year",
+    "4. Marketing and customer acquisition strategy",
+    "5. Financial projections template",
+    "6. Permitting and licensing checklist for Oregon"
+  ],
+  "constraints": [
+    "- Budget: $80K in savings plus a $50K small business loan",
+    "- Target opening: 6 months from now",
+    "- Don't assume I have unlimited time — I'll be the head baker AND owner"
+  ],
+  "context_facts": [
+    "I'm planning to open a small bakery in Portland, Oregon.",
+    "- I've been baking professionally for 5 years at a restaurant",
+    "- Space: I found a 900 sq ft retail space with a basic commercial kitchen",
+    "What I need:"
+  ],
+  "deliverables": [
+    "Menu strategy",
+    "Equipment list",
+    "Staffing plan",
+    "Financial projections",
+    "Permitting checklist"
+  ],
+  "meta_requirements": [
+    "- Be realistic about failure rates for new bakeries",
+    "- Give me actual numbers where you can, ranges where you can't",
+    "- Tell me what you don't know about the Portland market specifically"
+  ],
+  "uncertainties": [],
+  "domain": "cooking",
+  "output_format": "prose",
+  "needs_web": false
+}

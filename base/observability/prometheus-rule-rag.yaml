@@ -1,0 +1,97 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: synesis-rag-alerts
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  groups:
+    - name: synesis-milvus
+      rules:
+        - alert: MilvusPodNotReady
+          expr: |
+            kube_pod_status_ready{namespace="synesis-rag", pod=~"synesis-milvus.*", condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: synesis
+          annotations:
+            summary: "Milvus pod not ready for >5 minutes"
+            description: "Pod {{ $labels.pod }} in synesis-rag has not been ready for over 5 minutes. RAG queries and indexing will fail."
+
+        - alert: MilvusHighQueryLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(milvus_querynode_sq_req_latency_bucket{namespace="synesis-rag"}[5m])) by (le)
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            team: synesis
+          annotations:
+            summary: "Milvus vector search p95 latency >500ms"
+            description: "Vector search latency is elevated. Check Milvus resource usage and collection load state."
+
+    - name: synesis-etcd
+      rules:
+        - alert: EtcdHighFsyncLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(etcd_disk_wal_fsync_duration_seconds_bucket{namespace="synesis-rag"}[5m])) by (le)
+            ) > 0.05
+          for: 15m
+          labels:
+            severity: warning
+            team: synesis
+          annotations:
+            summary: "etcd WAL fsync p99 >50ms (EFS latency risk)"
+            description: >-
+              etcd WAL fsync latency is elevated. This is expected on EFS under
+              burst load but sustained high latency may indicate EFS throttling.
+              If this alert fires persistently, consider switching etcd to a
+              gp3 EBS PVC for lower latency. See docs/MILVUS_SCALING.md.
+
+        - alert: EtcdHighCommitLatency
+          expr: |
+            histogram_quantile(0.99,
+              sum(rate(etcd_disk_backend_commit_duration_seconds_bucket{namespace="synesis-rag"}[5m])) by (le)
+            ) > 0.1
+          for: 15m
+          labels:
+            severity: warning
+            team: synesis
+          annotations:
+            summary: "etcd backend commit p99 >100ms"
+            description: "etcd backend commit latency is high. Check storage I/O and EFS throughput mode."
+
+    - name: synesis-embedder
+      rules:
+        - alert: EmbedderNotReady
+          expr: |
+            kube_pod_status_ready{namespace="synesis-rag", pod=~"embedder.*", condition="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: synesis
+          annotations:
+            summary: "Embedder pod not ready for >5 minutes"
+            description: "The TEI embedder pod is not ready. Both RAG queries (vector search) and indexer embedding will fail."
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: synesis-milvus
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: synesis
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics

@@ -1,0 +1,28 @@
+{
+  "problem": "I need you to outline the key regulatory frameworks we must comply with",
+  "goals": [
+    "I need you to outline the key regulatory frameworks we must comply with",
+    "propose an implementation roadmap",
+    "recommend tools for consent management and data mapping",
+    "and identify the biggest compliance gaps a startup at our stage typically has."
+  ],
+  "constraints": [],
+  "context_facts": [
+    "We're a 50-person startup that just raised Series B and we need to set up a proper data privacy compliance program.",
+    "We operate in the US and EU, process personal data from about 100K users, and our engineering team handles most compliance manually right now.",
+    "We don't have a dedicated legal team yet — just outside counsel."
+  ],
+  "deliverables": [
+    "Regulatory framework outline",
+    "Implementation roadmap",
+    "Consent management and data mapping tools",
+    "Compliance gap identification"
+  ],
+  "meta_requirements": [
+    "Please be specific to our situation rather than giving textbook definitions of GDPR and CCPA."
+  ],
+  "uncertainties": [],
+  "domain": "legal",
+  "output_format": "prose",
+  "needs_web": false
+}

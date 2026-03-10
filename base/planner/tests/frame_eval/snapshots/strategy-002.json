@@ -1,0 +1,28 @@
+{
+  "problem": "I'm worried about client concentration risk and want to diversify.",
+  "goals": [
+    "I'm worried about client concentration risk and want to diversify.",
+    "I also think we should add a productized service offering.",
+    "Help me think through a growth strategy for the next 2 years."
+  ],
+  "constraints": [
+    "I want a client diversification plan, a productized service concept, a hiring roadmap, and financial targets."
+  ],
+  "context_facts": [
+    "I run a 20-person digital marketing agency.",
+    "Revenue is $3M but growth has stalled at 5% YoY.",
+    "Most of our revenue comes from 3 large clients (70% concentration)."
+  ],
+  "deliverables": [
+    "Client diversification plan",
+    "Productized service concept",
+    "Growth strategy"
+  ],
+  "meta_requirements": [
+    "Be honest about what usually goes wrong when agencies try to productize."
+  ],
+  "uncertainties": [],
+  "domain": "general",
+  "output_format": "prose",
+  "needs_web": false
+}

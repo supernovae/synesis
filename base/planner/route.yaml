@@ -1,0 +1,26 @@
+# Public HTTPS route for planner (synesis-agent full pipeline).
+# Cursor/Claude Code can use this for the full agentic flow.
+# Override spec.host via overlay to match your cluster ingress domain.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-planner-api
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/name: synesis-planner
+    app.kubernetes.io/part-of: synesis
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
+    # Disable buffering for SSE so status phases reach Open WebUI in real time (if supported by router)
+    haproxy.router.openshift.io/disable_buffer: "true"
+spec:
+  host: synesis-planner.apps.openshiftdemo.dev
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: synesis-planner
+    weight: 100
+  port:
+    targetPort: http
