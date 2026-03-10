@@ -67,14 +67,22 @@ def with_debug_node_timing(func):
 
 
 def with_timeout(timeout_seconds: float):
-    """Erlang-style timeout wrapper. Node either returns or gets killed."""
+    """Erlang-style timeout wrapper. Node either returns or gets killed.
+
+    Handles both sync and async node functions: sync results are returned
+    directly (no timeout needed — they already completed), async coroutines
+    are guarded by asyncio.wait_for.
+    """
 
     def decorator(func):
         @wraps(func)
         async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
             try:
+                result = func(state)
+                if not asyncio.iscoroutine(result):
+                    return result
                 return await asyncio.wait_for(
-                    func(state),
+                    result,
                     timeout=timeout_seconds,
                 )
             except TimeoutError:

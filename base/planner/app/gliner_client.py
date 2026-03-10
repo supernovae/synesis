@@ -55,22 +55,27 @@ _LABEL_TO_FIELD = {
 
 
 class GlinerClient:
-    """Synchronous client for the GLiNER extraction microservice."""
+    """Synchronous client for the GLiNER extraction microservice.
+
+    Uses a persistent httpx.Client for connection pooling / keepalive.
+    """
 
     def __init__(self, url: str, timeout: float = 20.0):
         self.url = url.rstrip("/")
-        self.timeout = timeout
+        self._client = httpx.Client(
+            base_url=self.url,
+            timeout=httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0),
+        )
 
     def extract(self, text: str, threshold: float = 0.4) -> FirstPassFrame:
         """Call /v1/extract and map the response into a FirstPassFrame."""
-        resp = httpx.post(
-            f"{self.url}/extract",
+        resp = self._client.post(
+            "/extract",
             json={
                 "text": text,
                 "schema": _EXTRACTION_SCHEMA,
                 "threshold": threshold,
             },
-            timeout=self.timeout,
         )
         resp.raise_for_status()
         data = resp.json()
