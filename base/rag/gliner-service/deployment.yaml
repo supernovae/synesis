@@ -31,18 +31,26 @@ spec:
               value: "knowledgator/gliner-multitask-large-v0.5"
             - name: GLINER_THRESHOLD
               value: "0.4"
+            - name: GLINER_CACHE_SIZE
+              value: "256"
             - name: HF_HOME
               value: "/tmp/hf_home"
             - name: TRANSFORMERS_CACHE
               value: "/tmp/hf_home"
             - name: XDG_CACHE_HOME
               value: "/tmp/.cache"
+            - name: OMP_NUM_THREADS
+              value: "4"
+            - name: MKL_NUM_THREADS
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
           resources:
             requests:
-              cpu: "500m"
+              cpu: "1"
               memory: 2Gi
             limits:
-              cpu: "2"
+              cpu: "4"
               memory: 4Gi
           readinessProbe:
             httpGet:

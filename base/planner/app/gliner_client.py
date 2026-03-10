@@ -2,17 +2,24 @@
 
 Follows the embed_client.py pattern: synchronous httpx with timeout,
 singleton via get_gliner_client(). Returns typed FirstPassFrame.
+
+Includes a client-side LRU cache so identical prompts within the same
+planner process skip the network round-trip entirely.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from collections import OrderedDict
 
 import httpx
 
 from .schemas import FirstPassFrame, RawExtractionCandidate
 
 logger = logging.getLogger("synesis.gliner_client")
+
+_CLIENT_CACHE_SIZE = 64
 
 _EXTRACTION_SCHEMA = {
     "entities": {
@@ -57,7 +64,8 @@ _LABEL_TO_FIELD = {
 class GlinerClient:
     """Synchronous client for the GLiNER extraction microservice.
 
-    Uses a persistent httpx.Client for connection pooling / keepalive.
+    Uses a persistent httpx.Client for connection pooling / keepalive
+    and a local LRU cache to skip the network call for identical prompts.
     """
 
     def __init__(self, url: str, timeout: float = 20.0):
@@ -66,9 +74,20 @@ class GlinerClient:
             base_url=self.url,
             timeout=httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0),
         )
+        self._cache: OrderedDict[str, FirstPassFrame] = OrderedDict()
+
+    @staticmethod
+    def _cache_key(text: str, threshold: float) -> str:
+        return hashlib.sha256(f"{text}|{threshold}".encode()).hexdigest()
 
     def extract(self, text: str, threshold: float = 0.4) -> FirstPassFrame:
         """Call /v1/extract and map the response into a FirstPassFrame."""
+        key = self._cache_key(text, threshold)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            logger.debug("gliner_client_cache_hit key=%s", key[:12])
+            return self._cache[key]
+
         resp = self._client.post(
             "/extract",
             json={
@@ -108,11 +127,18 @@ class GlinerClient:
             best = sorted(reqs, key=lambda c: c.confidence, reverse=True)
             frame_kwargs["main_question_candidates"] = best[:3]
 
-        return FirstPassFrame(
+        frame = FirstPassFrame(
             **frame_kwargs,
             task_classification=classification,
             field_confidence_map=confidence_map,
         )
+
+        self._cache[key] = frame
+        self._cache.move_to_end(key)
+        while len(self._cache) > _CLIENT_CACHE_SIZE:
+            self._cache.popitem(last=False)
+
+        return frame
 
 
 _client: GlinerClient | None = None

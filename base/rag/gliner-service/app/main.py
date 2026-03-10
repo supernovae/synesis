@@ -2,10 +2,14 @@
 
 Loads a GLiNER model at startup and exposes a /v1/extract endpoint that
 accepts entity label schemas and returns extracted spans with confidence.
+
+Inference is offloaded to a thread pool so health probes and concurrent
+requests are never blocked by a running forward pass.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -77,7 +81,8 @@ async def extract_endpoint(req: ExtractRequest):
         categories = req.schema_.classification.get("categories", [])
 
     try:
-        result = extract(
+        result = await asyncio.to_thread(
+            extract,
             text=req.text,
             entity_labels=req.schema_.entities,
             classification_categories=categories,
