@@ -998,6 +998,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 stream_content = True
                 content_streamed = False
+                _stream_closed = False
                 sent_role = False
                 thinking_phases: list[str] = []
                 first_content_logged = False
@@ -1024,6 +1025,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         version="v2",
                         config={"recursion_limit": 50},
                     ):
+                        if _stream_closed:
+                            continue
+
                         kind = event["event"]
                         name = event.get("name", "")
                         meta = event.get("metadata", {})
@@ -1059,9 +1063,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 yield _flow_phase(f"{_phase_base}\u2026 ({elapsed}s)")
                                 await asyncio.sleep(0)
 
-                        # ── Node ended → accumulate state ──
+                        # ── Node ended → accumulate state + rich status ──
                         elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
                             output = event.get("data", {}).get("output")
+                            node_label = name if name in _KNOWN_NODES else lg_node
                             if isinstance(output, dict):
                                 for k, v in output.items():
                                     if k == "messages":
@@ -1069,6 +1074,79 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             accumulated_state["messages"] = v
                                     else:
                                         accumulated_state[k] = v
+
+                                # Rich status: describe what the router found
+                                if node_label == "router":
+                                    packets = output.get("evidence_packets") or []
+                                    if packets:
+                                        for p in packets[:3]:
+                                            if not isinstance(p, dict):
+                                                continue
+                                            q = (p.get("query") or "")[:60]
+                                            sources = p.get("sources") or []
+                                            web_n = sum(
+                                                1 for s in sources if isinstance(s, dict) and s.get("type") == "web"
+                                            )
+                                            rag_n = len(sources) - web_n
+                                            parts: list[str] = []
+                                            if web_n:
+                                                parts.append(f"{web_n} web")
+                                            if rag_n:
+                                                parts.append(f"{rag_n} docs")
+                                            detail = f" ({' + '.join(parts)})" if parts else ""
+                                            if q:
+                                                yield _flow_phase(f"Searched: {q}{detail}")
+                                                await asyncio.sleep(0)
+
+                                # Rich status: summarise the plan
+                                elif node_label == "planner":
+                                    plan = output.get("execution_plan") or {}
+                                    steps = plan.get("steps", []) if isinstance(plan, dict) else []
+                                    if steps:
+                                        yield _flow_phase(f"Plan ready: {len(steps)} sections")
+                                        await asyncio.sleep(0)
+
+                                # ── Background critic: close stream after writer/executor ──
+                                elif (
+                                    node_label in ("writer", "executor")
+                                    and content_streamed
+                                    and settings.critic_background
+                                ):
+                                    yield _flow_phase("", done=True)
+                                    content, _ = _extract_content_and_metrics(
+                                        accumulated_state,
+                                        user_id,
+                                        last_user_content,
+                                        run_id=run_id,
+                                        memory_scope=memory_scope,
+                                        model=request.model,
+                                    )
+                                    record_chat_success(time.monotonic() - start)
+                                    total_elapsed_ms = int((time.monotonic() - t_start) * 1000)
+                                    logger.info(
+                                        "sse_early_close",
+                                        extra={
+                                            "trigger": node_label,
+                                            "elapsed_ms": total_elapsed_ms,
+                                            "token_count_estimate": token_count_estimate,
+                                            "critic_background": True,
+                                        },
+                                    )
+                                    yield _sse_chunk(
+                                        {
+                                            "id": chat_id,
+                                            "object": "chat.completion.chunk",
+                                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                                            "usage": {
+                                                "prompt_tokens": 0,
+                                                "completion_tokens": 0,
+                                                "total_tokens": 0,
+                                            },
+                                            "run_id": run_id,
+                                        }
+                                    )
+                                    yield "data: [DONE]\n\n"
+                                    _stream_closed = True
 
                         # ── Token streaming from executor / writer LLM ──
                         elif kind == "on_chat_model_stream" and lg_node in ("executor", "writer") and stream_content:
@@ -1213,6 +1291,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     record_chat_error(time.monotonic() - start)
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
                     yield "data: [DONE]\n\n"
+                    return
+
+                # Stream already closed (background critic mode) — skip all post-processing
+                if _stream_closed:
                     return
 
                 if not accumulated_state.get("messages"):

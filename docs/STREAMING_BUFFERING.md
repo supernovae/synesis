@@ -1,6 +1,6 @@
 # Streaming and Buffering for Synesis
 
-Status updates from the LLM (e.g. "Analyzing…", "Running tests…") depend on streaming tokens reaching the client without being buffered. Buffering in proxies (HAProxy, nginx) can delay or drop small updates, degrading UX.
+Status updates from the LLM (e.g. "Classifying request…", "Gathering evidence…") depend on streaming tokens reaching the client without being buffered. Buffering in proxies (HAProxy, nginx) can delay or drop small updates, degrading UX.
 
 ---
 
@@ -11,6 +11,12 @@ When Open WebUI or another client connects to the Planner via HAProxy/LiteLLM:
 1. The Planner streams SSE or chunked HTTP to the client.
 2. Intermediate proxies may buffer responses until a threshold (e.g. 4KB) or until the request completes.
 3. Small updates (single tokens or short status lines) get delayed or batched, so the UI feels unresponsive.
+
+---
+
+## Background Critic Mode
+
+When `SYNESIS_CRITIC_BACKGROUND=true`, the SSE stream closes immediately after the writer/executor finishes streaming content. This shortens the SSE connection lifetime significantly (eliminates the ~23 second critic wait), which reduces buffering sensitivity and the risk of proxy timeouts.
 
 ---
 
@@ -72,5 +78,5 @@ When Planner and vLLM are co-located with UDS:
 
 ## References
 
-- [BLACKWELL_ARCHITECTURE.md](BLACKWELL_ARCHITECTURE.md) — UDS and Planner co-location
 - Open WebUI streaming: ensure `stream: true` and compatible API
+- SSE status format: see `OPENWEBUI_PHASES.md`

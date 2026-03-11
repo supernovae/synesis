@@ -92,6 +92,26 @@ Entry → Router (initial evidence) → Planner → Router (section evidence) �
 **Path 3 — Code tasks:**
 Entry → Router (initial evidence) → Planner → Router (section evidence) → Executor → Patch Integrity Gate → Critic → [Final Scrubber] → Respond
 
+### Streaming Behavior
+
+During SSE streaming, the router and planner emit rich status messages describing
+what was searched and planned (e.g., "Searched: Kubernetes deployment strategies (2 web + 3 docs)",
+"Plan ready: 5 sections").
+
+**Background critic mode** (`SYNESIS_CRITIC_BACKGROUND=true`): The SSE stream closes
+immediately after the writer/executor finishes streaming content. The graph continues
+running the critic, scrubber, and respond nodes silently. When disabled (default),
+the critic runs inline and the user waits for it to complete before the stream closes.
+
+### Critic Optimization
+
+The document-path critic has several optimizations to reduce latency:
+
+- **Deterministic pre-check**: For lenient-difficulty tasks, skips the LLM critic entirely if all deliverables have headings and word count is proportional
+- **Skeleton mode**: Sends headings + first 200 chars per section instead of the full response text
+- **Lenient strip**: Omits CRAG assessment, failure mode vocabulary, and scoring rubric for low-difficulty tasks
+- **Unified rubric**: Frame rubric and decision ledger merged into one block
+
 ## Router-Governed Evidence Architecture
 
 The Router is a **LangGraph node** (deterministic orchestrator), not an LLM persona.

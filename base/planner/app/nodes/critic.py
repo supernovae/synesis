@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import time
 from typing import Any
 
@@ -109,55 +110,11 @@ def _build_evidence_reference_block(state: dict[str, Any], budget: int = 2000) -
     return "<evidence_reference>\n" + "\n".join(lines) + "\n</evidence_reference>"
 
 
-def _build_ledger_rubric(state: dict[str, Any]) -> str:
-    """Build a decision ledger rubric for the critic to validate against.
+def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = None) -> str:
+    """Build a unified evaluation rubric from UserTask + planner decisions.
 
-    The critic checks that the draft honors the planner's frozen decisions
-    and the locked style contract — deterministic drift detection via prompt.
-    """
-    ledger = state.get("decision_ledger") or []
-    style_contract = state.get("style_contract_locked") or {}
-
-    if not ledger and not style_contract:
-        return ""
-
-    parts = ["DECISION LEDGER (the planner committed to these — flag any contradiction):"]
-
-    for entry in ledger:
-        chosen = entry.get("chosen", "")
-        if not chosen:
-            continue
-        category = entry.get("category", "")
-        rejected = entry.get("rejected_alternatives") or []
-        line = f"  - [{category}] Chosen: {chosen}"
-        if rejected:
-            line += f" (rejected: {', '.join(rejected[:3])})"
-        parts.append(line)
-
-    if style_contract:
-        parts.append("\nSTYLE CONTRACT (locked — flag deviations):")
-        verbosity = style_contract.get("verbosity_target", "moderate")
-        parts.append(f"  - Verbosity: {verbosity}")
-        if style_contract.get("direct_answer_first", True):
-            parts.append("  - Direct answer first (no preamble)")
-        if style_contract.get("citation_required", False):
-            parts.append("  - Citations required")
-
-    if len(parts) > 1:
-        parts.append(
-            "\nFor each decision above, verify the response honors the chosen approach. "
-            "Flag in blocking_issues if the response contradicts a frozen decision."
-        )
-        return "\n".join(parts)
-    return ""
-
-
-def _build_frame_rubric(frame: dict[str, Any]) -> str:
-    """Build a structured evaluation rubric from the UserTask.
-
-    The task was extracted once by the frame_extractor node and represents
-    the shared contract for this request. The critic evaluates against this
-    same interpretation the planner used — eliminating interpretation drift.
+    Merges the frame rubric and decision ledger into a single block to
+    eliminate duplicate deliverable/decision listings that inflate the prompt.
 
     Research: G-Eval (NeurIPS 2023) — per-criterion rubric evaluation
     outperforms holistic scoring. RRD (arXiv:2602.05125) — rubric refinement.
@@ -190,6 +147,35 @@ def _build_frame_rubric(frame: dict[str, Any]) -> str:
     if output_format and output_format != "prose":
         parts.append(f"Expected output format: {output_format}")
 
+    # Merge decision ledger and style contract into the same rubric block
+    if state:
+        ledger = state.get("decision_ledger") or []
+        style_contract = state.get("style_contract_locked") or {}
+
+        ledger_lines: list[str] = []
+        for entry in ledger:
+            chosen = entry.get("chosen", "")
+            if not chosen:
+                continue
+            category = entry.get("category", "")
+            rejected = entry.get("rejected_alternatives") or []
+            line = f"  - [{category}] Chosen: {chosen}"
+            if rejected:
+                line += f" (rejected: {', '.join(rejected[:3])})"
+            ledger_lines.append(line)
+
+        if ledger_lines:
+            parts.append("Planner decisions (flag contradictions):")
+            parts.extend(ledger_lines)
+
+        if style_contract:
+            verbosity = style_contract.get("verbosity_target", "moderate")
+            parts.append(
+                f"Style: verbosity={verbosity}"
+                + (", direct-answer-first" if style_contract.get("direct_answer_first", True) else "")
+                + (", citations-required" if style_contract.get("citation_required", False) else "")
+            )
+
     if len(parts) > 1:
         parts.append(
             "\nFor requirement_coverage, include one entry per requirement AND deliverable above. "
@@ -197,6 +183,60 @@ def _build_frame_rubric(frame: dict[str, Any]) -> str:
         )
         return "\n".join(parts)
     return ""
+
+
+_HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
+
+
+def _skeleton_extract(text: str, per_section_chars: int = 200) -> str:
+    """Extract headings + first N chars per section for the critic approval pass.
+
+    Reduces the response text the critic processes while preserving structure.
+    Returns the full text unchanged if it has no headings or is short enough.
+    """
+    headings = list(_HEADING_RE.finditer(text))
+    if len(headings) < 2 or len(text) < 3000:
+        return text
+
+    parts: list[str] = []
+    for i, heading in enumerate(headings):
+        end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
+        section_body = text[heading.end() : end].strip()
+        truncated = section_body[:per_section_chars]
+        if len(section_body) > per_section_chars:
+            truncated += " [...]"
+        parts.append(f"{heading.group().strip()}\n{truncated}")
+
+    return "\n\n".join(parts)
+
+
+def _deliverable_coverage_precheck(
+    response_text: str,
+    deliverables: list[str],
+    min_words_per_deliverable: int = 40,
+) -> bool:
+    """Deterministic check: does every deliverable appear as a heading?
+
+    Returns True if all deliverables are covered and the response has
+    proportional length. Used to skip the LLM critic for obvious-pass cases.
+    """
+    if not deliverables:
+        return False
+
+    response_lower = response_text.lower()
+    headings_lower = {m.group().lower() for m in _HEADING_RE.finditer(response_text)}
+
+    for d in deliverables:
+        d_lower = d.lower().strip()
+        key_words = [w for w in d_lower.split() if len(w) > 3]
+        if not key_words:
+            continue
+        found = any(all(kw in h for kw in key_words[:3]) for h in headings_lower)
+        if not found and d_lower[:30] not in response_lower:
+            return False
+
+    word_count = len(response_text.split())
+    return word_count >= len(deliverables) * min_words_per_deliverable
 
 
 # ── Trust policy: shared by both document and code paths ──
@@ -300,16 +340,45 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
         if is_document_taxonomy_path:
             taxonomy_hints = _build_taxonomy_hints(taxonomy_metadata, difficulty)
 
-            # UserTask: structured rubric from frame extractor
+            # Unified rubric: frame + planner decisions in one block
             user_task_data = state.get("user_task") or {}
             frame_rubric = ""
             if user_task_data:
-                frame_rubric = _build_frame_rubric(user_task_data)
+                frame_rubric = _build_frame_rubric(user_task_data, state=state)
 
-            # Decision ledger: validate draft against planner's frozen decisions
-            ledger_rubric = _build_ledger_rubric(state)
-            if ledger_rubric:
-                frame_rubric = frame_rubric + "\n\n" + ledger_rubric if frame_rubric else ledger_rubric
+            # Deterministic pre-check: skip LLM critic if all deliverables covered
+            deliverables = user_task_data.get("deliverables") or []
+            if is_lenient and deliverables and _deliverable_coverage_precheck(generated_code, deliverables):
+                latency = (time.monotonic() - start) * 1000
+                logger.info(
+                    "critic_deterministic_pass",
+                    extra={
+                        "deliverables": len(deliverables),
+                        "difficulty": round(difficulty, 2),
+                        "latency_ms": round(latency, 1),
+                    },
+                )
+                return {
+                    "what_if_analyses": [],
+                    "critic_feedback": "All deliverables covered (deterministic pass)",
+                    "critic_approved": True,
+                    "critic_should_continue": False,
+                    "critic_continue_reason": None,
+                    "current_node": node_name,
+                    "next_node": "respond",
+                    "generated_code": state.get("generated_code", ""),
+                    "code_explanation": state.get("code_explanation", ""),
+                    "patch_ops": state.get("patch_ops", []) or [],
+                    "node_traces": [
+                        NodeTrace(
+                            node_name=node_name,
+                            reasoning=f"Deterministic pass: {len(deliverables)} deliverables covered",
+                            confidence=0.9,
+                            outcome=NodeOutcome.SUCCESS,
+                            latency_ms=latency,
+                        )
+                    ],
+                }
 
             # Evidence grounding: inject evidence packets so critic can verify claims
             evidence_reference_block = ""
@@ -327,6 +396,37 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "aligns with the reference evidence above. Flag ungrounded claims "
                     "in residual_risks, not as blocking unless they contradict "
                     "reference evidence.\n"
+                )
+
+            # Lenient mode: strip verbose instruction blocks to save ~500 tokens
+            if is_lenient:
+                crag_block = ""
+                failure_mode_block = ""
+                scoring_block = (
+                    "SCORING: approve if roughly correct. Only reject for factual errors or missed requirements."
+                )
+            else:
+                crag_block = (
+                    f"\nCRAG ASSESSMENT: For each section, estimate factual grounding "
+                    f"confidence (0.0-1.0). Below {settings.crag_web_trigger_threshold} "
+                    f'→ note in residual_risks as "CRAG:section_name:confidence".'
+                )
+                failure_mode_block = (
+                    "\nFAILURE MODE VOCABULARY (pick from this list):\n"
+                    "non_answer, partial_answer, instruction_drift, unsupported_claim, "
+                    "false_certainty, buried_lead, failed_prioritization, format_miss, "
+                    "leaked_reasoning, false_precision, genericity, unsupported_specificity.\n"
+                    "- genericity: sections that could apply to any project without "
+                    "modification.\n"
+                    "- unsupported_specificity: recommending specific tools, versions, "
+                    "or numbers without evidence.\n"
+                    "Critical (non_answer, partial_answer with 3+ missed requirements) "
+                    "→ approved=false."
+                )
+                scoring_block = (
+                    "SCORING (1-10 for each, compute weighted_overall):\n"
+                    "task_faithfulness (0.30), constraint_compliance (0.25), "
+                    "coverage (0.25), judgment_quality (0.15), grounding (0.05)."
                 )
 
             doc_system = f"""You are a quality gate. Decide whether the response is good enough to ship.
@@ -348,17 +448,10 @@ Domain hints (use as context, not as mandatory checklist):
 
 SECTION-LEVEL EVALUATION:
 The response may contain section markers (<!-- section: ... -->). For each marked section, evaluate whether it addresses its stated deliverable. In requirement_coverage, include one entry per section mapping to its deliverable. Mark each as met/partial/missed with evidence.
+{crag_block}
+{failure_mode_block}
 
-CRAG ASSESSMENT: For each section, estimate factual grounding confidence (0.0-1.0). Below {settings.crag_web_trigger_threshold} → note in residual_risks as "CRAG:section_name:confidence".
-
-FAILURE MODE VOCABULARY (pick from this list):
-non_answer, partial_answer, instruction_drift, unsupported_claim, false_certainty, buried_lead, failed_prioritization, format_miss, leaked_reasoning, false_precision, genericity, unsupported_specificity.
-- genericity: sections that could apply to any project without modification (boilerplate compliance, generic future roadmaps, filler that does not address the user's specific context).
-- unsupported_specificity: recommending specific tools, versions, or numbers without evidence from the provided context (hallucinated version numbers, invented statistics).
-Critical (non_answer, partial_answer with 3+ missed requirements) → approved=false.
-
-SCORING (1-10 for each, compute weighted_overall):
-task_faithfulness (0.30), constraint_compliance (0.25), coverage (0.25), judgment_quality (0.15), grounding (0.05).
+{scoring_block}
 
 Reply with JSON:
 - requirement_coverage: [{{requirement, status: "met"|"partial"|"missed", evidence}}]
@@ -384,6 +477,10 @@ Reply with JSON:
                         "difficulty": round(difficulty, 2),
                     },
                 )
+
+            # Skeleton mode: for lenient approval pass, send headings + preview
+            if is_lenient:
+                response_text = _skeleton_extract(response_text)
 
             doc_prompt = f"## User Task\n{task_summary}\n\n## Response to Evaluate\n{response_text}"
             try:

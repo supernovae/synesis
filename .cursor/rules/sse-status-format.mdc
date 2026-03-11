@@ -38,3 +38,23 @@ data: {"type": "status", ...}
    - `StatusQueueCallback.on_chain_start` in `streaming_events.py`
 4. **Never filter or strip status events** in scrubber, compiler, or any post-processing node. Status events are emitted by the SSE generator in `main.py`, not by LangGraph nodes.
 5. **Test with** `GET /debug/sse-test` (requires `stream_debug_chatter=true`) to verify events reach Open WebUI after any streaming changes.
+
+## Rich Status Messages
+
+After a node completes (`on_chain_end`), the SSE generator emits additional descriptive status messages using `_flow_phase()`:
+
+- **Router**: describes what was searched and how many sources were found (e.g., "Searched: Kubernetes deployment strategies (2 web + 3 docs)")
+- **Planner**: summarizes plan readiness (e.g., "Plan ready: 5 sections")
+
+These are standard status events — same format, just more descriptive text. No new event types.
+
+## Background Critic Mode
+
+When `SYNESIS_CRITIC_BACKGROUND=true`:
+
+- The SSE stream closes immediately after the writer/executor finishes streaming content
+- The graph continues running (critic, scrubber, respond) but events are consumed silently
+- The client receives `finish_reason: stop` and `[DONE]` as soon as content generation ends
+- Critic results are still logged and stored — they just don't block the user
+
+When `false` (default): current behavior, critic runs inline and the user waits.
