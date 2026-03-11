@@ -51,7 +51,11 @@ def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
     """Build the knowledge planner prompt, scaling depth language with difficulty."""
     if difficulty >= 0.6:
         depth_desc = "well-structured, detailed response"
-        section_desc = "Each section should provide clear analysis with reasoning and evidence."
+        section_desc = (
+            "Each section should be 2-4 substantive paragraphs with concrete details, "
+            "specific recommendations, and tradeoff analysis. "
+            "Sections that only name concepts without explaining them are insufficient."
+        )
     elif difficulty >= 0.3:
         depth_desc = "clear, structured response"
         section_desc = "Each section should be clear and well-organized."
@@ -530,6 +534,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "decision_ledger": ledger,
             "style_contract_locked": style_locked,
             "evidence_requests": evidence_requests,
+            "planner_error_count": 0,
             "error": None,
             "current_node": node_name,
             "next_node": next_node,
@@ -543,7 +548,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
     except Exception as e:
         latency = (time.monotonic() - start) * 1000
-        logger.exception("planner_error")
+        planner_attempts = state.get("planner_error_count", 0) + 1
+        logger.exception(
+            "planner_error",
+            extra={"attempt": planner_attempts},
+        )
         trace = NodeTrace(
             node_name=node_name,
             reasoning=f"Error: {e}",
@@ -552,10 +561,42 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             outcome=NodeOutcome.ERROR,
             latency_ms=latency,
         )
+
+        # After 2 consecutive failures, produce a minimal fallback plan from
+        # deliverables so the graph can proceed to the writer instead of looping
+        # back through router→planner indefinitely.
+        user_task = state.get("user_task") or {}
+        deliverables = user_task.get("deliverables") or []
+        if planner_attempts >= 2 and deliverables:
+            fallback_steps = [
+                {"id": i + 1, "action": f"Section: {d}", "dependencies": [], "deliverable_ids": [i]}
+                for i, d in enumerate(deliverables)
+            ]
+            fallback_plan = {"steps": fallback_steps, "open_questions": [], "assumptions": []}
+            logger.warning(
+                "planner_fallback_plan",
+                extra={"attempts": planner_attempts, "steps": len(fallback_steps)},
+            )
+            return {
+                "execution_plan": fallback_plan,
+                "touched_files": [],
+                "depth_mode": len(fallback_steps) >= 2,
+                "evidence_requests": [],
+                "planner_error_count": planner_attempts,
+                "error": None,
+                "current_node": node_name,
+                "next_node": "worker",
+                "is_code_task": False,
+                "allowed_tools": ["none"],
+                "target_language": "markdown",
+                "node_traces": [trace],
+            }
+
         return {
             "execution_plan": {},
-            "touched_files": [],  # §7.2: Planner must always produce touched_files (even [])
+            "touched_files": [],
             "evidence_requests": [],
+            "planner_error_count": planner_attempts,
             "current_node": node_name,
             "next_node": "worker",
             "error": str(e),

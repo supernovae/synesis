@@ -20,6 +20,49 @@ from .state import TaskType
 T = TypeVar("T", bound=BaseModel)
 
 
+def _repair_json(text: str) -> str | None:
+    """Attempt common JSON repairs: missing commas, trailing commas, unclosed strings/braces."""
+    import re as _re
+
+    candidate = text
+
+    # Strip trailing commas before } or ]
+    candidate = _re.sub(r",\s*([}\]])", r"\1", candidate)
+
+    # Insert missing commas between adjacent properties: }" "key" or ]" "key"
+    candidate = _re.sub(r'(["\d])\s*\n\s*"', r'\1,\n"', candidate)
+    candidate = _re.sub(r"(})\s*\n\s*{", r"\1,\n{", candidate)
+    candidate = _re.sub(r"(])\s*\n\s*\[", r"\1,\n[", candidate)
+    # Missing comma between } and " on same or adjacent lines
+    candidate = _re.sub(r'}\s*"', r'}, "', candidate)
+    candidate = _re.sub(r'"\s+"', r'", "', candidate)
+
+    try:
+        json.loads(candidate)
+        return candidate
+    except json.JSONDecodeError:
+        pass
+
+    # Close truncated output: if inside a string, close it; then close braces/brackets
+    if candidate.count('"') % 2 == 1:
+        candidate += '"'
+
+    open_braces = candidate.count("{") - candidate.count("}")
+    open_brackets = candidate.count("[") - candidate.count("]")
+    candidate += "]" * max(0, open_brackets) + "}" * max(0, open_braces)
+
+    # Strip trailing commas again after surgery
+    candidate = _re.sub(r",\s*([}\]])", r"\1", candidate)
+
+    try:
+        json.loads(candidate)
+        return candidate
+    except json.JSONDecodeError:
+        pass
+
+    return None
+
+
 def _extract_json(raw: str) -> str:
     """Extract JSON object from raw LLM output (handles markdown fences, extra text, braces in strings)."""
     content = raw.strip()
@@ -63,7 +106,14 @@ def _extract_json(raw: str) -> str:
         i += 1
 
     if end >= 0:
-        return content[start : end + 1]
+        candidate = content[start : end + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except json.JSONDecodeError:
+            repaired = _repair_json(candidate)
+            if repaired is not None:
+                return repaired
 
     # Fallback: first { to last } (handles truncation; may include trailing garbage)
     last_brace = content.rfind("}")
@@ -74,14 +124,15 @@ def _extract_json(raw: str) -> str:
             return candidate
         except json.JSONDecodeError:
             pass
-        # Try repairing truncated JSON by appending closing braces
-        for _ in range(5):
-            candidate += "}"
-            try:
-                json.loads(candidate)
-                return candidate
-            except json.JSONDecodeError:
-                pass
+        repaired = _repair_json(candidate)
+        if repaired is not None:
+            return repaired
+
+    # Last resort: take everything from first { and try to repair truncation
+    candidate = content[start:]
+    repaired = _repair_json(candidate)
+    if repaired is not None:
+        return repaired
 
     raise ValueError("Unbalanced braces in JSON object")
 

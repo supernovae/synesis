@@ -206,12 +206,16 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 
 
-def _skeleton_extract(text: str, per_section_chars: int = 200) -> str:
+def _skeleton_extract(text: str, per_section_chars: int = 200, difficulty: float = 0.5) -> str:
     """Extract headings + first N chars per section for the critic approval pass.
 
     Reduces the response text the critic processes while preserving structure.
     Returns the full text unchanged if it has no headings or is short enough.
+    For hard tasks (difficulty >= 0.6), expands visibility to 500 chars/section
+    so the critic can detect shallow content (Latent Judges finding).
     """
+    if difficulty >= 0.6:
+        per_section_chars = max(per_section_chars, 500)
     headings = list(_HEADING_RE.finditer(text))
     if len(headings) < 2 or len(text) < 3000:
         return text
@@ -434,13 +438,20 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "\nFAILURE MODE VOCABULARY (pick from this list):\n"
                     "non_answer, partial_answer, instruction_drift, unsupported_claim, "
                     "false_certainty, buried_lead, failed_prioritization, format_miss, "
-                    "leaked_reasoning, false_precision, genericity, unsupported_specificity.\n"
+                    "leaked_reasoning, false_precision, genericity, unsupported_specificity, "
+                    "insufficient_depth, evidence_underuse.\n"
                     "- genericity: sections that could apply to any project without "
                     "modification.\n"
                     "- unsupported_specificity: recommending specific tools, versions, "
                     "or numbers without evidence.\n"
+                    "- insufficient_depth: sections that lack concrete details, specific "
+                    "recommendations, or technical reasoning proportional to the task complexity.\n"
+                    "- evidence_underuse: available evidence was provided but the response "
+                    "does not incorporate or reference it meaningfully.\n"
                     "Critical (non_answer, partial_answer with 3+ missed requirements) "
-                    "→ approved=false."
+                    "→ approved=false.\n"
+                    "Depth (insufficient_depth or evidence_underuse on 2+ sections for "
+                    "difficulty >= 0.6) → approved=false."
                 )
                 scoring_block = (
                     "SCORING (1-10 for each, compute weighted_overall):\n"
@@ -456,6 +467,8 @@ QUALITY PRINCIPLES (always check):
 3. Are claims supported with reasoning or evidence where appropriate?
 4. Is the response proportional to the task — not over-engineered for simple questions, not shallow for complex ones?
 5. Could someone act on this answer as written?
+6. Does each section contain concrete, specific details (names, patterns, tradeoffs) rather than generic statements that could apply to any project?
+7. Does the response meaningfully incorporate the evidence provided, rather than generating from general knowledge alone?
 
 {frame_rubric}
 {grounding_section}
@@ -499,7 +512,7 @@ Reply with JSON:
 
             # Skeleton mode: for lenient approval pass, send headings + preview
             if is_lenient:
-                response_text = _skeleton_extract(response_text)
+                response_text = _skeleton_extract(response_text, difficulty=difficulty)
 
             # Deterministic URL validation: flag citations not in evidence
             hallucinated_urls: list[str] = []
@@ -537,6 +550,14 @@ Reply with JSON:
                 missed_reqs = sum(1 for r in (doc_parsed.requirement_coverage or []) if r.status == "missed")
                 if missed_reqs >= 3:
                     critical_failures.add("partial_answer")
+
+                # Depth gate: for hard tasks, insufficient_depth/evidence_underuse
+                # on multiple sections is a blocking issue (ResearchRubrics + ARES)
+                depth_failures = {"insufficient_depth", "evidence_underuse"} & set(failure_modes)
+                if depth_failures and difficulty >= 0.6:
+                    depth_count = sum(1 for f in failure_modes if f in depth_failures)
+                    if depth_count >= 2:
+                        critical_failures.update(depth_failures)
 
                 if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
                     doc_approved = True

@@ -236,7 +236,7 @@ class Settings(BaseSettings):
     critic_approval_threshold: float = 7.0  # weighted_overall score for auto-approval
     critic_retry_threshold: float = 5.0  # below this, reject and retry with repair instructions
     critic_rag_context_enabled: bool = True  # inject RAG summaries into critic prompt for grounding
-    critic_rag_context_budget: int = 2000  # max chars for the RAG reference block in critic prompt
+    critic_rag_context_budget: int = 4000  # max chars for the RAG reference block in critic prompt
     critic_background: bool = False  # when True, close SSE stream after writer; critic runs silently in background
 
     # Planner RAG context: scale chunk count by difficulty

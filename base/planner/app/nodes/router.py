@@ -37,7 +37,7 @@ logger = logging.getLogger("synesis.router")
 # ---------------------------------------------------------------------------
 MAX_DOCS_PER_QUERY = 5
 MAX_SNIPPETS_PER_PACKET = 20
-MAX_SUMMARY_TOKENS = 2000
+MAX_SUMMARY_TOKENS = 3000
 MAX_REFINEMENT_ROUNDS = 2
 LOW_CONFIDENCE_THRESHOLD = 0.4
 
@@ -519,7 +519,7 @@ class RouterNode:
                 f"title: {r.title}\n"
                 f"heading: {r.heading_path}\n"
                 f"document: {r.document_name}\n"
-                f"text: {r.text[:800]}\n"
+                f"text: {r.text[:2000]}\n"
             )
         return "\n---\n".join(parts) if parts else "(no results retrieved)"
 

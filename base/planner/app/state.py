@@ -174,6 +174,7 @@ class GraphState(TypedDict, total=False):
 
     # --- Iteration / budget ---
     iteration_count: int
+    planner_error_count: int
     max_iterations: int
     strategy_candidates: list[dict[str, Any]]
     revision_strategy: str
@@ -429,6 +430,7 @@ class SynesisState(BaseModel):
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
     iteration_count: int = 0
+    planner_error_count: int = 0
     max_iterations: int = 3
 
     strategy_candidates: list[dict[str, Any]] = Field(default_factory=list)

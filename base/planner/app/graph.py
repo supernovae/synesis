@@ -167,6 +167,23 @@ def route_after_planner(state: dict[str, Any]) -> str:
     if state.get("plan_pending_approval"):
         return "respond"
 
+    planner_errors = state.get("planner_error_count", 0)
+    has_plan = bool((state.get("execution_plan") or {}).get("steps"))
+
+    if planner_errors >= 2 and has_plan:
+        logger.warning(
+            "planner_fallback_routing_to_writer",
+            extra={"planner_errors": planner_errors},
+        )
+        return "router"
+
+    if planner_errors >= 2 and not has_plan:
+        logger.error(
+            "planner_exhausted_no_plan",
+            extra={"planner_errors": planner_errors},
+        )
+        return "respond"
+
     evidence_requests = state.get("evidence_requests") or []
     if evidence_requests:
         return "router"
