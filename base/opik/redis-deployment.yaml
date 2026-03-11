@@ -22,10 +22,14 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          command: ["redis-server", "--save", "", "--appendonly", "no"]
           ports:
             - name: redis
               containerPort: 6379
               protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /data
           resources:
             requests:
               cpu: "50m"
@@ -47,3 +51,6 @@ spec:
                 - ping
             initialDelaySeconds: 5
             periodSeconds: 5
+      volumes:
+        - name: data
+          emptyDir: {}

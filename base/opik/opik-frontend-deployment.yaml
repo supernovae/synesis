@@ -19,12 +19,16 @@ spec:
         app.kubernetes.io/part-of: synesis
         app.kubernetes.io/component: opik
     spec:
+      securityContext:
+        runAsUser: 0
       containers:
         - name: opik-frontend
           image: ghcr.io/comet-ml/opik/opik-frontend:latest
+          securityContext:
+            runAsNonRoot: false
           ports:
             - name: http
-              containerPort: 5173
+              containerPort: 80
               protocol: TCP
           resources:
             requests:
@@ -37,11 +41,11 @@ spec:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /
               port: http
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 5
