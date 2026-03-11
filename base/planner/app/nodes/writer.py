@@ -260,6 +260,16 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
     decisive = style_contract.get("decisive", False)
 
+    # Taxonomy-driven output style injection
+    taxonomy_meta = state.get("taxonomy_metadata") or {}
+    system_prompt = _WRITER_SYSTEM
+    if taxonomy_meta:
+        from ..taxonomy_prompt_factory import get_output_style_guidance
+
+        style_guidance = get_output_style_guidance(taxonomy_meta)
+        if style_guidance:
+            system_prompt += f"\n\nOUTPUT STYLE:\n{style_guidance}"
+
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"
 
     if decisive:
@@ -274,7 +284,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Token budget: estimate input, ensure output fits
     model_context = settings.compiler_model_context
-    estimated_input_tokens = (len(_WRITER_SYSTEM) + len(user_msg)) // 4
+    estimated_input_tokens = (len(system_prompt) + len(user_msg)) // 4
     available_output = model_context - estimated_input_tokens - 256
 
     if writer_budget > available_output:
@@ -316,7 +326,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
         result = await llm.ainvoke(
             [
-                SystemMessage(content=_WRITER_SYSTEM),
+                SystemMessage(content=system_prompt),
                 HumanMessage(content=user_msg),
             ]
         )

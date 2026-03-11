@@ -47,7 +47,7 @@ LOW_CONFIDENCE_THRESHOLD = 0.4
 QUERY_GENERATOR_PROMPT = """\
 ROLE: Retrieval Query Generator
 
-Generate a single, narrow, high-precision retrieval query for the evidence request below.
+Generate a retrieval query that balances recall and precision for the evidence request below.
 
 EVIDENCE REQUEST:
 {request}
@@ -57,13 +57,28 @@ TASK CONTEXT:
 
 RULES:
 - Include the task, domain, and specific entities.
+- Include related concepts and synonyms that relevant documents might use.
 - Include file types, repo paths, or keywords when known.
-- Avoid vague queries like "Kubernetes", "Python", "Terraform".
-- Prefer queries shaped like:
-  "<entity> + <action> + <technology>"
-  "<repo path> + <file type> + <concept>"
-  "<component> + <error> + <context>"
+- Include both the specific topic AND broader related terms.
+  Good: "internal coding assistant architecture RAG retrieval design"
+  Bad: "Kubernetes" (too vague), "Kubernetes pod networking DNS resolution CoreDNS troubleshooting" (too narrow)
 - Output ONLY the query string, nothing else. No explanations, no reasoning.
+"""
+
+HYDE_PROMPT = """\
+Write a 2-3 sentence summary that would appear in a document answering this question. \
+Write as if it already exists. Output ONLY the summary, no explanation.
+
+QUESTION: {question}
+"""
+
+CONCEPTUAL_EXPANSION_PROMPT = """\
+Given this retrieval need, list 5-8 related terms, synonyms, or concepts \
+that relevant documents might use instead. Output terms separated by spaces, nothing else.
+
+NEED: {need}
+DOMAIN: {domain}
+{expansion_hints}
 """
 
 SUMMARIZER_PROMPT = """\
@@ -195,7 +210,7 @@ class RouterNode:
     # ----- LLM sub-tasks -----
 
     async def generate_query(self, evidence_request: dict[str, Any], task_context: str = "") -> str:
-        """Use LLM to produce a narrow retrieval query from an evidence request."""
+        """Use LLM to produce a retrieval query from an evidence request."""
         llm = _get_router_llm()
         prompt = QUERY_GENERATOR_PROMPT.format(
             request=json.dumps(evidence_request, default=str),
@@ -208,6 +223,109 @@ class RouterNode:
             ]
         )
         return resp.content.strip().strip('"').strip("'")
+
+    async def generate_hyde_variant(self, question: str) -> str:
+        """Generate a hypothetical document snippet for HyDE vector search."""
+        if not settings.router_hyde_enabled:
+            return ""
+        llm = _get_router_llm()
+        prompt = HYDE_PROMPT.format(question=question[:300])
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content="You write hypothetical document snippets. Output only the text."),
+                HumanMessage(content=prompt),
+            ]
+        )
+        return resp.content.strip()[:500]
+
+    async def generate_conceptual_expansion(
+        self,
+        need: str,
+        domain_hints: list[str] | None = None,
+        expansion_hints: list[str] | None = None,
+        technologies: list[str] | None = None,
+    ) -> str:
+        """Generate an expanded query with related terms and synonyms."""
+        if not settings.taxonomy_query_expansion_enabled:
+            return ""
+        domain = ", ".join(domain_hints[:3]) if domain_hints else "general"
+        hints_block = ""
+        if expansion_hints:
+            hints_block = f"RELATED CONCEPTS: {', '.join(expansion_hints[:6])}"
+        tech_terms = " ".join(technologies[:4]) if technologies else ""
+
+        llm = _get_router_llm()
+        prompt = CONCEPTUAL_EXPANSION_PROMPT.format(
+            need=need[:300],
+            domain=domain,
+            expansion_hints=hints_block,
+        )
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content="You expand queries with related terms. Output space-separated terms only."),
+                HumanMessage(content=prompt),
+            ]
+        )
+        expanded_terms = resp.content.strip()[:200]
+        parts = [need]
+        if tech_terms:
+            parts.append(tech_terms)
+        parts.append(expanded_terms)
+        return " ".join(parts)
+
+    async def generate_query_variants(
+        self,
+        evidence_request: dict[str, Any],
+        task_context: str = "",
+        taxonomy_metadata: dict[str, Any] | None = None,
+    ) -> list[str]:
+        """Generate 1-3 query variants: direct, HyDE, conceptual expansion.
+
+        Returns at least the direct query. HyDE and expansion are parallel
+        and controlled by config toggles.
+        """
+        direct_query = await self.generate_query(evidence_request, task_context)
+        if not settings.router_multi_query_enabled:
+            return [direct_query]
+
+        domain_hints = evidence_request.get("domain_hints") or []
+        technologies = evidence_request.get("technologies") or []
+
+        expansion_hints: list[str] = []
+        if taxonomy_metadata and settings.taxonomy_query_expansion_enabled:
+            from ..taxonomy_prompt_factory import get_query_expansion_hints
+
+            expansion_hints = get_query_expansion_hints(taxonomy_metadata)
+
+        tasks: list[asyncio.Task[str]] = []
+        if settings.router_hyde_enabled:
+            tasks.append(asyncio.create_task(self.generate_hyde_variant(direct_query)))
+        if settings.taxonomy_query_expansion_enabled:
+            tasks.append(
+                asyncio.create_task(
+                    self.generate_conceptual_expansion(
+                        evidence_request.get("description", direct_query),
+                        domain_hints=domain_hints,
+                        expansion_hints=expansion_hints,
+                        technologies=technologies,
+                    )
+                )
+            )
+
+        variants = [direct_query]
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, str) and r.strip():
+                    variants.append(r.strip())
+                elif isinstance(r, Exception):
+                    logger.debug("query_variant_failed", extra={"error": str(r)[:100]})
+
+        logger.debug(
+            "query_variants_generated",
+            extra={"count": len(variants), "direct": direct_query[:80]},
+        )
+        return variants
 
     async def batch_generate_queries(
         self,
@@ -224,12 +342,12 @@ class RouterNode:
 
         numbered = "\n".join(f"[{i + 1}] {json.dumps(req, default=str)}" for i, req in enumerate(requests))
         prompt = (
-            f"Generate one narrow, high-precision retrieval query for EACH evidence request below.\n\n"
+            f"Generate one balanced retrieval query for EACH evidence request below.\n\n"
             f"TASK CONTEXT:\n{task_context[:500]}\n\n"
             f"EVIDENCE REQUESTS:\n{numbered}\n\n"
             f"RULES:\n"
-            f"- Include the task, domain, and specific entities.\n"
-            f"- Avoid vague or generic queries.\n"
+            f"- Include the task, domain, specific entities, AND related concepts.\n"
+            f"- Balance recall and precision — include synonyms and broader terms.\n"
             f"- Output EXACTLY {len(requests)} lines, one query per line.\n"
             f"- Line N corresponds to request [N].\n"
             f"- No numbering, no explanations — just the query strings."
@@ -242,7 +360,6 @@ class RouterNode:
             ]
         )
         lines = [ln.strip().strip('"').strip("'") for ln in resp.content.strip().splitlines() if ln.strip()]
-        # Strip leading "[N]" or "N." numbering if the model adds it despite instructions
         cleaned: list[str] = []
         for ln in lines:
             ln = re.sub(r"^\[?\d+\]?\s*\.?\s*", "", ln).strip()
@@ -252,7 +369,6 @@ class RouterNode:
         if len(cleaned) == len(requests):
             return cleaned
 
-        # Fallback: if batch output is malformed, generate individually
         logger.warning(
             "batch_query_gen_fallback",
             extra={"expected": len(requests), "got": len(cleaned)},
@@ -303,13 +419,19 @@ class RouterNode:
         domain_hints: list[str] | None = None,
         force_web: bool = False,
         skip_web: bool = False,
+        preferred_web_scopes: list[str] | None = None,
     ) -> list[UnifiedResult]:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
+        web_query = query[:80]
+        if preferred_web_scopes and not skip_web:
+            scope_suffix = " ".join(preferred_web_scopes[:2])
+            web_query = f"{web_query} {scope_suffix}"
+
         results = await retrieve_unified(
             query=query,
             difficulty=difficulty,
             top_k=MAX_DOCS_PER_QUERY,
-            web_query=query[:80],
+            web_query=web_query,
             domain_hints=domain_hints,
             force_web=force_web,
             skip_web=skip_web,
@@ -334,17 +456,24 @@ class RouterNode:
         requests: list[dict[str, Any]],
         task_context: str = "",
         difficulty: float = 0.5,
+        taxonomy_metadata: dict[str, Any] | None = None,
     ) -> list[EvidencePacket]:
         """Dispatch independent evidence requests concurrently.
 
-        Phase 1: batch all query generation into a single LLM call.
-        Phase 2: parallel retrieve + summarize + refine for each query.
+        When multi-query is enabled, each request generates its own variants
+        internally. Otherwise, batch query generation is used.
         """
-        queries = await self.batch_generate_queries(requests, task_context)
-        tasks = [
-            self.handle_single_request(req, task_context, difficulty, precomputed_query=q)
-            for req, q in zip(requests, queries)
-        ]
+        if settings.router_multi_query_enabled:
+            tasks = [
+                self.handle_single_request(req, task_context, difficulty, taxonomy_metadata=taxonomy_metadata)
+                for req in requests
+            ]
+        else:
+            queries = await self.batch_generate_queries(requests, task_context)
+            tasks = [
+                self.handle_single_request(req, task_context, difficulty, precomputed_query=q)
+                for req, q in zip(requests, queries)
+            ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         packets: list[EvidencePacket] = []
         for r in results:
@@ -354,17 +483,74 @@ class RouterNode:
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
         return packets
 
+    async def _multi_query_retrieve(
+        self,
+        variants: list[str],
+        difficulty: float,
+        domain_hints: list[str] | None = None,
+        skip_web: bool = False,
+        preferred_web_scopes: list[str] | None = None,
+    ) -> list[UnifiedResult]:
+        """Retrieve using multiple query variants and merge via RRF."""
+        if len(variants) <= 1:
+            return await self.retrieve(
+                variants[0],
+                difficulty,
+                domain_hints=domain_hints,
+                skip_web=skip_web,
+                preferred_web_scopes=preferred_web_scopes,
+            )
+
+        tasks = [
+            self.retrieve(
+                q,
+                difficulty,
+                domain_hints=domain_hints,
+                skip_web=skip_web,
+                preferred_web_scopes=preferred_web_scopes,
+            )
+            for q in variants
+        ]
+        all_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        per_query_results: list[list[UnifiedResult]] = []
+        for r in all_results:
+            if isinstance(r, list):
+                per_query_results.append(r)
+            elif isinstance(r, Exception):
+                logger.debug("multi_query_retrieve_error", extra={"error": str(r)[:100]})
+
+        if not per_query_results:
+            return []
+        if len(per_query_results) == 1:
+            return per_query_results[0]
+
+        return _rrf_merge(per_query_results, k=60)
+
     async def handle_single_request(
         self,
         evidence_request: dict[str, Any],
         task_context: str = "",
         difficulty: float = 0.5,
         precomputed_query: str | None = None,
+        taxonomy_metadata: dict[str, Any] | None = None,
     ) -> EvidencePacket:
         """Full pipeline for one evidence request: query → cache → retrieve → summarize → refine."""
-        query = precomputed_query or await self.generate_query(evidence_request, task_context)
         domain_hints = evidence_request.get("domain_hints") or []
         skip_web = evidence_request.get("skip_web", False)
+
+        preferred_web_scopes: list[str] = []
+        if taxonomy_metadata:
+            from ..taxonomy_prompt_factory import get_preferred_web_scopes
+
+            preferred_web_scopes = get_preferred_web_scopes(taxonomy_metadata)
+
+        if settings.router_multi_query_enabled and not precomputed_query:
+            variants = await self.generate_query_variants(evidence_request, task_context, taxonomy_metadata)
+            query = variants[0]
+        else:
+            query = precomputed_query or await self.generate_query(evidence_request, task_context)
+            variants = [query]
 
         cached = await self.cache.aget(query)
         if cached is not None:
@@ -372,7 +558,13 @@ class RouterNode:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
             return cached
 
-        raw_results = await self.retrieve(query, difficulty, domain_hints=domain_hints, skip_web=skip_web)
+        raw_results = await self._multi_query_retrieve(
+            variants,
+            difficulty,
+            domain_hints=domain_hints,
+            skip_web=skip_web,
+            preferred_web_scopes=preferred_web_scopes,
+        )
         packet = await self.summarize(query, raw_results)
         packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
 
@@ -385,7 +577,13 @@ class RouterNode:
                 if evidence_request.get("section_id") is not None:
                     packet = packet.model_copy(update={"section_id": evidence_request["section_id"]})
                 break
-            raw_results = await self.retrieve(refined_query, difficulty, domain_hints=domain_hints, skip_web=skip_web)
+            raw_results = await self.retrieve(
+                refined_query,
+                difficulty,
+                domain_hints=domain_hints,
+                skip_web=skip_web,
+                preferred_web_scopes=preferred_web_scopes,
+            )
             packet = await self.summarize(refined_query, raw_results)
             packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             query = refined_query
@@ -428,6 +626,7 @@ class RouterNode:
         task_desc = state.get("task_description", "")
         user_task = state.get("user_task") or {}
         difficulty = state.get("difficulty", 0.5)
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
         task_context = f"{task_desc}\n{json.dumps(user_task, default=str)[:500]}"
 
         evidence_requests = state.get("evidence_requests") or []
@@ -442,7 +641,7 @@ class RouterNode:
         if not requests:
             requests = [{"description": task_desc, "domain_hints": user_task.get("domain_tags", [])}]
 
-        packets = await self.parallel_dispatch(requests, task_context, difficulty)
+        packets = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
         packets = self.dedupe(packets)
 
         next_node = self._decide_next_node(state)
@@ -491,44 +690,31 @@ class RouterNode:
         user_task = state.get("user_task") or {}
         task_desc = state.get("task_description", "")
         domain_tags = user_task.get("domain_tags") or []
+        technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
+
+        base = {
+            "domain_hints": domain_tags,
+            "technologies": technologies,
+            "skip_web": skip_web,
+        }
 
         requests = []
         main_q = user_task.get("main_question", task_desc)
         if main_q:
-            requests.append(
-                {
-                    "description": main_q,
-                    "domain_hints": domain_tags,
-                    "skip_web": skip_web,
-                }
-            )
+            requests.append({**base, "description": main_q})
 
         deliverables = user_task.get("deliverables") or []
         if len(deliverables) > 10:
             for batch_idx in range(0, len(deliverables), 3):
                 batch = deliverables[batch_idx : batch_idx + 3]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
-                requests.append(
-                    {
-                        "section_id": batch_idx,
-                        "description": combined,
-                        "domain_hints": domain_tags,
-                        "skip_web": skip_web,
-                    }
-                )
+                requests.append({**base, "section_id": batch_idx, "description": combined})
         else:
             for i, d in enumerate(deliverables):
-                requests.append(
-                    {
-                        "section_id": i,
-                        "description": d if isinstance(d, str) else str(d),
-                        "domain_hints": domain_tags,
-                        "skip_web": skip_web,
-                    }
-                )
+                requests.append({**base, "section_id": i, "description": d if isinstance(d, str) else str(d)})
 
-        return requests if requests else [{"description": task_desc, "domain_hints": domain_tags, "skip_web": skip_web}]
+        return requests if requests else [{**base, "description": task_desc}]
 
     # ----- Helpers -----
 
@@ -591,6 +777,30 @@ class RouterNode:
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             logger.warning("evidence_packet_parse_fallback", extra={"error": str(exc)[:200]})
             return _fallback_packet(query, raw_results)
+
+
+def _rrf_merge(
+    per_query_results: list[list[UnifiedResult]],
+    k: int = 60,
+) -> list[UnifiedResult]:
+    """Reciprocal Rank Fusion across multiple query result lists."""
+    scores: dict[str, float] = {}
+    result_map: dict[str, UnifiedResult] = {}
+
+    for results in per_query_results:
+        for rank, r in enumerate(results):
+            key = r.source_url or f"text:{r.text[:80]}"
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
+            if key not in result_map or r.score > result_map[key].score:
+                result_map[key] = r
+
+    sorted_keys = sorted(scores, key=lambda x: scores[x], reverse=True)
+    merged: list[UnifiedResult] = []
+    for key in sorted_keys[:MAX_DOCS_PER_QUERY]:
+        r = result_map[key]
+        r.score = scores[key]
+        merged.append(r)
+    return merged
 
 
 def _fallback_packet(query: str, raw_results: list[UnifiedResult]) -> EvidencePacket:

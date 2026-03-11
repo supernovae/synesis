@@ -36,6 +36,42 @@ logger = logging.getLogger("synesis.rag")
 # Schema must match base/rag/indexer/app/schema.py for indexer compatibility.
 SYNESIS_CATALOG = "synesis_catalog"
 
+# ---------------------------------------------------------------------------
+# Lightweight suffix-stripping stemmer (no NLTK dependency)
+# Handles common English inflections: architecture/architectural,
+# design/designing/designed, etc. Applied to BM25 corpus and query tokens.
+# ---------------------------------------------------------------------------
+_STEM_SUFFIXES = (
+    "ational",
+    "izing",
+    "ation",
+    "ness",
+    "ment",
+    "ible",
+    "able",
+    "ical",
+    "ful",
+    "ous",
+    "ive",
+    "ing",
+    "ies",
+    "ed",
+    "ly",
+    "al",
+    "er",
+    "es",
+    "s",
+)
+
+
+def _stem(word: str) -> str:
+    """Strip common English suffixes, preserving a root of >= 3 chars."""
+    for suffix in _STEM_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)]
+    return word
+
+
 _http_client: httpx.AsyncClient | None = None
 _http_client_lock = asyncio.Lock()
 
@@ -132,6 +168,8 @@ class _CachedChunk:
     document_name: str = ""
     handler: str = ""
     source_type: str = ""
+    keywords: str = ""
+    tags: str = ""
 
 
 _BM25_OUTPUT_FIELDS = [
@@ -147,6 +185,8 @@ _BM25_OUTPUT_FIELDS = [
     "chunk_summary",
     "handler",
     "source_type",
+    "keywords",
+    "tags",
 ]
 
 _MILVUS_TIMEOUT = 10
@@ -169,19 +209,26 @@ class BM25Index:
         self._last_refresh: dict[str, float] = {}
 
     def _tokenize(self, text: str) -> list[str]:
-        return text.lower().split()
+        return [_stem(w) for w in text.lower().split()]
 
     @staticmethod
     def _enriched_text(chunk: _CachedChunk) -> str:
-        """Build enriched BM25 corpus text: heading_path + chunk_summary + text.
+        """Build enriched BM25 corpus text from all searchable metadata.
 
-        Richer keyword matching from headings, summaries, and document names.
+        Includes heading_path, chunk_summary, document_name, keywords,
+        tags, and the full text for maximum recall.
         """
         parts = []
         if chunk.heading_path:
             parts.append(chunk.heading_path)
         if chunk.chunk_summary:
             parts.append(chunk.chunk_summary)
+        if chunk.document_name:
+            parts.append(chunk.document_name)
+        if chunk.keywords:
+            parts.append(chunk.keywords)
+        if chunk.tags:
+            parts.append(chunk.tags)
         parts.append(chunk.text)
         return " ".join(parts)
 
@@ -254,6 +301,8 @@ class BM25Index:
                             document_name=row.get("document_name", ""),
                             handler=row.get("handler", ""),
                             source_type=row.get("source_type", ""),
+                            keywords=row.get("keywords", ""),
+                            tags=row.get("tags", ""),
                         )
                     )
             iterator.close()

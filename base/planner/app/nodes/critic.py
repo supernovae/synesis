@@ -458,13 +458,19 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "does not incorporate or reference it meaningfully.\n"
                     "Critical (non_answer, partial_answer with 3+ missed requirements) "
                     "→ approved=false.\n"
-                    "Depth (insufficient_depth or evidence_underuse on 2+ sections for "
-                    "difficulty >= 0.6) → approved=false."
+                    "Depth (insufficient_depth or evidence_underuse on ANY section for "
+                    "difficulty >= 0.7, or 2+ sections for difficulty >= 0.6) → approved=false.\n"
+                    "Short responses (< 3000 chars) at difficulty >= 0.7 with "
+                    "insufficient_depth → approved=false."
                 )
                 scoring_block = (
                     "SCORING (1-10 for each, compute weighted_overall):\n"
-                    "task_faithfulness (0.30), constraint_compliance (0.25), "
-                    "coverage (0.25), judgment_quality (0.15), grounding (0.05)."
+                    "task_faithfulness (0.25), constraint_compliance (0.20), "
+                    "coverage (0.25), judgment_quality (0.10), grounding (0.10), "
+                    "evidence_utilization (0.10).\n"
+                    "evidence_utilization: Does the response meaningfully incorporate "
+                    "the evidence packets provided, rather than generating from general "
+                    "knowledge alone? Score low if evidence is available but ignored."
                 )
 
             doc_system = f"""You are a quality gate. Decide whether the response is good enough to ship.
@@ -496,7 +502,7 @@ The response may contain section markers (<!-- section: ... -->). For each marke
 Reply with JSON:
 - requirement_coverage: [{{requirement, status: "met"|"partial"|"missed", evidence}}]
 - failure_modes: []
-- scores: {{task_faithfulness, constraint_compliance, coverage, judgment_quality, grounding, weighted_overall}}
+- scores: {{task_faithfulness, constraint_compliance, coverage, judgment_quality, grounding, evidence_utilization, weighted_overall}}
 - repair_instructions: [{{priority: 1-5, target, action, reason}}]
 - overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks"""
 
@@ -560,12 +566,32 @@ Reply with JSON:
                     critical_failures.add("partial_answer")
 
                 # Depth gate: for hard tasks, insufficient_depth/evidence_underuse
-                # on multiple sections is a blocking issue (ResearchRubrics + ARES)
+                # is a blocking issue (ResearchRubrics + ARES)
                 depth_failures = {"insufficient_depth", "evidence_underuse"} & set(failure_modes)
                 if depth_failures and difficulty >= 0.6:
                     depth_count = sum(1 for f in failure_modes if f in depth_failures)
-                    if depth_count >= 2:
+                    response_len = len(generated_code)
+                    hard_task_shallow = difficulty >= 0.7 and (depth_count >= 1 or response_len < 3000)
+                    if hard_task_shallow or depth_count >= 2:
                         critical_failures.update(depth_failures)
+
+                # Deterministic evidence citation rate check: if < 30% of
+                # evidence packets are cited at difficulty >= 0.6, flag underuse
+                if difficulty >= 0.6 and packets and "evidence_underuse" not in failure_modes:
+                    packet_uris: set[str] = set()
+                    for pkt in packets:
+                        srcs = pkt.get("sources", []) if isinstance(pkt, dict) else getattr(pkt, "sources", [])
+                        for s in srcs:
+                            uri = s.get("uri", "") if isinstance(s, dict) else getattr(s, "uri", "")
+                            if uri and uri.startswith("http"):
+                                packet_uris.add(uri)
+                    if packet_uris:
+                        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", generated_code))
+                        citation_rate = len(cited & packet_uris) / len(packet_uris)
+                        if citation_rate < 0.3:
+                            failure_modes.append("evidence_underuse")
+                            if difficulty >= 0.7:
+                                critical_failures.add("evidence_underuse")
 
                 if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
                     doc_approved = True

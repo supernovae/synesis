@@ -1468,6 +1468,27 @@ software_architecture:
     - "Technology Choices & Rationale"
     - "Implementation Path"
     - "Key Risks"
+  query_expansion_hints:
+    - "ADR"
+    - "architecture decision record"
+    - "system design"
+    - "component diagram"
+    - "design proposal"
+    - "tradeoff analysis"
+    - "failure modes"
+    - "microservices"
+    - "event-driven"
+  preferred_web_scopes:
+    - "site:martinfowler.com"
+    - "site:microservices.io"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure like a technical architecture document: start with design goals
+    and constraints, then components and their interactions, then technology
+    choices with rationale (chosen approach + why alternatives were rejected),
+    then implementation path with concrete milestones, then key risks with
+    detection strategies. Every recommendation must be concrete and justified.
+    Include a mermaid architecture diagram.
 
 # ─── Engineering: Cloud Architecture ──────────────────────────────────────────
 
@@ -1491,6 +1512,24 @@ cloud:
     - "Tradeoffs & Alternatives"
     - "Implementation Path"
     - "Key Risks"
+  query_expansion_hints:
+    - "cloud architecture"
+    - "well-architected framework"
+    - "infrastructure as code"
+    - "high availability"
+    - "disaster recovery"
+    - "cost optimization"
+    - "service mesh"
+  preferred_web_scopes:
+    - "site:docs.aws.amazon.com"
+    - "site:cloud.google.com"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as a cloud architecture proposal: design goals and SLAs, service
+    topology with a mermaid diagram, specific service names and configurations,
+    cost estimates with stated assumptions, implementation phases, and
+    operational runbook items. Prefer concrete service names over abstract
+    categories.
 
 # ─── Engineering: Kubernetes & Container Orchestration ────────────────────────
 
@@ -1513,6 +1552,24 @@ kubernetes:
     - "Networking & Security"
     - "Observability & Operations"
     - "Tradeoffs"
+  query_expansion_hints:
+    - "container orchestration"
+    - "pod scheduling"
+    - "service mesh"
+    - "Helm chart"
+    - "operator pattern"
+    - "resource limits"
+    - "network policy"
+  preferred_web_scopes:
+    - "site:kubernetes.io"
+    - "site:docs.openshift.com"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as a platform engineering guide: architecture overview with
+    mermaid pod/service topology, specific manifest examples, resource
+    configurations with concrete values, networking and security policies,
+    observability stack with tool names, and operational runbook items.
+    Include YAML snippets for critical configurations.
 
 # ─── Engineering: Data & Storage ──────────────────────────────────────────────
 
@@ -1534,6 +1591,20 @@ databases:
     - "Access Patterns & Performance"
     - "Consistency & Durability"
     - "Tradeoffs"
+  query_expansion_hints:
+    - "schema design"
+    - "indexing strategy"
+    - "replication"
+    - "sharding"
+    - "CAP theorem"
+    - "ACID"
+    - "data migration"
+  output_style: "data_architecture"
+  output_style_guidance: >-
+    Structure as a data architecture document: data model with ER or schema
+    diagram, access pattern analysis with read/write ratios, storage engine
+    comparison table, consistency and durability guarantees, migration path,
+    and operational considerations. Include concrete schema examples.
 
 # ─── Engineering: Networking ──────────────────────────────────────────────────
 
@@ -1572,6 +1643,19 @@ web_backend:
     - "Error Handling & Observability"
     - "Performance Considerations"
     - "Tradeoffs"
+  query_expansion_hints:
+    - "REST API design"
+    - "middleware"
+    - "authentication"
+    - "rate limiting"
+    - "database connection pooling"
+    - "error handling patterns"
+  output_style: "backend_guide"
+  output_style_guidance: >-
+    Structure as a backend engineering guide: API design with endpoint
+    examples, error handling strategy, middleware chain, database access
+    patterns, authentication flow, and production readiness checklist.
+    Include code snippets for critical patterns.
 
 # ─── Engineering: Web Frontend ────────────────────────────────────────────────
 
@@ -1606,6 +1690,20 @@ ml_ops:
     - "Data Pipeline"
     - "Monitoring & Drift Detection"
     - "Cost & Performance Tradeoffs"
+  query_expansion_hints:
+    - "model serving"
+    - "inference optimization"
+    - "experiment tracking"
+    - "feature store"
+    - "model registry"
+    - "GPU utilization"
+    - "data pipeline"
+  output_style: "ml_architecture"
+  output_style_guidance: >-
+    Structure as an ML infrastructure proposal: model sizing with memory
+    and compute estimates, training and serving topology, data pipeline
+    with freshness guarantees, monitoring and drift detection strategy,
+    and cost analysis with GPU/compute breakdown.
 
 # ─── Engineering: Embedded Systems ────────────────────────────────────────────
 

@@ -671,6 +671,7 @@ class CriticScores(BaseModel):
     coverage: float = Field(ge=0, le=10, default=5.0)
     judgment_quality: float = Field(ge=0, le=10, default=5.0)
     grounding: float = Field(ge=0, le=10, default=5.0)
+    evidence_utilization: float = Field(ge=0, le=10, default=5.0)
     weighted_overall: float = Field(ge=0, le=10, default=5.0)
 
 

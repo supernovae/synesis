@@ -84,6 +84,11 @@ def resolve_taxonomy_metadata(
     if complexity > 0.55 and depth_instructions:
         persona_instructions = f"{persona}. {depth_instructions}"
 
+    query_expansion_hints = list(node_cfg.get("query_expansion_hints") or [])
+    preferred_web_scopes = list(node_cfg.get("preferred_web_scopes") or [])
+    output_style = str(node_cfg.get("output_style", "")).strip()
+    output_style_guidance = str(node_cfg.get("output_style_guidance", "")).strip()
+
     return {
         "path": path,
         "complexity_score": complexity,
@@ -94,6 +99,10 @@ def resolve_taxonomy_metadata(
         "worker_explain_tone": worker_explain_tone,
         "discovery_prompt": discovery_prompt,
         "taxonomy_key": key,
+        "query_expansion_hints": query_expansion_hints,
+        "preferred_web_scopes": preferred_web_scopes,
+        "output_style": output_style,
+        "output_style_guidance": output_style_guidance,
     }
 
 
@@ -281,3 +290,32 @@ def get_intent_critic_block(intent_class: str) -> str:
     if not isinstance(ic_data, dict):
         return ""
     return (ic_data.get("critic_behavior_block") or "").strip()
+
+
+def get_query_expansion_hints(metadata: dict[str, Any]) -> list[str]:
+    """Return domain-specific query expansion terms for retrieval enrichment.
+
+    These terms are appended to the conceptual expansion query variant
+    to improve recall on domain-specific documents (ADRs, RFCs, etc.).
+    """
+    if not metadata:
+        return []
+    return list(metadata.get("query_expansion_hints") or [])[:6]
+
+
+def get_preferred_web_scopes(metadata: dict[str, Any]) -> list[str]:
+    """Return preferred web search scopes (e.g. 'site:martinfowler.com')."""
+    if not metadata:
+        return []
+    return list(metadata.get("preferred_web_scopes") or [])[:3]
+
+
+def get_output_style_guidance(metadata: dict[str, Any]) -> str:
+    """Return domain-specific output format guidance for the writer.
+
+    Shapes the writer's output to match the expected document type
+    (architecture document, platform guide, academic paper, etc.).
+    """
+    if not metadata or _is_large_model():
+        return ""
+    return (metadata.get("output_style_guidance") or "").strip()

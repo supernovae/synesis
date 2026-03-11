@@ -261,6 +261,11 @@ class Settings(BaseSettings):
     # Router summarizer: max tokens for evidence packet summaries
     router_max_summary_tokens: int = 2000
 
+    # Router multi-query expansion (Retrieval Enrichment Pipeline)
+    router_multi_query_enabled: bool = True  # 3 variants per evidence request
+    router_hyde_enabled: bool = True  # HyDE variant (hypothetical document embedding)
+    taxonomy_query_expansion_enabled: bool = True  # expand queries with taxonomy hints
+
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True
 
