@@ -549,6 +549,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": "respond",
         }
 
+    parts: list[str] = []
     scrubbed = state.get("scrubbed_answer", "")
     if scrubbed:
         content = scrubbed
@@ -556,13 +557,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "respond_using_scrubbed_answer",
             extra={"len": len(content)},
         )
-        return {
-            "messages": [AIMessage(content=content)],
-            "current_node": "respond",
-        }
-
-    parts: list[str] = []
-    if error:
+    elif error:
         content = f"I encountered an issue while processing your request: {error}"
         if code:
             content += f"\n\nPartial result:\n```\n{code}\n```"
