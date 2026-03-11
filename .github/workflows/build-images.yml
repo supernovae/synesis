@@ -81,7 +81,7 @@ jobs:
               - 'base/planner/bge-reranker/**'
             indexer:
               - 'base/rag/indexer/**'
-              - 'base/images/base-api/synesis_telemetry/**'
+              - 'base/images/base-api/synesis-telemetry/**'
             keyword-service:
               - 'base/rag/keyword-service/**'
             gliner-service:

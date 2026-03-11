@@ -29,8 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY images/base-api/synesis_telemetry/ /tmp/synesis_telemetry/
-RUN pip install --no-cache-dir /tmp/synesis_telemetry/ && rm -rf /tmp/synesis_telemetry/
+COPY images/base-api/synesis-telemetry/ /tmp/synesis-telemetry/
+RUN pip install --no-cache-dir /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
 
 COPY rag/indexer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
