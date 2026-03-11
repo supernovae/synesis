@@ -138,12 +138,11 @@ def _extract_decisions(
 ) -> list[dict[str, Any]]:
     """Map plan steps into DecisionEntry objects for the decision ledger."""
     entries: list[dict[str, Any]] = []
-    steps = (plan_out.plan or {}).get("steps") or []
+    plan_body = plan_out.plan
+    steps = plan_body.steps if plan_body else []
     for step in steps:
-        if not isinstance(step, dict):
-            continue
-        step_id = step.get("id", len(entries) + 1)
-        action = step.get("action", "")
+        step_id = getattr(step, "id", None) or len(entries) + 1
+        action = getattr(step, "action", "") or ""
         if not action:
             continue
 

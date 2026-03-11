@@ -700,12 +700,15 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Fire background critic when graph skipped it (critic_background=True).
     # Runs asynchronously; results are logged but do not block the response.
+    # Gate on actual content rather than absence of error — recoverable planner
+    # errors should not prevent critic evaluation of a delivered response.
+    has_content = bool(state.get("scrubbed_answer") or state.get("generated_code"))
     if (
         settings.critic_background
         and not state.get("critic_approved")
         and not state.get("critic_feedback")
         and state.get("difficulty", 0.5) >= settings.critic_skip_below_difficulty
-        and not error
+        and has_content
     ):
         _fire_background_critic(dict(state))
 
