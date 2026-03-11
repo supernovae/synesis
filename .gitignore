@@ -105,4 +105,6 @@ docs/*
 !docs/TAXONOMY_DRIVEN_INJECTION.md
 !docs/UDS_SETUP.md
 !docs/performance.md
+!docs/CRITIC_RESEARCH.md
+!docs/EXPERIMENTS.md
 !docs/seed-corpus.json
