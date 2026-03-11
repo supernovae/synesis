@@ -92,14 +92,19 @@ for them. Instead, each section should weave relevant constraints into its analy
     )
 
 
+_planner_extra_body: dict[str, Any] = {}
+if settings.guided_json_enabled:
+    _planner_extra_body["guided_json"] = PlannerOut.model_json_schema()
+
 planner_llm = ChatOpenAI(
     base_url=settings.planner_model_url,
     api_key="not-needed",
     model=settings.planner_model_name,
     temperature=0.2,
     max_completion_tokens=2048,
-    streaming=True,
+    streaming=False,
     use_responses_api=False,
+    model_kwargs={"extra_body": _planner_extra_body} if _planner_extra_body else {},
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 
@@ -390,11 +395,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     confidence=0.2,
                 )
 
-        plan = parsed.plan
+        plan_obj = parsed.plan
+        plan = plan_obj.model_dump() if hasattr(plan_obj, "model_dump") else dict(plan_obj)
         if parsed.open_questions:
-            plan = {**plan, "open_questions": parsed.open_questions}
+            plan["open_questions"] = parsed.open_questions
         if parsed.assumptions:
-            plan = {**plan, "assumptions": parsed.assumptions}
+            plan["assumptions"] = parsed.assumptions
 
         touched_files = getattr(parsed, "touched_files", []) or []
 

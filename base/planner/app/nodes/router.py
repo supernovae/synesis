@@ -132,13 +132,15 @@ Output ONLY the refined query string, nothing else.
 
 
 # ---------------------------------------------------------------------------
-# Router LLM (lazily initialised to avoid import-time side effects)
+# Router LLMs (lazily initialised to avoid import-time side effects)
 # ---------------------------------------------------------------------------
 
 _router_llm: ChatOpenAI | None = None
+_summarizer_llm: ChatOpenAI | None = None
 
 
 def _get_router_llm() -> ChatOpenAI:
+    """Plain router LLM for generate_query / refine_query (free-form text)."""
     global _router_llm
     if _router_llm is None:
         _router_llm = ChatOpenAI(
@@ -151,6 +153,30 @@ def _get_router_llm() -> ChatOpenAI:
             http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
         )
     return _router_llm
+
+
+def _get_summarizer_llm() -> ChatOpenAI:
+    """Router LLM with guided_json for evidence packet summarization."""
+    global _summarizer_llm
+    if _summarizer_llm is None:
+        extra_body: dict[str, Any] = {}
+        if settings.guided_json_enabled:
+            _ep_schema = EvidencePacket.model_json_schema()
+            _ep_schema.pop("title", None)
+            extra_body["guided_json"] = _ep_schema
+
+        _summarizer_llm = ChatOpenAI(
+            base_url=settings.router_model_url,
+            api_key="not-needed",
+            model=settings.router_model_name,
+            temperature=0.0,
+            max_completion_tokens=MAX_SUMMARY_TOKENS,
+            streaming=False,
+            use_responses_api=False,
+            model_kwargs={"extra_body": extra_body} if extra_body else {},
+            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
+        )
+    return _summarizer_llm
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +263,7 @@ class RouterNode:
     async def summarize(self, query: str, results: list[UnifiedResult]) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
-        llm = _get_router_llm()
+        llm = _get_summarizer_llm()
         prompt = SUMMARIZER_PROMPT.format(
             query=query,
             raw_results=results_text,

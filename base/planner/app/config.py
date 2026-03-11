@@ -251,6 +251,9 @@ class Settings(BaseSettings):
     retrieval_cache_backend: str = "numpy"  # "numpy" | "faiss" | "milvus"
     retrieval_cache_warm_on_startup: bool = True
 
+    # Guided JSON decoding — constrains vLLM output to match JSON schema
+    guided_json_enabled: bool = True
+
     # Graph behavior
     max_iterations: int = 3
     oscillation_threshold: float = 0.7  # force-terminate retry loop when oscillation score exceeds this

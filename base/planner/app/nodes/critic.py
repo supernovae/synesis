@@ -274,6 +274,14 @@ _model_kwargs: dict[str, Any] = {}
 if getattr(settings, "critic_stop_sequence", ""):
     _model_kwargs["stop"] = [settings.critic_stop_sequence]
 
+_critic_extra_body: dict[str, Any] = {}
+if settings.guided_json_enabled:
+    from ..schemas import CriticOut as _CriticOutSchema
+
+    _critic_extra_body["guided_json"] = _CriticOutSchema.model_json_schema()
+if _critic_extra_body:
+    _model_kwargs["extra_body"] = _critic_extra_body
+
 critic_llm = ChatOpenAI(
     base_url=settings.critic_model_url,
     api_key="not-needed",

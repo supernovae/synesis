@@ -179,10 +179,29 @@ class RouterDecision(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PlanStep(BaseModel):
+    """A single step in the planner's execution plan."""
+
+    id: int = 0
+    action: str = ""
+    dependencies: list[int] = Field(default_factory=list)
+    files: list[str] = Field(default_factory=list)
+    verification_command: str = ""
+    deliverable_ids: list[int] = Field(default_factory=list)
+
+
+class PlanBody(BaseModel):
+    """Typed plan structure for guided JSON decoding."""
+
+    steps: list[PlanStep] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
 class PlannerOut(BaseModel):
     """Validated output from the Planner node."""
 
-    plan: dict[str, Any] = Field(default_factory=lambda: {"steps": [], "open_questions": [], "assumptions": []})
+    plan: PlanBody = Field(default_factory=PlanBody)
     open_questions: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     reasoning: str = ""
