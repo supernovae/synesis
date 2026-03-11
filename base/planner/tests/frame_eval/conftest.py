@@ -57,6 +57,7 @@ async def _run_live_extractor(prompt: str, difficulty: float = 0.7) -> dict[str,
     Direct module import avoids the heavy __init__ chain (pymilvus, etc.).
     """
     import importlib
+
     mod = importlib.import_module("app.nodes.frame_extractor")
     frame_extractor_node = mod.frame_extractor_node
 

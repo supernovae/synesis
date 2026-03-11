@@ -193,74 +193,158 @@ _SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "twitter.com", "x.com", "r
 # ---------------------------------------------------------------------------
 
 # Tier 1: Primary/official sources — academic, government, official docs
-_TIER1_DOMAINS = frozenset({
-    # Academic / Research
-    "arxiv.org", "scholar.google.com", "pubmed.ncbi.nlm.nih.gov",
-    "jstor.org", "ieee.org", "acm.org", "dl.acm.org",
-    "nature.com", "science.org", "sciencedirect.com",
-    "springer.com", "link.springer.com", "wiley.com",
-    "pnas.org", "cell.com",
-    # Government / Standards
-    "who.int", "iso.org", "nist.gov", "w3.org", "w3c.org",
-    "ietf.org", "rfc-editor.org",
-    # Tech official docs
-    "docs.python.org", "kubernetes.io", "terraform.io",
-    "docs.docker.com", "docs.aws.amazon.com",
-    "cloud.google.com", "learn.microsoft.com",
-    "developer.apple.com", "docs.oracle.com", "docs.github.com",
-    "openai.com", "platform.openai.com", "docs.anthropic.com",
-    "go.dev", "doc.rust-lang.org", "ruby-doc.org",
-    "docs.djangoproject.com", "flask.palletsprojects.com",
-    "react.dev", "angular.io", "vuejs.org", "nodejs.org",
-    # Finance / Legal
-    "sec.gov", "federalreserve.gov", "imf.org", "worldbank.org",
-    # Medical
-    "nih.gov", "cdc.gov", "mayoclinic.org",
-    "nejm.org", "thelancet.com", "bmj.com",
-    # Reference
-    "wikipedia.org", "britannica.com",
-})
+_TIER1_DOMAINS = frozenset(
+    {
+        # Academic / Research
+        "arxiv.org",
+        "scholar.google.com",
+        "pubmed.ncbi.nlm.nih.gov",
+        "jstor.org",
+        "ieee.org",
+        "acm.org",
+        "dl.acm.org",
+        "nature.com",
+        "science.org",
+        "sciencedirect.com",
+        "springer.com",
+        "link.springer.com",
+        "wiley.com",
+        "pnas.org",
+        "cell.com",
+        # Government / Standards
+        "who.int",
+        "iso.org",
+        "nist.gov",
+        "w3.org",
+        "w3c.org",
+        "ietf.org",
+        "rfc-editor.org",
+        # Tech official docs
+        "docs.python.org",
+        "kubernetes.io",
+        "terraform.io",
+        "docs.docker.com",
+        "docs.aws.amazon.com",
+        "cloud.google.com",
+        "learn.microsoft.com",
+        "developer.apple.com",
+        "docs.oracle.com",
+        "docs.github.com",
+        "openai.com",
+        "platform.openai.com",
+        "docs.anthropic.com",
+        "go.dev",
+        "doc.rust-lang.org",
+        "ruby-doc.org",
+        "docs.djangoproject.com",
+        "flask.palletsprojects.com",
+        "react.dev",
+        "angular.io",
+        "vuejs.org",
+        "nodejs.org",
+        # Finance / Legal
+        "sec.gov",
+        "federalreserve.gov",
+        "imf.org",
+        "worldbank.org",
+        # Medical
+        "nih.gov",
+        "cdc.gov",
+        "mayoclinic.org",
+        "nejm.org",
+        "thelancet.com",
+        "bmj.com",
+        # Reference
+        "wikipedia.org",
+        "britannica.com",
+    }
+)
 
 # Tier 2: Established community/industry sources
-_TIER2_DOMAINS = frozenset({
-    # Tech community
-    "github.com", "stackoverflow.com", "stackexchange.com",
-    "sourcegraph.com", "huggingface.co",
-    "pytorch.org", "tensorflow.org",
-    "nginx.org", "redis.io", "postgresql.org",
-    "elastic.co", "grafana.com", "prometheus.io",
-    "cncf.io", "openshift.com", "helm.sh",
-    "hashicorp.com", "ansible.com", "pulumi.com",
-    # Research orgs
-    "research.google", "ai.meta.com", "deepmind.google", "distill.pub",
-    "microsoft.com",
-    # News / Journalism
-    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk",
-    "npr.org", "nytimes.com", "wsj.com",
-    "economist.com", "ft.com", "theguardian.com",
-    "arstechnica.com", "wired.com", "theregister.com",
-    # Industry bodies
-    "linux.org", "linuxfoundation.org",
-    "apache.org", "openssl.org", "owasp.org", "sans.org",
-    # Business / Data
-    "statista.com", "crunchbase.com", "gartner.com", "mckinsey.com",
-    "hbr.org",
-})
+_TIER2_DOMAINS = frozenset(
+    {
+        # Tech community
+        "github.com",
+        "stackoverflow.com",
+        "stackexchange.com",
+        "sourcegraph.com",
+        "huggingface.co",
+        "pytorch.org",
+        "tensorflow.org",
+        "nginx.org",
+        "redis.io",
+        "postgresql.org",
+        "elastic.co",
+        "grafana.com",
+        "prometheus.io",
+        "cncf.io",
+        "openshift.com",
+        "helm.sh",
+        "hashicorp.com",
+        "ansible.com",
+        "pulumi.com",
+        # Research orgs
+        "research.google",
+        "ai.meta.com",
+        "deepmind.google",
+        "distill.pub",
+        "microsoft.com",
+        # News / Journalism
+        "reuters.com",
+        "apnews.com",
+        "bbc.com",
+        "bbc.co.uk",
+        "npr.org",
+        "nytimes.com",
+        "wsj.com",
+        "economist.com",
+        "ft.com",
+        "theguardian.com",
+        "arstechnica.com",
+        "wired.com",
+        "theregister.com",
+        # Industry bodies
+        "linux.org",
+        "linuxfoundation.org",
+        "apache.org",
+        "openssl.org",
+        "owasp.org",
+        "sans.org",
+        # Business / Data
+        "statista.com",
+        "crunchbase.com",
+        "gartner.com",
+        "mckinsey.com",
+        "hbr.org",
+    }
+)
 
 # Tier 4: Blog platforms, content farms, user-generated
-_TIER4_DOMAINS = frozenset({
-    # Blog platforms
-    "medium.com", "dev.to", "towardsdatascience.com",
-    "substack.com", "hashnode.dev",
-    "wordpress.com", "blogger.com", "tumblr.com",
-    "wix.com", "ghost.io",
-    # Content farms / tutorial mills
-    "w3schools.com", "geeksforgeeks.org",
-    "tutorialspoint.com", "javatpoint.com", "baeldung.com",
-    "programiz.com", "guru99.com",
-    # Social / Forum (backup — most are in _SKIP_DOMAINS)
-    "quora.com",
-})
+_TIER4_DOMAINS = frozenset(
+    {
+        # Blog platforms
+        "medium.com",
+        "dev.to",
+        "towardsdatascience.com",
+        "substack.com",
+        "hashnode.dev",
+        "wordpress.com",
+        "blogger.com",
+        "tumblr.com",
+        "wix.com",
+        "ghost.io",
+        # Content farms / tutorial mills
+        "w3schools.com",
+        "geeksforgeeks.org",
+        "tutorialspoint.com",
+        "javatpoint.com",
+        "baeldung.com",
+        "programiz.com",
+        "guru99.com",
+        # Social / Forum (backup — most are in _SKIP_DOMAINS)
+        "quora.com",
+    }
+)
 
 # Suffix-based tier 1 matches (.gov, .edu)
 _TIER1_SUFFIXES = (".gov", ".edu", ".ac.uk", ".edu.au")
@@ -276,6 +360,7 @@ def _domain_authority_tier(url: str) -> tuple[float, str]:
     """
     try:
         from urllib.parse import urlparse
+
         host = (urlparse(url).hostname or "").lower()
     except Exception:
         return 1.0, "external"

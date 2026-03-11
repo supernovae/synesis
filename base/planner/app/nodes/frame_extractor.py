@@ -24,7 +24,7 @@ from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import FirstPassFrame, MissingFieldReport, UserTask
 from ..state import NodeOutcome, NodeTrace
-from .frame_normalizer import needs_second_pass, normalize_frame
+from .frame_normalizer import normalize_frame
 
 logger = logging.getLogger("synesis.frame_extractor")
 
@@ -90,16 +90,22 @@ async def _llm_repair(
         http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
     )
 
-    repair_input = json.dumps({
-        "raw_prompt": raw_text[:2000],
-        "extracted": first_pass.model_dump(),
-        "report": report.model_dump(),
-    }, indent=None, default=str)
+    repair_input = json.dumps(
+        {
+            "raw_prompt": raw_text[:2000],
+            "extracted": first_pass.model_dump(),
+            "report": report.model_dump(),
+        },
+        indent=None,
+        default=str,
+    )
 
-    result = await llm.ainvoke([
-        SystemMessage(content=_REPAIR_SYSTEM),
-        HumanMessage(content=repair_input),
-    ])
+    result = await llm.ainvoke(
+        [
+            SystemMessage(content=_REPAIR_SYSTEM),
+            HumanMessage(content=repair_input),
+        ]
+    )
 
     content = (result.content or "").strip()
     json_start = content.find("{")
@@ -171,8 +177,8 @@ def _build_deterministic_task(
     domain = taxonomy_metadata.get("taxonomy_key", "general")
     required_elements = taxonomy_metadata.get("required_elements") or []
 
-    extracted_deliverables, extracted_constraints, extracted_negative = (
-        _extract_deliverables_from_text(task_description)
+    extracted_deliverables, extracted_constraints, extracted_negative = _extract_deliverables_from_text(
+        task_description
     )
 
     if extracted_deliverables:

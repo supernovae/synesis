@@ -232,7 +232,7 @@ _SELF_NARRATION_RE = re.compile(
 _HEADING_DELIVERABLE_SUFFIX_RE = re.compile(
     r"^(#{1,3}\s+(?:Section:\s*)?)"
     r"(.+?)"
-    r"\s*[—–\-]\s+"
+    r"\s*[—–\-]\s+"  # noqa: RUF001 — intentional en-dash match
     r"(?:outline|describe|explain|propose|list|give|state|provide|detail|cover|specify|discuss)\b"
     r".*$",
     re.MULTILINE | re.IGNORECASE,

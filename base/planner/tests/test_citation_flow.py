@@ -149,14 +149,32 @@ class TestRetrievalProvenance:
             {
                 "section_id": 1,
                 "retrieval_provenance": [
-                    {"summary": "Deploy guide", "authority": "canonical", "heading": "", "doc_name": "vLLM Guide", "source_url": "https://vllm.ai/docs"},
-                    {"summary": "K8s HPA", "authority": "vetted", "heading": "", "doc_name": "K8s Docs", "source_url": "https://k8s.io/docs"},
+                    {
+                        "summary": "Deploy guide",
+                        "authority": "canonical",
+                        "heading": "",
+                        "doc_name": "vLLM Guide",
+                        "source_url": "https://vllm.ai/docs",
+                    },
+                    {
+                        "summary": "K8s HPA",
+                        "authority": "vetted",
+                        "heading": "",
+                        "doc_name": "K8s Docs",
+                        "source_url": "https://k8s.io/docs",
+                    },
                 ],
             },
             {
                 "section_id": 2,
                 "retrieval_provenance": [
-                    {"summary": "Deploy guide", "authority": "canonical", "heading": "", "doc_name": "vLLM Guide", "source_url": "https://vllm.ai/docs"},
+                    {
+                        "summary": "Deploy guide",
+                        "authority": "canonical",
+                        "heading": "",
+                        "doc_name": "vLLM Guide",
+                        "source_url": "https://vllm.ai/docs",
+                    },
                 ],
             },
         ]

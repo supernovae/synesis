@@ -23,7 +23,7 @@ Usage:
 from __future__ import annotations
 
 import pathlib
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -31,7 +31,7 @@ from .conftest import get_frame, load_cases
 
 try:
     from app.nodes.frame_normalizer import needs_second_pass, normalize_frame
-    from app.schemas import FirstPassFrame, MissingFieldReport, RawExtractionCandidate, UserTask
+    from app.schemas import FirstPassFrame, MissingFieldReport, RawExtractionCandidate
 
     _HAS_APP = True
 except Exception:
@@ -61,14 +61,14 @@ class _FrameChecker:
     """
 
     # Old expected key -> new UserTask field name
-    _FIELD_MAP = {
+    _FIELD_MAP: ClassVar[dict[str, str | None]] = {
         "deliverables": "deliverables",
         "constraints": "constraints",
         "context_facts": None,  # dropped — skip checks
         "meta_requirements": "success_criteria",
         "uncertainties": "ambiguities",
     }
-    _SCALAR_MAP = {
+    _SCALAR_MAP: ClassVar[dict[str, str]] = {
         "domain": "domain_tags",
         "output_format": "requested_format",
         "needs_web": "needs_web",
@@ -94,9 +94,7 @@ class _FrameChecker:
         actual = self.frame.get(field, [])
         actual_count = len(actual)
         if actual_count != expected_count:
-            self.failures.append(
-                f"{field} count: expected {expected_count}, got {actual_count} — items: {actual}"
-            )
+            self.failures.append(f"{field} count: expected {expected_count}, got {actual_count} — items: {actual}")
 
     def check_count_min(self, old_field: str, expected_key: str) -> None:
         field = self._get_field(old_field)
@@ -108,9 +106,7 @@ class _FrameChecker:
         actual = self.frame.get(field, [])
         actual_count = len(actual)
         if actual_count < min_count:
-            self.failures.append(
-                f"{field} count_min: expected >= {min_count}, got {actual_count} — items: {actual}"
-            )
+            self.failures.append(f"{field} count_min: expected >= {min_count}, got {actual_count} — items: {actual}")
 
     def check_must_include(self, old_field: str, expected_key: str) -> None:
         field = self._get_field(old_field)
@@ -120,9 +116,7 @@ class _FrameChecker:
         items = self.frame.get(field, [])
         for kw in keywords:
             if not _kw_in_any(kw, items):
-                self.failures.append(
-                    f"{field} must_include: '{kw}' not found in {items}"
-                )
+                self.failures.append(f"{field} must_include: '{kw}' not found in {items}")
 
     def check_must_not_include(self, old_field: str, expected_key: str) -> None:
         field = self._get_field(old_field)
@@ -133,9 +127,7 @@ class _FrameChecker:
         for kw in keywords:
             if _kw_in_any(kw, items):
                 matches = [i for i in items if kw.lower() in i.lower()]
-                self.failures.append(
-                    f"{field} must_not_include: '{kw}' leaked into {field} — matches: {matches}"
-                )
+                self.failures.append(f"{field} must_not_include: '{kw}' leaked into {field} — matches: {matches}")
 
     def check_scalar(self, old_field: str, expected_key: str) -> None:
         new_field = self._SCALAR_MAP.get(old_field, old_field)
@@ -152,14 +144,10 @@ class _FrameChecker:
 
         if isinstance(expected_val, bool):
             if bool(actual_val) != expected_val:
-                self.failures.append(
-                    f"{new_field}: expected {expected_val}, got {actual_val}"
-                )
+                self.failures.append(f"{new_field}: expected {expected_val}, got {actual_val}")
         else:
             if str(actual_val).lower() != str(expected_val).lower():
-                self.failures.append(
-                    f"{new_field}: expected '{expected_val}', got '{actual_val}'"
-                )
+                self.failures.append(f"{new_field}: expected '{expected_val}', got '{actual_val}'")
 
     def run_all(self) -> None:
         """Run all boundary checks."""
@@ -256,7 +244,7 @@ class TestNormalizer:
             ],
             quality_instructions=[self._make_candidate("quality_instruction", "Be concise")],
         )
-        task, report = normalize_frame(frame, "Design a system architecture")
+        task, _report = normalize_frame(frame, "Design a system architecture")
         assert task.main_question == "Design a system"
         assert len(task.deliverables) == 2
         assert "Be concise" in task.success_criteria
@@ -313,7 +301,7 @@ class TestNormalizer:
 
     def test_empty_frame_defaults(self) -> None:
         frame = FirstPassFrame()
-        task, report = normalize_frame(frame, "short")
+        task, _report = normalize_frame(frame, "short")
         assert task.main_question == ""
         assert task.requested_format == "prose"
         assert task.needs_web is False

@@ -13,7 +13,6 @@ Validates:
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # Gap 1 & 4: Section worker prompt — constraint injection + version rule
 # ---------------------------------------------------------------------------
@@ -22,6 +21,7 @@ from __future__ import annotations
 # constraint injection logic.  We avoid importing evidence_gatherer directly
 # because it transitively pulls pydantic_settings / langchain_core.
 # Instead we test the invariants via string checks.
+
 
 def _read_writer_system() -> str:
     """Read the _WRITER_SYSTEM constant from structured_writer.py (replaces section worker)."""
@@ -104,6 +104,7 @@ class TestFrameInjection:
 # Gap 2: Per-section progress status
 # ---------------------------------------------------------------------------
 
+
 def _evidence_gatherer_phase(input_data: dict) -> str:
     """Mirror of main._evidence_gatherer_phase for local testing."""
     action = input_data.get("section_action", "")
@@ -124,15 +125,11 @@ class TestEvidenceGathererPhase:
         assert result == "Researching: Main design goals\u2026"
 
     def test_em_dash_split(self):
-        result = _evidence_gatherer_phase({
-            "section_action": "Model choices \u2014 discuss small vs large models"
-        })
+        result = _evidence_gatherer_phase({"section_action": "Model choices \u2014 discuss small vs large models"})
         assert result == "Researching: Model choices\u2026"
 
     def test_colon_prefix_strip(self):
-        result = _evidence_gatherer_phase({
-            "section_action": "Section: Retrieval mechanism"
-        })
+        result = _evidence_gatherer_phase({"section_action": "Section: Retrieval mechanism"})
         assert result == "Researching: Retrieval mechanism\u2026"
 
     def test_long_topic_truncated(self):
@@ -163,6 +160,7 @@ class TestEvidenceGathererPhase:
 # Gap 3: Critic failure vocabulary
 # ---------------------------------------------------------------------------
 
+
 def _read_critic_vocabulary() -> str:
     """Read the FAILURE MODE VOCABULARY block from critic.py source."""
     import pathlib
@@ -171,7 +169,7 @@ def _read_critic_vocabulary() -> str:
     text = src.read_text()
     marker = "FAILURE MODE VOCABULARY"
     idx = text.index(marker)
-    block = text[idx:idx + 1000]
+    block = text[idx : idx + 1000]
     return block
 
 
@@ -189,7 +187,7 @@ class TestCriticVocabulary:
     def test_genericity_has_description(self):
         block = _read_critic_vocabulary()
         idx = block.index("genericity")
-        nearby = block[idx:idx + 200]
+        nearby = block[idx : idx + 200]
         assert "boilerplate" in nearby.lower() or "any project" in nearby.lower()
 
     def test_unsupported_specificity_has_description(self):
@@ -197,7 +195,7 @@ class TestCriticVocabulary:
         marker = "- unsupported_specificity:"
         assert marker in block, "unsupported_specificity description line missing"
         idx = block.index(marker)
-        nearby = block[idx:idx + 300]
+        nearby = block[idx : idx + 300]
         assert "version" in nearby.lower() or "evidence" in nearby.lower()
 
     def test_original_modes_still_present(self):
@@ -216,6 +214,7 @@ class TestCriticVocabulary:
 # ---------------------------------------------------------------------------
 # Gap 5: Anti-echo — prompts must not preserve user imperative wording
 # ---------------------------------------------------------------------------
+
 
 def _read_repair_system() -> str:
     """Read the _REPAIR_SYSTEM prompt from frame_extractor.py source."""
@@ -343,6 +342,7 @@ class TestAntiEchoCompiler:
 # ---------------------------------------------------------------------------
 # Gap 6: Section cap simplification
 # ---------------------------------------------------------------------------
+
 
 class TestSectionCapSimplified:
     """scaled_max_sections removed; graph uses planner steps capped by max_parallel."""

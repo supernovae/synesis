@@ -104,7 +104,7 @@ def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, Mis
     formats = _dedup_candidates(frame.formats)
     technologies = _dedup_candidates(frame.technologies)
     domain_tags = _dedup_candidates(frame.domain_tags)
-    timeline_signals = _dedup_candidates(frame.timeline_signals)
+    _dedup_candidates(frame.timeline_signals)  # consumed by callers via frame
     quality_instructions = _dedup_candidates(frame.quality_instructions)
     decision_signals = _dedup_candidates(frame.decision_signals)
     escalation_signals = _dedup_candidates(frame.escalation_signals)
@@ -173,11 +173,14 @@ def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, Mis
             low_confidence.append(field_name)
 
     # Build the report
-    should_call = needs_second_pass(frame, MissingFieldReport(
-        missing_critical_fields=missing_critical,
-        conflicting_fields=conflicting,
-        low_confidence_fields=low_confidence,
-    ))
+    should_call = needs_second_pass(
+        frame,
+        MissingFieldReport(
+            missing_critical_fields=missing_critical,
+            conflicting_fields=conflicting,
+            low_confidence_fields=low_confidence,
+        ),
+    )
 
     reasons: list[str] = []
     if missing_critical:
@@ -233,6 +236,4 @@ def needs_second_pass(frame: FirstPassFrame, report: MissingFieldReport) -> bool
         return True
     if len(frame.main_question_candidates) > 2:
         return True
-    if any(v < 0.3 for v in frame.field_confidence_map.values()):
-        return True
-    return False
+    return any(v < 0.3 for v in frame.field_confidence_map.values())

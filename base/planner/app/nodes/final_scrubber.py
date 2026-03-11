@@ -75,9 +75,11 @@ _AUTHORITY_BADGE_RE = re.compile(r"\[(Canonical|Vetted|Community|External)\]", r
 def _protect_fenced_blocks(text: str) -> tuple[str, list[str]]:
     """Replace fenced code blocks with placeholders to protect them from regex cleanup."""
     blocks: list[str] = []
+
     def _stash(m: re.Match) -> str:
         blocks.append(m.group(0))
         return f"\x00FENCED{len(blocks) - 1}\x00"
+
     return _FENCED_BLOCK_RE.sub(_stash, text), blocks
 
 
@@ -217,9 +219,7 @@ def _validate_sources_section(text: str) -> tuple[str, int]:
     # If no inline citations exist, keep the full Sources section
     # (it was built from retrieval provenance, not LLM output)
     if not cited_nums:
-        normalized = _AUTHORITY_BADGE_RE.sub(
-            lambda m: f"[{m.group(1).title()}]", sources_section
-        )
+        normalized = _AUTHORITY_BADGE_RE.sub(lambda m: f"[{m.group(1).title()}]", sources_section)
         return body_before_sources.rstrip() + "\n\n" + normalized.strip() + "\n", 0
 
     # Inline citations exist — prune sources not referenced

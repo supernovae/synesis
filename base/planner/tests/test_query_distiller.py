@@ -10,7 +10,6 @@ Validates:
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 
 from app.query_distiller import (
@@ -109,12 +108,8 @@ class TestDistillFromFrame:
         )
         q_lower = query.lower()
         assert "model choices" in q_lower or "explanation" in q_lower
-        has_problem_term = any(
-            t in q_lower for t in ["assistant", "engineering", "production", "organization"]
-        )
-        has_constraint_term = any(
-            t in q_lower for t in ["budget", "kubernetes", "terraform", "engineers", "limited"]
-        )
+        has_problem_term = any(t in q_lower for t in ["assistant", "engineering", "production", "organization"])
+        has_constraint_term = any(t in q_lower for t in ["budget", "kubernetes", "terraform", "engineers", "limited"])
         assert has_problem_term or has_constraint_term, f"Query lacks problem/constraint terms: {query}"
 
     def test_includes_domain(self):

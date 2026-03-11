@@ -26,10 +26,63 @@ ValidationResult = tuple[bool, list[str]]
 
 
 _STOPWORDS = frozenset(
-    "a an the and or of in on for to is are was be by at from with as it "
-    "this that these those how what when where which who why do does did "
-    "should would could can may might shall will must give list state "
-    "explain describe propose provide detail cover specify discuss outline".split()
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "in",
+        "on",
+        "for",
+        "to",
+        "is",
+        "are",
+        "was",
+        "be",
+        "by",
+        "at",
+        "from",
+        "with",
+        "as",
+        "it",
+        "this",
+        "that",
+        "these",
+        "those",
+        "how",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "do",
+        "does",
+        "did",
+        "should",
+        "would",
+        "could",
+        "can",
+        "may",
+        "might",
+        "shall",
+        "will",
+        "must",
+        "give",
+        "list",
+        "state",
+        "explain",
+        "describe",
+        "propose",
+        "provide",
+        "detail",
+        "cover",
+        "specify",
+        "discuss",
+        "outline",
+    ]
 )
 
 

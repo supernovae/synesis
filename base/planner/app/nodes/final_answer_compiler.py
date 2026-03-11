@@ -114,10 +114,7 @@ def _strip_echoed_headings(text: str, section_text: str) -> str:
     """Remove lines from intro/conclusion that duplicate section headings."""
     if not text:
         return text
-    section_headings = {
-        h.group().strip().lower()
-        for h in _SECTION_HEADING_RE.finditer(section_text)
-    }
+    section_headings = {h.group().strip().lower() for h in _SECTION_HEADING_RE.finditer(section_text)}
     if not section_headings:
         return text
 
@@ -126,15 +123,12 @@ def _strip_echoed_headings(text: str, section_text: str) -> str:
     for line in lines:
         stripped = line.strip().lower()
         if stripped.startswith("#") and any(
-            stripped == h or stripped.rstrip(":") == h.rstrip(":")
-            for h in section_headings
+            stripped == h or stripped.rstrip(":") == h.rstrip(":") for h in section_headings
         ):
             continue
         # Also strip truncated heading echoes (e.g. first 80 chars of a heading)
         if stripped.startswith("#") and any(
-            stripped[:60] in h or h[:60] in stripped
-            for h in section_headings
-            if len(h) > 20
+            stripped[:60] in h or h[:60] in stripped for h in section_headings if len(h) > 20
         ):
             continue
         kept.append(line)
@@ -337,17 +331,20 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
 
     if use_light_mode:
         return await _light_compile(
-            section_text, state, task_block, source_inventory, verbosity,
-            writer_url, writer_name, model_context, start, node_name,
+            section_text,
+            state,
+            task_block,
+            source_inventory,
+            verbosity,
+            writer_url,
+            writer_name,
+            model_context,
+            start,
+            node_name,
         )
 
     # Full rewrite mode — sections fit in context
-    user_msg = (
-        f"{task_block}\n"
-        f"Target verbosity: {verbosity}\n\n"
-        f"## Approved Sections\n{section_text}"
-        f"{source_inventory}"
-    )
+    user_msg = f"{task_block}\nTarget verbosity: {verbosity}\n\n## Approved Sections\n{section_text}{source_inventory}"
 
     estimated_input_tokens = (len(_COMPILER_SYSTEM) + len(user_msg)) // 4
     available_output = model_context - estimated_input_tokens - 256
@@ -457,12 +454,7 @@ async def _light_compile(
     """
     outline = _extract_section_outline(section_text)
 
-    user_msg = (
-        f"{task_block}\n"
-        f"Target verbosity: {verbosity}\n\n"
-        f"## Section Outline\n{outline}"
-        f"{source_inventory}"
-    )
+    user_msg = f"{task_block}\nTarget verbosity: {verbosity}\n\n## Section Outline\n{outline}{source_inventory}"
 
     estimated_input = (len(_LIGHT_COMPILER_SYSTEM) + len(user_msg)) // 4
     budget = min(2048, model_context - estimated_input - 256)
@@ -523,7 +515,10 @@ async def _light_compile(
 
         # If the conclusion is mostly headings or outline-like, discard it.
         conclusion_lines = [l for l in conclusion.split("\n") if l.strip()]
-        if conclusion_lines and sum(1 for l in conclusion_lines if l.strip().startswith("#")) > len(conclusion_lines) * 0.3:
+        if (
+            conclusion_lines
+            and sum(1 for l in conclusion_lines if l.strip().startswith("#")) > len(conclusion_lines) * 0.3
+        ):
             logger.info("compiler_light_discarding_outline_conclusion")
             conclusion = ""
 
