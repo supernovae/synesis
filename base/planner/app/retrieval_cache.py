@@ -25,7 +25,7 @@ import time
 import numpy as np
 from pydantic import BaseModel, Field
 
-from .embed_client import EmbedClient
+from .embed_client import AsyncEmbedClient, EmbedClient
 from .semantic_index import IndexEntry, NumpySemanticIndex, SemanticIndex
 from .state import EvidencePacket
 
@@ -73,10 +73,12 @@ class HybridRetrievalCache:
         max_entries: int = 512,
         similarity_threshold: float = 0.85,
         confidence_threshold: float = 0.6,
+        async_embed_client: AsyncEmbedClient | None = None,
     ) -> None:
         self._exact: dict[str, CacheEntry] = {}
         self._index = semantic_index
         self._embed = embed_client
+        self._async_embed = async_embed_client
         self._ttl = ttl_seconds
         self._max = max_entries
         self._sim_thresh = similarity_threshold
@@ -134,6 +136,88 @@ class HybridRetrievalCache:
 
         try:
             embedding = self._embed.embed([query], normalize=True)
+        except Exception:
+            logger.warning("cache_embed_failed_on_put", exc_info=True)
+            embedding = np.empty((0, 0), dtype=np.float32)
+
+        now = time.time()
+        entry = CacheEntry(
+            evidence_packet=packet,
+            query_string=query,
+            normalized_key=key,
+            timestamp=now,
+            confidence=packet.confidence,
+        )
+
+        with self._lock:
+            self._exact[key] = entry
+            if embedding.size > 0:
+                idx_entry = IndexEntry(
+                    query_string=query,
+                    embedding=embedding[0].tolist(),
+                    evidence_packet=packet,
+                    timestamp=now,
+                    confidence=packet.confidence,
+                )
+                self._index.insert(idx_entry)
+            self._evict()
+
+    async def aget(self, query: str) -> EvidencePacket | None:
+        """Async version of get() — uses AsyncEmbedClient for semantic lookup."""
+        key = self._normalize_key(query)
+
+        with self._lock:
+            entry = self._exact.get(key)
+            if entry is not None and self._validate(entry):
+                entry.usage_count += 1
+                self._stats.exact_hits += 1
+                return entry.evidence_packet
+
+            if self._is_structured_query(query):
+                self._stats.bypasses += 1
+                self._stats.misses += 1
+                return None
+
+        try:
+            embed = self._async_embed or self._embed
+            if isinstance(embed, AsyncEmbedClient):
+                embedding = await embed.embed([query], normalize=True)
+            else:
+                embedding = embed.embed([query], normalize=True)
+            if embedding.size == 0:
+                with self._lock:
+                    self._stats.misses += 1
+                return None
+        except Exception:
+            logger.warning("cache_embed_failed", exc_info=True)
+            with self._lock:
+                self._stats.misses += 1
+            return None
+
+        with self._lock:
+            results = self._index.search(embedding[0], top_k=1)
+            if results:
+                hit_entry, similarity = results[0]
+                if similarity >= self._sim_thresh:
+                    cache_entry = self._exact.get(self._normalize_key(hit_entry.query_string))
+                    if cache_entry and self._validate(cache_entry, similarity):
+                        cache_entry.usage_count += 1
+                        self._stats.semantic_hits += 1
+                        return cache_entry.evidence_packet
+
+            self._stats.misses += 1
+            return None
+
+    async def aput(self, query: str, packet: EvidencePacket) -> None:
+        """Async version of put() — uses AsyncEmbedClient for embedding."""
+        key = self._normalize_key(query)
+
+        try:
+            embed = self._async_embed or self._embed
+            if isinstance(embed, AsyncEmbedClient):
+                embedding = await embed.embed([query], normalize=True)
+            else:
+                embedding = embed.embed([query], normalize=True)
         except Exception:
             logger.warning("cache_embed_failed_on_put", exc_info=True)
             embedding = np.empty((0, 0), dtype=np.float32)
@@ -256,11 +340,12 @@ def get_retrieval_cache() -> HybridRetrievalCache:
     global _cache
     if _cache is None:
         from .config import settings
-        from .embed_client import get_embed_client
+        from .embed_client import get_async_embed_client, get_embed_client
 
         _cache = HybridRetrievalCache(
             semantic_index=NumpySemanticIndex(),
             embed_client=get_embed_client(),
+            async_embed_client=get_async_embed_client(),
             ttl_seconds=settings.retrieval_cache_ttl,
             max_entries=settings.retrieval_cache_max_entries,
             similarity_threshold=settings.retrieval_cache_similarity_threshold,

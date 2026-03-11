@@ -1,11 +1,14 @@
 """Synesis LangGraph -- the core orchestration loop.
 
 All paths:
-  [User] -> EntryClassifier -> StrategicAdvisor -> FrameExtractor -> Router
-  -> Planner -> Router -> Executor/Writer -> Critic -> FinalScrubber -> Respond
+  [User] -> EntryPipeline (Classifier + Advisor || FrameExtractor) -> Router
+  -> Planner -> Router -> Executor/Writer -> FinalScrubber -> Respond
 
 The Router is the single retrieval orchestrator. No other node touches
 retrieval backends (rag_client, web_search, unified_retrieval).
+
+When critic_background=True (default), critic runs asynchronously after
+the response is delivered. When inline, writer -> critic -> scrubber.
 """
 
 from __future__ import annotations
@@ -29,14 +32,12 @@ from .contract_validator import (
 )
 from .nodes import (
     critic_node,
-    entry_classifier_node,
+    entry_pipeline_node,
     executor_node,
     final_scrubber_node,
-    frame_extractor_node,
     patch_integrity_gate_node,
     planner_node,
     router_node,
-    strategic_advisor_node,
     writer_node,
 )
 from .oscillation_detector import detect_oscillation
@@ -138,8 +139,8 @@ def with_timeout(timeout_seconds: float):
 # ---------------------------------------------------------------------------
 
 
-def route_after_entry_classifier(state: dict[str, Any]) -> str:
-    """After entry classifier + strategic advisor + frame extractor -> always router.
+def route_after_entry_pipeline(state: dict[str, Any]) -> str:
+    """After entry pipeline (classifier + advisor || frame_extractor) -> router.
 
     The Router handles all retrieval and decides the next step.
     """
@@ -204,7 +205,14 @@ def route_after_executor(state: dict[str, Any]) -> str:
 
 
 def route_after_writer(state: dict[str, Any]) -> str:
-    """After writer: critic if difficulty warrants it, else scrubber."""
+    """After writer: critic if difficulty warrants it, else scrubber.
+
+    When critic_background is True, critic is skipped in the graph and
+    fired as a background task from respond_node instead.  The user sees
+    the response immediately; critic results are logged asynchronously.
+    """
+    if settings.critic_background:
+        return "final_scrubber"
     difficulty = state.get("difficulty", 0.5)
     if difficulty < settings.critic_skip_below_difficulty:
         return "final_scrubber"
@@ -690,10 +698,57 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         },
     )
 
+    # Fire background critic when graph skipped it (critic_background=True).
+    # Runs asynchronously; results are logged but do not block the response.
+    if (
+        settings.critic_background
+        and not state.get("critic_approved")
+        and not state.get("critic_feedback")
+        and state.get("difficulty", 0.5) >= settings.critic_skip_below_difficulty
+        and not error
+    ):
+        _fire_background_critic(dict(state))
+
     return {
         "messages": [AIMessage(content=content)],
         "current_node": "respond",
     }
+
+
+# ---------------------------------------------------------------------------
+# Background critic
+# ---------------------------------------------------------------------------
+
+_bg_critic_tasks: set[asyncio.Task[None]] = set()
+
+
+def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
+    """Schedule the critic to run as a background task outside the graph.
+
+    The task logs results via structured logging but never feeds back into
+    the current response.  Anti-oscillation and feedback loop data is still
+    captured for downstream analysis.
+    """
+
+    async def _run() -> None:
+        try:
+            result = await critic_node(state_snapshot)
+            scores = result.get("critic_scores") or {}
+            logger.info(
+                "background_critic_complete",
+                extra={
+                    "run_id": state_snapshot.get("run_id", ""),
+                    "weighted_overall": scores.get("weighted_overall", 0.0),
+                    "blocking_issues": len(result.get("blocking_issues") or []),
+                    "approved": result.get("critic_approved", False),
+                },
+            )
+        except Exception:
+            logger.warning("background_critic_failed", exc_info=True)
+
+    task = asyncio.create_task(_run())
+    _bg_critic_tasks.add(task)
+    task.add_done_callback(_bg_critic_tasks.discard)
 
 
 # ---------------------------------------------------------------------------
@@ -704,9 +759,7 @@ timeout = settings.node_timeout_seconds
 
 graph_builder = StateGraph(GraphState)
 
-graph_builder.add_node("entry_classifier", with_telemetry_node(with_timeout(timeout)(entry_classifier_node)))
-graph_builder.add_node("strategic_advisor", with_telemetry_node(with_timeout(timeout)(strategic_advisor_node)))
-graph_builder.add_node("frame_extractor", with_telemetry_node(with_timeout(timeout)(frame_extractor_node)))
+graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeout)(entry_pipeline_node)))
 graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
 graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
 graph_builder.add_node(
@@ -737,13 +790,11 @@ graph_builder.add_node(
 graph_builder.add_node("final_scrubber", with_telemetry_node(with_timeout(timeout)(final_scrubber_node)))
 graph_builder.add_node("respond", with_telemetry_node(with_timeout(timeout)(respond_node)))
 
-# Entry flow: always -> router
-graph_builder.set_entry_point("entry_classifier")
-graph_builder.add_edge("entry_classifier", "strategic_advisor")
-graph_builder.add_edge("strategic_advisor", "frame_extractor")
+# Entry flow: single pipeline node -> router
+graph_builder.set_entry_point("entry_pipeline")
 graph_builder.add_conditional_edges(
-    "frame_extractor",
-    route_after_entry_classifier,
+    "entry_pipeline",
+    route_after_entry_pipeline,
     {"router": "router", "respond": "respond"},
 )
 

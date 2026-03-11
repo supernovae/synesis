@@ -234,21 +234,17 @@ def _adaptive_topk(
     return results[:max_k]
 
 
-def _coherence_gate(
+async def _coherence_gate(
     query: str,
     results: list[UnifiedResult],
     threshold: float = 0.25,
 ) -> list[UnifiedResult]:
     """Drop chunks whose embedding similarity to the query falls below threshold.
 
-    Uses the TEI embedder service via embed_client to compute cosine similarity
-    between the query and each chunk. This catches polysemous-term matches where
-    "architecture" in a consensus algorithm paper scores high on vector search
-    but is semantically distant from "AI assistant architecture" when compared
-    at the full-text level.
-
-    Follows the Self-RAG principle: no retrieval is better than bad retrieval.
-    If all chunks are dropped, the section worker proceeds without context.
+    Uses the async TEI embedder client for non-blocking embedding calls.
+    This catches polysemous-term matches where "architecture" in a consensus
+    algorithm paper scores high on vector search but is semantically distant
+    from "AI assistant architecture" when compared at the full-text level.
 
     Research basis:
       CRAG (arXiv 2401.15884) — grade docs as Correct/Incorrect/Ambiguous
@@ -260,12 +256,12 @@ def _coherence_gate(
         return results
 
     try:
-        from .embed_client import get_embed_client
+        from .embed_client import get_async_embed_client
 
-        client = get_embed_client()
+        client = get_async_embed_client()
         chunk_texts = [r.text[:500] for r in results]
         all_texts = [query, *chunk_texts]
-        embeddings = client.embed(all_texts, normalize=True)
+        embeddings = await client.embed(all_texts, normalize=True)
         query_emb = embeddings[0]
         chunk_embs = embeddings[1:]
 
@@ -427,7 +423,7 @@ async def retrieve_unified(
         coherence_thresh = min(base_thresh + 0.05, 0.35)
     else:
         coherence_thresh = base_thresh
-    final = await asyncio.to_thread(_coherence_gate, query, final, coherence_thresh)
+    final = await _coherence_gate(query, final, coherence_thresh)
 
     urls_in_final = sum(1 for r in final if r.source_url)
     logger.info(

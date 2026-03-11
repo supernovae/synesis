@@ -1,5 +1,6 @@
 from .critic import critic_node
 from .entry_classifier import entry_classifier_node
+from .entry_pipeline import entry_pipeline_node
 from .executor import executor_node
 from .final_scrubber import final_scrubber_node
 from .frame_extractor import frame_extractor_node
@@ -12,6 +13,7 @@ from .writer import writer_node
 __all__ = [
     "critic_node",
     "entry_classifier_node",
+    "entry_pipeline_node",
     "executor_node",
     "final_scrubber_node",
     "frame_extractor_node",

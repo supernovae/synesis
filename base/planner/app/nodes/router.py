@@ -37,7 +37,6 @@ logger = logging.getLogger("synesis.router")
 # ---------------------------------------------------------------------------
 MAX_DOCS_PER_QUERY = 5
 MAX_SNIPPETS_PER_PACKET = 20
-MAX_SUMMARY_TOKENS = 3000
 MAX_REFINEMENT_ROUNDS = 2
 LOW_CONFIDENCE_THRESHOLD = 0.4
 
@@ -148,7 +147,7 @@ def _get_router_llm() -> ChatOpenAI:
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=MAX_SUMMARY_TOKENS,
+            max_completion_tokens=settings.router_max_summary_tokens,
             use_responses_api=False,
             http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
         )
@@ -170,7 +169,7 @@ def _get_summarizer_llm() -> ChatOpenAI:
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=MAX_SUMMARY_TOKENS,
+            max_completion_tokens=settings.router_max_summary_tokens,
             streaming=False,
             use_responses_api=False,
             model_kwargs={"extra_body": extra_body} if extra_body else {},
@@ -268,7 +267,7 @@ class RouterNode:
             query=query,
             raw_results=results_text,
             max_snippets=MAX_SNIPPETS_PER_PACKET,
-            max_summary_tokens=MAX_SUMMARY_TOKENS,
+            max_summary_tokens=settings.router_max_summary_tokens,
         )
         resp = await llm.ainvoke(
             [
@@ -367,7 +366,7 @@ class RouterNode:
         domain_hints = evidence_request.get("domain_hints") or []
         skip_web = evidence_request.get("skip_web", False)
 
-        cached = self.cache.get(query)
+        cached = await self.cache.aget(query)
         if cached is not None:
             if evidence_request.get("section_id") is not None:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
@@ -380,7 +379,7 @@ class RouterNode:
         rounds = 0
         while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < MAX_REFINEMENT_ROUNDS:
             refined_query = await self.refine_query(query, packet)
-            cached = self.cache.get(refined_query)
+            cached = await self.cache.aget(refined_query)
             if cached is not None:
                 packet = cached
                 if evidence_request.get("section_id") is not None:
@@ -392,7 +391,7 @@ class RouterNode:
             query = refined_query
             rounds += 1
 
-        self.cache.put(query, packet)
+        await self.cache.aput(query, packet)
         return packet
 
     # ----- Mode detection + main entry point -----
@@ -585,7 +584,7 @@ class RouterNode:
                 query=data.get("query", query),
                 sources=sources,
                 snippets=snippets,
-                summary=str(data.get("summary", ""))[: MAX_SUMMARY_TOKENS * 4],
+                summary=str(data.get("summary", ""))[: settings.router_max_summary_tokens * 4],
                 confidence=min(1.0, max(0.0, float(data.get("confidence", 0.5)))),
                 retrieval_notes=str(data.get("retrieval_notes", "")),
             )
@@ -628,7 +627,7 @@ def _fallback_packet(query: str, raw_results: list[UnifiedResult]) -> EvidencePa
         query=query,
         sources=sources,
         snippets=snippets,
-        summary=summary[: MAX_SUMMARY_TOKENS * 4],
+        summary=summary[: settings.router_max_summary_tokens * 4],
         confidence=confidence,
         retrieval_notes="Fallback: LLM summarization failed, evidence assembled from raw results.",
     )

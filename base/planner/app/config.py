@@ -237,7 +237,9 @@ class Settings(BaseSettings):
     critic_retry_threshold: float = 5.0  # below this, reject and retry with repair instructions
     critic_rag_context_enabled: bool = True  # inject RAG summaries into critic prompt for grounding
     critic_rag_context_budget: int = 4000  # max chars for the RAG reference block in critic prompt
-    critic_background: bool = False  # when True, close SSE stream after writer; critic runs silently in background
+    critic_background: bool = (
+        True  # when True, skip critic in graph; SSE closes after writer and critic runs as background task
+    )
 
     # Planner RAG context: scale chunk count by difficulty
     planner_rag_base_chunks: int = 5  # chunks visible to planner at difficulty=0
@@ -248,8 +250,16 @@ class Settings(BaseSettings):
     retrieval_cache_max_entries: int = 512
     retrieval_cache_similarity_threshold: float = 0.85
     retrieval_cache_confidence_threshold: float = 0.6
-    retrieval_cache_backend: str = "numpy"  # "numpy" | "faiss" | "milvus"
+    retrieval_cache_backend: str = "numpy"  # "numpy" | "redis" (shared, for horizontal scaling)
     retrieval_cache_warm_on_startup: bool = True
+
+    # Redis shared cache (only used when retrieval_cache_backend="redis")
+    # Enables cross-replica cache sharing for horizontally-scaled planner pods.
+    retrieval_cache_redis_url: str = ""  # e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/0"
+    retrieval_cache_redis_prefix: str = "synesis:cache:"
+
+    # Router summarizer: max tokens for evidence packet summaries
+    router_max_summary_tokens: int = 2000
 
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True

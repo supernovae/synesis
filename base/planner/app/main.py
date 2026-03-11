@@ -251,16 +251,19 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
     out: list[tuple[str, str, str]] = []
     node = chunk.get("current_node", "")
 
-    if node == "entry_classifier":
+    if node in ("entry_classifier", "entry_pipeline"):
         task_size = chunk.get("task_size", "")
         intent = chunk.get("intent_class", "")
         is_code_task = chunk.get("is_code_task", False)
         plan_req = chunk.get("plan_required", False)
+        ctx = chunk.get("platform_context", "")
+        domain = chunk.get("active_domain_refs") or []
         out.append(
             (
-                "entry_classifier",
-                "Router (Entry Classifier)",
-                f"task_size={task_size} intent={intent} is_code_task={is_code_task} plan_required={plan_req}",
+                "entry_pipeline",
+                "Entry Pipeline",
+                f"task_size={task_size} intent={intent} is_code_task={is_code_task} "
+                f"plan_required={plan_req} platform={ctx} domains={domain}",
             )
         )
 
@@ -426,9 +429,11 @@ DOMAIN_ALIGNER_NODE = "strategic_advisor"
 # Phase-based status: collapse many fast nodes into meaningful user-facing phases.
 # Each node maps to a phase label.  Only phase transitions emit a new status event.
 _NODE_TO_PHASE: dict[str, str] = {
-    "entry_classifier": "Classifying request\u2026",
-    "strategic_advisor": "Assessing strategy\u2026",
-    "frame_extractor": "Extracting intent\u2026",
+    "entry_pipeline": "Analyzing request\u2026",
+    # Legacy node names kept for backward-compat with debug chatter
+    "entry_classifier": "Analyzing request\u2026",
+    "strategic_advisor": "Analyzing request\u2026",
+    "frame_extractor": "Analyzing request\u2026",
     "router": "Gathering evidence\u2026",
     "planner": "Building plan\u2026",
     "executor": "Generating code\u2026",
