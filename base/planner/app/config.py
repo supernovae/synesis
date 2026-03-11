@@ -266,6 +266,10 @@ class Settings(BaseSettings):
     router_hyde_enabled: bool = True  # HyDE variant (hypothetical document embedding)
     taxonomy_query_expansion_enabled: bool = True  # expand queries with taxonomy hints
 
+    # Opik LLM observability (tracing, evaluation, annotation queues)
+    opik_enabled: bool = False
+    opik_url: str = "http://opik-backend.synesis-opik.svc.cluster.local:5173/api"
+
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True
 

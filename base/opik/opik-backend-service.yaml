@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: opik-backend
+  namespace: synesis-opik
+  labels:
+    app.kubernetes.io/name: opik-backend
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: opik
+spec:
+  selector:
+    app.kubernetes.io/name: opik-backend
+  ports:
+    - name: http
+      port: 5173
+      targetPort: http

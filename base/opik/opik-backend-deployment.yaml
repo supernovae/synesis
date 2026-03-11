@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opik-backend
+  namespace: synesis-opik
+  labels:
+    app.kubernetes.io/name: opik-backend
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: opik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opik-backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opik-backend
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: opik
+    spec:
+      containers:
+        - name: opik-backend
+          image: ghcr.io/comet-ml/opik/opik-backend:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ANALYTICS_DB_PROTOCOL
+              value: "HTTP"
+            - name: ANALYTICS_DB_HOST
+              value: "clickhouse"
+            - name: ANALYTICS_DB_PORT
+              value: "8123"
+            - name: ANALYTICS_DB_DATABASE_NAME
+              value: "opik"
+            - name: ANALYTICS_DB_USERNAME
+              value: "opik"
+            - name: ANALYTICS_DB_PASSWORD
+              value: "opik"
+            - name: STATE_DB_URL
+              value: "jdbc:mysql://mysql:3306/opik?createDatabaseIfNotExist=true"
+            - name: STATE_DB_USER
+              value: "opik"
+            - name: STATE_DB_PASS
+              value: "opik"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10

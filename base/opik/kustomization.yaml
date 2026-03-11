@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: synesis-opik
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: synesis
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  # ClickHouse (analytics storage)
+  - clickhouse-config.yaml
+  - clickhouse-pvc.yaml
+  - clickhouse-deployment.yaml
+  - clickhouse-service.yaml
+  # MySQL (transactional storage)
+  - mysql-deployment.yaml
+  - mysql-service.yaml
+  # Redis (caching, rate limiting, streams)
+  - redis-deployment.yaml
+  - redis-service.yaml
+  # Opik backend (Java REST API)
+  - opik-backend-deployment.yaml
+  - opik-backend-service.yaml
+  # Opik frontend (React UI)
+  - opik-frontend-deployment.yaml
+  - opik-frontend-service.yaml
+  # OpenShift Route for UI access
+  - route.yaml

@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: opik
+  namespace: synesis-opik
+  labels:
+    app.kubernetes.io/name: opik-frontend
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: opik
+spec:
+  to:
+    kind: Service
+    name: opik-frontend
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

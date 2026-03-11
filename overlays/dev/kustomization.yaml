@@ -16,6 +16,7 @@ resources:
   - ../../base/lsp
   - ../../base/search
   - ../../base/webui
+  - ../../base/opik
 
 patches:
   # Debug logging, disable FlashRank, reduce resources for dev.
@@ -38,6 +39,8 @@ patches:
                     value: "debug"
                   - name: SYNESIS_RAG_RERANKER
                     value: "none"
+                  - name: SYNESIS_OPIK_ENABLED
+                    value: "true"
                 resources:
                   requests:
                     cpu: "250m"

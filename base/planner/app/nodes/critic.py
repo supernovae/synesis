@@ -641,6 +641,19 @@ Reply with JSON:
                             "rubric_items_checked": len(doc_parsed.requirement_coverage or []),
                         },
                     )
+                    from ..opik_utils import log_critic_scores
+
+                    log_critic_scores(
+                        weighted_overall=round(scores.weighted_overall, 1),
+                        task_faithfulness=round(scores.task_faithfulness, 1),
+                        constraint_compliance=round(scores.constraint_compliance, 1),
+                        coverage=round(scores.coverage, 1),
+                        judgment_quality=round(scores.judgment_quality, 1),
+                        failure_modes=failure_modes,
+                        approved=doc_approved,
+                        difficulty=round(difficulty, 2),
+                        hallucinated_urls_count=len(hallucinated_urls),
+                    )
 
                 # Deterministic override: reject if hallucinated URLs found
                 if hallucinated_urls:

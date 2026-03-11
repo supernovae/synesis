@@ -709,6 +709,41 @@ Web search is abstracted behind a `SearchProvider` protocol
 SearXNG. The `engine_authority_map` in `config.py` lets SearXNG engines
 be tagged with trust tiers.
 
+## Observability: Opik Integration
+
+Synesis supports [Opik](https://github.com/comet-ml/opik) for LLM trace observability, evaluation annotation, and failure mode aggregation.
+
+### What Opik Provides
+
+- **Per-node tracing**: Every LangGraph node invocation (entry_pipeline, router, planner, executor, writer, critic) is auto-traced with inputs, outputs, and latency via the `OpikTracer` LangChain callback.
+- **Critic score correlation**: Critic scores (`weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality`) are logged as span-level feedback on the critic node.
+- **Request-level metadata**: Each completed request logs `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, and `response_length` as trace metadata and feedback scores.
+- **Annotation queues**: Opik's built-in annotation UI enables human rating of (prompt, response) pairs for critic calibration data collection.
+- **Failure mode aggregation**: Filter traces by `failure_modes_detected`, `evidence_underuse` rates, and critic blocking issues.
+
+### Configuration
+
+| Setting | Env Var | Default | Purpose |
+|---------|---------|---------|---------|
+| `opik_enabled` | `SYNESIS_OPIK_ENABLED` | `false` | Master toggle; zero overhead when disabled |
+| `opik_url` | `OPIK_URL_OVERRIDE` | `http://opik-backend.synesis-opik.svc.cluster.local:5173/api` | Opik backend API URL |
+
+When disabled: no Opik imports, no network calls, no overhead. When enabled: traces flow to the Opik server; node behavior is unchanged.
+
+### Deployment
+
+Opik infrastructure lives in `base/opik/` (Kustomize): single-node ClickHouse, MySQL, Redis, Opik backend + frontend. Deployed to the `synesis-opik` namespace. The dev overlay includes Opik by default with `SYNESIS_OPIK_ENABLED=true`.
+
+```bash
+oc apply -k base/opik/
+```
+
+Or deploy via `deploy.sh dev` which includes Opik in the dev profile.
+
+### Future: Prompt Optimization
+
+Opik's MIPRO/MetaPrompt optimizers can tune the critic prompt, query generation prompt, and summarizer prompt offline using collected traces as evaluation data. This requires calibration data (annotation queue) to be populated first.
+
 ## Research References
 
 | Paper | Key Contribution | How We Apply It |

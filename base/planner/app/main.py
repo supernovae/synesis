@@ -34,7 +34,7 @@ from .api_metrics import (
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
-from .graph import graph
+from .graph import get_graph_config, graph
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -1018,7 +1018,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     async for event in graph.astream_events(
                         initial_state,
                         version="v2",
-                        config={"recursion_limit": 50},
+                        config=get_graph_config(),
                     ):
                         if _stream_closed:
                             continue
@@ -1493,10 +1493,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 result = None
                 heartbeat_task = None
                 try:
-                    config = {
-                        "recursion_limit": 50,
-                        "callbacks": [status_callback],
-                    }
+                    config = get_graph_config()
+                    config.setdefault("callbacks", []).append(status_callback)
 
                     async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
                         """Emit periodic keep-alive so proxies and Open WebUI see activity."""
@@ -1595,7 +1593,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     # Non-streaming: run graph once, then build response
     try:
-        config = {"recursion_limit": 50}
+        config = get_graph_config()
         result = await graph.ainvoke(initial_state, config=config)
     except Exception:
         logger.exception("graph_execution_error")

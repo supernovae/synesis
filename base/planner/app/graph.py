@@ -667,30 +667,55 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     user_task = state.get("user_task") or {}
     evidence_packets = state.get("evidence_packets") or []
     critic_scores = state.get("critic_scores") or {}
+    _fb_run_id = state.get("run_id", "")
+    _fb_difficulty = state.get("difficulty", 0.5)
+    _fb_task_type = state.get("task_type", "general")
+    _fb_domain_tags = user_task.get("domain_tags", [])
+    _fb_evidence_count = len(evidence_packets)
+    _fb_avg_confidence = round(
+        sum(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0) for p in evidence_packets)
+        / max(1, _fb_evidence_count),
+        4,
+    )
+    _fb_critic_score = critic_scores.get("weighted_overall", 0.0)
+    _fb_blocking = len(state.get("blocking_issues") or [])
+    _fb_iterations = state.get("iteration_count", 0)
+    _fb_is_code = state.get("is_code_task", False)
+    _fb_resp_len = len(content)
+    _fb_has_error = bool(error)
     logger.info(
         "request_feedback",
         extra={
-            "run_id": state.get("run_id", ""),
-            "difficulty": state.get("difficulty", 0.5),
-            "task_type": state.get("task_type", "general"),
-            "domain_tags": user_task.get("domain_tags", []),
+            "run_id": _fb_run_id,
+            "difficulty": _fb_difficulty,
+            "task_type": _fb_task_type,
+            "domain_tags": _fb_domain_tags,
             "needs_web": user_task.get("needs_web", False),
-            "evidence_packet_count": len(evidence_packets),
-            "avg_evidence_confidence": round(
-                sum(
-                    p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
-                    for p in evidence_packets
-                )
-                / max(1, len(evidence_packets)),
-                4,
-            ),
-            "critic_weighted_score": critic_scores.get("weighted_overall", 0.0),
-            "critic_blocking_issues": len(state.get("blocking_issues") or []),
-            "iteration_count": state.get("iteration_count", 0),
-            "is_code_task": state.get("is_code_task", False),
-            "response_length": len(content),
-            "has_error": bool(error),
+            "evidence_packet_count": _fb_evidence_count,
+            "avg_evidence_confidence": _fb_avg_confidence,
+            "critic_weighted_score": _fb_critic_score,
+            "critic_blocking_issues": _fb_blocking,
+            "iteration_count": _fb_iterations,
+            "is_code_task": _fb_is_code,
+            "response_length": _fb_resp_len,
+            "has_error": _fb_has_error,
         },
+    )
+    from .opik_utils import log_request_feedback
+
+    log_request_feedback(
+        run_id=_fb_run_id,
+        difficulty=_fb_difficulty,
+        task_type=_fb_task_type,
+        domain_tags=_fb_domain_tags,
+        evidence_packet_count=_fb_evidence_count,
+        avg_evidence_confidence=_fb_avg_confidence,
+        critic_weighted_score=_fb_critic_score,
+        critic_blocking_issues=_fb_blocking,
+        iteration_count=_fb_iterations,
+        is_code_task=_fb_is_code,
+        response_length=_fb_resp_len,
+        has_error=_fb_has_error,
     )
 
     # Fire background critic when graph skipped it (critic_background=True).
@@ -843,3 +868,33 @@ graph_builder.add_edge("final_scrubber", "respond")
 graph_builder.add_edge("respond", END)
 
 graph = graph_builder.compile()
+
+_opik_tracer = None
+if settings.opik_enabled:
+    try:
+        import opik
+
+        opik.configure(
+            use_local=True,
+            url=settings.opik_url,
+            workspace="synesis",
+        )
+        from opik.integrations.langchain import OpikTracer
+
+        _opik_tracer = OpikTracer(
+            tags=["synesis"],
+            metadata={"build": settings.build_version},
+        )
+        logger.info("opik_enabled", extra={"url": settings.opik_url})
+    except Exception:
+        logger.warning("opik_init_failed", exc_info=True)
+
+
+def get_graph_config(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Build graph invocation config with Opik callback when enabled."""
+    cfg: dict[str, Any] = {"recursion_limit": 50}
+    if extra:
+        cfg.update(extra)
+    if _opik_tracer is not None:
+        cfg.setdefault("callbacks", []).append(_opik_tracer)
+    return cfg
