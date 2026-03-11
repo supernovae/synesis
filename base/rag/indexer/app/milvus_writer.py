@@ -32,7 +32,7 @@ class MilvusWriter:
     def existing_chunk_ids(self, collection_name: str = SYNESIS_CATALOG) -> set[str]:
         """Return the set of chunk_ids already in a collection.
 
-        Used to skip re-embedding unchanged content. Loads only ids, not vectors.
+        Uses Milvus query iterator to avoid the 16384 offset+limit window cap.
         """
         if collection_name not in self.client.list_collections():
             return set()
@@ -41,22 +41,19 @@ class MilvusWriter:
 
         ids: set[str] = set()
         batch_size = 5000
-        offset = 0
+        iterator = self.client.query_iterator(
+            collection_name=collection_name,
+            filter="",
+            output_fields=["chunk_id"],
+            batch_size=batch_size,
+        )
         while True:
-            rows = self.client.query(
-                collection_name=collection_name,
-                filter="",
-                output_fields=["chunk_id"],
-                limit=batch_size,
-                offset=offset,
-            )
+            rows = iterator.next()
             if not rows:
                 break
             for row in rows:
                 ids.add(row["chunk_id"])
-            if len(rows) < batch_size:
-                break
-            offset += batch_size
+        iterator.close()
 
         return ids
 

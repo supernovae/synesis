@@ -470,3 +470,225 @@ sources:
       url: "https://docs.cursor.com/"
       follow_links: true
       tags: [cursor, ide, coding-agent]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # LLM Reasoning & Reinforcement Learning
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Foundations of Large Language Models"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2501.09223"
+      tags: [reasoning, llm, foundational, survey]
+
+  - name: "Architecting Agentic Communities using Design Patterns"
+    handler: pdf_document
+    origin_type: curated
+    authority: community
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2601.03624"
+      tags: [agents, design-patterns, multi-agent, architecture]
+
+  - name: "Meta Chain-of-Thought (System 2 Reasoning)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2501.04682"
+      tags: [reasoning, chain-of-thought, llm]
+
+  - name: "Process Reward Models in Mathematical Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2501.07301"
+      tags: [reasoning, reward-models, reinforcement-learning, math]
+
+  - name: "Reasoning Language Models: A Blueprint"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2501.11223"
+      tags: [reasoning, llm, blueprint, architecture]
+
+  - name: "Kimi k1.5: Scaling RL with LLMs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2501.12599"
+      tags: [reasoning, reinforcement-learning, llm, scaling]
+
+  - name: "DeepSeek-R1: Incentivizing Reasoning via RL"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2501.12948"
+      tags: [reasoning, reinforcement-learning, llm, deepseek]
+
+  - name: "Competitive Programming with Large Reasoning Models"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.06807"
+      tags: [reasoning, code-generation, competitive-programming]
+
+  - name: "LIMO: Less is More for Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.03387"
+      tags: [reasoning, llm, efficiency]
+
+  - name: "Teaching Language Models to Critique via RL"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.03492"
+      tags: [reasoning, reinforcement-learning, critique, llm]
+
+  - name: "Training Language Models to Reason Efficiently"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.04463"
+      tags: [reasoning, efficiency, llm, training]
+
+  - name: "On the Emergence of Thinking in LLMs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.06773"
+      tags: [reasoning, llm, emergence]
+
+  - name: "LLMs Learn to Reason from Demonstrations"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.07374"
+      tags: [reasoning, llm, in-context-learning]
+
+  - name: "Adapting LLMs to Reasoning Model via Merging"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.09056"
+      tags: [reasoning, llm, model-merging]
+
+  - name: "Logic-RL: Rule-Based RL for Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.14768"
+      tags: [reasoning, reinforcement-learning, logic, llm]
+
+  - name: "First Few Tokens: Unsupervised Prefix Fine-Tuning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.02875"
+      tags: [reasoning, llm, fine-tuning]
+
+  - name: "R1-Searcher: Incentivizing Search via RL"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.05592"
+      tags: [reasoning, reinforcement-learning, search, rag]
+
+  - name: "LMM-R1: 3B LMMs with Strong Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.07536"
+      tags: [reasoning, multimodal, llm, small-models]
+
+  - name: "RL for Reasoning in Small LLMs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.16219"
+      tags: [reasoning, reinforcement-learning, small-models, llm]
+
+  - name: "Understanding R1-Zero-Like Training"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.20783"
+      tags: [reasoning, reinforcement-learning, training, llm]
+
+  - name: "Open-Reasoner-Zero"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2503.24290"
+      tags: [reasoning, reinforcement-learning, open-source, llm]
+
+  - name: "Phi-4-Mini-Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2504.21233"
+      tags: [reasoning, small-models, llm, microsoft]
+
+  - name: "Qwen3 Technical Report"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2505.09388"
+      tags: [reasoning, llm, qwen, technical-report]
+
+  - name: "General-Reasoner: Advancing LLM Reasoning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2505.14652"
+      tags: [reasoning, llm, generalization]

@@ -40,7 +40,7 @@ sources:
     domain: architecture
     config:
       url: "https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf"
-      tags: [cloud, architecture, reliability, security, performance, cost, sustainability]
+      tags: [cloud, architecture, architecture-review, quality-attributes, tradeoffs, reliability, security, performance, cost, sustainability]
 
   - name: "AWS Reliability Pillar"
     handler: pdf_document
@@ -81,7 +81,7 @@ sources:
     domain: architecture
     config:
       url: "https://12factor.net/"
-      tags: [twelve-factor, saas, cloud-native, best-practices]
+      tags: [twelve-factor, saas, cloud-native, best-practices, software-engineering]
 
   # --- Architecture Documents (Markdown from GitHub) ---
   - name: "Cloud Design Patterns (Microsoft)"
@@ -140,7 +140,7 @@ sources:
     config:
       url: "https://learn.microsoft.com/en-us/azure/well-architected/"
       follow_links: true
-      tags: [azure, well-architected, reliability, security, cost, performance]
+      tags: [azure, well-architected, architecture-review, reliability, security, cost, performance, quality-attributes]
 
   - name: "Azure Architecture Center"
     handler: web_page
@@ -169,7 +169,7 @@ sources:
     config:
       url: "https://docs.cloud.google.com/architecture/framework"
       follow_links: true
-      tags: [gcp, architecture, framework, best-practices]
+      tags: [gcp, architecture, architecture-review, framework, best-practices, quality-attributes]
 
   - name: "Google Cloud Architecture Center"
     handler: web_page
@@ -266,7 +266,7 @@ sources:
     config:
       url: "https://c4model.com/"
       follow_links: true
-      tags: [c4, diagramming, architecture-documentation, visualization]
+      tags: [c4, diagramming, architecture-documentation, visualization, architecture-review, design-goals]
 
   - name: "arc42 Architecture Documentation"
     handler: web_page
@@ -276,7 +276,7 @@ sources:
     config:
       url: "https://arc42.org/"
       follow_links: true
-      tags: [arc42, documentation, templates, architecture]
+      tags: [arc42, documentation, templates, architecture, architecture-review, adr]
 
   - name: "arc42 Quality Model"
     handler: web_page
@@ -285,7 +285,7 @@ sources:
     domain: architecture
     config:
       url: "https://quality.arc42.org/articles/quality-models"
-      tags: [arc42, quality, quality-attributes, nfr]
+      tags: [arc42, quality, quality-attributes, nfr, tradeoffs]
 
   # ═══════════════════════════════════════════════════════════════════════
   # SRE, Reliability & DORA
@@ -299,7 +299,7 @@ sources:
     config:
       url: "https://sre.google/"
       follow_links: true
-      tags: [sre, reliability, google, toil, slo]
+      tags: [sre, reliability, google, toil, slo, systems-engineering]
 
   - name: "Google Cloud SRE Overview"
     handler: web_page
@@ -318,7 +318,7 @@ sources:
     config:
       url: "https://sre.google/workbook/table-of-contents/"
       follow_links: true
-      tags: [sre, workbook, practices, on-call, monitoring]
+      tags: [sre, reliability, workbook, practices, on-call, monitoring]
 
   - name: "DORA Research & Metrics"
     handler: web_page
@@ -409,7 +409,7 @@ sources:
     config:
       url: "https://cheatsheetseries.owasp.org/index.html"
       follow_links: true
-      tags: [owasp, security, cheat-sheets, best-practices]
+      tags: [owasp, security, security-architecture, cheat-sheets, best-practices]
 
   - name: "OWASP Threat Modeling Cheat Sheet"
     handler: web_page
@@ -716,7 +716,7 @@ sources:
     config:
       url: "https://opentelemetry.io/docs/"
       follow_links: true
-      tags: [opentelemetry, otel, tracing, metrics, logging, cncf]
+      tags: [opentelemetry, otel, tracing, metrics, logging, cncf, observability]
 
   - name: "Prometheus Documentation"
     handler: web_page
@@ -725,7 +725,7 @@ sources:
     domain: architecture
     config:
       url: "https://prometheus.io/docs/introduction/overview/"
-      tags: [prometheus, metrics, monitoring, alerting, cncf]
+      tags: [prometheus, metrics, monitoring, alerting, cncf, observability]
 
   - name: "OpenMetrics"
     handler: web_page
@@ -886,3 +886,1890 @@ sources:
     config:
       url: "https://cloud.google.com/eventarc/docs/event-driven-architectures"
       tags: [gcp, eventarc, event-driven, pub-sub]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # ADRs & Decision Records
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "AWS ADR Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/welcome.html"
+      follow_links: true
+      tags: [adr, architecture, aws, decision-records]
+
+  - name: "AWS ADR Guide (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/pdfs/prescriptive-guidance/latest/architectural-decision-records/architectural-decision-records.pdf"
+      tags: [adr, architecture, aws, decision-records]
+
+  - name: "AWS ADR Process"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html"
+      tags: [adr, architecture, aws, governance]
+
+  - name: "AWS ADR Best Practices"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/best-practices.html"
+      tags: [adr, architecture, aws, best-practices]
+
+  - name: "Google Cloud ADR Overview"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.cloud.google.com/architecture/architecture-decision-records"
+      tags: [adr, architecture, gcp, decision-records]
+
+  - name: "Joel Parker Henderson – ADR Repository"
+    handler: github_markdown
+    origin_type: curated
+    authority: community
+    source_type: markdown
+    domain: architecture
+    config:
+      repo: "joelparkerhenderson/architecture-decision-record"
+      branch: main
+      path: ""
+      tags: [adr, architecture, templates, examples]
+
+  - name: "Thoughtworks – Lightweight ADRs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://www.thoughtworks.com/en-us/radar/techniques/lightweight-architecture-decision-records"
+      tags: [adr, architecture, thoughtworks]
+
+  - name: "Thoughtworks – Lightweight RFCs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://www.thoughtworks.com/en-us/radar/techniques/lightweight-approach-to-rfcs"
+      tags: [adr, architecture, rfc, thoughtworks]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Architecture Evaluation & Tradeoffs (SEI / ATAM)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "SEI ATAM Method for Architecture Evaluation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.sei.cmu.edu/library/atam-method-for-architecture-evaluation/"
+      tags: [atam, architecture-review, tradeoffs, quality-attributes, sei]
+
+  - name: "SEI ATAM Report (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.sei.cmu.edu/documents/629/2000_005_001_13706.pdf"
+      tags: [atam, architecture-review, tradeoffs, quality-attributes, sei]
+
+  - name: "SEI Architecture Tradeoff Analysis Method (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.sei.cmu.edu/library/file_redirect/1998_005_001_16646.pdf/"
+      tags: [atam, architecture-review, tradeoffs, sei]
+
+  - name: "SEI ATAM Overview (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.sei.cmu.edu/library/file_redirect/2011_015_001_28266.pdf/"
+      tags: [atam, architecture-review, sei]
+
+  - name: "SEI ATAM in Acquisition (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.sei.cmu.edu/documents/1971/2001_004_001_13808.pdf"
+      tags: [atam, architecture-review, acquisition, sei]
+
+  - name: "AWS Well-Architected Review Process"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://docs.aws.amazon.com/wellarchitected/latest/framework/the-review-process.html"
+      tags: [aws, well-architected, architecture-review]
+
+  - name: "Azure Well-Architected Pillars"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/well-architected/pillars"
+      tags: [azure, well-architected, quality-attributes, pillars]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Architecture Documentation (arc42 / C4 specifics)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "arc42 Documentation (docs)"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://docs.arc42.org/"
+      follow_links: true
+      tags: [arc42, documentation, architecture, architecture-review]
+
+  - name: "arc42 Section 1: Introduction and Goals"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://docs.arc42.org/section-1/"
+      tags: [arc42, design-goals, constraints, stakeholders]
+
+  - name: "arc42 Tips: Architecture Decisions / ADRs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://docs.arc42.org/tips/9-9/"
+      tags: [arc42, adr, architecture, decision-records]
+
+  - name: "C4 Model Diagram Review Checklist"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://c4model.com/diagrams/checklist"
+      tags: [c4, architecture-review, diagramming, checklist]
+
+  - name: "C4 Model Example Diagrams"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://c4model.com/example/"
+      tags: [c4, architecture, examples, diagramming]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Security Architecture
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OWASP Secure by Design Framework"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://owasp.org/www-project-secure-by-design-framework/"
+      tags: [owasp, security-architecture, secure-by-design]
+
+  - name: "OWASP Secure Product Design Cheat Sheet"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://cheatsheetseries.owasp.org/cheatsheets/Secure_Product_Design_Cheat_Sheet.html"
+      tags: [owasp, security-architecture, secure-by-design, cheat-sheet]
+
+  - name: "CISA Secure by Design"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.cisa.gov/resources-tools/resources/secure-by-design"
+      tags: [cisa, security-architecture, secure-by-design]
+
+  - name: "CISA Secure by Design (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.cisa.gov/sites/default/files/2023-10/SecureByDesign_1025_508c.pdf"
+      tags: [cisa, security-architecture, secure-by-design]
+
+  - name: "Compliance by Design (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: community
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://soadecisions.org/download/ComplianceByDesign-AAM.pdf"
+      tags: [architecture, security-architecture, risk-management, compliance]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # LLM Engineering, RAG Foundations & Research
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Attention Is All You Need (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/1706.03762"
+      tags: [llm, transformer, architecture, foundational]
+
+  - name: "Language Models are Few-Shot Learners (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2005.14165"
+      tags: [llm, in-context-learning, foundational]
+
+  - name: "RAG for Knowledge-Intensive NLP Tasks (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2005.11401"
+      tags: [rag, retrieval, llm, foundational]
+
+  - name: "Evaluation of RAG: A Survey (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2405.07437"
+      tags: [rag, eval, survey, benchmarks]
+
+  - name: "Survey on RAG Text Generation for LLMs"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2404.10981"
+      tags: [rag, survey, llm, retrieval]
+
+  - name: "RAG and Beyond: Comprehensive Survey"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2409.14924"
+      tags: [rag, survey, llm, architecture]
+
+  - name: "Comprehensive Survey of RAG: Evolution and Future"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2410.12837"
+      tags: [rag, survey, llm]
+
+  - name: "Lost in the Middle: Long Contexts"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2307.03172"
+      tags: [rag, long-context, position-bias, llm]
+
+  - name: "Long Contexts via Plug-and-Play Positional Encoding (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: community
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2403.04797"
+      tags: [llm, long-context, positional-encoding]
+
+  - name: "Mitigate Position Bias via Reinforcement Learning"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2406.02536"
+      tags: [llm, position-bias, reinforcement-learning]
+
+  - name: "Chain-of-Thought Prompting (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://arxiv.org/pdf/2201.11903"
+      tags: [prompt-engineering, reasoning, chain-of-thought, llm]
+
+  - name: "Large Language Models are Zero-Shot Reasoners"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2205.11916"
+      tags: [prompt-engineering, reasoning, zero-shot, llm]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # LLM / Agent System Design & Evaluation
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OpenAI Practical Guide to Building Agents (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf"
+      tags: [agents, openai, tool-use, eval, guardrails]
+
+  - name: "OpenAI Building Agents Track"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.openai.com/tracks/building-agents/"
+      tags: [agents, openai, orchestration]
+
+  - name: "OpenAI Agents Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.openai.com/api/docs/guides/agents/"
+      tags: [agents, openai, implementation]
+
+  - name: "OpenAI Agent Builder Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.openai.com/api/docs/guides/agent-builder/"
+      tags: [agents, openai, workflow-composition]
+
+  - name: "Google Cloud Operationalizing GenAI (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://services.google.com/fh/files/misc/operationalizing_generative_ai_on_vertex_ai.pdf"
+      tags: [llm, eval, gcp, prompt-engineering, rag]
+
+  - name: "Google Cloud Evaluation Framework (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://services.google.com/fh/files/misc/evaluation_framework.pdf"
+      tags: [eval, llm, gcp, rubric]
+
+  - name: "Google Cloud Evaluating LLMs (NeurIPS PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://services.google.com/fh/files/blogs/neurips_evaluation.pdf"
+      tags: [eval, llm, gcp, benchmarks]
+
+  - name: "Google Cloud RAG Infrastructure Architecture"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai"
+      tags: [rag, architecture, gcp, reference-architecture]
+
+  - name: "Google Cloud Gen AI Evaluation Service"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/evaluation-overview"
+      tags: [eval, llm, gcp]
+
+  - name: "NIST AI Risk Management Framework (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://nvlpubs.nist.gov/nistpubs/ai/nist.ai.100-1.pdf"
+      tags: [risk-management, llm, governance, nist]
+
+  - name: "NIST AI RMF Generative AI Profile (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf"
+      tags: [risk-management, llm, generative-ai, nist]
+
+  - name: "NIST AI RMF Playbook"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://airc.nist.gov/airmf-resources/playbook/"
+      tags: [risk-management, llm, nist, playbook]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Prompt Engineering & Agent Workflows
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OpenAI Prompt Engineering Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.openai.com/api/docs/guides/prompt-engineering/"
+      tags: [prompt-engineering, openai]
+
+  - name: "OpenAI Prompt Guidance"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.openai.com/api/docs/guides/prompt-guidance/"
+      tags: [prompt-engineering, openai]
+
+  - name: "OpenAI Prompt Best Practices for ChatGPT"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://help.openai.com/en/articles/10032626-prompt-engineering-best-practices-for-chatgpt"
+      tags: [prompt-engineering, openai, best-practices]
+
+  - name: "Anthropic Prompt Engineering Overview"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+      tags: [prompt-engineering, anthropic]
+
+  - name: "Anthropic Prompt Library"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.anthropic.com/en/prompt-library/library"
+      tags: [prompt-engineering, anthropic, examples]
+
+  - name: "Google Vertex AI Gemini Prompting Strategies (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://services.google.com/fh/files/misc/1_vertex_ai_gemini_prompting_strategies.pdf"
+      tags: [prompt-engineering, gcp, gemini]
+
+  - name: "Google Improve LLM Performance & Reliability (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: generalist
+    config:
+      url: "https://services.google.com/fh/files/misc/improve_llm_performance_reliability.pdf"
+      tags: [prompt-engineering, rag, fine-tuning, gcp]
+
+  - name: "Google Prompt Design Strategies"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies"
+      tags: [prompt-engineering, gcp]
+
+  - name: "Anthropic Extended Thinking"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking"
+      tags: [agents, anthropic, reasoning, tool-use]
+
+  - name: "Anthropic Tool Use Implementation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use"
+      tags: [agents, tool-use, anthropic]
+
+  - name: "LangChain Retrieval"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.langchain.com/oss/python/langchain/retrieval"
+      tags: [rag, langchain, retrieval]
+
+  - name: "LangGraph Agentic RAG"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.langchain.com/oss/python/langgraph/agentic-rag"
+      tags: [rag, agents, langgraph]
+
+  - name: "LangChain Build a RAG Agent"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.langchain.com/oss/python/langchain/rag"
+      tags: [rag, langchain, tutorial]
+
+  - name: "LangChain Multi-Agent"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.langchain.com/oss/python/langchain/multi-agent"
+      tags: [agents, multi-agent, langchain]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Platform Engineering
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "CNCF Platforms White Paper"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://tag-app-delivery.cncf.io/whitepapers/platforms/"
+      tags: [platform-engineering, cncf, internal-developer-platform]
+
+  - name: "CNCF Platform Engineering Maturity Model"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://tag-app-delivery.cncf.io/whitepapers/platform-eng-maturity-model/"
+      tags: [platform-engineering, cncf, maturity-model]
+
+  - name: "CNCF Platform as a Product Personas"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://tag-app-delivery.cncf.io/blog/paap-personas/"
+      tags: [platform-engineering, cncf, product-thinking]
+
+  - name: "CNCF Operator White Paper"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://tag-app-delivery.cncf.io/whitepapers/operator/"
+      tags: [platform-engineering, cncf, kubernetes, operators]
+
+  - name: "Backstage Overview"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/overview/what-is-backstage/"
+      tags: [backstage, internal-developer-platform, portal]
+
+  - name: "Backstage Software Catalog"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/features/software-catalog/"
+      tags: [backstage, catalog, ownership, internal-developer-platform]
+
+  - name: "Backstage Descriptor Format"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/features/software-catalog/descriptor-format/"
+      tags: [backstage, catalog, schema, metadata]
+
+  - name: "Backstage Software Templates"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/features/software-templates/"
+      tags: [backstage, templates, self-service]
+
+  - name: "Backstage Writing Templates"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/features/software-templates/writing-templates/"
+      tags: [backstage, templates, scaffolding]
+
+  - name: "Backstage TechDocs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://backstage.io/docs/features/techdocs/"
+      tags: [backstage, docs-as-code, internal-developer-platform]
+
+  - name: "Team Topologies"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: architecture
+    config:
+      url: "https://teamtopologies.com/"
+      tags: [platform-engineering, team-boundaries, cognitive-load]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Systems Engineering & Reliability
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "NASA Systems Engineering Handbook (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.nasa.gov/wp-content/uploads/2018/09/nasa_systems_engineering_handbook_0.pdf"
+      tags: [systems-engineering, nasa, handbook]
+
+  - name: "NASA Systems Engineering Handbook"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.nasa.gov/reference/systems-engineering-handbook/"
+      tags: [systems-engineering, nasa]
+
+  - name: "NASA Systems Modeling Handbook (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://standards.nasa.gov/sites/default/files/standards/NASA/Baseline/0/2022-10-14-NASA-HDBK-1009.pdf"
+      tags: [systems-engineering, nasa, mbse, modeling]
+
+  - name: "INCOSE Systems Engineering Handbook"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://www.incose.org/resources-publications/technical-publications/se-handbook/"
+      tags: [systems-engineering, incose]
+
+  - name: "Google SRE Implementing SLOs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: architecture
+    config:
+      url: "https://sre.google/workbook/implementing-slos/"
+      tags: [sre, reliability, slo, error-budget]
+
+  - name: "Google Incident Management Guide (PDF)"
+    handler: pdf_document
+    origin_type: curated
+    authority: vetted
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://sre.google/static/pdf/IncidentManagementGuide.pdf"
+      tags: [sre, reliability, incident-response]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Down-weighted Sources (external authority)
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "PlatformEngineering.org Maturity 2026"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://platformengineering.org/blog/platform-engineering-maturity-in-2026"
+      tags: [platform-engineering, maturity-model]
+
+  - name: "PlatformEngineering.org Metrics"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://platformengineering.org/blog/metrics-that-matter-measuring-platform-success-and-maturity"
+      tags: [platform-engineering, metrics]
+
+  - name: "Thoughtworks Architecture Advice Process"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://www.thoughtworks.com/en-us/radar/techniques/architecture-advice-process"
+      tags: [architecture, decision-records, thoughtworks]
+
+  - name: "Thoughtworks Enterprise Architecture Playbook (PDF)"
+    handler: pdf_document
+    origin_type: external
+    authority: external
+    source_type: pdf
+    domain: architecture
+    config:
+      url: "https://www.thoughtworks.com/content/dam/thoughtworks/documents/report/thoughtworks-enterprise-architecture-playbook.pdf"
+      tags: [architecture, enterprise, thoughtworks]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Software Engineering Foundations
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "SWEBOK Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.computer.org/education/bodies-of-knowledge/software-engineering"
+      tags: [software-engineering, body-of-knowledge, foundations]
+
+  - name: "Martin Fowler Refactoring Catalog"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://refactoring.com/catalog/"
+      tags: [software-engineering, refactoring, code-review, design]
+
+  - name: "Google Engineering Practices"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://google.github.io/eng-practices/"
+      follow_links: true
+      tags: [software-engineering, code-review, readability, google]
+
+  - name: "Google Testing Blog"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://testing.googleblog.com/"
+      tags: [testing, software-engineering, google]
+
+  - name: "Google Testing on the Toilet"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://testing.googleblog.com/search/label/Testing%20on%20the%20Toilet"
+      tags: [testing, software-engineering, google, best-practices]
+
+  - name: "Semantic Versioning 2.0.0"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://semver.org/"
+      tags: [software-engineering, versioning, release, spec]
+
+  - name: "Conventional Commits"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.conventionalcommits.org/en/v1.0.0/"
+      tags: [software-engineering, version-control, commits, spec]
+
+  - name: "TOGAF Overview"
+    handler: web_page
+    origin_type: external
+    authority: external
+    domain: architecture
+    config:
+      url: "https://www.opengroup.org/togaf"
+      tags: [architecture, enterprise, togaf]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Version Control, Collaboration & Build/Release
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Git Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://git-scm.com/doc"
+      tags: [version-control, git, reference]
+
+  - name: "Pro Git Book"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://git-scm.com/book/en/v2"
+      follow_links: true
+      tags: [version-control, git, book]
+
+  - name: "GitHub Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.github.com/"
+      tags: [version-control, github, ci-cd, collaboration]
+
+  - name: "GitHub Actions Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.github.com/actions"
+      tags: [ci-cd, github, automation, build]
+
+  - name: "GitLab CI/CD Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.gitlab.com/ee/ci/"
+      tags: [ci-cd, gitlab, pipelines, build]
+
+  - name: "Jenkins Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.jenkins.io/doc/"
+      tags: [ci-cd, jenkins, build]
+
+  - name: "Bazel Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://bazel.build/docs"
+      tags: [build, bazel, monorepo, google]
+
+  - name: "CMake Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://cmake.org/documentation/"
+      tags: [build, cmake, cpp, c]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # APIs, Protocols & Web Engineering
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "HTTP Semantics (RFC 9110)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.rfc-editor.org/rfc/rfc9110"
+      tags: [api, http, rfc, spec]
+
+  - name: "HTTP Caching (RFC 9111)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.rfc-editor.org/rfc/rfc9111"
+      tags: [api, http, caching, rfc, spec]
+
+  - name: "URI Syntax (RFC 3986)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.rfc-editor.org/rfc/rfc3986"
+      tags: [api, http, uri, rfc, spec]
+
+  - name: "JSON (RFC 8259)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.rfc-editor.org/rfc/rfc8259"
+      tags: [api, json, rfc, spec]
+
+  - name: "JSON Schema"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://json-schema.org/"
+      tags: [api, json, schema, validation, spec]
+
+  - name: "GraphQL Specification"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://spec.graphql.org/"
+      tags: [api, graphql, spec]
+
+  - name: "WHATWG HTML Living Standard"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://html.spec.whatwg.org/"
+      tags: [web, html, spec, standard]
+
+  - name: "MDN Web Docs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developer.mozilla.org/"
+      tags: [web, javascript, css, html, reference]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Data, Databases & Messaging
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "PostgreSQL Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.postgresql.org/docs/"
+      tags: [database, sql, postgresql, reference]
+
+  - name: "MySQL Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dev.mysql.com/doc/"
+      tags: [database, sql, mysql, reference]
+
+  - name: "SQLite Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.sqlite.org/docs.html"
+      tags: [database, sql, sqlite, reference]
+
+  - name: "Redis Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://redis.io/docs/"
+      tags: [database, redis, caching, data-structures]
+
+  - name: "Apache Kafka Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://kafka.apache.org/documentation/"
+      tags: [messaging, kafka, event-streaming]
+
+  - name: "RabbitMQ Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.rabbitmq.com/docs"
+      tags: [messaging, rabbitmq, queue]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Security, Supply Chain & Reliability
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "OWASP Application Security Verification Standard"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://owasp.org/www-project-application-security-verification-standard/"
+      tags: [security, owasp, asvs, verification]
+
+  - name: "NIST Secure Software Development Framework (SP 800-218)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://csrc.nist.gov/pubs/sp/800/218/final"
+      tags: [security, nist, sdlc, supply-chain]
+
+  - name: "SLSA Supply Chain Integrity"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://slsa.dev/"
+      tags: [security, supply-chain, provenance, slsa]
+
+  - name: "OpenSSF Scorecard"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://scorecard.dev/"
+      tags: [security, supply-chain, openssf]
+
+  - name: "Grafana Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://grafana.com/docs/"
+      tags: [observability, grafana, dashboards, monitoring]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F1: Python
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Python Packaging User Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://packaging.python.org/"
+      tags: [python, packaging, build, pip]
+
+  - name: "pip Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://pip.pypa.io/en/stable/"
+      tags: [python, pip, packaging]
+
+  - name: "pytest Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.pytest.org/"
+      tags: [python, testing, pytest]
+
+  - name: "Ruff Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.astral.sh/ruff/"
+      tags: [python, linting, formatting, ruff]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F2: JavaScript
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "MDN JavaScript Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide"
+      tags: [javascript, reference, mdn]
+
+  - name: "ECMAScript Specification"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://tc39.es/ecma262/"
+      tags: [javascript, spec, ecmascript]
+
+  - name: "Node.js Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://nodejs.org/docs/latest/api/"
+      tags: [javascript, nodejs, runtime, api]
+
+  - name: "npm Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.npmjs.com/"
+      tags: [javascript, npm, packaging]
+
+  - name: "Jest Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://jestjs.io/docs/getting-started"
+      tags: [javascript, testing, jest]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F3: TypeScript
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "TypeScript Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.typescriptlang.org/docs/"
+      tags: [typescript, reference]
+
+  - name: "TypeScript Handbook"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.typescriptlang.org/docs/handbook/intro.html"
+      tags: [typescript, handbook, guide]
+
+  - name: "tsconfig Reference"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.typescriptlang.org/tsconfig/"
+      tags: [typescript, config, reference]
+
+  - name: "TypeScript ESLint"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://typescript-eslint.io/"
+      tags: [typescript, linting, eslint]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F4: Java
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Java Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.oracle.com/en/java/"
+      tags: [java, reference, oracle]
+
+  - name: "dev.java Learn"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dev.java/learn/"
+      tags: [java, guide, tutorials]
+
+  - name: "Maven Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://maven.apache.org/guides/"
+      tags: [java, maven, build, dependencies]
+
+  - name: "Gradle User Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.gradle.org/current/userguide/userguide.html"
+      tags: [java, kotlin, gradle, build]
+
+  - name: "JUnit 5 User Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://junit.org/junit5/docs/current/user-guide/"
+      tags: [java, testing, junit]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F5: C#
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Microsoft C# Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/dotnet/csharp/"
+      tags: [csharp, reference, microsoft]
+
+  - name: ".NET Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/dotnet/"
+      tags: [csharp, dotnet, runtime, microsoft]
+
+  - name: "NuGet Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/nuget/"
+      tags: [csharp, nuget, packaging]
+
+  - name: "xUnit Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://xunit.net/docs/getting-started/v2/getting-started"
+      tags: [csharp, testing, xunit]
+
+  - name: "ASP.NET Core Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/aspnet/core/"
+      tags: [csharp, aspnet, web, microsoft]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F6: C++
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "cppreference (C++)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://en.cppreference.com/w/"
+      tags: [cpp, reference]
+
+  - name: "ISO C++ Getting Started"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://isocpp.org/get-started"
+      tags: [cpp, guide, iso]
+
+  - name: "GoogleTest Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://google.github.io/googletest/"
+      tags: [cpp, testing, googletest, google]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F7: C
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "cppreference (C)"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://en.cppreference.com/w/c"
+      tags: [c, reference]
+
+  - name: "GNU C Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.gnu.org/software/gnu-c-manual/gnu-c-manual.html"
+      tags: [c, gnu, manual]
+
+  - name: "Clang Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://clang.llvm.org/docs/"
+      tags: [c, cpp, clang, llvm, compiler]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F8: Go
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Go Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://go.dev/doc/"
+      tags: [go, reference]
+
+  - name: "Effective Go"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://go.dev/doc/effective_go"
+      tags: [go, idioms, style, guide]
+
+  - name: "Go Language Specification"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://go.dev/ref/spec"
+      tags: [go, spec, reference]
+
+  - name: "Go Modules Reference"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://go.dev/ref/mod"
+      tags: [go, modules, dependencies]
+
+  - name: "Go by Example"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://gobyexample.com/"
+      tags: [go, examples, tutorial]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F9: Rust
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Rust Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://doc.rust-lang.org/"
+      tags: [rust, reference]
+
+  - name: "The Rust Programming Language"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://doc.rust-lang.org/book/"
+      tags: [rust, book, guide]
+
+  - name: "Rust Reference"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://doc.rust-lang.org/reference/"
+      tags: [rust, spec, reference]
+
+  - name: "Cargo Book"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://doc.rust-lang.org/cargo/"
+      tags: [rust, cargo, build, packaging]
+
+  - name: "Rust by Example"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://doc.rust-lang.org/rust-by-example/"
+      tags: [rust, examples, tutorial]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F11: Bash / Shell
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "GNU Bash Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.gnu.org/software/bash/manual/"
+      tags: [bash, shell, gnu, reference]
+
+  - name: "POSIX Shell Command Language"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html"
+      tags: [bash, shell, posix, spec]
+
+  - name: "ShellCheck Wiki"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.shellcheck.net/wiki/"
+      tags: [bash, shell, linting, shellcheck]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F12: PowerShell
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "PowerShell Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/powershell/"
+      tags: [powershell, microsoft, reference]
+
+  - name: "PowerShell about_* Topics"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/"
+      tags: [powershell, concepts, microsoft]
+
+  - name: "Pester Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pester.dev/"
+      tags: [powershell, testing, pester]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F13: PHP
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "PHP Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.php.net/docs.php"
+      tags: [php, reference]
+
+  - name: "Composer Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://getcomposer.org/doc/"
+      tags: [php, composer, packaging]
+
+  - name: "PHPUnit Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.phpunit.de/"
+      tags: [php, testing, phpunit]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F14: Kotlin
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Kotlin Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://kotlinlang.org/docs/home.html"
+      tags: [kotlin, reference]
+
+  - name: "Kotlin Language Specification"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://kotlinlang.org/spec/introduction.html"
+      tags: [kotlin, spec, reference]
+
+  - name: "Kotlin Coroutines Guide"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://kotlinlang.org/docs/coroutines-guide.html"
+      tags: [kotlin, coroutines, concurrency]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F15: Ruby
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Ruby Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.ruby-lang.org/en/documentation/"
+      tags: [ruby, reference]
+
+  - name: "Ruby Core / Stdlib Docs"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.ruby-lang.org/en/"
+      tags: [ruby, stdlib, reference]
+
+  - name: "RubyGems Guides"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://guides.rubygems.org/"
+      tags: [ruby, rubygems, packaging]
+
+  - name: "RSpec Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://rspec.info/documentation/"
+      tags: [ruby, testing, rspec]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F16: Dart
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Dart Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dart.dev/guides"
+      tags: [dart, reference]
+
+  - name: "Dart Language Tour"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dart.dev/language"
+      tags: [dart, guide, language]
+
+  - name: "Dart pub Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dart.dev/tools/pub"
+      tags: [dart, pub, packaging]
+
+  - name: "Flutter Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.flutter.dev/"
+      tags: [dart, flutter, mobile, ui]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F17: Swift
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Swift Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.swift.org/documentation/"
+      tags: [swift, reference]
+
+  - name: "The Swift Programming Language"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.swift.org/swift-book/documentation/the-swift-programming-language/"
+      tags: [swift, book, guide]
+
+  - name: "Swift Package Manager"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.swift.org/documentation/package-manager/"
+      tags: [swift, spm, packaging]
+
+  - name: "XCTest Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developer.apple.com/documentation/xctest"
+      tags: [swift, testing, xctest, apple]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F18: R
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "R Manuals"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://cran.r-project.org/manuals.html"
+      tags: [r, reference, cran]
+
+  - name: "CRAN Task Views"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://cran.r-project.org/web/views/"
+      tags: [r, cran, ecosystem, packages]
+
+  - name: "testthat Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://testthat.r-lib.org/"
+      tags: [r, testing, testthat]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F19: Lua
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Programming in Lua"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.lua.org/pil/"
+      tags: [lua, book, guide]
+
+  - name: "Lua 5.4 Reference Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.lua.org/manual/5.4/"
+      tags: [lua, reference, spec]
+
+  - name: "LuaRocks Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/luarocks/luarocks/wiki"
+      tags: [lua, luarocks, packaging]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # F20: Assembly
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "NASM Documentation"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.nasm.us/docs.php"
+      tags: [assembly, nasm, x86]
+
+  - name: "GNU Assembler Manual"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://sourceware.org/binutils/docs/as/"
+      tags: [assembly, gas, gnu]
+
+  - name: "Intel 64 and IA-32 Developer Manuals"
+    handler: web_page
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html"
+      tags: [assembly, intel, x86, isa, reference]
