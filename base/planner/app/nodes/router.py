@@ -368,6 +368,7 @@ class RouterNode:
             "evidence_packets": [p.model_dump() for p in packets],
             "evidence_requests": [],
             "need_more_evidence": False,
+            "error": None,
             "next_node": next_node,
             "current_node": "router",
             "node_traces": [

@@ -529,6 +529,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "decision_ledger": ledger,
             "style_contract_locked": style_locked,
             "evidence_requests": evidence_requests,
+            "error": None,
             "current_node": node_name,
             "next_node": next_node,
             "node_traces": [trace],

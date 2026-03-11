@@ -347,6 +347,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "generated_code": compiled,
             "compiled_answer": compiled,
             "draft_fingerprints": [fingerprint_draft(compiled)],
+            "error": None,
             "current_node": node_name,
             "node_traces": [
                 NodeTrace(
