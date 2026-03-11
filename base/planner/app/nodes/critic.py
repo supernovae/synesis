@@ -176,6 +176,24 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
                 + (", citations-required" if style_contract.get("citation_required", False) else "")
             )
 
+    # Conditional rubric: tradeoff explicitness
+    all_constraints_text = " ".join(c.lower() for c in (constraints + neg_constraints + success_criteria))
+    tradeoff_signals = ("tradeoff", "trade-off", "explicit", "compare", "recommend", "alternative")
+    if any(s in all_constraints_text for s in tradeoff_signals):
+        parts.append(
+            "Tradeoff explicitness: every recommendation must state the chosen "
+            "approach AND briefly explain why alternatives were rejected. "
+            "Unresolved 'X or Y' without a clear pick is a blocking issue."
+        )
+
+    # Citation validity rubric (always active when evidence is provided)
+    if state and (state.get("evidence_packets") or []):
+        parts.append(
+            "Citation validity: every inline [Source: ...] citation must reference "
+            "a URL from the AVAILABLE SOURCES provided to the writer. Flag any URL "
+            "not in the evidence set as a hallucinated_citation blocking issue."
+        )
+
     if len(parts) > 1:
         parts.append(
             "\nFor requirement_coverage, include one entry per requirement AND deliverable above. "
@@ -482,6 +500,20 @@ Reply with JSON:
             if is_lenient:
                 response_text = _skeleton_extract(response_text)
 
+            # Deterministic URL validation: flag citations not in evidence
+            hallucinated_urls: list[str] = []
+            packets = state.get("evidence_packets") or []
+            if packets:
+                valid_uris: set[str] = set()
+                for pkt in packets:
+                    srcs = pkt.get("sources", []) if isinstance(pkt, dict) else getattr(pkt, "sources", [])
+                    for s in srcs:
+                        uri = s.get("uri", "") if isinstance(s, dict) else getattr(s, "uri", "")
+                        if uri and uri.startswith("http"):
+                            valid_uris.add(uri)
+                cited_urls = set(re.findall(r"https?://[^\s\]\)>\"']+", generated_code))
+                hallucinated_urls = sorted(cited_urls - valid_uris) if valid_uris else []
+
             doc_prompt = f"## User Task\n{task_summary}\n\n## Response to Evaluate\n{response_text}"
             try:
                 doc_response = await critic_llm.ainvoke(
@@ -549,6 +581,24 @@ Reply with JSON:
                             "approved": doc_approved,
                             "difficulty": round(difficulty, 2),
                         },
+                    )
+
+                # Deterministic override: reject if hallucinated URLs found
+                if hallucinated_urls:
+                    logger.warning(
+                        "critic_hallucinated_citations",
+                        extra={"count": len(hallucinated_urls), "urls": hallucinated_urls[:5]},
+                    )
+                    doc_approved = False
+                    failure_modes.append("hallucinated_citation")
+                    repair_list.append(
+                        {
+                            "priority": 1,
+                            "target": "citations",
+                            "action": "Remove or replace fabricated URLs",
+                            "reason": f"Found {len(hallucinated_urls)} URL(s) not in evidence: "
+                            + ", ".join(hallucinated_urls[:3]),
+                        }
                     )
 
                 result = {
@@ -859,10 +909,21 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
             if retry_delta.get("retry"):
                 result["retry"] = {**state.get("retry", {}), **retry_delta["retry"]}
         if parsed.need_more_evidence:
-            result["evidence_needed"] = build_evidence_needed_query_plan(
+            evidence_plan = build_evidence_needed_query_plan(
                 getattr(parsed, "evidence_gap", None),
                 state.get("intent_class", "code"),
             )
+            result["evidence_needed"] = evidence_plan
+            # Wire query_plan into evidence_requests so the router enters
+            # refinement mode instead of falling back to initial mode.
+            domain_tags = list((state.get("user_task") or {}).get("domain_tags") or [])
+            evidence_requests: list[dict[str, Any]] = []
+            for plan_item in evidence_plan.get("query_plan", []):
+                for query in plan_item.get("suggested_queries", []):
+                    if query:
+                        evidence_requests.append({"description": query, "domain_hints": domain_tags})
+            if evidence_requests:
+                result["evidence_requests"] = evidence_requests
         return result
 
     except Exception as e:

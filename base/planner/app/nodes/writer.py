@@ -78,6 +78,9 @@ CONSTRAINT AWARENESS:
 CITATION:
 - When evidence is provided and a claim relies on it, cite inline: \
   [Source: doc_name — URL].
+- You MUST only cite URLs from the AVAILABLE SOURCES list injected below \
+  the evidence. Do NOT invent, shorten, or guess URLs. If no AVAILABLE \
+  SOURCES list is present, do NOT produce inline URL citations.
 - At the end, add a "## Sources" section listing cited sources.
 - If no claims reference specific sources, omit the Sources section.
 
@@ -206,6 +209,28 @@ def _build_sources_section(state: dict[str, Any]) -> str:
     return "## Sources\n\n" + "\n".join(lines)
 
 
+def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
+    """Extract deduplicated (doc_name, uri) pairs from evidence packets."""
+    seen: set[str] = set()
+    lines: list[str] = []
+    for p in packets:
+        sources = p.get("sources", []) if isinstance(p, dict) else getattr(p, "sources", [])
+        for s in sources:
+            uri = s.get("uri", "") if isinstance(s, dict) else getattr(s, "uri", "")
+            if not uri or not uri.startswith("http") or uri in seen:
+                continue
+            seen.add(uri)
+            meta = s.get("metadata", {}) if isinstance(s, dict) else getattr(s, "metadata", {})
+            doc_name = ""
+            if isinstance(meta, dict):
+                doc_name = meta.get("document", "") or meta.get("document_name", "")
+            display = f"{doc_name} — {uri}" if doc_name else uri
+            lines.append(f"- {display}")
+    if not lines:
+        return ""
+    return "## AVAILABLE SOURCES (cite ONLY these URLs)\n" + "\n".join(lines) + "\n"
+
+
 async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     """Produce the full response from plan outline + evidence packets."""
     start = time.monotonic()
@@ -242,6 +267,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
     if compiled_evidence:
         user_msg += f'## Evidence\n<context trust="untrusted">\n{compiled_evidence}\n</context>\n'
+
+    available_sources = _build_available_sources(packets)
+    if available_sources:
+        user_msg += f"\n{available_sources}\n"
 
     # Token budget: estimate input, ensure output fits
     model_context = settings.compiler_model_context

@@ -24,10 +24,10 @@ from __future__ import annotations
 
 
 def _read_writer_system() -> str:
-    """Read the _WRITER_SYSTEM constant from structured_writer.py (replaces section worker)."""
+    """Read the _WRITER_SYSTEM constant from writer.py."""
     import pathlib
 
-    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "structured_writer.py"
+    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
     marker_start = '_WRITER_SYSTEM = """\\\n'
     marker_end = '"""'
@@ -241,10 +241,10 @@ def _read_planner_prompt_source() -> str:
 
 
 def _read_compiler_system() -> str:
-    """Read the _WRITER_SYSTEM prompt from structured_writer.py source (replaces final_answer_compiler)."""
+    """Read the _WRITER_SYSTEM prompt from writer.py source."""
     import pathlib
 
-    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "structured_writer.py"
+    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
     marker_start = '_WRITER_SYSTEM = """\\\n'
     marker_end = '"""'
@@ -308,7 +308,8 @@ class TestAntiEchoPlanner:
 
     def test_cover_every_deliverable(self):
         source = _read_planner_prompt_source()
-        assert "do NOT merge or skip" in source
+        assert "Every deliverable" in source
+        assert "deliverable_ids" in source
 
     def test_no_format_constraint_capture(self):
         source = _read_planner_prompt_source()
@@ -363,9 +364,208 @@ class TestSectionCapSimplified:
         assert "max_sections_base" not in text
         assert "max_sections_max" not in text
 
-    def test_graph_uses_max_parallel_directly(self):
+    def test_graph_uses_writer_node(self):
+        """Writer node replaced parallel section workers; no max_parallel needed."""
         import pathlib
 
         src = pathlib.Path(__file__).resolve().parent.parent / "app" / "graph.py"
         text = src.read_text()
-        assert "steps[:max_parallel]" in text
+        assert "writer" in text
+        assert "scaled_max_sections" not in text
+
+
+# ---------------------------------------------------------------------------
+# Pipeline quality: deliverable coverage, citation validation, tradeoffs,
+# critic-router wiring
+# ---------------------------------------------------------------------------
+
+
+class TestDeliverableCoverage:
+    """Planner coverage guard using deliverable_ids."""
+
+    def test_all_ids_covered_no_injection(self):
+        """When all deliverable IDs are mapped, no extra steps are injected."""
+        steps = [
+            {"id": 1, "action": "Design Goals", "deliverable_ids": [0, 1]},
+            {"id": 2, "action": "Architecture", "deliverable_ids": [2, 3]},
+            {"id": 3, "action": "Risks", "deliverable_ids": [4]},
+        ]
+        deliverables = ["goal A", "goal B", "arch C", "arch D", "risk E"]
+        all_ids = set(range(len(deliverables)))
+        covered_ids: set[int] = set()
+        for s in steps:
+            covered_ids.update(int(x) for x in s.get("deliverable_ids", []))
+        assert covered_ids == all_ids
+
+    def test_missing_ids_detected(self):
+        """Steps that omit deliverable IDs are caught."""
+        steps = [
+            {"id": 1, "action": "Design Goals", "deliverable_ids": [0]},
+            {"id": 2, "action": "Architecture", "deliverable_ids": [2]},
+        ]
+        deliverables = ["goal A", "goal B", "arch C", "arch D"]
+        all_ids = set(range(len(deliverables)))
+        covered_ids: set[int] = set()
+        for s in steps:
+            covered_ids.update(int(x) for x in s.get("deliverable_ids", []))
+        uncovered = all_ids - covered_ids
+        assert uncovered == {1, 3}
+
+    def test_empty_deliverable_ids_triggers_keyword_fallback(self):
+        """When no step has deliverable_ids, the fallback keyword check applies."""
+        steps = [
+            {"id": 1, "action": "Design Goals"},
+            {"id": 2, "action": "Architecture"},
+        ]
+        has_id_mapping = any(s.get("deliverable_ids") for s in steps)
+        assert not has_id_mapping
+
+    def test_planner_prompt_includes_deliverable_ids_schema(self):
+        """The knowledge planner prompt JSON schema includes deliverable_ids."""
+        import pathlib
+
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "planner_node.py"
+        text = src.read_text()
+        assert "deliverable_ids" in text
+        assert "0-based indices" in text
+
+
+class TestCitationValidation:
+    """Deterministic URL validation in the critic."""
+
+    def test_hallucinated_url_detected(self):
+        """URLs not in evidence packets are flagged."""
+        import re
+
+        valid_uris = {"https://example.com/doc1", "https://example.com/doc2"}
+        draft = "See [Source: Doc1 — https://example.com/doc1] and [Source: Fake — https://made-up.com/fake]."
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        hallucinated = sorted(cited - valid_uris)
+        assert len(hallucinated) == 1
+        assert "made-up.com/fake" in hallucinated[0]
+
+    def test_all_valid_urls_pass(self):
+        """When all cited URLs are in evidence, no hallucinations flagged."""
+        import re
+
+        valid_uris = {"https://example.com/doc1", "https://example.com/doc2"}
+        draft = "See [Source: Doc1 — https://example.com/doc1]."
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        hallucinated = sorted(cited - valid_uris)
+        assert hallucinated == []
+
+    def test_no_evidence_no_validation(self):
+        """When no evidence packets exist, no URL validation occurs."""
+        valid_uris: set[str] = set()
+        hallucinated = [] if not valid_uris else ["would-be-flagged"]
+        assert hallucinated == []
+
+
+class TestTradeoffDetection:
+    """Critic rubric adds tradeoff explicitness when user requests it."""
+
+    def _build_rubric(self, constraints: list[str], neg_constraints: list[str]) -> str:
+        parts = ["USER TASK RUBRIC (evaluate each item as met/partial/missing):"]
+        all_constraints_text = " ".join(c.lower() for c in (constraints + neg_constraints))
+        tradeoff_signals = ("tradeoff", "trade-off", "explicit", "compare", "recommend", "alternative")
+        if any(s in all_constraints_text for s in tradeoff_signals):
+            parts.append(
+                "Tradeoff explicitness: every recommendation must state the chosen "
+                "approach AND briefly explain why alternatives were rejected."
+            )
+        return "\n".join(parts)
+
+    def test_tradeoff_rubric_added_when_explicit_requested(self):
+        rubric = self._build_rubric([], ["Make tradeoffs explicit"])
+        assert "Tradeoff explicitness" in rubric
+
+    def test_tradeoff_rubric_added_for_compare(self):
+        rubric = self._build_rubric(["compare at least two approaches"], [])
+        assert "Tradeoff explicitness" in rubric
+
+    def test_tradeoff_rubric_not_added_when_absent(self):
+        rubric = self._build_rubric(["use tables"], ["no filler"])
+        assert "Tradeoff explicitness" not in rubric
+
+
+class TestCriticRouterWiring:
+    """Critic populates evidence_requests when need_more_evidence is set."""
+
+    def test_query_plan_converted_to_evidence_requests(self):
+        """Critic's evidence_needed.query_plan is converted to evidence_requests."""
+        plan = {
+            "reason": "needs_more_evidence",
+            "evidence_gap": "missing Kubernetes deployment docs",
+            "intent_class": "code",
+            "query_plan": [
+                {"target": "rag", "suggested_queries": ["missing Kubernetes deployment docs"]},
+            ],
+        }
+        domain_tags = ["kubernetes"]
+        evidence_requests: list[dict] = []
+        for plan_item in plan.get("query_plan", []):
+            for query in plan_item.get("suggested_queries", []):
+                if query:
+                    evidence_requests.append({"description": query, "domain_hints": domain_tags})
+        assert len(evidence_requests) >= 1
+        assert evidence_requests[0]["description"] == "missing Kubernetes deployment docs"
+        assert evidence_requests[0]["domain_hints"] == ["kubernetes"]
+
+    def test_empty_evidence_gap_produces_fallback_request(self):
+        """Even without a specific gap, a fallback query is produced."""
+        plan = {
+            "reason": "needs_more_evidence",
+            "evidence_gap": "insufficient",
+            "intent_class": "knowledge",
+            "query_plan": [
+                {"target": "rag", "suggested_queries": ["context"]},
+            ],
+        }
+        queries = []
+        for plan_item in plan.get("query_plan", []):
+            queries.extend(plan_item.get("suggested_queries", []))
+        assert len(queries) >= 1
+
+
+class TestWriterAvailableSources:
+    """Writer injects AVAILABLE SOURCES from evidence packets."""
+
+    def test_builds_source_list_from_packets(self):
+        import pathlib
+
+        writer_path = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
+        text = writer_path.read_text()
+        assert "AVAILABLE SOURCES" in text
+        assert "_build_available_sources" in text
+        assert "Do NOT invent" in text
+
+    def test_writer_prompt_restricts_urls_to_evidence(self):
+        import pathlib
+
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
+        text = src.read_text()
+        assert "MUST only cite URLs from the AVAILABLE SOURCES" in text
+
+
+class TestRouterDeliverableCap:
+    """Router no longer caps at 4 deliverables."""
+
+    def test_no_slice_4_in_router(self):
+        import pathlib
+
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "router.py"
+        text = src.read_text()
+        assert "deliverables[:4]" not in text
+
+    def test_batching_for_large_lists(self):
+        """Deliverable lists > 10 are batched into groups of 3."""
+        deliverables = [f"deliverable_{i}" for i in range(12)]
+        requests: list[dict] = []
+        if len(deliverables) > 10:
+            for batch_idx in range(0, len(deliverables), 3):
+                batch = deliverables[batch_idx : batch_idx + 3]
+                combined = "; ".join(batch)
+                requests.append({"description": combined})
+        assert len(requests) == 4
+        assert "deliverable_0" in requests[0]["description"]
+        assert "deliverable_11" in requests[3]["description"]

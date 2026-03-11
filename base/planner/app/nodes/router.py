@@ -398,14 +398,27 @@ class RouterNode:
             )
 
         deliverables = user_task.get("deliverables") or []
-        for i, d in enumerate(deliverables[:4]):
-            requests.append(
-                {
-                    "section_id": i,
-                    "description": d if isinstance(d, str) else str(d),
-                    "domain_hints": domain_tags,
-                }
-            )
+        if len(deliverables) > 10:
+            # Batch large deliverable lists into groups of 3 to keep query quality high
+            for batch_idx in range(0, len(deliverables), 3):
+                batch = deliverables[batch_idx : batch_idx + 3]
+                combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
+                requests.append(
+                    {
+                        "section_id": batch_idx,
+                        "description": combined,
+                        "domain_hints": domain_tags,
+                    }
+                )
+        else:
+            for i, d in enumerate(deliverables):
+                requests.append(
+                    {
+                        "section_id": i,
+                        "description": d if isinstance(d, str) else str(d),
+                        "domain_hints": domain_tags,
+                    }
+                )
 
         return requests if requests else [{"description": task_desc, "domain_hints": domain_tags}]
 

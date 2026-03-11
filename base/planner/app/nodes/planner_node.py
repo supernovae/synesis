@@ -64,7 +64,7 @@ def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
 You are the Planner. Create a structured outline for a {depth_desc}. You do NOT write the response itself.
 
 Reply with JSON only:
-{{"plan":{{"steps":[{{"id":1,"action":"Section: title — concrete deliverable description","dependencies":[]}}],"open_questions":[],"assumptions":[]}},"reasoning":"Brief","confidence":0.0-1.0}}
+{{"plan":{{"steps":[{{"id":1,"action":"Section: title — concrete deliverable description","dependencies":[],"deliverable_ids":[0]}}],"open_questions":[],"assumptions":[]}},"reasoning":"Brief","confidence":0.0-1.0}}
 
 Rules:
 - Each step = one section of the final response. {section_desc}
@@ -73,6 +73,9 @@ Rules:
 - Every deliverable must be covered by at least one section, but related \
 deliverables belong together — do NOT create a separate section for each \
 individual deliverable if they naturally overlap.
+- Each step MUST include "deliverable_ids": a list of 0-based indices \
+referencing the deliverables listed below. Every deliverable index must \
+appear in at least one step. If no deliverables are listed, use [].
 - Each step's action MUST state the concrete deliverable(s), not just the topic.
 - Section titles must be descriptive noun phrases that name the content — \
 NOT echoes of the user's imperative phrasing. "Explain how retrieval should work" \
@@ -304,14 +307,14 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         frame_neg_constraints = user_task.get("negative_constraints") or []
         frame_success_criteria = user_task.get("success_criteria") or []
         if frame_deliverables:
-            deliverable_list = "\n".join(f"  {i + 1}. {d}" for i, d in enumerate(frame_deliverables))
+            deliverable_list = "\n".join(f"  [{i}] {d}" for i, d in enumerate(frame_deliverables))
             n = len(frame_deliverables)
-            min_sections = max(3, (n + 1) // 2)  # group related deliverables
+            min_sections = max(3, (n + 1) // 2)
             max_sections = min(n + 2, 10)
             system_prompt += (
-                f"\n\nUSER TASK — the user expects these deliverables:\n{deliverable_list}\n"
+                f"\n\nUSER TASK — the user expects these deliverables (0-based IDs):\n{deliverable_list}\n"
                 f"Group related deliverables into {min_sections}-{max_sections} cohesive sections. "
-                f"Every deliverable above must be covered by at least one section."
+                f"Every deliverable ID above must appear in at least one step's deliverable_ids."
             )
         elif explicit_deliverables > 0:
             min_sections = max(3, (explicit_deliverables + 1) // 2)
@@ -414,21 +417,35 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         steps = plan.get("steps", [])
 
-        # Coverage guard: check each deliverable has keyword overlap with at
-        # least one plan step. Only inject a new step if zero overlap found.
+        # Coverage guard: check each deliverable ID appears in at least one
+        # step's deliverable_ids. Fall back to keyword overlap if no IDs present.
         from ..contract_validator import _extract_keywords
 
         frame_deliverables = (state.get("user_task") or {}).get("deliverables") or []
         if frame_deliverables:
-            all_actions_text = " ".join(s.get("action", "").lower() for s in steps)
-            uncovered: list[str] = []
-            for deliverable in frame_deliverables:
-                kw = _extract_keywords(deliverable)
-                if not kw:
-                    continue
-                hits = sum(1 for w in kw if w in all_actions_text)
-                if hits / len(kw) < 0.6:
-                    uncovered.append(deliverable)
+            all_ids = set(range(len(frame_deliverables)))
+            covered_ids: set[int] = set()
+            has_id_mapping = False
+            for s in steps:
+                d_ids = s.get("deliverable_ids") or []
+                if d_ids:
+                    has_id_mapping = True
+                    covered_ids.update(int(x) for x in d_ids if isinstance(x, (int, float)))
+
+            if has_id_mapping:
+                uncovered_ids = all_ids - covered_ids
+                uncovered = [frame_deliverables[i] for i in sorted(uncovered_ids) if i < len(frame_deliverables)]
+            else:
+                # Fallback: keyword overlap for models that omit deliverable_ids
+                all_actions_text = " ".join(s.get("action", "").lower() for s in steps)
+                uncovered = []
+                for deliverable in frame_deliverables:
+                    kw = _extract_keywords(deliverable)
+                    if not kw:
+                        continue
+                    hits = sum(1 for w in kw if w in all_actions_text)
+                    if hits / len(kw) < 0.6:
+                        uncovered.append(deliverable)
 
             if uncovered:
                 logger.warning(
@@ -437,15 +454,18 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                         "deliverables_requested": len(frame_deliverables),
                         "steps_produced": len(steps),
                         "uncovered": uncovered[:10],
+                        "id_based": has_id_mapping,
                     },
                 )
                 next_id = max((s.get("id", 0) for s in steps), default=0) + 1
                 for deliverable in uncovered:
+                    d_idx = frame_deliverables.index(deliverable) if deliverable in frame_deliverables else -1
                     steps.append(
                         {
                             "id": next_id,
                             "action": f"Section: {deliverable}",
                             "dependencies": [],
+                            "deliverable_ids": [d_idx] if d_idx >= 0 else [],
                         }
                     )
                     next_id += 1
