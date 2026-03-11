@@ -45,22 +45,44 @@ from .state import GraphState, NodeOutcome, NodeTrace
 logger = logging.getLogger("synesis.graph")
 
 
-def with_debug_node_timing(func):
-    """Log node exit at DEBUG with latency for performance tuning."""
+def with_telemetry_node(func):
+    """Structured logging + optional OTel span for each graph node."""
+    from synesis_telemetry import set_node, span
 
     @wraps(func)
     async def wrapper(state: dict[str, Any]) -> dict[str, Any]:
         import time
 
-        start = time.monotonic()
-        coro_or_result = func(state)
-        result = await coro_or_result if asyncio.iscoroutine(coro_or_result) else coro_or_result
-        latency_ms = (time.monotonic() - start) * 1000
         node_name = func.__name__.replace("_node", "")
+        set_node(node_name)
+        start = time.monotonic()
+
+        with span(node_name):
+            coro_or_result = func(state)
+            result = await coro_or_result if asyncio.iscoroutine(coro_or_result) else coro_or_result
+
+        latency_ms = (time.monotonic() - start) * 1000
         traces = result.get("node_traces") or []
         if traces and hasattr(traces[-1], "latency_ms") and traces[-1].latency_ms > 0:
             latency_ms = traces[-1].latency_ms
-        logger.debug("Node %s took %.0fms", node_name, latency_ms)
+
+        outcome = "success"
+        if traces:
+            last = traces[-1]
+            outcome = getattr(last, "outcome", "success")
+            if hasattr(outcome, "value"):
+                outcome = outcome.value
+
+        logger.info(
+            "node_complete",
+            extra={
+                "node": node_name,
+                "latency_ms": round(latency_ms, 1),
+                "outcome": outcome,
+                "next_node": result.get("next_node", ""),
+            },
+        )
+        set_node("")
         return result
 
     return wrapper
@@ -87,7 +109,7 @@ def with_timeout(timeout_seconds: float):
                 )
             except TimeoutError:
                 node_name = func.__name__.replace("_node", "")
-                logger.error(f"Node '{node_name}' timed out after {timeout_seconds}s")
+                logger.error("node_timeout", extra={"node": node_name, "timeout_seconds": timeout_seconds})
                 return {
                     "current_node": node_name,
                     "next_node": "respond",
@@ -634,14 +656,14 @@ timeout = settings.node_timeout_seconds
 
 graph_builder = StateGraph(GraphState)
 
-graph_builder.add_node("entry_classifier", with_debug_node_timing(with_timeout(timeout)(entry_classifier_node)))
-graph_builder.add_node("strategic_advisor", with_debug_node_timing(with_timeout(timeout)(strategic_advisor_node)))
-graph_builder.add_node("frame_extractor", with_debug_node_timing(with_timeout(timeout)(frame_extractor_node)))
-graph_builder.add_node("router", with_debug_node_timing(with_timeout(timeout)(router_node)))
-graph_builder.add_node("planner", with_debug_node_timing(with_timeout(timeout)(planner_node)))
+graph_builder.add_node("entry_classifier", with_telemetry_node(with_timeout(timeout)(entry_classifier_node)))
+graph_builder.add_node("strategic_advisor", with_telemetry_node(with_timeout(timeout)(strategic_advisor_node)))
+graph_builder.add_node("frame_extractor", with_telemetry_node(with_timeout(timeout)(frame_extractor_node)))
+graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
+graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
 graph_builder.add_node(
     "executor",
-    with_debug_node_timing(
+    with_telemetry_node(
         with_timeout(timeout)(
             validated_node(
                 executor_node,
@@ -651,11 +673,11 @@ graph_builder.add_node(
         )
     ),
 )
-graph_builder.add_node("writer", with_debug_node_timing(with_timeout(timeout)(writer_node)))
-graph_builder.add_node("patch_integrity_gate", with_debug_node_timing(with_timeout(timeout)(patch_integrity_gate_node)))
+graph_builder.add_node("writer", with_telemetry_node(with_timeout(timeout)(writer_node)))
+graph_builder.add_node("patch_integrity_gate", with_telemetry_node(with_timeout(timeout)(patch_integrity_gate_node)))
 graph_builder.add_node(
     "critic",
-    with_debug_node_timing(
+    with_telemetry_node(
         with_timeout(timeout)(
             validated_node(
                 critic_node,
@@ -664,8 +686,8 @@ graph_builder.add_node(
         )
     ),
 )
-graph_builder.add_node("final_scrubber", with_debug_node_timing(with_timeout(timeout)(final_scrubber_node)))
-graph_builder.add_node("respond", with_debug_node_timing(with_timeout(timeout)(respond_node)))
+graph_builder.add_node("final_scrubber", with_telemetry_node(with_timeout(timeout)(final_scrubber_node)))
+graph_builder.add_node("respond", with_telemetry_node(with_timeout(timeout)(respond_node)))
 
 # Entry flow: always -> router
 graph_builder.set_entry_point("entry_classifier")

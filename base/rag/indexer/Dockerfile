@@ -29,7 +29,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY images/base-api/synesis_telemetry/ /tmp/synesis_telemetry/
+RUN pip install --no-cache-dir /tmp/synesis_telemetry/ && rm -rf /tmp/synesis_telemetry/
+
+COPY rag/indexer/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
@@ -38,10 +41,10 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN playwright install chromium \
     && chmod -R 755 /opt/pw-browsers
 
-COPY app/ /app/app/
-COPY seed-corpus.json /app/seed-corpus.json
-COPY seed-corpus-band2.json /app/seed-corpus-band2.json
-COPY seed-corpus-developer.json /app/seed-corpus-developer.json
+COPY rag/indexer/app/ /app/app/
+COPY rag/indexer/seed-corpus.json /app/seed-corpus.json
+COPY rag/indexer/seed-corpus-band2.json /app/seed-corpus-band2.json
+COPY rag/indexer/seed-corpus-developer.json /app/seed-corpus-developer.json
 
 # Writable dirs for OpenShift (runs as arbitrary non-root UID).
 # HOME must point somewhere writable so Path.home() / ~ expansion works.

@@ -6,17 +6,17 @@ cosine ranking, and MMR locally with numpy.
 
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from synesis_telemetry import configure_logging, get_logger
 
 from .embed_client import EmbedClient
 from .extractor import extract_keywords, extract_keywords_batch
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
-logger = logging.getLogger("keyword_service")
+configure_logging(service="synesis-keyword-service")
+logger = get_logger("synesis.keyword_service")
 
 _embedder: EmbedClient | None = None
 

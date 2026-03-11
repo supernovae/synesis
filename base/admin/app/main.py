@@ -7,22 +7,26 @@ Internal-only (no Route/Ingress).
 
 from __future__ import annotations
 
-import logging
 import os
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_latest, get_logger
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("SYNESIS_LOG_LEVEL", "info").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-logger = logging.getLogger("synesis.admin")
+configure_logging(service="synesis-admin")
+logger = get_logger("synesis.admin")
 
 app = FastAPI(title="Synesis Admin", version="0.1.0")
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint."""
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -77,11 +81,11 @@ def _safe_query(
                         offset=offset,
                     )
                 except Exception as retry_e:
-                    logger.warning(f"Milvus query retry failed: {retry_e}")
+                    logger.warning("milvus_query_retry_failed error=%s", str(retry_e))
                     return []
             raise
     except Exception as e:
-        logger.warning(f"Milvus query error: {e}")
+        logger.warning("milvus_query_error error=%s", str(e))
         return []
 
 
@@ -336,7 +340,7 @@ async def knowledge_gaps_submit(
             resp.raise_for_status()
             return RedirectResponse(url="/admin/knowledge-gaps?submitted=1", status_code=303)
         except Exception as e:
-            logger.warning(f"Knowledge submit failed: {e}")
+            logger.warning("knowledge_submit_failed error=%s", str(e))
             return RedirectResponse(url=f"/admin/knowledge-gaps?error={str(e)[:50]}", status_code=303)
 
 

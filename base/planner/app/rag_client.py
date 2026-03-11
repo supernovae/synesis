@@ -222,7 +222,7 @@ class BM25Index:
         )
 
         if collection not in client.list_collections():
-            logger.warning(f"BM25 refresh: collection '{collection}' not found")
+            logger.warning("bm25_collection_not_found", extra={"collection": collection})
             return
 
         all_chunks: list[_CachedChunk] = []
@@ -271,7 +271,7 @@ class BM25Index:
             all_chunks = self._fallback_query_refresh(client, collection)
 
         if not all_chunks:
-            logger.info(f"BM25 refresh: no chunks in '{collection}'")
+            logger.info("bm25_no_chunks", extra={"collection": collection})
             return
 
         tokenized = [self._tokenize(self._enriched_text(c)) for c in all_chunks]
@@ -478,7 +478,7 @@ def _ensure_synesis_catalog() -> None:
         _catalog_ensured = True
         logger.info("Created unified catalog '%s' v2", SYNESIS_CATALOG)
     except Exception as e:
-        logger.warning(f"Could not ensure synesis_catalog: {e}")
+        logger.warning("ensure_synesis_catalog_failed", extra={"error": str(e)[:200]})
 
 
 async def submit_user_knowledge(
@@ -528,7 +528,7 @@ async def submit_user_knowledge(
         logger.info("knowledge_submitted", extra={"chunk_id": chunk_id[:12], "domain": domain})
         return chunk_id
     except Exception as e:
-        logger.warning(f"Failed to submit knowledge: {e}")
+        logger.warning("submit_knowledge_failed", extra={"error": str(e)[:200]})
         return None
 
 
@@ -579,7 +579,7 @@ def _ensure_collection_loaded(client, collection_name: str) -> bool:
         client.load_collection(collection_name=collection_name)
         return True
     except Exception as e:
-        logger.debug(f"Could not load collection '{collection_name}': {e}")
+        logger.debug("load_collection_failed", extra={"collection_name": collection_name, "error": str(e)[:200]})
         return False
 
 
@@ -597,7 +597,7 @@ async def _vector_search(
 
     collections = client.list_collections()
     if collection not in collections:
-        logger.warning(f"Vector search: collection '{collection}' not found, available: {collections}")
+        logger.warning("vector_search_collection_not_found", extra={"collection": collection, "available": collections})
         return []
 
     query_vector = await _embed_text(query)
@@ -632,7 +632,9 @@ async def _vector_search(
                 try:
                     results = client.search(**search_params)
                 except Exception as retry_e:
-                    logger.warning(f"Vector search retry failed for '{collection}': {retry_e}")
+                    logger.warning(
+                        "vector_search_retry_failed", extra={"collection": collection, "error": str(retry_e)[:200]}
+                    )
                     return []
             else:
                 return []
@@ -821,7 +823,7 @@ async def _rerank_flashrank(
         results.sort(key=lambda r: r["rerank_score"], reverse=True)
         return results[:top_k]
     except Exception as e:
-        logger.warning(f"FlashRank rerank failed, using RRF order: {e}")
+        logger.warning("flashrank_rerank_failed", extra={"error": str(e)[:200]})
         return results[:top_k]
 
 
@@ -861,7 +863,7 @@ async def _rerank_bge(
         return results[:top_k]
 
     except Exception as e:
-        logger.warning(f"BGE re-ranking failed, falling back to RRF order: {e}")
+        logger.warning("bge_rerank_failed", extra={"error": str(e)[:200]})
         return results[:top_k]
 
 
@@ -930,7 +932,7 @@ async def retrieve_context(
             if coll_fallback:
                 fallback_to_bm25 = True
         except Exception as e:
-            logger.warning(f"RAG retrieval failed for collection '{coll}': {e}")
+            logger.warning("rag_retrieval_failed", extra={"collection": coll, "error": str(e)[:200]})
 
     if reranker != "none" and all_merged:
         all_merged = await _rerank(query, all_merged, reranker, top_k)
@@ -1044,7 +1046,7 @@ async def _retrieve_single_collection(
         try:
             vector_results = await _vector_search(query, collection, fetch_k, filter_expr=domain_filter)
         except Exception as e:
-            logger.warning(f"Vector search failed for '{collection}': {e}")
+            logger.warning("vector_search_failed", extra={"collection": collection, "error": str(e)[:200]})
             if strategy == "hybrid":
                 fallback_to_bm25 = True
                 if _bm25_fallback_counter:

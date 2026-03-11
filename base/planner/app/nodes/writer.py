@@ -333,6 +333,12 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 compiled = compiled.rstrip() + "\n\n" + sources_section
 
         latency = (time.monotonic() - start) * 1000
+        available_sources_count = (
+            len([l for l in available_sources.splitlines() if l.strip().startswith("-")]) if available_sources else 0
+        )
+        sections_written = sum(
+            1 for line in compiled.split("\n") if line.strip().startswith("## ") and not line.strip().startswith("### ")
+        )
         logger.info(
             "writer_complete",
             extra={
@@ -340,6 +346,8 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "evidence_len": len(compiled_evidence),
                 "latency_ms": round(latency),
                 "writer_budget": writer_budget,
+                "available_sources_count": available_sources_count,
+                "sections_written": sections_written,
             },
         )
 

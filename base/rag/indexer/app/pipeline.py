@@ -12,8 +12,9 @@ to bypass, but a loud warning is logged.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
+
+from synesis_telemetry import get_logger
 
 from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
@@ -23,7 +24,7 @@ from .handlers.base import Chunk, RawDocument
 from .milvus_writer import MilvusWriter, ProgressTracker, chunk_id_hash
 from .schema import catalog_entity, ensure_synesis_catalog
 
-logger = logging.getLogger("synesis.indexer.pipeline")
+logger = get_logger("synesis.indexer.pipeline")
 
 
 def index_source(
@@ -52,34 +53,37 @@ def index_source(
     tags_str = ",".join(str(t) for t in tags_list)
 
     if not handler_type:
-        logger.error("Source '%s' missing 'handler' field", name)
+        logger.error("indexer_source_missing_handler", extra={"source": name})
         progress.log_error(name, "missing handler")
         return 0
 
     try:
         handler = get_handler(handler_type)
     except ValueError as e:
-        logger.error("Source '%s': %s", name, e)
+        logger.error("indexer_handler_lookup_failed", extra={"source": name, "error": str(e)})
         progress.log_error(name, str(e))
         return 0
 
     source_type = source_type_override or handler.source_type
 
     # 1. Fetch
-    logger.info("Fetching: %s (handler=%s, authority=%s)", name, handler_type, authority)
+    logger.info(
+        "indexer_fetch_start",
+        extra={"source": name, "handler": handler_type, "authority": authority},
+    )
     try:
         documents = handler.fetch(source_config)
     except Exception as e:
-        logger.error("Fetch failed for '%s': %s", name, e)
+        logger.error("indexer_fetch_failed", extra={"source": name, "error": str(e)})
         progress.log_error(name, f"fetch: {e}")
         return 0
 
     if not documents:
-        logger.info("No documents fetched for '%s'", name)
+        logger.info("indexer_fetch_empty", extra={"source": name})
         progress.log_source(name, 0)
         return 0
 
-    logger.info("Fetched %d documents from '%s'", len(documents), name)
+    logger.info("indexer_fetched_documents", extra={"count": len(documents), "source": name})
 
     # 2. Parse + Chunk
     all_chunks: list[tuple[RawDocument, Chunk]] = []
@@ -89,10 +93,10 @@ def index_source(
             for chunk in chunks:
                 all_chunks.append((doc, chunk))
         except Exception as e:
-            logger.warning("Parse failed for doc '%s': %s", doc.name, e)
+            logger.warning("indexer_parse_failed", extra={"doc": doc.name, "error": str(e)})
 
     if not all_chunks:
-        logger.info("No chunks produced for '%s'", name)
+        logger.info("indexer_no_chunks", extra={"source": name})
         progress.log_source(name, 0)
         return 0
 
@@ -106,7 +110,10 @@ def index_source(
             seen_cids.add(cid)
 
     if not new_chunks:
-        logger.info("All %d chunks already indexed for '%s'", len(all_chunks), name)
+        logger.info(
+            "indexer_all_chunks_skipped",
+            extra={"skipped": len(all_chunks), "source": name},
+        )
         progress.log_source(name, 0)
         return 0
 
@@ -114,9 +121,11 @@ def index_source(
     skip_gate = str(source_config.get("quality_gate", "")).lower() == "skip"
     if skip_gate:
         logger.warning(
-            "quality_gate=skip for source '%s'. Chunk filtering disabled. "
-            "This risks diluting retrieval quality with marketing or boilerplate content.",
-            name,
+            "indexer_quality_gate_skipped",
+            extra={
+                "source": name,
+                "reason": "Chunk filtering disabled — risks diluting retrieval quality",
+            },
         )
 
     if not skip_gate and gate_policy is not None:
@@ -139,29 +148,36 @@ def index_source(
         if rejected:
             reason_summary = ", ".join(f"{k}:{v}" for k, v in reject_reasons.items())
             logger.info(
-                "Quality gate: %d/%d chunks accepted for '%s' (%d rejected: %s)",
-                len(gated),
-                len(new_chunks),
-                name,
-                rejected,
-                reason_summary,
+                "indexer_quality_gate_applied",
+                extra={
+                    "accepted": len(gated),
+                    "total": len(new_chunks),
+                    "rejected": rejected,
+                    "source": name,
+                    "reject_reasons": reason_summary,
+                },
             )
         new_chunks = gated
 
     if not new_chunks:
-        logger.info("All chunks rejected by quality gate for '%s'", name)
+        logger.info("indexer_all_rejected_by_gate", extra={"source": name})
         progress.log_source(name, 0)
         return 0
 
     logger.info(
-        "Processing %d new chunks (%d skipped) for '%s'",
-        len(new_chunks),
-        len(all_chunks) - len(new_chunks),
-        name,
+        "indexer_processing_chunks",
+        extra={
+            "new": len(new_chunks),
+            "skipped": len(all_chunks) - len(new_chunks),
+            "source": name,
+        },
     )
 
     if dry_run:
-        logger.info("[DRY RUN] Would embed and upsert %d chunks for '%s'", len(new_chunks), name)
+        logger.info(
+            "indexer_dry_run",
+            extra={"chunks": len(new_chunks), "source": name},
+        )
         progress.log_source(name, len(new_chunks))
         return len(new_chunks)
 
@@ -178,7 +194,10 @@ def index_source(
         else:
             embed_inputs.append(chunk.text)
 
-    logger.info("Embedding %d chunks for '%s'", len(embed_inputs), name)
+    logger.info(
+        "indexer_embedding_chunks",
+        extra={"count": len(embed_inputs), "source": name},
+    )
     embeddings = embedder.embed_texts(embed_inputs)
 
     # 6. Build catalog entities (per-chunk metadata overrides source-level defaults)
@@ -238,21 +257,33 @@ def run_pipeline(
     if source_filter:
         sources = [s for s in sources if s.get("name", "").lower() == source_filter.lower()]
         if not sources:
-            logger.error("Source '%s' not found in config", source_filter)
+            logger.error(
+                "indexer_source_not_found",
+                extra={"source_filter": source_filter},
+            )
             return
 
     if handler_filter:
         sources = [s for s in sources if s.get("handler", "") == handler_filter]
         if not sources:
-            logger.error("No sources with handler '%s'", handler_filter)
+            logger.error(
+                "indexer_handler_filter_empty",
+                extra={"handler_filter": handler_filter},
+            )
             return
 
-    logger.info("=== Synesis Unified Indexer: %d sources ===", len(sources))
-    for s in sources:
-        logger.info("  - %s (handler=%s, authority=%s)", s.get("name"), s.get("handler"), s.get("authority"))
+    logger.info(
+        "indexer_pipeline_start",
+        extra={
+            "source_count": len(sources),
+            "sources": [
+                {"name": s.get("name"), "handler": s.get("handler"), "authority": s.get("authority")} for s in sources
+            ],
+        },
+    )
 
     if dry_run:
-        logger.info("[DRY RUN] Validating sources only, no Milvus/embedder connection")
+        logger.info("indexer_dry_run_validation", extra={"message": "No Milvus/embedder connection"})
 
     writer_kwargs = {"uri": milvus_uri} if milvus_uri else {}
     embedder_kwargs = {"url": embedder_url} if embedder_url else {}
@@ -261,7 +292,7 @@ def run_pipeline(
         try:
             writer = MilvusWriter(**writer_kwargs)
         except Exception as e:
-            logger.error("Failed to connect to Milvus: %s", e)
+            logger.error("indexer_milvus_connect_failed", extra={"error": str(e)})
             return
 
         embedder = EmbedClient(**embedder_kwargs)
@@ -289,7 +320,10 @@ def run_pipeline(
                 gate_policy=gate_policy,
             )
         except Exception as e:
-            logger.error("Failed to index '%s': %s", source_config.get("name", "?"), e)
+            logger.error(
+                "indexer_source_failed",
+                extra={"source": source_config.get("name", "?"), "error": str(e)},
+            )
             progress.log_error(source_config.get("name", "unknown"), str(e))
 
     progress.log_complete()

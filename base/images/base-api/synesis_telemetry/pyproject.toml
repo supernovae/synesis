@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synesis-telemetry"
+version = "0.1.0"
+description = "Shared structured logging, context propagation, and telemetry for Synesis services"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+otel = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+]
+metrics = [
+    "prometheus-client>=0.21.0",
+]

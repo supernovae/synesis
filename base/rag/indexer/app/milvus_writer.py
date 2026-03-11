@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from pymilvus import MilvusClient
+from synesis_telemetry import get_logger
 
 from .schema import SYNESIS_CATALOG, _ensure_index_and_load
 
-logger = logging.getLogger("synesis.indexer.milvus")
+logger = get_logger("synesis.indexer.milvus")
 
 MILVUS_URI = "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
 
@@ -78,8 +78,8 @@ class MilvusWriter:
                 deduped[ent["chunk_id"]] = ent
             if len(deduped) < len(batch):
                 logger.warning(
-                    "Dropped %d duplicate chunk_ids within upsert batch",
-                    len(batch) - len(deduped),
+                    "indexer_upsert_dedup_dropped",
+                    extra={"dropped": len(batch) - len(deduped), "batch_size": len(batch)},
                 )
             batch = list(deduped.values())
             self.client.upsert(collection_name=collection_name, data=batch)
@@ -97,7 +97,7 @@ class MilvusWriter:
             filter=f'doc_id == "{doc_id}"',
         )
         count = result.get("delete_count", 0) if isinstance(result, dict) else 0
-        logger.info("Deleted %d chunks for doc_id='%s'", count, doc_id)
+        logger.info("indexer_chunks_deleted", extra={"count": count, "doc_id": doc_id})
         return count
 
 
@@ -115,24 +115,31 @@ class ProgressTracker:
         self.total_sources += 1
         self.total_chunks += chunk_count
         logger.info(
-            "  [%d] %s: %d chunks (total: %d)",
-            self.total_sources,
-            source_name,
-            chunk_count,
-            self.total_chunks,
+            "indexer_source_complete",
+            extra={
+                "source_index": self.total_sources,
+                "source": source_name,
+                "chunks": chunk_count,
+                "total_chunks": self.total_chunks,
+            },
         )
 
     def log_error(self, source_name: str, error: str) -> None:
         self.errors += 1
-        logger.warning("  [%d] %s: ERROR - %s", self.total_sources, source_name, error)
+        logger.warning(
+            "indexer_source_error",
+            extra={"source_index": self.total_sources, "source": source_name, "error": error},
+        )
 
     def log_complete(self) -> None:
         elapsed = time.time() - self.start_time
         logger.info(
-            "=== %s complete: %d chunks from %d sources (%d errors) in %.1fs ===",
-            self.name,
-            self.total_chunks,
-            self.total_sources,
-            self.errors,
-            elapsed,
+            "indexer_pipeline_complete",
+            extra={
+                "pipeline": self.name,
+                "chunks": self.total_chunks,
+                "sources": self.total_sources,
+                "errors": self.errors,
+                "elapsed_s": round(elapsed, 1),
+            },
         )

@@ -235,7 +235,13 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         latency = (time.monotonic() - start) * 1000
         logger.info(
             "frame_extractor_deterministic",
-            extra={"difficulty": round(difficulty, 2), "latency_ms": round(latency)},
+            extra={
+                "difficulty": round(difficulty, 2),
+                "latency_ms": round(latency),
+                "deliverables_extracted": len((user_task or {}).get("deliverables", [])),
+                "constraints_extracted": len((user_task or {}).get("constraints", [])),
+                "gliner_used": False,
+            },
         )
         return {
             "user_task": user_task,
@@ -312,6 +318,9 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "requirements": len(user_task.explicit_requirements),
                 "constraints": len(user_task.constraints),
                 "negative_constraints": len(user_task.negative_constraints),
+                "deliverables_extracted": len(user_task.deliverables),
+                "constraints_extracted": len(user_task.constraints),
+                "gliner_used": True,
                 "domain_tags": user_task.domain_tags,
                 "format": user_task.requested_format,
                 "needs_web": user_task.needs_web,

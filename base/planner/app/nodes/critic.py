@@ -374,6 +374,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                         "deliverables": len(deliverables),
                         "difficulty": round(difficulty, 2),
                         "latency_ms": round(latency, 1),
+                        "deterministic_pass": True,
                     },
                 )
                 return {
@@ -580,6 +581,9 @@ Reply with JSON:
                             "missed_requirements": missed_reqs,
                             "approved": doc_approved,
                             "difficulty": round(difficulty, 2),
+                            "hallucinated_urls_count": len(hallucinated_urls),
+                            "deterministic_pass": False,
+                            "rubric_items_checked": len(doc_parsed.requirement_coverage or []),
                         },
                     )
 

@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import enum
-import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,12 +16,10 @@ from pathlib import Path
 import httpx
 import yaml
 from prometheus_client import Counter, Gauge, start_http_server
+from synesis_telemetry import configure_logging, get_logger
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("SYNESIS_LOG_LEVEL", "info").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-logger = logging.getLogger("synesis.health_monitor")
+configure_logging(service="synesis-health-monitor")
+logger = get_logger("synesis.health_monitor")
 
 # Prometheus metrics
 SERVICE_HEALTH = Gauge(
@@ -109,7 +105,7 @@ def load_config(config_path: str = "/etc/synesis/supervisor.yaml") -> list[Servi
 
     path = Path(config_path)
     if not path.exists():
-        logger.warning(f"Config not found at {config_path}, using defaults")
+        logger.warning("config_not_found", extra={"config_path": config_path})
         return []
 
     with open(path) as f:
@@ -172,10 +168,12 @@ async def monitor_loop(services: list[ServiceConfig], interval: float = 15.0):
 
                 if old_state != CircuitState.OPEN and svc.circuit_breaker.state == CircuitState.OPEN:
                     CIRCUIT_TRIPS.labels(service=svc.name).inc()
-                    logger.warning(f"Circuit OPENED for {svc.name}")
+                    logger.warning("circuit_opened", extra={"service": svc.name})
 
                 if old_state == CircuitState.OPEN and svc.circuit_breaker.state != CircuitState.OPEN:
-                    logger.info(f"Circuit recovering for {svc.name}: {svc.circuit_breaker.state.name}")
+                    logger.info(
+                        "circuit_recovering", extra={"service": svc.name, "state": svc.circuit_breaker.state.name}
+                    )
 
             await asyncio.sleep(interval)
 

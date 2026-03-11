@@ -92,7 +92,7 @@ SERVICE_IMAGES=(
     "lsp-gateway|base/lsp/gateway/Dockerfile|base/lsp/gateway"
     "sandbox|base/sandbox/image/Dockerfile|base/sandbox/image"
     "bge-reranker|base/planner/bge-reranker/Dockerfile|base/planner/bge-reranker"
-    "indexer|base/rag/indexer/Dockerfile|base/rag"
+    "indexer|base/rag/indexer/Dockerfile|base"
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"
 )

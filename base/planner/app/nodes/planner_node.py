@@ -357,7 +357,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         try:
             parsed = parse_and_validate(response.content or "", PlannerOut)
         except Exception as e:
-            logger.warning(f"Planner schema validation failed: {e}")
+            logger.warning("planner_schema_validation_failed", extra={"error": str(e)[:200]})
             content = response.content or ""
             json_start = content.find("{")
             json_end = content.rfind("}") + 1
@@ -412,6 +412,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "open_questions": len(plan.get("open_questions", [])),
                 "confidence": parsed.confidence,
                 "latency_ms": latency,
+                "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
             },
         )
 

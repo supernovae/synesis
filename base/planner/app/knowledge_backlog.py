@@ -43,7 +43,7 @@ def _ensure_collection() -> None:
         try:
             client.load_collection(collection_name=COLLECTION)
         except Exception as e:
-            logger.debug(f"Load of '{COLLECTION}' deferred: {e}")
+            logger.debug("collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
         _initialized = True
         return
 
@@ -71,11 +71,11 @@ def _ensure_collection() -> None:
         params={"nlist": 128},
     )
     client.create_index(collection_name=COLLECTION, index_params=index_params)
-    logger.info(f"Created Milvus collection '{COLLECTION}'")
+    logger.info("milvus_collection_created", extra={"collection": COLLECTION})
     try:
         client.load_collection(collection_name=COLLECTION)
     except Exception as e:
-        logger.debug(f"Initial load of '{COLLECTION}' deferred: {e}")
+        logger.debug("initial_collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
     _initialized = True
 
 
@@ -141,5 +141,5 @@ async def publish_knowledge_gap(
         return chunk_id
 
     except Exception as e:
-        logger.warning(f"Failed to publish knowledge gap: {e}")
+        logger.warning("publish_knowledge_gap_failed", extra={"error": str(e)[:200]})
         return None

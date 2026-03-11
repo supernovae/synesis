@@ -108,7 +108,9 @@ class ConversationMemory:
                 oldest_uid, oldest_turns = self._users.popitem(last=False)
                 self._on_evict(oldest_uid, list(oldest_turns))
                 self._last_active.pop(oldest_uid, None)
-                logger.debug(f"Evicted LRU user {oldest_uid[:8]}... ({len(oldest_turns)} turns)")
+                logger.debug(
+                    "lru_user_evicted", extra={"user_id_prefix": oldest_uid[:8], "turns_evicted": len(oldest_turns)}
+                )
 
     def get_history(self, user_id: str, max_turns: int | None = None) -> list[str]:
         """Return the user's recent conversation history as formatted strings."""
@@ -232,7 +234,7 @@ class ConversationMemory:
                 snapshot["_full"] = enriched
                 self._pending_l2.write(user_id, snapshot, ttl_seconds=86400)
             except Exception as e:
-                logger.debug(f"L2 pending checkpoint write failed: {e}")
+                logger.debug("l2_pending_checkpoint_write_failed", extra={"error": str(e)[:200]})
 
     def get_and_clear_pending_question(self, user_id: str) -> dict[str, Any] | None:
         """Retrieve and remove pending question. L1 first; fallback to L2 on miss (pod restart)."""
@@ -247,7 +249,7 @@ class ConversationMemory:
                     return data["_full"]
                 return data
             except Exception as e:
-                logger.debug(f"L2 pending checkpoint read failed: {e}")
+                logger.debug("l2_pending_checkpoint_read_failed", extra={"error": str(e)[:200]})
         return None
 
     def _is_expired(self, user_id: str) -> bool:
@@ -281,7 +283,7 @@ class ConversationMemory:
         2. Embed the summary
         3. Upsert to a conversation_memory_v1 Milvus collection
         """
-        logger.debug(f"Evicted {len(turns)} turns for user {user_id[:8]}... (L2 stub)")
+        logger.debug("evicted_turns_l2_stub", extra={"turns_evicted": len(turns), "user_id_prefix": user_id[:8]})
 
     @property
     def active_users(self) -> int:

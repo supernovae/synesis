@@ -162,7 +162,7 @@ jobs:
             base_arg: synesis-base-ml
           - name: indexer
             dockerfile: base/rag/indexer/Dockerfile
-            context: base/rag/indexer
+            context: base
             base_arg: ""
           - name: keyword-service
             dockerfile: base/rag/keyword-service/Dockerfile

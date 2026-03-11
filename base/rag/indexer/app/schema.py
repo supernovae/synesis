@@ -17,12 +17,12 @@ Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+from synesis_telemetry import get_logger
 
-logger = logging.getLogger("synesis.catalog")
+logger = get_logger("synesis.indexer.schema")
 
 SYNESIS_CATALOG = "synesis_catalog"
 
@@ -103,20 +103,21 @@ def _validate_existing_schema(client: MilvusClient) -> bool:
         extra = existing_fields - EXPECTED_FIELDS - {"$meta"}
         if missing:
             logger.warning(
-                "Schema drift: collection '%s' missing fields: %s",
-                SYNESIS_CATALOG,
-                missing,
+                "indexer_schema_drift_missing",
+                extra={"collection": SYNESIS_CATALOG, "missing_fields": list(missing)},
             )
             return False
         if extra:
             logger.info(
-                "Schema drift: collection '%s' has extra fields: %s (harmless)",
-                SYNESIS_CATALOG,
-                extra,
+                "indexer_schema_drift_extra",
+                extra={"collection": SYNESIS_CATALOG, "extra_fields": list(extra)},
             )
         return True
     except Exception as e:
-        logger.warning("Could not validate schema for '%s': %s", SYNESIS_CATALOG, e)
+        logger.warning(
+            "indexer_schema_validate_failed",
+            extra={"collection": SYNESIS_CATALOG, "error": str(e)},
+        )
         return False
 
 
@@ -134,14 +135,20 @@ def ensure_synesis_catalog(
 
     if SYNESIS_CATALOG in client.list_collections():
         if _validate_existing_schema(client):
-            logger.debug("Collection '%s' schema valid (v%d)", SYNESIS_CATALOG, SCHEMA_VERSION)
+            logger.debug(
+                "indexer_schema_valid",
+                extra={"collection": SYNESIS_CATALOG, "version": SCHEMA_VERSION},
+            )
             _ensure_index_and_load(client)
             return client
 
         logger.warning(
-            "Dropping stale collection '%s' — schema does not match v%d. Data will be re-indexed on next run.",
-            SYNESIS_CATALOG,
-            SCHEMA_VERSION,
+            "indexer_schema_stale_drop",
+            extra={
+                "collection": SYNESIS_CATALOG,
+                "version": SCHEMA_VERSION,
+                "message": "Data will be re-indexed on next run",
+            },
         )
         client.drop_collection(collection_name=SYNESIS_CATALOG)
 
@@ -153,9 +160,8 @@ def ensure_synesis_catalog(
     client.create_collection(collection_name=SYNESIS_CATALOG, schema=schema)
     _ensure_index_and_load(client)
     logger.info(
-        "Created collection '%s' v%d with partition key on authority",
-        SYNESIS_CATALOG,
-        SCHEMA_VERSION,
+        "indexer_collection_created",
+        extra={"collection": SYNESIS_CATALOG, "version": SCHEMA_VERSION},
     )
     return client
 
@@ -178,7 +184,7 @@ def _ensure_index_and_load(client: MilvusClient) -> None:
                 params={"M": 16, "efConstruction": 200},
             )
             client.create_index(collection_name=SYNESIS_CATALOG, index_params=index_params)
-            logger.info("Created HNSW index on '%s'", SYNESIS_CATALOG)
+            logger.info("indexer_hnsw_index_created", extra={"collection": SYNESIS_CATALOG})
         except Exception as e:
             if "already" not in str(e).lower():
                 raise

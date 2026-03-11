@@ -46,7 +46,7 @@ def _ensure_collection() -> None:
         try:
             client.load_collection(collection_name=COLLECTION)
         except Exception as e:
-            logger.debug(f"Load of '{COLLECTION}' deferred: {e}")
+            logger.debug("collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
         _initialized = True
         return
 
@@ -75,11 +75,11 @@ def _ensure_collection() -> None:
         params={"nlist": 128},
     )
     client.create_index(collection_name=COLLECTION, index_params=index_params)
-    logger.info(f"Created Milvus collection '{COLLECTION}'")
+    logger.info("milvus_collection_created", extra={"collection": COLLECTION})
     try:
         client.load_collection(collection_name=COLLECTION)
     except Exception as e:
-        logger.debug(f"Initial load of '{COLLECTION}' deferred: {e}")
+        logger.debug("initial_collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
     _initialized = True
 
 
@@ -189,11 +189,11 @@ async def store_failure(
 
         client = _get_client()
         client.upsert(collection_name=COLLECTION, data=[entity])
-        logger.info(f"Stored failure {fid}: {error_type} ({language})")
+        logger.info("failure_stored", extra={"failure_id": fid, "error_type": error_type, "language": language})
         return fid
 
     except Exception as e:
-        logger.warning(f"Failed to store failure: {e}")
+        logger.warning("store_failure_failed", extra={"error": str(e)[:200]})
         return None
 
 
@@ -206,9 +206,9 @@ async def update_resolution(failure_id: str, resolution: str) -> None:
             entity = results[0]
             entity["resolution"] = resolution[:8192]
             client.upsert(collection_name=COLLECTION, data=[entity])
-            logger.info(f"Updated resolution for failure {failure_id}")
+            logger.info("resolution_updated", extra={"failure_id": failure_id})
     except Exception as e:
-        logger.warning(f"Failed to update resolution: {e}")
+        logger.warning("update_resolution_failed", extra={"error": str(e)[:200]})
 
 
 async def query_similar_failures(
@@ -268,7 +268,7 @@ async def query_similar_failures(
         return failures
 
     except Exception as e:
-        logger.warning(f"Failed to query failures: {e}")
+        logger.warning("query_failures_failed", extra={"error": str(e)[:200]})
         return []
 
 
@@ -308,7 +308,7 @@ async def get_failure_stats() -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.warning(f"Failed to get failure stats: {e}")
+        logger.warning("get_failure_stats_failed", extra={"error": str(e)[:200]})
         return {"total_failures": 0, "error": str(e)}
 
 
@@ -351,5 +351,5 @@ async def get_failures_paginated(
         return results
 
     except Exception as e:
-        logger.warning(f"Failed to get paginated failures: {e}")
+        logger.warning("get_paginated_failures_failed", extra={"error": str(e)[:200]})
         return []

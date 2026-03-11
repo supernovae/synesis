@@ -6,16 +6,16 @@ then chunks them with heading-aware splitting.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import httpx
+from synesis_telemetry import get_logger
 
 from ..chunking import heading_aware_split
 from . import register
 from .base import Chunk, RawDocument
 
-logger = logging.getLogger("synesis.indexer.handler.github_markdown")
+logger = get_logger("synesis.indexer.handler.github_markdown")
 
 GITHUB_API = "https://api.github.com"
 
@@ -34,12 +34,12 @@ class GitHubMarkdownHandler:
         name = source_config.get("name", repo)
 
         if not repo:
-            logger.error("github_markdown handler requires config.repo")
+            logger.error("indexer_handler_config_missing", extra={"handler": "github_markdown", "field": "config.repo"})
             return []
 
         md_paths = _list_md_files(repo, path, branch, token)
         if not md_paths:
-            logger.warning("No markdown files found in %s/%s", repo, path)
+            logger.warning("indexer_github_no_markdown", extra={"repo": repo, "path": path})
             return []
 
         docs: list[RawDocument] = []
@@ -58,9 +58,12 @@ class GitHubMarkdownHandler:
                     )
                 )
             except Exception as e:
-                logger.warning("Failed to fetch %s/%s: %s", repo, fp, e)
+                logger.warning("indexer_github_fetch_failed", extra={"repo": repo, "path": fp, "error": str(e)})
 
-        logger.info("Fetched %d markdown files from %s/%s", len(docs), repo, path)
+        logger.info(
+            "indexer_github_markdown_fetched",
+            extra={"count": len(docs), "repo": repo, "path": path},
+        )
         return docs
 
     def parse_and_chunk(self, doc: RawDocument) -> list[Chunk]:

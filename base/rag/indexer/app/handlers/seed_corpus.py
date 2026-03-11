@@ -11,18 +11,18 @@ overrides.
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 import httpx
+from synesis_telemetry import get_logger
 
 from ..chunking import chunk_text_simple, heading_aware_split
 from ..content_gate import GatePolicy, evaluate_page
 from . import register
 from .base import Chunk, RawDocument
 
-logger = logging.getLogger("synesis.indexer.handler.seed_corpus")
+logger = get_logger("synesis.indexer.handler.seed_corpus")
 
 _FETCH_TIMEOUT = 45
 
@@ -38,12 +38,12 @@ class SeedCorpusHandler:
         doc_id_prefix = config.get("doc_id_prefix", "epistemic")
 
         if not json_path:
-            logger.error("seed_corpus handler requires config.path")
+            logger.error("indexer_handler_config_missing", extra={"handler": "seed_corpus", "field": "config.path"})
             return []
 
         path = Path(json_path)
         if not path.is_file():
-            logger.error("Seed corpus file not found: %s", json_path)
+            logger.error("indexer_seed_corpus_not_found", extra={"path": json_path})
             return []
 
         try:
@@ -54,7 +54,7 @@ class SeedCorpusHandler:
 
         sources = corpus.get("sources", [])
         if not sources:
-            logger.warning("No sources in seed corpus %s", json_path)
+            logger.warning("indexer_seed_corpus_empty", extra={"path": json_path})
             return []
 
         docs: list[RawDocument] = []
@@ -69,9 +69,8 @@ class SeedCorpusHandler:
                     docs.append(doc)
 
         logger.info(
-            "Fetched %d / %d sources from seed corpus",
-            len(docs),
-            len(sources),
+            "indexer_seed_corpus_fetched",
+            extra={"fetched": len(docs), "total": len(sources)},
         )
         return docs
 

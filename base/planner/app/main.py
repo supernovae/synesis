@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import hashlib
 import json
-import logging
 import re
 import time
 import uuid
@@ -50,31 +49,11 @@ _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
 _RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(easy|medium|hard)\s*$", re.IGNORECASE)
 
 
-class _ExtraFormatter(logging.Formatter):
-    """Append structured extra fields as key=value pairs after the message."""
+from synesis_telemetry import configure_logging, get_logger
+from synesis_telemetry import set_request_context as _set_telemetry_ctx
 
-    _SKIP = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
-
-    def format(self, record: logging.LogRecord) -> str:
-        base = super().format(record)
-        extras = {k: v for k, v in record.__dict__.items() if k not in self._SKIP}
-        if extras:
-            pairs = " ".join(f"{k}={v}" for k, v in extras.items())
-            return f"{base}  {pairs}"
-        return base
-
-
-_handler = logging.StreamHandler()
-_handler.setFormatter(_ExtraFormatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    handlers=[_handler],
-)
-# Suppress OpenAI/httpx DEBUG logs (full prompt dumps) unless we explicitly want them
-if settings.log_level.upper() != "DEBUG":
-    for name in ("openai", "httpx", "httpcore"):
-        logging.getLogger(name).setLevel(logging.WARNING)
-logger = logging.getLogger("synesis.api")
+configure_logging(service="synesis-planner", level=settings.log_level)
+logger = get_logger("synesis.api")
 
 
 @asynccontextmanager
@@ -884,6 +863,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     user_messages[-1] = HumanMessage(content=last_user_content)
 
     run_id = str(uuid.uuid4())
+    _set_telemetry_ctx(run_id=run_id, user_id=user_id)
     coding_client = _is_coding_client(http_request)
     # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
     initial_state: dict[str, Any] = {

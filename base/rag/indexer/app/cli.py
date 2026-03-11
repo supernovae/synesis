@@ -12,17 +12,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 
 import yaml
+from synesis_telemetry import configure_logging, get_logger
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
-logger = logging.getLogger("synesis.indexer")
+configure_logging(service="synesis-indexer")
+logger = get_logger("synesis.indexer")
 
 
 def main() -> None:
@@ -67,7 +64,7 @@ def main() -> None:
 
     sources_path = Path(args.sources)
     if not sources_path.exists():
-        logger.error("Sources file not found: %s", sources_path)
+        logger.error("indexer_sources_not_found", extra={"path": str(sources_path)})
         sys.exit(1)
 
     with open(sources_path) as f:
@@ -75,10 +72,13 @@ def main() -> None:
 
     sources = config.get("sources", [])
     if not sources:
-        logger.error("No 'sources' list found in %s", sources_path)
+        logger.error("indexer_sources_empty", extra={"path": str(sources_path)})
         sys.exit(1)
 
-    logger.info("Loaded %d sources from %s", len(sources), sources_path)
+    logger.info(
+        "indexer_sources_loaded",
+        extra={"count": len(sources), "path": str(sources_path)},
+    )
 
     from .pipeline import run_pipeline
 
@@ -99,5 +99,5 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        logger.exception("Synesis Unified Indexer crashed")
+        logger.exception("indexer_crashed")
         sys.exit(1)

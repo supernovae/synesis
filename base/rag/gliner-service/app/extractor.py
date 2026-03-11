@@ -9,13 +9,14 @@ Optimizations:
 from __future__ import annotations
 
 import hashlib
-import logging
 import os
 import threading
 import time
 from collections import OrderedDict
 
-logger = logging.getLogger("gliner_service.extractor")
+from synesis_telemetry import get_logger
+
+logger = get_logger("synesis.gliner_service.extractor")
 
 _MODEL_NAME = os.getenv("GLINER_MODEL", "knowledgator/gliner-multitask-large-v0.5")
 _DEFAULT_THRESHOLD = float(os.getenv("GLINER_THRESHOLD", "0.4"))

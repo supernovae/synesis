@@ -9,3 +9,7 @@ RUN apt-get update \
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
+
+COPY synesis_telemetry/ /tmp/synesis_telemetry/
+RUN pip install --no-cache-dir /tmp/synesis_telemetry/ \
+    && rm -rf /tmp/synesis_telemetry/

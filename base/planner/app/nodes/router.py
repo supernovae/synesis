@@ -352,6 +352,10 @@ class RouterNode:
         next_node = self._decide_next_node(state)
         latency_ms = (time.monotonic() - start) * 1000
 
+        cs = self.cache.stats
+        total_cache_lookups = cs.exact_hits + cs.semantic_hits + cs.misses
+        cache_hit_rate = (cs.exact_hits + cs.semantic_hits) / max(1, total_cache_lookups)
+
         logger.info(
             "router_complete",
             extra={
@@ -360,7 +364,11 @@ class RouterNode:
                 "packets": len(packets),
                 "next_node": next_node,
                 "latency_ms": round(latency_ms, 1),
-                "cache_stats": self.cache.stats.model_dump(),
+                "cache_stats": cs.model_dump(),
+                "evidence_packet_ids": [p.query for p in packets],
+                "cache_hit_rate": round(cache_hit_rate, 4),
+                "total_snippets": sum(len(p.snippets) for p in packets),
+                "avg_confidence": round(sum(p.confidence for p in packets) / max(1, len(packets)), 4),
             },
         )
 

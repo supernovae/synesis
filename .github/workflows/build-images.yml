@@ -81,6 +81,7 @@ jobs:
               - 'base/planner/bge-reranker/**'
             indexer:
               - 'base/rag/indexer/**'
+              - 'base/images/base-api/synesis_telemetry/**'
             keyword-service:
               - 'base/rag/keyword-service/**'
             gliner-service:
@@ -294,7 +295,7 @@ jobs:
             base_change_key: base-ml
           - name: indexer
             dockerfile: base/rag/indexer/Dockerfile
-            context: base/rag/indexer
+            context: base
             base_arg: ""
             change_key: indexer
             base_change_key: ""

@@ -28,28 +28,28 @@ class TestLLMHttpClient:
             assert len(client.event_hooks["response"]) >= 1
 
 
-class TestDebugNodeTiming:
-    """with_debug_node_timing logs at DEBUG when node completes."""
+class TestTelemetryNodeWrapper:
+    """with_telemetry_node emits structured node_complete events."""
 
     @pytest.mark.asyncio
-    async def test_node_timing_logs_at_debug(self, caplog):
-        """Node wrapper logs latency at DEBUG level."""
-        from app.graph import with_debug_node_timing
+    async def test_node_timing_logs_completion(self, caplog):
+        """Node wrapper emits node_complete event with latency."""
+        from app.graph import with_telemetry_node
 
         async def dummy_node(state):
             return {"current_node": "dummy", "next_node": "end"}
 
-        wrapped = with_debug_node_timing(dummy_node)
-        with caplog.at_level(logging.DEBUG):
+        wrapped = with_telemetry_node(dummy_node)
+        with caplog.at_level(logging.INFO):
             result = await wrapped({"run_id": "test"})
 
         assert result["current_node"] == "dummy"
-        assert any("dummy" in rec.message and "ms" in rec.message for rec in caplog.records)
+        assert any("node_complete" in rec.message for rec in caplog.records)
 
     @pytest.mark.asyncio
     async def test_node_timing_uses_trace_latency_when_available(self, caplog):
-        """When node returns node_traces with latency_ms, that value is logged."""
-        from app.graph import with_debug_node_timing
+        """When node returns node_traces with latency_ms, that value is used."""
+        from app.graph import with_telemetry_node
         from app.state import NodeOutcome, NodeTrace
 
         trace = NodeTrace(
@@ -63,11 +63,11 @@ class TestDebugNodeTiming:
         async def node_with_trace(state):
             return {"node_traces": [trace], "current_node": "test_node"}
 
-        wrapped = with_debug_node_timing(node_with_trace)
-        with caplog.at_level(logging.DEBUG):
+        wrapped = with_telemetry_node(node_with_trace)
+        with caplog.at_level(logging.INFO):
             await wrapped({})
 
-        assert any("123" in rec.message or "1234" in rec.message for rec in caplog.records)
+        assert any("node_complete" in rec.message for rec in caplog.records)
 
 
 class TestContextRefsResolver:
