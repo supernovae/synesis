@@ -39,8 +39,12 @@ spec:
               value: "opik"
             - name: ANALYTICS_DB_PASSWORD
               value: "opik"
+            - name: STATE_DB_PROTOCOL
+              value: "jdbc:mysql://"
             - name: STATE_DB_URL
-              value: "jdbc:mysql://mysql:3306/opik?createDatabaseIfNotExist=true"
+              value: "mysql:3306"
+            - name: STATE_DB_DATABASE_NAME
+              value: "opik"
             - name: STATE_DB_USER
               value: "opik"
             - name: STATE_DB_PASS
