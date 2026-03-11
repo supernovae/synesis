@@ -228,6 +228,24 @@ class HybridRetrievalCache:
 
 
 # ---------------------------------------------------------------------------
+# Common warm queries — (intent, domain) patterns that appear frequently.
+# These are run through the router on first startup so that the semantic
+# index is pre-populated and the first user request gets a cache hit.
+# ---------------------------------------------------------------------------
+
+WARM_QUERIES: list[dict[str, str | list[str]]] = [
+    {"query": "Kubernetes deployment best practices production", "domain_hints": ["kubernetes", "devops"]},
+    {"query": "Python async patterns error handling", "domain_hints": ["python", "software-engineering"]},
+    {"query": "Terraform module design reusable infrastructure", "domain_hints": ["terraform", "iac"]},
+    {"query": "RAG retrieval augmented generation architecture", "domain_hints": ["ai", "rag"]},
+    {"query": "Docker container security hardening", "domain_hints": ["docker", "security"]},
+    {"query": "CI/CD pipeline GitHub Actions best practices", "domain_hints": ["cicd", "devops"]},
+    {"query": "API design REST OpenAPI versioning", "domain_hints": ["api", "software-engineering"]},
+    {"query": "Observability monitoring logging Prometheus Grafana", "domain_hints": ["observability", "devops"]},
+]
+
+
+# ---------------------------------------------------------------------------
 # Singleton
 # ---------------------------------------------------------------------------
 
@@ -249,3 +267,43 @@ def get_retrieval_cache() -> HybridRetrievalCache:
             confidence_threshold=settings.retrieval_cache_confidence_threshold,
         )
     return _cache
+
+
+async def warm_cache() -> int:
+    """Pre-warm the retrieval cache with common query patterns.
+
+    Runs WARM_QUERIES through the router to populate the semantic index.
+    Returns the number of entries successfully cached. Safe to call multiple
+    times — already-cached queries are skipped via exact match.
+    """
+    import asyncio
+
+    cache = get_retrieval_cache()
+    warmed = 0
+
+    try:
+        from .nodes.router import RouterNode
+
+        router = RouterNode(cache=cache)
+        for wq in WARM_QUERIES:
+            query_str = str(wq["query"])
+            if cache.get(query_str) is not None:
+                continue
+            try:
+                request = {
+                    "description": query_str,
+                    "domain_hints": wq.get("domain_hints", []),
+                    "skip_web": True,
+                }
+                packet = await router.handle_single_request(request, task_context=query_str, difficulty=0.5)
+                if packet and packet.confidence >= 0.3:
+                    warmed += 1
+            except Exception:
+                logger.debug("warm_cache_query_failed", extra={"query": query_str}, exc_info=True)
+            await asyncio.sleep(0.1)
+    except Exception:
+        logger.warning("warm_cache_failed", exc_info=True)
+
+    if warmed:
+        logger.info("warm_cache_complete", extra={"warmed": warmed, "total_queries": len(WARM_QUERIES)})
+    return warmed

@@ -184,6 +184,56 @@ class RouterNode:
         )
         return resp.content.strip().strip('"').strip("'")
 
+    async def batch_generate_queries(
+        self,
+        requests: list[dict[str, Any]],
+        task_context: str = "",
+    ) -> list[str]:
+        """Generate retrieval queries for multiple evidence requests in a single LLM call.
+
+        Reduces N sequential LLM round-trips to 1, cutting router latency significantly
+        for multi-deliverable prompts.
+        """
+        if len(requests) <= 1:
+            return [await self.generate_query(requests[0], task_context)] if requests else []
+
+        numbered = "\n".join(f"[{i + 1}] {json.dumps(req, default=str)}" for i, req in enumerate(requests))
+        prompt = (
+            f"Generate one narrow, high-precision retrieval query for EACH evidence request below.\n\n"
+            f"TASK CONTEXT:\n{task_context[:500]}\n\n"
+            f"EVIDENCE REQUESTS:\n{numbered}\n\n"
+            f"RULES:\n"
+            f"- Include the task, domain, and specific entities.\n"
+            f"- Avoid vague or generic queries.\n"
+            f"- Output EXACTLY {len(requests)} lines, one query per line.\n"
+            f"- Line N corresponds to request [N].\n"
+            f"- No numbering, no explanations — just the query strings."
+        )
+        llm = _get_router_llm()
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content="You generate retrieval queries. Output one query per line."),
+                HumanMessage(content=prompt),
+            ]
+        )
+        lines = [ln.strip().strip('"').strip("'") for ln in resp.content.strip().splitlines() if ln.strip()]
+        # Strip leading "[N]" or "N." numbering if the model adds it despite instructions
+        cleaned: list[str] = []
+        for ln in lines:
+            ln = re.sub(r"^\[?\d+\]?\s*\.?\s*", "", ln).strip()
+            if ln:
+                cleaned.append(ln)
+
+        if len(cleaned) == len(requests):
+            return cleaned
+
+        # Fallback: if batch output is malformed, generate individually
+        logger.warning(
+            "batch_query_gen_fallback",
+            extra={"expected": len(requests), "got": len(cleaned)},
+        )
+        return [await self.generate_query(req, task_context) for req in requests]
+
     async def summarize(self, query: str, results: list[UnifiedResult]) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
@@ -221,13 +271,23 @@ class RouterNode:
 
     # ----- System-level methods (no LLM) -----
 
-    async def retrieve(self, query: str, difficulty: float = 0.5) -> list[UnifiedResult]:
-        """Call unified retrieval with bounds enforcement."""
+    async def retrieve(
+        self,
+        query: str,
+        difficulty: float = 0.5,
+        domain_hints: list[str] | None = None,
+        force_web: bool = False,
+        skip_web: bool = False,
+    ) -> list[UnifiedResult]:
+        """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         results = await retrieve_unified(
             query=query,
             difficulty=difficulty,
             top_k=MAX_DOCS_PER_QUERY,
             web_query=query[:80],
+            domain_hints=domain_hints,
+            force_web=force_web,
+            skip_web=skip_web,
         )
         return results[:MAX_DOCS_PER_QUERY]
 
@@ -250,8 +310,16 @@ class RouterNode:
         task_context: str = "",
         difficulty: float = 0.5,
     ) -> list[EvidencePacket]:
-        """Dispatch independent evidence requests concurrently."""
-        tasks = [self.handle_single_request(req, task_context, difficulty) for req in requests]
+        """Dispatch independent evidence requests concurrently.
+
+        Phase 1: batch all query generation into a single LLM call.
+        Phase 2: parallel retrieve + summarize + refine for each query.
+        """
+        queries = await self.batch_generate_queries(requests, task_context)
+        tasks = [
+            self.handle_single_request(req, task_context, difficulty, precomputed_query=q)
+            for req, q in zip(requests, queries)
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         packets: list[EvidencePacket] = []
         for r in results:
@@ -266,9 +334,12 @@ class RouterNode:
         evidence_request: dict[str, Any],
         task_context: str = "",
         difficulty: float = 0.5,
+        precomputed_query: str | None = None,
     ) -> EvidencePacket:
         """Full pipeline for one evidence request: query → cache → retrieve → summarize → refine."""
-        query = await self.generate_query(evidence_request, task_context)
+        query = precomputed_query or await self.generate_query(evidence_request, task_context)
+        domain_hints = evidence_request.get("domain_hints") or []
+        skip_web = evidence_request.get("skip_web", False)
 
         cached = self.cache.get(query)
         if cached is not None:
@@ -276,7 +347,7 @@ class RouterNode:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
             return cached
 
-        raw_results = await self.retrieve(query, difficulty)
+        raw_results = await self.retrieve(query, difficulty, domain_hints=domain_hints, skip_web=skip_web)
         packet = await self.summarize(query, raw_results)
         packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
 
@@ -289,7 +360,7 @@ class RouterNode:
                 if evidence_request.get("section_id") is not None:
                     packet = packet.model_copy(update={"section_id": evidence_request["section_id"]})
                 break
-            raw_results = await self.retrieve(refined_query, difficulty)
+            raw_results = await self.retrieve(refined_query, difficulty, domain_hints=domain_hints, skip_web=skip_web)
             packet = await self.summarize(refined_query, raw_results)
             packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             query = refined_query
@@ -395,6 +466,7 @@ class RouterNode:
         user_task = state.get("user_task") or {}
         task_desc = state.get("task_description", "")
         domain_tags = user_task.get("domain_tags") or []
+        skip_web = not user_task.get("needs_web", True)
 
         requests = []
         main_q = user_task.get("main_question", task_desc)
@@ -403,12 +475,12 @@ class RouterNode:
                 {
                     "description": main_q,
                     "domain_hints": domain_tags,
+                    "skip_web": skip_web,
                 }
             )
 
         deliverables = user_task.get("deliverables") or []
         if len(deliverables) > 10:
-            # Batch large deliverable lists into groups of 3 to keep query quality high
             for batch_idx in range(0, len(deliverables), 3):
                 batch = deliverables[batch_idx : batch_idx + 3]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
@@ -417,6 +489,7 @@ class RouterNode:
                         "section_id": batch_idx,
                         "description": combined,
                         "domain_hints": domain_tags,
+                        "skip_web": skip_web,
                     }
                 )
         else:
@@ -426,10 +499,11 @@ class RouterNode:
                         "section_id": i,
                         "description": d if isinstance(d, str) else str(d),
                         "domain_hints": domain_tags,
+                        "skip_web": skip_web,
                     }
                 )
 
-        return requests if requests else [{"description": task_desc, "domain_hints": domain_tags}]
+        return requests if requests else [{"description": task_desc, "domain_hints": domain_tags, "skip_web": skip_web}]
 
     # ----- Helpers -----
 

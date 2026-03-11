@@ -642,6 +642,37 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         },
     )
 
+    # Structured feedback log: captures full pipeline metadata per request
+    # for downstream learning, taxonomy tuning, and cache warm policy.
+    user_task = state.get("user_task") or {}
+    evidence_packets = state.get("evidence_packets") or []
+    critic_scores = state.get("critic_scores") or {}
+    logger.info(
+        "request_feedback",
+        extra={
+            "run_id": state.get("run_id", ""),
+            "difficulty": state.get("difficulty", 0.5),
+            "task_type": state.get("task_type", "general"),
+            "domain_tags": user_task.get("domain_tags", []),
+            "needs_web": user_task.get("needs_web", False),
+            "evidence_packet_count": len(evidence_packets),
+            "avg_evidence_confidence": round(
+                sum(
+                    p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
+                    for p in evidence_packets
+                )
+                / max(1, len(evidence_packets)),
+                4,
+            ),
+            "critic_weighted_score": critic_scores.get("weighted_overall", 0.0),
+            "critic_blocking_issues": len(state.get("blocking_issues") or []),
+            "iteration_count": state.get("iteration_count", 0),
+            "is_code_task": state.get("is_code_task", False),
+            "response_length": len(content),
+            "has_error": bool(error),
+        },
+    )
+
     return {
         "messages": [AIMessage(content=content)],
         "current_node": "respond",

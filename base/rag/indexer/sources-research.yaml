@@ -692,3 +692,59 @@ sources:
     config:
       url: "https://arxiv.org/abs/2505.14652"
       tags: [reasoning, llm, generalization]
+
+  # RAG Architecture, Retrieval, and Feedback Loop Research
+
+  - name: "Higress-RAG: Enterprise RAG with Adaptive Routing and CRAG"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2602.23374"
+      tags: [rag, adaptive-routing, crag, enterprise, retrieval]
+
+  - name: "Cache-Craft: Chunk-Cache Management for Efficient RAG"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2502.15734"
+      tags: [rag, caching, kv-cache, efficiency, retrieval]
+
+  - name: "RAGRouter: Learning to Route Queries Across Retrieval-Augmented LLMs"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2505.23052"
+      tags: [rag, query-routing, retrieval, multi-model, efficiency]
+
+  - name: "GAM-RAG: Gain-Adaptive Memory for Evolving Retrieval"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2603.01783"
+      tags: [rag, adaptive-memory, feedback-loop, retrieval, kalman-filter]
+
+  - name: "DMA: Online RAG Alignment with Human Feedback"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2511.04880"
+      tags: [rag, human-feedback, online-learning, reranking, alignment]
+
+  - name: "ProRAG: Process-Supervised Reinforcement Learning for RAG"
+    handler: arxiv_paper
+    origin_type: curated
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://arxiv.org/abs/2601.21912"
+      tags: [rag, reinforcement-learning, process-supervision, reasoning]

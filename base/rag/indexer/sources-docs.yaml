@@ -2773,3 +2773,79 @@ sources:
     config:
       url: "https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html"
       tags: [assembly, intel, x86, isa, reference]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AI Coding Assistant Architecture
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Building AI Coding Assistants — Technical Deep Dive"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.fratepietro.com/2025/building-ai-coding-assistants/"
+      tags: [coding-assistant, architecture, llm, rag, production]
+
+  - name: "LLM Application Architecture Patterns for Enterprise Systems"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://reintech.io/blog/llm-application-architecture-patterns-enterprise-systems"
+      tags: [llm, enterprise, architecture, design-patterns, production]
+
+  - name: "Designing LLM Applications for Production — System Design Guide"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://explore.n1n.ai/blog/designing-llm-applications-for-production-system-design-guide-2026-02-09"
+      tags: [llm, production, system-design, architecture, enterprise]
+
+  - name: "Building Enterprise-Ready AI Assistants — Practical Guide"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pub.towardsai.net/building-enterprise-ready-ai-assistants-a-practical-guide-to-scalable-llm-applications-3570c9590482"
+      tags: [ai-assistant, enterprise, llm, scalable, architecture]
+
+  - name: "Architecture of a Modern AI Application — 2025 Blueprint"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://sealos.io/blog/the-architecture-of-a-modern-ai-application-a-2025-blueprint"
+      tags: [ai-application, architecture, modern, blueprint, production]
+
+  - name: "Designing a Fully Local RAG Assistant for Internal Knowledge"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://medium.com/@guruprasadhj/designing-a-fully-local-rag-assistant-to-improve-internal-knowledge-retrieval-5e4e1ba699ce"
+      tags: [rag, local, internal, knowledge-retrieval, architecture]
+
+  - name: "Building Production-Grade RAG Systems — Advanced Design Patterns"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://medium.com/@shubhodaya.hampiholi/building-production-grade-rag-systems-architecture-evaluation-and-advanced-design-patterns-1d9d649aebfa"
+      tags: [rag, production, design-patterns, evaluation, architecture]
+
+  - name: "Agent Brain — Code-First RAG System for AI Coding Assistants"
+    handler: web_page
+    origin_type: curated
+    authority: community
+    domain: generalist
+    config:
+      url: "https://medium.com/@richardhightower/agent-brain-a-code-first-rag-system-for-ai-coding-assistants-83e95c972255"
+      tags: [coding-assistant, rag, agent, code-first, architecture]

@@ -158,6 +158,46 @@ def _rrf_merge(
     return merged
 
 
+def _taxonomy_boost(
+    results: list[UnifiedResult],
+    domain_hints: list[str] | None = None,
+    boost: float = 1.15,
+) -> list[UnifiedResult]:
+    """Apply a score boost to results whose origin domain matches taxonomy hints.
+
+    When the frame extraction identifies specific domain tags (e.g. "kubernetes",
+    "python"), results from matching domains are boosted to float higher in the
+    ranking. This prevents topical drift in broad queries where generic popular
+    sources would otherwise outrank domain-specific ones.
+
+    Boost is multiplicative (default 15%) and applied before cliff detection
+    so that domain-aligned results have a better chance of surviving the cut.
+    """
+    if not domain_hints or not results:
+        return results
+
+    hint_set = {h.lower().strip() for h in domain_hints if h}
+    if not hint_set:
+        return results
+
+    boosted = 0
+    for r in results:
+        doc_domain = getattr(r, "authority", "").lower().strip()
+        doc_tags = set()
+        if hasattr(r, "document_name") and r.document_name:
+            doc_tags.add(r.document_name.lower().strip())
+
+        if hint_set & doc_tags or (doc_domain and doc_domain in hint_set):
+            r.score *= boost
+            boosted += 1
+
+    if boosted:
+        results.sort(key=lambda r: r.score, reverse=True)
+        logger.debug("taxonomy_boost_applied", extra={"boosted": boosted, "hints": list(hint_set)[:5]})
+
+    return results
+
+
 def _adaptive_topk(
     results: list[UnifiedResult],
     max_k: int = 8,
@@ -268,6 +308,8 @@ async def retrieve_unified(
     top_k: int = 8,
     web_query: str = "",
     force_web: bool = False,
+    domain_hints: list[str] | None = None,
+    skip_web: bool = False,
 ) -> list[UnifiedResult]:
     """Parallel RAG + web retrieval with authority-weighted RRF fusion.
 
@@ -276,6 +318,10 @@ async def retrieve_unified(
       web_query: Separate concise web search query. If empty, falls back
                  to query[:120].  Frame-driven callers should always provide
                  a dedicated web_query for search-engine-friendly results.
+      domain_hints: Taxonomy domain tags from frame extraction. When present,
+                    narrows Milvus vector search to matching domains.
+      skip_web: When True (e.g. needs_web=false in frame), web search is
+                disabled regardless of other settings.
 
     Steps:
       1. asyncio.gather(RAG, web) — parallel execution
@@ -289,17 +335,23 @@ async def retrieve_unified(
     if collections is None:
         collections = ["synesis_catalog"]
 
-    web_budget = settings.scaled_web_budget(difficulty)
-    web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web)
+    # Build Milvus domain filter from taxonomy hints
+    domain_filter = ""
+    if domain_hints:
+        refs = [str(r).strip() for r in domain_hints if r and str(r).strip()]
+        if refs:
+            escaped = [f'"{r}"' for r in refs[:10]]
+            domain_filter = f"domain in [{','.join(escaped)}]"
 
-    # Adaptive overfetch: cast a wider net for complex queries since more
-    # corpus chunks may be relevant. The cross-encoder reranker handles the extra noise.
+    web_budget = settings.scaled_web_budget(difficulty)
+    web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web) and not skip_web
+
     overfetch_min = getattr(settings, "rag_overfetch_min", 30)
     overfetch_max = getattr(settings, "rag_overfetch_max", 50)
     overfetch = int(overfetch_min + difficulty * (overfetch_max - overfetch_min))
 
     # Phase 1: parallel retrieval
-    rag_coro = retrieve_context(query=query, collections=collections, top_k=overfetch)
+    rag_coro = retrieve_context(query=query, collections=collections, top_k=overfetch, domain_filter=domain_filter)
 
     if web_enabled:
         effective_web_query = web_query if web_query else query[:120]
@@ -356,6 +408,9 @@ async def retrieve_unified(
     # Phase 4: RRF merge
     merged = _rrf_merge(rag_unified, web_unified, k=settings.rag_rrf_k)
 
+    # Phase 4b: taxonomy domain-match boost — lift results matching frame domain_tags
+    merged = _taxonomy_boost(merged, domain_hints=domain_hints)
+
     # Phase 5: adaptive top-K via similarity-gap cliff detection (CAR, arXiv:2511.14769).
     # Replaces fixed merged[:top_k] — stops at the relevance cliff instead of
     # always returning top_k results, cutting token waste from irrelevant filler.
@@ -363,10 +418,15 @@ async def retrieve_unified(
     final = _adaptive_topk(merged, max_k=top_k, gap_multiplier=gap_mult)
 
     # Phase 6: coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern).
-    # Validates each chunk's topical coherence against the query using the
-    # sentence-transformers encoder.  If all chunks are dropped, the section
-    # worker proceeds with no context (better than poisoned context).
-    coherence_thresh = getattr(settings, "coherence_gate_threshold", 0.25)
+    # Threshold adapts to query difficulty: hard/broad queries get a lower bar
+    # so relevant-but-distant chunks survive; easy/narrow queries stay strict.
+    base_thresh = getattr(settings, "coherence_gate_threshold", 0.25)
+    if difficulty >= 0.7:
+        coherence_thresh = max(base_thresh - 0.05, 0.15)
+    elif difficulty <= 0.3:
+        coherence_thresh = min(base_thresh + 0.05, 0.35)
+    else:
+        coherence_thresh = base_thresh
     final = await asyncio.to_thread(_coherence_gate, query, final, coherence_thresh)
 
     urls_in_final = sum(1 for r in final if r.source_url)
@@ -381,6 +441,9 @@ async def retrieve_unified(
             "urls_in_final": urls_in_final,
             "difficulty": round(difficulty, 2),
             "web_enabled": web_enabled,
+            "skip_web": skip_web,
+            "coherence_threshold": round(coherence_thresh, 3),
+            "domain_filter": domain_filter or "(none)",
         },
     )
     if urls_in_final == 0 and len(final) > 0:

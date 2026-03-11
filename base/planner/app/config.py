@@ -249,6 +249,7 @@ class Settings(BaseSettings):
     retrieval_cache_similarity_threshold: float = 0.85
     retrieval_cache_confidence_threshold: float = 0.6
     retrieval_cache_backend: str = "numpy"  # "numpy" | "faiss" | "milvus"
+    retrieval_cache_warm_on_startup: bool = True
 
     # Graph behavior
     max_iterations: int = 3

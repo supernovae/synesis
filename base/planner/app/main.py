@@ -55,6 +55,8 @@ from synesis_telemetry import set_request_context as _set_telemetry_ctx
 configure_logging(service="synesis-planner", level=settings.log_level)
 logger = get_logger("synesis.api")
 
+_background_tasks: set[asyncio.Task] = set()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -79,6 +81,14 @@ async def lifespan(app: FastAPI):
             "streaming_events_enabled": settings.streaming_events_enabled,
         },
     )
+
+    if getattr(settings, "retrieval_cache_warm_on_startup", True):
+        from .retrieval_cache import warm_cache
+
+        task = asyncio.create_task(warm_cache())
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+
     yield
     logger.info("Synesis planner shutting down")
 
