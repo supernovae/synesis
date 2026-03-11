@@ -37,12 +37,18 @@ spec:
               value: "opik"
             - name: ANALYTICS_DB_USERNAME
               value: "opik"
-            - name: ANALYTICS_DB_PASSWORD
+            - name: ANALYTICS_DB_PASS
+              value: "opik"
+            - name: ANALYTICS_DB_MIGRATIONS_URL
+              value: "jdbc:clickhouse://clickhouse:8123"
+            - name: ANALYTICS_DB_MIGRATIONS_USER
+              value: "opik"
+            - name: ANALYTICS_DB_MIGRATIONS_PASS
               value: "opik"
             - name: STATE_DB_PROTOCOL
               value: "jdbc:mysql://"
             - name: STATE_DB_URL
-              value: "mysql:3306"
+              value: "mysql:3306/opik?rewriteBatchedStatements=true"
             - name: STATE_DB_DATABASE_NAME
               value: "opik"
             - name: STATE_DB_USER
@@ -52,7 +58,7 @@ spec:
             - name: REDIS_URL
               value: "redis://redis:6379"
             - name: JAVA_OPTS
-              value: "-Xms256m -Xmx512m"
+              value: "-Dliquibase.propertySubstitutionEnabled=true -Xms256m -Xmx512m"
           resources:
             requests:
               cpu: "250m"
@@ -62,13 +68,19 @@ spec:
               memory: "1Gi"
           livenessProbe:
             httpGet:
-              path: /healthcheck
+              path: /health-check?name=all&type=alive
               port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/json
             initialDelaySeconds: 45
             periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /healthcheck
+              path: /health-check?name=all&type=ready
               port: http
+              httpHeaders:
+                - name: Accept
+                  value: application/json
             initialDelaySeconds: 20
             periodSeconds: 10

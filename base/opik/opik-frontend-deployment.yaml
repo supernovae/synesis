@@ -26,9 +26,6 @@ spec:
             - name: http
               containerPort: 5173
               protocol: TCP
-          env:
-            - name: BACKEND_URL
-              value: "http://opik-backend:5173"
           resources:
             requests:
               cpu: "50m"

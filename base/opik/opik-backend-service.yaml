@@ -12,5 +12,5 @@ spec:
     app.kubernetes.io/name: opik-backend
   ports:
     - name: http
-      port: 5173
+      port: 8080
       targetPort: http

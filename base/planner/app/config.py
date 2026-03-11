@@ -268,7 +268,7 @@ class Settings(BaseSettings):
 
     # Opik LLM observability (tracing, evaluation, annotation queues)
     opik_enabled: bool = False
-    opik_url: str = "http://opik-backend.synesis-opik.svc.cluster.local:5173/api"
+    opik_url: str = "http://opik-backend.synesis-opik.svc.cluster.local:8080"
 
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True
