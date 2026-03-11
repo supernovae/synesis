@@ -68,9 +68,42 @@ The Router prompt is intentionally static and minimal. **To change routing
 behavior, tune the scoring thresholds in YAML, not the prompt.** All requests
 go through the Router; routing is based on task complexity from EntryClassifier.
 
+### Router (Retrieval Enrichment)
+
+The Router uses taxonomy metadata to enrich retrieval queries and steer
+web search toward authoritative sources.
+
+| What to change | File | Key |
+|---|---|---|
+| Query expansion terms (ADR, RFC, etc.) | `taxonomy_prompt_config.yaml` | `query_expansion_hints` |
+| Preferred web search scopes | `taxonomy_prompt_config.yaml` | `preferred_web_scopes` |
+
+**Example**: Software architecture queries automatically expand with terms like
+"ADR", "architecture decision record", "tradeoff analysis" and steer web search
+toward `site:martinfowler.com` and `site:microservices.io`.
+
+### Writer (Style-Driven Generation)
+
+The Writer uses taxonomy metadata to shape output format and structure.
+
+| What to change | File | Key |
+|---|---|---|
+| Output document style | `taxonomy_prompt_config.yaml` | `output_style` |
+| Output structure guidance | `taxonomy_prompt_config.yaml` | `output_style_guidance` |
+| Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
+| Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
+| Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` |
+| Required output sections | `taxonomy_prompt_config.yaml` | `required_elements` |
+| Vertical-specific persona block | vertical plugins | `vertical_prompt.executor_persona_block` |
+
+**Example**: When the domain is `software_architecture`, the Writer receives
+`output_style_guidance` that says "Structure like a technical architecture
+document: design goals, components, technology choices with rationale, implementation
+path, key risks." This produces ADR-shaped output instead of generic prose.
+
 ### Executor (General model: Qwen3.5-35B-A3B)
 
-The Executor generates the actual response. Its prompt is shaped by taxonomy
+The Executor generates code responses. Its prompt is shaped by taxonomy
 metadata injected from YAML.
 
 | What to change | File | Key |
@@ -168,11 +201,20 @@ your_domain:
   path: "Category > Your Domain"
   complexity: 0.7
   persona: "Domain Expert"
-  executor_explain_tone: "You are a domain expert. ..."
+  worker_explain_tone: "You are a domain expert. ..."
   depth_instructions: "..."
   required_elements:
     - "Section 1"
     - "Section 2"
+  query_expansion_hints:       # Terms to expand retrieval queries with
+    - "related term 1"
+    - "related term 2"
+  preferred_web_scopes:        # Steer web search to authoritative sites
+    - "site:example.com"
+  output_style: "domain_doc"   # Short label for the output format
+  output_style_guidance: >-    # Injected into writer system prompt
+    Structure the response as a domain document with specific
+    formatting and section requirements.
 ```
 
 2. Add keywords to `intent_weights.yaml` so EntryClassifier detects it:
@@ -352,7 +394,7 @@ and pedagogical structure -- all from YAML.
 |---|---|---|
 | `entry_classifier_weights.yaml` | Base scoring keywords and thresholds | EntryClassifier |
 | `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier |
-| `taxonomy_prompt_config.yaml` | Domain metadata (tone, depth, elements, persona) | Executor, Planner, Critic |
+| `taxonomy_prompt_config.yaml` | Domain metadata (tone, depth, elements, persona, query hints, output style) | Router, Writer, Executor, Planner, Critic |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
 | `plugins/weights/vertical_*.yaml` | Vertical plugins (keywords, risk, prompts, critic tiers) | All roles |
 

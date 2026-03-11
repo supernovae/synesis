@@ -40,13 +40,18 @@ State field: `evidence_packets` with `_merge_evidence_packets` reducer (deduplic
 ## Router Internal Flow
 
 ```
-generate_query() → LLM call
-retrieve()       → unified_retrieval / web_search (bounded)
-summarize()      → LLM call → EvidencePacket
-refine_query()   → LLM call (if confidence < 0.4)
-dedupe()         → deterministic
-parallel_dispatch() → asyncio.gather for independent requests
+generate_query_variants()  → 3 LLM calls (direct, HyDE, conceptual expansion)
+_multi_query_retrieve()    → parallel retrieval for all variants, RRF merge
+retrieve()                 → unified_retrieval / web_search (bounded, with preferred_web_scopes)
+summarize()                → LLM call → EvidencePacket (guided JSON)
+refine_query()             → LLM call (if confidence < 0.4)
+dedupe()                   → deterministic
+parallel_dispatch()        → asyncio.gather for independent requests
 ```
+
+**Multi-query expansion** (`router_multi_query_enabled`): Each evidence request produces up to 3 query variants — direct reformulation, HyDE (hypothetical document embedding), and conceptual expansion (taxonomy hints + synonyms + frame technologies). Variants are retrieved in parallel and merged via RRF before summarization.
+
+**Taxonomy enrichment**: `query_expansion_hints` from `taxonomy_prompt_config.yaml` are injected into the conceptual expansion variant. `preferred_web_scopes` (e.g. `site:martinfowler.com`) are appended to web search queries. Writer receives `output_style_guidance` to shape output format (ADR, platform guide, etc.).
 
 **Bounds:** `MAX_DOCS_PER_QUERY=5`, `MAX_SNIPPETS_PER_PACKET=20`, `MAX_SUMMARY_TOKENS=2000` per packet, `MAX_REFINEMENT_ROUNDS=2`.
 

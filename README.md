@@ -95,7 +95,9 @@ flowchart LR
 **Key design decisions:**
 
 - **Router-governed evidence architecture** — the Router is the single retrieval orchestrator (RAG + web search). Evidence flows as structured "Evidence Packets" between nodes. A Hybrid Retrieval Cache prevents redundant retrieval. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
-- **Universal principles + dynamic rubric** — the critic applies 5 domain-agnostic quality principles and generates per-query evaluation criteria. Evidence packets from the Router provide grounding.
+- **Multi-query retrieval enrichment** — each evidence request produces 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via Reciprocal Rank Fusion. BM25 corpus includes all indexed metadata (keywords, tags, document_name) with lightweight stemming.
+- **Taxonomy-driven output style** — domains define `query_expansion_hints` (ADR, RFC, design proposal), `preferred_web_scopes` (authoritative sites), and `output_style_guidance` injected into the Writer to produce domain-appropriate output (architecture documents, platform guides, academic papers).
+- **Evidence-aware critic** — 6-axis scoring with `evidence_utilization` (0.10 weight), deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty. See [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md).
 - **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no LangGraph overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
 - **Sandbox and LSP are exception-flow tools** — they fire on code validation failures, not on every request. This keeps the happy path fast. See [docs/SANDBOX.md](docs/SANDBOX.md) and [docs/LSP.md](docs/LSP.md).
 - **Taxonomy-driven prompt shaping** — domain behavior, critic depth, executor/writer persona, and planner decomposition rules are all YAML-configurable. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
@@ -200,7 +202,7 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | Capability | Description | Documentation |
 |-----------|-------------|---------------|
 | **Taxonomy-Driven Prompt Shaping** | YAML-configurable behavior per domain — tone, depth, critic mode, planner rules | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
-| **Hybrid RAG** | Vector + BM25 retrieval, Reciprocal Rank Fusion, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
+| **Hybrid RAG** | Vector + BM25 retrieval, multi-query expansion (HyDE + conceptual), RRF, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Code (tree-sitter AST), API specs, architecture docs, license, web-docs (Crawl4AI) | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Code Sandbox** | Exception-flow validation: lint, security scan, execute in isolated pods | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **LSP Intelligence** | 6-language deep diagnostics (Python, Go, TypeScript, Bash, Java, Rust) | [docs/LSP.md](docs/LSP.md) |
@@ -252,7 +254,7 @@ synesis/
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
 | [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — 100+ verticals |
-| [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, provenance, authority weighting |
+| [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, multi-query expansion, provenance, authority weighting |
 | [docs/INDEXERS.md](docs/INDEXERS.md) | Code, API spec, architecture, license, and web-docs indexers |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
 | [docs/LSP.md](docs/LSP.md) | LSP Gateway architecture, supported languages, circuit breakers |
@@ -267,6 +269,7 @@ synesis/
 | [docs/GPU_TOPOLOGY.md](docs/GPU_TOPOLOGY.md) | GPU topology and scheduling |
 | [docs/DEVELOPMENT_CHECKS.md](docs/DEVELOPMENT_CHECKS.md) | Local development and CI checks |
 | [docs/MODEL_EXERCISE.md](docs/MODEL_EXERCISE.md) | Observed model limitations, benchmark history |
+| [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric, scoring dimensions, calibration path |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
 
 ## Changing Models

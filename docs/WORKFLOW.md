@@ -119,20 +119,35 @@ It invokes LLMs for specific sub-tasks but owns all system-level logic:
 
 ```
 Router Node
-├── generate_query()       → LLM call (query generation prompt)
-├── retrieve()             → RAG / web search backends
-├── summarize()            → LLM call (summarization prompt)
-├── refine_query()         → LLM call (refinement prompt)
-├── dedupe()               → deterministic deduplication
-├── parallel_dispatch()    → asyncio.gather for independent requests
-└── produce evidence packet → deterministic assembly
+├── generate_query_variants()  → LLM calls (3 variants: direct, HyDE, conceptual expansion)
+├── _multi_query_retrieve()    → parallel retrieval for all variants, RRF merge
+├── retrieve()                 → RAG / web search backends (with preferred_web_scopes)
+├── summarize()                → LLM call (summarization prompt, guided JSON)
+├── refine_query()             → LLM call (refinement prompt)
+├── dedupe()                   → deterministic deduplication
+├── parallel_dispatch()        → asyncio.gather for independent requests
+└── produce evidence packet    → deterministic assembly
 ```
+
+### Multi-Query Expansion
+
+Each evidence request produces up to 3 query variants (configurable via `router_multi_query_enabled`):
+
+| Variant | Purpose | Example |
+|---------|---------|---------|
+| **Direct** | Balanced recall/precision reformulation of the evidence request | "internal coding assistant architecture RAG retrieval design" |
+| **HyDE** | Hypothetical document embedding — generates a 2-3 sentence answer, embeds it for vector search | "An internal coding assistant retrieves company documentation using vector embeddings..." |
+| **Conceptual expansion** | Expands with taxonomy hints, synonyms, and frame technologies | "coding assistant ADR architecture decision record system design microservices..." |
+
+All variants are retrieved in parallel. Results are merged via **Reciprocal Rank Fusion** before summarization. This dramatically improves recall on domain-specific documents (ADRs, RFCs, design proposals) that use different vocabulary than the user query.
+
+**Taxonomy-driven enrichment**: When a domain has `query_expansion_hints` in `taxonomy_prompt_config.yaml`, those terms are injected into the conceptual expansion variant. When `preferred_web_scopes` are defined (e.g. `site:martinfowler.com`), they're appended to web search queries. Frame-extracted `technologies` are also injected into the expansion variant.
 
 ### Retrieval Discipline
 
 Only the Router may perform retrieval (RAG or web search). Rules:
 
-1. Retrieval must be narrow, query-scoped, and relevance-ranked
+1. Retrieval balances recall and precision — queries include related concepts and synonyms
 2. Results are summarized into Evidence Packets before passing downstream
 3. Planner may *request* evidence but cannot retrieve it
 4. Critic may *flag* insufficient evidence but cannot retrieve it
@@ -529,11 +544,25 @@ taxonomy_prompt_config.yaml
 
 ### Score-Based Approval
 
-The critic produces weighted scores (0-10):
+The critic produces weighted scores (0-10) across 6 dimensions:
 
+| Dimension | Weight | Catches |
+|-----------|--------|---------|
+| `task_faithfulness` | 0.25 | Did the response answer what was asked? |
+| `constraint_compliance` | 0.20 | Does it respect stated constraints (budget, timeline, team size)? |
+| `coverage` | 0.25 | Are all deliverables and requirements addressed? |
+| `judgment_quality` | 0.10 | Are recommendations concrete and justified? |
+| `grounding` | 0.10 | Are claims supported by evidence or labeled as assumptions? |
+| `evidence_utilization` | 0.10 | Does the response incorporate evidence packets rather than generating from general knowledge? |
+
+Approval thresholds:
 - `weighted_overall >= 7.0` and no critical failure modes → **approved**
 - `weighted_overall >= 5.0` with repair instructions → **approved with suggestions**
 - `weighted_overall < 5.0` or critical failure modes → **rejected**, route to Router for more evidence
+
+**Depth gate**: For high-difficulty tasks (>= 0.7), ANY section flagged with `insufficient_depth` or `evidence_underuse` is blocking if the response is under 3000 characters. For difficulty >= 0.6, 2+ flagged sections is blocking.
+
+**Deterministic evidence citation rate check**: Before LLM scoring, the critic computes what fraction of evidence packet URIs appear in the response. If < 30% at difficulty >= 0.6, an `evidence_underuse` failure mode is injected automatically.
 
 Config: `critic_approval_threshold` (default 7.0), `critic_retry_threshold` (default 5.0).
 
@@ -619,7 +648,7 @@ YAML config — no hardcoded if/else chains.
 |------|---------|
 | `intent_weights.yaml` | Core complexity/risk weights, intent classes, routing thresholds |
 | `plugins/weights/*.yaml` | Industry-specific keywords, weights, pairings, and vertical prompt data |
-| `taxonomy_prompt_config.yaml` | Domain → persona, tone, depth instructions, required_elements. Difficulty thresholds drive Planner routing for knowledge tasks. |
+| `taxonomy_prompt_config.yaml` | Domain → persona, tone, depth instructions, required_elements, query_expansion_hints, preferred_web_scopes, output_style_guidance. Difficulty thresholds drive Planner routing for knowledge tasks. |
 | `intent_prompts.yaml` | Intent → Critic behavior overlay (hallucination-sensitive, evidence-required, etc.) |
 
 **Plugin system:** Drop a YAML into `plugins/weights/` to add an
@@ -697,6 +726,9 @@ be tagged with trust tiers.
 | CAR ([arxiv 2511.14769](https://arxiv.org/abs/2511.14769)) | Similarity-gap cliff detection | Adaptive top-K in unified retrieval |
 | L-RAG ([arxiv 2601.06551](https://arxiv.org/abs/2601.06551)) | Entropy-based lazy loading | Adaptive web gating |
 | Semantic Router (Aurelio Labs) | Cosine similarity over route embeddings | Embedding-based `is_code_task` classification |
+| HyDE ([arxiv 2212.10496](https://arxiv.org/abs/2212.10496)) | Hypothetical Document Embeddings for zero-shot retrieval | Router HyDE query variant for improved vector recall |
+| Multi-Query Retrieval (LangChain) | Multiple query reformulations with RRF merge | Router 3-variant expansion: direct, HyDE, conceptual |
+| ResearchRubrics ([arxiv 2511.07685](https://arxiv.org/abs/2511.07685)) | Fine-grained rubric items for deep research evaluation | Critic `evidence_utilization` dimension, depth gate |
 
 ## See Also
 
