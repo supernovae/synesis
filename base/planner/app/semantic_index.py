@@ -96,8 +96,11 @@ class NumpySemanticIndex:
 
         scores = self._matrix @ q
         k = min(top_k, len(self._entries))
-        top_indices = np.argpartition(-scores, k)[:k]
-        top_indices = top_indices[np.argsort(-scores[top_indices])]
+        if k >= len(scores):
+            top_indices = np.argsort(-scores)[:k]
+        else:
+            top_indices = np.argpartition(-scores, k)[:k]
+            top_indices = top_indices[np.argsort(-scores[top_indices])]
 
         results: list[tuple[IndexEntry, float]] = []
         for idx in top_indices:
