@@ -638,6 +638,20 @@ class CriticOut(BaseModel):
     nonblocking: list[dict[str, Any]] = Field(default_factory=list)
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
 
+    @field_validator("blocking_issues", mode="before")
+    @classmethod
+    def _coerce_blocking_issues(cls, v: Any) -> list[Any]:
+        """LLMs sometimes return plain strings instead of BlockingIssue dicts."""
+        if not isinstance(v, list):
+            return []
+        coerced: list[Any] = []
+        for item in v:
+            if isinstance(item, str):
+                coerced.append({"description": item, "evidence_refs": [], "reasoning": ""})
+            else:
+                coerced.append(item)
+        return coerced
+
     # Sandbox escalation
     needs_testing: bool = False
 
