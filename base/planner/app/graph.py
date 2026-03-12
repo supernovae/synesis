@@ -882,7 +882,7 @@ _opik_tracer = None
 if settings.opik_enabled:
     try:
         os.environ.setdefault("OPIK_URL_OVERRIDE", settings.opik_url)
-        os.environ.setdefault("OPIK_WORKSPACE", "synesis")
+        os.environ.setdefault("OPIK_WORKSPACE", "default")
         os.environ.setdefault("OPIK_PROJECT_NAME", "synesis")
 
         from opik.integrations.langchain import OpikTracer

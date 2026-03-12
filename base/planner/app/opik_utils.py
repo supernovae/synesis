@@ -29,8 +29,8 @@ def _get_client() -> Any:
 
         _client = opik.Opik(
             project_name="synesis",
-            workspace="synesis",
-            url=settings.opik_url,
+            workspace="default",
+            host=settings.opik_url,
         )
         return _client
     except Exception:

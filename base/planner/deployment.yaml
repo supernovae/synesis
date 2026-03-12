@@ -156,7 +156,7 @@ spec:
             - name: OPIK_URL_OVERRIDE
               value: "http://opik-backend.synesis-opik.svc.cluster.local:8080"
             - name: OPIK_WORKSPACE
-              value: "synesis"
+              value: "default"
             - name: OPIK_PROJECT_NAME
               value: "synesis"
             - name: SYNESIS_LOG_LEVEL
