@@ -302,11 +302,17 @@ class RouterNode:
         """Generate 1-3 query variants: direct, HyDE, conceptual expansion.
 
         Returns at least the direct query. HyDE and expansion are parallel
-        and controlled by config toggles.
+        and controlled by config toggles. When query normalization corrected
+        the input, the original (uncorrected) query is included as an
+        additional variant so RRF can compare retrieval quality.
         """
         direct_query = await self.generate_query(evidence_request, task_context)
         if not settings.router_multi_query_enabled:
-            return [direct_query]
+            variants = [direct_query]
+            original_q = evidence_request.get("original_query")
+            if original_q and original_q != direct_query:
+                variants.append(original_q)
+            return variants
 
         domain_hints = evidence_request.get("domain_hints") or []
         technologies = evidence_request.get("technologies") or []
@@ -340,6 +346,10 @@ class RouterNode:
                     variants.append(r.strip())
                 elif isinstance(r, Exception):
                     logger.debug("query_variant_failed", extra={"error": str(r)[:100]})
+
+        original_q = evidence_request.get("original_query")
+        if original_q and original_q not in variants:
+            variants.append(original_q)
 
         logger.debug(
             "query_variants_generated",
@@ -682,6 +692,15 @@ class RouterNode:
 
         if not requests:
             requests = [{"description": task_desc, "domain_hints": user_task.get("domain_tags", [])}]
+
+        # Retrieval-aware validation: when query normalization corrected the
+        # input, inject the original query so RRF can compare retrieval quality.
+        norm = state.get("query_normalization") or {}
+        if norm.get("changed_tokens") and settings.query_normalizer_search_both:
+            original_q = norm.get("original_query", "")
+            if original_q:
+                for req in requests:
+                    req.setdefault("original_query", original_q)
 
         packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
         packets = self.dedupe(packets)

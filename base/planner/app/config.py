@@ -284,6 +284,14 @@ class Settings(BaseSettings):
     opik_enabled: bool = False
     opik_url: str = "http://opik-backend.synesis-opik.svc.cluster.local:8080"
 
+    # Query normalizer — deterministic typo correction before classification
+    query_normalizer_enabled: bool = True
+    query_normalizer_max_corrected_tokens: int = 3
+    query_normalizer_edit_distance_cutoff: float = 0.7
+    query_normalizer_confidence_threshold: float = 0.6
+    query_normalizer_search_both: bool = True  # search original + corrected via RRF
+    query_normalizer_clarification_on_ambiguity: bool = True
+
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True
 

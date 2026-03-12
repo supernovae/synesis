@@ -1,0 +1,137 @@
+# Query Normalizer Configuration
+#
+# Deterministic typo correction before classification/routing.
+# The normalizer runs on the hot path (~1-5ms) with no LLM calls.
+# Domain lexicon is compiled from intent_weights + taxonomy at startup.
+
+enabled: true
+
+# Maximum tokens the normalizer will attempt to correct in a single query.
+# Prevents wholesale rewriting; keeps corrections surgical.
+max_corrected_tokens: 3
+
+# SequenceMatcher cutoff for candidate generation.
+# Lower = more candidates (more recall, more latency).
+# Range: 0.5-0.9. Default 0.7 balances recall and precision.
+edit_distance_cutoff: 0.7
+
+# Minimum score for a correction to be accepted.
+# Range: 0.0-1.0. Below this, the original token is kept.
+confidence_threshold: 0.6
+
+# When true, both original and corrected queries are searched via RRF merge.
+# Provides retrieval-aware validation without extra round trips.
+search_both: true
+
+# When true and correction is ambiguous (multiple candidates with similar
+# scores), the system may ask the user for clarification instead of
+# silently rewriting.
+clarification_on_ambiguity: true
+
+# Additional protected token patterns (regex).
+# Tokens matching any of these are never corrected.
+# Built-in patterns already cover: URLs, emails, camelCase, snake_case,
+# kebab-case, versions, file paths, CLI flags, ALL_CAPS constants, dunder.
+extra_protected_patterns: []
+
+# Additional domain jargon terms that should never be corrected.
+# These are exact-match (case-insensitive) on top of the compiled lexicon.
+extra_jargon:
+  - kubectl
+  - kustomize
+  - istio
+  - envoy
+  - grafana
+  - prometheus
+  - jaeger
+  - opentelemetry
+  - otel
+  - cilium
+  - argo
+  - argocd
+  - tekton
+  - buildah
+  - podman
+  - skopeo
+  - crio
+  - containerd
+  - runc
+  - etcd
+  - coredns
+  - calico
+  - flannel
+  - metallb
+  - longhorn
+  - rook
+  - ceph
+  - velero
+  - crossplane
+  - pulumi
+  - tofu
+  - opentofu
+  - terragrunt
+  - packer
+  - nomad
+  - consul
+  - vault
+  - waypoint
+  - vagrant
+  - ansible
+  - boto3
+  - httpx
+  - uvicorn
+  - gunicorn
+  - pydantic
+  - sqlalchemy
+  - alembic
+  - celery
+  - kombu
+  - pytest
+  - mypy
+  - ruff
+  - bandit
+  - nox
+  - tox
+  - conda
+  - mamba
+  - pyenv
+  - pipenv
+  - pdm
+  - hatch
+  - numpy
+  - pandas
+  - scipy
+  - sklearn
+  - xgboost
+  - lightgbm
+  - catboost
+  - dask
+  - polars
+  - vaex
+  - fastapi
+  - starlette
+  - django
+  - flask
+  - aiohttp
+  - quart
+  - sanic
+  - litestar
+  - langchain
+  - langgraph
+  - langsmith
+  - llamaindex
+  - vllm
+  - ollama
+  - gguf
+  - ggml
+  - huggingface
+  - tokenizers
+  - tiktoken
+  - chromadb
+  - qdrant
+  - weaviate
+  - pinecone
+  - milvus
+  - pgvector
+  - opensearch
+  - elasticsearch

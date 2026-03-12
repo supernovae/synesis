@@ -36,10 +36,29 @@ this injection.
 
 ## Extension Points by Role
 
+### Query Normalizer (deterministic, no LLM)
+
+Runs **before** the EntryClassifier. Corrects typos using a domain
+lexicon compiled from `intent_weights.yaml` and `taxonomy_prompt_config.yaml`
+at startup. Protected tokens (code identifiers, URLs, versions, jargon)
+are never corrected.
+
+| What to change | File | Key |
+|---|---|---|
+| Extra jargon (never correct) | `query_normalizer_config.yaml` | `extra_jargon` |
+| Extra protected patterns | `query_normalizer_config.yaml` | `extra_protected_patterns` |
+| Enable/disable | `config.py` | `query_normalizer_enabled` |
+| Confidence threshold | `config.py` | `query_normalizer_confidence_threshold` |
+| Search both original + corrected | `config.py` | `query_normalizer_search_both` |
+
+The normalizer enriches domain coverage automatically: adding new
+`domain_keywords` or `query_expansion_hints` to taxonomy/intent configs
+grows the correction lexicon at next startup.
+
 ### EntryClassifier (deterministic, no LLM)
 
-The EntryClassifier runs first on every request. It produces the
-`IntentEnvelope` that drives all downstream routing.
+The EntryClassifier runs first on every request (after query normalization).
+It produces the `IntentEnvelope` that drives all downstream routing.
 
 | What to change | File | Key |
 |---|---|---|
@@ -421,10 +440,12 @@ and pedagogical structure -- all from YAML.
 | File | Purpose | Affects |
 |---|---|---|
 | `entry_classifier_weights.yaml` | Base scoring keywords and thresholds | EntryClassifier |
-| `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier |
-| `taxonomy_prompt_config.yaml` | 173 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic |
+| `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier, Query Normalizer lexicon |
+| `taxonomy_prompt_config.yaml` | 173 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic, Query Normalizer lexicon |
+| `query_normalizer_config.yaml` | Extra jargon, protected patterns for typo correction | Query Normalizer |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
 | `plugins/weights/vertical_*.yaml` | 41 vertical plugins (keywords, risk, prompts, critic tiers) | All roles |
+| `app/query_normalizer.py` | Deterministic typo correction — compiled lexicon, protected tokens, scoring | Entry Classifier (pre-pass) |
 | `app/taxonomy_config_linter.py` | Pydantic schema validation (startup) | Startup validation |
 | `app/taxonomy_prompt_factory.py` | Taxonomy resolver — startup-compiled, all YAML fields forwarded | All roles |
 

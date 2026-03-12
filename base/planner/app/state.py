@@ -114,6 +114,9 @@ class GraphState(TypedDict, total=False):
     assumptions: list[str]
     defaults_used: list[str]
 
+    # --- Query normalization ---
+    query_normalization: dict[str, Any]
+
     # --- Classification / routing ---
     is_code_task: bool
     include_tests: bool

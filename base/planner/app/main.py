@@ -80,6 +80,15 @@ async def lifespan(app: FastAPI):
     if taxonomy_issues:
         for msg in taxonomy_issues:
             logger.warning("taxonomy_config: %s", msg)
+    if settings.query_normalizer_enabled:
+        from .query_normalizer import build_and_init_normalizer
+
+        normalizer = build_and_init_normalizer()
+        logger.info(
+            "query_normalizer_ready",
+            extra={"lexicon_size": len(normalizer._lexicon)},
+        )
+
     logger.info(
         "sse_status_format",
         extra={

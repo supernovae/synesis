@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
+from ..query_normalizer import get_normalizer
 from ..taxonomy_prompt_factory import resolve_taxonomy_metadata
 
 logger = logging.getLogger("synesis.entry_classifier")
@@ -141,6 +142,22 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     message_origin = _classify_message_origin(last_content)
     policy = get_defaults_policy()
 
+    # Query normalization: deterministic typo correction before classification
+    normalizer = get_normalizer()
+    norm_result = None
+    if normalizer and text_to_analyze:
+        norm_result = normalizer.normalize(text_to_analyze)
+        if norm_result.changed_tokens:
+            text_to_analyze = norm_result.selected_query
+            logger.info(
+                "query_normalized",
+                extra={
+                    "changed_tokens": list(norm_result.changed_tokens),
+                    "confidence": round(norm_result.correction_confidence, 3),
+                    "protected_tokens": list(norm_result.protected_tokens)[:10],
+                },
+            )
+
     # ScoringEngine from YAML (entry_classifier_weights.yaml)
     config_path = _weights_path()
     engine = get_scoring_engine(config_path)
@@ -222,6 +239,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["explicit_deliverables"] = analysis.get("explicit_deliverables", 0)
     out["domain_hints"] = analysis.get("domain_hints") or []
     out["current_node"] = "entry_classifier"
+    if norm_result:
+        out["query_normalization"] = norm_result.to_dict()
 
     # task_size_override: /reclassify easy|medium|hard forces override (log for tuning)
     task_size_override = state.get("task_size_override")

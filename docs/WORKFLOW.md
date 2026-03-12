@@ -521,6 +521,70 @@ The cohesion lock ensures that when a user asks about "LLM architecture on AWS,"
 the system doesn't mix in GCP VPC peering docs or Azure service mesh guidance.
 Evidence stays grounded; the writer receives only coherent, on-topic material.
 
+## Query Normalization Pipeline
+
+Deterministic typo correction and preprocessing that runs before the
+Entry Classifier's ScoringEngine. No LLM calls, no network — stdlib
+only (~1-5ms on the hot path).
+
+### Pipeline Stages
+
+1. **Preprocessing**: Normalize whitespace, Unicode punctuation, zero-width
+   characters. Preserve case-sensitive/code-like spans.
+2. **Tokenization**: Split input into word tokens. Mark tokens adjacent to
+   path separators (`/`, `\`) as path-protected.
+3. **Protected token detection**: Tokens matching structural patterns are
+   never corrected: camelCase, snake_case, kebab-case, URLs, emails,
+   file paths, version numbers, CLI flags, ALL_CAPS constants, dunder names.
+4. **Suspicious flagging**: Remaining tokens are flagged only if a specific
+   heuristic fires: repeated characters (`ruuuning`), keyboard transposition
+   match, or high-similarity close match (≥0.85) to a domain lexicon term.
+   Morphological variants (plurals, gerunds) of known words are not flagged.
+5. **Candidate generation**: For each suspicious token, generate corrections
+   via edit-distance matching, transposition swaps, and repeated-char
+   deduplication against the compiled domain lexicon.
+6. **Scoring**: Score candidates using edit distance ratio + domain vocabulary
+   prior - ambiguity penalty. Accept only when score ≥ confidence threshold.
+
+### Domain Lexicon
+
+Compiled once at startup from existing configs:
+- `intent_weights.yaml` `domain_keywords`
+- `taxonomy_prompt_config.yaml` `query_expansion_hints`
+- Common English vocabulary (~1500 words)
+
+Multi-word phrases are split into individual tokens for token-level matching.
+
+### State
+
+| Field | Type | Set by | Consumed by |
+|-------|------|--------|-------------|
+| `query_normalization` | `dict` | Entry Classifier | Router, observability |
+| `query_normalization.original_query` | `str` | Entry Classifier | Router (RRF variant) |
+| `query_normalization.selected_query` | `str` | Entry Classifier | ScoringEngine input |
+| `query_normalization.changed_tokens` | `tuple[str]` | Entry Classifier | Logging |
+| `query_normalization.protected_tokens` | `tuple[str]` | Entry Classifier | Logging |
+
+### Retrieval-Aware Validation
+
+When correction happens and `search_both=true` (default), the Router
+adds the original (uncorrected) query as an additional retrieval variant.
+RRF merge ensures the best results from both are used — if the original
+query retrieves better, its results dominate.
+
+### Config
+
+| Setting | Env var | Default | Purpose |
+|---------|---------|---------|---------|
+| `query_normalizer_enabled` | `SYNESIS_QUERY_NORMALIZER_ENABLED` | `true` | Enable/disable |
+| `query_normalizer_max_corrected_tokens` | `SYNESIS_QUERY_NORMALIZER_MAX_CORRECTED_TOKENS` | `3` | Max tokens to correct |
+| `query_normalizer_edit_distance_cutoff` | `SYNESIS_QUERY_NORMALIZER_EDIT_DISTANCE_CUTOFF` | `0.7` | Candidate generation threshold |
+| `query_normalizer_confidence_threshold` | `SYNESIS_QUERY_NORMALIZER_CONFIDENCE_THRESHOLD` | `0.6` | Min score to accept correction |
+| `query_normalizer_search_both` | `SYNESIS_QUERY_NORMALIZER_SEARCH_BOTH` | `true` | Search original + corrected via RRF |
+
+Additional protected patterns and jargon terms are configurable via
+`query_normalizer_config.yaml`.
+
 ## Adaptive Rigor
 
 Rigor scales with `task_size`. Decouples general utility from
