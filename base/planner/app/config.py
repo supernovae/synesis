@@ -107,6 +107,20 @@ class Settings(BaseSettings):
     # to 0.3-0.35 if off-topic chunks persist.
     coherence_gate_threshold: float = 0.25
 
+    # Cohesion Lock: post-retrieval inter-document coherence filtering.
+    # Detects the dominant entity/theme from top results and evicts
+    # documents that conflict with it (e.g. mixing cloud providers).
+    cohesion_lock_enabled: bool = True
+    cohesion_lock_llm_fallback: bool = True
+    cohesion_lock_min_results: int = 3  # need at least this many results to lock
+    cohesion_embedding_threshold: float = 0.15  # below this → evict
+    cohesion_llm_borderline_low: float = 0.15  # embedding sim floor for LLM re-check
+    cohesion_llm_borderline_high: float = 0.30  # embedding sim ceiling for LLM re-check
+    cohesion_micro_critic_enabled: bool = True
+    cohesion_compression_enabled: bool = True
+    cohesion_compression_threshold: float = 0.20  # sentence-level similarity to lock
+    long_context_reorder_enabled: bool = True
+
     # Retrieval strategy: "hybrid" (BM25 + vector), "vector", or "bm25"
     rag_retrieval_strategy: Literal["hybrid", "vector", "bm25"] = "hybrid"
 

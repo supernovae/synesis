@@ -4,9 +4,12 @@ Runs internal RAG and web search concurrently via asyncio.gather, merges
 results via authority-weighted Reciprocal Rank Fusion, and adaptively gates
 web results based on RAG quality.
 
-Post-retrieval coherence gate (Phase 6) validates each chunk against the
-query using sentence-transformers cosine similarity, dropping off-topic
-results before they enter the prompt context.
+Post-retrieval pipeline:
+  Phase 5:  adaptive top-K via cliff detection
+  Phase 5b: cohesion lock detection (dominant entity from top 3)
+  Phase 5c: cohesion micro-critic filtering (embedding + parallel LLM)
+  Phase 5d: contextual compression (sentence-level extraction)
+  Phase 6:  coherence gate (query-document cosine similarity)
 
 Authority system preserved end-to-end:
   - RAG: authority boost applied in rag_client.py (canonical=1.5, vetted=1.3, etc.)
@@ -28,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -66,6 +70,14 @@ class UnifiedResult:
     context_prefix: str = ""
     chunk_summary: str = ""
     document_name: str = ""
+
+
+@dataclass
+class RetrievalBundle:
+    """Results from retrieve_unified() with optional cohesion lock metadata."""
+
+    results: list[UnifiedResult]
+    cohesion_lock: dict[str, Any] | None = None
 
 
 def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
@@ -306,7 +318,7 @@ async def retrieve_unified(
     force_web: bool = False,
     domain_hints: list[str] | None = None,
     skip_web: bool = False,
-) -> list[UnifiedResult]:
+) -> RetrievalBundle:
     """Parallel RAG + web retrieval with authority-weighted RRF fusion.
 
     Args:
@@ -319,6 +331,9 @@ async def retrieve_unified(
       skip_web: When True (e.g. needs_web=false in frame), web search is
                 disabled regardless of other settings.
 
+    Returns:
+      RetrievalBundle with results and optional cohesion_lock metadata.
+
     Steps:
       1. asyncio.gather(RAG, web) — parallel execution
       2. Convert both to UnifiedResult with authority metadata preserved
@@ -326,6 +341,9 @@ async def retrieve_unified(
          cap web slots so RAG dominates; if RAG is empty, web fills the gap
       4. RRF merge into one ranked list
       5. Adaptive top-k via cliff detection
+      5b. Cohesion lock detection (dominant entity from top 3)
+      5c. Cohesion micro-critic filtering (embedding + parallel LLM)
+      5d. Contextual compression (sentence-level extraction)
       6. Coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern)
     """
     if collections is None:
@@ -381,8 +399,6 @@ async def retrieve_unified(
     )
 
     # Phase 3: adaptive web gating (L-RAG pattern)
-    # Strong RAG (3+ results) → web supplements (capped slots)
-    # Weak/empty RAG → web fills the gap (all slots available)
     rag_confident = len(rag_unified) >= _MIN_RAG_FOR_GATING
     if rag_confident:
         max_web = max(2, top_k // 3)
@@ -408,14 +424,33 @@ async def retrieve_unified(
     merged = _taxonomy_boost(merged, domain_hints=domain_hints)
 
     # Phase 5: adaptive top-K via similarity-gap cliff detection (CAR, arXiv:2511.14769).
-    # Replaces fixed merged[:top_k] — stops at the relevance cliff instead of
-    # always returning top_k results, cutting token waste from irrelevant filler.
     gap_mult = getattr(settings, "rag_adaptive_gap_multiplier", 1.5)
     final = _adaptive_topk(merged, max_k=top_k, gap_multiplier=gap_mult)
 
+    # Phase 5b-5d: Cohesion Lock pipeline — inter-document coherence filtering.
+    # Detects the dominant entity/theme, evicts conflicting docs, and compresses
+    # surviving docs to sentences matching the lock.
+    cohesion_lock_dict: dict[str, Any] | None = None
+    if settings.cohesion_lock_enabled and len(final) >= settings.cohesion_lock_min_results:
+        from .cohesion import cohesion_filter, compress_to_cohesion, detect_cohesion_lock
+
+        lock = await detect_cohesion_lock(final, top_n=3)
+        if lock is not None:
+            cohesion_lock_dict = lock.to_dict()
+            pre_filter_count = len(final)
+            final = await cohesion_filter(final, lock, protected_top_n=3)
+            final = await compress_to_cohesion(final, lock)
+            logger.info(
+                "cohesion_pipeline_complete",
+                extra={
+                    "lock_entity": lock.entity,
+                    "lock_type": lock.lock_type,
+                    "pre_filter": pre_filter_count,
+                    "post_filter": len(final),
+                },
+            )
+
     # Phase 6: coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern).
-    # Threshold adapts to query difficulty: hard/broad queries get a lower bar
-    # so relevant-but-distant chunks survive; easy/narrow queries stay strict.
     base_thresh = getattr(settings, "coherence_gate_threshold", 0.25)
     if difficulty >= 0.7:
         coherence_thresh = max(base_thresh - 0.05, 0.15)
@@ -440,6 +475,7 @@ async def retrieve_unified(
             "skip_web": skip_web,
             "coherence_threshold": round(coherence_thresh, 3),
             "domain_filter": domain_filter or "(none)",
+            "cohesion_lock": (cohesion_lock_dict or {}).get("entity", "(none)"),
         },
     )
     if urls_in_final == 0 and len(final) > 0:
@@ -452,7 +488,7 @@ async def retrieve_unified(
             },
         )
 
-    return final
+    return RetrievalBundle(results=final, cohesion_lock=cohesion_lock_dict)
 
 
 def format_unified_context(

@@ -28,7 +28,7 @@ from ..config import settings
 from ..llm_telemetry import get_llm_http_client
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
-from ..unified_retrieval import UnifiedResult, retrieve_unified
+from ..unified_retrieval import RetrievalBundle, UnifiedResult, retrieve_unified
 
 logger = logging.getLogger("synesis.router")
 
@@ -420,14 +420,14 @@ class RouterNode:
         force_web: bool = False,
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
-    ) -> list[UnifiedResult]:
+    ) -> RetrievalBundle:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
         if preferred_web_scopes and not skip_web:
             scope_suffix = " ".join(preferred_web_scopes[:2])
             web_query = f"{web_query} {scope_suffix}"
 
-        results = await retrieve_unified(
+        bundle = await retrieve_unified(
             query=query,
             difficulty=difficulty,
             top_k=MAX_DOCS_PER_QUERY,
@@ -436,7 +436,8 @@ class RouterNode:
             force_web=force_web,
             skip_web=skip_web,
         )
-        return results[:MAX_DOCS_PER_QUERY]
+        bundle.results = bundle.results[:MAX_DOCS_PER_QUERY]
+        return bundle
 
     def dedupe(self, packets: list[EvidencePacket]) -> list[EvidencePacket]:
         """Content-hash deduplication across packets. Merge overlapping sources."""
@@ -457,11 +458,11 @@ class RouterNode:
         task_context: str = "",
         difficulty: float = 0.5,
         taxonomy_metadata: dict[str, Any] | None = None,
-    ) -> list[EvidencePacket]:
+    ) -> tuple[list[EvidencePacket], dict[str, Any] | None]:
         """Dispatch independent evidence requests concurrently.
 
-        When multi-query is enabled, each request generates its own variants
-        internally. Otherwise, batch query generation is used.
+        Returns (packets, cohesion_lock_dict). The lock is taken from the
+        first request that produces one (typically the main_question request).
         """
         if settings.router_multi_query_enabled:
             tasks = [
@@ -476,12 +477,17 @@ class RouterNode:
             ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         packets: list[EvidencePacket] = []
+        cohesion_lock: dict[str, Any] | None = None
         for r in results:
-            if isinstance(r, EvidencePacket):
-                packets.append(r)
+            if isinstance(r, tuple) and len(r) == 2:
+                packet, lock = r
+                if isinstance(packet, EvidencePacket):
+                    packets.append(packet)
+                if cohesion_lock is None and lock:
+                    cohesion_lock = lock
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
-        return packets
+        return packets, cohesion_lock
 
     async def _multi_query_retrieve(
         self,
@@ -490,7 +496,7 @@ class RouterNode:
         domain_hints: list[str] | None = None,
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
-    ) -> list[UnifiedResult]:
+    ) -> RetrievalBundle:
         """Retrieve using multiple query variants and merge via RRF."""
         if len(variants) <= 1:
             return await self.retrieve(
@@ -514,18 +520,22 @@ class RouterNode:
         all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         per_query_results: list[list[UnifiedResult]] = []
+        first_lock: dict[str, Any] | None = None
         for r in all_results:
-            if isinstance(r, list):
-                per_query_results.append(r)
+            if isinstance(r, RetrievalBundle):
+                per_query_results.append(r.results)
+                if first_lock is None and r.cohesion_lock:
+                    first_lock = r.cohesion_lock
             elif isinstance(r, Exception):
                 logger.debug("multi_query_retrieve_error", extra={"error": str(r)[:100]})
 
         if not per_query_results:
-            return []
+            return RetrievalBundle(results=[])
         if len(per_query_results) == 1:
-            return per_query_results[0]
+            return RetrievalBundle(results=per_query_results[0], cohesion_lock=first_lock)
 
-        return _rrf_merge(per_query_results, k=60)
+        merged = _rrf_merge(per_query_results, k=60)
+        return RetrievalBundle(results=merged, cohesion_lock=first_lock)
 
     async def handle_single_request(
         self,
@@ -534,8 +544,11 @@ class RouterNode:
         difficulty: float = 0.5,
         precomputed_query: str | None = None,
         taxonomy_metadata: dict[str, Any] | None = None,
-    ) -> EvidencePacket:
-        """Full pipeline for one evidence request: query → cache → retrieve → summarize → refine."""
+    ) -> tuple[EvidencePacket, dict[str, Any] | None]:
+        """Full pipeline for one evidence request: query -> cache -> retrieve -> summarize -> refine.
+
+        Returns (packet, cohesion_lock_dict) — lock may be None.
+        """
         domain_hints = evidence_request.get("domain_hints") or []
         skip_web = evidence_request.get("skip_web", False)
 
@@ -556,17 +569,18 @@ class RouterNode:
         if cached is not None:
             if evidence_request.get("section_id") is not None:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
-            return cached
+            return cached, None
 
-        raw_results = await self._multi_query_retrieve(
+        bundle = await self._multi_query_retrieve(
             variants,
             difficulty,
             domain_hints=domain_hints,
             skip_web=skip_web,
             preferred_web_scopes=preferred_web_scopes,
         )
-        packet = await self.summarize(query, raw_results)
+        packet = await self.summarize(query, bundle.results)
         packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
+        cohesion_lock = bundle.cohesion_lock
 
         rounds = 0
         while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < MAX_REFINEMENT_ROUNDS:
@@ -577,20 +591,22 @@ class RouterNode:
                 if evidence_request.get("section_id") is not None:
                     packet = packet.model_copy(update={"section_id": evidence_request["section_id"]})
                 break
-            raw_results = await self.retrieve(
+            refine_bundle = await self.retrieve(
                 refined_query,
                 difficulty,
                 domain_hints=domain_hints,
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
             )
-            packet = await self.summarize(refined_query, raw_results)
+            packet = await self.summarize(refined_query, refine_bundle.results)
             packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
+            if cohesion_lock is None and refine_bundle.cohesion_lock:
+                cohesion_lock = refine_bundle.cohesion_lock
             query = refined_query
             rounds += 1
 
         await self.cache.aput(query, packet)
-        return packet
+        return packet, cohesion_lock
 
     # ----- Mode detection + main entry point -----
 
@@ -641,7 +657,7 @@ class RouterNode:
         if not requests:
             requests = [{"description": task_desc, "domain_hints": user_task.get("domain_tags", [])}]
 
-        packets = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
+        packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
         packets = self.dedupe(packets)
 
         next_node = self._decide_next_node(state)
@@ -664,10 +680,11 @@ class RouterNode:
                 "cache_hit_rate": round(cache_hit_rate, 4),
                 "total_snippets": sum(len(p.snippets) for p in packets),
                 "avg_confidence": round(sum(p.confidence for p in packets) / max(1, len(packets)), 4),
+                "cohesion_lock": (cohesion_lock or {}).get("entity", "(none)"),
             },
         )
 
-        return {
+        result: dict[str, Any] = {
             "evidence_packets": [p.model_dump() for p in packets],
             "evidence_requests": [],
             "need_more_evidence": False,
@@ -684,6 +701,9 @@ class RouterNode:
                 )
             ],
         }
+        if cohesion_lock:
+            result["cohesion_lock"] = cohesion_lock
+        return result
 
     def _build_initial_requests(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Build evidence requests from the frame/task for initial retrieval."""

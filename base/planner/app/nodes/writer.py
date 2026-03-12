@@ -25,10 +25,10 @@ from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.writer")
 
-_WRITER_SYSTEM = """\
-You are the Structured Writer. You produce a complete, polished markdown \
+_WRITER_SYSTEM_TEMPLATE = """\
+You are the {persona}. You produce a complete, polished markdown \
 response from a plan outline and compiled evidence.
-
+{cohesion_block}
 CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
 2. Follow the plan outline — each step becomes a section.
@@ -86,6 +86,80 @@ CITATION:
 
 OUTPUT: Markdown with section headings. No JSON wrapper.
 """
+
+_COHESION_BLOCK_TEMPLATE = """
+GROUNDING CONSTRAINT — COHESION LOCK:
+You MUST stay within the conceptual frame: {entity}.
+{exclusions}Do not introduce information from outside this frame, even from your \
+training data. If the lock is a specific entity, stay specific to that entity. \
+If generic/theoretical, stay theoretical and do not mix in vendor-specific advice.
+"""
+
+
+def _resolve_persona(state: dict[str, Any]) -> str:
+    """Resolve persona from state, falling back through sources."""
+    user_task = state.get("user_task") or {}
+    persona = user_task.get("persona", "")
+    if persona:
+        return persona
+
+    taxonomy_meta = state.get("taxonomy_metadata") or {}
+    persona = taxonomy_meta.get("persona_instructions", "")
+    if persona:
+        return persona
+
+    return "Structured Writer"
+
+
+def _build_cohesion_block(state: dict[str, Any]) -> str:
+    """Build the cohesion lock grounding constraint block for the writer prompt."""
+    lock = state.get("cohesion_lock") or {}
+    entity = lock.get("entity", "")
+    if not entity:
+        return ""
+
+    exclude_signals = lock.get("exclude_signals") or []
+    exclusions = ""
+    if exclude_signals:
+        exclusions = (
+            "Specifically EXCLUDE content about: "
+            + ", ".join(exclude_signals[:8])
+            + ".\n"
+        )
+
+    return _COHESION_BLOCK_TEMPLATE.format(entity=entity, exclusions=exclusions)
+
+
+def _build_system_prompt(state: dict[str, Any]) -> str:
+    """Build the complete writer system prompt with persona and cohesion lock."""
+    persona = _resolve_persona(state)
+    cohesion_block = _build_cohesion_block(state)
+    return _WRITER_SYSTEM_TEMPLATE.format(
+        persona=persona,
+        cohesion_block=cohesion_block,
+    )
+
+
+def _long_context_reorder(items: list[str]) -> list[str]:
+    """Lost-in-the-middle mitigation: place strongest items at context edges.
+
+    LLMs attend more to the beginning and end of long context windows.
+    This interleaves items so the highest-ranked appear at positions 1
+    and N, with lower-ranked items in the middle.
+
+    Research: Liu et al. 2024, "Lost in the Middle: How Language Models
+    Use Long Contexts" — performance degrades for information placed in
+    the middle of the input context.
+    """
+    if len(items) <= 2:
+        return items
+    reordered: list[str] = []
+    for i, item in enumerate(items):
+        if i % 2 == 0:
+            reordered.append(item)
+        else:
+            reordered.insert(len(reordered) // 2, item)
+    return reordered
 
 _DECISIVE_BLOCK = """\
 
@@ -243,6 +317,12 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         summary = p.get("summary", "") if isinstance(p, dict) else getattr(p, "summary", "")
         if summary:
             evidence_parts.append(summary)
+
+    # Lost-in-the-middle mitigation: reorder evidence so strongest items
+    # appear at the start and end of the context window.
+    if settings.long_context_reorder_enabled and len(evidence_parts) > 2:
+        evidence_parts = _long_context_reorder(evidence_parts)
+
     compiled_evidence = "\n---\n".join(evidence_parts)
 
     task_block = _build_task_block(state)
@@ -260,9 +340,11 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
     decisive = style_contract.get("decisive", False)
 
-    # Taxonomy-driven output style injection
+    # Build system prompt with dynamic persona and cohesion lock
+    system_prompt = _build_system_prompt(state)
+
+    # Taxonomy-driven output style injection (additive to template)
     taxonomy_meta = state.get("taxonomy_metadata") or {}
-    system_prompt = _WRITER_SYSTEM
     if taxonomy_meta:
         from ..taxonomy_prompt_factory import get_output_style_guidance
 

@@ -800,6 +800,7 @@ class UserTask(BaseModel):
     escalation_signals: list[str] = Field(default_factory=list)
     decision_required: bool = False
     needs_web: bool = False
+    persona: str = ""
 
 
 class StyleContract(BaseModel):
