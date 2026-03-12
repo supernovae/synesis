@@ -154,6 +154,24 @@ class ArxivPaperHandler:
 
         if content_type == "html":
             body_chunks = _parse_html_body(doc)
+            if not body_chunks:
+                arxiv_id = doc.metadata.get("arxiv_id", "")
+                if arxiv_id:
+                    logger.info(
+                        "HTML parse empty for arxiv:%s — fetching PDF fallback",
+                        arxiv_id,
+                    )
+                    pdf_bytes = _fetch_pdf_fallback(arxiv_id)
+                    if pdf_bytes:
+                        pdf_doc = RawDocument(
+                            doc_id=doc.doc_id,
+                            name=doc.name,
+                            content=pdf_bytes,
+                            source_url=doc.source_url,
+                            metadata={**doc.metadata, "content_type": "pdf"},
+                        )
+                        body_chunks = _parse_pdf_body(pdf_doc)
+                        content_type = "pdf (html→pdf fallback)"
         else:
             body_chunks = _parse_pdf_body(doc)
 
@@ -272,12 +290,19 @@ def _fetch_html_content(
     client: httpx.Client,
     arxiv_id: str,
 ) -> tuple[str, str]:
-    """Try the arxiv HTML rendering. Returns (content, 'html') or ('', '')."""
+    """Try the arxiv HTML rendering. Returns (content, 'html') or ('', '').
+
+    Uses ``ensure_rendered`` to detect JS-shell pages and re-fetch them
+    via crawl4ai's headless Chromium so trafilatura gets real DOM content.
+    """
     url = _ARXIV_HTML_URL.format(arxiv_id=arxiv_id)
     try:
         resp = client.get(url)
         if resp.status_code == 200 and len(resp.text) > 2000:
-            return resp.text, "html"
+            from ..fetch import ensure_rendered
+
+            rendered = ensure_rendered(resp.text, url)
+            return rendered, "html"
     except Exception as e:
         logger.debug("HTML fetch failed for %s: %s", arxiv_id, e)
     return "", ""
@@ -299,6 +324,35 @@ def _fetch_pdf_content(
     except Exception as e:
         logger.debug("PDF fetch failed for %s: %s", arxiv_id, e)
     return "", ""
+
+
+# ---------------------------------------------------------------------------
+# PDF re-fetch (fallback when HTML parsing fails at parse time)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_pdf_fallback(arxiv_id: str) -> bytes | None:
+    """Re-fetch the PDF for a paper whose HTML could not be parsed.
+
+    Creates a short-lived httpx client so the caller (parse_and_chunk)
+    does not need access to the fetch-phase client.
+    """
+    url = _ARXIV_PDF_URL.format(arxiv_id=arxiv_id)
+    try:
+        with httpx.Client(timeout=90, follow_redirects=True) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            ct = resp.headers.get("content-type", "")
+            if ct.startswith("application/pdf") or len(resp.content) > 5000:
+                logger.info(
+                    "PDF fallback fetched for arxiv:%s (%d bytes)",
+                    arxiv_id,
+                    len(resp.content),
+                )
+                return resp.content
+    except Exception as e:
+        logger.warning("PDF fallback fetch failed for arxiv:%s: %s", arxiv_id, e)
+    return None
 
 
 # ---------------------------------------------------------------------------

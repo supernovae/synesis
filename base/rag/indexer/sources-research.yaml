@@ -748,3 +748,387 @@ sources:
     config:
       url: "https://arxiv.org/abs/2601.21912"
       tags: [rag, reinforcement-learning, process-supervision, reasoning]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MoE ARCHITECTURE & SPARSE MODELS
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "MoE Architecture & Sparse Models Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [moe, sparse-models, architecture, model-selection, efficiency]
+      papers:
+        - id: "2503.07137"
+          title: "A Comprehensive Survey of Mixture-of-Experts: Algorithms, Theory, and Applications"
+        - id: "2407.06204"
+          title: "A Survey on Mixture of Experts in Large Language Models"
+        - id: "2412.14219"
+          title: "Efficient Inference for Mixture-of-Experts Models: A Survey"
+        - id: "2209.01667"
+          title: "ST-MoE: Designing Stable and Transferable Sparse Expert Models"
+        - id: "2405.04434"
+          title: "DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model"
+        - id: "2412.19437"
+          title: "DeepSeek-V3 Technical Report"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL TECHNICAL REPORTS & SELECTION
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Model Technical Reports & Selection"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [model-selection, technical-report, llm, architecture]
+      papers:
+        - id: "2407.21783"
+          title: "The Llama 3 Herd of Models"
+        - id: "2409.12186"
+          title: "Qwen2.5 Technical Report"
+        - id: "2411.15124"
+          title: "Falcon-H1: Hybrid-Head Models for Efficient Inference"
+        - id: "2309.16609"
+          title: "Mistral 7B and Mixtral Model Cards"
+        - id: "2402.16840"
+          title: "Gemma: Open Models Based on Gemini Research and Technology"
+        - id: "2503.14499"
+          title: "Gemma 3 Technical Report"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL INFERENCE & SERVING — papers
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Inference & Serving Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [inference, vllm, serving, quantization, speculative-decoding, optimization]
+      papers:
+        - id: "2309.06180"
+          title: "Efficient Memory Management for Large Language Model Serving with PagedAttention"
+        - id: "2401.17032"
+          title: "SGLang: Efficient Execution of Structured Language Model Programs"
+        - id: "2211.17192"
+          title: "SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models"
+        - id: "2306.00978"
+          title: "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration"
+        - id: "2210.17323"
+          title: "GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers"
+        - id: "2302.01318"
+          title: "Speculative Decoding with Big Little Decoder"
+        - id: "2305.09781"
+          title: "Fast Inference from Transformers via Speculative Decoding"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL INFERENCE & SERVING — vLLM documentation
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "vLLM: Distributed Inference and Serving"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/latest/serving/distributed_serving.html"
+      tags: [vllm, inference, distributed, serving]
+
+  - name: "vLLM: Optimization and Tuning"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/latest/performance/optimization.html"
+      tags: [vllm, optimization, inference, tuning]
+
+  - name: "vLLM: Engine Arguments Reference"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/serving/engine_args.html"
+      tags: [vllm, configuration, engine, reference]
+
+  - name: "vLLM: Parallelism and Scaling"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/serving/parallelism_scaling.html"
+      tags: [vllm, parallelism, scaling, tensor-parallel]
+
+  - name: "vLLM: Quantization Methods"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/features/quantization/"
+      tags: [vllm, quantization, inference, optimization]
+
+  - name: "vLLM: Speculative Decoding"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/features/spec_decode.html"
+      tags: [vllm, speculative-decoding, inference, optimization]
+
+  - name: "vLLM: Model-Specific Deployment Recipes"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/projects/recipes/en/latest/"
+      follow_links: true
+      tags: [vllm, recipes, deployment, model-serving]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # OPENSHIFT AI & RED HAT MODEL SERVING
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Red Hat: Deploy Language Models with OpenShift AI"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.redhat.com/articles/2025/09/10/how-deploy-language-models-red-hat-openshift-ai"
+      tags: [openshift-ai, vllm, model-serving, red-hat, deployment]
+
+  - name: "Red Hat: Autoscaling vLLM with OpenShift AI"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.redhat.com/articles/2025/10/02/autoscaling-vllm-openshift-ai"
+      tags: [openshift-ai, vllm, autoscaling, red-hat]
+
+  - name: "Red Hat: Optimize and Deploy LLMs for Production"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.redhat.com/articles/2025/10/06/optimize-and-deploy-llms-production-openshift-ai"
+      tags: [openshift-ai, vllm, optimization, production, red-hat]
+
+  - name: "Red Hat: Autoscaling vLLM Performance Validation"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving"
+      tags: [openshift-ai, vllm, autoscaling, benchmarks, red-hat]
+
+  - name: "Red Hat: Configuring Model Servers (OpenShift AI 3.2)"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.2/html/configuring_your_model-serving_platform/configuring_model_servers"
+      tags: [openshift-ai, model-serving, kserve, configuration, red-hat]
+
+  - name: "Red Hat: Planning a Production-Grade RAG System"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.redhat.com/en/blog/planning-design-your-production-grade-rag-system"
+      tags: [rag, production, red-hat, architecture, design]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL TRAINING, ALIGNMENT & FINE-TUNING
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Training, Alignment & Fine-Tuning Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [training, rlhf, dpo, lora, fine-tuning, alignment, preference-optimization]
+      papers:
+        - id: "2203.02155"
+          title: "Training language models to follow instructions with human feedback"
+        - id: "2305.18290"
+          title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+        - id: "2106.09685"
+          title: "LoRA: Low-Rank Adaptation of Large Language Models"
+        - id: "2305.14314"
+          title: "QLoRA: Efficient Finetuning of Quantized Language Models"
+        - id: "2402.14905"
+          title: "LoRA+: Efficient Low Rank Adaptation of Large Models"
+        - id: "2405.09673"
+          title: "ORPO: Monolithic Preference Optimization without Reference Model"
+        - id: "2401.10020"
+          title: "Self-Play Fine-Tuning Converts Weak Language Models to Strong Language Models"
+        - id: "2310.12036"
+          title: "OpenHermes 2.5: An Open-Source Alignment Study"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AGENTIC MODELS & TOOL USE — papers
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Agentic Models & Tool Use Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [agentic, tool-use, function-calling, mcp, agents, architecture]
+      papers:
+        - id: "2510.25445"
+          title: "Agentic AI: A Comprehensive Survey of Architectures, Applications, and Future Directions"
+        - id: "2510.03847"
+          title: "Small Language Models for Agentic Systems"
+        - id: "2504.00325"
+          title: "Model Context Protocol Specification"
+        - id: "2411.10440"
+          title: "Agents-as-a-Service: Serverless AI Agent Deployment"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AGENTIC MODELS & TOOL USE — documentation
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Model Context Protocol (MCP) Specification"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://modelcontextprotocol.io/introduction"
+      follow_links: true
+      tags: [mcp, tool-use, agents, protocol, architecture]
+
+  - name: "Anthropic: Tool Use Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.anthropic.com/en/docs/build-with-claude/tool-use"
+      tags: [tool-use, function-calling, anthropic, agents]
+
+  - name: "OpenAI: Function Calling Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://platform.openai.com/docs/guides/function-calling"
+      tags: [function-calling, tool-use, openai, agents]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PYTORCH TRAINING & DISTRIBUTED
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "PyTorch: Distributed Training Tutorials"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pytorch.org/tutorials/distributed/home.html"
+      follow_links: true
+      tags: [pytorch, distributed, training, gpu]
+
+  - name: "PyTorch: Fundamentals"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pytorch.org/tutorials/beginner/basics/intro.html"
+      tags: [pytorch, fundamentals, training]
+
+  - name: "PyTorch: CUDA Semantics"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pytorch.org/docs/stable/notes/cuda.html"
+      tags: [pytorch, cuda, gpu, optimization]
+
+  - name: "PyTorch: Performance Tuning Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html"
+      tags: [pytorch, performance, tuning, optimization]
+
+  - name: "TorchAO: Quantization Toolkit"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pytorch.org/torchao/stable/"
+      tags: [pytorch, torchao, quantization, optimization]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PRODUCTION LLM SYSTEM ARCHITECTURE
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Anthropic: Measuring Model Persuasion"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://www.anthropic.com/research/measuring-model-persuasion"
+      tags: [evaluation, safety, anthropic, production]
+
+  - name: "Simon Willison: LLM Notes"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://simonwillison.net/tags/llms/"
+      tags: [llm, production, patterns, practitioner]
+
+  - name: "Applied LLMs (Chip Huyen et al.)"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://applied-llms.org/"
+      tags: [llm, production, system-design, architecture, best-practices]
+
+  - name: "Hamel Husain: LLM-as-Judge Evaluation"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://hamel.dev/blog/posts/llm-judge/"
+      tags: [evaluation, llm-as-judge, production, quality]
+
+  - name: "Eugene Yan: LLM Patterns for Production"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://eugeneyan.com/writing/llm-patterns/"
+      tags: [llm, patterns, production, system-design, architecture]
