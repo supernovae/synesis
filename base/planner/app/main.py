@@ -176,6 +176,7 @@ class ChatCompletionResponse(BaseModel):
     choices: list[Choice]
     usage: Usage
     run_id: str | None = None  # For feedback association (echo in POST /v1/feedback)
+    pipeline_trace: dict[str, Any] | None = None
 
 
 def _is_coding_client(http_request: Request) -> bool:
@@ -500,6 +501,60 @@ def _enrich_phase(base_phase: str, node: str, frame: dict) -> str:
 
 # StreamingCodeExtractor removed — Worker now produces plain markdown.
 # All content tokens stream directly to the client.
+
+
+def _build_pipeline_trace(state: dict[str, Any]) -> dict[str, Any]:
+    """Build a structured pipeline trace from final graph state for observability.
+
+    Returned dict is safe to serialize as JSON and embed in SSE or response metadata.
+    """
+    trace: dict[str, Any] = {}
+
+    lock = state.get("cohesion_lock") or {}
+    if lock:
+        trace["cohesion_lock"] = {
+            "entity": lock.get("entity", ""),
+            "theory": lock.get("theory", ""),
+            "exclude_signals": (lock.get("exclude_signals") or [])[:8],
+        }
+
+    node_traces = state.get("node_traces") or []
+    if node_traces:
+        trace["nodes"] = []
+        for nt in node_traces:
+            name = nt.get("node_name", "") if isinstance(nt, dict) else getattr(nt, "node_name", "")
+            conf = nt.get("confidence", 0) if isinstance(nt, dict) else getattr(nt, "confidence", 0)
+            latency = nt.get("latency_ms", 0) if isinstance(nt, dict) else getattr(nt, "latency_ms", 0)
+            if name:
+                trace["nodes"].append({"node": name, "confidence": conf, "latency_ms": latency})
+
+    packets = state.get("evidence_packets") or []
+    if packets:
+        total_sources = 0
+        total_snippets = 0
+        for p in packets:
+            sources = p.get("sources", []) if isinstance(p, dict) else getattr(p, "sources", [])
+            snippets = p.get("snippets", []) if isinstance(p, dict) else getattr(p, "snippets", [])
+            total_sources += len(sources)
+            total_snippets += len(snippets)
+        trace["evidence"] = {
+            "packets": len(packets),
+            "total_sources": total_sources,
+            "total_snippets": total_snippets,
+        }
+
+    taxonomy_meta = state.get("taxonomy_metadata") or {}
+    if taxonomy_meta:
+        trace["taxonomy"] = {
+            "key": taxonomy_meta.get("taxonomy_key", ""),
+            "complexity": taxonomy_meta.get("complexity_score", 0),
+            "output_style": taxonomy_meta.get("output_style", ""),
+        }
+
+    trace["task_size"] = state.get("task_size", "")
+    trace["iteration_count"] = state.get("iteration_count", 1)
+
+    return trace
 
 
 def _extract_content_and_metrics(
@@ -1127,6 +1182,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "critic_background": True,
                                         },
                                     )
+                                    pipeline_trace = _build_pipeline_trace(accumulated_state)
                                     yield _sse_chunk(
                                         {
                                             "id": chat_id,
@@ -1138,6 +1194,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                 "total_tokens": 0,
                                             },
                                             "run_id": run_id,
+                                            "pipeline_trace": pipeline_trace,
                                         }
                                     )
                                     yield "data: [DONE]\n\n"
@@ -1463,6 +1520,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     },
                 )
 
+                pipeline_trace = _build_pipeline_trace(accumulated_state)
                 yield _sse_chunk(
                     {
                         "id": chat_id,
@@ -1470,6 +1528,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                         "run_id": run_id,
+                        "pipeline_trace": pipeline_trace,
                     }
                 )
                 yield "data: [DONE]\n\n"
@@ -1570,6 +1629,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     {"role": "assistant", "content": content},
                     run_id=run_id,
                 )
+                pipeline_trace = _build_pipeline_trace(result)
                 yield _sse_chunk(
                     {
                         "id": chat_id,
@@ -1577,6 +1637,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                         "run_id": run_id,
+                        "pipeline_trace": pipeline_trace,
                     }
                 )
                 yield "data: [DONE]\n\n"
@@ -1623,6 +1684,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     )
 
     chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+    pipeline_trace = _build_pipeline_trace(result)
 
     return ChatCompletionResponse(
         id=chat_id,
@@ -1634,6 +1696,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         ],
         usage=Usage(total_tokens=total_tokens),
         run_id=run_id,
+        pipeline_trace=pipeline_trace,
     )
 
 

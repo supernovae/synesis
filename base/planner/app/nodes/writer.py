@@ -121,11 +121,7 @@ def _build_cohesion_block(state: dict[str, Any]) -> str:
     exclude_signals = lock.get("exclude_signals") or []
     exclusions = ""
     if exclude_signals:
-        exclusions = (
-            "Specifically EXCLUDE content about: "
-            + ", ".join(exclude_signals[:8])
-            + ".\n"
-        )
+        exclusions = "Specifically EXCLUDE content about: " + ", ".join(exclude_signals[:8]) + ".\n"
 
     return _COHESION_BLOCK_TEMPLATE.format(entity=entity, exclusions=exclusions)
 
@@ -138,6 +134,23 @@ def _build_system_prompt(state: dict[str, Any]) -> str:
         persona=persona,
         cohesion_block=cohesion_block,
     )
+
+
+def _extract_top_snippets(
+    snippets: list[Any],
+    max_snippets: int = 3,
+    min_relevance: float = 0.6,
+) -> list[str]:
+    """Extract highest-relevance snippet texts from an evidence packet."""
+    scored: list[tuple[float, str]] = []
+    for s in snippets or []:
+        text = s.get("text", "") if isinstance(s, dict) else getattr(s, "text", "")
+        rel = s.get("relevance", 0) if isinstance(s, dict) else getattr(s, "relevance", 0)
+        text = (text or "").strip()
+        if text and float(rel or 0) >= min_relevance:
+            scored.append((float(rel), text))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [t for _, t in scored[:max_snippets]]
 
 
 def _long_context_reorder(items: list[str]) -> list[str]:
@@ -160,6 +173,7 @@ def _long_context_reorder(items: list[str]) -> list[str]:
         else:
             reordered.insert(len(reordered) // 2, item)
     return reordered
+
 
 _DECISIVE_BLOCK = """\
 
@@ -310,12 +324,20 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "writer"
 
-    # Build evidence from Router's evidence packets
+    # Build evidence from Router's evidence packets (summaries + top snippets)
     packets = state.get("evidence_packets") or []
     evidence_parts: list[str] = []
     for p in packets:
         summary = p.get("summary", "") if isinstance(p, dict) else getattr(p, "summary", "")
-        if summary:
+        if not summary:
+            continue
+
+        snippets = p.get("snippets", []) if isinstance(p, dict) else getattr(p, "snippets", [])
+        top_snippets = _extract_top_snippets(snippets, max_snippets=3, min_relevance=0.6)
+        if top_snippets:
+            snippet_block = "\n".join(f"  > {s}" for s in top_snippets)
+            evidence_parts.append(f"{summary}\n\nKey excerpts:\n{snippet_block}")
+        else:
             evidence_parts.append(summary)
 
     # Lost-in-the-middle mitigation: reorder evidence so strongest items
@@ -343,12 +365,17 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     # Build system prompt with dynamic persona and cohesion lock
     system_prompt = _build_system_prompt(state)
 
-    # Taxonomy-driven output style injection (additive to template)
+    # Taxonomy-driven depth + output style injection (additive to template)
     taxonomy_meta = state.get("taxonomy_metadata") or {}
     if taxonomy_meta:
         from ..taxonomy_prompt_factory import get_output_style_guidance
 
+        complexity = float(taxonomy_meta.get("complexity_score", 0))
+        depth_instr = (taxonomy_meta.get("depth_instructions") or "").strip()
         style_guidance = get_output_style_guidance(taxonomy_meta)
+
+        if complexity > 0.55 and depth_instr:
+            system_prompt += f"\n\nDOMAIN DEPTH:\n{depth_instr}"
         if style_guidance:
             system_prompt += f"\n\nOUTPUT STYLE:\n{style_guidance}"
 

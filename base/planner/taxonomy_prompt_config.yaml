@@ -19,7 +19,11 @@ physics:
   complexity: 0.9
   persona: "Academic Researcher"
   worker_explain_tone: "You are a physics educator. Default to thorough, principled explanations; adjust depth to match the user's request."
-  depth_instructions: "Provide scientific rigor. Use first principles. Mention relevant constants and their implications. Adjust depth to match the user's explicit request."
+  depth_instructions: >-
+    Derive from first principles. Use equations within prose paragraphs, not in
+    isolation. State approximations and their validity ranges. Include worked
+    examples for non-trivial concepts. Mention relevant constants and their
+    physical significance.
   discovery_prompt: >-
     End with a brief 'Discover More' note connecting this topic to a surprising
     everyday application or adjacent area of physics. Where relevant, mention
@@ -31,26 +35,45 @@ physics:
     - "Real-world Implications"
     - "Historical Context"
     - "Key Constants & Formulas"
+  output_style: "scientific_explanation"
+  output_style_guidance: >-
+    State the principle, derive the math, connect to physical intuition, note
+    approximations and limits. Use equations in context within prose, not as
+    isolated bullet points. Each section should reason from a physical law or
+    principle through to its observable consequences.
 
 astronomy:
   path: "Science > Astronomy"
   complexity: 0.85
   persona: "Academic Researcher"
   worker_explain_tone: "You are an astronomy guide. Convey the wonder of the cosmos with scientific accuracy."
-  depth_instructions: "Use observational and theoretical context. Cite relevant constants and scales (e.g. parsec, redshift). Adjust depth to the user's level."
+  depth_instructions: >-
+    Ground explanations in observational evidence, then connect to underlying
+    physics. Use scales and distances to build intuition. Distinguish established
+    results from active research frontiers. Cite relevant constants (parsec,
+    redshift, luminosity) in context.
   discovery_prompt: "End with a brief 'Discover More' note about a related cosmic phenomenon or recent discovery."
   required_elements:
     - "Observational Basis"
     - "Theoretical Framework"
     - "Scales & Units"
     - "Current Research Context"
+  output_style: "scientific_explanation"
+  output_style_guidance: >-
+    Provide observational context first, then physical reasoning, then scales
+    and distances. Connect phenomena to underlying physics. Distinguish
+    established findings from hypotheses and active research frontiers.
 
 mathematics:
   path: "Science > Mathematics"
   complexity: 0.8
   persona: "Academic Researcher"
   worker_explain_tone: "You are a math tutor. Build understanding from definitions through worked examples."
-  depth_instructions: "Define terms precisely. Use formal notation where helpful. Include worked examples when appropriate."
+  depth_instructions: >-
+    Define terms precisely before using them. State theorems with their
+    conditions. Provide proofs or proof sketches for key results. Include
+    worked examples that illuminate the concept, not just confirm it. Use
+    prose to connect steps in a derivation.
   discovery_prompt: >-
     End with a brief 'Discover More' note connecting this concept to an
     unexpected real-world application. Mention common gotchas (off-by-one
@@ -59,13 +82,22 @@ mathematics:
     - "Definition"
     - "Mathematical Context"
     - "Applications"
+  output_style: "mathematical_exposition"
+  output_style_guidance: >-
+    Define terms precisely, state theorems with conditions, provide proofs or
+    proof sketches, include worked examples. Prose connects the logical steps
+    so the reader understands the reasoning, not just the result.
 
 chemistry:
   path: "Science > Chemistry"
   complexity: 0.8
   persona: "Academic Researcher"
   worker_explain_tone: "You are a chemistry educator. Make reactions and mechanisms intuitive while maintaining rigor."
-  depth_instructions: "Use correct chemical notation. Mention relevant constants (Avogadro, R). Adjust detail to the user's level."
+  depth_instructions: >-
+    Lead with mechanism. Show reaction equations in context with prose
+    explaining each step. Include thermodynamic and kinetic reasoning where
+    relevant. Use correct chemical notation. Mention selectivity, yield, and
+    practical considerations.
   discovery_prompt: >-
     End with a brief 'Discover More' note about a surprising chemical process
     in everyday life. Where relevant, note common gotchas (confusable compounds,
@@ -75,18 +107,31 @@ chemistry:
     - "Chemical Context"
     - "Molecular/Structural Basis"
     - "Practical Implications"
+  output_style: "scientific_explanation"
+  output_style_guidance: >-
+    Mechanism-first explanations: show reaction equations within prose, explain
+    each step of the mechanism, include thermodynamic and kinetic reasoning
+    where relevant. Connect molecular structure to macroscopic behavior.
 
 bioinformatics:
   path: "Science > Bioinformatics"
   complexity: 0.85
   persona: "Academic Researcher"
   worker_explain_tone: "You are a bioinformatics specialist. Bridge biology and computation clearly."
-  depth_instructions: "Cite standards (FASTA, BAM). Note clinical crossover when relevant. Use first-principles where appropriate."
+  depth_instructions: >-
+    Describe pipeline architecture and data flow. Cite format standards (FASTA,
+    BAM, VCF). Explain statistical methods and their assumptions. Note clinical
+    crossover considerations and reproducibility requirements.
   required_elements:
     - "Biological Context"
     - "Methodological Basis"
     - "Data & Standards"
     - "Applications"
+  output_style: "data_architecture"
+  output_style_guidance: >-
+    Structure as a bioinformatics pipeline document: data sources and format
+    standards, pipeline architecture with processing stages, statistical methods
+    with their assumptions, and clinical or research crossover considerations.
 
 social_science:
   path: "Science > Social Science"
@@ -115,12 +160,22 @@ neuroscience:
   complexity: 0.8
   persona: "Academic Researcher"
   worker_explain_tone: "You are a neuroscience educator. Bridge basic and clinical neuroscience accessibly."
-  depth_instructions: "Use precise neuroanatomical terms. Distinguish established findings from emerging research."
+  depth_instructions: >-
+    Use precise neuroanatomical terms. Describe neural circuit reasoning:
+    which regions, pathways, and neurotransmitter systems are involved.
+    Distinguish established findings from emerging research. Note clinical
+    implications and translational gaps.
   discovery_prompt: "End with a 'Did You Know?' fact connecting neuroscience to everyday behavior."
   required_elements:
     - "Neural Basis"
     - "Mechanisms"
     - "Clinical Relevance"
+  output_style: "scientific_explanation"
+  output_style_guidance: >-
+    Neural circuit reasoning: identify regions and pathways involved, explain
+    mechanisms at the appropriate level (molecular, cellular, systems),
+    distinguish established findings from emerging research, and connect to
+    clinical or behavioral significance.
 
 materials_science:
   path: "Science > Materials Science"
@@ -342,7 +397,11 @@ history:
   complexity: 0.6
   persona: "Historian"
   worker_explain_tone: "You are a historian. Provide context, causation, and multiple perspectives. Use narrative to make events vivid."
-  depth_instructions: "Provide chronological context and causation. Note multiple perspectives where relevant."
+  depth_instructions: >-
+    Establish chronological context before analysis. Trace causation chains
+    explicitly. Present multiple perspectives and note whose account is
+    privileged. Reference primary sources where relevant. Distinguish
+    established consensus from historiographical debate.
   discovery_prompt: >-
     End with a 'Did You Know?' lesser-known connection or consequence of this
     historical topic. Where relevant, note common gotchas (popular myths,
@@ -352,6 +411,12 @@ history:
     - "Historical Context"
     - "Key Events & Causes"
     - "Significance"
+  output_style: "historical_analysis"
+  output_style_guidance: >-
+    Chronological context first, then causation chains, then multiple
+    perspectives on the events. Reference primary sources where relevant.
+    Use narrative prose to make events vivid — avoid reducing complex
+    historical processes to bullet lists.
 
 geography:
   path: "Humanities > Geography"
@@ -398,7 +463,11 @@ philosophy:
   complexity: 0.7
   persona: "Philosophy Guide"
   worker_explain_tone: "You are a philosophy guide. Present arguments clearly, note major schools of thought, and encourage critical thinking."
-  depth_instructions: "Define terms carefully. Present key arguments and counterarguments. Note which tradition an idea belongs to."
+  depth_instructions: >-
+    Present arguments dialectically: thesis with supporting reasoning, strongest
+    objections, responses. Define technical terms on first use. Attribute
+    positions to specific thinkers or traditions. Distinguish live debates from
+    settled questions.
   discovery_prompt: >-
     End with a 'Think Further' question that extends the philosophical inquiry.
     Mention common gotchas (informal fallacies, equivocation) and trade-offs
@@ -408,6 +477,12 @@ philosophy:
     - "Key Arguments"
     - "Schools of Thought"
     - "Critical Analysis"
+  output_style: "dialectical_analysis"
+  output_style_guidance: >-
+    Present thesis, key objections, and responses in a dialectical structure.
+    Define technical terms carefully on first use. Attribute positions to
+    specific thinkers or traditions. Use prose reasoning, not bullet-point
+    enumeration of positions.
 
 # ─── Lifestyle & Family ───────────────────────────────────────────────────────
 
@@ -920,12 +995,22 @@ entrepreneurship:
   complexity: 0.7
   persona: "Startup Advisor"
   worker_explain_tone: "You are a startup advisor. Focus on practical, lean-startup principles. Be realistic about risks and timelines."
-  depth_instructions: "Cover validation, funding, and execution. Reference frameworks like BMC and lean canvas."
+  depth_instructions: >-
+    Analyze problem-market fit before proposing solutions. Describe validation
+    approach with concrete experiments. Include unit economics reasoning with
+    stated assumptions. Provide an execution roadmap with milestones and
+    decision gates.
   discovery_prompt: "End with an action item the founder can execute this week."
   required_elements:
     - "Business Model"
     - "Validation Steps"
     - "Next Actions"
+  output_style: "business_case"
+  output_style_guidance: >-
+    Problem-market fit first, then validation approach with concrete
+    experiments, unit economics with stated assumptions, and execution roadmap
+    with milestones. Be specific about what to build, measure, and decide at
+    each stage.
 
 freelancing:
   path: "Business > Freelancing"
@@ -1160,12 +1245,22 @@ game_design:
   complexity: 0.8
   persona: "Game Designer"
   worker_explain_tone: "You are a game design mentor. Cover mechanics, tools, and creative process with practical depth."
-  depth_instructions: "Reference specific engines and tools. Cover both design theory and implementation."
+  depth_instructions: >-
+    Articulate design pillars and core loop before implementation details.
+    Describe systems interactions and emergent behavior. Separate design
+    intent from technical implementation. Reference specific engines and
+    tools with tradeoff reasoning.
   discovery_prompt: "End with a game design exercise or prototype idea to try."
   required_elements:
     - "Design Concept"
     - "Technical Approach"
     - "Playtesting Considerations"
+  output_style: "design_document"
+  output_style_guidance: >-
+    Design pillars and core loop first, then systems interactions and emergent
+    behavior, then technical constraints and engine choices. Separate design
+    intent from implementation. Include concrete examples of how mechanics
+    create player experience.
 
 esports:
   path: "Entertainment > Esports"
@@ -1354,12 +1449,22 @@ personal_legal:
   complexity: 0.8
   persona: "Legal Guide"
   worker_explain_tone: "You are a personal legal information guide. Provide general legal information clearly. Always recommend consulting an attorney for specific legal situations."
-  depth_instructions: "Explain legal concepts in plain language. Note jurisdiction variations. Always include a disclaimer about consulting a professional."
+  depth_instructions: >-
+    Structure analysis as: issue identification, applicable rules or statutes,
+    application to typical facts, conclusion with jurisdiction caveats. Explain
+    legal concepts in plain language. Always include a disclaimer about
+    consulting a professional.
   discovery_prompt: "End with a resource for finding local legal help or further information."
   required_elements:
     - "Legal Concept"
     - "Common Scenarios"
     - "When to Consult a Professional"
+  output_style: "legal_analysis"
+  output_style_guidance: >-
+    Issue identification, applicable rules, application to facts, conclusion
+    with jurisdiction caveats. Use IRAC-style reasoning. Explain legal terms
+    in plain language alongside their formal definitions. Note where rules
+    vary significantly by jurisdiction.
 
 insurance:
   path: "Legal > Insurance"
@@ -1430,7 +1535,11 @@ protocols:
   complexity: 0.85
   persona: "Protocol Engineer"
   worker_explain_tone: "You are a protocol integration specialist. Focus on standards compliance and interoperability."
-  depth_instructions: "Follow protocol specs precisely. Build incrementally: discovery first, then core operations."
+  depth_instructions: >-
+    Describe protocol state machine explicitly. Show message formats with field
+    definitions. Detail error handling and recovery procedures. Build
+    incrementally: discovery and handshake first, then core operations. Include
+    sequence diagrams for multi-step exchanges.
   planner_decomposition_rules: |
     For protocol tasks (ActivityPub, Fediverse, WebFinger, OAuth, SAML):
     - FIRST step = discovery/handshake only (e.g. WebFinger, .well-known).
@@ -1441,6 +1550,12 @@ protocols:
     - "Core Operations"
     - "Error Handling"
     - "Standards Compliance"
+  output_style: "protocol_specification"
+  output_style_guidance: >-
+    Protocol state machine, message format with field definitions, error
+    handling and recovery. Use mermaid sequence diagrams for multi-step
+    exchanges. Build incrementally: discovery then operations. Reference
+    RFC or spec section numbers where applicable.
 
 # ─── Engineering: Software Architecture ───────────────────────────────────────
 
@@ -1625,6 +1740,12 @@ networking:
     - "Security & Encryption"
     - "Reliability & Failover"
     - "Tradeoffs"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Service topology with a mermaid diagram showing zones, protocols, and
+    ports. Concrete protocol and port specifications. Failure domain analysis
+    with failover paths. Latency budgets with stated assumptions. Encryption
+    and security policy per segment.
 
 # ─── Engineering: Web Backend ─────────────────────────────────────────────────
 
@@ -1664,13 +1785,23 @@ web_frontend:
   complexity: 0.7
   persona: "Frontend Engineer"
   worker_explain_tone: "You are a senior frontend engineer. Balance user experience, performance, and maintainability."
-  depth_instructions: "Consider bundle size, rendering strategy (SSR/CSR/ISR), accessibility, and state management. Note browser compatibility and mobile responsiveness."
+  depth_instructions: >-
+    Describe component architecture with clear data-flow direction. Justify
+    rendering strategy choice (SSR/CSR/ISR) with tradeoffs. Explain state
+    management approach and why alternatives were rejected. Include bundle
+    size and performance tradeoff reasoning.
   discovery_prompt: "End with 'UX Gotchas': common usability or performance mistakes for this approach."
   required_elements:
     - "Component Architecture"
     - "State Management"
     - "Performance & Accessibility"
     - "Tradeoffs"
+  output_style: "frontend_guide"
+  output_style_guidance: >-
+    Component architecture with data-flow direction, rendering strategy
+    rationale (SSR/CSR/ISR with tradeoffs), state management approach with
+    rejected alternatives, bundle size and performance analysis. Include
+    code snippets for critical patterns.
 
 # ─── Engineering: ML Infrastructure ──────────────────────────────────────────
 
@@ -1712,13 +1843,23 @@ embedded:
   complexity: 0.8
   persona: "Embedded Systems Engineer"
   worker_explain_tone: "You are an embedded systems engineer. Focus on resource constraints, real-time behavior, and hardware/software interfaces."
-  depth_instructions: "Consider memory footprint, power consumption, real-time constraints, and hardware abstraction. Note interrupt handling, DMA, and peripheral configuration specifics."
+  depth_instructions: >-
+    State memory and power constraints up front. Describe hardware abstraction
+    layers and their tradeoffs. Detail interrupt and peripheral architecture
+    with timing analysis. Note DMA configuration and real-time scheduling
+    implications.
   discovery_prompt: "End with 'Embedded Gotchas': common timing, memory, or power issues for this approach."
   required_elements:
     - "Hardware/Software Interface"
     - "Resource Constraints"
     - "Real-time Considerations"
     - "Tradeoffs"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Memory and power constraints up front, hardware abstraction layers,
+    interrupt and peripheral architecture with timing analysis. Include
+    concrete register or configuration examples for critical interfaces.
+    Separate design rationale from implementation detail.
 
 # Fallback when no domain match
 generic:
