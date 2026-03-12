@@ -347,6 +347,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
 
     compiled_evidence = "\n---\n".join(evidence_parts)
 
+    if len(compiled_evidence) > settings.evidence_budget_chars:
+        compiled_evidence = compiled_evidence[: settings.evidence_budget_chars]
+
     task_block = _build_task_block(state)
     outline_block = _build_outline_block(state)
 
@@ -378,6 +381,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             system_prompt += f"\n\nDOMAIN DEPTH:\n{depth_instr}"
         if style_guidance:
             system_prompt += f"\n\nOUTPUT STYLE:\n{style_guidance}"
+
+        epistemic = (taxonomy_meta.get("epistemic_guidance") or "").strip()
+        if epistemic:
+            system_prompt += f"\n\nEPISTEMIC DISCIPLINE:\n{epistemic}"
 
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"
 

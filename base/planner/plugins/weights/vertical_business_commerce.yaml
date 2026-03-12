@@ -172,7 +172,7 @@ domain_keywords:
       - google ads
       - meta
   budget:
-    domain: budget
+    domain: personal_finance
     keywords:
       - budget
       - forecast
@@ -194,7 +194,7 @@ domain_keywords:
       - mint
       - plaid
   business_finance:
-    domain: business_finance
+    domain: accounting
     keywords:
       - p&l
       - profit loss
@@ -213,7 +213,7 @@ domain_keywords:
       - ar
       - audit
   markets:
-    domain: markets
+    domain: business
     keywords:
       - smb
       - enterprise

@@ -578,7 +578,7 @@ domain_keywords:
       - faa
       - flight
   automotive:
-    domain: automotive
+    domain: automotive_engineering
     keywords:
       - can bus
       - ecu

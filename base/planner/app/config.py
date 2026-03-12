@@ -229,7 +229,7 @@ class Settings(BaseSettings):
     writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0
     writer_budget_max: int = 12288  # writer synthesis budget at difficulty=1
     compiler_model_context: int = 16384  # max context length of the compiler/writer model
-    evidence_budget_chars: int = 40000  # max chars of compiled evidence for the structured writer
+    evidence_budget_chars: int = 24000  # max chars of compiled evidence for the structured writer
 
     # CRAG-style corrective retrieval: critic triggers web search on low-confidence sections.
     # Web budget = web_budget_base + int(difficulty * (crag_max_web_queries - web_budget_base)).

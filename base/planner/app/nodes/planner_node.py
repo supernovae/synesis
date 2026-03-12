@@ -292,7 +292,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             active_domain_refs=state.get("active_domain_refs"),
             platform_context=state.get("platform_context"),
         )
-        decomposition_rules = get_planner_decomposition_rules(active_vertical)
+        taxonomy_meta = state.get("taxonomy_metadata") or {}
+        taxonomy_key = taxonomy_meta.get("taxonomy_key", "")
+        decomposition_rules = get_planner_decomposition_rules(active_vertical, taxonomy_key=taxonomy_key)
         domain_rules_block = ""
         if decomposition_rules:
             domain_rules_block = f"\n\n## Domain-Specific Rules ({active_vertical})\n{decomposition_rules}\n"

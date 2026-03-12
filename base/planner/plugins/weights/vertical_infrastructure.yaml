@@ -77,7 +77,7 @@ domain_keywords:
       - cosmos db
       - service bus
   on_prem:
-    domain: on_prem
+    domain: devops
     keywords:
       - bare metal
       - vmware

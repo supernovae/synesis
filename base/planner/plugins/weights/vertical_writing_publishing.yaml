@@ -71,12 +71,22 @@ domain_keywords:
       - ghostwriting
       - blog
       - blogging
-      - technical writing
       - style guide
       - ap style
       - press release
       - op-ed
       - substack
+  technical_writing:
+    domain: technical_writing
+    keywords:
+      - technical writing
+      - API documentation
+      - user guide
+      - readme
+      - runbook
+      - release notes
+      - changelog
+      - docs-as-code
 
 pairings:
   - keywords: [publish, legal]

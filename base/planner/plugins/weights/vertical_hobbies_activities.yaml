@@ -279,7 +279,7 @@ domain_keywords:
       - outdoors
       - wilderness
   fishing:
-    domain: fishing
+    domain: outdoors
     keywords:
       - fishing
       - fly fishing
@@ -296,7 +296,7 @@ domain_keywords:
       - permaculture
       - hydroponic
   three_d_printing:
-    domain: three_d_printing
+    domain: crafts_diy_art
     keywords:
       - 3d print
       - 3d printer
@@ -315,7 +315,7 @@ domain_keywords:
       - saw
       - router
   hobbies_making:
-    domain: hobbies_making
+    domain: hobbies
     keywords:
       - diy
       - maker
@@ -325,7 +325,7 @@ domain_keywords:
       - welding
       - pottery
   hobbies_collecting:
-    domain: hobbies_collecting
+    domain: hobbies
     keywords:
       - collecting
       - stamps
@@ -333,7 +333,7 @@ domain_keywords:
       - trading card
       - vintage
   board_games:
-    domain: board_games
+    domain: gaming
     keywords:
       - board game
       - tabletop
@@ -341,7 +341,7 @@ domain_keywords:
       - ttrpg
       - miniature
   recreation:
-    domain: recreation
+    domain: hobbies
     keywords:
       - golf
       - tennis
@@ -356,13 +356,13 @@ domain_keywords:
       - camera
       - lens
   aquariums:
-    domain: aquariums
+    domain: aquatic_pets
     keywords:
       - aquarium
       - fish tank
       - reef
   hobbies_general:
-    domain: hobbies_general
+    domain: hobbies
     keywords:
       - hobby
       - interest

@@ -15,7 +15,7 @@ risk_weights:
       - flight critical
   automotive_safety:
     weight: 20
-    domain: automotive
+    domain: automotive_engineering
     keywords:
       - iso 26262
       - asil
@@ -50,7 +50,7 @@ domain_keywords:
       - afdx
       - xplane
   vehicle_ecosystem:
-    domain: automotive
+    domain: automotive_engineering
     keywords:
       - can fd
       - flexray

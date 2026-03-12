@@ -243,10 +243,12 @@ def get_worker_persona_block(vertical: str, task_desc: str = "") -> str:
     return base
 
 
-def get_planner_decomposition_rules(vertical: str) -> str:
+def get_planner_decomposition_rules(vertical: str, taxonomy_key: str = "") -> str:
     """Return vertical-specific Planner decomposition rules.
 
-    Checks vertical plugins first, then falls back to taxonomy_prompt_config.yaml.
+    Checks vertical plugins first, then taxonomy config by vertical name,
+    then taxonomy config by taxonomy_key as fallback (handles the case where
+    the vertical name differs from the taxonomy key).
     """
     verticals = _load_vertical_prompts()
     vert_data = verticals.get(vertical)
@@ -257,7 +259,13 @@ def get_planner_decomposition_rules(vertical: str) -> str:
     cfg = _load_config()
     tax_data = cfg.get(vertical)
     if isinstance(tax_data, dict):
-        return (tax_data.get("planner_decomposition_rules") or "").strip()
+        rules = (tax_data.get("planner_decomposition_rules") or "").strip()
+        if rules:
+            return rules
+    if taxonomy_key and taxonomy_key != vertical:
+        tax_data = cfg.get(taxonomy_key)
+        if isinstance(tax_data, dict):
+            return (tax_data.get("planner_decomposition_rules") or "").strip()
     return ""
 
 

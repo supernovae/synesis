@@ -174,7 +174,7 @@ domain_keywords:
     keywords: ["arduino", "raspberry pi", "microcontroller", "iot", "embedded", "firmware"]
   gamedev:
     domain: gamedev
-    keywords: ["unity", "unreal", "game engine", "sprite", "physics", "collision"]
+    keywords: ["unity", "unreal", "godot", "game engine", "sprite", "physics engine", "collision"]
   ml_ops:
     domain: ml_ops
     min_hits: 2
@@ -210,7 +210,7 @@ domain_keywords:
     domain: aerospace
     keywords: ["avionics", "fcc", "faa", "flight"]
   automotive:
-    domain: automotive
+    domain: automotive_engineering
     keywords: ["can bus", "ecu", "adas", "lidar"]
   edtech:
     domain: edtech
@@ -230,6 +230,42 @@ domain_keywords:
       "rollout plan", "phased rollout", "failure modes",
       "model strategy", "retrieval", "assistant"
     ]
+  data_science:
+    domain: data_science
+    min_hits: 2
+    keywords: ["pandas", "jupyter", "matplotlib", "seaborn", "statistical analysis",
+      "data visualization", "hypothesis test", "correlation", "regression",
+      "data analysis", "data science", "exploratory", "feature engineering",
+      "scikit-learn", "scipy", "statsmodels", "dataframe"]
+  business_writing:
+    domain: business_writing
+    keywords: ["email draft", "proposal", "memo", "executive summary",
+      "business report", "cover letter", "professional writing",
+      "write an email", "draft a letter", "write a proposal"]
+  summarization:
+    domain: summarization
+    keywords: ["summarize", "summary", "key points", "tldr", "condense",
+      "brief overview", "digest", "summarise", "bullet points from",
+      "main takeaways"]
+  translation:
+    domain: translation
+    keywords: ["translate", "translation", "localize", "localization",
+      "interpret", "translated to", "in spanish", "in french",
+      "in german", "in japanese", "in chinese", "in korean"]
+  ai_ml:
+    domain: ai_ml
+    min_hits: 2
+    keywords: ["machine learning", "deep learning", "neural network",
+      "transformer", "fine-tune", "fine-tuning", "training data",
+      "classification", "NLP", "computer vision", "reinforcement learning",
+      "feature extraction", "model training", "backpropagation",
+      "loss function", "gradient descent", "convolutional", "attention mechanism"]
+  cybersecurity:
+    domain: cybersecurity
+    keywords: ["vulnerability", "CVE", "penetration test", "threat model",
+      "OWASP", "security audit", "hardening", "zero trust", "red team",
+      "blue team", "SOC", "incident response", "malware", "phishing",
+      "ransomware", "zero-day"]
 
 pairings:
   - keywords: ["delete", "database"]

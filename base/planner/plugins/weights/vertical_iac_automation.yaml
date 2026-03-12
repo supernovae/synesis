@@ -131,14 +131,14 @@ domain_keywords:
       - become
       - gather_facts
   pulumi:
-    domain: pulumi
+    domain: terraform
     keywords:
       - pulumi
       - "@pulumi"
       - stack
       - project
   shell_bash:
-    domain: shell_bash
+    domain: shell_scripting
     keywords:
       - bash
       - sh
@@ -149,7 +149,7 @@ domain_keywords:
       - dash
       - ash
   powershell:
-    domain: powershell
+    domain: shell_scripting
     keywords:
       - powershell
       - pwsh

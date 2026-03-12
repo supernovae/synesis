@@ -38,10 +38,8 @@ def _build_taxonomy_hints(metadata: dict[str, Any], difficulty: float) -> str:
     critic decides which are relevant to THIS user's question.  Adding a new
     taxonomy domain does NOT require changing this function or the critic prompt.
 
-    Anti-patterns (do NOT do):
-    - Injecting required_elements as "MUST cover" mandates
-    - Adding domain-specific failure modes here
-    - Hardcoding Toulmin or other frameworks as conditional checks
+    For high-complexity taxonomies (>= 0.8), required_elements are promoted
+    to soft mandates so the critic flags missing sections as insufficient_depth.
     """
     domain = (metadata.get("path") or "General").strip()
     complexity = float(metadata.get("complexity_score", 0.5))
@@ -54,7 +52,13 @@ def _build_taxonomy_hints(metadata: dict[str, Any], difficulty: float) -> str:
         f"Complexity: {complexity:.1f}",
     ]
     if required_elements:
-        lines.append(f"Typical elements for this domain: {', '.join(str(e) for e in required_elements)}")
+        joined = ", ".join(str(e) for e in required_elements)
+        if complexity >= 0.8:
+            lines.append(
+                f"Expected sections for this domain (flag as insufficient_depth if missing): {joined}"
+            )
+        else:
+            lines.append(f"Typical elements for this domain: {joined}")
     if depth_instructions:
         lines.append(f"Depth guidance: {depth_instructions}")
     if persona:
