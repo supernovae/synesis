@@ -429,6 +429,23 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "reference evidence.\n"
                 )
 
+            cohesion_section = ""
+            cohesion_lock = state.get("cohesion_lock") or {}
+            cohesion_entity = cohesion_lock.get("entity", "")
+            if cohesion_entity:
+                exclude_signals = cohesion_lock.get("exclude_signals") or []
+                exclude_line = (
+                    f"Content about [{', '.join(exclude_signals[:8])}] should NOT appear.\n"
+                    if exclude_signals else ""
+                )
+                cohesion_section = (
+                    f"\nCOHESION COMPLIANCE:\n"
+                    f"The response MUST stay within the conceptual frame: {cohesion_entity}.\n"
+                    f"{exclude_line}"
+                    f"- If the response mentions excluded topics, flag as 'instruction_drift'.\n"
+                    f"- If the response stays within the frame, this is correct — not a gap.\n"
+                )
+
             # Lenient mode: strip verbose instruction blocks to save ~500 tokens
             if is_lenient:
                 crag_block = ""
@@ -486,6 +503,7 @@ QUALITY PRINCIPLES (always check):
 
 {frame_rubric}
 {grounding_section}
+{cohesion_section}
 Domain hints (use as context, not as mandatory checklist):
 {taxonomy_hints}
 

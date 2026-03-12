@@ -385,6 +385,14 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
         if frame_output_format and frame_output_format != "prose":
             preserve_hints += f" Expected output format: {frame_output_format}."
 
+        cohesion_lock = state.get("cohesion_lock") or {}
+        cohesion_entity = cohesion_lock.get("entity", "")
+        cohesion_hint = ""
+        if cohesion_entity:
+            exclude = cohesion_lock.get("exclude_signals") or []
+            exclude_part = f" Do not introduce content about: {', '.join(exclude[:6])}." if exclude else ""
+            cohesion_hint = f" Stay within the conceptual frame: {cohesion_entity}.{exclude_part}"
+
         instruction = (
             "Synthesize these independently-generated sections into a single coherent document. "
             "Improve flow and transitions between sections. Remove exact duplicate sentences only. "
@@ -392,7 +400,8 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             "and any structured headings the user explicitly requested. "
             "Do NOT add generic compliance scaffolding or enterprise boilerplate "
             "that was not present in the source sections. "
-            "Match your depth to the source material — do not compress or inflate." + preserve_hints
+            "Match your depth to the source material — do not compress or inflate."
+            + preserve_hints + cohesion_hint
         )
 
         result = await writer_llm.ainvoke(

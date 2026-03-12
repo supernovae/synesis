@@ -373,3 +373,39 @@ class TestCohesionLockState:
 
         task = UserTask()
         assert task.persona == ""
+
+
+# ---------------------------------------------------------------------------
+# Downstream hardening: Summarizer cohesion constraint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _has_langgraph, reason="langgraph not installed (container-only dep)")
+class TestSummarizerCohesionConstraint:
+    """Test that _build_cohesion_constraint produces the right prompt block."""
+
+    def test_with_lock_and_exclusions(self):
+        from app.nodes.router import _build_cohesion_constraint
+
+        lock = {"entity": "AWS", "exclude_signals": ["GCP", "Azure"]}
+        block = _build_cohesion_constraint(lock)
+        assert "COHESION CONSTRAINT" in block
+        assert "AWS" in block
+        assert "GCP" in block
+        assert "Azure" in block
+
+    def test_with_lock_no_exclusions(self):
+        from app.nodes.router import _build_cohesion_constraint
+
+        lock = {"entity": "transformer architecture", "exclude_signals": []}
+        block = _build_cohesion_constraint(lock)
+        assert "COHESION CONSTRAINT" in block
+        assert "transformer architecture" in block
+        assert "Exclude content" not in block
+
+    def test_no_lock_returns_empty(self):
+        from app.nodes.router import _build_cohesion_constraint
+
+        assert _build_cohesion_constraint(None) == ""
+        assert _build_cohesion_constraint({}) == ""
+        assert _build_cohesion_constraint({"entity": ""}) == ""

@@ -87,7 +87,7 @@ ROLE: Retrieval Summarizer
 Convert the raw retrieved documents below into a structured evidence packet.
 
 QUERY: {query}
-
+{cohesion_constraint}
 RAW RESULTS:
 {raw_results}
 
@@ -119,6 +119,24 @@ Output ONLY valid JSON matching this schema (no markdown fences, no prose):
   "retrieval_notes": "..."
 }}
 """
+
+
+def _build_cohesion_constraint(cohesion_lock: dict[str, Any] | None) -> str:
+    """Build a COHESION CONSTRAINT block for the summarizer prompt."""
+    if not cohesion_lock:
+        return ""
+    entity = cohesion_lock.get("entity", "")
+    if not entity:
+        return ""
+    exclude = cohesion_lock.get("exclude_signals") or []
+    exclude_line = f"Exclude content about: {', '.join(exclude[:8])}.\n" if exclude else ""
+    return (
+        f"\nCOHESION CONSTRAINT:\n"
+        f"All content MUST stay within the conceptual frame: {entity}.\n"
+        f"{exclude_line}"
+        f"Do NOT introduce information from outside this frame.\n"
+        f"If a snippet touches an excluded topic, omit it entirely.\n"
+    )
 
 REFINER_PROMPT = """\
 ROLE: Retrieval Query Refiner
@@ -375,7 +393,12 @@ class RouterNode:
         )
         return [await self.generate_query(req, task_context) for req in requests]
 
-    async def summarize(self, query: str, results: list[UnifiedResult]) -> EvidencePacket:
+    async def summarize(
+        self,
+        query: str,
+        results: list[UnifiedResult],
+        cohesion_lock: dict[str, Any] | None = None,
+    ) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
         llm = _get_summarizer_llm()
@@ -384,6 +407,7 @@ class RouterNode:
             raw_results=results_text,
             max_snippets=MAX_SNIPPETS_PER_PACKET,
             max_summary_tokens=settings.router_max_summary_tokens,
+            cohesion_constraint=_build_cohesion_constraint(cohesion_lock),
         )
         resp = await llm.ainvoke(
             [
@@ -578,9 +602,9 @@ class RouterNode:
             skip_web=skip_web,
             preferred_web_scopes=preferred_web_scopes,
         )
-        packet = await self.summarize(query, bundle.results)
-        packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
         cohesion_lock = bundle.cohesion_lock
+        packet = await self.summarize(query, bundle.results, cohesion_lock=cohesion_lock)
+        packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
 
         rounds = 0
         while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < MAX_REFINEMENT_ROUNDS:
@@ -598,10 +622,10 @@ class RouterNode:
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
             )
-            packet = await self.summarize(refined_query, refine_bundle.results)
-            packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             if cohesion_lock is None and refine_bundle.cohesion_lock:
                 cohesion_lock = refine_bundle.cohesion_lock
+            packet = await self.summarize(refined_query, refine_bundle.results, cohesion_lock=cohesion_lock)
+            packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             query = refined_query
             rounds += 1
 
