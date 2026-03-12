@@ -1,6 +1,7 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-devtools:latest
 FROM ${BASE_IMAGE}
 
+USER 0
 RUN apt-get update && apt-get install -y --no-install-recommends \
         jq \
     && rm -rf /var/lib/apt/lists/*

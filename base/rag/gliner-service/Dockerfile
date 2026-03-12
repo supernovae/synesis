@@ -1,6 +1,7 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-ml:latest
 FROM ${BASE_IMAGE}
 
+USER 0
 WORKDIR /app
 
 COPY requirements.txt .

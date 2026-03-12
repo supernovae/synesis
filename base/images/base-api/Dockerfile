@@ -13,3 +13,5 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt \
 COPY synesis-telemetry/ /tmp/synesis-telemetry/
 RUN pip install --no-cache-dir /tmp/synesis-telemetry/ \
     && rm -rf /tmp/synesis-telemetry/
+
+USER 1001

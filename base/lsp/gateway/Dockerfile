@@ -1,6 +1,7 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-devtools:latest
 FROM ${BASE_IMAGE}
 
+USER 0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # TypeScript compiler (Node already in base)

@@ -3,6 +3,10 @@ FROM ${BASE_IMAGE}
 
 LABEL org.opencontainers.image.description="Synesis ML base image — PyTorch + Transformers on top of base-api"
 
+USER 0
+
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
+
+USER 1001
