@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY intent_weights.yaml .
 COPY entry_classifier_weights.yaml .
+COPY taxonomy_prompt_config.yaml .
+COPY intent_prompts.yaml .
 COPY plugins/ ./plugins/
 
 USER 1001
