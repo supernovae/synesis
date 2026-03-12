@@ -353,7 +353,12 @@ wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
 wait_for_deployment synesis-webui open-webui
+wait_for_deployment synesis-opik zookeeper
+wait_for_deployment synesis-opik clickhouse
+wait_for_deployment synesis-opik mysql
+wait_for_deployment synesis-opik redis
 wait_for_deployment synesis-opik opik-backend
+wait_for_deployment synesis-opik opik-frontend
 
 log ""
 log "Model serving status (synesis-models namespace):"

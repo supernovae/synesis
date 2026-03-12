@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from functools import wraps
 from typing import Any
@@ -400,8 +401,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             "and any structured headings the user explicitly requested. "
             "Do NOT add generic compliance scaffolding or enterprise boilerplate "
             "that was not present in the source sections. "
-            "Match your depth to the source material — do not compress or inflate."
-            + preserve_hints + cohesion_hint
+            "Match your depth to the source material — do not compress or inflate." + preserve_hints + cohesion_hint
         )
 
         result = await writer_llm.ainvoke(
@@ -881,20 +881,18 @@ graph = graph_builder.compile()
 _opik_tracer = None
 if settings.opik_enabled:
     try:
-        import opik
+        os.environ.setdefault("OPIK_URL_OVERRIDE", settings.opik_url)
+        os.environ.setdefault("OPIK_WORKSPACE", "synesis")
+        os.environ.setdefault("OPIK_PROJECT_NAME", "synesis")
 
-        opik.configure(
-            use_local=True,
-            url=settings.opik_url,
-            workspace="synesis",
-        )
         from opik.integrations.langchain import OpikTracer
 
         _opik_tracer = OpikTracer(
+            project_name="synesis",
             tags=["synesis"],
             metadata={"build": settings.build_version},
         )
-        logger.info("opik_enabled", extra={"url": settings.opik_url})
+        logger.info("opik_tracer_ready", extra={"url": settings.opik_url})
     except Exception:
         logger.warning("opik_init_failed", exc_info=True)
 

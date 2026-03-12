@@ -30,6 +30,10 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/templates/default.conf.template
+              subPath: default.conf
           resources:
             requests:
               cpu: "50m"
@@ -49,3 +53,7 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 5
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: opik-frontend-nginx

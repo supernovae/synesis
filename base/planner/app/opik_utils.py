@@ -28,11 +28,13 @@ def _get_client() -> Any:
         import opik
 
         _client = opik.Opik(
+            project_name="synesis",
             workspace="synesis",
+            url=settings.opik_url,
         )
         return _client
     except Exception:
-        logger.debug("opik_client_init_skipped", exc_info=True)
+        logger.warning("opik_client_init_failed", exc_info=True)
         return None
 
 

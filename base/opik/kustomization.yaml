@@ -18,13 +18,17 @@ resources:
   # MySQL (transactional storage)
   - mysql-deployment.yaml
   - mysql-service.yaml
+  # ZooKeeper (ClickHouse replication coordination)
+  - zookeeper-deployment.yaml
+  - zookeeper-service.yaml
   # Redis (caching, rate limiting, streams)
   - redis-deployment.yaml
   - redis-service.yaml
   # Opik backend (Java REST API)
   - opik-backend-deployment.yaml
   - opik-backend-service.yaml
-  # Opik frontend (React UI)
+  # Opik frontend (React UI + nginx proxy)
+  - opik-frontend-nginx-config.yaml
   - opik-frontend-deployment.yaml
   - opik-frontend-service.yaml
   # OpenShift Route for UI access

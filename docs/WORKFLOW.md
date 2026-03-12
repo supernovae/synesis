@@ -726,7 +726,9 @@ Synesis supports [Opik](https://github.com/comet-ml/opik) for LLM trace observab
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
 | `opik_enabled` | `SYNESIS_OPIK_ENABLED` | `false` | Master toggle; zero overhead when disabled |
-| `opik_url` | `OPIK_URL_OVERRIDE` | `http://opik-backend.synesis-opik.svc.cluster.local:5173/api` | Opik backend API URL |
+| `opik_url` | `SYNESIS_OPIK_URL` | `http://opik-backend.synesis-opik.svc.cluster.local:8080` | Opik backend API URL |
+
+The SDK also reads `OPIK_URL_OVERRIDE`, `OPIK_WORKSPACE`, and `OPIK_PROJECT_NAME` directly from the environment (set in planner deployment).
 
 When disabled: no Opik imports, no network calls, no overhead. When enabled: traces flow to the Opik server; node behavior is unchanged.
 

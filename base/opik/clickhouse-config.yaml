@@ -11,7 +11,31 @@ data:
   macros.xml: |
     <clickhouse>
       <macros>
+        <cluster>opik_cluster</cluster>
         <shard>1</shard>
         <replica>1</replica>
       </macros>
+    </clickhouse>
+  zookeeper.xml: |
+    <clickhouse>
+      <zookeeper>
+        <node>
+          <host>zookeeper</host>
+          <port>2181</port>
+        </node>
+      </zookeeper>
+    </clickhouse>
+  cluster.xml: |
+    <clickhouse>
+      <remote_servers>
+        <opik_cluster>
+          <shard>
+            <internal_replication>true</internal_replication>
+            <replica>
+              <host>localhost</host>
+              <port>9000</port>
+            </replica>
+          </shard>
+        </opik_cluster>
+      </remote_servers>
     </clickhouse>
