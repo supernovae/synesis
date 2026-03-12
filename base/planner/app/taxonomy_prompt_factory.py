@@ -15,10 +15,11 @@ logger = logging.getLogger("synesis.taxonomy_factory")
 
 _CONFIG_PATH = Path(__file__).parent.parent / "taxonomy_prompt_config.yaml"
 _cached: dict[str, Any] | None = None
+_cached_taxonomies: dict[str, dict[str, Any]] | None = None
 
 
 def _load_config() -> dict[str, Any]:
-    global _cached
+    global _cached, _cached_taxonomies
     if _cached is not None:
         return _cached
     try:
@@ -32,7 +33,17 @@ def _load_config() -> dict[str, Any]:
     except Exception as e:
         logger.warning("taxonomy_prompt_config_load_failed path=%s error=%s", _CONFIG_PATH, e)
         _cached = {}
+    _cached_taxonomies = {
+        k: v for k, v in (_cached or {}).items() if isinstance(v, dict) and "path" in v
+    }
     return _cached
+
+
+def _get_taxonomies() -> dict[str, dict[str, Any]]:
+    """Return pre-filtered taxonomy entries (built once at load time)."""
+    if _cached_taxonomies is None:
+        _load_config()
+    return _cached_taxonomies or {}
 
 
 def resolve_taxonomy_metadata(
@@ -45,11 +56,12 @@ def resolve_taxonomy_metadata(
 
     Uses active_domain_refs (e.g. physics, astronomy) + task_size + intent_class
     to lookup taxonomy_prompt_config. Returns TaxonomyNode dict for state.
-    """
-    cfg = _load_config()
-    taxonomies = {k: v for k, v in (cfg or {}).items() if isinstance(v, dict) and "path" in v}
 
-    # Pick first matching domain (exact match only)
+    All raw YAML fields are forwarded so downstream nodes can access any
+    taxonomy field (e.g. epistemic_guidance) without plumbing changes here.
+    """
+    taxonomies = _get_taxonomies()
+
     key = "generic"
     for ref in active_domain_refs or []:
         r = str(ref).strip().lower()
@@ -58,52 +70,46 @@ def resolve_taxonomy_metadata(
             break
 
     node_cfg = taxonomies.get(key) or taxonomies.get("generic") or {}
+
     path = str(node_cfg.get("path", "General"))
-    complexity = float(node_cfg.get("complexity", 0.5))
+    raw_complexity = float(node_cfg.get("complexity", 0.5))
     persona = str(node_cfg.get("persona", "Helpful Assistant"))
     depth_instructions = str(node_cfg.get("depth_instructions", "")).strip()
-    worker_explain_tone = str(node_cfg.get("worker_explain_tone", "")).strip()
-    discovery_prompt = str(node_cfg.get("discovery_prompt", "")).strip()
     required_elements = list(node_cfg.get("required_elements") or ["Direct Answer"])
     required_bullets = len(required_elements)
 
     # Blend taxonomy complexity with ScoringEngine difficulty.
-    # Taxonomy provides a domain baseline; ScoringEngine provides prompt-specific signal.
-    # The blend lets simple questions in complex domains stay simple.
     if complexity_score and complexity_score > 0:
         difficulty = min(1.0, float(complexity_score) / 30.0)
     else:
-        difficulty = complexity
-    # Weighted blend: 40% domain baseline, 60% prompt difficulty — prompt intent wins.
-    complexity = 0.4 * complexity + 0.6 * difficulty
+        difficulty = raw_complexity
+    blended_complexity = 0.4 * raw_complexity + 0.6 * difficulty
 
     if difficulty < 0.15:
         required_bullets = min(required_bullets, 2)
 
     persona_instructions = persona
-    if complexity > 0.55 and depth_instructions:
+    if blended_complexity > 0.55 and depth_instructions:
         persona_instructions = f"{persona}. {depth_instructions}"
 
-    query_expansion_hints = list(node_cfg.get("query_expansion_hints") or [])
-    preferred_web_scopes = list(node_cfg.get("preferred_web_scopes") or [])
-    output_style = str(node_cfg.get("output_style", "")).strip()
-    output_style_guidance = str(node_cfg.get("output_style_guidance", "")).strip()
-
-    return {
+    # Forward all raw YAML fields, then overlay computed values.
+    result = dict(node_cfg)
+    result.update({
         "path": path,
-        "complexity_score": complexity,
+        "complexity_score": blended_complexity,
         "persona_instructions": persona_instructions,
         "required_bullets": required_bullets,
         "required_elements": required_elements,
         "depth_instructions": depth_instructions,
-        "worker_explain_tone": worker_explain_tone,
-        "discovery_prompt": discovery_prompt,
+        "worker_explain_tone": str(node_cfg.get("worker_explain_tone", "")).strip(),
+        "discovery_prompt": str(node_cfg.get("discovery_prompt", "")).strip(),
         "taxonomy_key": key,
-        "query_expansion_hints": query_expansion_hints,
-        "preferred_web_scopes": preferred_web_scopes,
-        "output_style": output_style,
-        "output_style_guidance": output_style_guidance,
-    }
+        "query_expansion_hints": list(node_cfg.get("query_expansion_hints") or []),
+        "preferred_web_scopes": list(node_cfg.get("preferred_web_scopes") or []),
+        "output_style": str(node_cfg.get("output_style", "")).strip(),
+        "output_style_guidance": str(node_cfg.get("output_style_guidance", "")).strip(),
+    })
+    return result
 
 
 def get_planner_system_prompt_append(metadata: dict[str, Any]) -> str:

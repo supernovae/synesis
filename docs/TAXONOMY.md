@@ -1,7 +1,7 @@
 # Synesis Intent Taxonomy — "The 95%" Coverage Design
 
-**Role:** Synesis Taxonomy Engineer  
-**Goal:** A YAML-driven scoring engine covering 100+ industrial, creative, scientific, and lifestyle verticals.
+**Role:** Synesis Taxonomy Engineer
+**Goal:** A YAML-driven scoring engine covering 173 domain entries across 27 categories, with startup compilation and Pydantic schema validation.
 
 ---
 
@@ -441,17 +441,32 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 
 ---
 
-## 11. Coverage Gaps & 95% Strategy
+## 11. Coverage Status
 
-### Missing Classifications (Now Addressed)
+**Current state:** 173 taxonomy entries, 0 orphan domains, 41 routing plugins.
 
-| Gap | Plugin / Addition | Purpose |
-|-----|-------------------|---------|
-| **IaC / Automation** | `vertical_iac_automation.yaml` | Terraform (basic vs module/state), Ansible (playbook vs roles), Pulumi, Chef, Puppet. Shell: bash, zsh, ksh, PowerShell. Complexity tiers for `terraform plan` (6) vs `terraform module + state` (10). |
-| **Programming languages** | `vertical_programming_slc.yaml` | Python, JS/TS, Go, Rust, Java, C#, Ruby, PHP, Elixir, Perl, Lua, Scala, Haskell. Ecosystem terms: pip, npm, cargo, maven, etc. RAG routing to language-specific collections. |
-| **Shell variants** | Entry classifier + IaC plugin | zsh, ksh, korn shell, PowerShell (.ps1, pwsh) in language detection. domain: shell_bash, powershell. |
-| **SLC phases** | vertical_programming_slc | requirements_phase, design_phase, testing_phase, deployment_phase, maintenance_phase, documentation_artifact. Enables phase-aware routing (e.g. design → document; implement → code). |
-| **Migration / Documentation** | intent_classes | `migration` (migrate, upgrade, deprecate, version bump), `documentation` (generate docs, readme, api docs). Code intents for artifact generation. |
+The taxonomy config linter (`taxonomy_config_linter.py`) runs at startup and
+validates all entries. Orphan detection cross-references every `domain:` value
+in routing YAML against taxonomy keys — any mismatch is logged as a warning.
+
+### Previously Addressed Gaps
+
+| Gap | Solution | Result |
+|-----|----------|--------|
+| **53 orphan domains** | Created 47 new taxonomy entries + 12 routing remaps | Zero orphans |
+| **Programming languages** | 14 entries: python, javascript, typescript, golang, rust, java, csharp, ruby, php, scala, elixir, haskell, perl, lua | Full language coverage |
+| **DevOps / Infrastructure** | 8 entries: devops, terraform, ansible, shell_scripting, observability, aws, gcp, azure | Cloud + IaC coverage |
+| **AI / ML** | 4 entries: ai_ml, llm_prompting, llm_rag, llm_evaluation | ML lifecycle coverage |
+| **Writing / Communication** | 4 entries: business_writing, technical_writing, summarization, translation | Missing LLM use cases |
+| **Security / Compliance** | 5 entries: cybersecurity, secops_hardening, ai_governance, healthcare_compliance, fintech_compliance | Compliance coverage |
+| **Shell variants** | `shell_scripting` entry covers bash, zsh, ksh, PowerShell | Unified scripting domain |
+| **Technical writing misroute** | Separated from `journalism` into dedicated `technical_writing` entry | Correct routing |
+
+### Adding New Domains
+
+1. Add `domain_keywords.<key>` in master or plugin YAML (RAG routing)
+2. Add entry to `taxonomy_prompt_config.yaml` with at minimum `path` and `complexity`
+3. The taxonomy linter will catch missing entries at next startup
 
 ### Complexity Interpretation
 
@@ -501,13 +516,54 @@ The unified indexer (`base/rag/indexer/`) uses the `domain` field in each source
 
 ## 13. taxonomy_metadata and Taxonomy Prompt Config
 
-**Purpose:** Router (Entry Classifier) labels topic complexity; `TaxonomyPromptFactory` shapes prompts for Planner and Executor without adding new LLMs. Config-driven depth and structure.
+**Purpose:** Entry Classifier labels topic complexity; `TaxonomyPromptFactory` shapes
+prompts for Planner, Writer, and Critic without adding new LLMs. Config-driven depth,
+style, and epistemic discipline.
 
-**File:** `base/planner/taxonomy_prompt_config.yaml` — Maps taxonomy keys (physics, astronomy, mathematics, etc.) to `path`, `complexity`, `persona`, `depth_instructions`, `required_elements`. `deep_dive_domains` list: document questions in these domains get `plan_required=true` when `complexity > 0.6`.
+**File:** `base/planner/taxonomy_prompt_config.yaml` — 173 entries mapping taxonomy keys
+to full metadata. Compiled at startup into `_cached_taxonomies` with Pydantic schema
+validation via `taxonomy_config_linter.py`.
 
-**State:** `taxonomy_metadata` (TaxonomyNode) flows through graph: `path`, `complexity_score` (normalized 0.0–1.0), `persona_instructions`, `required_bullets`, `required_elements`, `depth_instructions`, `taxonomy_key`. High-complexity domains trigger Planner with 5 detailed bullets; low complexity uses 1–2.
+**Schema per entry:**
 
-**Flow:** Entry Classifier → `resolve_taxonomy_metadata()` → `taxonomy_metadata` in state. Planner appends `required_elements` + `depth_instructions` when complexity > 0.7. Worker appends `get_executor_depth_block()`.
+```yaml
+example_domain:
+  path: "Category > Domain"          # Human-readable tree path (required)
+  complexity: 0.7                     # 0.0-1.0, drives depth + critic rigor (required)
+  persona: "Domain Expert"            # Persona label
+  worker_explain_tone: "..."          # Writer role/style guidance
+  depth_instructions: "..."           # Injected when complexity > 0.55
+  required_elements: [...]            # Sections the response should cover
+  output_style: "code_guide"          # Short label for output format
+  output_style_guidance: "..."        # Injected into writer as OUTPUT STYLE block
+  epistemic_guidance: "..."           # Injected into writer as EPISTEMIC DISCIPLINE block
+  planner_decomposition_rules: "..."  # Domain-specific planning rules
+  discovery_prompt: "..."             # Enrichment instruction for responses
+  query_expansion_hints: [...]        # Terms for retrieval query expansion
+  preferred_web_scopes: [...]         # Steer web search (e.g., site:docs.aws.amazon.com)
+```
+
+**State:** `taxonomy_metadata` flows through all graph nodes. `resolve_taxonomy_metadata()`
+starts with `dict(node_cfg)` (all raw YAML fields), then overlays computed fields:
+`complexity_score` (blended), `persona_instructions`, `required_bullets`, `taxonomy_key`.
+New YAML fields are automatically available downstream without code changes.
+
+**Key computed fields:**
+- `complexity_score` — blended: 40% domain baseline + 60% prompt-specific difficulty
+- `persona_instructions` — persona + depth_instructions when complexity > 0.55
+- `required_bullets` — `len(required_elements)`, capped at 2 for trivial queries
+
+**Writer injection:** Three taxonomy blocks injected into system prompt:
+1. `DOMAIN DEPTH:` from `depth_instructions` (when complexity > 0.55)
+2. `OUTPUT STYLE:` from `output_style_guidance`
+3. `EPISTEMIC DISCIPLINE:` from `epistemic_guidance` (22 entries have this)
+
+**Critic enforcement:** For domains with complexity >= 0.8, `required_elements` are
+promoted from advisory hints to soft mandates — flagged as `insufficient_depth` if
+missing from the response.
+
+**Evidence budget:** Writer trims compiled evidence to `evidence_budget_chars` (default
+24,000) to prevent token-budget fading in long responses.
 
 See [TAXONOMY_DRIVEN_INJECTION.md](TAXONOMY_DRIVEN_INJECTION.md) for design, flow, and usage.
 

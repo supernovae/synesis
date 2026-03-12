@@ -150,10 +150,61 @@ MY_METRIC = Counter("synesis_my_metric_total", "Description", ["label"])
 4. Add a panel to `base/observability/perses-dashboard-synesis.yaml`
 5. Test with: `curl http://localhost:<port>/metrics | grep synesis_my_metric`
 
+## LLM Tracing: Opik Integration
+
+Synesis supports [Opik](https://github.com/comet-ml/opik) for LLM trace observability.
+When enabled, every LangGraph node invocation is auto-traced with inputs, outputs,
+latency, and metadata.
+
+### What Opik Provides
+
+- **Per-node tracing**: entry_pipeline, router, planner, executor, writer, critic — all auto-traced via the `OpikTracer` LangChain callback
+- **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` logged as span-level feedback
+- **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`
+- **Annotation queues**: Built-in UI for human rating of (prompt, response) pairs
+- **Failure mode aggregation**: Filter traces by `failure_modes_detected`, `evidence_underuse` rates
+
+### Configuration
+
+| Setting | Env Var | Default | Purpose |
+|---------|---------|---------|---------|
+| `opik_enabled` | `SYNESIS_OPIK_ENABLED` | `false` | Master toggle; zero overhead when disabled |
+| `opik_url` | `SYNESIS_OPIK_URL` | `http://opik-backend.synesis-opik.svc.cluster.local:8080` | Opik backend API URL |
+
+Additional environment variables set in the planner deployment:
+- `OPIK_URL_OVERRIDE` — SDK-level URL override
+- `OPIK_WORKSPACE=default` — Required for self-hosted Opik (must be "default")
+- `OPIK_PROJECT_NAME=synesis` — Project name in Opik UI
+
+The Opik Python client uses `host=` parameter (not `url=`). The `opik_utils.py` helper
+explicitly passes `host`, `workspace`, and `project_name` to the `opik.Opik()` constructor.
+
+### Deployment
+
+Opik infrastructure lives in `base/opik/` (Kustomize): single-node ClickHouse,
+MySQL (or compatible), Redis, Opik backend + frontend. Deployed to the `synesis-opik`
+namespace.
+
+```bash
+oc apply -k base/opik/
+# Or deploy via deploy.sh dev (includes Opik in dev profile):
+./scripts/deploy.sh dev
+```
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| No traces appearing | Verify `SYNESIS_OPIK_ENABLED=true` in deployment env |
+| `Workspace not found` 404 | Set `OPIK_WORKSPACE=default` (not project name) |
+| `unexpected keyword argument 'url'` | Use `host=` parameter, not `url=` in Opik client |
+| UI works but no events | Check planner logs: `oc logs deployment/synesis-planner -n synesis-planner` |
+
 ## Future Enhancements
 
 - **PrometheusRule alerting**: Latency p95 > 60s, circuit breaker open, high critic
   rejection rate, BM25 fallback spikes, model pod restarts
 - **Perses datasource TLS**: Enable if Thanos Querier enforces mTLS on your cluster
   (uncomment TLS section in `base/observability/perses-datasource.yaml`)
-- **Distributed tracing**: OpenTelemetry spans across planner graph nodes
+- **Opik prompt optimization**: MIPRO/MetaPrompt optimizers to tune critic, query
+  generation, and summarizer prompts offline using collected traces

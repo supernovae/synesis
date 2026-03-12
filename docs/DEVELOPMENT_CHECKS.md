@@ -120,3 +120,55 @@ All checks passed.
 - **Live validation:** Edit `base/planner/tests/integration_prompts.yaml` (response-shape assertions).
 
 Both files are the source of truth for regression coverage.
+
+---
+
+## 5. Startup Validation (Automatic)
+
+The planner runs two config linters automatically at startup during `lifespan()`.
+These catch configuration regressions before the first request:
+
+### Intent Config Linter (`intent_config_linter.py`)
+
+Validates `intent_weights.yaml` + all plugin YAMLs:
+- Threshold values present and numeric
+- Weight structures have non-empty keyword lists
+- Pairings have >= 2 keywords each
+- Override values are string lists
+
+### Taxonomy Config Linter (`taxonomy_config_linter.py`)
+
+Validates `taxonomy_prompt_config.yaml` (173 entries) via Pydantic:
+- **Required fields**: every entry must have `path` (str) and `complexity` (float 0.0-1.0)
+- **Type validation**: complexity in range, required_elements is list, persona is string
+- **Duplicate path detection**: warns if two entries share the same `path` value
+- **Orphan domain detection**: cross-references `domain:` values from all routing YAML against taxonomy keys
+- **Alias collision detection**: warns when `query_expansion_hints` overlap between entries
+
+Issues are logged as warnings at startup. To run the linters manually:
+
+```bash
+cd base/planner
+python -c "
+from app.intent_config_linter import lint_intent_config
+from app.taxonomy_config_linter import lint_taxonomy_config
+print('Intent issues:', lint_intent_config())
+print('Taxonomy issues:', lint_taxonomy_config())
+"
+```
+
+---
+
+## 6. Security Scanning (Trivy)
+
+Run Trivy for vulnerability and misconfiguration scanning:
+
+```bash
+# Scan Dockerfiles for misconfigurations
+trivy config base/ --severity HIGH,CRITICAL
+
+# Scan filesystem for secrets
+trivy fs . --scanners secret
+```
+
+All Dockerfiles use non-root `USER 1001` at runtime to comply with DS-0002.

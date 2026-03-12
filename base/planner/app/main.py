@@ -62,6 +62,8 @@ _background_tasks: set[asyncio.Task] = set()
 async def lifespan(app: FastAPI):
     from .entry_classifier_engine import get_scoring_engine
     from .intent_config_linter import lint_intent_config
+    from .taxonomy_config_linter import lint_taxonomy_config
+    from .taxonomy_prompt_factory import _load_config as _load_taxonomy_config
 
     logger.info(
         "Synesis planner starting build=%s port=%s",
@@ -69,10 +71,15 @@ async def lifespan(app: FastAPI):
         settings.port,
     )
     get_scoring_engine()
-    issues = lint_intent_config()
-    if issues:
-        for msg in issues:
+    _load_taxonomy_config()
+    intent_issues = lint_intent_config()
+    if intent_issues:
+        for msg in intent_issues:
             logger.warning("intent_config: %s", msg)
+    taxonomy_issues = lint_taxonomy_config()
+    if taxonomy_issues:
+        for msg in taxonomy_issues:
+            logger.warning("taxonomy_config: %s", msg)
     logger.info(
         "sse_status_format",
         extra={

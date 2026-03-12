@@ -96,11 +96,12 @@ flowchart LR
 
 - **Router-governed evidence architecture** — the Router is the single retrieval orchestrator (RAG + web search). Evidence flows as structured "Evidence Packets" between nodes. A Hybrid Retrieval Cache prevents redundant retrieval. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
 - **Multi-query retrieval enrichment** — each evidence request produces 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via Reciprocal Rank Fusion. BM25 corpus includes all indexed metadata (keywords, tags, document_name) with lightweight stemming.
-- **Taxonomy-driven output style** — domains define `query_expansion_hints` (ADR, RFC, design proposal), `preferred_web_scopes` (authoritative sites), and `output_style_guidance` injected into the Writer to produce domain-appropriate output (architecture documents, platform guides, academic papers).
-- **Evidence-aware critic** — 6-axis scoring with `evidence_utilization` (0.10 weight), deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty. See [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md).
+- **Taxonomy-driven output style** — 173 domain entries define persona, depth, `output_style_guidance`, `epistemic_guidance`, and `required_elements` injected into the Writer. High-complexity domains (>= 0.8) promote required elements to soft mandates in the Critic. All raw YAML fields pass through automatically — no plumbing changes needed when adding new fields.
+- **Cohesion Lock engine** — Frame extraction identifies the dominant entity/theory; a micro-critique filters retrieved documents for topic coherence; contextual compression strips off-topic sentences; LongContextReorder optimizes LLM attention placement. This prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure in a single architecture response).
+- **Evidence-aware critic** — 6-axis scoring with `evidence_utilization` (0.10 weight), deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty. Evidence is budget-trimmed (default 24k chars) to prevent token-budget fading. See [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md).
 - **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no LangGraph overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
 - **Sandbox and LSP are exception-flow tools** — they fire on code validation failures, not on every request. This keeps the happy path fast. See [docs/SANDBOX.md](docs/SANDBOX.md) and [docs/LSP.md](docs/LSP.md).
-- **Taxonomy-driven prompt shaping** — domain behavior, critic depth, executor/writer persona, and planner decomposition rules are all YAML-configurable. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
+- **Taxonomy-driven prompt shaping** — 173 domain entries across 27 categories. Domain behavior, critic depth, writer persona, epistemic guidance, and planner decomposition rules are all YAML-configurable. Taxonomy config is compiled at startup with Pydantic schema validation and orphan detection. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
 - **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection.
 - **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
@@ -201,7 +202,7 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 
 | Capability | Description | Documentation |
 |-----------|-------------|---------------|
-| **Taxonomy-Driven Prompt Shaping** | YAML-configurable behavior per domain — tone, depth, critic mode, planner rules | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
+| **Taxonomy-Driven Prompt Shaping** | 173 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
 | **Hybrid RAG** | Vector + BM25 retrieval, multi-query expansion (HyDE + conceptual), RRF, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
 | **Knowledge Indexers** | Code (tree-sitter AST), API specs, architecture docs, license, web-docs (Crawl4AI) | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Code Sandbox** | Exception-flow validation: lint, security scan, execute in isolated pods | [docs/SANDBOX.md](docs/SANDBOX.md) |
@@ -223,10 +224,12 @@ synesis/
 ├── base/
 │   ├── planner/                # FastAPI + LangGraph orchestrator
 │   │   ├── app/graph.py        # Entry → Advisor → Frame → Router → Planner/Executor/Writer → Critic → Respond
-│   │   ├── app/nodes/          # Node implementations (router, executor, writer, planner, critic, etc.)
-│   │   ├── taxonomy_prompt_config.yaml   # Domain behavior configuration
-│   │   ├── intent_weights.yaml           # Intent classification + routing thresholds
-│   │   └── plugins/weights/              # Vertical domain overlays
+│   │   ├── app/nodes/          # Node implementations (router, executor, writer, planner, critic, cohesion, etc.)
+│   │   ├── app/taxonomy_prompt_factory.py  # Taxonomy resolver — startup-compiled, all YAML fields forwarded
+│   │   ├── app/taxonomy_config_linter.py   # Pydantic schema validation for taxonomy config
+│   │   ├── taxonomy_prompt_config.yaml     # 173 domain behavior entries (persona, depth, epistemic, output style)
+│   │   ├── intent_weights.yaml             # Intent classification + routing thresholds
+│   │   └── plugins/weights/                # Vertical domain overlays (41 plugins)
 │   ├── model-serving/          # vLLM deployments + InferenceService manifests
 │   ├── gateway/                # LiteLLM proxy (OpenAI-compatible API)
 │   ├── mcp/                    # MCP server for IDE tool integration
@@ -254,7 +257,7 @@ synesis/
 | [docs/WORKFLOW.md](docs/WORKFLOW.md) | Full graph flow, router-governed evidence, hybrid cache, retrieval discipline |
 | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) | How to customize model behavior via YAML configuration |
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
-| [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — 100+ verticals |
+| [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — 173 domain entries across 27 categories |
 | [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, multi-query expansion, provenance, authority weighting |
 | [docs/INDEXERS.md](docs/INDEXERS.md) | Code, API spec, architecture, license, and web-docs indexers |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |

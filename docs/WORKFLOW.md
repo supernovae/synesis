@@ -351,9 +351,12 @@ All requests go through the Router. The Router decides what happens next.
 3. **Taxonomy-Driven Everything**: Entry Classifier outputs
    `intent_class`, `is_code_task`, `active_domain_refs`,
    `taxonomy_metadata`, `difficulty`, and YAML-driven
-   `routing_thresholds`. Taxonomy plugins provide domain keywords,
-   complexity/risk weights, and vertical prompt data (executor
-   persona, planner rules, critic mode).
+   `routing_thresholds`. 173 taxonomy entries define persona,
+   depth, output style, epistemic guidance, and planner rules.
+   All raw YAML fields are forwarded via `dict(node_cfg)` overlay
+   in `resolve_taxonomy_metadata()` — new fields added to YAML are
+   automatically available downstream. Taxonomy config is compiled
+   at startup with Pydantic schema validation.
 4. **Dual Planner Prompts**: Code tasks use `PLANNER_SYSTEM_PROMPT`
    (atomic steps with files and verification commands). Knowledge
    tasks use `KNOWLEDGE_PLANNER_PROMPT` (section outlines mapped
@@ -483,6 +486,41 @@ Validators are wired as pre/post checks via the `validated_node()` wrapper in
 Pre-violations are injected into the node's context as warnings. Post-violations
 are written to `critique_register` as open items for the next iteration.
 
+## Cohesion Lock Engine
+
+Prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure guidance
+in a single architecture response). The Cohesion Lock operates between retrieval
+and generation to ensure all evidence and output stay grounded to one coherent
+topic.
+
+### How It Works
+
+1. **Frame extraction** identifies the dominant entity or theory from the
+   user query and retrieved evidence (e.g., "AWS" for a cloud architecture
+   question).
+2. **Cohesion Lock** is set based on the dominant entity — either a
+   specific entity lock ("AWS") or a generic theory lock.
+3. **Micro-critique** evaluates each retrieved document against the lock.
+   Documents that don't match the cohesion lock are filtered out.
+4. **Contextual compression** strips off-topic sentences from surviving
+   documents, keeping only lock-matching content.
+5. **LongContextReorder** places the most relevant (lock-matching)
+   documents at the edges of the context window where LLM attention
+   is strongest.
+
+### State Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `cohesion_lock` | `CohesionLock` | Dominant entity/theory + lock type |
+| `cohesion_filtered_docs` | `list[Document]` | Documents passing micro-critique |
+
+### Impact
+
+The cohesion lock ensures that when a user asks about "LLM architecture on AWS,"
+the system doesn't mix in GCP VPC peering docs or Azure service mesh guidance.
+Evidence stays grounded; the writer receives only coherent, on-topic material.
+
 ## Adaptive Rigor
 
 Rigor scales with `task_size`. Decouples general utility from
@@ -531,15 +569,19 @@ The critic scores each generated criterion 1-10.
 
 ### Taxonomy-as-Hints Contract
 
-Taxonomy metadata is provided to the critic as domain context, **not** as
-mandatory evaluation criteria:
+Taxonomy metadata is provided to the critic as domain context. For
+high-complexity domains (complexity >= 0.8), `required_elements` are
+promoted to soft mandates — flagged as `insufficient_depth` if missing.
+For lower complexity, they remain advisory hints.
 
 ```
 taxonomy_prompt_config.yaml
-  -> required_elements, depth_instructions, persona
+  -> required_elements, depth_instructions, persona, epistemic_guidance
     -> passed to critic as "taxonomy_hints" dict
+      -> complexity >= 0.8: required_elements are "Expected sections" (soft mandate)
+      -> complexity < 0.8: required_elements are "Typical elements" (advisory)
       -> critic uses hints to GENERATE per-query evaluation criteria
-        -> critic scores against GENERATED criteria, not raw taxonomy
+        -> critic scores against GENERATED criteria
 ```
 
 ### Score-Based Approval
@@ -630,8 +672,20 @@ network, workspace boundaries, import integrity, AST syntax) in
 state. The Router picks these up on the next pass and performs
 targeted retrieval for each section.
 
-**Taxonomy shaping:** Taxonomy plugin YAMLs inject
-`planner_decomposition_rules` per domain.
+**Taxonomy shaping:** Taxonomy plugin YAMLs and `taxonomy_prompt_config.yaml`
+inject `planner_decomposition_rules` per domain. The `taxonomy_key` is used
+as a fallback when the vertical name doesn't match the taxonomy key.
+
+**Writer prompt injection:** The Writer injects three taxonomy-driven blocks
+into the system prompt when present:
+- `DOMAIN DEPTH:` — from `depth_instructions` (when complexity > 0.55)
+- `OUTPUT STYLE:` — from `output_style_guidance`
+- `EPISTEMIC DISCIPLINE:` — from `epistemic_guidance` (separates facts/assumptions/recommendations)
+
+**Evidence budget:** Compiled evidence is trimmed to `evidence_budget_chars`
+(default 24,000) before injection into the Writer prompt. This prevents
+token-budget fading where response quality degrades toward the end of long
+context windows.
 
 **Performance levers:**
 1. **Routing:** Text mode is the default; simple text tasks never hit Planner.
@@ -647,13 +701,39 @@ YAML config — no hardcoded if/else chains.
 | File | Purpose |
 |------|---------|
 | `intent_weights.yaml` | Core complexity/risk weights, intent classes, routing thresholds |
-| `plugins/weights/*.yaml` | Industry-specific keywords, weights, pairings, and vertical prompt data |
-| `taxonomy_prompt_config.yaml` | Domain → persona, tone, depth instructions, required_elements, query_expansion_hints, preferred_web_scopes, output_style_guidance. Difficulty thresholds drive Planner routing for knowledge tasks. |
+| `plugins/weights/*.yaml` | Industry-specific keywords, weights, pairings, and vertical prompt data (41 plugins) |
+| `taxonomy_prompt_config.yaml` | 173 domain entries: persona, depth, epistemic_guidance, output_style_guidance, required_elements, query_expansion_hints, preferred_web_scopes, planner_decomposition_rules |
 | `intent_prompts.yaml` | Intent → Critic behavior overlay (hallucination-sensitive, evidence-required, etc.) |
 
 **Plugin system:** Drop a YAML into `plugins/weights/` to add an
 industry vertical. Plugin loader merges complexity/risk/domain
 keywords, pairings, and vertical prompt blocks at startup.
+
+### Startup Compilation and Validation
+
+At service startup (`lifespan()` in `main.py`), the following runs in order:
+
+1. **ScoringEngine singleton** — precompiles all keyword regex patterns
+2. **Taxonomy config load** — parses `taxonomy_prompt_config.yaml`, pre-builds
+   the filtered taxonomy index (`_cached_taxonomies`), and caches in module globals
+3. **Intent config linter** — validates `intent_weights.yaml` structure (thresholds,
+   weights, pairings, overrides)
+4. **Taxonomy config linter** — Pydantic-based validation of all 173 entries:
+   required fields (`path`, `complexity`), type checks, complexity range (0.0-1.0),
+   duplicate path detection, orphan domain detection (cross-refs routing YAML),
+   alias collision detection (`query_expansion_hints` overlap)
+5. **Retrieval cache warm** — background task to warm the hybrid retrieval cache
+
+After startup, per-request taxonomy lookup is O(1) dict access — no YAML parsing,
+no disk I/O, no regex compilation on the hot path.
+
+### Taxonomy Field Passthrough
+
+`resolve_taxonomy_metadata()` forwards **all** raw YAML fields from the taxonomy
+entry via `dict(node_cfg)`, then overlays computed fields (`complexity_score`,
+`persona_instructions`, `required_bullets`, `taxonomy_key`). This means any new
+field added to `taxonomy_prompt_config.yaml` (e.g., `epistemic_guidance`) is
+automatically available in `state["taxonomy_metadata"]` without code changes.
 
 ## Security: Untrusted Data Sandboxing
 

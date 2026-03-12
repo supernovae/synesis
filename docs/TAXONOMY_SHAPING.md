@@ -84,7 +84,15 @@ toward `site:martinfowler.com` and `site:microservices.io`.
 
 ### Writer (Style-Driven Generation)
 
-The Writer uses taxonomy metadata to shape output format and structure.
+The Writer uses taxonomy metadata to shape output format, structure, and epistemic discipline.
+Three taxonomy blocks are injected into the system prompt:
+
+1. **DOMAIN DEPTH** (from `depth_instructions`) — when complexity > 0.55
+2. **OUTPUT STYLE** (from `output_style_guidance`) — always when present
+3. **EPISTEMIC DISCIPLINE** (from `epistemic_guidance`) — always when present
+
+Evidence is trimmed to `evidence_budget_chars` (default 24,000) before injection
+to prevent token-budget fading in long responses.
 
 | What to change | File | Key |
 |---|---|---|
@@ -92,23 +100,27 @@ The Writer uses taxonomy metadata to shape output format and structure.
 | Output structure guidance | `taxonomy_prompt_config.yaml` | `output_style_guidance` |
 | Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
 | Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
+| Epistemic discipline | `taxonomy_prompt_config.yaml` | `epistemic_guidance` |
 | Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` |
 | Required output sections | `taxonomy_prompt_config.yaml` | `required_elements` |
+| Evidence budget | `config.py` | `evidence_budget_chars` (default 24000) |
 | Vertical-specific persona block | vertical plugins | `vertical_prompt.executor_persona_block` |
 
 **Example**: When the domain is `software_architecture`, the Writer receives
 `output_style_guidance` that says "Structure like a technical architecture
 document: design goals, components, technology choices with rationale, implementation
-path, key risks." This produces ADR-shaped output instead of generic prose.
+path, key risks." It also receives `epistemic_guidance` that says "Separate
+established patterns from assumptions and recommendations." This produces
+ADR-shaped output with clear epistemic framing.
 
-### Executor (General model: Qwen3.5-35B-A3B)
+### Executor (General model: Qwen3-32B FP8)
 
 The Executor generates code responses. Its prompt is shaped by taxonomy
 metadata injected from YAML.
 
 | What to change | File | Key |
 |---|---|---|
-| Domain tone/persona | `taxonomy_prompt_config.yaml` | `executor_explain_tone` |
+| Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
 | Persona label | `taxonomy_prompt_config.yaml` | `persona` |
 | Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
 | Required output sections | `taxonomy_prompt_config.yaml` | `required_elements` |
@@ -123,7 +135,7 @@ cybersecurity:
   path: "Engineering > Cybersecurity"
   complexity: 0.9
   persona: "Security Engineer"
-  executor_explain_tone: "You are a cybersecurity analyst. Prioritize defense-in-depth and assume breach."
+  worker_explain_tone: "You are a cybersecurity analyst. Prioritize defense-in-depth and assume breach."
   depth_instructions: "Cite CVEs and CWEs where applicable. Reference NIST/OWASP frameworks."
   discovery_prompt: "End with a brief note on related attack surfaces or emerging threats."
   required_elements:
@@ -212,10 +224,26 @@ your_domain:
   preferred_web_scopes:        # Steer web search to authoritative sites
     - "site:example.com"
   output_style: "domain_doc"   # Short label for the output format
-  output_style_guidance: >-    # Injected into writer system prompt
+  output_style_guidance: >-    # Injected into writer as OUTPUT STYLE block
     Structure the response as a domain document with specific
     formatting and section requirements.
+  epistemic_guidance: >-       # Injected into writer as EPISTEMIC DISCIPLINE block
+    Separate established patterns from assumptions. Note when
+    recommendations are opinion vs evidence-backed.
+  planner_decomposition_rules: >-  # Domain-specific planning rules
+    For this domain: first step is always X.
 ```
+
+**Minimum valid entry** (only `path` and `complexity` are required):
+
+```yaml
+your_domain:
+  path: "Category > Your Domain"
+  complexity: 0.6
+```
+
+All raw YAML fields are forwarded to `taxonomy_metadata` automatically.
+The taxonomy linter validates entries at startup — no manual verification needed.
 
 2. Add keywords to `intent_weights.yaml` so EntryClassifier detects it:
 
@@ -312,7 +340,7 @@ industrial:
   path: "Engineering > Industrial"
   complexity: 0.95
   persona: "Safety Engineer"
-  executor_explain_tone: "You are an industrial safety engineer. IEC 61508 compliance is mandatory."
+  worker_explain_tone: "You are an industrial safety engineer. IEC 61508 compliance is mandatory."
   depth_instructions: "All responses must address fail-safe behavior. Cite standards."
   required_elements:
     - "Safety Boundaries"
@@ -357,7 +385,7 @@ education_stem:
   path: "Education > STEM"
   complexity: 0.6
   persona: "STEM Tutor"
-  executor_explain_tone: "You are a patient STEM tutor. Build understanding step by step."
+  worker_explain_tone: "You are a patient STEM tutor. Build understanding step by step."
   depth_instructions: "Use analogies and worked examples. Define jargon before using it."
   discovery_prompt: "End with a 'Try This' exercise the learner can attempt."
   required_elements:
@@ -394,9 +422,11 @@ and pedagogical structure -- all from YAML.
 |---|---|---|
 | `entry_classifier_weights.yaml` | Base scoring keywords and thresholds | EntryClassifier |
 | `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier |
-| `taxonomy_prompt_config.yaml` | Domain metadata (tone, depth, elements, persona, query hints, output style) | Router, Writer, Executor, Planner, Critic |
+| `taxonomy_prompt_config.yaml` | 173 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
-| `plugins/weights/vertical_*.yaml` | Vertical plugins (keywords, risk, prompts, critic tiers) | All roles |
+| `plugins/weights/vertical_*.yaml` | 41 vertical plugins (keywords, risk, prompts, critic tiers) | All roles |
+| `app/taxonomy_config_linter.py` | Pydantic schema validation (startup) | Startup validation |
+| `app/taxonomy_prompt_factory.py` | Taxonomy resolver — startup-compiled, all YAML fields forwarded | All roles |
 
 ## Precedence
 
