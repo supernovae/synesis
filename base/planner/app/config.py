@@ -263,14 +263,23 @@ class Settings(BaseSettings):
     retrieval_cache_ttl: float = 86_400.0  # 24 hours
     retrieval_cache_max_entries: int = 512
     retrieval_cache_similarity_threshold: float = 0.85
+    retrieval_cache_tool_similarity_threshold: float = 0.95  # stricter threshold for pre-retrieval cache check
     retrieval_cache_confidence_threshold: float = 0.6
     retrieval_cache_backend: str = "numpy"  # "numpy" | "redis" (shared, for horizontal scaling)
     retrieval_cache_warm_on_startup: bool = True
+    retrieval_cache_model_version: str = ""  # auto-invalidate cache when model changes; defaults to general_model_name
 
-    # Redis shared cache (only used when retrieval_cache_backend="redis")
-    # Enables cross-replica cache sharing for horizontally-scaled planner pods.
+    # Redis shared cache (used when retrieval_cache_backend="redis", session, and L2 archive)
     retrieval_cache_redis_url: str = ""  # e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/0"
     retrieval_cache_redis_prefix: str = "synesis:cache:"
+
+    # Session persistence (LangGraph checkpointer)
+    session_checkpointer_backend: str = "memory"  # "memory" | "redis"
+    session_redis_url: str = ""  # reuses synesis-redis; e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/1"
+
+    # L2 conversation archive (durable history store)
+    l2_archive_redis_url: str = ""  # e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
+    l2_archive_ttl_seconds: int = 604_800  # 7 days
 
     # Router summarizer: max tokens for evidence packet summaries
     router_max_summary_tokens: int = 2000

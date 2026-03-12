@@ -39,13 +39,31 @@ from .strategic_advisor import strategic_advisor_node
 logger = logging.getLogger("synesis.entry_pipeline")
 
 
+def _has_session_context(state: dict[str, Any]) -> bool:
+    """True when a prior checkpoint already populated frame + style contract."""
+    frame = state.get("semantic_frame")
+    contract = state.get("style_contract_locked")
+    return bool(frame) and bool(contract)
+
+
 async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     """Single graph node that replaces the 3-node sequential entry chain."""
 
-    # Phase 1: classifier (fast, deterministic — must run first)
+    # Phase 1: classifier (fast, deterministic — always runs so difficulty is fresh)
     classified = entry_classifier_node(state)
     if asyncio.iscoroutine(classified):
         classified = await classified
+
+    # Session resume: if a prior checkpoint already set semantic_frame and
+    # style_contract_locked, skip the expensive advisor + frame_extractor.
+    # The classifier still runs so difficulty and taxonomy are up to date.
+    if _has_session_context(state):
+        logger.info(
+            "session_resumed",
+            extra={"has_frame": True, "has_contract": True},
+        )
+        classified["current_node"] = "entry_pipeline"
+        return classified
 
     # Build intermediate state visible to the parallel branches
     merged_input = {**state, **classified}

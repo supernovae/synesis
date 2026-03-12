@@ -52,6 +52,7 @@ class CacheEntry(BaseModel):
     timestamp: float = Field(default_factory=time.time)
     confidence: float = 0.0
     usage_count: int = 0
+    model_version: str = ""
 
 
 class CacheStats(BaseModel):
@@ -74,6 +75,7 @@ class HybridRetrievalCache:
         similarity_threshold: float = 0.85,
         confidence_threshold: float = 0.6,
         async_embed_client: AsyncEmbedClient | None = None,
+        model_version: str = "",
     ) -> None:
         self._exact: dict[str, CacheEntry] = {}
         self._index = semantic_index
@@ -83,6 +85,7 @@ class HybridRetrievalCache:
         self._max = max_entries
         self._sim_thresh = similarity_threshold
         self._conf_thresh = confidence_threshold
+        self._model_version = model_version
         self._stats = CacheStats()
         self._lock = threading.Lock()
 
@@ -147,6 +150,7 @@ class HybridRetrievalCache:
             normalized_key=key,
             timestamp=now,
             confidence=packet.confidence,
+            model_version=self._model_version,
         )
 
         with self._lock:
@@ -158,6 +162,7 @@ class HybridRetrievalCache:
                     evidence_packet=packet,
                     timestamp=now,
                     confidence=packet.confidence,
+                    model_version=self._model_version,
                 )
                 self._index.insert(idx_entry)
             self._evict()
@@ -229,6 +234,7 @@ class HybridRetrievalCache:
             normalized_key=key,
             timestamp=now,
             confidence=packet.confidence,
+            model_version=self._model_version,
         )
 
         with self._lock:
@@ -240,6 +246,7 @@ class HybridRetrievalCache:
                     evidence_packet=packet,
                     timestamp=now,
                     confidence=packet.confidence,
+                    model_version=self._model_version,
                 )
                 self._index.insert(idx_entry)
             self._evict()
@@ -287,6 +294,8 @@ class HybridRetrievalCache:
         if age > self._ttl:
             return False
         if entry.confidence < self._conf_thresh:
+            return False
+        if self._model_version and entry.model_version and entry.model_version != self._model_version:
             return False
         return similarity >= self._sim_thresh
 
@@ -336,6 +345,31 @@ WARM_QUERIES: list[dict[str, str | list[str]]] = [
 _cache: HybridRetrievalCache | None = None
 
 
+def _resolve_model_version() -> str:
+    """Derive the cache model-version tag from config, falling back to general_model_name."""
+    from .config import settings
+
+    v = settings.retrieval_cache_model_version
+    if v:
+        return v
+    return settings.general_model_name or ""
+
+
+def _build_semantic_index() -> SemanticIndex:
+    """Instantiate the configured SemanticIndex backend."""
+    from .config import settings
+
+    if settings.retrieval_cache_backend == "redis" and settings.retrieval_cache_redis_url:
+        from .semantic_index import RedisSemanticIndex
+
+        return RedisSemanticIndex(
+            redis_url=settings.retrieval_cache_redis_url,
+            prefix=settings.retrieval_cache_redis_prefix + "idx:",
+            model_version=_resolve_model_version(),
+        )
+    return NumpySemanticIndex()
+
+
 def get_retrieval_cache() -> HybridRetrievalCache:
     global _cache
     if _cache is None:
@@ -343,13 +377,14 @@ def get_retrieval_cache() -> HybridRetrievalCache:
         from .embed_client import get_async_embed_client, get_embed_client
 
         _cache = HybridRetrievalCache(
-            semantic_index=NumpySemanticIndex(),
+            semantic_index=_build_semantic_index(),
             embed_client=get_embed_client(),
             async_embed_client=get_async_embed_client(),
             ttl_seconds=settings.retrieval_cache_ttl,
             max_entries=settings.retrieval_cache_max_entries,
             similarity_threshold=settings.retrieval_cache_similarity_threshold,
             confidence_threshold=settings.retrieval_cache_confidence_threshold,
+            model_version=_resolve_model_version(),
         )
     return _cache
 

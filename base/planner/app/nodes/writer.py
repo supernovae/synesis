@@ -324,8 +324,17 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "writer"
 
-    # Build evidence from Router's evidence packets (summaries + top snippets)
+    # Build evidence from Router's evidence packets (summaries + top snippets).
+    # Sort by confidence descending so _long_context_reorder places the
+    # highest-confidence evidence at the attention zones (beginning + end).
     packets = state.get("evidence_packets") or []
+    packets = sorted(
+        packets,
+        key=lambda p: float(
+            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
+        ),
+        reverse=True,
+    )
     evidence_parts: list[str] = []
     for p in packets:
         summary = p.get("summary", "") if isinstance(p, dict) else getattr(p, "summary", "")

@@ -876,7 +876,27 @@ graph_builder.add_conditional_edges(
 graph_builder.add_edge("final_scrubber", "respond")
 graph_builder.add_edge("respond", END)
 
-graph = graph_builder.compile()
+
+def _build_checkpointer():
+    """Build LangGraph checkpointer from config. MemorySaver by default."""
+    if settings.session_checkpointer_backend == "redis" and settings.session_redis_url:
+        try:
+            from langgraph.checkpoint.redis import RedisSaver
+
+            saver = RedisSaver.from_conn_string(settings.session_redis_url)
+            saver.setup()
+            logger.info("redis_checkpointer_ready", extra={"url": settings.session_redis_url[:40]})
+            return saver
+        except Exception:
+            logger.warning("redis_checkpointer_init_failed, falling back to MemorySaver", exc_info=True)
+
+    from langgraph.checkpoint.memory import MemorySaver
+
+    return MemorySaver()
+
+
+_checkpointer = _build_checkpointer()
+graph = graph_builder.compile(checkpointer=_checkpointer)
 
 _opik_tracer = None
 if settings.opik_enabled:
@@ -897,11 +917,13 @@ if settings.opik_enabled:
         logger.warning("opik_init_failed", exc_info=True)
 
 
-def get_graph_config(extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Build graph invocation config with Opik callback when enabled."""
+def get_graph_config(extra: dict[str, Any] | None = None, thread_id: str = "") -> dict[str, Any]:
+    """Build graph invocation config with Opik callback and session thread_id."""
     cfg: dict[str, Any] = {"recursion_limit": 50}
     if extra:
         cfg.update(extra)
+    if thread_id:
+        cfg.setdefault("configurable", {})["thread_id"] = thread_id
     if _opik_tracer is not None:
         cfg.setdefault("callbacks", []).append(_opik_tracer)
     return cfg

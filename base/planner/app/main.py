@@ -1089,7 +1089,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     async for event in graph.astream_events(
                         initial_state,
                         version="v2",
-                        config=get_graph_config(),
+                        config=get_graph_config(thread_id=memory_scope),
                     ):
                         if _stream_closed:
                             continue
@@ -1568,7 +1568,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 result = None
                 heartbeat_task = None
                 try:
-                    config = get_graph_config()
+                    config = get_graph_config(thread_id=memory_scope)
                     config.setdefault("callbacks", []).append(status_callback)
 
                     async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
@@ -1670,7 +1670,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     # Non-streaming: run graph once, then build response
     try:
-        config = get_graph_config()
+        config = get_graph_config(thread_id=memory_scope)
         result = await graph.ainvoke(initial_state, config=config)
     except Exception:
         logger.exception("graph_execution_error")

@@ -1,6 +1,7 @@
 langchain-core>=1.2.13,<2.0.0
 langchain-openai>=1.1.10,<2.0.0
 langgraph>=1.0.0,<2.0.0
+langgraph-checkpoint>=2.0.0
 pymilvus>=2.5.0
 pyyaml>=6.0
 FlashRank>=0.2.10
@@ -10,6 +11,9 @@ kubernetes-asyncio>=31.0.0
 trafilatura>=2.0.0
 # LLM observability — lightweight HTTP client, no ML deps
 opik>=1.0.0
+# Semantic cache Redis backend + session checkpointer + L2 archive
+redis>=5.0.0
+langgraph-checkpoint-redis>=2.0.0
 
 # Test dependencies (not installed in production image)
 # Install with: pip install -r requirements-test.txt

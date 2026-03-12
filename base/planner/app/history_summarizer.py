@@ -241,16 +241,57 @@ async def summarize_text(text: str, max_tokens: int = 400) -> str:
         return " ".join(words[:target]) + (" [...truncated]" if len(words) > target else "")
 
 
+_l2_redis: Any = "__unset__"
+
+
+def _get_l2_redis():
+    """Lazy-init Redis client for L2 archive. Returns None if not configured."""
+    global _l2_redis
+    if _l2_redis != "__unset__":
+        return _l2_redis if _l2_redis is not None else None
+
+    url = getattr(settings, "l2_archive_redis_url", "") or ""
+    if not url.strip():
+        _l2_redis = None
+        return None
+    try:
+        import redis as redis_lib
+
+        _l2_redis = redis_lib.Redis.from_url(url, decode_responses=True)
+        _l2_redis.ping()
+        return _l2_redis
+    except Exception as e:
+        logger.debug("l2_redis_init_failed %s", e)
+        _l2_redis = None
+        return None
+
+
 def archive_to_l2(run_id: str, user_id: str, history: list[str]) -> None:
-    """Archive raw conversation history to durable L2 store.
+    """Archive raw conversation history to durable L2 store (Redis).
 
-    Stub: No-op. Future: write to Milvus/Redis/Postgres for later retrieval.
-
-    TODO: Implement L2 persistence; wire to conversation_memory._on_evict.
+    Falls back to no-op logging when Redis is not configured.
+    Key: ``synesis:l2:{user_id}:{run_id}`` with configurable TTL.
     """
     if not history:
         return
-    logger.debug(
-        "archive_to_l2_stub",
-        extra={"run_id": run_id[:8], "user_id": user_id[:8], "turns": len(history)},
-    )
+
+    r = _get_l2_redis()
+    if r is None:
+        logger.debug(
+            "archive_to_l2_no_backend",
+            extra={"run_id": run_id[:8], "user_id": user_id[:8], "turns": len(history)},
+        )
+        return
+
+    import json
+
+    key = f"synesis:l2:{user_id}:{run_id}"
+    ttl = getattr(settings, "l2_archive_ttl_seconds", 604_800)
+    try:
+        r.setex(key, ttl, json.dumps(history))
+        logger.debug(
+            "archive_to_l2_ok",
+            extra={"run_id": run_id[:8], "user_id": user_id[:8], "turns": len(history), "ttl": ttl},
+        )
+    except Exception:
+        logger.warning("archive_to_l2_failed", exc_info=True)

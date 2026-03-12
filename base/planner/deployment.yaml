@@ -161,6 +161,23 @@ spec:
               value: "synesis"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
+            # Semantic cache — shared Redis for cross-replica cache, sessions, and L2 archive
+            - name: SYNESIS_RETRIEVAL_CACHE_BACKEND
+              value: "numpy"  # "numpy" (default) or "redis"
+            - name: SYNESIS_RETRIEVAL_CACHE_REDIS_URL
+              value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/0"
+            - name: SYNESIS_RETRIEVAL_CACHE_REDIS_PREFIX
+              value: "synesis:cache:"
+            # Session persistence (LangGraph checkpointer)
+            - name: SYNESIS_SESSION_CHECKPOINTER_BACKEND
+              value: "memory"  # "memory" (default) or "redis"
+            - name: SYNESIS_SESSION_REDIS_URL
+              value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/1"
+            # L2 conversation archive
+            - name: SYNESIS_L2_ARCHIVE_REDIS_URL
+              value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
+            - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
+              value: "604800"
           resources:
             requests:
               cpu: "1"
