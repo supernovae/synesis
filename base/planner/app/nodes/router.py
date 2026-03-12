@@ -36,10 +36,22 @@ logger = logging.getLogger("synesis.router")
 # ---------------------------------------------------------------------------
 # Retrieval bounds (deterministic, enforced in system code)
 # ---------------------------------------------------------------------------
-MAX_DOCS_PER_QUERY = 5
+_MAX_DOCS_BASE = 5
+_MAX_DOCS_HARD = 8
 MAX_SNIPPETS_PER_PACKET = 20
 MAX_REFINEMENT_ROUNDS = 2
 LOW_CONFIDENCE_THRESHOLD = 0.4
+
+
+def max_docs_for_difficulty(difficulty: float = 0.5) -> int:
+    """Scale per-query doc cap: 5 for easy tasks, up to 8 for difficulty >= 0.7."""
+    if difficulty >= 0.7:
+        return _MAX_DOCS_HARD
+    return _MAX_DOCS_BASE
+
+
+# Backwards-compat alias used by tests
+MAX_DOCS_PER_QUERY = _MAX_DOCS_BASE
 
 # ---------------------------------------------------------------------------
 # LLM prompts — focused single-output-type contracts
@@ -463,16 +475,17 @@ class RouterNode:
             scope_suffix = " ".join(preferred_web_scopes[:2])
             web_query = f"{web_query} {scope_suffix}"
 
+        doc_cap = max_docs_for_difficulty(difficulty)
         bundle = await retrieve_unified(
             query=query,
             difficulty=difficulty,
-            top_k=MAX_DOCS_PER_QUERY,
+            top_k=doc_cap,
             web_query=web_query,
             domain_hints=domain_hints,
             force_web=force_web,
             skip_web=skip_web,
         )
-        bundle.results = bundle.results[:MAX_DOCS_PER_QUERY]
+        bundle.results = bundle.results[:doc_cap]
         return bundle
 
     def dedupe(self, packets: list[EvidencePacket]) -> list[EvidencePacket]:

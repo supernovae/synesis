@@ -175,9 +175,17 @@ def _extract_decisions(
     return entries
 
 
+_DECISIVE_TAXONOMY_KEYS = frozenset({
+    "software_architecture",
+    "cloud",
+    "ml_ops",
+})
+
+
 def _derive_style_contract(
     user_task: dict[str, Any],
     difficulty: float,
+    taxonomy_key: str = "",
 ) -> dict[str, Any]:
     """Build a StyleContract from user_task + difficulty.
 
@@ -196,13 +204,19 @@ def _derive_style_contract(
     else:
         verbosity = "moderate"
 
-    # Decisiveness: user wants committed recommendations, not surveys
+    # Decisiveness: user wants committed recommendations, not surveys.
+    # Auto-enable for architecture/cloud/ML taxonomy keys so the writer
+    # commits to specific tools rather than presenting option menus.
     neg_constraints = user_task.get("negative_constraints") or []
     decision_signals = user_task.get("decision_signals") or []
-    decisive = bool(decision_signals) or any(
-        kw in c.lower()
-        for c in neg_constraints
-        for kw in ("generic", "survey", "menu of options", "list of alternatives")
+    decisive = (
+        bool(decision_signals)
+        or taxonomy_key in _DECISIVE_TAXONOMY_KEYS
+        or any(
+            kw in c.lower()
+            for c in neg_constraints
+            for kw in ("generic", "survey", "menu of options", "list of alternatives")
+        )
     )
 
     contract = StyleContract(
@@ -512,7 +526,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Anti-oscillation: emit decision ledger and locked style contract
         ledger = _extract_decisions(parsed, user_task)
-        style_locked = _derive_style_contract(user_task, difficulty)
+        style_locked = _derive_style_contract(user_task, difficulty, taxonomy_key=taxonomy_key)
 
         # Evidence requests for sections that may need more retrieval
         domain_tags = list(state.get("active_domain_refs") or [])

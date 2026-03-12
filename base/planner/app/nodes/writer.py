@@ -325,8 +325,8 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     node_name = "writer"
 
     # Build evidence from Router's evidence packets (summaries + top snippets).
-    # Sort by confidence descending so _long_context_reorder places the
-    # highest-confidence evidence at the attention zones (beginning + end).
+    # Group by section_id so each plan section gets proportional budget.
+    difficulty = state.get("difficulty", 0.5)
     packets = state.get("evidence_packets") or []
     packets = sorted(
         packets,
@@ -335,29 +335,42 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         ),
         reverse=True,
     )
-    evidence_parts: list[str] = []
+
+    max_snips = 5 if difficulty >= 0.7 else 3
+    min_rel = 0.45 if difficulty >= 0.7 else 0.6
+
+    section_groups: dict[int | None, list[str]] = {}
     for p in packets:
         summary = p.get("summary", "") if isinstance(p, dict) else getattr(p, "summary", "")
         if not summary:
             continue
-
         snippets = p.get("snippets", []) if isinstance(p, dict) else getattr(p, "snippets", [])
-        top_snippets = _extract_top_snippets(snippets, max_snippets=3, min_relevance=0.6)
+        top_snippets = _extract_top_snippets(snippets, max_snippets=max_snips, min_relevance=min_rel)
         if top_snippets:
             snippet_block = "\n".join(f"  > {s}" for s in top_snippets)
-            evidence_parts.append(f"{summary}\n\nKey excerpts:\n{snippet_block}")
+            part = f"{summary}\n\nKey excerpts:\n{snippet_block}"
         else:
-            evidence_parts.append(summary)
+            part = summary
+        sid = p.get("section_id") if isinstance(p, dict) else getattr(p, "section_id", None)
+        section_groups.setdefault(sid, []).append(part)
 
-    # Lost-in-the-middle mitigation: reorder evidence so strongest items
-    # appear at the start and end of the context window.
-    if settings.long_context_reorder_enabled and len(evidence_parts) > 2:
-        evidence_parts = _long_context_reorder(evidence_parts)
+    evidence_budget = settings.scaled_evidence_budget(difficulty)
+    num_groups = max(len(section_groups), 1)
+    per_section_budget = evidence_budget // num_groups
 
-    compiled_evidence = "\n---\n".join(evidence_parts)
+    compiled_sections: list[str] = []
+    budget_remaining = evidence_budget
+    for sid, parts in section_groups.items():
+        if settings.long_context_reorder_enabled and len(parts) > 2:
+            parts = _long_context_reorder(parts)
+        section_text = "\n---\n".join(parts)
+        allowed = min(len(section_text), max(per_section_budget, budget_remaining // max(num_groups, 1)))
+        section_text = section_text[:allowed]
+        budget_remaining -= len(section_text)
+        num_groups -= 1
+        compiled_sections.append(section_text)
 
-    if len(compiled_evidence) > settings.evidence_budget_chars:
-        compiled_evidence = compiled_evidence[: settings.evidence_budget_chars]
+    compiled_evidence = "\n---\n".join(compiled_sections)
 
     task_block = _build_task_block(state)
     outline_block = _build_outline_block(state)
@@ -365,7 +378,6 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     style_contract = state.get("style_contract_locked") or {}
     verbosity = style_contract.get("verbosity_target", "moderate")
 
-    difficulty = state.get("difficulty", 0.5)
     writer_budget = settings.scaled_writer_budget(difficulty)
     writer_budget = max(2048, min(writer_budget, 12288))
 
@@ -394,6 +406,16 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         epistemic = (taxonomy_meta.get("epistemic_guidance") or "").strip()
         if epistemic:
             system_prompt += f"\n\nEPISTEMIC DISCIPLINE:\n{epistemic}"
+
+    if difficulty >= 0.7:
+        system_prompt += (
+            "\n\nSECTION DEPTH (high-complexity task):\n"
+            "- Each section must contain 2-4 substantive paragraphs with concrete details.\n"
+            "- Name specific tools, services, and versions — not abstract categories.\n"
+            "- If evidence for a section is thin, explicitly state what is missing "
+            "rather than padding with generic advice.\n"
+            "- A section that could apply to any project without modification is a failure."
+        )
 
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"
 

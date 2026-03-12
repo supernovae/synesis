@@ -298,6 +298,47 @@ critic_llm = ChatOpenAI(
 )
 
 
+_BACKTICK_NAME_RE = re.compile(r"`[A-Za-z][\w.\-/]*`")
+_MERMAID_BLOCK_RE = re.compile(r"```mermaid\b", re.IGNORECASE)
+_SECTION_HEADING_RE = re.compile(r"^#{1,3}\s+.+", re.MULTILINE)
+
+
+def _deterministic_depth_checks(
+    response: str,
+    difficulty: float,
+    taxonomy_meta: dict[str, Any],
+) -> list[str]:
+    """Run deterministic quality checks that fire before LLM critic scoring.
+
+    Returns a list of failure-mode strings (from the critic vocabulary)
+    that should be merged into the LLM-produced failure_modes.
+    """
+    failures: list[str] = []
+    if difficulty < 0.7:
+        return failures
+
+    sections = _SECTION_HEADING_RE.split(response)
+    non_empty = [s for s in sections if len(s.strip()) > 50]
+
+    for section_text in non_empty:
+        word_count = len(section_text.split())
+        if word_count < 150:
+            if "insufficient_depth" not in failures:
+                failures.append("insufficient_depth")
+        has_tool_name = bool(_BACKTICK_NAME_RE.search(section_text))
+        has_code_block = "```" in section_text
+        if not has_tool_name and not has_code_block:
+            if "genericity" not in failures:
+                failures.append("genericity")
+
+    output_style = (taxonomy_meta.get("output_style") or "").strip()
+    if output_style == "architecture_document" and not _MERMAID_BLOCK_RE.search(response):
+        if "format_miss" not in failures:
+            failures.append("format_miss")
+
+    return failures
+
+
 def _budget_guided_critic(difficulty: float) -> ChatOpenAI:
     """Return a critic LLM instance with thinking budget tuned to task difficulty.
 
@@ -614,6 +655,18 @@ Reply with JSON:
                             failure_modes.append("evidence_underuse")
                             if difficulty >= 0.7:
                                 critical_failures.add("evidence_underuse")
+
+                # Deterministic depth checks for hard tasks: catch shallow
+                # sections that LLM-based critic might score as nominally covered.
+                if difficulty >= 0.7 and generated_code:
+                    _det_failures = _deterministic_depth_checks(
+                        generated_code, difficulty, state.get("taxonomy_metadata") or {}
+                    )
+                    for df in _det_failures:
+                        if df not in failure_modes:
+                            failure_modes.append(df)
+                        if df in {"insufficient_depth", "genericity"}:
+                            critical_failures.add(df)
 
                 if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
                     doc_approved = True

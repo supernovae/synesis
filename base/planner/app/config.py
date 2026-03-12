@@ -229,7 +229,8 @@ class Settings(BaseSettings):
     writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0
     writer_budget_max: int = 12288  # writer synthesis budget at difficulty=1
     compiler_model_context: int = 16384  # max context length of the compiler/writer model
-    evidence_budget_chars: int = 24000  # max chars of compiled evidence for the structured writer
+    evidence_budget_chars: int = 24000  # evidence budget at difficulty=0
+    evidence_budget_chars_max: int = 40000  # evidence budget at difficulty=1
 
     # CRAG-style corrective retrieval: critic triggers web search on low-confidence sections.
     # Web budget = web_budget_base + int(difficulty * (crag_max_web_queries - web_budget_base)).
@@ -416,6 +417,11 @@ class Settings(BaseSettings):
         """Per-section token budget scaled by continuous difficulty (0.0-1.0)."""
         d = max(0.0, min(1.0, difficulty))
         return int(self.section_budget_base + d * (self.section_budget_max - self.section_budget_base))
+
+    def scaled_evidence_budget(self, difficulty: float) -> int:
+        """Evidence character budget scaled by continuous difficulty."""
+        d = max(0.0, min(1.0, difficulty))
+        return int(self.evidence_budget_chars + d * (self.evidence_budget_chars_max - self.evidence_budget_chars))
 
     def scaled_writer_budget(self, difficulty: float) -> int:
         """Writer synthesis token budget scaled by continuous difficulty."""

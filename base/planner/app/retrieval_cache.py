@@ -415,8 +415,9 @@ async def warm_cache() -> int:
                     "domain_hints": wq.get("domain_hints", []),
                     "skip_web": True,
                 }
-                packet = await router.handle_single_request(request, task_context=query_str, difficulty=0.5)
-                if packet and packet.confidence >= 0.3:
+                result = await router.handle_single_request(request, task_context=query_str, difficulty=0.5)
+                packet = result[0] if isinstance(result, tuple) else result
+                if packet and getattr(packet, "confidence", 0) >= 0.3:
                     warmed += 1
             except Exception:
                 logger.debug("warm_cache_query_failed", extra={"query": query_str}, exc_info=True)

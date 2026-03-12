@@ -34,7 +34,7 @@ from .api_metrics import (
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
-from .graph import get_graph_config, graph
+from .graph import flush_opik_tracer, get_graph_config, graph
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -1360,6 +1360,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
+                finally:
+                    flush_opik_tracer()
 
                 # Stream already closed (background critic mode) — skip all post-processing
                 if _stream_closed:
@@ -1629,6 +1631,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 finally:
                     if heartbeat_task:
                         heartbeat_task.cancel()
+                    flush_opik_tracer()
 
                 if not result:
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
@@ -1679,6 +1682,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             status_code=500,
             detail="Graph execution failed. Check planner logs and admin status page for model health.",
         ) from None
+    finally:
+        flush_opik_tracer()
 
     content, total_tokens = _extract_content_and_metrics(
         result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model

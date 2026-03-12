@@ -7,14 +7,45 @@ disabled (opik_enabled=False).
 
 from __future__ import annotations
 
+import functools
 import logging
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from .config import settings
 
 logger = logging.getLogger("synesis.opik")
 
+F = TypeVar("F", bound=Callable[..., Any])
+
 _client: Any = None
+_track_fn: Any = None  # cached opik.track reference
+
+
+def track_node(name: str) -> Callable[[F], F]:
+    """Conditional ``@opik.track()`` decorator for LangGraph node functions.
+
+    Returns a no-op passthrough when Opik is disabled so that importing
+    this helper never pulls in the ``opik`` package unnecessarily.
+    The decorator creates a child span under the current OpikTracer trace,
+    giving per-node latency and input/output visibility.
+    """
+    if not settings.opik_enabled:
+        return lambda fn: fn  # type: ignore[return-value]
+
+    global _track_fn
+    if _track_fn is None:
+        try:
+            import opik
+
+            _track_fn = opik.track
+        except Exception:
+            logger.debug("opik_track_import_failed", exc_info=True)
+            _track_fn = False  # sentinel: don't retry
+
+    if _track_fn is False:
+        return lambda fn: fn  # type: ignore[return-value]
+
+    return _track_fn(name=name, project_name="synesis")  # type: ignore[return-value]
 
 
 def _get_client() -> Any:

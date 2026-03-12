@@ -789,32 +789,38 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
 
 timeout = settings.node_timeout_seconds
 
+from .opik_utils import track_node
+
 graph_builder = StateGraph(GraphState)
 
-graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeout)(entry_pipeline_node)))
-graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
-graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
+graph_builder.add_node("entry_pipeline", track_node("entry_pipeline")(with_telemetry_node(with_timeout(timeout)(entry_pipeline_node))))
+graph_builder.add_node("router", track_node("router")(with_telemetry_node(with_timeout(timeout)(router_node))))
+graph_builder.add_node("planner", track_node("planner")(with_telemetry_node(with_timeout(timeout)(planner_node))))
 graph_builder.add_node(
     "executor",
-    with_telemetry_node(
-        with_timeout(timeout)(
-            validated_node(
-                executor_node,
-                validators_before=[validate_decision_drift, validate_style_compliance],
-                validators_after=[validate_required_sections, validate_citation_preservation],
+    track_node("executor")(
+        with_telemetry_node(
+            with_timeout(timeout)(
+                validated_node(
+                    executor_node,
+                    validators_before=[validate_decision_drift, validate_style_compliance],
+                    validators_after=[validate_required_sections, validate_citation_preservation],
+                )
             )
         )
     ),
 )
-graph_builder.add_node("writer", with_telemetry_node(with_timeout(timeout)(writer_node)))
+graph_builder.add_node("writer", track_node("writer")(with_telemetry_node(with_timeout(timeout)(writer_node))))
 graph_builder.add_node("patch_integrity_gate", with_telemetry_node(with_timeout(timeout)(patch_integrity_gate_node)))
 graph_builder.add_node(
     "critic",
-    with_telemetry_node(
-        with_timeout(timeout)(
-            validated_node(
-                critic_node,
-                validators_after=[validate_critique_resolutions],
+    track_node("critic")(
+        with_telemetry_node(
+            with_timeout(timeout)(
+                validated_node(
+                    critic_node,
+                    validators_after=[validate_critique_resolutions],
+                )
             )
         )
     ),
@@ -915,6 +921,20 @@ if settings.opik_enabled:
         logger.info("opik_tracer_ready", extra={"url": settings.opik_url})
     except Exception:
         logger.warning("opik_init_failed", exc_info=True)
+
+
+def flush_opik_tracer() -> None:
+    """Flush buffered Opik traces to the backend.
+
+    Must be called after each graph execution because the OpikTracer's
+    internal client uses batching and only auto-flushes on process exit
+    (via atexit), which never fires for a long-running server.
+    """
+    if _opik_tracer is not None:
+        try:
+            _opik_tracer.flush()
+        except Exception:
+            logger.debug("opik_flush_failed", exc_info=True)
 
 
 def get_graph_config(extra: dict[str, Any] | None = None, thread_id: str = "") -> dict[str, Any]:
