@@ -2849,3 +2849,655 @@ sources:
     config:
       url: "https://medium.com/@richardhightower/agent-brain-a-code-first-rag-system-for-ai-coding-assistants-83e95c972255"
       tags: [coding-assistant, rag, agent, code-first, architecture]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OPENSHIFT CONTAINER PLATFORM 4.17 — CORE PLATFORM DOCS (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OCP 4.17: Architecture"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/architecture/OpenShift_Container_Platform-4.17-Architecture-en-US.pdf"
+      tags: [openshift, ocp, architecture, platform, red-hat]
+
+  - name: "OCP 4.17: Networking"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/networking/OpenShift_Container_Platform-4.17-Networking-en-US.pdf"
+      tags: [openshift, ocp, networking, sdn, ovn, ingress, red-hat]
+
+  - name: "OCP 4.17: Security and Compliance"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/security_and_compliance/OpenShift_Container_Platform-4.17-Security_and_compliance-en-US.pdf"
+      tags: [openshift, ocp, security, compliance, rbac, scc, red-hat]
+
+  - name: "OCP 4.17: Operators"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/operators/OpenShift_Container_Platform-4.17-Operators-en-US.pdf"
+      tags: [openshift, ocp, operators, olm, operator-sdk, red-hat]
+
+  - name: "OCP 4.17: Nodes"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/nodes/OpenShift_Container_Platform-4.17-Nodes-en-US.pdf"
+      tags: [openshift, ocp, nodes, pods, scheduling, autoscaling, red-hat]
+
+  - name: "OCP 4.17: Storage"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/storage/OpenShift_Container_Platform-4.17-Storage-en-US.pdf"
+      tags: [openshift, ocp, storage, pv, csi, ocs, red-hat]
+
+  - name: "OCP 4.17: Installation Configuration"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/installation_configuration/OpenShift_Container_Platform-4.17-Installation_configuration-en-US.pdf"
+      tags: [openshift, ocp, installation, configuration, ipi, upi, red-hat]
+
+  - name: "OCP 4.17: Monitoring"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/monitoring/OpenShift_Container_Platform-4.17-Monitoring-en-US.pdf"
+      tags: [openshift, ocp, monitoring, prometheus, alertmanager, metrics, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ROSA — RED HAT OPENSHIFT ON AWS (PDF, tagged aws)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "ROSA: Introduction to ROSA"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/introduction_to_rosa/Red_Hat_OpenShift_Service_on_AWS-4-Introduction_to_ROSA-en-US.pdf"
+      tags: [rosa, openshift, aws, managed-service, architecture, red-hat]
+
+  - name: "ROSA: Getting Started"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/getting_started/Red_Hat_OpenShift_Service_on_AWS-4-Getting_started-en-US.pdf"
+      tags: [rosa, openshift, aws, getting-started, sts, red-hat]
+
+  - name: "ROSA: Networking"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/networking/Red_Hat_OpenShift_Service_on_AWS-4-Networking-en-US.pdf"
+      tags: [rosa, openshift, aws, networking, vpc, privatelink, red-hat]
+
+  - name: "ROSA: Cluster Administration"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/cluster_administration/Red_Hat_OpenShift_Service_on_AWS-4-Cluster_administration-en-US.pdf"
+      tags: [rosa, openshift, aws, cluster-admin, upgrade, maintenance, red-hat]
+
+  - name: "ROSA: CLI Tools (rosa + oc)"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/rosa_cli/Red_Hat_OpenShift_Service_on_AWS-4-ROSA_CLI-en-US.pdf"
+      tags: [rosa, openshift, aws, cli, rosa-cli, oc-cli, red-hat]
+
+  - name: "ROSA: Security and Compliance"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/prepare_your_environment/Red_Hat_OpenShift_Service_on_AWS-4-Prepare_your_environment-en-US.pdf"
+      tags: [rosa, openshift, aws, security, iam, sts, prerequisites, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ARO — AZURE RED HAT OPENSHIFT (web_page, tagged azure)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "ARO: Azure Red Hat OpenShift Documentation"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/openshift/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://learn.microsoft.com/en-us/azure/openshift/"]
+      tags: [aro, openshift, azure, managed-service, microsoft, red-hat]
+
+  - name: "ARO: Create a Cluster"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/openshift/create-cluster"
+      tags: [aro, openshift, azure, cluster-creation, installation]
+
+  - name: "ARO: az aro CLI Reference"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://learn.microsoft.com/en-us/cli/azure/aro?view=azure-cli-latest"
+      tags: [aro, openshift, azure, cli, az-aro]
+
+  - name: "ARO: Networking"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://learn.microsoft.com/en-us/azure/openshift/concepts-networking"
+      tags: [aro, openshift, azure, networking, vnet, private-cluster]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OSD ON GCP — OPENSHIFT DEDICATED ON GOOGLE CLOUD (PDF, tagged gcp)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OSD: Introduction to OpenShift Dedicated"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/introduction_to_openshift_dedicated/OpenShift_Dedicated-4-Introduction_to_OpenShift_Dedicated-en-US.pdf"
+      tags: [osd, openshift, gcp, aws, managed-service, architecture, red-hat]
+
+  - name: "OSD: Clusters on GCP"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/installing_accessing_and_deleting_openshift_dedicated_clusters/OpenShift_Dedicated-4-Installing_accessing_and_deleting_OpenShift_Dedicated_clusters-en-US.pdf"
+      tags: [osd, openshift, gcp, installation, cluster-creation, wif, red-hat]
+
+  - name: "OSD: Planning Your Environment"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/planning_your_environment/OpenShift_Dedicated-4-Planning_your_environment-en-US.pdf"
+      tags: [osd, openshift, gcp, planning, ccs, prerequisites, red-hat]
+
+  - name: "OSD: Cluster Administration"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/cluster_administration/OpenShift_Dedicated-4-Cluster_administration-en-US.pdf"
+      tags: [osd, openshift, gcp, cluster-admin, upgrade, maintenance, red-hat]
+
+  - name: "OSD: Networking"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/networking/OpenShift_Dedicated-4-Networking-en-US.pdf"
+      tags: [osd, openshift, gcp, networking, ingress, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ACM — RED HAT ADVANCED CLUSTER MANAGEMENT 2.12 (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "ACM 2.12: Install"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/install/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Install-en-US.pdf"
+      tags: [acm, openshift, multicluster, installation, hub, red-hat]
+
+  - name: "ACM 2.12: Cluster Lifecycle"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/clusters/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Clusters-en-US.pdf"
+      tags: [acm, openshift, multicluster, cluster-lifecycle, provisioning, red-hat]
+
+  - name: "ACM 2.12: Governance"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/governance/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Governance-en-US.pdf"
+      tags: [acm, openshift, multicluster, governance, policy, compliance, red-hat]
+
+  - name: "ACM 2.12: Observability"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/observability/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Observability-en-US.pdf"
+      tags: [acm, openshift, multicluster, observability, monitoring, thanos, red-hat]
+
+  - name: "ACM 2.12: Applications"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/applications/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Applications-en-US.pdf"
+      tags: [acm, openshift, multicluster, applications, gitops, subscriptions, red-hat]
+
+  - name: "ACM 2.12: Access Control"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/access_control/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Access_control-en-US.pdf"
+      tags: [acm, openshift, multicluster, rbac, access-control, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ACS — RED HAT ADVANCED CLUSTER SECURITY 4.7 (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "ACS 4.7: Installing"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/installing/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Installing-en-US.pdf"
+      tags: [acs, stackrox, openshift, security, installation, red-hat]
+
+  - name: "ACS 4.7: Operating"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/operating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Operating-en-US.pdf"
+      tags: [acs, stackrox, openshift, security, vulnerability, compliance, red-hat]
+
+  - name: "ACS 4.7: Integrating"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/integrating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Integrating-en-US.pdf"
+      tags: [acs, stackrox, openshift, security, integration, ci-cd, red-hat]
+
+  - name: "ACS 4.7: Configuration"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/configuring/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Configuring-en-US.pdf"
+      tags: [acs, stackrox, openshift, security, configuration, policies, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OPENSHIFT GITOPS 1.15 — ARGOCD ENTERPRISE (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OpenShift GitOps 1.15: Configuring Argo CD"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/configuring_argo_cd/Red_Hat_OpenShift_GitOps-1.15-Configuring_Argo_CD-en-US.pdf"
+      tags: [gitops, argocd, openshift, configuration, declarative, red-hat]
+
+  - name: "OpenShift GitOps 1.15: Argo Rollouts"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/argo_rollouts/Red_Hat_OpenShift_GitOps-1.15-Argo_Rollouts-en-US.pdf"
+      tags: [gitops, argocd, openshift, argo-rollouts, canary, blue-green, red-hat]
+
+  - name: "OpenShift GitOps 1.15: Installing"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/installing_gitops/Red_Hat_OpenShift_GitOps-1.15-Installing_GitOps-en-US.pdf"
+      tags: [gitops, argocd, openshift, installation, operator, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OPENSHIFT PIPELINES 1.17 — TEKTON ENTERPRISE (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OpenShift Pipelines 1.17: About OpenShift Pipelines"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/about_openshift_pipelines/Red_Hat_OpenShift_Pipelines-1.17-About_OpenShift_Pipelines-en-US.pdf"
+      tags: [tekton, pipelines, openshift, ci-cd, tasks, red-hat]
+
+  - name: "OpenShift Pipelines 1.17: Creating CI/CD Pipelines"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/creating_cicd_pipelines/Red_Hat_OpenShift_Pipelines-1.17-Creating_CICD_pipelines-en-US.pdf"
+      tags: [tekton, pipelines, openshift, ci-cd, pipeline-creation, triggers, red-hat]
+
+  - name: "OpenShift Pipelines 1.17: Installing and Configuring"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/installing_and_configuring/Red_Hat_OpenShift_Pipelines-1.17-Installing_and_configuring-en-US.pdf"
+      tags: [tekton, pipelines, openshift, installation, tektonconfig, red-hat]
+
+  - name: "Tekton Documentation (tekton.dev)"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://tekton.dev/docs/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://tekton.dev/docs/"]
+      tags: [tekton, ci-cd, pipelines, tasks, kubernetes, cncf]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OPENSHIFT LOGGING (PDF)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OCP 4.17: Logging"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/logging/OpenShift_Container_Platform-4.17-Logging-en-US.pdf"
+      tags: [openshift, logging, elasticsearch, fluentd, loki, vector, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # OPENSHIFT CLUSTER OBSERVABILITY OPERATOR
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "Cluster Observability Operator: About"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/index"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/"]
+      tags: [openshift, observability, coo, prometheus, thanos, alertmanager, red-hat]
+
+  - name: "Cluster Observability Operator: Installing"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html-single/cluster_observability_operator/index"
+      tags: [openshift, observability, coo, installation, operator, red-hat]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CLI TOOLS — oc, rosa, tkn
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "OCP 4.17: CLI Tools (oc, odo, kubectl plugins)"
+    handler: pdf_document
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/cli_tools/OpenShift_Container_Platform-4.17-CLI_tools-en-US.pdf"
+      tags: [openshift, oc-cli, odo, kubectl, cli, reference, red-hat]
+
+  - name: "ROSA CLI Reference"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: openshift
+    config:
+      url: "https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/rosa-get-started-cli"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/"]
+      tags: [rosa, rosa-cli, aws, openshift, cli, red-hat]
+
+  - name: "Tekton CLI (tkn) Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://tekton.dev/docs/cli/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://tekton.dev/docs/cli/"]
+      tags: [tekton, tkn-cli, ci-cd, pipelines, cli]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # RHCS TERRAFORM MODULES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "RHCS Terraform Provider Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://registry.terraform.io/providers/terraform-redhat/rhcs/latest/docs"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://registry.terraform.io/providers/terraform-redhat/rhcs/"]
+      tags: [terraform, rhcs, rosa, openshift, iac, aws, red-hat]
+
+  - name: "RHCS ROSA HCP Terraform Module"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/rhcs/latest"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/"]
+      tags: [terraform, rhcs, rosa, hcp, openshift, iac, aws]
+
+  - name: "RHCS ROSA Classic Terraform Module"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://registry.terraform.io/modules/terraform-redhat/rosa-classic/rhcs/latest"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://registry.terraform.io/modules/terraform-redhat/rosa-classic/"]
+      tags: [terraform, rhcs, rosa, classic, openshift, iac, aws]
+
+  - name: "terraform-provider-rhcs (GitHub)"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/terraform-redhat/terraform-provider-rhcs"
+      tags: [terraform, rhcs, rosa, openshift, iac, source-code]
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # DISTRIBUTED SYSTEMS & KUBERNETES DEEP DIVES
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: "Kubernetes: Scheduling, Preemption, and Eviction"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/scheduling-eviction/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/scheduling-eviction/"]
+      tags: [kubernetes, scheduling, preemption, eviction, pod-priority]
+
+  - name: "Kubernetes: Cluster Administration"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/cluster-administration/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/cluster-administration/"]
+      tags: [kubernetes, cluster-admin, networking, logging, addons]
+
+  - name: "Kubernetes: Configuration Best Practices"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/configuration/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/configuration/"]
+      tags: [kubernetes, configuration, configmaps, secrets, resource-management]
+
+  - name: "Kubernetes: Workloads"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/workloads/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/workloads/"]
+      tags: [kubernetes, workloads, deployments, statefulsets, daemonsets, jobs]
+
+  - name: "Kubernetes: Services, Load Balancing, and Networking"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/services-networking/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/services-networking/"]
+      tags: [kubernetes, services, networking, ingress, load-balancing, dns]
+
+  - name: "Kubernetes: Storage"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/storage/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/storage/"]
+      tags: [kubernetes, storage, persistent-volumes, csi, storageclasses]
+
+  - name: "Kubernetes: Security"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/security/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/security/"]
+      tags: [kubernetes, security, rbac, network-policies, pod-security]
+
+  - name: "Kubernetes: Extending Kubernetes"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://kubernetes.io/docs/concepts/extend-kubernetes/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://kubernetes.io/docs/concepts/extend-kubernetes/"]
+      tags: [kubernetes, extensions, crd, operators, api-aggregation]
+
+  - name: "The Raft Consensus Algorithm"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://raft.github.io/"
+      tags: [distributed-systems, consensus, raft, etcd, replication]
+
+  - name: "etcd Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://etcd.io/docs/v3.5/"
+      follow_links: true
+      max_depth: 2
+      allowed_prefixes: ["https://etcd.io/docs/v3.5/"]
+      tags: [etcd, distributed-systems, consensus, kubernetes, storage]
+
+  - name: "Martin Kleppmann: Designing Data-Intensive Applications (Summary)"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://dataintensive.net/"
+      tags: [distributed-systems, data-intensive, replication, partitioning, consistency]
