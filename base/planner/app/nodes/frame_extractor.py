@@ -22,7 +22,7 @@ from langchain_openai import ChatOpenAI
 from ..config import settings
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
-from ..schemas import FirstPassFrame, MissingFieldReport, UserTask
+from ..schemas import FirstPassFrame, MissingFieldReport, UserTask, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
 from .frame_normalizer import normalize_frame
 
@@ -107,13 +107,11 @@ async def _llm_repair(
         ]
     )
 
-    content = (result.content or "").strip()
-    json_start = content.find("{")
-    json_end = content.rfind("}") + 1
-    if json_start >= 0 and json_end > json_start:
-        raw = json.loads(content[json_start:json_end])
-    else:
-        raw = json.loads(content)
+    try:
+        raw = safe_parse_json(result.content or "")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("llm_repair_json_parse_failed", extra={"error": str(exc)[:200]})
+        raise
 
     return UserTask(**{k: v for k, v in raw.items() if k in UserTask.model_fields})
 

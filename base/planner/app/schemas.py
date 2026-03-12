@@ -137,6 +137,17 @@ def _extract_json(raw: str) -> str:
     raise ValueError("Unbalanced braces in JSON object")
 
 
+def safe_parse_json(raw: str) -> dict:
+    """Extract and repair JSON from LLM output, returning parsed dict.
+
+    Wraps _extract_json (depth-based extraction, fence stripping, multi-pass
+    repair) so callers don't need to duplicate JSON safety logic.
+    Raises ValueError if no valid JSON can be recovered.
+    """
+    cleaned = _extract_json(raw)
+    return json.loads(cleaned)
+
+
 def parse_and_validate(raw: str, model: type[T], retry_prompt: str | None = None) -> T:
     """Extract JSON, validate against schema, return validated model or raise."""
     extracted = _extract_json(raw)

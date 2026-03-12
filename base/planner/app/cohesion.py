@@ -16,7 +16,6 @@ LLM calls use the router model for lightweight JSON classification.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 from collections import Counter
@@ -26,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from .config import settings
+from .schemas import safe_parse_json
 
 logger = logging.getLogger("synesis.cohesion")
 
@@ -166,9 +166,7 @@ async def _detect_cohesion_lock_llm(
         text_preview = (getattr(r, "text", "") or "")[:200]
         doc_name = getattr(r, "document_name", "") or ""
         heading = getattr(r, "heading_path", "") or ""
-        doc_summaries.append(
-            f"[{i + 1}] doc={doc_name} heading={heading}\n{text_preview}"
-        )
+        doc_summaries.append(f"[{i + 1}] doc={doc_name} heading={heading}\n{text_preview}")
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -200,12 +198,7 @@ async def _detect_cohesion_lock_llm(
             ]
         )
 
-        text = (resp.content or "").strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```\w*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-
-        data = json.loads(text)
+        data = safe_parse_json(resp.content or "")
         entity = data.get("entity", "")
         if not entity:
             return None
@@ -317,11 +310,7 @@ async def _micro_critic_llm_single(
             ]
         )
 
-        text = (resp.content or "").strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```\w*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-        return json.loads(text)
+        return safe_parse_json(resp.content or "")
     except Exception:
         logger.debug("micro_critic_llm_failed", exc_info=True)
         return {"keep": True, "reason": "LLM micro-critic failed; keeping by default"}

@@ -6,7 +6,6 @@ Domain-specific decomposition rules come from taxonomy plugins.
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any
@@ -16,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
-from ..schemas import DecisionEntry, PlannerOut, StyleContract, parse_and_validate
+from ..schemas import DecisionEntry, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.planner")
@@ -366,11 +365,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             parsed = parse_and_validate(response.content or "", PlannerOut)
         except Exception as e:
             logger.warning("planner_schema_validation_failed", extra={"error": str(e)[:200]})
-            content = response.content or ""
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                data = json.loads(content[json_start:json_end])
+            try:
+                data = safe_parse_json(response.content or "")
                 plan = data.get("plan", data)
                 if isinstance(plan, dict):
                     parsed = PlannerOut(
@@ -387,7 +383,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                         reasoning=str(e),
                         confidence=0.3,
                     )
-            else:
+            except Exception:
                 parsed = PlannerOut(
                     plan={"steps": [], "open_questions": [], "assumptions": []},
                     reasoning="Parse failed",

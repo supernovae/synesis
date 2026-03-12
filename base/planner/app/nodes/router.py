@@ -27,6 +27,7 @@ from langchain_openai import ChatOpenAI
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
+from ..schemas import safe_parse_json
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
 from ..unified_retrieval import RetrievalBundle, UnifiedResult, retrieve_unified
 
@@ -137,6 +138,7 @@ def _build_cohesion_constraint(cohesion_lock: dict[str, Any] | None) -> str:
         f"Do NOT introduce information from outside this frame.\n"
         f"If a snippet touches an excluded topic, omit it entirely.\n"
     )
+
 
 REFINER_PROMPT = """\
 ROLE: Retrieval Query Refiner
@@ -785,13 +787,8 @@ class RouterNode:
         raw_results: list[UnifiedResult],
     ) -> EvidencePacket:
         """Parse LLM JSON output into an EvidencePacket with fallback."""
-        text = llm_output.strip()
-        if text.startswith("```"):
-            text = re.sub(r"^```\w*\n?", "", text)
-            text = re.sub(r"\n?```$", "", text)
-
         try:
-            data = json.loads(text)
+            data = safe_parse_json(llm_output)
             sources = []
             for s in data.get("sources", [])[:MAX_DOCS_PER_QUERY]:
                 sources.append(
