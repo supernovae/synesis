@@ -205,7 +205,11 @@ def _build_task_block(state: dict[str, Any]) -> str:
 
     requirements = frame.get("explicit_requirements") or []
     if requirements:
-        parts.append("Requirements: " + "; ".join(requirements[:10]))
+        req_bullets = "\n".join(f"    - {r}" for r in requirements[:10])
+        parts.append(
+            "SYSTEM CAPABILITIES (each must be addressed in depth, not just "
+            "mentioned in passing):\n" + req_bullets
+        )
 
     # Hard constraints get their own block for emphasis
     constraints = frame.get("constraints") or []

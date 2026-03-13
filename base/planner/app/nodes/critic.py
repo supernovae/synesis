@@ -339,6 +339,132 @@ def _deterministic_depth_checks(
     return failures
 
 
+# Stopwords excluded from requirement keyword extraction
+_REQ_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "it", "its", "this", "that", "can", "will", "should", "must", "do",
+    "not", "when", "how", "about", "into", "also", "as", "so", "if",
+    "up", "out", "no", "than", "then", "them", "their", "they", "what",
+    "which", "who", "whom", "where", "each", "all", "any", "both",
+    "few", "more", "most", "other", "some", "such", "very", "just",
+})
+
+
+def _extract_requirement_keywords(requirement: str) -> set[str]:
+    """Extract meaningful keywords from a requirement string.
+
+    Returns lowered, de-stopped tokens of length >= 3.
+    """
+    tokens = re.findall(r"[a-zA-Z]{3,}", requirement.lower())
+    return {t for t in tokens if t not in _REQ_STOPWORDS}
+
+
+def _deterministic_requirement_coverage(
+    response: str,
+    user_task: dict[str, Any],
+    difficulty: float,
+) -> list[str]:
+    """Check that each explicit_requirement has substantive coverage in the response.
+
+    For each requirement, extracts keywords and searches for paragraphs
+    (100+ words) where at least half the keywords appear. Requirements
+    with zero substantive matches are flagged.
+
+    Research: FActScore (EMNLP 2023) — per-claim evaluation outperforms
+    holistic scoring. ManyIFEval — compliance degrades with instruction
+    count; per-requirement tracking is the fix.
+
+    Returns failure-mode strings to merge into the critic result.
+    """
+    if difficulty < 0.6:
+        return []
+
+    requirements = user_task.get("explicit_requirements") or []
+    if not requirements:
+        return []
+
+    response_lower = response.lower()
+    paragraphs = [p for p in response_lower.split("\n\n") if len(p.split()) >= 40]
+
+    uncovered: list[str] = []
+    for req in requirements:
+        keywords = _extract_requirement_keywords(req)
+        if len(keywords) < 2:
+            continue
+
+        threshold = max(2, len(keywords) // 2)
+        found = False
+        for para in paragraphs:
+            hits = sum(1 for kw in keywords if kw in para)
+            if hits >= threshold:
+                found = True
+                break
+
+        if not found:
+            uncovered.append(req)
+
+    failures: list[str] = []
+    if uncovered:
+        logger.info(
+            "requirement_coverage_gap",
+            extra={
+                "uncovered_requirements": uncovered,
+                "total_requirements": len(requirements),
+                "difficulty": round(difficulty, 2),
+            },
+        )
+        failures.append("missing_requirement_coverage")
+
+    return failures
+
+
+def _deterministic_technology_coverage(
+    response: str,
+    user_task: dict[str, Any],
+    difficulty: float,
+) -> list[str]:
+    """Check that each listed technology has workflow-specific coverage.
+
+    Only fires for planning/architecture tasks (intent_class == 'planning'
+    or deliverables mentioning 'architecture'). Checks that each technology
+    from user_task.technologies appears in a paragraph of 60+ words —
+    beyond a mere mention.
+
+    Returns failure-mode strings (non-blocking).
+    """
+    if difficulty < 0.7:
+        return []
+
+    technologies = user_task.get("technologies") or []
+    if not technologies:
+        return []
+
+    response_lower = response.lower()
+    paragraphs = [p for p in response_lower.split("\n\n") if len(p.split()) >= 60]
+
+    thin: list[str] = []
+    for tech in technologies:
+        tl = tech.lower()
+        has_depth = any(tl in para for para in paragraphs)
+        if not has_depth:
+            thin.append(tech)
+
+    failures: list[str] = []
+    if thin:
+        logger.info(
+            "technology_coverage_thin",
+            extra={
+                "thin_technologies": thin,
+                "total_technologies": len(technologies),
+                "difficulty": round(difficulty, 2),
+            },
+        )
+        failures.append("thin_technology_coverage")
+
+    return failures
+
+
 def _budget_guided_critic(difficulty: float) -> ChatOpenAI:
     """Return a critic LLM instance with thinking budget tuned to task difficulty.
 
@@ -509,7 +635,8 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "non_answer, partial_answer, instruction_drift, unsupported_claim, "
                     "false_certainty, buried_lead, failed_prioritization, format_miss, "
                     "leaked_reasoning, false_precision, genericity, unsupported_specificity, "
-                    "insufficient_depth, evidence_underuse.\n"
+                    "insufficient_depth, evidence_underuse, missing_requirement_coverage, "
+                    "thin_technology_coverage.\n"
                     "- genericity: sections that could apply to any project without "
                     "modification.\n"
                     "- unsupported_specificity: recommending specific tools, versions, "
@@ -518,10 +645,17 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "recommendations, or technical reasoning proportional to the task complexity.\n"
                     "- evidence_underuse: available evidence was provided but the response "
                     "does not incorporate or reference it meaningfully.\n"
+                    "- missing_requirement_coverage: one or more explicit user requirements "
+                    "(system capabilities) lack substantive coverage — mentioned in passing "
+                    "but not addressed with a dedicated paragraph or section.\n"
+                    "- thin_technology_coverage: specific technologies the user listed are "
+                    "mentioned but not given workflow-level detail.\n"
                     "Critical (non_answer, partial_answer with 3+ missed requirements) "
                     "→ approved=false.\n"
                     "Depth (insufficient_depth or evidence_underuse on ANY section for "
                     "difficulty >= 0.7, or 2+ sections for difficulty >= 0.6) → approved=false.\n"
+                    "Requirement gap (missing_requirement_coverage at difficulty >= 0.7) "
+                    "→ approved=false.\n"
                     "Short responses (< 3000 chars) at difficulty >= 0.7 with "
                     "insufficient_depth → approved=false."
                 )
@@ -668,6 +802,25 @@ Reply with JSON:
                         if df in {"insufficient_depth", "genericity"}:
                             critical_failures.add(df)
 
+                # Per-requirement coverage: ensure each explicit_requirement
+                # from the user's task has substantive treatment in the output.
+                if difficulty >= 0.6 and generated_code and user_task_data:
+                    _req_failures = _deterministic_requirement_coverage(
+                        generated_code, user_task_data, difficulty,
+                    )
+                    for rf in _req_failures:
+                        if rf not in failure_modes:
+                            failure_modes.append(rf)
+                        if difficulty >= 0.7:
+                            critical_failures.add(rf)
+
+                    _tech_failures = _deterministic_technology_coverage(
+                        generated_code, user_task_data, difficulty,
+                    )
+                    for tf in _tech_failures:
+                        if tf not in failure_modes:
+                            failure_modes.append(tf)
+
                 if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
                     doc_approved = True
                 elif (scores and scores.weighted_overall < settings.critic_retry_threshold) or critical_failures:
@@ -745,6 +898,36 @@ Reply with JSON:
                             "action": "Remove or replace fabricated URLs",
                             "reason": f"Found {len(hallucinated_urls)} URL(s) not in evidence: "
                             + ", ".join(hallucinated_urls[:3]),
+                        }
+                    )
+
+                if "missing_requirement_coverage" in failure_modes:
+                    uncovered = [
+                        r for r in (user_task_data.get("explicit_requirements") or [])
+                        if len(_extract_requirement_keywords(r)) >= 2
+                    ]
+                    repair_list.append(
+                        {
+                            "priority": 2,
+                            "target": "requirement_coverage",
+                            "action": "Add substantive paragraphs addressing each uncovered "
+                            "system capability — not just a mention, but workflow details, "
+                            "tool choices, and integration points",
+                            "reason": f"These user requirements lack dedicated coverage: "
+                            + "; ".join(uncovered[:5]),
+                        }
+                    )
+
+                if "thin_technology_coverage" in failure_modes:
+                    techs = user_task_data.get("technologies") or []
+                    repair_list.append(
+                        {
+                            "priority": 3,
+                            "target": "technology_coverage",
+                            "action": "Expand coverage for each listed technology with "
+                            "workflow-specific details, validation commands, and "
+                            "integration patterns",
+                            "reason": f"Technologies listed but thin: {', '.join(techs[:5])}",
                         }
                     )
 

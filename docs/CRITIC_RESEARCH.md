@@ -215,6 +215,122 @@ identify systematic pipeline weaknesses (e.g. "30% of hard queries trigger
 
 ---
 
+### 2.8 ManyIFEval — Instruction Following Degrades with Count
+
+**Paper**: "Curse of Instructions: ManyIFEval — Evaluating LLMs on
+Multi-Instruction Following," 2024-2025 (extensions of IFEval, arXiv:2311.07911).
+
+**Relevance**: Directly explains why compound prompts (e.g. "design an
+architecture that can 1) answer docs, 2) help write code, 3) avoid
+hallucination, 4) escalate, 5) keep costs low") lose individual requirements.
+
+**Key findings**:
+- LLM compliance follows a **power law** vs instruction count. GPT-4o
+  success on 10 simultaneous instructions: **15-31%** (31% with iterative
+  self-refinement).
+- Multi-Dimensional Constraint Framework (arXiv:2505.07591) tested 19 LLMs:
+  performance drops from **77.67% at Level I** to **32.96% at Level IV**.
+- WildIFEval (arXiv:2503.06573) categorizes constraints into 8 classes and
+  finds all models struggle with multiple simultaneous constraints.
+
+**What we implemented from this paper**:
+- **Planner capability injection**: `explicit_requirements` are now injected
+  into the planner prompt as individually listed "SYSTEM CAPABILITIES" so
+  each requirement is explicitly visible (not buried in a compound paragraph).
+  This is the explicit decomposition strategy the research recommends.
+- **Per-requirement deterministic check**: `_deterministic_requirement_coverage`
+  in the critic verifies each requirement individually, implementing the
+  per-constraint verification the Multi-Dimensional Constraint Framework
+  advocates.
+
+**Key design decision**: We chose NOT to modify the taxonomy to address
+requirement coverage. The taxonomy provides domain style and depth guidance
+(e.g. "write like an architecture document"). Requirement coverage must be
+**user-driven** — derived from the user's actual requirements, not statically
+prescribed. This ensures the system adapts to any domain intersection (e.g.
+"AI + architecture" today, "payment systems + compliance" tomorrow) without
+polluting domain taxonomies with cross-cutting concerns.
+
+---
+
+### 2.9 BEAVER — Deterministic Verification of LLM Outputs
+
+**Paper**: "BEAVER: An Efficient Deterministic LLM Verifier,"
+arXiv:2512.05439, Dec 2025.
+
+**Relevance**: First framework for computing deterministic, sound probability
+bounds on LLM constraint satisfaction.
+
+**Key findings**:
+- Achieves **6-8x tighter probability bounds** and identifies **3-4x more
+  high-risk instances** vs baseline methods.
+- Applied to correctness verification, privacy verification, and secure code
+  generation.
+- Demonstrates that deterministic verification catches failures that
+  LLM-based evaluation misses.
+
+**What we implemented from this paper**:
+- `_deterministic_requirement_coverage` uses keyword extraction and paragraph
+  proximity as a deterministic lower bound on requirement coverage. This is
+  not probabilistic (BEAVER computes probability bounds over token tries),
+  but follows the same principle: deterministic checks as a sound complement
+  to LLM-based scoring.
+- The check fires as a **binary gate**: either a requirement has substantive
+  coverage (40+ word paragraph with 50% keyword overlap) or it doesn't.
+  No LLM judgment involved.
+
+---
+
+### 2.10 FActScore — Per-Claim Atomic Evaluation
+
+**Paper**: Min et al., "FActScore: Fine-grained Atomic Evaluation of Factual
+Precision in Long Form Text Generation," EMNLP 2023, arXiv:2305.14251.
+
+**Relevance**: Establishes the per-claim evaluation paradigm we apply to
+requirement coverage.
+
+**Key findings**:
+- Breaks generated text into **atomic facts** and scores each individually.
+- ChatGPT achieves only **58%** on biography generation — holistic evaluation
+  would mask this per-claim variance.
+- Automated evaluation achieves **< 2% error rate** vs human judgment.
+
+**What we implemented from this paper**:
+- The `_deterministic_requirement_coverage` check treats each
+  `explicit_requirement` as an "atomic claim" that must be individually
+  verified in the output. Requirements with no matching paragraph are flagged
+  independently, preventing holistic "looks good overall" bias from masking
+  per-requirement gaps.
+
+---
+
+### 2.11 TraceLLM — Requirements Traceability
+
+**Paper**: "TraceLLM: Leveraging Large Language Models with Prompt Engineering
+for Enhanced Requirements Traceability," arXiv:2602.01253, Feb 2026.
+
+**Relevance**: Demonstrates that requirement traceability (linking requirements
+to implementation artifacts) benefits from explicit prompt decomposition.
+
+**Key findings**:
+- Achieves state-of-the-art F2 scores across 8 LLMs on 4 benchmark datasets.
+- Traceability performance depends critically on **prompt quality** and
+  **label-aware, diversity-based sampling**.
+- Outperforms traditional IR baselines and fine-tuned models.
+
+**What we implemented from this paper** (indirect):
+- The planner's capability injection creates an explicit traceability link:
+  each `explicit_requirement` is listed in the planner prompt, the planner
+  maps it to plan sections, the writer follows the plan, and the critic
+  verifies coverage. This is a lightweight form of requirements traceability
+  through the pipeline.
+
+**Future work**: Implement explicit requirement-to-section mapping in the plan
+output schema (deliverable_ids already exist for deliverables; extend to
+capability_requirement_ids).
+
+---
+
 ## 3. Recommended Path Forward
 
 ### Phase 1: Immediate -- IMPLEMENTED
@@ -246,38 +362,66 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
    increased to 500 for hard tasks. Evidence reference budget increased to
    4,000 chars.
 
+6. **`missing_requirement_coverage` failure mode** — Implemented. Per-requirement
+   deterministic check (see §2.8, §2.9, §2.10) verifies that each
+   `explicit_requirement` from the user's task has substantive paragraph
+   coverage (keyword proximity + 40+ word paragraph threshold). Blocking at
+   difficulty >= 0.7. Also injects actionable repair instructions naming the
+   uncovered requirements.
+
+7. **`thin_technology_coverage` failure mode** — Implemented. When
+   `user_task.technologies` lists specific tools and no paragraph of 60+ words
+   mentions them, flags non-blocking `thin_technology_coverage`. Repair
+   instructions request workflow-specific details.
+
+8. **Planner capability injection** — Implemented. The planner now receives
+   `explicit_requirements` as "SYSTEM CAPABILITIES" alongside deliverables,
+   filtered to exclude quality/style constraints and items already covered
+   by deliverables. Ensures each user-requested capability maps to plan
+   coverage upstream of the writer.
+
+9. **Writer capability visibility** — Implemented. The writer's task block now
+   formats requirements as a bulleted "SYSTEM CAPABILITIES" list instead of a
+   semicolon-joined line, reinforcing depth-of-coverage expectations.
+
 ### Phase 2: Short-term
 
-6. **Collect calibration data**: Use the `request_feedback` log to build a
-   small corpus of (prompt, response, human_rating) triples. Even 50-100
-   examples would allow calibrating critic scores against human judgment
-   (per Causal Judge Evaluation). **Status**: Not started. The structured log
-   exists in `graph.py`; what's needed is a collection pipeline and rating UI.
+10. **Collect calibration data**: Use the `request_feedback` log to build a
+    small corpus of (prompt, response, human_rating) triples. Even 50-100
+    examples would allow calibrating critic scores against human judgment
+    (per Causal Judge Evaluation). **Status**: Not started. The structured log
+    exists in `graph.py`; what's needed is a collection pipeline and rating UI.
 
-7. **Difficulty-aware rubric scaling** — PARTIALLY IMPLEMENTED. What scales
-   with difficulty today:
-   - Skeleton visibility: 500 chars/section for difficulty >= 0.6 (vs 200 default)
-   - Critic input budget: 8K-24K chars based on difficulty
-   - Depth gate thresholds: stricter at >= 0.7 than >= 0.6
-   - Thinking budget: 256-2048 tokens scaled by difficulty
-   What does NOT yet scale: the number of rubric criteria generated. Hard tasks
-   get the same rubric template as medium tasks. Per ResearchRubrics, harder
-   tasks should generate more fine-grained evaluation criteria.
+11. **Difficulty-aware rubric scaling** — PARTIALLY IMPLEMENTED. What scales
+    with difficulty today:
+    - Skeleton visibility: 500 chars/section for difficulty >= 0.6 (vs 200 default)
+    - Critic input budget: 8K-24K chars based on difficulty
+    - Depth gate thresholds: stricter at >= 0.7 than >= 0.6
+    - Thinking budget: 256-2048 tokens scaled by difficulty
+    What does NOT yet scale: the number of rubric criteria generated. Hard tasks
+    get the same rubric template as medium tasks. Per ResearchRubrics, harder
+    tasks should generate more fine-grained evaluation criteria.
 
-8. **Track failure mode prevalence**: Aggregate `insufficient_depth` and
-   `evidence_underuse` rates across requests to identify whether the problem
-   is in retrieval (not enough evidence) or generation (evidence available but
-   not used). **Status**: Partially implemented. `failure_modes_detected` is
-   logged per critic invocation. No aggregation pipeline or dashboard yet.
+12. **Track failure mode prevalence**: Aggregate `insufficient_depth`,
+    `evidence_underuse`, `missing_requirement_coverage`, and
+    `thin_technology_coverage` rates across requests to identify whether the
+    problem is in retrieval, generation, or planning. **Status**: Partially
+    implemented. `failure_modes_detected` is logged per critic invocation.
+    No aggregation pipeline or dashboard yet.
+
+13. **Explicit requirement-to-section traceability**: Per TraceLLM, extend the
+    planner output schema with `capability_requirement_ids` (analogous to
+    existing `deliverable_ids`) to create an auditable link from each
+    requirement to the plan sections that address it. **Status**: Not started.
 
 ### Phase 3: Long-term (research-backed)
 
-9. **Compact critic model**: Per RAG-Zeval, a smaller model trained on
-   structured rules can outperform a large model with open-ended prompts.
-   Fine-tune a lightweight judge on our calibration data. Requires Phase 2
-   calibration data first.
+14. **Compact critic model**: Per RAG-Zeval, a smaller model trained on
+    structured rules can outperform a large model with open-ended prompts.
+    Fine-tune a lightweight judge on our calibration data. Requires Phase 2
+    calibration data first.
 
-10. **Failure pattern aggregation dashboard**: Per CLEAR, aggregate critic
+15. **Failure pattern aggregation dashboard**: Per CLEAR, aggregate critic
     outputs into a dashboard showing system-level failure patterns, most common
     issues, and retrieval quality trends over time. The `request_feedback` and
     `critic_task_faithful_scores` structured logs provide the raw data.
@@ -289,9 +433,21 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
 - **LLM scoring + deterministic overrides**: We use 0-10 scales across 6
   dimensions (the LLM is good at relative ranking) but supplement them with
   binary deterministic checks that override inflated scores: citation rate,
-  deliverable coverage precheck, hallucinated URL detection, and the depth
-  gate. Research (Latent Judges, GER-Eval) confirms this hybrid approach
-  resists score compression better than either method alone.
+  deliverable coverage precheck, hallucinated URL detection, requirement
+  coverage, and the depth gate. Research (Latent Judges, GER-Eval, BEAVER)
+  confirms this hybrid approach resists score compression better than either
+  method alone.
+
+- **Taxonomy drives style; user requirements drive content**: Taxonomy
+  provides domain-appropriate persona, depth instructions, and output style
+  guidance. It does NOT prescribe content sections for specific task types
+  (e.g. "coding assistant" sections in `software_architecture`). Content
+  coverage is driven by the user's actual requirements, extracted by the
+  frame extractor and injected into the planner as tracked capabilities.
+  Research (ManyIFEval, Multi-Dimensional Constraint Framework) shows that
+  per-requirement tracking is essential for compound instructions. This
+  separation ensures taxonomies remain reusable across task variations
+  within a domain.
 
 - **Skeleton for lenient tasks; full visibility for strict**: Lenient tasks
   (difficulty < 0.4) use skeleton extraction to save latency. Strict tasks
@@ -302,7 +458,8 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
 - **LLM-as-judge over deterministic metrics (BLEU, ROUGE)**: Research
   consensus (ARES, RAG-Zeval) is that LLM-as-judge outperforms token-overlap
   metrics for semantic quality. We use deterministic checks as **supplements**
-  (citation rate, URL validation, deliverable coverage) not replacements.
+  (citation rate, URL validation, deliverable coverage, requirement coverage,
+  technology coverage) not replacements.
 
 - **No latent signal extraction**: This technique (linear probes on hidden
   layers) produces better-calibrated scores than prompting (Latent Judges),
@@ -323,3 +480,9 @@ All Phase 1 items are implemented in the Retrieval Enrichment Pipeline.
 | 5 | Latent Judges: Score Compression in LLM-as-Judge | 2509.24678 | 2025 |
 | 6 | Causal Judge Evaluation: Calibration | 2512.11150 | 2025 |
 | 7 | CLEAR: Actionable Error Analysis | 2507.18392 | 2025 |
+| 8 | ManyIFEval: Instruction Following Degrades with Count | 2311.07911 | 2023 |
+| 9 | Multi-Dimensional Constraint Framework | 2505.07591 | 2025 |
+| 10 | WildIFEval: Instruction Following in the Wild | 2503.06573 | 2025 |
+| 11 | BEAVER: Deterministic LLM Verifier | 2512.05439 | 2025 |
+| 12 | FActScore: Atomic Evaluation of Factual Precision | 2305.14251 | 2023 |
+| 13 | TraceLLM: Requirements Traceability with LLMs | 2602.01253 | 2026 |
