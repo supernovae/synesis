@@ -1,0 +1,87 @@
+# LiteLLM config — OpenRouter backend (replaces self-hosted vLLM endpoints).
+#
+# All synesis-* model names are preserved so the planner, Open WebUI, and
+# Cursor/IDE clients work without code changes. LiteLLM proxies to
+# OpenRouter using the API key from the openrouter-api-key Secret.
+#
+# To switch between budget/quality profiles, change the openrouter/ model
+# paths below.  See models.yaml openrouter_profiles for recommended mappings.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+data:
+  config.yaml: |
+    model_list:
+      # Primary pipeline endpoint (Open WebUI → LangGraph pipeline)
+      # This routes through the planner — no OpenRouter needed here.
+      - model_name: synesis-agent
+        litellm_params:
+          model: openai/synesis-agent
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Router (classification, planning, advisor)
+      - model_name: synesis-router
+        litellm_params:
+          model: openrouter/qwen/qwen3-14b
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 4096
+          temperature: 0.3
+
+      # General (executor, writer, synthesis)
+      - model_name: synesis-general
+        litellm_params:
+          model: openrouter/qwen/qwen3-32b
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 8192
+          temperature: 0.3
+
+      # Critic (deep reasoning, R1 thinking)
+      - model_name: synesis-critic
+        litellm_params:
+          model: openrouter/deepseek/deepseek-r1-distill-qwen-32b
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 4096
+          temperature: 0.1
+
+      # Coder (IDE direct endpoint, agentic coding)
+      - model_name: synesis-coder
+        litellm_params:
+          model: openrouter/qwen/qwen-2.5-coder-32b-instruct
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 16384
+          temperature: 0.2
+
+      # Thinking model (Open WebUI optional "think out loud")
+      - model_name: synesis-thinking
+        litellm_params:
+          model: openrouter/deepseek/deepseek-r1-distill-qwen-32b
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 8192
+          temperature: 0.2
+
+      # Summarizer (pivot history compression)
+      - model_name: synesis-summarizer
+        litellm_params:
+          model: openrouter/qwen/qwen3-14b
+          api_key: "os.environ/OPENROUTER_API_KEY"
+          max_tokens: 2048
+          temperature: 0.1
+
+    litellm_settings:
+      drop_params: true
+      set_verbose: false
+      num_retries: 2
+      request_timeout: 300
+
+    general_settings:
+      master_key: "sk-synesis-change-me"
+      forward_client_headers_to_llm_api: true
+      background_health_checks: false

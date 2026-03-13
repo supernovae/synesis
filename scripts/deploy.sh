@@ -7,7 +7,11 @@ set -euo pipefail
 # Auto-generates a LiteLLM API key if one doesn't exist.
 #
 # Usage: ./scripts/deploy.sh <environment>
-#   environment: dev | staging | prod
+#   environment: dev | staging | prod | openrouter
+#
+# The "openrouter" environment routes all LLM traffic through OpenRouter.ai,
+# eliminating the need for GPU hardware.  On first run it prompts for your
+# OpenRouter API key (or reads OPENROUTER_API_KEY from the environment).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -18,8 +22,8 @@ PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 
 ENV="${1:-}"
 
-if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|staging|prod)$ ]]; then
-    echo "Usage: $0 <dev|staging|prod>"
+if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|staging|prod|openrouter)$ ]]; then
+    echo "Usage: $0 <dev|staging|prod|openrouter>"
     exit 1
 fi
 
@@ -79,11 +83,71 @@ ensure_webui_key() {
     log "  Key synced to $webui_ns/webui-api-key"
 }
 
+# -----------------------------------------------------------------------
+# OpenRouter API key: prompt interactively or read from OPENROUTER_API_KEY.
+# Creates the openrouter-api-key secret in synesis-gateway namespace.
+# -----------------------------------------------------------------------
+ensure_openrouter_key() {
+    local ns="synesis-gateway"
+    local secret_name="openrouter-api-key"
+    local existing_key=""
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        existing_key=$(oc get secret "$secret_name" -n "$ns" \
+            -o jsonpath='{.data.api-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+
+    if [[ -n "$existing_key" ]] && [[ "$existing_key" != "sk-or-v1-REPLACE_ME" ]]; then
+        log "OpenRouter API key already exists in $ns/$secret_name"
+        log "  To rotate: oc delete secret $secret_name -n $ns && ./scripts/deploy.sh openrouter"
+        return
+    fi
+
+    local api_key="${OPENROUTER_API_KEY:-}"
+
+    if [[ -z "$api_key" ]]; then
+        log ""
+        log "OpenRouter API key required."
+        log "  Get one at: https://openrouter.ai/keys"
+        log ""
+        if [[ -t 0 ]]; then
+            read -rsp "  Enter your OpenRouter API key: " api_key
+            echo ""
+        else
+            log "ERROR: No TTY — set OPENROUTER_API_KEY env var and re-run."
+            exit 1
+        fi
+    fi
+
+    if [[ -z "$api_key" ]]; then
+        log "ERROR: No API key provided."
+        exit 1
+    fi
+
+    if [[ ! "$api_key" =~ ^sk-or- ]]; then
+        log "WARNING: Key does not start with 'sk-or-'. OpenRouter keys usually do."
+        log "  Continuing anyway — verify at https://openrouter.ai/keys if requests fail."
+    fi
+
+    oc create secret generic "$secret_name" \
+        -n "$ns" \
+        --from-literal=api-key="$api_key" \
+        --dry-run=client -o yaml | oc apply -f -
+
+    log "OpenRouter API key stored in $ns/$secret_name"
+}
+
 log "=== Deploying Synesis ($ENV) ==="
 log ""
 
 ensure_litellm_key
 ensure_webui_key
+
+if [[ "$ENV" == "openrouter" ]]; then
+    ensure_openrouter_key
+fi
 
 log ""
 log "Validating kustomize build..."
@@ -192,29 +256,34 @@ discover_runtimes() {
 }
 
 log ""
-log "Checking RHOAI model serving readiness..."
-
-if ! check_dsc_kserve; then
-    log "WARNING: No DataScienceCluster CR found with kserve: Managed."
-    log "  InferenceService/ServingRuntime resources will be SKIPPED."
-    log "  All other Synesis resources will be applied normally."
-    log ""
-    log "  To fix, create a DataScienceCluster CR (via Terraform, dashboard, or manifest):"
-    log "    spec.components.kserve.managementState: Managed"
-    log "  Then re-run:  ./scripts/deploy.sh $ENV"
-    log ""
-    log "  Prerequisites:"
-    log "    - OpenShift Serverless operator (KNative Serving)"
-    log "    - OpenShift Service Mesh operator (Istio)"
+if [[ "$ENV" == "openrouter" ]]; then
+    log "OpenRouter mode: skipping RHOAI/model-serving checks (no GPU hardware needed)"
     ISVC_SKIP=true
-elif check_rhoai_webhook; then
-    log "  DataScienceCluster: OK (kserve Managed)"
-    log "  Model controller webhook: ready"
-    discover_runtimes
 else
-    log "  DataScienceCluster: OK (kserve Managed)"
-    log "  Model controller webhook: not ready yet (will retry after apply)"
-    discover_runtimes
+    log "Checking RHOAI model serving readiness..."
+
+    if ! check_dsc_kserve; then
+        log "WARNING: No DataScienceCluster CR found with kserve: Managed."
+        log "  InferenceService/ServingRuntime resources will be SKIPPED."
+        log "  All other Synesis resources will be applied normally."
+        log ""
+        log "  To fix, create a DataScienceCluster CR (via Terraform, dashboard, or manifest):"
+        log "    spec.components.kserve.managementState: Managed"
+        log "  Then re-run:  ./scripts/deploy.sh $ENV"
+        log ""
+        log "  Prerequisites:"
+        log "    - OpenShift Serverless operator (KNative Serving)"
+        log "    - OpenShift Service Mesh operator (Istio)"
+        ISVC_SKIP=true
+    elif check_rhoai_webhook; then
+        log "  DataScienceCluster: OK (kserve Managed)"
+        log "  Model controller webhook: ready"
+        discover_runtimes
+    else
+        log "  DataScienceCluster: OK (kserve Managed)"
+        log "  Model controller webhook: not ready yet (will retry after apply)"
+        discover_runtimes
+    fi
 fi
 
 build_manifests() {
@@ -267,7 +336,9 @@ ensure_model_pvc() {
         fi
     fi
 }
-ensure_model_pvc
+if [[ "$ENV" != "openrouter" ]]; then
+    ensure_model_pvc
+fi
 
 log ""
 log "Applying manifests to cluster..."
@@ -361,34 +432,41 @@ wait_for_deployment synesis-opik opik-backend
 wait_for_deployment synesis-opik opik-frontend
 
 log ""
-log "Model serving status (synesis-models namespace):"
-if [[ "$ISVC_SKIP" == "true" ]]; then
-    log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
-    log "  Summarizer and model deployments must be applied manually."
+if [[ "$ENV" == "openrouter" ]]; then
+    log "Model serving: OpenRouter.ai (no local GPU hardware)"
+    log "  All LLM traffic routes through LiteLLM → OpenRouter API"
+    log "  Model mapping defined in overlays/openrouter/litellm-config-openrouter.yaml"
+    log "  To change models, edit the config and re-deploy."
 else
-    if oc get deployment synesis-router -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
-        log ""
-        oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
-        oc get pods -n synesis-models -l 'app in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
-        oc get inferenceservice -n synesis-models 2>/dev/null || true
-        log ""
-        log "  Model topology (small profile): router (1 GPU) + critic (1 GPU) + coder (1 GPU) on L40S"
-        log "  See models.yaml for profile sizing. Wait for pods Ready."
-        pending=$(oc get pods -n synesis-models --no-headers 2>/dev/null \
-            | grep -E "synesis-router|synesis-critic|synesis-coder|synesis-general" | grep -E "Pending|ContainerCreating" || true)
-        if [[ -n "$pending" ]]; then
-            log ""
-            log "  WARNING: Model pods Pending. Common causes:"
-            log "    - No PVC: oc get pvc synesis-models-efs -n synesis-models"
-            log "    - PVC pending: check efs-sc StorageClass and EFS CSI driver"
-            log "    - No GPU nodes: oc get nodes -l node-role.autonode/gpu"
-            log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --profile=small"
-            log "  Inspect: oc describe pod -n synesis-models -l app=synesis-router"
-        fi
+    log "Model serving status (synesis-models namespace):"
+    if [[ "$ISVC_SKIP" == "true" ]]; then
+        log "  InferenceServices SKIPPED (no DataScienceCluster with kserve Managed)"
+        log "  Summarizer and model deployments must be applied manually."
     else
-        log "  Model deployments may not be ready yet."
-        log "  Check: oc get pods -n synesis-models"
-        log "  Then retry: ./scripts/deploy.sh $ENV"
+        if oc get deployment synesis-router -n synesis-models &>/dev/null || oc get inferenceservice -n synesis-models --no-headers 2>/dev/null | grep -q .; then
+            log ""
+            oc get deployments -n synesis-models -l 'app.kubernetes.io/name in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
+            oc get pods -n synesis-models -l 'app in (synesis-router,synesis-critic,synesis-coder,synesis-general)' 2>/dev/null || true
+            oc get inferenceservice -n synesis-models 2>/dev/null || true
+            log ""
+            log "  Model topology (small profile): router (1 GPU) + critic (1 GPU) + coder (1 GPU) on L40S"
+            log "  See models.yaml for profile sizing. Wait for pods Ready."
+            pending=$(oc get pods -n synesis-models --no-headers 2>/dev/null \
+                | grep -E "synesis-router|synesis-critic|synesis-coder|synesis-general" | grep -E "Pending|ContainerCreating" || true)
+            if [[ -n "$pending" ]]; then
+                log ""
+                log "  WARNING: Model pods Pending. Common causes:"
+                log "    - No PVC: oc get pvc synesis-models-efs -n synesis-models"
+                log "    - PVC pending: check efs-sc StorageClass and EFS CSI driver"
+                log "    - No GPU nodes: oc get nodes -l node-role.autonode/gpu"
+                log "    - Models not downloaded: ./scripts/run-model-pipeline.sh --profile=small"
+                log "  Inspect: oc describe pod -n synesis-models -l app=synesis-router"
+            fi
+        else
+            log "  Model deployments may not be ready yet."
+            log "  Check: oc get pods -n synesis-models"
+            log "  Then retry: ./scripts/deploy.sh $ENV"
+        fi
     fi
 fi
 

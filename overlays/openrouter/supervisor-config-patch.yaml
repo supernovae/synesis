@@ -1,0 +1,100 @@
+# Supervisor health checks — redirect model endpoints through LiteLLM
+# (no direct vLLM services when using OpenRouter backend).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synesis-supervisor-config
+  namespace: synesis-planner
+data:
+  supervisor.yaml: |
+    services:
+      synesis-router:
+        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+        health_path: "/health/liveliness"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+      synesis-general:
+        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+        health_path: "/health/liveliness"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 1.0
+          backoff_max_seconds: 10.0
+        timeout_seconds: 60
+
+      synesis-critic:
+        endpoint: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+        health_path: "/health/liveliness"
+        circuit_breaker:
+          failure_threshold: 5
+          reset_timeout_seconds: 60
+          half_open_max_requests: 2
+        retry:
+          max_attempts: 3
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+      milvus:
+        endpoint: "http://synesis-milvus.synesis-rag.svc.cluster.local:9091"
+        health_path: "/healthz"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 2
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 10
+
+      embedder:
+        endpoint: "http://embedder.synesis-rag.svc.cluster.local:8080"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 2
+          backoff_base_seconds: 0.5
+          backoff_max_seconds: 5.0
+        timeout_seconds: 15
+
+      lsp-gateway:
+        endpoint: "http://lsp-gateway.synesis-lsp.svc:8000"
+        health_path: "/health"
+        circuit_breaker:
+          failure_threshold: 3
+          reset_timeout_seconds: 30
+          half_open_max_requests: 1
+        retry:
+          max_attempts: 1
+          backoff_base_seconds: 1.0
+          backoff_max_seconds: 5.0
+        timeout_seconds: 30
+
+    dead_letter:
+      enabled: true
+      max_queue_size: 1000
+      log_level: "warning"
+
+    degradation:
+      executor_unavailable: "error_with_explanation"
+      supervisor_unavailable: "skip_critique"
+      planner_unavailable: "skip_to_worker"
+      critic_unavailable: "skip_critique"
+      rag_unavailable: "generate_without_context"
+      lsp_unavailable: "skip_analysis"

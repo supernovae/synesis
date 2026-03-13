@@ -107,4 +107,5 @@ docs/*
 !docs/performance.md
 !docs/CRITIC_RESEARCH.md
 !docs/EXPERIMENTS.md
+!docs/OPENROUTER.md
 !docs/seed-corpus.json

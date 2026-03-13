@@ -1,0 +1,144 @@
+# OpenRouter overlay — routes all LLM traffic through OpenRouter.ai API.
+#
+# Excludes base/model-serving entirely (no GPU pods, no vLLM).
+# Replaces the LiteLLM config with OpenRouter-backed model entries.
+# Patches the planner to route through LiteLLM instead of direct vLLM.
+#
+# Deploy:
+#   kustomize build overlays/openrouter | oc apply -f -
+#
+# Set your API key first:
+#   oc create secret generic openrouter-api-key \
+#     --from-literal=api-key=sk-or-v1-YOUR_KEY \
+#     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No base/model-serving — all inference goes through OpenRouter
+resources:
+  - ../../base/gateway
+  - ../../base/planner
+  - ../../base/rag
+  - ../../base/supervisor
+  - ../../base/observability
+  - ../../base/sandbox
+  - ../../base/admin
+  - ../../base/lsp
+  - ../../base/search
+  - ../../base/webui
+  - ../../base/opik
+  - openrouter-secret.yaml
+
+patches:
+  # -----------------------------------------------------------------------
+  # LiteLLM config: replace base ConfigMap with OpenRouter-backed model list
+  # -----------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: litellm-config
+    path: litellm-config-openrouter.yaml
+  # -----------------------------------------------------------------------
+  # Supervisor: redirect model health checks through LiteLLM
+  # -----------------------------------------------------------------------
+  - target:
+      kind: ConfigMap
+      name: synesis-supervisor-config
+    path: supervisor-config-patch.yaml
+
+  # -----------------------------------------------------------------------
+  # LiteLLM: inject OPENROUTER_API_KEY env var from the Secret
+  # -----------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: litellm-proxy
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: litellm-proxy
+      spec:
+        template:
+          spec:
+            containers:
+              - name: litellm
+                env:
+                  - name: OPENROUTER_API_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: openrouter-api-key
+                        key: api-key
+
+  # -----------------------------------------------------------------------
+  # Planner: point all model URLs through LiteLLM (which proxies to OpenRouter).
+  # Model names stay the same (synesis-router, synesis-general, etc.) —
+  # LiteLLM resolves them to the correct OpenRouter model paths.
+  # -----------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: synesis-planner
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: synesis-planner
+      spec:
+        template:
+          spec:
+            containers:
+              - name: planner
+                env:
+                  # All roles route through LiteLLM gateway
+                  - name: SYNESIS_ROUTER_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  - name: SYNESIS_PLANNER_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  - name: SYNESIS_ADVISOR_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  - name: SYNESIS_GENERAL_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  - name: SYNESIS_CRITIC_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  - name: SYNESIS_SUMMARIZER_MODEL_URL
+                    value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                  # Model names unchanged — LiteLLM resolves the routing
+                  - name: SYNESIS_ROUTER_MODEL_NAME
+                    value: "synesis-router"
+                  - name: SYNESIS_PLANNER_MODEL_NAME
+                    value: "synesis-router"
+                  - name: SYNESIS_ADVISOR_MODEL_NAME
+                    value: "synesis-router"
+                  - name: SYNESIS_GENERAL_MODEL_NAME
+                    value: "synesis-general"
+                  - name: SYNESIS_CRITIC_MODEL_NAME
+                    value: "synesis-critic"
+                  - name: SYNESIS_SUMMARIZER_MODEL_NAME
+                    value: "synesis-summarizer"
+                  # OpenRouter models are hosted — disable guided JSON (not supported by most providers)
+                  - name: SYNESIS_GUIDED_JSON_ENABLED
+                    value: "false"
+                  # Disable UDS paths (no co-located vLLM)
+                  - name: SYNESIS_ROUTER_MODEL_UDS
+                    value: ""
+                  - name: SYNESIS_PLANNER_MODEL_UDS
+                    value: ""
+                  - name: SYNESIS_GENERAL_MODEL_UDS
+                    value: ""
+                  - name: SYNESIS_CRITIC_MODEL_UDS
+                    value: ""
+                  - name: SYNESIS_ADVISOR_MODEL_UDS
+                    value: ""
+
+  # -----------------------------------------------------------------------
+  # Bypass LiteLLM for Open WebUI: talks directly to planner
+  # (same as dev overlay — planner is the pipeline entry point)
+  # -----------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: open-webui
+    path: openwebui-direct-planner.yaml
+
+labels:
+  - pairs:
+      synesis.io/environment: openrouter
+    includeSelectors: false
