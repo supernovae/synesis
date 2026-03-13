@@ -803,11 +803,22 @@ targeted retrieval for each section.
 inject `planner_decomposition_rules` per domain. The `taxonomy_key` is used
 as a fallback when the vertical name doesn't match the taxonomy key.
 
-**Writer prompt injection:** The Writer injects three taxonomy-driven blocks
-into the system prompt when present:
-- `DOMAIN DEPTH:` — from `depth_instructions` (when complexity > 0.55)
-- `OUTPUT STYLE:` — from `output_style_guidance`
-- `EPISTEMIC DISCIPLINE:` — from `epistemic_guidance` (separates facts/assumptions/recommendations)
+**Writer prompt injection:** The Writer injects taxonomy-driven blocks
+into the system prompt, gated by difficulty to prevent scaffolding
+overload on easy tasks:
+
+| Block | Source field | Difficulty gate | Purpose |
+|---|---|---|---|
+| `DOMAIN DEPTH` | `depth_instructions` | complexity > 0.55 | Concrete depth guidance |
+| `OUTPUT STYLE` | `output_style_guidance` | always | Format/structure hints |
+| `DISCOVERY` | `discovery_prompt` | difficulty >= 0.4 | "Gotchas", "Challenge Yourself", etc. |
+| `EPISTEMIC DISCIPLINE` | `epistemic_guidance` | difficulty >= 0.5 | Facts/assumptions/recommendations |
+| `REQUIRED SECTIONS` | `required_elements` | difficulty >= 0.5 | Mandatory section checklist |
+| `SECTION DEPTH` | (hardcoded) | difficulty >= 0.7 | Paragraph depth enforcement |
+
+Trivial/easy tasks (difficulty < 0.4) receive only the persona tone and
+output style — no discovery prompts, no required section mandates, no
+epistemic scaffolding. This keeps simple answers direct and concise.
 
 **Evidence budget:** Compiled evidence is trimmed to `evidence_budget_chars`
 (default 24,000) before injection into the Writer prompt. This prevents

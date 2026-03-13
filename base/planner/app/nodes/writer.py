@@ -453,18 +453,24 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if style_guidance:
             system_prompt += f"\n\nOUTPUT STYLE:\n{style_guidance}"
 
-        epistemic = (taxonomy_meta.get("epistemic_guidance") or "").strip()
-        if epistemic:
-            system_prompt += f"\n\nEPISTEMIC DISCIPLINE:\n{epistemic}"
+        # Epistemic, discovery, and required_elements are gated on
+        # difficulty — they add valuable structure for medium/hard tasks
+        # but overwhelm trivial/easy responses with unnecessary scaffolding.
+        if difficulty >= 0.5:
+            epistemic = (taxonomy_meta.get("epistemic_guidance") or "").strip()
+            if epistemic:
+                system_prompt += f"\n\nEPISTEMIC DISCIPLINE:\n{epistemic}"
 
-        discovery = (taxonomy_meta.get("discovery_prompt") or "").strip()
-        if discovery:
-            system_prompt += f"\n\nDISCOVERY:\n{discovery}"
+        if difficulty >= 0.4:
+            discovery = (taxonomy_meta.get("discovery_prompt") or "").strip()
+            if discovery:
+                system_prompt += f"\n\nDISCOVERY:\n{discovery}"
 
-        required_elements = taxonomy_meta.get("required_elements") or []
-        if required_elements:
-            elems = "\n".join(f"- {e}" for e in required_elements)
-            system_prompt += f"\n\nREQUIRED SECTIONS (domain mandate — include all):\n{elems}"
+        if difficulty >= 0.5:
+            required_elements = taxonomy_meta.get("required_elements") or []
+            if required_elements:
+                elems = "\n".join(f"- {e}" for e in required_elements)
+                system_prompt += f"\n\nREQUIRED SECTIONS (domain mandate — include all):\n{elems}"
 
     if difficulty >= 0.7:
         system_prompt += (
