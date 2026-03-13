@@ -60,8 +60,9 @@ log "=== Deploying Unified RAG Indexer ($ENV) ==="
 log ""
 log "Checking RAG dependencies..."
 
-if oc get pods -n synesis-rag -l app.kubernetes.io/instance=synesis,app.kubernetes.io/name=milvus --no-headers 2>/dev/null | grep -q Running; then
-    log "  Milvus: running (operator-managed)"
+MILVUS_READY=$(oc get pods -n synesis-rag -l app.kubernetes.io/instance=synesis,app.kubernetes.io/name=milvus --no-headers 2>&1 | grep -c Running || true)
+if [[ "$MILVUS_READY" -gt 0 ]] 2>/dev/null; then
+    log "  Milvus: running ($MILVUS_READY pods)"
 else
     warn "Milvus is not running in synesis-rag."
     warn "  Deploy services first: ./scripts/deploy.sh $ENV"
@@ -69,12 +70,20 @@ else
     exit 1
 fi
 
-if oc get pods -n synesis-rag -l app.kubernetes.io/name=embedder --no-headers 2>/dev/null | grep -q Running; then
-    log "  Embedder: running"
+EMBEDDER_READY=$(oc get deployment embedder -n synesis-rag -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+if [[ "$EMBEDDER_READY" -gt 0 ]] 2>/dev/null; then
+    log "  Embedder: running ($EMBEDDER_READY replicas)"
 else
-    warn "Embedder is not running in synesis-rag."
-    warn "  Deploy services first: ./scripts/deploy.sh $ENV"
-    exit 1
+    # Fallback: check pods by label in case the deployment name differs
+    EMBEDDER_PODS=$(oc get pods -n synesis-rag -l app.kubernetes.io/name=embedder --no-headers 2>&1 | grep -c Running || true)
+    if [[ "$EMBEDDER_PODS" -gt 0 ]] 2>/dev/null; then
+        log "  Embedder: running ($EMBEDDER_PODS pods)"
+    else
+        warn "Embedder is not running in synesis-rag."
+        warn "  Deploy services first: ./scripts/deploy.sh $ENV"
+        warn "  Debug: oc get deployment embedder -n synesis-rag"
+        exit 1
+    fi
 fi
 
 log ""

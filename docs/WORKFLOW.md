@@ -48,20 +48,22 @@ Decoupling](#architecture-decision-sandboxlsp-decoupling)).
 ## Graph Flow
 
 All requests enter through the same pipeline: Entry Classifier →
-Strategic Advisor → Frame Extractor → Router. The Router then
-orchestrates evidence gathering and routes to the appropriate
-downstream node.
+Strategic Advisor → Frame Extractor. From there, routing depends on
+the **continuous difficulty score** and the resulting `rag_mode`:
 
 ```mermaid
 flowchart TD
     EC["entry_classifier\n(deterministic)"] --> SA["strategic_advisor\n(domain alignment)"]
     SA --> FE["frame_extractor\n(semantic frame)"]
-    FE --> RT["router\n(evidence orchestrator)"]
 
-    RT -->|"initial evidence\n+ no plan yet"| PL["planner\n(structured plan)"]
-    RT -->|"code task\n+ plan ready"| EX["executor\n(code generation)"]
-    RT -->|"knowledge task\n+ plan ready"| WR["writer\n(knowledge synthesis)"]
-    RT -->|"trivial"| RS["respond"]
+    FE -->|"trivial\n(diff < 0.15)"| WR["writer\n(knowledge synthesis)"]
+    FE -->|"trivial code\n(diff < 0.15)"| EX["executor\n(code generation)"]
+    FE -->|"easy/medium/hard"| RT["router\n(evidence orchestrator)"]
+
+    RT -->|"hard + no plan"| PL["planner\n(structured plan)"]
+    RT -->|"code task\n+ plan ready"| EX
+    RT -->|"knowledge task\n+ easy/medium/plan ready"| WR
+    RT -->|"error"| RS["respond"]
 
     PL -->|"evidence requests\nor plan ready"| RT
     PL -->|"plan_pending_approval"| RS
@@ -83,14 +85,46 @@ flowchart TD
     RS --> END([END])
 ```
 
-**Path 1 — Trivial / UI helper:**
-Entry → Router → Respond
+### Difficulty-Based Routing Paths
 
-**Path 2 — Knowledge tasks:**
-Entry → Router (initial evidence) → Planner → Router (section evidence) → Writer → [Critic] → Final Scrubber → Respond
+The entry classifier sets `rag_mode` and `task_is_trivial` based on
+the continuous difficulty score. These signals control which nodes
+are visited and how much retrieval work is done:
 
-**Path 3 — Code tasks:**
-Entry → Router (initial evidence) → Planner → Router (section evidence) → Executor → Patch Integrity Gate → Critic → [Final Scrubber] → Respond
+| Difficulty | rag_mode | task_is_trivial | Path |
+|---|---|---|---|
+| < 0.15 (trivial) | `disabled` | `true` | Entry → **Writer/Executor** → Scrubber → Respond |
+| 0.15-0.29 (easy) | `disabled` | `false` | Entry → Router (skip retrieval) → **Writer/Executor** → Scrubber → Respond |
+| 0.3-0.69 (medium) | `light` | `false` | Entry → Router (single query, 3 docs, no refinement) → **Writer/Executor** → [Critic] → Scrubber → Respond |
+| >= 0.7 (hard) | `normal` | `false` | Entry → Router (multi-query, HyDE, 8 docs) → **Planner** → Router (section evidence) → Writer/Executor → Critic → Scrubber → Respond |
+
+**Key behaviors by rag_mode:**
+
+- **`disabled`**: Router returns immediately with empty evidence packets.
+  No retrieval, no LLM calls for query generation. Writer/Executor
+  answers from parametric knowledge only.
+- **`light`**: Router issues a single evidence request (main question
+  only, no per-deliverable fan-out). No HyDE or conceptual expansion
+  variants. Doc cap reduced to 3. No refinement rounds. Planner is
+  skipped — Router routes directly to Writer/Executor.
+- **`normal`**: Full multi-query retrieval (direct + HyDE + conceptual
+  expansion), per-deliverable evidence requests, up to 2 refinement
+  rounds, Planner decomposition, section-level evidence gathering.
+
+**Path 1 — Trivial (diff < 0.15):**
+Entry → Writer/Executor → Scrubber → Respond (no Router, no retrieval)
+
+**Path 2 — Easy (diff 0.15-0.29):**
+Entry → Router (fast-path, no retrieval) → Writer/Executor → Scrubber → Respond
+
+**Path 3 — Medium knowledge (diff 0.3-0.69):**
+Entry → Router (light retrieval) → Writer → [Critic if diff >= 0.4] → Scrubber → Respond
+
+**Path 4 — Hard knowledge (diff >= 0.7):**
+Entry → Router (initial evidence) → Planner → Router (section evidence) → Writer → Critic → Scrubber → Respond
+
+**Path 5 — Hard code (diff >= 0.7):**
+Entry → Router (initial evidence) → Planner → Router (section evidence) → Executor → Patch Integrity Gate → Critic → Scrubber → Respond
 
 ### Streaming Behavior
 
@@ -115,15 +149,24 @@ The document-path critic has several optimizations to reduce latency:
 ## Router-Governed Evidence Architecture
 
 The Router is a **LangGraph node** (deterministic orchestrator), not an LLM persona.
-It invokes LLMs for specific sub-tasks but owns all system-level logic:
+It invokes LLMs for specific sub-tasks but owns all system-level logic.
+
+The Router respects the `rag_mode` state signal set by the Entry Classifier:
+
+| rag_mode | Behavior |
+|---|---|
+| `disabled` | Immediate return with empty evidence. Zero LLM calls, zero retrieval. |
+| `light` | Single evidence request (main question only). Direct query only (no HyDE, no expansion). Doc cap = 3. No refinement rounds. |
+| `normal` | Full pipeline: multi-query expansion, per-deliverable fan-out, up to 2 refinement rounds. |
 
 ```
 Router Node
-├── generate_query_variants()  → LLM calls (3 variants: direct, HyDE, conceptual expansion)
+├── [rag_mode check]           → short-circuit if disabled; light-mode constraints if light
+├── generate_query_variants()  → LLM calls (3 variants: direct, HyDE, conceptual expansion) [normal only]
 ├── _multi_query_retrieve()    → parallel retrieval for all variants, RRF merge
 ├── retrieve()                 → RAG / web search backends (with preferred_web_scopes)
 ├── summarize()                → LLM call (summarization prompt, guided JSON)
-├── refine_query()             → LLM call (refinement prompt)
+├── refine_query()             → LLM call (refinement prompt) [normal only]
 ├── dedupe()                   → deterministic deduplication
 ├── parallel_dispatch()        → asyncio.gather for independent requests
 └── produce evidence packet    → deterministic assembly
@@ -282,9 +325,13 @@ acknowledgements get 256 tokens.
 |-----------|-----------|
 | `pending_question_continue` | `router` |
 | `message_origin == "ui_helper"` | `respond` |
+| `task_is_trivial` (diff < 0.15) + `is_code_task` | `executor` |
+| `task_is_trivial` (diff < 0.15) + knowledge | `writer` |
 | else | `router` |
 
-All requests go through the Router. The Router decides what happens next.
+Trivial tasks bypass the Router entirely, going straight to Writer or
+Executor to answer from parametric knowledge. All other tasks go
+through the Router, which respects `rag_mode` to control retrieval depth.
 
 ### After Router
 
@@ -587,19 +634,29 @@ Additional protected patterns and jargon terms are configurable via
 
 ## Adaptive Rigor
 
-Rigor scales with `task_size`. Decouples general utility from
-engineering rigor.
+Rigor scales with the continuous `difficulty` score. Decouples general utility from
+engineering rigor. Both retrieval depth and quality review are proportional to difficulty.
 
-| Task Size | Critic Mode | Respond Output | RAG | Status |
-|-----------|-------------|----------------|-----|--------|
-| **easy** | Advisory (no LLM) | Code/markdown + one line | disabled | "Generating..." |
-| **medium** | Advisory (no LLM) | Code/markdown + explanation | light (generic) | "Generating..." |
-| **hard** | Full JCS Critic | Decision Summary, Safety Analysis | normal | "Architecting solution..." |
+| Difficulty | Retrieval | Planner | Critic Mode | Path Cost |
+|---|---|---|---|---|
+| < 0.15 (trivial) | None (skip Router) | Skipped | Skipped | ~1 LLM call |
+| 0.15-0.29 (easy) | None (Router fast-path) | Skipped | Skipped (below `critic_skip_below_difficulty`) | ~1 LLM call |
+| 0.3-0.39 (medium-low) | Light (1 query, 3 docs) | Skipped | Lenient rubber-stamp (below `critic_lenient_below_difficulty`) | ~2 LLM calls |
+| 0.4-0.69 (medium) | Light (1 query, 3 docs) | Skipped | Lenient rubber-stamp | ~3 LLM calls |
+| >= 0.7 (hard) | Full (multi-query, HyDE, 8 docs, refinement) | Full plan + section evidence | Full critic with scoring rubric | ~8-12 LLM calls |
 
-- **Advisory Mode** (easy/medium): Critic skips LLM.
-  `approved=true` if code compiles/runs. No What-If analysis.
-- **Full Critic** (hard only): Full JCS analysis with What-Ifs.
-  Evidence-gated blocking.
+- **Trivial/Easy** (diff < 0.3): No retrieval, no planning, no critic.
+  Writer/Executor answers from parametric knowledge. Fastest path (~1s).
+- **Medium** (diff 0.3-0.69): Light retrieval (single query, 3 docs,
+  no HyDE/expansion, no refinement). No planner — Router routes
+  directly to Writer. Critic runs in lenient mode (fast rubber-stamp).
+- **Hard** (diff >= 0.7): Full pipeline — multi-query retrieval with
+  HyDE and conceptual expansion, Planner decomposition with section-level
+  evidence gathering, full critic with scoring rubric and evidence-gated
+  blocking.
+- **Background critic mode** (`critic_background=true`): When enabled,
+  the SSE stream closes after the Writer finishes. The critic runs
+  silently in the background.
 - **Vertical Persona Injection**: Taxonomy plugins inject
   domain-specific Executor persona blocks, Planner decomposition
   rules, and Critic mode overrides.
@@ -721,15 +778,21 @@ network, workspace boundaries, import integrity, AST syntax) in
 ## Planner: When, Why, and Performance
 
 **When Planner runs:**
-1. **Code tasks**: `task_size=hard` + `plan_required` (multi-step,
+1. **Hard code tasks**: `difficulty >= 0.7` + `is_code_task` (multi-step,
    protocol-heavy). Uses `PLANNER_SYSTEM_PROMPT` with atomic steps,
    file manifests, and verification commands.
-2. **Knowledge deep-dives**: `is_code_task=false` + `difficulty`
-   above `plan_required_above` threshold (default 0.7).
+2. **Hard knowledge**: `difficulty >= 0.7` + `is_code_task=false`.
    Uses `KNOWLEDGE_PLANNER_PROMPT` which creates section outlines
    based on the user's explicitly requested deliverables.
-3. **Simple knowledge**: `plan_required=false` → Router gathers
-   evidence → Writer → Respond (no Planner).
+
+**When Planner is skipped:**
+- **Trivial** (diff < 0.15): Entry → Writer/Executor directly (no Router either).
+- **Easy** (diff 0.15-0.29): Router fast-path (no retrieval) → Writer/Executor.
+- **Medium** (diff 0.3-0.69): Router light retrieval → Writer/Executor.
+
+The Planner only runs when `rag_mode=normal` (hard tasks). For all
+other difficulty levels, the Router routes directly to Writer/Executor
+via `_decide_next_node()`.
 
 **Evidence requests:** When the Planner identifies evidence gaps or
 `open_questions` in the plan, it populates `evidence_requests` in
@@ -752,10 +815,16 @@ token-budget fading where response quality degrades toward the end of long
 context windows.
 
 **Performance levers:**
-1. **Routing:** Text mode is the default; simple text tasks never hit Planner.
+1. **Difficulty-based routing:** Trivial tasks skip the Router entirely
+   (~1 LLM call). Easy tasks hit the Router but skip retrieval. Medium
+   tasks get light retrieval (single query, 3 docs). Only hard tasks
+   get the full multi-query + Planner pipeline.
 2. **max_tokens:** 1024 for Planner/Critic vs 2048+ for Executor/Writer.
 3. **Prefix caching:** Router and Critic share a vLLM runtime with
    `--enable-prefix-caching`.
+4. **Light-mode retrieval:** Single direct query (no HyDE LLM call, no
+   expansion LLM call), 3-doc cap, zero refinement rounds. Cuts
+   retrieval LLM calls from ~5-8 to 1-2 for medium tasks.
 
 ## Configuration System
 

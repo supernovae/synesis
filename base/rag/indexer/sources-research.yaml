@@ -1132,3 +1132,406 @@ sources:
     config:
       url: "https://eugeneyan.com/writing/llm-patterns/"
       tags: [llm, patterns, production, system-design, architecture]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AGENTIC CODING AGENTS — research papers
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Agentic Coding Agent Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [coding-agent, agentic, code-generation, code-review, software-engineering]
+      papers:
+        - id: "2504.20434"
+          title: "ARCS: Agentic Retrieval-Augmented Code Synthesis with Iterative Refinement"
+        - id: "2603.01327"
+          title: "SWE-Adept: An LLM-Based Agentic Framework for Deep Codebase Analysis"
+        - id: "2501.06625"
+          title: "Guided Code Generation with LLM Multi-Agent Framework"
+        - id: "2501.18438"
+          title: "Verbal Process Supervision Elicits Better Coding Agents"
+        - id: "2405.15793"
+          title: "SWE-agent: Agent-Computer Interfaces Enable Automated Software Engineering"
+        - id: "2411.01747"
+          title: "OpenHands: An Open Platform for AI Software Developers"
+        - id: "2402.01030"
+          title: "IterativeRefinement: Code Generation with Self-Repair"
+        - id: "2410.06992"
+          title: "AgentCoder: Multi-Agent-based Code Generation with Iterative Testing and Optimisation"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # CODING MODEL TECHNICAL REPORTS
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Coding Model Technical Reports"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [coding-model, technical-report, code-generation, benchmark]
+      papers:
+        - id: "2603.00729"
+          title: "Qwen3-Coder-Next Technical Report"
+        - id: "2406.11931"
+          title: "DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source Models in Code Intelligence"
+        - id: "2512.02556"
+          title: "DeepSeek-V3.2 Technical Report"
+        - id: "2305.06161"
+          title: "StarCoder: May the Source Be with You"
+        - id: "2402.19173"
+          title: "StarCoder 2 and The Stack v2: The Next Generation"
+        - id: "2409.12186"
+          title: "Qwen2.5-Coder Technical Report"
+        - id: "2501.12599"
+          title: "Kimi k1.5: Scaling RL with LLMs"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MODEL ROUTING, CASCADING & COST OPTIMIZATION
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Model Routing & Cascade Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [model-routing, cascade, cost-optimization, small-vs-large, model-selection]
+      papers:
+        - id: "2603.04445"
+          title: "Dynamic Model Routing and Cascading for Efficient LLM Inference: A Survey"
+        - id: "2406.18665"
+          title: "RouteLLM: Learning to Route LLMs with Preference Data"
+        - id: "2410.10347"
+          title: "Cascade Routing: A Unified Approach to Routing and Cascading for LLMs"
+        - id: "2311.07911"
+          title: "IFEval: Instruction-Following Evaluation for Large Language Models"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # MoE ROUTING — advanced routing papers
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Advanced MoE Routing Research"
+    handler: arxiv_paper
+    origin_type: external
+    authority: external
+    domain: generalist
+    config:
+      tags: [moe, routing, expert-selection, load-balance, sparse-models]
+      papers:
+        - id: "2412.14711"
+          title: "ReMoE: Fully Differentiable Mixture-of-Experts with ReLU Routing"
+        - id: "2602.17798"
+          title: "Grassmannian MoE: Concentration-Controlled Routing on Subspace Manifolds"
+        - id: "2601.12137"
+          title: "EMoE: Eigenbasis-Guided Routing for Mixture-of-Experts"
+        - id: "2601.21349"
+          title: "L2R: Low-Rank and Lipschitz-Controlled Routing for MoE"
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # OPEN SOURCE CODING AGENT TOOLS — documentation
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Continue.dev: Open Source AI Code Assistant"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.continue.dev/"
+      follow_links: true
+      tags: [continue, coding-agent, ide, open-source, developer-tools]
+
+  - name: "Continue.dev: Model Configuration"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.continue.dev/customize/models"
+      tags: [continue, model-selection, coding-agent, configuration]
+
+  - name: "SWE-agent: Automated Software Engineering"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/SWE-agent/SWE-agent"
+      tags: [swe-agent, coding-agent, open-source, github-issues]
+
+  - name: "Aider: AI Pair Programming Documentation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://aider.chat/"
+      follow_links: true
+      tags: [aider, coding-agent, pair-programming, open-source]
+
+  - name: "OpenHands: SOTA on SWE-Bench with Critic Model"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.all-hands.dev/blog/sota-on-swe-bench-verified-with-inference-time-scaling-and-critic-model"
+      tags: [openhands, swe-bench, critic-model, inference-scaling, coding-agent]
+
+  - name: "OpenHands: Building a Provably Versatile Agent"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://openhands.dev/blog/building-a-provably-versatile-agent"
+      tags: [openhands, coding-agent, versatile-agent, architecture]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # CODING BENCHMARKS & LEADERBOARDS
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "BigCodeBench: Programming Task Evaluation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://bigcode-bench.github.io/"
+      tags: [benchmark, code-generation, evaluation, leaderboard]
+
+  - name: "LiveCodeBench: Contamination-Free Code Evaluation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://livecodebench.github.io/"
+      tags: [benchmark, code-generation, evaluation, leaderboard, contamination-free]
+
+  - name: "EvalPlus: HumanEval and MBPP Enhanced Evaluation"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://evalplus.github.io/leaderboard.html"
+      tags: [benchmark, humaneval, mbpp, code-generation, evaluation]
+
+  - name: "SWE-bench Verified Leaderboard"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.swebench.com/"
+      tags: [benchmark, swe-bench, coding-agent, leaderboard, software-engineering]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # AGENTIC DESIGN PATTERNS & ARCHITECTURE GUIDES
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "Google Cloud: Choose a Design Pattern for Agentic AI"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://cloud.google.com/architecture/choose-design-pattern-agentic-ai-system"
+      tags: [agentic, design-patterns, architecture, google-cloud, agents]
+
+  - name: "Vellum: Agentic Workflows — Architectures and Design Patterns"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://www.vellum.ai/blog/agentic-workflows-emerging-architectures-and-design-patterns"
+      tags: [agentic, design-patterns, workflows, architecture, agents]
+
+  - name: "Tool Calling — How AI Agents Use Functions"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://myengineeringpath.dev/genai-engineer/tool-calling/"
+      tags: [tool-calling, function-calling, agents, architecture]
+
+  - name: "Agents Aren't Magic: Architecture Behind Tool-Calling AI"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://pub.towardsai.net/agents-arent-magic-the-real-architecture-behind-tool-calling-ai-systems-a21a91470c8b"
+      tags: [agents, tool-calling, architecture, production, design-patterns]
+
+  - name: "AI Agent Development on Kubernetes — Survival Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://dev.to/shanmukhi_kairuppala/stop-treating-ai-agents-as-web-servers-a-kubernetes-survival-guide-part-1-cal"
+      tags: [kubernetes, agents, production, stateful, architecture]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # vLLM — AGENTIC SERVING & TOOL CALLING
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "vLLM: Tool Calling for Agentic Workloads"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/v0.12.0/features/tool_calling/"
+      tags: [vllm, tool-calling, agents, function-calling, serving]
+
+  - name: "vLLM: Production Stack (Kubernetes)"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/deployment/integrations/production-stack/"
+      tags: [vllm, kubernetes, production, deployment, helm]
+
+  - name: "vLLM: Claude Code Integration"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/stable/serving/integrations/claude_code/"
+      tags: [vllm, claude-code, coding-agent, anthropic, integration]
+
+  - name: "vLLM: Tool-Enabled Installation Guide"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/projects/production-stack/en/latest/use_cases/tool-enabled-installation.html"
+      tags: [vllm, tool-calling, kubernetes, deployment, tutorial]
+
+  - name: "vLLM: Reasoning Models with Tool Calls"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.vllm.ai/en/latest/getting_started/examples/openai_chat_completion_tool_calls_with_reasoning.html"
+      tags: [vllm, reasoning, tool-calling, deepseek-r1, agents]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # KUBERNETES AI INFRASTRUCTURE
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "NVIDIA Grove: Kubernetes API for AI Inference"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.nvidia.com/dynamo/latest/kubernetes/grove.html"
+      tags: [nvidia, grove, kubernetes, inference, gpu-scheduling, disaggregated]
+
+  - name: "NVIDIA KAI-Scheduler: Kubernetes Native AI Scheduler"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/NVIDIA/KAI-Scheduler"
+      tags: [nvidia, kubernetes, scheduler, gpu, ai-workloads]
+
+  - name: "kubectl-ai: AI-Powered Kubernetes Assistant"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://github.com/GoogleCloudPlatform/kubectl-ai"
+      tags: [kubernetes, kubectl, ai-assistant, google-cloud]
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # NVIDIA & MAJOR OPEN SOURCE CODING MODELS — docs
+  # ═══════════════════════════════════════════════════════════════════════
+
+  - name: "NVIDIA Nemotron 3 Super: Hybrid Mamba-Transformer MoE"
+    handler: web_page
+    origin_type: external
+    authority: vetted
+    domain: generalist
+    config:
+      url: "https://developer.nvidia.com/blog/introducing-nemotron-3-super-an-open-hybrid-mamba-transformer-moe-for-agentic-reasoning/"
+      tags: [nvidia, nemotron, moe, mamba, agentic, model-architecture]
+
+  - name: "Qwen3-Coder-Next: 80B MoE Coding Model"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://huggingface.co/Qwen/Qwen3-Coder-Next"
+      tags: [qwen, coding-model, moe, huggingface, model-card]
+
+  - name: "StarCoder2-15B Model Card"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://huggingface.co/bigcode/starcoder2-15b"
+      tags: [starcoder, coding-model, huggingface, bigcode, model-card]
+
+  - name: "NVIDIA NeMo: StarCoder2 Training & Serving"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://docs.nvidia.com/nemo-framework/user-guide/25.09/llms/starcoder2.html"
+      tags: [nvidia, nemo, starcoder, training, serving, model-serving]
+
+  - name: "DeepSeek Models Overview"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://deepseeksr1.com/deepseek-models/"
+      tags: [deepseek, model-overview, v3, r1, coder, architecture]
+
+  - name: "Open Source LLM Leaderboard (Feb 2026)"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://awesomeagents.ai/leaderboards/open-source-llm-leaderboard/"
+      tags: [leaderboard, open-source, llm, benchmark, comparison]
+
+  - name: "LLM Coding Benchmark Comparison 2026"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://tolearn.blog/blog/llm-coding-benchmark-comparison-2026"
+      tags: [benchmark, coding, comparison, swe-bench, humaneval, model-selection]
+
+  - name: "Best Open Source Coding AI 2026: Qwen vs Phi-4 vs DeepSeek"
+    handler: web_page
+    origin_type: external
+    authority: community
+    domain: generalist
+    config:
+      url: "https://vpn07.com/en/blog/2026-best-open-source-coding-ai-qwen35-phi4-deepseek.html"
+      tags: [comparison, open-source, coding-model, qwen, phi-4, deepseek, benchmark]

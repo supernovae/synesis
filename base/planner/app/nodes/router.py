@@ -607,12 +607,14 @@ class RouterNode:
 
             preferred_web_scopes = get_preferred_web_scopes(taxonomy_metadata)
 
-        if settings.router_multi_query_enabled and not precomputed_query:
-            variants = await self.generate_query_variants(evidence_request, task_context, taxonomy_metadata)
-            query = variants[0]
-        else:
+        light_mode = evidence_request.get("_light_mode", False)
+
+        if light_mode or not settings.router_multi_query_enabled or precomputed_query:
             query = precomputed_query or await self.generate_query(evidence_request, task_context)
             variants = [query]
+        else:
+            variants = await self.generate_query_variants(evidence_request, task_context, taxonomy_metadata)
+            query = variants[0]
 
         cached = await self.cache.aget(query)
         if cached is not None:
@@ -620,6 +622,7 @@ class RouterNode:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
             return cached, None
 
+        doc_cap_override = 3 if light_mode else None
         bundle = await self._multi_query_retrieve(
             variants,
             difficulty,
@@ -628,11 +631,13 @@ class RouterNode:
             preferred_web_scopes=preferred_web_scopes,
         )
         cohesion_lock = bundle.cohesion_lock
-        packet = await self.summarize(query, bundle.results, cohesion_lock=cohesion_lock)
+        packet = await self.summarize(query, bundle.results[:doc_cap_override] if doc_cap_override else bundle.results, cohesion_lock=cohesion_lock)
         packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
 
+        # Skip refinement rounds for light mode
+        max_refine = 0 if light_mode else MAX_REFINEMENT_ROUNDS
         rounds = 0
-        while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < MAX_REFINEMENT_ROUNDS:
+        while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < max_refine:
             refined_query = await self.refine_query(query, packet)
             cached = await self.cache.aget(refined_query)
             if cached is not None:
@@ -672,16 +677,24 @@ class RouterNode:
         return "initial"
 
     def _decide_next_node(self, state: dict[str, Any]) -> str:
-        """Determine where to route after evidence gathering."""
+        """Determine where to route after evidence gathering.
+
+        Skips the planner for easy/medium tasks (rag_mode != normal) since
+        the planner adds latency but little value when retrieval is light
+        or disabled. Hard tasks (rag_mode=normal) always go through planner.
+        """
         execution_plan = state.get("execution_plan") or {}
         is_code_task = state.get("is_code_task", False)
         task_is_trivial = state.get("task_is_trivial", False)
+        rag_mode = state.get("rag_mode", "normal")
 
-        if not execution_plan and not task_is_trivial:
+        if task_is_trivial:
+            return "executor" if is_code_task else "writer"
+        if rag_mode != "normal" and not execution_plan:
+            return "executor" if is_code_task else "writer"
+        if not execution_plan:
             return "planner"
-        if is_code_task:
-            return "executor"
-        return "writer"
+        return "executor" if is_code_task else "writer"
 
     async def run(self, state: dict[str, Any]) -> dict[str, Any]:
         """LangGraph entry point."""
@@ -691,13 +704,48 @@ class RouterNode:
         task_desc = state.get("task_description", "")
         user_task = state.get("user_task") or {}
         difficulty = state.get("difficulty", 0.5)
+        rag_mode = state.get("rag_mode", "normal")
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         task_context = f"{task_desc}\n{json.dumps(user_task, default=str)[:500]}"
+
+        # Fast path: skip all retrieval when rag_mode is disabled.
+        # Entry classifier sets this for difficulty < 0.3 (trivial + easy).
+        if rag_mode == "disabled" and mode == "initial":
+            next_node = self._decide_next_node(state)
+            latency_ms = (time.monotonic() - start) * 1000
+            logger.info(
+                "router_skip_rag_disabled",
+                extra={
+                    "next_node": next_node,
+                    "difficulty": round(difficulty, 2),
+                    "latency_ms": round(latency_ms, 1),
+                },
+            )
+            return {
+                "evidence_packets": [],
+                "evidence_requests": [],
+                "need_more_evidence": False,
+                "error": None,
+                "next_node": next_node,
+                "current_node": "router",
+                "node_traces": [
+                    NodeTrace(
+                        node_name="router",
+                        reasoning=f"rag_mode=disabled (difficulty={difficulty:.2f}), skipping retrieval",
+                        confidence=0.0,
+                        outcome=NodeOutcome.SUCCESS,
+                        latency_ms=latency_ms,
+                    )
+                ],
+            }
 
         evidence_requests = state.get("evidence_requests") or []
 
         if mode == "initial":
-            requests = self._build_initial_requests(state)
+            if rag_mode == "light":
+                requests = [self._build_light_request(state)]
+            else:
+                requests = self._build_initial_requests(state)
         elif mode in ("section_evidence", "refinement"):
             requests = evidence_requests
         else:
@@ -714,6 +762,11 @@ class RouterNode:
             if original_q:
                 for req in requests:
                     req.setdefault("original_query", original_q)
+
+        # Light mode: force single-query retrieval (no HyDE, no expansion)
+        if rag_mode == "light":
+            for req in requests:
+                req["_light_mode"] = True
 
         packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
         packets = self.dedupe(packets)
@@ -793,6 +846,23 @@ class RouterNode:
                 requests.append({**base, "section_id": i, "description": d if isinstance(d, str) else str(d)})
 
         return requests if requests else [{**base, "description": task_desc}]
+
+    def _build_light_request(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Build a single evidence request for rag_mode=light.
+
+        Uses only the main question (no per-deliverable fan-out) and marks
+        the request for single-query retrieval (no HyDE, no expansion).
+        """
+        user_task = state.get("user_task") or {}
+        task_desc = state.get("task_description", "")
+        main_q = user_task.get("main_question", task_desc)
+        return {
+            "description": main_q or task_desc,
+            "domain_hints": user_task.get("domain_tags") or [],
+            "technologies": user_task.get("technologies") or [],
+            "skip_web": not user_task.get("needs_web", True),
+            "_light_mode": True,
+        }
 
     # ----- Helpers -----
 

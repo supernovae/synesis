@@ -141,15 +141,30 @@ def with_timeout(timeout_seconds: float):
 
 
 def route_after_entry_pipeline(state: dict[str, Any]) -> str:
-    """After entry pipeline (classifier + advisor || frame_extractor) -> router.
+    """After entry pipeline -> router OR directly to writer.
 
-    The Router handles all retrieval and decides the next step.
+    Trivial tasks (difficulty < 0.15) skip the router and planner entirely,
+    going straight to the writer to answer from parametric knowledge.
+    Easy tasks (difficulty < 0.3, rag_mode=disabled) still hit the router
+    for its fast-path (no retrieval) but skip the planner.
     """
     if state.get("pending_question_continue"):
         return "router"
 
     if state.get("message_origin") == "ui_helper":
         return "respond"
+
+    if state.get("task_is_trivial"):
+        is_code = state.get("is_code_task", False)
+        target = "executor" if is_code else "writer"
+        logger.info(
+            "entry_pipeline_trivial_fast_path",
+            extra={
+                "target": target,
+                "difficulty": state.get("difficulty", 0),
+            },
+        )
+        return target
 
     return "router"
 
@@ -832,7 +847,7 @@ graph_builder.set_entry_point("entry_pipeline")
 graph_builder.add_conditional_edges(
     "entry_pipeline",
     route_after_entry_pipeline,
-    {"router": "router", "respond": "respond"},
+    {"router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
 )
 
 # Router -> planner | executor | writer | respond
