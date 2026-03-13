@@ -82,8 +82,8 @@ CITATION:
 - You MUST only cite URLs from the AVAILABLE SOURCES list injected below \
   the evidence. Do NOT invent, shorten, or guess URLs. If no AVAILABLE \
   SOURCES list is present, do NOT produce inline URL citations.
-- At the end, add a "## Sources" section listing cited sources.
-- If no claims reference specific sources, omit the Sources section.
+- Do NOT add a Sources section at the end — the system appends one \
+  automatically from provenance metadata.
 
 OUTPUT: Markdown with section headings. No JSON wrapper.
 """
