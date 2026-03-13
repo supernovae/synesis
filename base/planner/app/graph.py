@@ -789,38 +789,37 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
 
 timeout = settings.node_timeout_seconds
 
-from .opik_utils import track_node
-
 graph_builder = StateGraph(GraphState)
 
-graph_builder.add_node("entry_pipeline", track_node("entry_pipeline")(with_telemetry_node(with_timeout(timeout)(entry_pipeline_node))))
-graph_builder.add_node("router", track_node("router")(with_telemetry_node(with_timeout(timeout)(router_node))))
-graph_builder.add_node("planner", track_node("planner")(with_telemetry_node(with_timeout(timeout)(planner_node))))
+# OpikTracer (attached via get_graph_config callbacks) already creates per-node
+# spans from LangChain callback events.  Wrapping nodes with opik.track() via
+# track_node creates duplicate root traces because the two context mechanisms
+# (LangChain RunTree vs opik contextvars) are independent.  Rely solely on
+# OpikTracer for a single clean trace per request.
+graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeout)(entry_pipeline_node)))
+graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
+graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
 graph_builder.add_node(
     "executor",
-    track_node("executor")(
-        with_telemetry_node(
-            with_timeout(timeout)(
-                validated_node(
-                    executor_node,
-                    validators_before=[validate_decision_drift, validate_style_compliance],
-                    validators_after=[validate_required_sections, validate_citation_preservation],
-                )
+    with_telemetry_node(
+        with_timeout(timeout)(
+            validated_node(
+                executor_node,
+                validators_before=[validate_decision_drift, validate_style_compliance],
+                validators_after=[validate_required_sections, validate_citation_preservation],
             )
         )
     ),
 )
-graph_builder.add_node("writer", track_node("writer")(with_telemetry_node(with_timeout(timeout)(writer_node))))
+graph_builder.add_node("writer", with_telemetry_node(with_timeout(timeout)(writer_node)))
 graph_builder.add_node("patch_integrity_gate", with_telemetry_node(with_timeout(timeout)(patch_integrity_gate_node)))
 graph_builder.add_node(
     "critic",
-    track_node("critic")(
-        with_telemetry_node(
-            with_timeout(timeout)(
-                validated_node(
-                    critic_node,
-                    validators_after=[validate_critique_resolutions],
-                )
+    with_telemetry_node(
+        with_timeout(timeout)(
+            validated_node(
+                critic_node,
+                validators_after=[validate_critique_resolutions],
             )
         )
     ),

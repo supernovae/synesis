@@ -232,6 +232,10 @@ class Settings(BaseSettings):
     evidence_budget_chars: int = 24000  # evidence budget at difficulty=0
     evidence_budget_chars_max: int = 40000  # evidence budget at difficulty=1
 
+    # Sources section: max sources shown and whether to wrap in collapsible <details>
+    max_cited_sources: int = 8
+    sources_collapsible: bool = True
+
     # CRAG-style corrective retrieval: critic triggers web search on low-confidence sections.
     # Web budget = web_budget_base + int(difficulty * (crag_max_web_queries - web_budget_base)).
     # The base floor ensures even simple queries get at least 1 web search.

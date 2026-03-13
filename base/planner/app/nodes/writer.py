@@ -265,15 +265,29 @@ def _build_outline_block(state: dict[str, Any]) -> str:
 
 
 def _build_sources_section(state: dict[str, Any]) -> str:
-    """Build a ## Sources section from evidence packet provenance."""
+    """Build a ## Sources section from evidence packet provenance.
+
+    Sources are ordered by packet confidence (highest first) and capped at
+    ``settings.max_cited_sources``.  When ``settings.sources_collapsible``
+    is True the section is wrapped in an HTML ``<details>`` block so
+    markdown renderers (e.g. OpenWebUI) can collapse it.
+    """
     packets = state.get("evidence_packets") or []
     if not packets:
         return ""
 
+    sorted_packets = sorted(
+        packets,
+        key=lambda p: float(
+            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
+        ),
+        reverse=True,
+    )
+
     seen: set[str] = set()
     lines: list[str] = []
-    idx = 0
-    for p in packets:
+    cap = settings.max_cited_sources
+    for p in sorted_packets:
         sources = p.get("sources", []) if isinstance(p, dict) else getattr(p, "sources", [])
         for s in sources:
             uri = s.get("uri", "") if isinstance(s, dict) else getattr(s, "uri", "")
@@ -285,16 +299,30 @@ def _build_sources_section(state: dict[str, Any]) -> str:
             if not key or key in seen:
                 continue
             seen.add(key)
-            idx += 1
 
             badge = f" [{authority.title()}]" if authority else ""
             display = doc_name or uri
             url_part = f" — {uri}" if uri.startswith("http") else ""
-            lines.append(f"[{idx}] {display}{url_part}{badge}")
+            lines.append(f"- {display}{url_part}{badge}")
+
+            if len(lines) >= cap:
+                break
+        if len(lines) >= cap:
+            break
 
     if not lines:
         return ""
-    return "## Sources\n\n" + "\n".join(lines)
+
+    body = "\n".join(lines)
+    if settings.sources_collapsible:
+        return (
+            "## Sources\n\n"
+            "<details>\n"
+            f"<summary>{len(lines)} sources consulted</summary>\n\n"
+            f"{body}\n"
+            "</details>"
+        )
+    return "## Sources\n\n" + body
 
 
 def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
