@@ -51,23 +51,38 @@ def resolve_taxonomy_metadata(
     task_size: str,
     intent_class: str,
     complexity_score: float = 0.5,
+    domain_ref_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Resolve TaxonomyNode from Entry Classifier output. No LLM.
 
     Uses active_domain_refs (e.g. physics, astronomy) + task_size + intent_class
     to lookup taxonomy_prompt_config. Returns TaxonomyNode dict for state.
 
+    When ``domain_ref_counts`` is provided, the taxonomy key with the most
+    contributing signals wins (pairings, domain keywords, risk domains all
+    count).  Falls back to first-match when counts are unavailable or tied.
+
     All raw YAML fields are forwarded so downstream nodes can access any
     taxonomy field (e.g. epistemic_guidance) without plumbing changes here.
     """
     taxonomies = _get_taxonomies()
+    counts = domain_ref_counts or {}
 
-    key = "generic"
+    candidates: dict[str, int] = {}
     for ref in active_domain_refs or []:
         r = str(ref).strip().lower()
         if r in taxonomies:
-            key = r
-            break
+            candidates[r] = counts.get(r, 1)
+
+    if candidates:
+        key = max(candidates, key=lambda k: (candidates[k], -list(candidates.keys()).index(k)))
+        if len(candidates) > 1:
+            logger.info(
+                "taxonomy_key_selection",
+                extra={"candidates": candidates, "selected": key},
+            )
+    else:
+        key = "generic"
 
     node_cfg = taxonomies.get(key) or taxonomies.get("generic") or {}
 

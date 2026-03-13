@@ -11,7 +11,7 @@ complexity_weights:
     keywords: ["fm synthesis", "subtractive", "wavetable", "granular", "additive", "modular"]
   gear_specific:
     weight: 12
-    keywords: ["eurorack", "midi", "cv/gate", "daw", "vst", "clock sync", "latency"]
+    keywords: ["eurorack", "midi", "cv/gate", "daw", "vst", "clock sync", "audio latency"]
   production_mixing:
     weight: 8
     keywords: ["mixing", "mastering", "eq", "compressor", "reverb", "delay", "sidechain", "bus", "stem"]

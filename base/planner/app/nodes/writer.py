@@ -407,6 +407,15 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if epistemic:
             system_prompt += f"\n\nEPISTEMIC DISCIPLINE:\n{epistemic}"
 
+        discovery = (taxonomy_meta.get("discovery_prompt") or "").strip()
+        if discovery:
+            system_prompt += f"\n\nDISCOVERY:\n{discovery}"
+
+        required_elements = taxonomy_meta.get("required_elements") or []
+        if required_elements:
+            elems = "\n".join(f"- {e}" for e in required_elements)
+            system_prompt += f"\n\nREQUIRED SECTIONS (domain mandate — include all):\n{elems}"
+
     if difficulty >= 0.7:
         system_prompt += (
             "\n\nSECTION DEPTH (high-complexity task):\n"

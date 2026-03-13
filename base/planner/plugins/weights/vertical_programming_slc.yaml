@@ -152,7 +152,8 @@ domain_keywords:
   elixir_ecosystem:
     domain: elixir
     keywords:
-      - mix
+      - mix deps
+      - mix phx
       - elixir
       - phoenix
   perl_ecosystem:

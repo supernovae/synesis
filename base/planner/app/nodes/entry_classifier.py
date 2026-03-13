@@ -273,6 +273,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         task_size=out.get("task_size", "medium"),
         intent_class=out.get("intent_class", "general"),
         complexity_score=out.get("complexity_score", 0.5) or 0.5,
+        domain_ref_counts=analysis.get("domain_ref_counts") or {},
     )
     out["taxonomy_metadata"] = taxonomy_metadata
 

@@ -10,8 +10,8 @@ complexity_weights:
       - seating chart
       - catering
       - vendor coordination
-      - timeline
-      - budget
+      - event timeline
+      - event budget
   event_logistics:
     weight: 7
     keywords:

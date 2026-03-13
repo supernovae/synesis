@@ -173,6 +173,7 @@ domain_keywords:
       - meta
   budget:
     domain: personal_finance
+    min_hits: 2
     keywords:
       - budget
       - forecast
@@ -181,6 +182,7 @@ domain_keywords:
       - variance
   personal_finance:
     domain: personal_finance
+    min_hits: 2
     keywords:
       - budget
       - expense

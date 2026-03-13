@@ -265,6 +265,7 @@ class ScoringEngine:
         score_breakdown: dict[str, int] = {}
         hits_by_category: dict[str, list[str]] = {}
         active_domains: list[str] = []
+        domain_ref_counts: dict[str, int] = {}
 
         # 1. Complexity score (steps, scope)
         complexity_score = 0
@@ -289,8 +290,10 @@ class ScoringEngine:
                 rd = cat_data.get(cat, {}) if isinstance(cat_data, dict) else {}
                 if isinstance(rd, dict) and rd.get("domain"):
                     d = str(rd["domain"]).strip()
-                    if d and d not in active_domains:
-                        active_domains.append(d)
+                    if d:
+                        domain_ref_counts[d] = domain_ref_counts.get(d, 0) + 1
+                        if d not in active_domains:
+                            active_domains.append(d)
 
         # 3. Domain keywords (RAG only, no score)
         domain_hints: list[str] = []
@@ -298,8 +301,10 @@ class ScoringEngine:
             matches = pattern.findall(t_lower)
             if len(set(matches)) >= min_hits:
                 domain_hints.append(cat)
-                if domain and domain not in active_domains:
-                    active_domains.append(domain)
+                if domain:
+                    domain_ref_counts[domain] = domain_ref_counts.get(domain, 0) + 1
+                    if domain not in active_domains:
+                        active_domains.append(domain)
                 hits.append(f"domain:{cat}")
 
         # 4. Pairings (risk or complexity)
@@ -317,8 +322,11 @@ class ScoringEngine:
             else:
                 complexity_score += extra
             domain = pair.get("domain")
-            if domain and isinstance(domain, str) and domain.strip() and domain.strip() not in active_domains:
-                active_domains.append(domain.strip())
+            if domain and isinstance(domain, str) and domain.strip():
+                d = domain.strip()
+                domain_ref_counts[d] = domain_ref_counts.get(d, 0) + 1
+                if d not in active_domains:
+                    active_domains.append(d)
 
         # 5. Density tax on complexity (exclude trivial anchors: weight<=2)
         complexity_categories = [
@@ -496,6 +504,7 @@ class ScoringEngine:
             "intent_scores": {k: round(v, 3) for k, v in intent_scores.items()},
             "categories_touched": list(hits_by_category.keys()),
             "active_domains": active_domains,
+            "domain_ref_counts": domain_ref_counts,
             "routing_thresholds": {
                 "bypass_supervisor_below": self._bypass_supervisor_below,
                 "plan_required_above": self._plan_required_above,

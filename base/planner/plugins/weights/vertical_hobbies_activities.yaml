@@ -96,7 +96,7 @@ complexity_weights:
       - fdm
       - sla
       - resin print
-      - support
+      - print support
       - bed level
       - extrusion
       - marlin
