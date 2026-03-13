@@ -12,6 +12,7 @@ decisions (e.g. choosing one approach across all sections).
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -326,10 +327,23 @@ def _build_sources_section(state: dict[str, Any]) -> str:
 
 
 def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
-    """Extract deduplicated (doc_name, uri) pairs from evidence packets."""
+    """Extract deduplicated (doc_name, uri) pairs from evidence packets.
+
+    Capped at ``settings.max_cited_sources`` so the LLM only sees (and can
+    cite) the same number of sources we allow in the final output.
+    Packets are sorted by confidence so the highest-quality sources are shown.
+    """
+    sorted_packets = sorted(
+        packets,
+        key=lambda p: float(
+            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
+        ),
+        reverse=True,
+    )
+    cap = settings.max_cited_sources
     seen: set[str] = set()
     lines: list[str] = []
-    for p in packets:
+    for p in sorted_packets:
         sources = p.get("sources", []) if isinstance(p, dict) else getattr(p, "sources", [])
         for s in sources:
             uri = s.get("uri", "") if isinstance(s, dict) else getattr(s, "uri", "")
@@ -342,6 +356,10 @@ def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
                 doc_name = meta.get("document", "") or meta.get("document_name", "")
             display = f"{doc_name} — {uri}" if doc_name else uri
             lines.append(f"- {display}")
+            if len(lines) >= cap:
+                break
+        if len(lines) >= cap:
+            break
     if not lines:
         return ""
     return "## AVAILABLE SOURCES (cite ONLY these URLs)\n" + "\n".join(lines) + "\n"
@@ -520,11 +538,12 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             logger.warning("writer_output_too_short")
             compiled = "*Response generation produced insufficient output.*"
 
-        # Append provenance-based Sources section if writer didn't include one
-        if "## Sources" not in compiled:
-            sources_section = _build_sources_section(state)
-            if sources_section:
-                compiled = compiled.rstrip() + "\n\n" + sources_section
+        # Replace any LLM-generated Sources section with the controlled
+        # provenance-based one (capped, confidence-sorted, collapsible).
+        compiled = re.split(r"\n##\s+Sources\b", compiled, maxsplit=1)[0].rstrip()
+        sources_section = _build_sources_section(state)
+        if sources_section:
+            compiled = compiled + "\n\n" + sources_section
 
         latency = (time.monotonic() - start) * 1000
         available_sources_count = (
