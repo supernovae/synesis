@@ -51,8 +51,44 @@ _FALSE_PRECISION_RE = re.compile(
 
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 _FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
+_MERMAID_BLOCK_RE = re.compile(r"(```mermaid\b)(.*?)(```)", re.DOTALL | re.IGNORECASE)
+
+_MERMAID_BRACKET_LABEL_RE = re.compile(
+    r'(\b[A-Za-z]\w*\[)([^\]"]*[(){}|][^\]"]*)(\])'
+)
+_MERMAID_DIAMOND_LABEL_RE = re.compile(
+    r'(\b[A-Za-z]\w*\{)([^}"]*[()|\[\]][^}"]*)(\})'
+)
 
 _SECTION_OVERGROWTH_WORDS = 1200
+
+
+def _sanitize_mermaid(text: str) -> tuple[str, int]:
+    """Quote Mermaid node labels that contain shape-ambiguous characters.
+
+    Unquoted parentheses like ``A[Database (Postgres)]`` are parsed by
+    Mermaid as shape delimiters, causing render failures.  Wrapping the
+    label in double-quotes fixes it: ``A["Database (Postgres)"]``.
+    """
+    fixes = 0
+
+    def _fix_block(block_match: re.Match) -> str:
+        nonlocal fixes
+        opener = block_match.group(1)
+        content = block_match.group(2)
+        closer = block_match.group(3)
+
+        def _quote(m: re.Match) -> str:
+            nonlocal fixes
+            fixes += 1
+            return f'{m.group(1)}"{m.group(2)}"{m.group(3)}'
+
+        content = _MERMAID_BRACKET_LABEL_RE.sub(_quote, content)
+        content = _MERMAID_DIAMOND_LABEL_RE.sub(_quote, content)
+        return f"{opener}{content}{closer}"
+
+    result = _MERMAID_BLOCK_RE.sub(_fix_block, text)
+    return result, fixes
 
 
 def _strip_fenced_blocks(text: str) -> str:
@@ -253,6 +289,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": node_name,
         }
 
+    text, mermaid_fixes = _sanitize_mermaid(text)
     text, artifact_count = _strip_artifacts(text)
     text, fp_count = _detect_false_precision(text)
     text, dup_count = _remove_duplicate_paragraphs(text)
@@ -273,6 +310,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     logger.info(
         "scrubber_complete",
         extra={
+            "mermaid_labels_fixed": mermaid_fixes,
             "artifacts_stripped": artifact_count,
             "false_precision": fp_count,
             "duplicates_removed": dup_count,
