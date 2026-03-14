@@ -28,7 +28,8 @@ resources:
   - ../../base/search
   - ../../base/webui
   - ../../base/opik
-  - openrouter-secret.yaml
+  # NOTE: openrouter-secret.yaml is NOT listed here — deploy.sh creates the
+  # secret interactively so oc apply -k never overwrites a live API key.
 
 patches:
   # -----------------------------------------------------------------------
