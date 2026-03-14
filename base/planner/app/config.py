@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     rag_reranker_model: str = "ms-marco-MiniLM-L-12-v2"  # only used for flashrank
 
     # BM25 in-memory index settings
-    rag_bm25_refresh_interval_seconds: int = 600
+    rag_bm25_refresh_interval_seconds: int = 1800
 
     # Reciprocal Rank Fusion constant (higher = more weight to lower-ranked docs)
     rag_rrf_k: int = 60

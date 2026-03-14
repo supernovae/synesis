@@ -178,6 +178,11 @@ spec:
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
             - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
               value: "604800"
+            # BM25 refresh: how often to rebuild the in-memory keyword index
+            # from Milvus. Set high during data loads to avoid OOM from
+            # repeated full-corpus scans.
+            - name: SYNESIS_RAG_BM25_REFRESH_INTERVAL_SECONDS
+              value: "1800"
           resources:
             requests:
               cpu: "2"
