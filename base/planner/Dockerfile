@@ -13,6 +13,10 @@ WORKDIR /opt/app-root/src
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download FlashRank reranker model so it's baked into the image
+# instead of fetching 21MB on first request at runtime.
+RUN python -c "from flashrank import Ranker; Ranker(model_name='ms-marco-MiniLM-L-12-v2')"
+
 COPY app/ ./app/
 COPY intent_weights.yaml .
 COPY entry_classifier_weights.yaml .
