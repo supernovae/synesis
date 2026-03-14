@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Corpus Quality — Synesis Admin{% endblock %}
+
+{% block content %}
+<h1>Corpus Quality Dashboard</h1>
+
+{% if not report %}
+<div class="card" style="text-align: center; padding: 3rem;">
+    <p style="color: var(--muted); font-size: 1.1rem; margin-bottom: 1rem;">No audit report available</p>
+    <p style="color: var(--muted); font-size: 0.875rem;">
+        Run <code>make bench-corpus-audit</code> locally, or wait for the weekly CronJob.
+    </p>
+    {% if total_live_chunks > 0 %}
+    <p style="color: var(--muted); font-size: 0.875rem; margin-top: 1rem;">
+        Live: <strong style="color: var(--accent);">{{ total_live_chunks }}</strong> chunks across
+        <strong style="color: var(--accent);">{{ live_stats|length }}</strong> domains in Milvus
+    </p>
+    {% endif %}
+</div>
+{% else %}
+
+<div class="stat-grid">
+    <div class="card stat">
+        <div class="value" style="color: var(--green);">{{ summary.strong }}</div>
+        <div class="label">Strong</div>
+    </div>
+    <div class="card stat">
+        <div class="value" style="color: var(--accent);">{{ summary.adequate }}</div>
+        <div class="label">Adequate</div>
+    </div>
+    <div class="card stat">
+        <div class="value" style="color: var(--yellow);">{{ summary.weak }}</div>
+        <div class="label">Weak</div>
+    </div>
+    <div class="card stat">
+        <div class="value" style="color: var(--red);">{{ summary.empty }}</div>
+        <div class="label">Empty</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ summary.total_chunks }}</div>
+        <div class="label">Total Chunks</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ report.domains_audited }}</div>
+        <div class="label">Domains Audited</div>
+    </div>
+</div>
+
+<div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; flex-wrap: wrap;">
+    <span style="color: var(--muted); font-size: 0.875rem;">Filter:</span>
+    <a href="/admin/quality" class="filter-link {% if not request.query_params.get('health') %}active{% endif %}">All</a>
+    <a href="/admin/quality?health=weak" class="filter-link {% if request.query_params.get('health') == 'weak' %}active{% endif %}" style="color: var(--yellow);">Weak</a>
+    <a href="/admin/quality?health=empty" class="filter-link {% if request.query_params.get('health') == 'empty' %}active{% endif %}" style="color: var(--red);">Empty</a>
+    <a href="/admin/quality?health=adequate" class="filter-link {% if request.query_params.get('health') == 'adequate' %}active{% endif %}" style="color: var(--accent);">Adequate</a>
+    <a href="/admin/quality?health=strong" class="filter-link {% if request.query_params.get('health') == 'strong' %}active{% endif %}" style="color: var(--green);">Strong</a>
+    <span style="flex: 1;"></span>
+    <span style="color: var(--muted); font-size: 0.75rem;">
+        Audit ran in {{ report.elapsed_seconds }}s
+    </span>
+</div>
+
+<style>
+    .filter-link {
+        color: var(--muted); text-decoration: none; font-size: 0.875rem;
+        padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem;
+        transition: all 0.2s;
+    }
+    .filter-link:hover { background: var(--surface); }
+    .filter-link.active { border-color: var(--accent); color: var(--text); background: rgba(99, 102, 241, 0.1); }
+    .health-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+    .health-strong { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+    .health-adequate { background: rgba(99, 102, 241, 0.15); color: var(--accent); }
+    .health-weak { background: rgba(234, 179, 8, 0.15); color: var(--yellow); }
+    .health-empty { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+    .bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; min-width: 60px; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+</style>
+
+<div class="card" style="overflow-x: auto;">
+    <table>
+        <thead>
+            <tr>
+                <th>Domain</th>
+                <th>Health</th>
+                <th>Chunks</th>
+                <th>Docs</th>
+                <th>Hit Rate</th>
+                <th>MRR</th>
+                <th>Diversity</th>
+                <th>Dead Weight</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sc in scorecards %}
+            {% set health = sc.health|default('unknown') %}
+            {% set cov = sc.coverage|default({}) %}
+            {% set inv = sc.inventory|default({}) %}
+            {% set dw = sc.dead_weight|default({}) %}
+            {% set filter_health = request.query_params.get('health', '') %}
+            {% if not filter_health or filter_health == health %}
+            <tr>
+                <td>
+                    <a href="/admin/quality/domain/{{ sc.domain }}" class="link" style="font-weight: 500;">
+                        {{ sc.domain }}
+                    </a>
+                    <div style="color: var(--muted); font-size: 0.7rem;">{{ sc.path|default('') }}</div>
+                </td>
+                <td>
+                    <span class="health-badge health-{{ health }}">{{ health }}</span>
+                </td>
+                <td>{{ inv.total_chunks|default(0) }}</td>
+                <td>{{ inv.total_documents|default(0) }}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div class="bar" style="width: 60px;">
+                            <div class="bar-fill" style="width: {{ (cov.hit_rate|default(0) * 100)|round }}%;
+                                background: {% if cov.hit_rate|default(0) >= 0.7 %}var(--green){% elif cov.hit_rate|default(0) >= 0.4 %}var(--accent){% elif cov.hit_rate|default(0) > 0 %}var(--yellow){% else %}var(--red){% endif %};"></div>
+                        </div>
+                        <span>{{ (cov.hit_rate|default(0) * 100)|round }}%</span>
+                    </div>
+                </td>
+                <td>{{ "%.3f"|format(cov.mean_mrr|default(0)) }}</td>
+                <td>{{ cov.source_diversity|default(0) }}</td>
+                <td style="color: {% if dw.unretrieved_chunks|default(0) > inv.total_chunks|default(1) * 0.5 %}var(--yellow){% else %}var(--muted){% endif %};">
+                    {{ dw.unretrieved_chunks|default(0) }}
+                </td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if report.weak_domains %}
+<div class="card" style="margin-top: 1.5rem;">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem; color: var(--yellow);">Priority Curation Targets</h2>
+    <p style="color: var(--muted); font-size: 0.875rem; margin-bottom: 1rem;">
+        These domains have indexed content but poor retrieval quality. Consider
+        <a href="/admin/quality/curator" class="link">reviewing curator proposals</a>.
+    </p>
+    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+        {% for d in report.weak_domains[:20] %}
+        <a href="/admin/quality/domain/{{ d }}" class="link" style="font-size: 0.875rem; padding: 0.25rem 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem;">{{ d }}</a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

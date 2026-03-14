@@ -116,16 +116,22 @@ def main():
     parser.add_argument("--baseline", default="benchmarks/retrieval/baseline.json")
     parser.add_argument("--tolerance", type=float, default=0.05,
                         help="Max allowed relative drop from baseline before failing")
+    parser.add_argument("--use-llm-labels", action="store_true",
+                        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based")
     args = parser.parse_args()
 
     queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
-    labels_path = Path(__file__).parent.parent / "bm25" / "relevance_labels.json"
+    if args.use_llm_labels:
+        labels_path = Path(__file__).parent.parent / "corpus" / "relevance_labels_llm.json"
+    else:
+        labels_path = Path(__file__).parent.parent / "bm25" / "relevance_labels.json"
 
     if not queries_path.exists():
         print(f"ERROR: {queries_path} not found", file=sys.stderr)
         sys.exit(1)
     if not labels_path.exists():
-        print(f"ERROR: {labels_path} not found. Run BM25 benchmark first.", file=sys.stderr)
+        label_source = "LLM judge (run benchmarks/corpus/llm_judge.py)" if args.use_llm_labels else "BM25 benchmark"
+        print(f"ERROR: {labels_path} not found. Run {label_source} first.", file=sys.stderr)
         sys.exit(1)
 
     with open(queries_path) as f:

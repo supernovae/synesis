@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Curator Review — Synesis Admin{% endblock %}
+
+{% block content %}
+<div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+    <a href="/admin/quality" class="link" style="font-size: 0.875rem;">&larr; Dashboard</a>
+    <h1 style="margin-bottom: 0;">Curator Proposals</h1>
+</div>
+
+<style>
+    .quality-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; min-width: 1.5rem; text-align: center; }
+    .q5 { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .q4 { background: rgba(99, 102, 241, 0.2); color: var(--accent); }
+    .q3 { background: rgba(234, 179, 8, 0.2); color: var(--yellow); }
+    .q2 { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+    .q1 { background: rgba(239, 68, 68, 0.1); color: var(--muted); }
+    .source-card { border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; margin-bottom: 0.75rem; transition: border-color 0.2s; }
+    .source-card:hover { border-color: var(--accent); }
+</style>
+
+{% if not proposals %}
+<div class="card" style="text-align: center; padding: 3rem;">
+    <p style="color: var(--muted); font-size: 1.1rem; margin-bottom: 1rem;">No curator proposals available</p>
+    <p style="color: var(--muted); font-size: 0.875rem;">
+        Run the curator agent to discover sources for weak domains:
+        <br><code>make curator-discover</code>
+    </p>
+    <p style="color: var(--muted); font-size: 0.8rem; margin-top: 1rem;">
+        Prerequisite: Run <code>make bench-corpus-audit</code> first to identify weak domains.
+    </p>
+</div>
+{% else %}
+
+<div class="stat-grid" style="margin-bottom: 1.5rem;">
+    <div class="card stat">
+        <div class="value" style="color: var(--accent);">{{ domain_proposals|length }}</div>
+        <div class="label">Domains</div>
+    </div>
+    <div class="card stat">
+        <div class="value">{{ total_sources }}</div>
+        <div class="label">Sources Found</div>
+    </div>
+</div>
+
+{% if proposals.review_instructions %}
+<div class="card" style="background: rgba(99, 102, 241, 0.05); border-color: rgba(99, 102, 241, 0.2); margin-bottom: 1.5rem;">
+    <p style="color: var(--text); font-size: 0.875rem;">
+        {{ proposals.review_instructions }}
+    </p>
+</div>
+{% endif %}
+
+{% for dp in domain_proposals %}
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+        <h2 style="font-size: 1.1rem; margin: 0;">{{ dp.domain }}</h2>
+        <span style="color: var(--muted); font-size: 0.8rem;">{{ dp.path|default('') }}</span>
+        <a href="/admin/quality/domain/{{ dp.domain }}" class="link" style="font-size: 0.75rem;">view scorecard</a>
+    </div>
+
+    {% for src in dp.sources %}
+    {% set meta = src.get('_curator_metadata', {}) %}
+    {% set qs = meta.get('quality_score', 3) %}
+    <div class="source-card">
+        <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <span class="quality-badge q{{ qs }}">{{ qs }}/5</span>
+            <div style="flex: 1; min-width: 0;">
+                <div style="font-weight: 500; font-size: 0.875rem; margin-bottom: 0.25rem;">
+                    {{ src.name|default('Untitled') }}
+                </div>
+                <a href="{{ src.config.url|default('#') }}" target="_blank" rel="noopener" class="link" style="font-size: 0.8rem; word-break: break-all;">
+                    {{ src.config.url|default('') }}
+                </a>
+                {% if meta.rationale %}
+                <p style="color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; margin-bottom: 0;">
+                    {{ meta.rationale }}
+                </p>
+                {% endif %}
+                <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+                    <span style="color: var(--muted); font-size: 0.7rem;">handler: {{ src.handler|default('web_page') }}</span>
+                    <span style="color: var(--muted); font-size: 0.7rem;">authority: {{ src.authority|default('community') }}</span>
+                    {% if src.config and src.config.tags %}
+                    <span style="color: var(--muted); font-size: 0.7rem;">tags: {{ src.config.tags|join(', ') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
+
+<div class="card" style="margin-top: 1rem;">
+    <h2 style="font-size: 1rem; margin-bottom: 0.75rem;">Next Steps</h2>
+    <ol style="color: var(--muted); font-size: 0.875rem; padding-left: 1.5rem;">
+        <li>Review each source above — check the URL and quality rationale</li>
+        <li>For approved sources, upgrade authority from <code>community</code> to <code>vetted</code></li>
+        <li>Copy approved entries into the appropriate <code>sources-*.yaml</code> file</li>
+        <li>Run the indexer to ingest new sources</li>
+        <li>Re-run <code>make bench-corpus-audit</code> to verify improvement</li>
+    </ol>
+</div>
+
+{% endif %}
+{% endblock %}

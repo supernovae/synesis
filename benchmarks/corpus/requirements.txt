@@ -1,0 +1,4 @@
+# Corpus benchmark and audit dependencies
+pymilvus>=2.5.0
+httpx
+pyyaml

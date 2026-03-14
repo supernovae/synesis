@@ -95,6 +95,7 @@ SERVICE_IMAGES=(
     "indexer|base/rag/indexer/Dockerfile|base"
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"
+    "quality-runner|base/quality-runner/Dockerfile|."
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then

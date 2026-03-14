@@ -21,6 +21,10 @@ logger = get_logger("synesis.admin")
 
 app = FastAPI(title="Synesis Admin", version="0.1.0")
 
+from app.quality import router as quality_router  # noqa: E402
+
+app.include_router(quality_router)
+
 
 @app.get("/metrics")
 async def metrics():
@@ -33,7 +37,6 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 MILVUS_HOST = os.getenv("SYNESIS_MILVUS_HOST", "synesis-milvus.synesis-rag.svc.cluster.local")
 MILVUS_PORT = int(os.getenv("SYNESIS_MILVUS_PORT", "19530"))
-PLANNER_URL = os.getenv("SYNESIS_PLANNER_URL", "http://synesis-planner.synesis-planner.svc.cluster.local:8000")
 PLANNER_URL = os.getenv("SYNESIS_PLANNER_URL", "http://synesis-planner.synesis-planner.svc.cluster.local:8000")
 FAILURES_COLLECTION = "failures_v1"
 KNOWLEDGE_BACKLOG_COLLECTION = "synesis_knowledge_backlog"

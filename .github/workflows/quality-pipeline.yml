@@ -1,0 +1,206 @@
+name: Quality Pipeline
+
+on:
+  schedule:
+    # Weekly: Sunday 02:00 UTC
+    - cron: "0 2 * * 0"
+
+  workflow_dispatch:
+    inputs:
+      audit:
+        description: "Run corpus audit"
+        type: boolean
+        default: true
+      llm_queries:
+        description: "Use LLM-generated queries for richer audit coverage"
+        type: boolean
+        default: false
+      curator:
+        description: "Run curator agent for weak domains"
+        type: boolean
+        default: false
+      llm_judge:
+        description: "Generate LLM relevance labels"
+        type: boolean
+        default: false
+      max_domains:
+        description: "Max domains to curate (curator only)"
+        type: string
+        default: "10"
+      model:
+        description: "LLM model name for LLM-powered features"
+        type: string
+        default: "synesis-general"
+
+env:
+  MILVUS_URI: "http://synesis-milvus.synesis-rag.svc.cluster.local:19530"
+  EMBEDDER_URL: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
+  LLM_URL: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+  SEARXNG_URL: "http://searxng.synesis-search.svc.cluster.local:8080"
+  REPORT_DIR: "/tmp/quality-results"
+
+# This workflow requires a self-hosted runner with oc/kubectl access to the
+# cluster, OR the quality-runner CronJob (base/quality-runner/) to handle
+# in-cluster execution. See docs/QUALITY_PIPELINE.md for setup details.
+#
+# For environments without a self-hosted runner, use the Kubernetes CronJob
+# approach instead (oc apply -k base/quality-runner/).
+
+jobs:
+  corpus-audit:
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.audit)
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r benchmarks/corpus/requirements.txt
+
+      - name: Run corpus audit
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.llm_queries || 'false' }}" = "true" ]; then
+            EXTRA_ARGS="--llm-url ${{ env.LLM_URL }} --model ${{ inputs.model || 'synesis-general' }}"
+          fi
+          python benchmarks/corpus/audit_corpus.py \
+            --milvus-uri "${{ env.MILVUS_URI }}" \
+            --embedder-url "${{ env.EMBEDDER_URL }}" \
+            --output "${{ env.REPORT_DIR }}/corpus_audit_report.json" \
+            $EXTRA_ARGS
+
+      - name: Print summary
+        if: always()
+        run: |
+          if [ -f "${{ env.REPORT_DIR }}/corpus_audit_report.json" ]; then
+            python -c "
+          import json
+          r = json.load(open('${{ env.REPORT_DIR }}/corpus_audit_report.json'))
+          s = r['summary']
+          print(f\"Domains audited: {r['domains_audited']}\")
+          print(f\"Strong: {s['strong']}, Adequate: {s['adequate']}, Weak: {s['weak']}, Empty: {s['empty']}\")
+          if r['weak_domains']:
+              print(f\"Weak: {', '.join(r['weak_domains'][:10])}\")
+          if r['empty_domains']:
+              print(f\"Empty: {', '.join(r['empty_domains'][:10])}\")
+          "
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: corpus-audit-report
+          path: ${{ env.REPORT_DIR }}/corpus_audit_report.json
+          retention-days: 90
+
+  llm-judge:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.llm_judge
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r benchmarks/corpus/requirements.txt
+
+      - name: Restore judgment cache
+        uses: actions/cache@v4
+        with:
+          path: benchmarks/corpus/judgments_cache.json
+          key: llm-judgments-${{ hashFiles('benchmarks/bm25/queries.yaml') }}
+          restore-keys: llm-judgments-
+
+      - name: Run LLM judge
+        run: |
+          python benchmarks/corpus/llm_judge.py \
+            --milvus-uri "${{ env.MILVUS_URI }}" \
+            --embedder-url "${{ env.EMBEDDER_URL }}" \
+            --llm-url "${{ env.LLM_URL }}" \
+            --model "${{ inputs.model || 'synesis-general' }}" \
+            --output "${{ env.REPORT_DIR }}/relevance_labels_llm.json"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: llm-judge-labels
+          path: |
+            ${{ env.REPORT_DIR }}/relevance_labels_llm.json
+            benchmarks/corpus/judgments_cache.json
+          retention-days: 90
+
+  curator:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.curator
+    needs: [corpus-audit]
+    runs-on: self-hosted
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r tools/curator/requirements.txt
+
+      - name: Download audit report
+        uses: actions/download-artifact@v4
+        with:
+          name: corpus-audit-report
+          path: ${{ env.REPORT_DIR }}
+
+      - name: Run curator agent
+        run: |
+          python tools/curator/curator_agent.py \
+            --audit-report "${{ env.REPORT_DIR }}/corpus_audit_report.json" \
+            --llm-url "${{ env.LLM_URL }}" \
+            --model "${{ inputs.model || 'synesis-general' }}" \
+            --searxng-url "${{ env.SEARXNG_URL }}" \
+            --max-domains "${{ inputs.max_domains || '10' }}" \
+            --output "${{ env.REPORT_DIR }}/proposed_sources.yaml"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: curator-proposals
+          path: ${{ env.REPORT_DIR }}/proposed_sources.yaml
+          retention-days: 90
+
+  update-quality-report:
+    if: always() && github.event_name == 'schedule'
+    needs: [corpus-audit]
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download audit report
+        uses: actions/download-artifact@v4
+        with:
+          name: corpus-audit-report
+          path: ${{ env.REPORT_DIR }}
+
+      # Update the ConfigMap so the admin UI has fresh data.
+      # Requires oc CLI with cluster credentials.
+      - name: Update quality-report ConfigMap
+        run: |
+          if [ -f "${{ env.REPORT_DIR }}/corpus_audit_report.json" ]; then
+            oc create configmap quality-report \
+              --from-file=corpus_audit_report.json="${{ env.REPORT_DIR }}/corpus_audit_report.json" \
+              --dry-run=client -o yaml | oc apply -n synesis-rag -f -
+            echo "ConfigMap quality-report updated"
+          else
+            echo "No audit report found, skipping ConfigMap update"
+          fi

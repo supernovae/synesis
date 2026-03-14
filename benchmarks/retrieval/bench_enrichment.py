@@ -105,13 +105,19 @@ def main():
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--output", default="benchmarks/retrieval/results_enrichment.json")
+    parser.add_argument("--use-llm-labels", action="store_true",
+                        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based")
     args = parser.parse_args()
 
     queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
-    labels_path = Path(__file__).parent.parent / "bm25" / "relevance_labels.json"
+    if args.use_llm_labels:
+        labels_path = Path(__file__).parent.parent / "corpus" / "relevance_labels_llm.json"
+    else:
+        labels_path = Path(__file__).parent.parent / "bm25" / "relevance_labels.json"
 
     if not queries_path.exists() or not labels_path.exists():
-        print("ERROR: queries.yaml or relevance_labels.json not found", file=sys.stderr)
+        label_hint = "Run benchmarks/corpus/llm_judge.py" if args.use_llm_labels else "Run BM25 benchmark"
+        print(f"ERROR: queries.yaml or labels not found. {label_hint}.", file=sys.stderr)
         sys.exit(1)
 
     with open(queries_path) as f:

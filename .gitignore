@@ -109,3 +109,6 @@ docs/*
 !docs/EXPERIMENTS.md
 !docs/OPENROUTER.md
 !docs/seed-corpus.json
+!docs/QUALITY_PIPELINE.md
+!docs/ADMIN_QUALITY_UI.md
+!docs/MILVUS_SCALING.md
