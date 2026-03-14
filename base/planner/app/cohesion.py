@@ -174,10 +174,10 @@ async def _detect_cohesion_lock_llm(
 
         from .llm_telemetry import get_llm_http_client
 
-        _cohesion_kw: dict[str, Any] = {
-            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-        }
-        if not settings.guided_json_enabled:
+        _cohesion_kw: dict[str, Any] = {}
+        if settings.guided_json_enabled:
+            _cohesion_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        else:
             _cohesion_kw["response_format"] = {"type": "json_object"}
 
         llm = ChatOpenAI(
@@ -185,7 +185,7 @@ async def _detect_cohesion_lock_llm(
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=128,
+            max_completion_tokens=512 if not settings.guided_json_enabled else 128,
             streaming=False,
             use_responses_api=False,
             model_kwargs=_cohesion_kw,
@@ -290,10 +290,10 @@ async def _micro_critic_llm_single(
 
         from .llm_telemetry import get_llm_http_client
 
-        _mc_kw: dict[str, Any] = {
-            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
-        }
-        if not settings.guided_json_enabled:
+        _mc_kw: dict[str, Any] = {}
+        if settings.guided_json_enabled:
+            _mc_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        else:
             _mc_kw["response_format"] = {"type": "json_object"}
 
         llm = ChatOpenAI(
@@ -301,7 +301,7 @@ async def _micro_critic_llm_single(
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=64,
+            max_completion_tokens=256 if not settings.guided_json_enabled else 64,
             streaming=False,
             use_responses_api=False,
             model_kwargs=_mc_kw,
