@@ -147,14 +147,6 @@ patches:
                   - name: SYNESIS_ADVISOR_MODEL_UDS
                     value: ""
 
-  # -----------------------------------------------------------------------
-  # Bypass LiteLLM for Open WebUI: talks directly to planner
-  # (same as dev overlay — planner is the pipeline entry point)
-  # -----------------------------------------------------------------------
-  - target:
-      kind: Deployment
-      name: open-webui
-    path: openwebui-direct-planner.yaml
 
 # NOTE: No synesis.io/environment label here. Kustomize global labels
 # stamp every resource — switching overlays (dev → openrouter) changes the

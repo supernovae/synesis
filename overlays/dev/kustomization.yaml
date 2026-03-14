@@ -139,12 +139,6 @@ patches:
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: "256Mi"
 
-  # Bypass LiteLLM: Open WebUI talks directly to planner (fixes connection errors)
-  - target:
-      kind: Deployment
-      name: open-webui
-    path: openwebui-direct-planner.yaml
-
 images:
   - name: synesis-planner
     newName: ghcr.io/supernovae/synesis/planner

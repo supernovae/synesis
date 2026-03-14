@@ -1,0 +1,84 @@
+import { lazy } from "react";
+import { createBrowserRouter } from "react-router-dom";
+import PageShell from "./components/layout/PageShell";
+import RequireRole from "./components/auth/RequireRole";
+
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+
+const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
+const CostTracker = lazy(() => import("./pages/models/CostTracker"));
+const ModelPerformance = lazy(() => import("./pages/models/ModelPerformance"));
+
+const CorpusOverview = lazy(() => import("./pages/rag/CorpusOverview"));
+const QualityDashboard = lazy(() => import("./pages/rag/QualityDashboard"));
+const DomainHealth = lazy(() => import("./pages/rag/DomainHealth"));
+const Benchmarks = lazy(() => import("./pages/rag/Benchmarks"));
+
+const DomainBrowser = lazy(() => import("./pages/taxonomy/DomainBrowser"));
+const CoverageMap = lazy(() => import("./pages/taxonomy/CoverageMap"));
+
+const GraphVisualization = lazy(() => import("./pages/pipeline/GraphVisualization"));
+const NodePerformance = lazy(() => import("./pages/pipeline/NodePerformance"));
+const CriticAnalytics = lazy(() => import("./pages/pipeline/CriticAnalytics"));
+
+const McpTools = lazy(() => import("./pages/integrations/McpTools"));
+const WebSearch = lazy(() => import("./pages/integrations/WebSearch"));
+
+const FeedbackList = lazy(() => import("./pages/feedback/FeedbackList"));
+const KnowledgeGaps = lazy(() => import("./pages/feedback/KnowledgeGaps"));
+const CuratorProposals = lazy(() => import("./pages/feedback/CuratorProposals"));
+
+const ServiceHealth = lazy(() => import("./pages/observability/ServiceHealth"));
+const CachePerformance = lazy(() => import("./pages/observability/CachePerformance"));
+const CircuitBreakers = lazy(() => import("./pages/observability/CircuitBreakers"));
+const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
+
+const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
+
+export const router = createBrowserRouter([
+  {
+    path: "/login",
+    element: <Login />,
+  },
+  {
+    element: (
+      <RequireRole>
+        <PageShell />
+      </RequireRole>
+    ),
+    children: [
+      { index: true, element: <Dashboard /> },
+
+      { path: "models", element: <ModelRegistry /> },
+      { path: "models/costs", element: <CostTracker /> },
+      { path: "models/performance", element: <ModelPerformance /> },
+
+      { path: "rag/corpus", element: <CorpusOverview /> },
+      { path: "rag/quality", element: <QualityDashboard /> },
+      { path: "rag/quality/:key", element: <DomainHealth /> },
+      { path: "rag/benchmarks", element: <Benchmarks /> },
+
+      { path: "taxonomy", element: <DomainBrowser /> },
+      { path: "taxonomy/coverage", element: <CoverageMap /> },
+
+      { path: "pipeline/graph", element: <GraphVisualization /> },
+      { path: "pipeline/nodes", element: <NodePerformance /> },
+      { path: "pipeline/critic", element: <CriticAnalytics /> },
+
+      { path: "integrations/mcp", element: <McpTools /> },
+      { path: "integrations/search", element: <WebSearch /> },
+
+      { path: "feedback", element: <FeedbackList /> },
+      { path: "feedback/knowledge-gaps", element: <KnowledgeGaps /> },
+      { path: "feedback/curator", element: <CuratorProposals /> },
+
+      { path: "observability/health", element: <ServiceHealth /> },
+      { path: "observability/cache", element: <CachePerformance /> },
+      { path: "observability/circuit-breakers", element: <CircuitBreakers /> },
+      { path: "observability/errors", element: <ErrorLog /> },
+
+      { path: "settings", element: <SystemConfig /> },
+    ],
+  },
+]);

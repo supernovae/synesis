@@ -1,21 +1,29 @@
-"""Feedback store for thumbs up/down — tuning loop for EntryClassifier.
+"""Feedback store for thumbs up/down -- tuning loop for EntryClassifier.
 
 Stores vote + classification context so misclassified examples can be
-exported for YAML tuning. Open WebUI (or webhook) POSTs to /v1/feedback.
+exported for YAML tuning. Admin UI or webhook POSTs to /v1/feedback.
 
 Run context is cached temporarily (TTL 24h) so feedback can be associated
 with run_id when it arrives asynchronously.
+
+Uses Redis when SYNESIS_REDIS_URL is set, falls back to in-memory.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 logger = logging.getLogger("synesis.feedback")
+
+_REDIS_KEY_PREFIX = "synesis:feedback:"
+_REDIS_LIST_KEY = "synesis:feedback:entries"
+_REDIS_CONTEXT_PREFIX = "synesis:feedback:ctx:"
 
 
 @dataclass
@@ -38,22 +46,18 @@ class FeedbackEntry:
 class FeedbackStore(Protocol):
     """Pluggable backend for persisted feedback."""
 
-    def store(self, entry: FeedbackEntry) -> None:
-        """Persist feedback entry."""
-        ...
+    def store(self, entry: FeedbackEntry) -> None: ...
 
     def list_entries(
         self,
         vote: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[FeedbackEntry]:
-        """List feedback, optionally filter by vote."""
-        ...
+    ) -> list[FeedbackEntry]: ...
 
 
 class InMemoryFeedbackStore:
-    """In-memory feedback store. For production, use Redis/DB."""
+    """In-memory feedback store -- fallback when Redis is unavailable."""
 
     def __init__(self, max_entries: int = 10_000) -> None:
         self._entries: list[FeedbackEntry] = []
@@ -80,7 +84,39 @@ class InMemoryFeedbackStore:
             return list(subset)
 
 
-# Run context: classification snapshot to associate with feedback (TTL 24h)
+class RedisFeedbackStore:
+    """Redis-backed feedback store. Shared between planner and admin service."""
+
+    def __init__(self, redis_url: str, max_entries: int = 10_000) -> None:
+        import redis
+
+        self._r = redis.Redis.from_url(redis_url, decode_responses=True)
+        self._max = max_entries
+
+    def store(self, entry: FeedbackEntry) -> None:
+        payload = json.dumps(asdict(entry))
+        self._r.lpush(_REDIS_LIST_KEY, payload)
+        self._r.ltrim(_REDIS_LIST_KEY, 0, self._max - 1)
+
+    def list_entries(
+        self,
+        vote: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[FeedbackEntry]:
+        raw_items = self._r.lrange(_REDIS_LIST_KEY, 0, self._max - 1)
+        entries = []
+        for raw in raw_items:
+            try:
+                d = json.loads(raw)
+                entries.append(FeedbackEntry(**d))
+            except Exception:
+                continue
+        if vote:
+            entries = [e for e in entries if e.vote == vote]
+        return entries[offset : offset + limit]
+
+
 _RUN_CONTEXT_TTL_SEC = 86400
 
 
@@ -117,15 +153,24 @@ class RunContextCache:
 
 
 # Singletons
-_feedback_store: InMemoryFeedbackStore | None = None
+_feedback_store: InMemoryFeedbackStore | RedisFeedbackStore | None = None
 _run_context_cache: RunContextCache | None = None
 
 
-def get_feedback_store() -> InMemoryFeedbackStore:
-    """Lazy-init feedback store."""
+def get_feedback_store() -> InMemoryFeedbackStore | RedisFeedbackStore:
+    """Lazy-init feedback store. Uses Redis if SYNESIS_REDIS_URL is set."""
     global _feedback_store
     if _feedback_store is None:
-        _feedback_store = InMemoryFeedbackStore()
+        redis_url = os.getenv("SYNESIS_REDIS_URL", "")
+        if redis_url:
+            try:
+                _feedback_store = RedisFeedbackStore(redis_url)
+                logger.info("feedback_store_redis url=%s", redis_url[:30])
+            except Exception as exc:
+                logger.warning("feedback_store_redis_failed error=%s", str(exc)[:60])
+                _feedback_store = InMemoryFeedbackStore()
+        else:
+            _feedback_store = InMemoryFeedbackStore()
     return _feedback_store
 
 

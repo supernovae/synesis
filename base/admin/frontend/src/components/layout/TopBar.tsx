@@ -1,0 +1,116 @@
+import { useLocation, Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
+import { LogOut, Shield, Eye, Moon, Sun } from "lucide-react";
+import { useState, useEffect } from "react";
+
+const breadcrumbLabels: Record<string, string> = {
+  "": "Dashboard",
+  models: "Models & Costs",
+  costs: "Cost Tracker",
+  performance: "Performance",
+  rag: "RAG Pipeline",
+  corpus: "Corpus",
+  quality: "Quality",
+  benchmarks: "Benchmarks",
+  taxonomy: "Taxonomy",
+  coverage: "Coverage",
+  pipeline: "Pipeline",
+  graph: "Graph",
+  nodes: "Nodes",
+  critic: "Critic",
+  integrations: "Integrations",
+  mcp: "MCP Tools",
+  search: "Web Search",
+  feedback: "Feedback",
+  "knowledge-gaps": "Knowledge Gaps",
+  curator: "Curator",
+  observability: "Observability",
+  health: "Health",
+  cache: "Cache",
+  "circuit-breakers": "Circuit Breakers",
+  errors: "Errors",
+  settings: "Settings",
+};
+
+export default function TopBar() {
+  const { user, logout } = useAuth();
+  const { pathname } = useLocation();
+  const [dark, setDark] = useState(() => {
+    if (typeof window !== "undefined") {
+      return document.documentElement.classList.contains("dark");
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    localStorage.setItem("synesis_dark", dark ? "1" : "0");
+  }, [dark]);
+
+  const segments = pathname.split("/").filter(Boolean);
+  const crumbs = segments.map((seg, i) => ({
+    label: breadcrumbLabels[seg] || seg,
+    path: "/" + segments.slice(0, i + 1).join("/"),
+  }));
+
+  return (
+    <header className="flex h-14 items-center justify-between border-b border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900">
+      <nav className="flex items-center gap-1 text-sm">
+        <Link
+          to="/"
+          className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+        >
+          Home
+        </Link>
+        {crumbs.map((c) => (
+          <span key={c.path} className="flex items-center gap-1">
+            <span className="text-gray-300 dark:text-gray-600">/</span>
+            <Link
+              to={c.path}
+              className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+            >
+              {c.label}
+            </Link>
+          </span>
+        ))}
+      </nav>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setDark((d) => !d)}
+          className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          title={dark ? "Light mode" : "Dark mode"}
+        >
+          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+
+        {user && (
+          <div className="flex items-center gap-2">
+            {user.role === "admin" ? (
+              <Shield className="h-4 w-4 text-blue-500" />
+            ) : (
+              <Eye className="h-4 w-4 text-gray-400" />
+            )}
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {user.username}
+            </span>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
+              {user.role}
+            </span>
+          </div>
+        )}
+        <button
+          onClick={logout}
+          className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+          title="Sign out"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
+      </div>
+    </header>
+  );
+}

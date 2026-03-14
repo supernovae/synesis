@@ -37,10 +37,20 @@ spec:
               value: "19530"
             - name: SYNESIS_PLANNER_URL
               value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+            - name: SYNESIS_LITELLM_URL
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000"
+            - name: SYNESIS_MCP_URL
+              value: "http://synesis-mcp.synesis-planner.svc.cluster.local:8080"
             - name: SYNESIS_QUALITY_REPORT_PATH
               value: "/data/quality/corpus_audit_report.json"
             - name: SYNESIS_CURATOR_PROPOSALS_PATH
               value: "/data/quality/proposed_sources.yaml"
+            - name: SYNESIS_MODELS_YAML_PATH
+              value: "/etc/synesis/models.yaml"
+            - name: SYNESIS_TAXONOMY_YAML_PATH
+              value: "/etc/synesis/taxonomy_prompt_config.yaml"
+            - name: SYNESIS_JWT_SECRET
+              value: "synesis-dev-secret-change-me"
           volumeMounts:
             - name: quality-data
               mountPath: /data/quality
@@ -59,13 +69,13 @@ spec:
               memory: 512Mi
           readinessProbe:
             httpGet:
-              path: /admin/health
+              path: /api/v1/health
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /admin/health
+              path: /api/v1/health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 30

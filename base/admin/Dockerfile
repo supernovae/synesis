@@ -1,4 +1,14 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-api:latest
+
+# --- Stage 1: Build React frontend ---
+FROM node:22-alpine AS frontend
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --ignore-scripts 2>/dev/null || npm install
+COPY frontend/ ./
+RUN npm run build
+
+# --- Stage 2: Python runtime ---
 FROM ${BASE_IMAGE}
 
 USER 0
@@ -7,10 +17,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
+COPY --from=frontend /build/dist ./static/
 
 USER 1000
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/')"]
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
