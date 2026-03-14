@@ -283,7 +283,7 @@ def run_pipeline(
     )
 
     if dry_run:
-        logger.info("indexer_dry_run_validation", extra={"message": "No Milvus/embedder connection"})
+        logger.info("indexer_dry_run_validation", extra={"detail": "No Milvus/embedder connection"})
 
     writer_kwargs = {"uri": milvus_uri} if milvus_uri else {}
     embedder_kwargs = {"url": embedder_url} if embedder_url else {}

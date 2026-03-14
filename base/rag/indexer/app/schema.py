@@ -164,7 +164,7 @@ def ensure_synesis_catalog(
             extra={
                 "collection": SYNESIS_CATALOG,
                 "version": SCHEMA_VERSION,
-                "message": "Data will be re-indexed on next run",
+                "detail": "Data will be re-indexed on next run",
             },
         )
         client.drop_collection(collection_name=SYNESIS_CATALOG)

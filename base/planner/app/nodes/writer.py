@@ -57,6 +57,8 @@ FORMATTING — pick the right element for the content:
 - CODE BLOCK (```lang) when showing commands, config, or file paths.
 - DIAGRAM (```mermaid) when visualizing architecture, data flow, \
   sequences, or component relationships. Diagrams are valuable.
+  In mermaid nodes, ALWAYS quote labels containing parentheses or special \
+  characters: A["Vector DB (FAISS)"] not A[Vector DB (FAISS)].
 - PROSE when explaining reasoning, tradeoffs, or narrative analysis.
 - Use inline `backticks` for tool, command, and model names.
 - Do NOT bold keywords just to signal coverage.
