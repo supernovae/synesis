@@ -47,6 +47,21 @@ patches:
     path: supervisor-config-patch.yaml
 
   # -----------------------------------------------------------------------
+  # LiteLLM secrets: clear master_key so the planner's api_key="not-needed"
+  # passes through without triggering a virtual-key DB lookup.
+  # -----------------------------------------------------------------------
+  - target:
+      kind: Secret
+      name: litellm-secrets
+    patch: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: litellm-secrets
+      stringData:
+        master-key: ""
+
+  # -----------------------------------------------------------------------
   # LiteLLM: inject OPENROUTER_API_KEY env var from the Secret
   # -----------------------------------------------------------------------
   - target:
