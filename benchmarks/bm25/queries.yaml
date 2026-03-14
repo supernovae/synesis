@@ -1,0 +1,237 @@
+# BM25 Benchmark Query Set
+#
+# Covers the major domains in synesis_catalog: architecture, kubernetes,
+# code (Python/Go/Rust/TypeScript/Java), research (RAG/LLM/agents),
+# runbooks, licenses, and cross-domain epistemic content.
+#
+# Relevance labels are generated via pooling: both retrievers run, top-20
+# results are unioned, and an LLM judge scores relevance (0/1/2).
+# The `auto_judge: true` flag triggers this at benchmark time.
+#
+# Difficulty levels:
+#   easy   — single clear keyword match expected
+#   medium — needs term overlap across metadata + text
+#   hard   — ambiguous terms, polysemous, or requires multi-field signal
+
+auto_judge: true
+judge_model: "synesis-general"
+
+queries:
+  # --- Architecture & Cloud ---
+  - id: arch-01
+    query: "twelve-factor app methodology"
+    domain: architecture
+    difficulty: easy
+
+  - id: arch-02
+    query: "AWS well-architected reliability pillar best practices"
+    domain: architecture
+    difficulty: medium
+
+  - id: arch-03
+    query: "circuit breaker pattern distributed systems"
+    domain: architecture
+    difficulty: medium
+
+  - id: arch-04
+    query: "event-driven architecture vs request-reply"
+    domain: architecture
+    difficulty: hard
+
+  - id: arch-05
+    query: "cloud design patterns for high availability"
+    domain: architecture
+    difficulty: medium
+
+  - id: arch-06
+    query: "operational excellence pillar automation"
+    domain: architecture
+    difficulty: medium
+
+  # --- Kubernetes / OpenShift ---
+  - id: k8s-01
+    query: "kubernetes pod security context configuration"
+    domain: kubernetes
+    difficulty: easy
+
+  - id: k8s-02
+    query: "kubernetes deployment rolling update strategy"
+    domain: kubernetes
+    difficulty: easy
+
+  - id: k8s-03
+    query: "ingress TLS termination configuration"
+    domain: kubernetes
+    difficulty: medium
+
+  - id: k8s-04
+    query: "OpenShift alert runbook troubleshooting"
+    domain: openshift
+    difficulty: medium
+
+  - id: k8s-05
+    query: "kubernetes batch job backoff limit"
+    domain: kubernetes
+    difficulty: easy
+
+  - id: k8s-06
+    query: "HNSW index tuning for vector search"
+    domain: kubernetes
+    difficulty: hard
+
+  # --- Python ---
+  - id: py-01
+    query: "FastAPI dependency injection async"
+    domain: python
+    difficulty: easy
+
+  - id: py-02
+    query: "pytest fixture scope and parameterize"
+    domain: python
+    difficulty: easy
+
+  - id: py-03
+    query: "SQLAlchemy async session management"
+    domain: python
+    difficulty: medium
+
+  - id: py-04
+    query: "pydantic model validator custom types"
+    domain: python
+    difficulty: medium
+
+  - id: py-05
+    query: "celery task retry exponential backoff"
+    domain: python
+    difficulty: medium
+
+  # --- Go ---
+  - id: go-01
+    query: "Go context cancellation propagation"
+    domain: go
+    difficulty: medium
+
+  - id: go-02
+    query: "client-go kubernetes informer watch"
+    domain: go
+    difficulty: medium
+
+  - id: go-03
+    query: "etcd leader election distributed lock"
+    domain: go
+    difficulty: hard
+
+  # --- Rust ---
+  - id: rs-01
+    query: "tokio async runtime spawn blocking"
+    domain: rust
+    difficulty: easy
+
+  - id: rs-02
+    query: "actix-web middleware error handling"
+    domain: rust
+    difficulty: medium
+
+  # --- TypeScript ---
+  - id: ts-01
+    query: "Next.js server components data fetching"
+    domain: typescript
+    difficulty: medium
+
+  - id: ts-02
+    query: "Redux toolkit createSlice async thunk"
+    domain: typescript
+    difficulty: medium
+
+  # --- Java ---
+  - id: java-01
+    query: "Spring Boot autoconfiguration conditional beans"
+    domain: java
+    difficulty: medium
+
+  - id: java-02
+    query: "Kafka consumer group rebalance protocol"
+    domain: java
+    difficulty: hard
+
+  # --- Research / LLM / RAG ---
+  - id: rag-01
+    query: "retrieval augmented generation vs fine tuning"
+    domain: generalist
+    difficulty: medium
+
+  - id: rag-02
+    query: "ColBERT late interaction reranking"
+    domain: generalist
+    difficulty: hard
+
+  - id: rag-03
+    query: "self-RAG adaptive retrieval"
+    domain: generalist
+    difficulty: medium
+
+  - id: rag-04
+    query: "mixture of experts routing mechanism"
+    domain: generalist
+    difficulty: medium
+
+  - id: rag-05
+    query: "RLHF reward model training"
+    domain: generalist
+    difficulty: medium
+
+  - id: rag-06
+    query: "vLLM continuous batching inference"
+    domain: generalist
+    difficulty: easy
+
+  - id: rag-07
+    query: "SWE-bench agent evaluation harness"
+    domain: generalist
+    difficulty: hard
+
+  - id: rag-08
+    query: "LangGraph stateful multi-agent workflow"
+    domain: generalist
+    difficulty: medium
+
+  # --- License ---
+  - id: lic-01
+    query: "GPL-3.0 copyleft obligations"
+    domain: license
+    difficulty: easy
+
+  - id: lic-02
+    query: "Apache 2.0 vs MIT license comparison"
+    domain: license
+    difficulty: medium
+
+  # --- Cross-domain / Polysemous ---
+  - id: xd-01
+    query: "architecture"
+    domain: ""
+    difficulty: hard
+    notes: "Polysemous: software architecture vs system design vs cloud architecture"
+
+  - id: xd-02
+    query: "deployment"
+    domain: ""
+    difficulty: hard
+    notes: "Polysemous: K8s Deployment vs software deployment vs model deployment"
+
+  - id: xd-03
+    query: "pipeline"
+    domain: ""
+    difficulty: hard
+    notes: "CI/CD pipeline vs ML pipeline vs data pipeline vs RAG pipeline"
+
+  - id: xd-04
+    query: "how to handle errors in production"
+    domain: ""
+    difficulty: medium
+    notes: "Natural language question, not keywords"
+
+  - id: xd-05
+    query: "terraform infrastructure as code module"
+    domain: generalist
+    difficulty: medium
