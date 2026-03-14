@@ -82,6 +82,5 @@ data:
       request_timeout: 300
 
     general_settings:
-      master_key: "sk-synesis-change-me"
       forward_client_headers_to_llm_api: true
       background_health_checks: false
