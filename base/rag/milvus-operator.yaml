@@ -36,7 +36,7 @@ spec:
         pvcDeletion: false
         persistentVolumeClaim:
           spec:
-            storageClassName: efs-sc
+            storageClassName: gp3-high
             accessModes:
               - ReadWriteOnce
             resources:
@@ -65,7 +65,7 @@ spec:
             enabled: false
           persistence:
             enabled: true
-            storageClassName: efs-sc
+            storageClassName: gp3-high
             size: 2Gi
     storage:
       external: true

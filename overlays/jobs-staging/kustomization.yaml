@@ -69,7 +69,5 @@ images:
     newName: ghcr.io/supernovae/synesis/indexer
     newTag: latest
 
-labels:
-  - pairs:
-      synesis.io/environment: staging
-    includeSelectors: false
+# NOTE: Global environment labels removed — prevents operator reconcile
+# churn when switching overlays on the same cluster.

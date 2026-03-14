@@ -134,7 +134,7 @@ images:
     newName: ghcr.io/supernovae/synesis/ingestor
     newTag: latest
 
-labels:
-  - pairs:
-      synesis.io/environment: dev
-    includeSelectors: false
+# NOTE: Global environment labels removed. Kustomize labels stamp every
+# resource — switching overlays changes the label on 80+ resources,
+# triggering operator reconciles (Milvus, ClickHouse) and cascading pod
+# restarts. Environment is implicit from the overlay used.
