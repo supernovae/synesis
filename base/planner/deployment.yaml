@@ -181,10 +181,10 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: 4Gi
+              memory: 6Gi
             limits:
               cpu: "4"
-              memory: 8Gi
+              memory: 12Gi
           livenessProbe:
             httpGet:
               path: /health
