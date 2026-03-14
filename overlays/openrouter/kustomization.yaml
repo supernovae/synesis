@@ -138,7 +138,8 @@ patches:
       name: open-webui
     path: openwebui-direct-planner.yaml
 
-labels:
-  - pairs:
-      synesis.io/environment: openrouter
-    includeSelectors: false
+# NOTE: No synesis.io/environment label here. Kustomize global labels
+# stamp every resource — switching overlays (dev → openrouter) changes the
+# label on all 80+ resources, triggering operator reconciles (Milvus,
+# ClickHouse, etc.) and cascading pod restarts. The label is informational
+# only; not worth the blast radius.

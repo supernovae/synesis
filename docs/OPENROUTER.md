@@ -226,9 +226,11 @@ The overlay disables guided JSON (`SYNESIS_GUIDED_JSON_ENABLED=false`) because O
 oc logs -n synesis-planner deployment/synesis-planner --tail=100 | grep -i json
 ```
 
-### Switching back to self-hosted
+### Switching between overlays (dev ↔ openrouter)
 
-Deploy a GPU-backed overlay instead:
+The `dev` and `openrouter` overlays share all non-model infrastructure (Milvus, embedder, Redis, SearXNG, etc.) with identical manifests. Switching overlays only changes the resources that actually differ — LiteLLM config, planner env vars, and supervisor health checks. Shared infra stays untouched and pods don't restart.
+
+To switch back to self-hosted:
 
 ```bash
 ./scripts/deploy.sh dev    # or staging, prod
