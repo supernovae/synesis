@@ -98,6 +98,18 @@ async def _ensure_coro(result: Any) -> Any:
     return result
 
 
+_kw_async_client: httpx.AsyncClient | None = None
+
+
+def _get_keyword_async_client() -> httpx.AsyncClient:
+    global _kw_async_client
+    if _kw_async_client is None:
+        _kw_async_client = httpx.AsyncClient(
+            base_url=settings.keyword_service_url, timeout=5,
+        )
+    return _kw_async_client
+
+
 async def _predictive_cache_warm(state: dict[str, Any]) -> None:
     """Best-effort pre-warming of keyword + embedder services during entry.
 
@@ -115,20 +127,19 @@ async def _predictive_cache_warm(state: dict[str, Any]) -> None:
         return
 
     try:
-        kw_url = settings.keyword_service_url
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.post(
-                f"{kw_url}/keywords",
-                json={
-                    "text": task_desc[:500],
-                    "top_n": 5,
-                    "ngram_range": [1, 2],
-                    "use_mmr": True,
-                    "diversity": 0.5,
-                },
-            )
-            resp.raise_for_status()
-            keywords = resp.json().get("keywords") or []
+        kw_client = _get_keyword_async_client()
+        resp = await kw_client.post(
+            "/keywords",
+            json={
+                "text": task_desc[:500],
+                "top_n": 5,
+                "ngram_range": [1, 2],
+                "use_mmr": True,
+                "diversity": 0.5,
+            },
+        )
+        resp.raise_for_status()
+        keywords = resp.json().get("keywords") or []
 
         if not keywords:
             return

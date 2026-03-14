@@ -24,7 +24,7 @@ spec:
           image: redis/redis-stack-server:7.4.0-v2
           env:
             - name: REDIS_ARGS
-              value: "--appendonly yes --appendfsync everysec --maxmemory 512mb --maxmemory-policy allkeys-lru"
+              value: "--appendonly yes --appendfsync everysec --maxmemory 2gb --maxmemory-policy allkeys-lru"
           ports:
             - name: redis
               containerPort: 6379
@@ -34,11 +34,11 @@ spec:
               mountPath: /data
           resources:
             requests:
-              cpu: "100m"
-              memory: "256Mi"
+              cpu: "250m"
+              memory: "1Gi"
             limits:
-              cpu: "1"
-              memory: "768Mi"
+              cpu: "2"
+              memory: "3Gi"
           livenessProbe:
             exec:
               command:
@@ -55,4 +55,5 @@ spec:
             periodSeconds: 5
       volumes:
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: synesis-redis-data

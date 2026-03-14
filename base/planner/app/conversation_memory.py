@@ -302,8 +302,53 @@ class ConversationMemory:
             }
 
 
+class RedisPendingCheckpointStore:
+    """Redis-backed L2 for pending question state.
+
+    Uses GETDEL for atomic claim-and-delete on read.
+    """
+
+    def __init__(self, redis_url: str, prefix: str = "synesis:pending:") -> None:
+        import redis as _redis
+
+        self._client = _redis.Redis.from_url(redis_url, decode_responses=True)
+        self._prefix = prefix
+
+    def _key(self, user_id: str) -> str:
+        return f"{self._prefix}{user_id}"
+
+    def write(self, user_id: str, data: dict[str, Any], ttl_seconds: int = 86400) -> None:
+        import json
+
+        self._client.set(self._key(user_id), json.dumps(data), ex=ttl_seconds)
+
+    def read_and_delete(self, user_id: str) -> dict[str, Any] | None:
+        import json
+
+        raw = self._client.getdel(self._key(user_id))
+        if raw is None:
+            return None
+        return json.loads(raw)
+
+
+def _build_pending_l2() -> PendingCheckpointStore | None:
+    """Build L2 pending checkpoint store from config. Returns None if unconfigured."""
+    if settings.l2_archive_redis_url:
+        try:
+            store = RedisPendingCheckpointStore(
+                redis_url=settings.l2_archive_redis_url,
+                prefix="synesis:pending:",
+            )
+            logger.info("redis_pending_l2_ready", extra={"url": settings.l2_archive_redis_url[:40]})
+            return store
+        except Exception:
+            logger.warning("redis_pending_l2_init_failed", exc_info=True)
+    return None
+
+
 memory = ConversationMemory(
     max_turns_per_user=settings.memory_max_turns_per_user,
     max_users=settings.memory_max_users,
     ttl_seconds=settings.memory_ttl_seconds,
+    pending_checkpoint_store=_build_pending_l2(),
 )

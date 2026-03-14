@@ -17,5 +17,8 @@ resources:
   - keyword-service/service.yaml
   - gliner-service/deployment.yaml
   - gliner-service/service.yaml
+  - bm25-service/deployment.yaml
+  - bm25-service/service.yaml
+  - redis/pvc.yaml
   - redis/deployment.yaml
   - redis/service.yaml

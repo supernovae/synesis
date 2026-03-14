@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: synesis
     app.kubernetes.io/component: planner
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: synesis-planner
@@ -79,14 +79,14 @@ spec:
               value: "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1"
             - name: SYNESIS_GLINER_SERVICE_URL
               value: "http://gliner-service.synesis-rag.svc.cluster.local:8080/v1"
+            - name: SYNESIS_BM25_SERVICE_URL
+              value: "http://bm25-service.synesis-rag.svc.cluster.local:8080"
             - name: SYNESIS_RAG_RETRIEVAL_STRATEGY
               value: "hybrid"
             - name: SYNESIS_RAG_RERANKER
               value: "flashrank"
             - name: SYNESIS_RAG_RERANKER_MODEL
               value: "ms-marco-MiniLM-L-12-v2"
-            - name: SYNESIS_RAG_BM25_REFRESH_INTERVAL_SECONDS
-              value: "600"
             - name: SYNESIS_RAG_RRF_K
               value: "60"
             - name: SYNESIS_RAG_BGE_RERANKER_URL
@@ -163,14 +163,14 @@ spec:
               value: "info"
             # Semantic cache — shared Redis for cross-replica cache, sessions, and L2 archive
             - name: SYNESIS_RETRIEVAL_CACHE_BACKEND
-              value: "numpy"  # "numpy" (default) or "redis"
+              value: "redis"
             - name: SYNESIS_RETRIEVAL_CACHE_REDIS_URL
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/0"
             - name: SYNESIS_RETRIEVAL_CACHE_REDIS_PREFIX
               value: "synesis:cache:"
             # Session persistence (LangGraph checkpointer)
             - name: SYNESIS_SESSION_CHECKPOINTER_BACKEND
-              value: "memory"  # "memory" (default) or "redis"
+              value: "redis"
             - name: SYNESIS_SESSION_REDIS_URL
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/1"
             # L2 conversation archive
@@ -178,31 +178,26 @@ spec:
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
             - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
               value: "604800"
-            # BM25 refresh: how often to rebuild the in-memory keyword index
-            # from Milvus. Set high during data loads to avoid OOM from
-            # repeated full-corpus scans.
-            - name: SYNESIS_RAG_BM25_REFRESH_INTERVAL_SECONDS
-              value: "1800"
           resources:
             requests:
-              cpu: "2"
-              memory: 6Gi
+              cpu: "1"
+              memory: 2Gi
             limits:
               cpu: "4"
-              memory: 12Gi
+              memory: 4Gi
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 6
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /health/readiness
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3

@@ -69,11 +69,13 @@ class Settings(BaseSettings):
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
     keyword_service_url: str = "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1"
     gliner_service_url: str = "http://gliner-service.synesis-rag.svc.cluster.local:8080/v1"
+    bm25_service_url: str = "http://bm25-service.synesis-rag.svc.cluster.local:8080"
 
     @field_validator(
         "embedder_url",
         "keyword_service_url",
         "gliner_service_url",
+        "bm25_service_url",
         "web_search_url",
         "lsp_gateway_url",
         "sandbox_warm_pool_url",

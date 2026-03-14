@@ -2,7 +2,7 @@
 
 Supports three retrieval strategies:
   - "vector": Milvus cosine similarity (semantic)
-  - "bm25": In-memory BM25Okapi (keyword/exact match)
+  - "bm25": BM25 keyword search via the bm25-service microservice
   - "hybrid": Both retrievers merged via Reciprocal Rank Fusion
 
 Cross-encoder re-rankers (applied after retrieval):
@@ -11,7 +11,7 @@ Cross-encoder re-rankers (applied after retrieval):
   - "none": Skip re-ranking
 
 Fallback: If Milvus/embedder is unreachable, hybrid and vector
-strategies auto-degrade to BM25-only from cached chunks.
+strategies auto-degrade to BM25-only.
 """
 
 from __future__ import annotations
@@ -19,12 +19,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from rank_bm25 import BM25Okapi
 
 from .config import settings
 from .state import RetrievalResult
@@ -35,42 +32,6 @@ logger = logging.getLogger("synesis.rag")
 # Unified catalog (synesis_catalog) — single collection, one BM25 index.
 # Schema must match base/rag/indexer/app/schema.py for indexer compatibility.
 SYNESIS_CATALOG = "synesis_catalog"
-
-# ---------------------------------------------------------------------------
-# Lightweight suffix-stripping stemmer (no NLTK dependency)
-# Handles common English inflections: architecture/architectural,
-# design/designing/designed, etc. Applied to BM25 corpus and query tokens.
-# ---------------------------------------------------------------------------
-_STEM_SUFFIXES = (
-    "ational",
-    "izing",
-    "ation",
-    "ness",
-    "ment",
-    "ible",
-    "able",
-    "ical",
-    "ful",
-    "ous",
-    "ive",
-    "ing",
-    "ies",
-    "ed",
-    "ly",
-    "al",
-    "er",
-    "es",
-    "s",
-)
-
-
-def _stem(word: str) -> str:
-    """Strip common English suffixes, preserving a root of >= 3 chars."""
-    for suffix in _STEM_SUFFIXES:
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            return word[: -len(suffix)]
-    return word
-
 
 _http_client: httpx.AsyncClient | None = None
 _http_client_lock = asyncio.Lock()
@@ -149,278 +110,10 @@ async def _embed_text(text: str) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# BM25 In-Memory Index with Milvus chunk cache
+# Milvus timeout for direct connections (catalog bootstrap, vector search)
 # ---------------------------------------------------------------------------
 
-
-@dataclass
-class _CachedChunk:
-    text: str
-    source: str
-    chunk_id: str
-    origin_type: str = ""
-    authority: str = ""
-    domain: str = ""
-    source_url: str = ""
-    heading_path: str = ""
-    context_prefix: str = ""
-    chunk_summary: str = ""
-    document_name: str = ""
-    handler: str = ""
-    source_type: str = ""
-    keywords: str = ""
-    tags: str = ""
-
-
-_BM25_OUTPUT_FIELDS = [
-    "chunk_id",
-    "text",
-    "document_name",
-    "origin_type",
-    "authority",
-    "domain",
-    "source_url",
-    "heading_path",
-    "context_prefix",
-    "chunk_summary",
-    "handler",
-    "source_type",
-    "keywords",
-    "tags",
-]
-
 _MILVUS_TIMEOUT = 10
-
-
-class BM25Index:
-    """Thread-safe in-memory BM25 index built from Milvus chunks.
-
-    Loads all chunks from a Milvus collection on first access,
-    then refreshes on a configurable interval. If Milvus is down,
-    serves queries from the stale cache.
-    """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._refresh_locks: dict[str, threading.Lock] = {}
-        self._indices: dict[str, BM25Okapi] = {}
-        self._chunks: dict[str, list[_CachedChunk]] = {}
-        self._tokenized: dict[str, list[list[str]]] = {}
-        self._last_refresh: dict[str, float] = {}
-
-    def _tokenize(self, text: str) -> list[str]:
-        return [_stem(w) for w in text.lower().split()]
-
-    @staticmethod
-    def _enriched_text(chunk: _CachedChunk) -> str:
-        """Build enriched BM25 corpus text from all searchable metadata.
-
-        Includes heading_path, chunk_summary, document_name, keywords,
-        tags, and the full text for maximum recall.
-        """
-        parts = []
-        if chunk.heading_path:
-            parts.append(chunk.heading_path)
-        if chunk.chunk_summary:
-            parts.append(chunk.chunk_summary)
-        if chunk.document_name:
-            parts.append(chunk.document_name)
-        if chunk.keywords:
-            parts.append(chunk.keywords)
-        if chunk.tags:
-            parts.append(chunk.tags)
-        parts.append(chunk.text)
-        return " ".join(parts)
-
-    def _needs_refresh(self, collection: str) -> bool:
-        last = self._last_refresh.get(collection, 0.0)
-        return (time.time() - last) > settings.rag_bm25_refresh_interval_seconds
-
-    def refresh_from_milvus(self, collection: str) -> None:
-        """Synchronously fetch all chunks from Milvus and rebuild BM25 index.
-
-        Uses query_iterator to avoid the Milvus 16,384-entity per-segment
-        query limit. A per-collection mutex prevents concurrent scans, and
-        failures set a 60s cooldown to avoid retry storms.
-        """
-        refresh_lock = self._refresh_locks.setdefault(collection, threading.Lock())
-        if not refresh_lock.acquire(blocking=False):
-            logger.debug("bm25_refresh_already_running", extra={"collection": collection})
-            return
-        try:
-            self._do_refresh(collection)
-        except Exception as e:
-            logger.warning(
-                "bm25_refresh_failed",
-                extra={"collection": collection, "error": str(e)[:200]},
-            )
-            with self._lock:
-                self._last_refresh[collection] = time.time() - (settings.rag_bm25_refresh_interval_seconds - 60)
-        finally:
-            refresh_lock.release()
-
-    def _do_refresh(self, collection: str) -> None:
-        from pymilvus import MilvusClient
-        from pymilvus.exceptions import MilvusException
-
-        client = MilvusClient(
-            uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
-            timeout=_MILVUS_TIMEOUT,
-        )
-
-        if collection not in client.list_collections():
-            logger.warning("bm25_collection_not_found", extra={"collection": collection})
-            return
-
-        all_chunks: list[_CachedChunk] = []
-
-        try:
-            iterator = client.query_iterator(
-                collection_name=collection,
-                filter="",
-                output_fields=_BM25_OUTPUT_FIELDS,
-                batch_size=100,
-            )
-            while True:
-                batch = iterator.next()
-                if not batch:
-                    break
-                for row in batch:
-                    all_chunks.append(
-                        _CachedChunk(
-                            text=row.get("text", ""),
-                            source=row.get("document_name") or row.get("source_url", "unknown"),
-                            chunk_id=row.get("chunk_id", ""),
-                            origin_type=row.get("origin_type", ""),
-                            authority=row.get("authority", ""),
-                            domain=row.get("domain", ""),
-                            source_url=row.get("source_url", ""),
-                            heading_path=row.get("heading_path", ""),
-                            context_prefix=row.get("context_prefix", ""),
-                            chunk_summary=row.get("chunk_summary", ""),
-                            document_name=row.get("document_name", ""),
-                            handler=row.get("handler", ""),
-                            source_type=row.get("source_type", ""),
-                            keywords=row.get("keywords", ""),
-                            tags=row.get("tags", ""),
-                        )
-                    )
-            iterator.close()
-        except MilvusException as e:
-            if "collection not loaded" in str(e).lower():
-                _ensure_collection_loaded(client, collection)
-                raise
-            if "query_iterator" in str(e).lower() or isinstance(e, AttributeError):
-                logger.warning("bm25_refresh_iterator_unavailable, falling back to query()")
-                all_chunks = self._fallback_query_refresh(client, collection)
-            else:
-                raise
-        except AttributeError:
-            logger.warning("bm25_refresh_iterator_unavailable, falling back to query()")
-            all_chunks = self._fallback_query_refresh(client, collection)
-
-        if not all_chunks:
-            logger.info("bm25_no_chunks", extra={"collection": collection})
-            return
-
-        tokenized = [self._tokenize(self._enriched_text(c)) for c in all_chunks]
-        index = BM25Okapi(tokenized)
-
-        with self._lock:
-            self._chunks[collection] = all_chunks
-            self._tokenized[collection] = tokenized
-            self._indices[collection] = index
-            self._last_refresh[collection] = time.time()
-
-        logger.info(
-            "bm25_index_refreshed",
-            extra={"collection": collection, "chunk_count": len(all_chunks)},
-        )
-
-    @staticmethod
-    def _fallback_query_refresh(client: Any, collection: str) -> list[_CachedChunk]:
-        """Fallback for pymilvus < 2.6 where query_iterator may not exist."""
-        all_chunks: list[_CachedChunk] = []
-        batch_size = 100
-        offset = 0
-        while True:
-            results = client.query(
-                collection_name=collection,
-                filter="",
-                output_fields=_BM25_OUTPUT_FIELDS,
-                limit=batch_size,
-                offset=offset,
-                timeout=_MILVUS_TIMEOUT,
-            )
-            if not results:
-                break
-            for row in results:
-                all_chunks.append(
-                    _CachedChunk(
-                        text=row.get("text", ""),
-                        source=row.get("document_name") or row.get("source_url", "unknown"),
-                        chunk_id=row.get("chunk_id", ""),
-                        origin_type=row.get("origin_type", ""),
-                        authority=row.get("authority", ""),
-                        domain=row.get("domain", ""),
-                        source_url=row.get("source_url", ""),
-                        heading_path=row.get("heading_path", ""),
-                        context_prefix=row.get("context_prefix", ""),
-                        chunk_summary=row.get("chunk_summary", ""),
-                        document_name=row.get("document_name", ""),
-                        handler=row.get("handler", ""),
-                        source_type=row.get("source_type", ""),
-                    )
-                )
-            if len(results) < batch_size:
-                break
-            offset += batch_size
-        return all_chunks
-
-    def ensure_loaded(self, collection: str) -> None:
-        if self._needs_refresh(collection):
-            self.refresh_from_milvus(collection)
-
-    def search(self, query: str, collection: str, top_k: int = 10) -> list[dict[str, Any]]:
-        with self._lock:
-            index = self._indices.get(collection)
-            chunks = self._chunks.get(collection, [])
-
-        if index is None or not chunks:
-            return []
-
-        tokenized_query = self._tokenize(query)
-        scores = index.get_scores(tokenized_query)
-
-        scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:top_k]
-
-        results = []
-        for idx, score in scored:
-            if score <= 0:
-                continue
-            chunk = chunks[idx]
-            results.append(
-                {
-                    "text": chunk.text,
-                    "source": chunk.source,
-                    "bm25_score": float(score),
-                    "origin_type": chunk.origin_type,
-                    "authority": chunk.authority,
-                    "domain": chunk.domain,
-                    "source_url": chunk.source_url,
-                    "heading_path": chunk.heading_path,
-                    "context_prefix": chunk.context_prefix,
-                    "chunk_summary": chunk.chunk_summary,
-                    "document_name": chunk.document_name,
-                    "handler": chunk.handler,
-                    "source_type": chunk.source_type,
-                }
-            )
-
-        return results
-
-
-_bm25_index = BM25Index()
 
 
 # ---------------------------------------------------------------------------
@@ -719,8 +412,17 @@ async def _vector_search(
 
 
 # ---------------------------------------------------------------------------
-# BM25 search (in-memory)
+# BM25 search (remote microservice)
 # ---------------------------------------------------------------------------
+
+_bm25_client: httpx.AsyncClient | None = None
+
+
+def _get_bm25_client() -> httpx.AsyncClient:
+    global _bm25_client
+    if _bm25_client is None:
+        _bm25_client = httpx.AsyncClient(base_url=settings.bm25_service_url, timeout=15.0)
+    return _bm25_client
 
 
 async def _bm25_search(
@@ -728,9 +430,17 @@ async def _bm25_search(
     collection: str,
     top_k: int,
 ) -> list[dict[str, Any]]:
-    """Keyword search via in-memory BM25 index."""
-    await asyncio.to_thread(_bm25_index.ensure_loaded, collection)
-    return await asyncio.to_thread(_bm25_index.search, query, collection, top_k)
+    """Keyword search via the BM25 microservice."""
+    try:
+        resp = await _get_bm25_client().post(
+            "/v1/search",
+            json={"query": query, "collection": collection, "top_k": top_k},
+        )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
+    except Exception as e:
+        logger.warning("bm25_service_call_failed", extra={"error": str(e)[:200]})
+        return []
 
 
 # ---------------------------------------------------------------------------

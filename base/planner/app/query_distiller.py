@@ -142,10 +142,19 @@ _STOPWORDS = frozenset(
 )
 
 
-def _get_keyword_service_url() -> str:
-    from .config import settings
+_keyword_client: httpx.Client | None = None
 
-    return settings.keyword_service_url
+
+def _get_keyword_client() -> httpx.Client:
+    global _keyword_client
+    if _keyword_client is None:
+        from .config import settings
+
+        _keyword_client = httpx.Client(
+            base_url=settings.keyword_service_url,
+            timeout=10,
+        )
+    return _keyword_client
 
 
 def _extract_section_topic(section_action: str) -> str:
@@ -170,16 +179,14 @@ def _extract_key_terms(text: str, max_terms: int = 5) -> list[str]:
         return []
 
     try:
-        url = _get_keyword_service_url()
-        resp = httpx.post(
-            f"{url}/keywords",
+        resp = _get_keyword_client().post(
+            "/keywords",
             json={
                 "text": text[:500],
                 "top_n": max_terms,
                 "ngram_range": [1, 2],
                 "use_mmr": False,
             },
-            timeout=10,
         )
         resp.raise_for_status()
         keywords = resp.json().get("keywords", [])
@@ -481,17 +488,15 @@ def distill_query(section_action: str, task_description: str) -> str:
         return fallback
 
     try:
-        url = _get_keyword_service_url()
         combined = _sanitize(f"{section_action} {task_description}")[:1000]
-        resp = httpx.post(
-            f"{url}/keywords",
+        resp = _get_keyword_client().post(
+            "/keywords",
             json={
                 "text": combined,
                 "top_n": 5,
                 "ngram_range": [1, 3],
                 "use_mmr": False,
             },
-            timeout=10,
         )
         resp.raise_for_status()
         keywords = resp.json().get("keywords", [])

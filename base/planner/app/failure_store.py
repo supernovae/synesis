@@ -13,11 +13,9 @@ import logging
 import time
 from typing import Any
 
-import httpx
 from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 from .config import settings
-from .url_utils import ensure_url_protocol
 
 logger = logging.getLogger("synesis.failure_store")
 
@@ -84,20 +82,14 @@ def _ensure_collection() -> None:
 
 
 def _embed(text: str) -> list[float] | None:
-    """Embed text via the shared embedder service. Returns None if embedder unavailable."""
-    if not settings.embedder_url or not str(settings.embedder_url).strip():
-        return None
-    base = ensure_url_protocol(settings.embedder_url)
-    if not base.startswith(("http://", "https://")):
-        return None
+    """Embed text via the shared EmbedClient singleton."""
     try:
-        resp = httpx.post(
-            f"{base.rstrip('/')}/embeddings",
-            json={"input": [text], "model": settings.embedder_model},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()["data"][0]["embedding"]
+        from .embed_client import get_embed_client
+
+        arr = get_embed_client().embed([text], normalize=True)
+        if arr.size > 0:
+            return arr[0].tolist()
+        return None
     except Exception:
         return None
 

@@ -26,11 +26,12 @@ def _normalize_vectors(arr: np.ndarray) -> np.ndarray:
 
 
 class EmbedClient:
-    """Synchronous embedding client — used in contexts where async is unavailable."""
+    """Synchronous embedding client with persistent connection pooling."""
 
     def __init__(self, url: str, model: str = "sentence-transformers/all-MiniLM-L6-v2"):
         self.url = url.rstrip("/")
         self.model = model
+        self._client = httpx.Client(timeout=60)
 
     def embed(self, texts: list[str], normalize: bool = True) -> np.ndarray:
         """Embed texts in batches. Returns (N, D) float32 array."""
@@ -40,10 +41,9 @@ class EmbedClient:
         all_vecs: list[list[float]] = []
         for i in range(0, len(texts), _BATCH_SIZE):
             batch = texts[i : i + _BATCH_SIZE]
-            resp = httpx.post(
+            resp = self._client.post(
                 f"{self.url}/embeddings",
                 json={"input": batch, "model": self.model},
-                timeout=60,
             )
             resp.raise_for_status()
             data = resp.json()

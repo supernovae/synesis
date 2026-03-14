@@ -4,7 +4,6 @@ langgraph>=1.0.0,<2.0.0
 pymilvus>=2.5.0
 pyyaml>=6.0
 FlashRank>=0.2.10
-rank-bm25>=0.2.2
 kubernetes-asyncio>=31.0.0
 # HTML content extraction (web search page fetch)
 trafilatura>=2.0.0

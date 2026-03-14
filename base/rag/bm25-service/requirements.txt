@@ -1,0 +1,3 @@
+# Core deps (fastapi, uvicorn, pydantic, httpx) provided by synesis-base-api.
+rank_bm25
+pymilvus
