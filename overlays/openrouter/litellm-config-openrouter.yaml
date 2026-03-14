@@ -27,10 +27,11 @@ data:
           max_tokens: 8192
           temperature: 0.2
 
-      # Router (classification, planning, advisor)
+      # Router (classification, planning, advisor) — Grok 4 Fast:
+      # non-reasoning mode, $0.20/M in / $0.50/M out, 2M context
       - model_name: synesis-router
         litellm_params:
-          model: openrouter/qwen/qwen3-14b
+          model: openrouter/x-ai/grok-4-fast
           api_key: "os.environ/OPENROUTER_API_KEY"
           max_tokens: 4096
           temperature: 0.3
@@ -70,7 +71,7 @@ data:
       # Summarizer (pivot history compression)
       - model_name: synesis-summarizer
         litellm_params:
-          model: openrouter/qwen/qwen3-14b
+          model: openrouter/x-ai/grok-4-fast
           api_key: "os.environ/OPENROUTER_API_KEY"
           max_tokens: 2048
           temperature: 0.1

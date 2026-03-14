@@ -432,10 +432,10 @@ openrouter_profiles:
     cost_estimate: "~$0.10-0.30 per 1M tokens depending on role"
     assignments:
       router:
-        openrouter_model: "qwen/qwen3-14b"
+        openrouter_model: "x-ai/grok-4-fast"
         notes: >
-          Qwen3-14B: fast classification/routing at $0.06/M in, $0.24/M out.
-          Supports thinking mode if needed. 41K context.
+          Grok 4 Fast: ultra-fast classification/routing at $0.20/M in, $0.50/M out.
+          Non-reasoning mode for speed. 2M context.
       general:
         openrouter_model: "qwen/qwen3-32b"
         notes: >
@@ -452,9 +452,9 @@ openrouter_profiles:
           R1-Distill-Qwen-32B: dedicated reasoning model at $0.29/M.
           Native chain-of-thought via <think> tags. 32K context.
       summarizer:
-        openrouter_model: "qwen/qwen3-14b"
+        openrouter_model: "x-ai/grok-4-fast"
         notes: >
-          Shares router model for summarization. Cheap and fast.
+          Shares router model for summarization. Fast and reliable JSON.
 
   # =========================================================================
   # Quality: strongest models available on OpenRouter
