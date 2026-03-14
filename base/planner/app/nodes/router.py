@@ -206,10 +206,15 @@ def _get_summarizer_llm() -> ChatOpenAI:
     global _summarizer_llm
     if _summarizer_llm is None:
         extra_body: dict[str, Any] = {}
+        model_kw: dict[str, Any] = {}
         if settings.guided_json_enabled:
             _ep_schema = EvidencePacket.model_json_schema()
             _ep_schema.pop("title", None)
             extra_body["guided_json"] = _ep_schema
+        else:
+            model_kw["response_format"] = {"type": "json_object"}
+        if extra_body:
+            model_kw["extra_body"] = extra_body
 
         _summarizer_llm = ChatOpenAI(
             base_url=settings.router_model_url,
@@ -219,7 +224,7 @@ def _get_summarizer_llm() -> ChatOpenAI:
             max_completion_tokens=settings.router_max_summary_tokens,
             streaming=False,
             use_responses_api=False,
-            model_kwargs={"extra_body": extra_body} if extra_body else {},
+            model_kwargs=model_kw,
             http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
         )
     return _summarizer_llm

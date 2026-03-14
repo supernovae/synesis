@@ -128,8 +128,13 @@ for them. Instead, each section should weave relevant constraints into its analy
 
 
 _planner_extra_body: dict[str, Any] = {}
+_planner_model_kw: dict[str, Any] = {}
 if settings.guided_json_enabled:
     _planner_extra_body["guided_json"] = PlannerOut.model_json_schema()
+else:
+    _planner_model_kw["response_format"] = {"type": "json_object"}
+if _planner_extra_body:
+    _planner_model_kw["extra_body"] = _planner_extra_body
 
 planner_llm = ChatOpenAI(
     base_url=settings.planner_model_url,
@@ -139,7 +144,7 @@ planner_llm = ChatOpenAI(
     max_completion_tokens=2048,
     streaming=False,
     use_responses_api=False,
-    model_kwargs={"extra_body": _planner_extra_body} if _planner_extra_body else {},
+    model_kwargs=_planner_model_kw,
     http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
 )
 

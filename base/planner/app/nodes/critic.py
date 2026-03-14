@@ -283,6 +283,8 @@ if settings.guided_json_enabled:
     from ..schemas import CriticOut as _CriticOutSchema
 
     _critic_extra_body["guided_json"] = _CriticOutSchema.model_json_schema()
+else:
+    _model_kwargs["response_format"] = {"type": "json_object"}
 if _critic_extra_body:
     _model_kwargs["extra_body"] = _critic_extra_body
 
