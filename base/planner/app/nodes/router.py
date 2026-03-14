@@ -324,7 +324,10 @@ class RouterNode:
         additional variant so RRF can compare retrieval quality.
         """
         direct_query = await self.generate_query(evidence_request, task_context)
-        if not settings.router_multi_query_enabled:
+
+        difficulty = evidence_request.get("_difficulty", 0.5)
+
+        if not settings.router_multi_query_enabled or difficulty < 0.3:
             variants = [direct_query]
             original_q = evidence_request.get("original_query")
             if original_q and original_q != direct_query:
@@ -341,7 +344,7 @@ class RouterNode:
             expansion_hints = get_query_expansion_hints(taxonomy_metadata)
 
         tasks: list[asyncio.Task[str]] = []
-        if settings.router_hyde_enabled:
+        if settings.router_hyde_enabled and difficulty >= 0.5:
             tasks.append(asyncio.create_task(self.generate_hyde_variant(direct_query)))
         if settings.taxonomy_query_expansion_enabled:
             tasks.append(
@@ -613,6 +616,8 @@ class RouterNode:
             preferred_web_scopes = get_preferred_web_scopes(taxonomy_metadata)
 
         light_mode = evidence_request.get("_light_mode", False)
+
+        evidence_request.setdefault("_difficulty", difficulty)
 
         if light_mode or not settings.router_multi_query_enabled or precomputed_query:
             query = precomputed_query or await self.generate_query(evidence_request, task_context)

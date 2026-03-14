@@ -187,12 +187,19 @@ class RedisSemanticIndex:
     cosine similarity in-process with numpy — adequate for <= 512 entries.
     """
 
-    def __init__(self, redis_url: str, prefix: str = "synesis:cache:idx:", model_version: str = "") -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        prefix: str = "synesis:cache:idx:",
+        model_version: str = "",
+        ttl_seconds: int = 86_400,
+    ) -> None:
         import redis as redis_lib
 
         self._r = redis_lib.Redis.from_url(redis_url, decode_responses=False)
         self._prefix = prefix
         self._model_version = model_version
+        self._ttl_seconds = ttl_seconds
 
     def __len__(self) -> int:
         return sum(1 for _ in self._r.scan_iter(match=f"{self._prefix}*", count=200))
@@ -250,6 +257,8 @@ class RedisSemanticIndex:
             b"model_version": (entry.model_version or "").encode("utf-8"),
         }
         self._r.hset(key, mapping=data)  # type: ignore[arg-type]
+        if self._ttl_seconds > 0:
+            self._r.expire(key, self._ttl_seconds)
 
     def delete(self, query_string: str) -> None:
         key = f"{self._prefix}{_query_hash(query_string)}"

@@ -1,0 +1,49 @@
+name: Retrieval Regression
+
+on:
+  workflow_dispatch:
+    inputs:
+      tolerance:
+        description: "Regression tolerance (fraction, e.g. 0.05 for 5%)"
+        default: "0.05"
+      milvus_host:
+        description: "Milvus host (cluster-internal or port-forwarded)"
+        default: "milvus.synesis-rag.svc.cluster.local"
+      embedder_url:
+        description: "TEI embedder URL"
+        default: "http://embedder.synesis-rag.svc.cluster.local:8080"
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval-regression:
+    name: Retrieval Quality Regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r benchmarks/retrieval/requirements.txt
+
+      - name: Run retrieval benchmark
+        env:
+          MILVUS_HOST: ${{ inputs.milvus_host }}
+          EMBEDDER_URL: ${{ inputs.embedder_url }}
+        run: |
+          python benchmarks/retrieval/bench_hybrid.py \
+            --milvus-host "$MILVUS_HOST" \
+            --embedder-url "$EMBEDDER_URL" \
+            --tolerance ${{ inputs.tolerance }} \
+            --baseline benchmarks/retrieval/baseline.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-regression-results
+          path: benchmarks/retrieval/baseline.json

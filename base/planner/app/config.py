@@ -313,7 +313,13 @@ class Settings(BaseSettings):
     stream_debug_chatter: bool = False  # Emit plan/router/critic/executor outputs as labeled SSE events (dev mode)
     node_timeout_seconds: float = 180.0  # Supervisor/critic/planner LLM calls; complex tasks need >90s
     critic_max_tokens: int = 4096  # CriticOut can exceed 2048 with what_if_analyses + assessment
-    critic_stop_sequence: str = ""  # e.g. '],"nonblocking":' to stop after blocking_issues (saves 30-40s)
+    critic_stop_sequence: str = '],"nonblocking":'  # stop after blocking_issues array (saves 30-40% tokens)
+
+    # HTTP timeout policy (seconds) — connect, read by service type
+    http_connect_timeout: float = 5.0
+    http_read_timeout_service: float = 30.0  # embedder, keyword, reranker
+    http_read_timeout_llm: float = 120.0  # LLM calls via LiteLLM/OpenRouter
+    http_read_timeout_web: float = 5.0  # web search, page fetch
 
     # Budget limits
     max_tokens_per_request: int = 100000

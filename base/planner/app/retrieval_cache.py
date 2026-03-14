@@ -63,6 +63,47 @@ class CacheStats(BaseModel):
     bypasses: int = 0
 
 
+_prom_registered = False
+_prom_exact_hits = None
+_prom_semantic_hits = None
+_prom_misses = None
+_prom_evictions = None
+_prom_cache_size = None
+
+
+def _ensure_cache_metrics() -> None:
+    global _prom_registered, _prom_exact_hits, _prom_semantic_hits
+    global _prom_misses, _prom_evictions, _prom_cache_size
+    if _prom_registered:
+        return
+    try:
+        from prometheus_client import Counter, Gauge
+
+        _prom_exact_hits = Counter(
+            "synesis_cache_exact_hits_total",
+            "Retrieval cache exact-match hits",
+        )
+        _prom_semantic_hits = Counter(
+            "synesis_cache_semantic_hits_total",
+            "Retrieval cache semantic-similarity hits",
+        )
+        _prom_misses = Counter(
+            "synesis_cache_misses_total",
+            "Retrieval cache misses",
+        )
+        _prom_evictions = Counter(
+            "synesis_cache_evictions_total",
+            "Retrieval cache entry evictions",
+        )
+        _prom_cache_size = Gauge(
+            "synesis_cache_entries",
+            "Current number of entries in the retrieval cache",
+        )
+    except Exception:
+        pass
+    _prom_registered = True
+
+
 class HybridRetrievalCache:
     """Two-tier evidence packet cache: exact dict + semantic index."""
 
@@ -89,6 +130,28 @@ class HybridRetrievalCache:
         self._stats = CacheStats()
         self._lock = threading.Lock()
 
+    def _emit_hit(self, hit_type: str) -> None:
+        _ensure_cache_metrics()
+        if hit_type == "exact" and _prom_exact_hits:
+            _prom_exact_hits.inc()
+        elif hit_type == "semantic" and _prom_semantic_hits:
+            _prom_semantic_hits.inc()
+
+    def _emit_miss(self) -> None:
+        _ensure_cache_metrics()
+        if _prom_misses:
+            _prom_misses.inc()
+
+    def _emit_eviction(self, count: int = 1) -> None:
+        _ensure_cache_metrics()
+        if _prom_evictions:
+            _prom_evictions.inc(count)
+
+    def _emit_size(self) -> None:
+        _ensure_cache_metrics()
+        if _prom_cache_size:
+            _prom_cache_size.set(len(self._exact))
+
     # --- Public API ---
 
     def get(self, query: str) -> EvidencePacket | None:
@@ -100,11 +163,13 @@ class HybridRetrievalCache:
             if entry is not None and self._validate(entry):
                 entry.usage_count += 1
                 self._stats.exact_hits += 1
+                self._emit_hit("exact")
                 return entry.evidence_packet
 
             if self._is_structured_query(query):
                 self._stats.bypasses += 1
                 self._stats.misses += 1
+                self._emit_miss()
                 return None
 
         try:
@@ -128,9 +193,11 @@ class HybridRetrievalCache:
                     if cache_entry and self._validate(cache_entry, similarity):
                         cache_entry.usage_count += 1
                         self._stats.semantic_hits += 1
+                        self._emit_hit("semantic")
                         return cache_entry.evidence_packet
 
             self._stats.misses += 1
+            self._emit_miss()
             return None
 
     def put(self, query: str, packet: EvidencePacket) -> None:
@@ -166,6 +233,7 @@ class HybridRetrievalCache:
                 )
                 self._index.insert(idx_entry)
             self._evict()
+            self._emit_size()
 
     async def aget(self, query: str) -> EvidencePacket | None:
         """Async version of get() — uses AsyncEmbedClient for semantic lookup."""
@@ -176,11 +244,13 @@ class HybridRetrievalCache:
             if entry is not None and self._validate(entry):
                 entry.usage_count += 1
                 self._stats.exact_hits += 1
+                self._emit_hit("exact")
                 return entry.evidence_packet
 
             if self._is_structured_query(query):
                 self._stats.bypasses += 1
                 self._stats.misses += 1
+                self._emit_miss()
                 return None
 
         try:
@@ -192,11 +262,13 @@ class HybridRetrievalCache:
             if embedding.size == 0:
                 with self._lock:
                     self._stats.misses += 1
+                    self._emit_miss()
                 return None
         except Exception:
             logger.warning("cache_embed_failed", exc_info=True)
             with self._lock:
                 self._stats.misses += 1
+                self._emit_miss()
             return None
 
         with self._lock:
@@ -208,9 +280,11 @@ class HybridRetrievalCache:
                     if cache_entry and self._validate(cache_entry, similarity):
                         cache_entry.usage_count += 1
                         self._stats.semantic_hits += 1
+                        self._emit_hit("semantic")
                         return cache_entry.evidence_packet
 
             self._stats.misses += 1
+            self._emit_miss()
             return None
 
     async def aput(self, query: str, packet: EvidencePacket) -> None:
@@ -250,6 +324,7 @@ class HybridRetrievalCache:
                 )
                 self._index.insert(idx_entry)
             self._evict()
+            self._emit_size()
 
     def invalidate(self, query: str) -> bool:
         """Remove a specific entry from both tiers. Returns True if found."""
@@ -366,6 +441,7 @@ def _build_semantic_index() -> SemanticIndex:
             redis_url=settings.retrieval_cache_redis_url,
             prefix=settings.retrieval_cache_redis_prefix + "idx:",
             model_version=_resolve_model_version(),
+            ttl_seconds=int(settings.retrieval_cache_ttl),
         )
     return NumpySemanticIndex()
 

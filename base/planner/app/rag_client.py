@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from typing import Any
 
 import httpx
@@ -114,6 +115,29 @@ async def _embed_text(text: str) -> list[float]:
 
 _MILVUS_TIMEOUT = 10
 
+# ---------------------------------------------------------------------------
+# Shared Milvus client (singleton, thread-safe)
+# ---------------------------------------------------------------------------
+
+_milvus_client = None
+_milvus_client_lock = threading.Lock()
+
+
+def _get_milvus_client():
+    """Return a shared MilvusClient singleton for hybrid/sparse search."""
+    global _milvus_client
+    if _milvus_client is not None:
+        return _milvus_client
+    with _milvus_client_lock:
+        if _milvus_client is None:
+            from pymilvus import MilvusClient
+
+            _milvus_client = MilvusClient(
+                uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
+                timeout=_MILVUS_TIMEOUT,
+            )
+    return _milvus_client
+
 
 # ---------------------------------------------------------------------------
 # Unified catalog bootstrap (schema must match base/rag/indexer/app/schema.py)
@@ -162,62 +186,31 @@ def _validate_catalog_schema(client) -> bool:
 
 
 def _ensure_synesis_catalog() -> None:
-    """Create synesis_catalog if missing; drop+recreate if schema is stale."""
+    """Validate synesis_catalog exists and is loaded. Schema creation is owned by the indexer."""
     global _catalog_ensured
     if _catalog_ensured:
         return
     try:
-        from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+        from pymilvus import MilvusClient
 
         client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}", timeout=_MILVUS_TIMEOUT)
 
-        if SYNESIS_CATALOG in client.list_collections():
-            if _validate_catalog_schema(client):
-                _catalog_ensured = True
-                return
+        if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "Dropping stale synesis_catalog — schema mismatch. Data will be re-indexed on next indexer run."
+                "synesis_catalog_not_found",
+                extra={"detail": "Collection will be created by the indexer on next run"},
             )
-            client.drop_collection(collection_name=SYNESIS_CATALOG)
+            return
 
-        # Schema must match base/rag/indexer/app/schema.py exactly (SCHEMA_VERSION=2).
-        schema = CollectionSchema(
-            fields=[
-                FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
-                FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
-                FieldSchema(name="chunk_index", dtype=DataType.INT64),
-                FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
-                FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
-                FieldSchema(name="heading_path", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
-                FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
-                FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="handler", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
-                FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
-                FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
-                FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
-                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=384),
-            ],
-            description="Synesis unified RAG catalog v2",
-            enable_dynamic_field=False,
-        )
-        client.create_collection(collection_name=SYNESIS_CATALOG, schema=schema)
+        if not _validate_catalog_schema(client):
+            logger.warning(
+                "synesis_catalog_schema_drift",
+                extra={"detail": "Schema mismatch detected; indexer will reconcile on next run"},
+            )
 
-        index_params = MilvusClient.prepare_index_params()
-        index_params.add_index(
-            field_name="embedding",
-            index_type="HNSW",
-            metric_type="COSINE",
-            params={"M": 16, "efConstruction": 200},
-        )
-        client.create_index(collection_name=SYNESIS_CATALOG, index_params=index_params)
-        client.load_collection(collection_name=SYNESIS_CATALOG)
+        _ensure_collection_loaded(client, SYNESIS_CATALOG)
         _catalog_ensured = True
-        logger.info("Created unified catalog '%s' v2", SYNESIS_CATALOG)
+        logger.info("synesis_catalog_validated", extra={"collection": SYNESIS_CATALOG})
     except Exception as e:
         logger.warning("ensure_synesis_catalog_failed", extra={"error": str(e)[:200]})
 
@@ -262,9 +255,7 @@ async def submit_user_knowledge(
     }
 
     try:
-        from pymilvus import MilvusClient
-
-        client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}", timeout=_MILVUS_TIMEOUT)
+        client = _get_milvus_client()
         client.upsert(collection_name=SYNESIS_CATALOG, data=[entity])
         logger.info("knowledge_submitted", extra={"chunk_id": chunk_id[:12], "domain": domain})
         return chunk_id
@@ -490,21 +481,23 @@ async def _sparse_search(
     query: str,
     collection: str,
     top_k: int,
+    filter_expr: str = "",
 ) -> list[dict[str, Any]]:
     """BM25-only search via Milvus sparse_text field."""
-    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
-
     client = _get_milvus_client()
 
-    results = await asyncio.to_thread(
-        client.search,
-        collection_name=collection,
-        data=[query],
-        anns_field="sparse_text",
-        limit=top_k,
-        output_fields=_OUTPUT_FIELDS,
-        search_params={"metric_type": "BM25"},
-    )
+    search_kwargs: dict[str, Any] = {
+        "collection_name": collection,
+        "data": [query],
+        "anns_field": "sparse_text",
+        "limit": top_k,
+        "output_fields": _OUTPUT_FIELDS,
+        "search_params": {"metric_type": "BM25"},
+    }
+    if filter_expr:
+        search_kwargs["filter"] = filter_expr
+
+    results = await asyncio.to_thread(client.search, **search_kwargs)
 
     formatted: list[dict[str, Any]] = []
     for hits in results:
@@ -845,5 +838,5 @@ async def _retrieve_single_collection(
         return merged, False
 
     # strategy="bm25" or fallback
-    sparse_results = await _sparse_search(query, collection, fetch_k)
+    sparse_results = await _sparse_search(query, collection, fetch_k, filter_expr=domain_filter)
     return sparse_results, fallback_to_bm25

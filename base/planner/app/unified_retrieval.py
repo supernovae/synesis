@@ -70,6 +70,7 @@ class UnifiedResult:
     context_prefix: str = ""
     chunk_summary: str = ""
     document_name: str = ""
+    domain: str = ""
 
 
 @dataclass
@@ -106,6 +107,7 @@ def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
                 context_prefix=getattr(r, "context_prefix", "") or "",
                 chunk_summary=getattr(r, "chunk_summary", "") or "",
                 document_name=getattr(r, "document_name", "") or "",
+                domain=getattr(r, "domain", "") or "",
             )
         )
     return out
@@ -194,8 +196,10 @@ def _taxonomy_boost(
 
     boosted = 0
     for r in results:
-        doc_domain = getattr(r, "authority", "").lower().strip()
+        doc_domain = getattr(r, "domain", "").lower().strip()
         doc_tags = set()
+        if doc_domain:
+            doc_tags.add(doc_domain)
         if hasattr(r, "document_name") and r.document_name:
             doc_tags.add(r.document_name.lower().strip())
 

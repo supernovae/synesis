@@ -323,10 +323,11 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
         },
     )
 
-    # Decide compilation mode based on available output headroom.
+    from ..token_utils import estimate_tokens
+
     model_context = settings.compiler_model_context
     full_input = f"{_COMPILER_SYSTEM}\n{task_block}\n{section_text}{source_inventory}"
-    estimated_input_tokens = len(full_input) // 4
+    estimated_input_tokens = estimate_tokens(full_input, writer_name)
     available_output = model_context - estimated_input_tokens - 256
 
     use_light_mode = available_output < _MIN_FULL_REWRITE_HEADROOM
@@ -348,7 +349,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
     # Full rewrite mode — sections fit in context
     user_msg = f"{task_block}\nTarget verbosity: {verbosity}\n\n## Approved Sections\n{section_text}{source_inventory}"
 
-    estimated_input_tokens = (len(_COMPILER_SYSTEM) + len(user_msg)) // 4
+    estimated_input_tokens = estimate_tokens(_COMPILER_SYSTEM + user_msg, writer_name)
     available_output = model_context - estimated_input_tokens - 256
     if writer_budget > available_output:
         writer_budget = max(2048, available_output)
@@ -408,9 +409,14 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
+        from ..token_utils import track_budget
+
+        new_budget = track_budget(state, result, role="compiler")
+
         return {
             "compiled_answer": compiled,
             "current_node": node_name,
+            "token_budget_remaining": new_budget,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
@@ -458,11 +464,13 @@ async def _light_compile(
     context window. The section workers have already produced polished content,
     so this mode adds cohesion without lossy compression.
     """
+    from ..token_utils import estimate_tokens
+
     outline = _extract_section_outline(section_text)
 
     user_msg = f"{task_block}\nTarget verbosity: {verbosity}\n\n## Section Outline\n{outline}{source_inventory}"
 
-    estimated_input = (len(_LIGHT_COMPILER_SYSTEM) + len(user_msg)) // 4
+    estimated_input = estimate_tokens(_LIGHT_COMPILER_SYSTEM + user_msg, writer_name)
     budget = min(2048, model_context - estimated_input - 256)
     budget = max(512, budget)
 

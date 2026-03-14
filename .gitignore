@@ -112,3 +112,4 @@ docs/*
 !docs/QUALITY_PIPELINE.md
 !docs/ADMIN_QUALITY_UI.md
 !docs/MILVUS_SCALING.md
+!docs/ARCHITECTURE_AUDIT.md

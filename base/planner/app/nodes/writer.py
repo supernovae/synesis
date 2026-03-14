@@ -496,9 +496,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     if available_sources:
         user_msg += f"\n{available_sources}\n"
 
-    # Token budget: estimate input, ensure output fits
+    from ..token_utils import estimate_tokens
+
     model_context = settings.compiler_model_context
-    estimated_input_tokens = (len(system_prompt) + len(user_msg)) // 4
+    estimated_input_tokens = estimate_tokens(system_prompt + user_msg, writer_name)
     available_output = model_context - estimated_input_tokens - 256
 
     if writer_budget > available_output:
@@ -580,12 +581,17 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
+        from ..token_utils import track_budget
+
+        new_budget = track_budget(state, result, role="writer")
+
         return {
             "generated_code": compiled,
             "compiled_answer": compiled,
             "draft_fingerprints": [fingerprint_draft(compiled)],
             "error": None,
             "current_node": node_name,
+            "token_budget_remaining": new_budget,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

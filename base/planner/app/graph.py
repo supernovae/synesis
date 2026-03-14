@@ -772,6 +772,30 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
 _bg_critic_tasks: set[asyncio.Task[None]] = set()
 
+_bg_critic_metrics_init = False
+_bg_critic_approved_counter = None
+_bg_critic_rejected_counter = None
+
+
+def _ensure_bg_critic_metrics() -> None:
+    global _bg_critic_metrics_init, _bg_critic_approved_counter, _bg_critic_rejected_counter
+    if _bg_critic_metrics_init:
+        return
+    try:
+        from prometheus_client import Counter
+
+        _bg_critic_approved_counter = Counter(
+            "synesis_background_critic_approved_total",
+            "Background critic approvals",
+        )
+        _bg_critic_rejected_counter = Counter(
+            "synesis_background_critic_rejected_total",
+            "Background critic rejections",
+        )
+    except Exception:
+        pass
+    _bg_critic_metrics_init = True
+
 
 def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
     """Schedule the critic to run as a background task outside the graph.
@@ -785,15 +809,21 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
         try:
             result = await critic_node(state_snapshot)
             scores = result.get("critic_scores") or {}
+            approved = result.get("critic_approved", False)
             logger.info(
                 "background_critic_complete",
                 extra={
                     "run_id": state_snapshot.get("run_id", ""),
                     "weighted_overall": scores.get("weighted_overall", 0.0),
                     "blocking_issues": len(result.get("blocking_issues") or []),
-                    "approved": result.get("critic_approved", False),
+                    "approved": approved,
                 },
             )
+            _ensure_bg_critic_metrics()
+            if approved and _bg_critic_approved_counter:
+                _bg_critic_approved_counter.inc()
+            elif not approved and _bg_critic_rejected_counter:
+                _bg_critic_rejected_counter.inc()
         except Exception:
             logger.warning("background_critic_failed", exc_info=True)
 
@@ -907,7 +937,11 @@ def _build_checkpointer():
         try:
             from langgraph.checkpoint.redis import RedisSaver
 
-            saver = RedisSaver.from_conn_string(settings.session_redis_url)
+            cm = RedisSaver.from_conn_string(settings.session_redis_url)
+            if hasattr(cm, "__enter__"):
+                saver = cm.__enter__()
+            else:
+                saver = cm
             saver.setup()
             logger.info("redis_checkpointer_ready", extra={"url": settings.session_redis_url[:40]})
             return saver
