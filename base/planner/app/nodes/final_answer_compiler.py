@@ -369,7 +369,11 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
             max_completion_tokens=writer_budget,
             streaming=True,
             use_responses_api=False,
-            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+            model_kwargs=(
+                {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                if settings.guided_json_enabled
+                else {}
+            ),
             http_client=get_llm_http_client(),
         )
 
@@ -482,7 +486,11 @@ async def _light_compile(
             max_completion_tokens=budget,
             streaming=False,
             use_responses_api=False,
-            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+            model_kwargs=(
+                {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                if settings.guided_json_enabled
+                else {}
+            ),
             http_client=get_llm_http_client(),
         )
 

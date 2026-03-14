@@ -106,7 +106,11 @@ executor_llm = ChatOpenAI(
     streaming=True,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.general_model_uds or None),
-    model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+    model_kwargs=(
+        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+        if settings.guided_json_enabled
+        else {}
+    ),
 )
 
 
@@ -757,7 +761,11 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
                     "messages": ds_messages,
                     "max_completion_tokens": token_budget,
                     "temperature": knowledge_temp,
-                    "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+                    **(
+                        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                        if settings.guided_json_enabled
+                        else {}
+                    ),
                 },
                 "code_explanation": "",
                 "files_touched": [],
@@ -803,10 +811,10 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             and getattr(settings, "worker_thinking_mode_enabled", True)
             and thinking_param
         ):
-            llm_to_use = llm_to_use.bind(
-                extra_body={"chat_template_kwargs": {thinking_param: True}},
-                temperature=0.6,
-            )
+            bind_kwargs: dict[str, Any] = {"temperature": 0.6}
+            if settings.guided_json_enabled:
+                bind_kwargs["extra_body"] = {"chat_template_kwargs": {thinking_param: True}}
+            llm_to_use = llm_to_use.bind(**bind_kwargs)
             logger.debug("executor_thinking_mode_enabled", extra={"difficulty": difficulty, "param": thinking_param})
 
         response = await llm_to_use.ainvoke(messages)

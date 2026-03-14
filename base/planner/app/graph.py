@@ -383,7 +383,11 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             max_completion_tokens=writer_budget,
             streaming=False,
             use_responses_api=False,
-            model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+            model_kwargs=(
+                {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                if settings.guided_json_enabled
+                else {}
+            ),
             http_client=get_llm_http_client(),
         )
 

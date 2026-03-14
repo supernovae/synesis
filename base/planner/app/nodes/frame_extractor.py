@@ -78,15 +78,21 @@ async def _llm_repair(
     report: MissingFieldReport,
 ) -> UserTask:
     """Stage 3: LLM second-pass to repair missing/conflicting fields."""
+    _repair_kw: dict[str, Any] = {}
+    if settings.guided_json_enabled:
+        _repair_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+    else:
+        _repair_kw["response_format"] = {"type": "json_object"}
+
     llm = ChatOpenAI(
         base_url=settings.planner_model_url,
         api_key="not-needed",
         model=settings.planner_model_name,
         temperature=0.1,
-        max_completion_tokens=1024,
+        max_completion_tokens=2048 if not settings.guided_json_enabled else 1024,
         streaming=False,
         use_responses_api=False,
-        model_kwargs={"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+        model_kwargs=_repair_kw,
         http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
     )
 
