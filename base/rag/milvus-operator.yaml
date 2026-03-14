@@ -41,7 +41,7 @@ spec:
               - ReadWriteOnce
             resources:
               requests:
-                storage: 20Gi
+                storage: 32Gi
       resources:
         requests:
           cpu: "1"
@@ -60,12 +60,15 @@ spec:
             rbac:
               create: false
           podSecurityContext:
-            enabled: false
+            enabled: true
+            fsGroup: 1001
           containerSecurityContext:
-            enabled: false
+            enabled: true
+            runAsUser: 1001
+            runAsNonRoot: true
           persistence:
             enabled: true
-            storageClassName: gp3-high
+            storageClass: gp3-csi
             size: 2Gi
     storage:
       external: true
