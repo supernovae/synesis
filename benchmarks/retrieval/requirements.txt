@@ -1,0 +1,4 @@
+# Retrieval benchmark dependencies
+pymilvus>=2.5.0
+httpx
+pyyaml

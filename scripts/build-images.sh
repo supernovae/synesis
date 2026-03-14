@@ -95,7 +95,6 @@ SERVICE_IMAGES=(
     "indexer|base/rag/indexer/Dockerfile|base"
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"
-    "bm25-service|base/rag/bm25-service/Dockerfile|base/rag/bm25-service"
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then
@@ -177,7 +176,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner|admin|keyword-service|bm25-service)
+        planner|admin|keyword-service)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

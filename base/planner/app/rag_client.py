@@ -1,17 +1,16 @@
 """Hybrid RAG retrieval client with cross-encoder re-ranking.
 
-Supports three retrieval strategies:
-  - "vector": Milvus cosine similarity (semantic)
-  - "bm25": BM25 keyword search via the bm25-service microservice
-  - "hybrid": Both retrievers merged via Reciprocal Rank Fusion
+Supports three retrieval strategies via Milvus native search:
+  - "vector": Milvus cosine similarity (semantic, HNSW on embedding)
+  - "bm25": Milvus native BM25 (sparse search on sparse_text field)
+  - "hybrid": Both arms merged server-side via Milvus RRFRanker
 
 Cross-encoder re-rankers (applied after retrieval):
   - "flashrank": Ultra-fast inline (~4ms), no PyTorch needed
   - "bge": High-accuracy via external BGE service
   - "none": Skip re-ranking
 
-Fallback: If Milvus/embedder is unreachable, hybrid and vector
-strategies auto-degrade to BM25-only.
+All retrieval goes through Milvus — no external BM25 microservice needed.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ from .url_utils import ensure_url_protocol
 
 logger = logging.getLogger("synesis.rag")
 
-# Unified catalog (synesis_catalog) — single collection, one BM25 index.
+# Unified catalog (synesis_catalog) — single collection with HNSW + BM25 indexes.
 # Schema must match base/rag/indexer/app/schema.py for indexer compatibility.
 SYNESIS_CATALOG = "synesis_catalog"
 
@@ -412,104 +411,125 @@ async def _vector_search(
 
 
 # ---------------------------------------------------------------------------
-# BM25 search (remote microservice)
+# Milvus native hybrid search (dense + sparse BM25 via RRFRanker)
 # ---------------------------------------------------------------------------
 
-_bm25_client: httpx.AsyncClient | None = None
+_OUTPUT_FIELDS = [
+    "text", "chunk_id", "document_name", "origin_type", "authority",
+    "domain", "source_url", "heading_path", "context_prefix",
+    "chunk_summary", "handler", "source_type",
+]
 
 
-def _get_bm25_client() -> httpx.AsyncClient:
-    global _bm25_client
-    if _bm25_client is None:
-        _bm25_client = httpx.AsyncClient(base_url=settings.bm25_service_url, timeout=15.0)
-    return _bm25_client
+async def _hybrid_search(
+    query: str,
+    collection: str,
+    top_k: int,
+    filter_expr: str = "",
+) -> list[dict[str, Any]]:
+    """Server-side hybrid search: dense (COSINE) + sparse (BM25), merged by RRFRanker."""
+    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
+
+    query_vector = await _embed_text(query)
+    client = _get_milvus_client()
+
+    dense_req = AnnSearchRequest(
+        data=[query_vector],
+        anns_field="embedding",
+        param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
+        limit=top_k,
+        expr=filter_expr or None,
+    )
+    sparse_req = AnnSearchRequest(
+        data=[query],
+        anns_field="sparse_text",
+        param={"metric_type": "BM25"},
+        limit=top_k,
+        expr=filter_expr or None,
+    )
+
+    results = await asyncio.to_thread(
+        client.hybrid_search,
+        collection_name=collection,
+        reqs=[dense_req, sparse_req],
+        ranker=RRFRanker(k=settings.rag_rrf_k),
+        limit=top_k,
+        output_fields=_OUTPUT_FIELDS,
+    )
+
+    formatted: list[dict[str, Any]] = []
+    for hit in results[0] if results else []:
+        entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
+        if isinstance(entity, dict):
+            _get = entity.get
+        else:
+            _get = lambda k, d="": getattr(entity, k, d)
+        formatted.append({
+            "text": _get("text", ""),
+            "source": _get("document_name", "") or _get("source_url", "unknown"),
+            "vector_score": 0.0,
+            "bm25_score": 0.0,
+            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
+            "retrieval_source": "hybrid",
+            "origin_type": _get("origin_type", ""),
+            "authority": _get("authority", ""),
+            "domain": _get("domain", ""),
+            "source_url": _get("source_url", ""),
+            "heading_path": _get("heading_path", ""),
+            "context_prefix": _get("context_prefix", ""),
+            "chunk_summary": _get("chunk_summary", ""),
+            "document_name": _get("document_name", ""),
+            "handler": _get("handler", ""),
+            "source_type": _get("source_type", ""),
+        })
+
+    return formatted
 
 
-async def _bm25_search(
+async def _sparse_search(
     query: str,
     collection: str,
     top_k: int,
 ) -> list[dict[str, Any]]:
-    """Keyword search via the BM25 microservice."""
-    try:
-        resp = await _get_bm25_client().post(
-            "/v1/search",
-            json={"query": query, "collection": collection, "top_k": top_k},
-        )
-        resp.raise_for_status()
-        return resp.json().get("results", [])
-    except Exception as e:
-        logger.warning("bm25_service_call_failed", extra={"error": str(e)[:200]})
-        return []
+    """BM25-only search via Milvus sparse_text field."""
+    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
 
+    client = _get_milvus_client()
 
-# ---------------------------------------------------------------------------
-# Reciprocal Rank Fusion
-# ---------------------------------------------------------------------------
-
-
-def _reciprocal_rank_fusion(
-    vector_results: list[dict[str, Any]],
-    bm25_results: list[dict[str, Any]],
-    k: int = 60,
-) -> list[dict[str, Any]]:
-    """Merge results from multiple retrievers using RRF.
-
-    RRF score = sum(1 / (k + rank_i)) across retrievers.
-    """
-    _PROVENANCE_KEYS = (
-        "origin_type",
-        "authority",
-        "domain",
-        "source_url",
-        "heading_path",
-        "context_prefix",
-        "chunk_summary",
-        "document_name",
-        "handler",
-        "source_type",
+    results = await asyncio.to_thread(
+        client.search,
+        collection_name=collection,
+        data=[query],
+        anns_field="sparse_text",
+        limit=top_k,
+        output_fields=_OUTPUT_FIELDS,
+        search_params={"metric_type": "BM25"},
     )
 
-    doc_map: dict[str, dict[str, Any]] = {}
-
-    for rank, doc in enumerate(vector_results):
-        key = doc["text"][:200]
-        if key not in doc_map:
-            entry: dict[str, Any] = {
-                "text": doc["text"],
-                "source": doc.get("source", "unknown"),
-                "vector_score": doc.get("vector_score", 0.0),
-                "bm25_score": 0.0,
-                "rrf_score": 0.0,
-                "retrieval_source": "vector",
-            }
-            for pk in _PROVENANCE_KEYS:
-                entry[pk] = doc.get(pk, "")
-            doc_map[key] = entry
-        doc_map[key]["rrf_score"] += 1.0 / (k + rank + 1)
-        doc_map[key]["vector_score"] = doc.get("vector_score", 0.0)
-
-    for rank, doc in enumerate(bm25_results):
-        key = doc["text"][:200]
-        if key not in doc_map:
-            entry = {
-                "text": doc["text"],
-                "source": doc.get("source", "unknown"),
+    formatted: list[dict[str, Any]] = []
+    for hits in results:
+        for hit in hits:
+            entity = hit.get("entity", {})
+            formatted.append({
+                "text": entity.get("text", ""),
+                "source": entity.get("document_name") or entity.get("source_url", "unknown"),
+                "bm25_score": float(hit.get("distance", 0.0)),
                 "vector_score": 0.0,
-                "bm25_score": doc.get("bm25_score", 0.0),
-                "rrf_score": 0.0,
+                "rrf_score": float(hit.get("distance", 0.0)),
                 "retrieval_source": "bm25",
-            }
-            for pk in _PROVENANCE_KEYS:
-                entry[pk] = doc.get(pk, "")
-            doc_map[key] = entry
-        else:
-            doc_map[key]["retrieval_source"] = "both"
-        doc_map[key]["rrf_score"] += 1.0 / (k + rank + 1)
-        doc_map[key]["bm25_score"] = doc.get("bm25_score", 0.0)
+                "origin_type": entity.get("origin_type", ""),
+                "authority": entity.get("authority", ""),
+                "domain": entity.get("domain", ""),
+                "source_url": entity.get("source_url", ""),
+                "heading_path": entity.get("heading_path", ""),
+                "context_prefix": entity.get("context_prefix", ""),
+                "chunk_summary": entity.get("chunk_summary", ""),
+                "document_name": entity.get("document_name", ""),
+                "handler": entity.get("handler", ""),
+                "source_type": entity.get("source_type", ""),
+            })
 
-    merged = sorted(doc_map.values(), key=lambda d: d["rrf_score"], reverse=True)
-    return merged
+    return formatted
 
 
 # ---------------------------------------------------------------------------
@@ -795,38 +815,35 @@ async def _retrieve_single_collection(
     strategy: str,
     domain_filter: str = "",
 ) -> tuple[list[dict[str, Any]], bool]:
-    """Retrieve from a single collection. domain_filter applied to vector search (taxonomy-aligned)."""
+    """Retrieve from a single collection using Milvus native search.
+
+    strategy="hybrid" uses Milvus hybrid_search (dense + sparse BM25 + RRFRanker).
+    strategy="vector" uses dense-only cosine search.
+    strategy="bm25"   uses sparse-only BM25 search.
+
+    On hybrid failure, falls back to sparse BM25-only.
+    """
     fetch_k = top_k * 4
-    vector_results: list[dict[str, Any]] = []
-    bm25_results: list[dict[str, Any]] = []
     fallback_to_bm25 = False
 
-    if strategy in ("hybrid", "vector"):
+    if strategy == "hybrid":
         try:
-            vector_results = await _vector_search(query, collection, fetch_k, filter_expr=domain_filter)
+            merged = await _hybrid_search(query, collection, fetch_k, filter_expr=domain_filter)
+            return merged, False
         except Exception as e:
-            logger.warning("vector_search_failed", extra={"collection": collection, "error": str(e)[:200]})
-            if strategy == "hybrid":
-                fallback_to_bm25 = True
-                if _bm25_fallback_counter:
-                    _bm25_fallback_counter.inc()
-            else:
-                raise
+            logger.warning("hybrid_search_failed", extra={"collection": collection, "error": str(e)[:200]})
+            fallback_to_bm25 = True
+            if _bm25_fallback_counter:
+                _bm25_fallback_counter.inc()
 
-    if strategy in ("hybrid", "bm25") or fallback_to_bm25:
-        bm25_results = await _bm25_search(query, collection, fetch_k)
-
-    if strategy == "hybrid" or fallback_to_bm25:
-        merged = _reciprocal_rank_fusion(vector_results, bm25_results, k=settings.rag_rrf_k)
-    elif strategy == "vector":
+    if strategy == "vector" and not fallback_to_bm25:
+        vector_results = await _vector_search(query, collection, fetch_k, filter_expr=domain_filter)
         merged = [
             {**r, "retrieval_source": "vector", "bm25_score": 0.0, "rrf_score": r.get("vector_score", 0.0)}
             for r in vector_results
         ]
-    else:
-        merged = [
-            {**r, "retrieval_source": "bm25", "vector_score": 0.0, "rrf_score": r.get("bm25_score", 0.0)}
-            for r in bm25_results
-        ]
+        return merged, False
 
-    return merged, fallback_to_bm25
+    # strategy="bm25" or fallback
+    sparse_results = await _sparse_search(query, collection, fetch_k)
+    return sparse_results, fallback_to_bm25

@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Retrieval quality regression test using Milvus native hybrid search.
+
+Runs the production retrieval path (dense + sparse BM25 via RRFRanker) against
+a fixed query set and compares quality metrics to saved baselines.
+
+Usage:
+    python bench_hybrid.py [--milvus-uri URI] [--embedder-url URL]
+                           [--runs N] [--top-k K] [--output results.json]
+                           [--baseline baseline.json] [--tolerance 0.05]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import statistics
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+import yaml
+from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
+
+COLLECTION = "synesis_catalog"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+OUTPUT_FIELDS = [
+    "chunk_id", "text", "document_name", "origin_type", "authority",
+    "domain", "source_url", "heading_path", "context_prefix",
+    "chunk_summary", "handler", "source_type",
+]
+
+
+def embed_text(text: str, embedder_url: str) -> list[float]:
+    resp = httpx.post(
+        f"{embedder_url}/embeddings",
+        json={"input": [text], "model": EMBEDDING_MODEL},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["data"][0]["embedding"]
+
+
+def hybrid_search(
+    query: str,
+    query_vector: list[float],
+    client: MilvusClient,
+    top_k: int,
+    rrf_k: int = 60,
+) -> list[dict[str, Any]]:
+    dense_req = AnnSearchRequest(
+        data=[query_vector],
+        anns_field="embedding",
+        param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
+        limit=top_k,
+    )
+    sparse_req = AnnSearchRequest(
+        data=[query],
+        anns_field="sparse_text",
+        param={"metric_type": "BM25"},
+        limit=top_k,
+    )
+    results = client.hybrid_search(
+        collection_name=COLLECTION,
+        reqs=[dense_req, sparse_req],
+        ranker=RRFRanker(k=rrf_k),
+        limit=top_k,
+        output_fields=OUTPUT_FIELDS,
+    )
+    formatted = []
+    for hit in results[0] if results else []:
+        entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
+        get = entity.get if isinstance(entity, dict) else lambda k, d="": getattr(entity, k, d)
+        formatted.append({
+            "chunk_id": get("chunk_id", ""),
+            "text": get("text", ""),
+            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
+        })
+    return formatted
+
+
+# ---- Metrics ----------------------------------------------------------------
+
+def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
+    if not relevant_ids:
+        return 0.0
+    return sum(1 for rid in retrieved_ids[:k] if rid in relevant_ids) / len(relevant_ids)
+
+
+def mrr_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
+    for i, rid in enumerate(retrieved_ids[:k]):
+        if rid in relevant_ids:
+            return 1.0 / (i + 1)
+    return 0.0
+
+
+def ndcg_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
+    dcg = sum(1.0 / math.log2(i + 2) for i, rid in enumerate(retrieved_ids[:k]) if rid in relevant_ids)
+    idcg = sum(1.0 / math.log2(i + 2) for i in range(min(len(relevant_ids), k)))
+    return dcg / idcg if idcg > 0 else 0.0
+
+
+# ---- Main -------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="Hybrid retrieval regression benchmark")
+    parser.add_argument("--milvus-uri", default="http://localhost:19530")
+    parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
+    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--output", default="benchmarks/retrieval/results_hybrid.json")
+    parser.add_argument("--baseline", default="benchmarks/retrieval/baseline.json")
+    parser.add_argument("--tolerance", type=float, default=0.05,
+                        help="Max allowed relative drop from baseline before failing")
+    args = parser.parse_args()
+
+    queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
+    labels_path = Path(__file__).parent.parent / "bm25" / "relevance_labels.json"
+
+    if not queries_path.exists():
+        print(f"ERROR: {queries_path} not found", file=sys.stderr)
+        sys.exit(1)
+    if not labels_path.exists():
+        print(f"ERROR: {labels_path} not found. Run BM25 benchmark first.", file=sys.stderr)
+        sys.exit(1)
+
+    with open(queries_path) as f:
+        queries = yaml.safe_load(f)["queries"]
+    with open(labels_path) as f:
+        relevance_labels = json.load(f)
+
+    client = MilvusClient(uri=args.milvus_uri)
+    embedder_url = args.embedder_url.rstrip("/")
+    ks = [5, 10, 20]
+    fetch_k = args.top_k * 4
+
+    print("Pre-computing query embeddings...")
+    query_vectors = {q["id"]: embed_text(q["query"], embedder_url) for q in queries}
+
+    per_query: list[dict] = []
+    latencies: list[float] = []
+
+    for run_idx in range(args.runs):
+        print(f"--- Run {run_idx + 1}/{args.runs} ---")
+        for q in queries:
+            relevant = set(relevance_labels.get(q["id"], []))
+            if not relevant:
+                continue
+
+            t0 = time.perf_counter()
+            results = hybrid_search(q["query"], query_vectors[q["id"]], client, fetch_k)
+            lat = (time.perf_counter() - t0) * 1000
+            latencies.append(lat)
+
+            if run_idx == 0:
+                rids = [r["chunk_id"] for r in results]
+                metrics = {}
+                for k in ks:
+                    metrics[f"recall@{k}"] = recall_at_k(rids, relevant, k)
+                    metrics[f"mrr@{k}"] = mrr_at_k(rids, relevant, k)
+                    metrics[f"ndcg@{k}"] = ndcg_at_k(rids, relevant, k)
+                per_query.append({"query_id": q["id"], **metrics})
+
+    agg: dict[str, float] = {}
+    for k in ks:
+        for m in ("recall", "mrr", "ndcg"):
+            key = f"{m}@{k}"
+            vals = [pq[key] for pq in per_query if key in pq]
+            agg[key] = statistics.mean(vals) if vals else 0.0
+
+    sorted_lat = sorted(latencies)
+    n = len(sorted_lat)
+    agg["p50_ms"] = sorted_lat[int(n * 0.5)] if n else 0.0
+    agg["p95_ms"] = sorted_lat[int(n * 0.95)] if n else 0.0
+    agg["p99_ms"] = sorted_lat[min(int(n * 0.99), n - 1)] if n else 0.0
+    agg["query_count"] = len(per_query)
+
+    # Print report
+    print("\n=== Hybrid Retrieval Regression Test ===")
+    for key, val in agg.items():
+        if "ms" in key:
+            print(f"  {key:>12s}: {val:8.1f} ms")
+        elif key != "query_count":
+            print(f"  {key:>12s}: {val:8.4f}")
+    print(f"  {'queries':>12s}: {int(agg['query_count'])}")
+
+    # Save results
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump({"aggregate": agg, "per_query": per_query}, f, indent=2)
+    print(f"\nResults saved to {output_path}")
+
+    # Baseline comparison
+    baseline_path = Path(args.baseline)
+    if baseline_path.exists():
+        with open(baseline_path) as f:
+            baseline = json.load(f)["aggregate"]
+        regressions = []
+        check_keys = ["recall@5", "recall@10", "mrr@10", "ndcg@10"]
+        for key in check_keys:
+            base_val = baseline.get(key, 0.0)
+            curr_val = agg.get(key, 0.0)
+            if base_val > 0 and (base_val - curr_val) / base_val > args.tolerance:
+                regressions.append(f"{key}: {curr_val:.4f} < baseline {base_val:.4f} (>{args.tolerance*100:.0f}% drop)")
+        if regressions:
+            print("\nREGRESSIONS DETECTED:")
+            for r in regressions:
+                print(f"  - {r}")
+            sys.exit(1)
+        else:
+            print("\nAll metrics within tolerance of baseline.")
+    else:
+        print(f"\nNo baseline found at {baseline_path}. Saving current results as baseline.")
+        with open(baseline_path, "w") as f:
+            json.dump({"aggregate": agg, "per_query": per_query}, f, indent=2)
+
+
+if __name__ == "__main__":
+    main()

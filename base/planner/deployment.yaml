@@ -79,8 +79,6 @@ spec:
               value: "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1"
             - name: SYNESIS_GLINER_SERVICE_URL
               value: "http://gliner-service.synesis-rag.svc.cluster.local:8080/v1"
-            - name: SYNESIS_BM25_SERVICE_URL
-              value: "http://bm25-service.synesis-rag.svc.cluster.local:8080"
             - name: SYNESIS_RAG_RETRIEVAL_STRATEGY
               value: "hybrid"
             - name: SYNESIS_RAG_RERANKER

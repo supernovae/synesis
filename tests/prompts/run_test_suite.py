@@ -191,6 +191,11 @@ CATEGORY_DEFAULTS: dict[str, dict] = {
         "max_reasoning_ratio": 4.0,
         "token_budget_tier": "hard",
     },
+    "retrieval_quality": {
+        "max_reasoning_s": 8,
+        "max_reasoning_ratio": 3.0,
+        "token_budget_tier": "medium",
+    },
 }
 
 # Fallback for unknown categories

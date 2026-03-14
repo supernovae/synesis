@@ -10,6 +10,9 @@ detects the mismatch and drops/recreates the collection automatically.
 Version history:
   v3 → v4: Removed intended_roles (Router owns all retrieval; per-node
             role tagging is dead weight).
+  v4 → v5: Added native Milvus BM25 (english analyzer on text field,
+            sparse_text SPARSE_FLOAT_VECTOR auto-populated by BM25
+            Function). Replaces the external bm25-service microservice.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType, MilvusClient
 from synesis_telemetry import get_logger
 
 logger = get_logger("synesis.indexer.schema")
@@ -38,7 +41,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -61,6 +64,7 @@ EXPECTED_FIELDS = frozenset(
         "authority",
         "source_url",
         "embedding",
+        "sparse_text",
     }
 )
 
@@ -69,8 +73,9 @@ CATALOG_FIELDS = [
     FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
     FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="chunk_index", dtype=DataType.INT64),
-    # Content
-    FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192),
+    # Content (english analyzer enables native Milvus BM25 full-text search)
+    FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192,
+                enable_analyzer=True, analyzer_params={"type": "english"}),
     FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
     FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
     # Structure
@@ -89,7 +94,19 @@ CATALOG_FIELDS = [
     FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
     # Vector
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
+    # Sparse BM25 vector (auto-populated by BM25 Function from text field)
+    FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
 ]
+
+# Native BM25 function: Milvus tokenises the text field at insert time and
+# populates sparse_text automatically.  hybrid_search can then combine dense
+# (embedding) and sparse (sparse_text) arms with RRFRanker.
+BM25_FUNCTION = Function(
+    name="bm25_text_fn",
+    input_field_names=["text"],
+    output_field_names=["sparse_text"],
+    function_type=FunctionType.BM25,
+)
 
 
 def _validate_existing_schema(client: MilvusClient) -> bool:
@@ -157,6 +174,7 @@ def ensure_synesis_catalog(
         description=f"Synesis unified RAG catalog v{SCHEMA_VERSION}",
         enable_dynamic_field=False,
     )
+    schema.add_function(BM25_FUNCTION)
     client.create_collection(collection_name=SYNESIS_CATALOG, schema=schema)
     _ensure_index_and_load(client)
     logger.info(
@@ -167,24 +185,34 @@ def ensure_synesis_catalog(
 
 
 def _ensure_index_and_load(client: MilvusClient) -> None:
-    """Create HNSW index on embedding if missing, then load collection."""
+    """Create HNSW + sparse BM25 indexes if missing, then load collection."""
     try:
         indexes = client.list_indexes(collection_name=SYNESIS_CATALOG)
-        has_embedding_index = indexes and any("embedding" in str(idx).lower() for idx in indexes)
+        index_strs = [str(idx).lower() for idx in indexes] if indexes else []
+        has_embedding_index = any("embedding" in s for s in index_strs)
+        has_sparse_index = any("sparse_text" in s for s in index_strs)
     except Exception:
         has_embedding_index = False
+        has_sparse_index = False
 
-    if not has_embedding_index:
+    if not has_embedding_index or not has_sparse_index:
         try:
             index_params = MilvusClient.prepare_index_params()
-            index_params.add_index(
-                field_name="embedding",
-                index_type="HNSW",
-                metric_type="COSINE",
-                params={"M": 16, "efConstruction": 200},
-            )
+            if not has_embedding_index:
+                index_params.add_index(
+                    field_name="embedding",
+                    index_type="HNSW",
+                    metric_type="COSINE",
+                    params={"M": 16, "efConstruction": 200},
+                )
+            if not has_sparse_index:
+                index_params.add_index(
+                    field_name="sparse_text",
+                    index_type="SPARSE_INVERTED_INDEX",
+                    metric_type="BM25",
+                )
             client.create_index(collection_name=SYNESIS_CATALOG, index_params=index_params)
-            logger.info("indexer_hnsw_index_created", extra={"collection": SYNESIS_CATALOG})
+            logger.info("indexer_indexes_created", extra={"collection": SYNESIS_CATALOG})
         except Exception as e:
             if "already" not in str(e).lower():
                 raise

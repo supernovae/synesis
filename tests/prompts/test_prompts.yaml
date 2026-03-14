@@ -2149,3 +2149,106 @@
   max_latency_s: 120
   reject_terms: ["FIPS", "FedRAMP", "air-gap"]
   notes: "Web frontend deep-dive. Should match web_frontend domain. Structured sections covering state, sync, testing."
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CATEGORY 30: Retrieval Quality (Hybrid Search Validation)
+# Validates that Milvus native hybrid search (dense + sparse BM25 + RRFRanker)
+# retrieves relevant context for queries where lexical matching matters,
+# semantic matching matters, or both. Tests the post-migration retrieval path.
+# ──────────────────────────────────────────────────────────────────────────────
+
+- id: retrieval-01
+  prompt: "What is the oc adm top command used for in OpenShift?"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "BM25-critical: exact CLI command name must surface via lexical match. Verifies sparse arm of hybrid search."
+
+- id: retrieval-02
+  prompt: "How do I configure persistent storage for stateful applications on Kubernetes?"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Semantic match: 'persistent storage' + 'stateful' should find PVC/StorageClass docs via dense arm."
+
+- id: retrieval-03
+  prompt: "What does the SYNESIS_EMBEDDER_URL environment variable control?"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Exact identifier: env var name should surface via BM25 lexical match. Tests rare-token retrieval."
+
+- id: retrieval-04
+  prompt: "Compare the approaches for implementing rate limiting in API gateways"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Hybrid relevance: both semantic (API gateway concepts) and lexical (rate limiting) matter."
+
+- id: retrieval-05
+  prompt: "What is the difference between a Deployment and a StatefulSet?"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Kubernetes-specific terms should be found by BM25; conceptual comparison benefits from dense retrieval."
+
+- id: retrieval-06
+  prompt: "etcd compaction and defragmentation best practices"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Rare domain terms: 'etcd compaction defragmentation' must be found via exact lexical match in sparse arm."
+
+- id: retrieval-07
+  prompt: "How should I handle database connection pooling in a microservices architecture?"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "Hybrid: 'connection pooling' is a specific term (BM25) within a broad concept (semantic)."
+
+- id: retrieval-08
+  prompt: "MachineConfigPool degraded node troubleshooting"
+  category: retrieval_quality
+  sequence: null
+  expected_route: worker
+  expected_deliverable: text
+  expected_lang: markdown
+  should_stream: true
+  context_must_persist: false
+  max_latency_s: 50
+  notes: "OpenShift-specific CRD name must be found via BM25. Tests keyword-heavy query without natural language."

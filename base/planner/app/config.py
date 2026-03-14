@@ -69,13 +69,11 @@ class Settings(BaseSettings):
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
     keyword_service_url: str = "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1"
     gliner_service_url: str = "http://gliner-service.synesis-rag.svc.cluster.local:8080/v1"
-    bm25_service_url: str = "http://bm25-service.synesis-rag.svc.cluster.local:8080"
 
     @field_validator(
         "embedder_url",
         "keyword_service_url",
         "gliner_service_url",
-        "bm25_service_url",
         "web_search_url",
         "lsp_gateway_url",
         "sandbox_warm_pool_url",
@@ -131,10 +129,7 @@ class Settings(BaseSettings):
     rag_reranker: Literal["flashrank", "bge", "none"] = "bge"
     rag_reranker_model: str = "ms-marco-MiniLM-L-12-v2"  # only used for flashrank
 
-    # BM25 in-memory index settings
-    rag_bm25_refresh_interval_seconds: int = 1800
-
-    # Reciprocal Rank Fusion constant (higher = more weight to lower-ranked docs)
+    # Reciprocal Rank Fusion constant for Milvus RRFRanker
     rag_rrf_k: int = 60
 
     # BGE reranker service URL (only used when rag_reranker="bge")

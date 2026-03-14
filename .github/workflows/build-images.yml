@@ -49,7 +49,6 @@ jobs:
       indexer: ${{ steps.filter.outputs.indexer }}
       keyword-service: ${{ steps.filter.outputs.keyword-service }}
       gliner-service: ${{ steps.filter.outputs.gliner-service }}
-      bm25-service: ${{ steps.filter.outputs.bm25-service }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
@@ -87,8 +86,6 @@ jobs:
               - 'base/rag/keyword-service/**'
             gliner-service:
               - 'base/rag/gliner-service/**'
-            bm25-service:
-              - 'base/rag/bm25-service/**'
 
       - name: Aggregate base changes
         id: aggregate
@@ -314,12 +311,6 @@ jobs:
             base_arg: synesis-base-ml
             change_key: gliner-service
             base_change_key: base-ml
-          - name: bm25-service
-            dockerfile: base/rag/bm25-service/Dockerfile
-            context: base/rag/bm25-service
-            base_arg: synesis-base-api
-            change_key: bm25-service
-            base_change_key: base-api
 
     steps:
       - name: Check if build needed

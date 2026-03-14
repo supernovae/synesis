@@ -1,16 +1,15 @@
-"""Enrichment pipeline: keyword extraction (via keyword-service), context_prefix,
-optional LLM chunk_summary.
+"""Enrichment pipeline: context_prefix and optional LLM chunk_summary.
 
 Tier 1 (always, ~0 cost):
   - context_prefix: Template-based from document name + heading_path
-  - keywords: Extracted via the keyword-service microservice (HTTP)
 
 Tier 2 (--enrich full, uses synesis-general LLM):
   - chunk_summary: 1-2 sentence neutral description via LLM
   - Enhanced context_prefix: LLM-generated contextual sentence
 
-Tier 1 alone captures most Contextual Retrieval benefit because the heading
-path and document name are the primary context signals.
+Keyword extraction removed: BM25 benchmark (benchmarks/bm25/) showed that
+Milvus native BM25 on raw text outperforms enriched-text BM25, and keywords
+were only consumed by the now-removed custom BM25 service.
 
 Research: Anthropic Contextual Retrieval (2024), arxiv 2601.11863.
 """
@@ -18,20 +17,11 @@ Research: Anthropic Contextual Retrieval (2024), arxiv 2601.11863.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 
 import httpx
 
 logger = logging.getLogger("synesis.indexer.enrichment")
-
-KEYWORD_SERVICE_URL = os.getenv(
-    "KEYWORD_SERVICE_URL",
-    "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1",
-)
-
-_KW_BATCH_SIZE = 64
-_KW_TOP_N = 8
 
 
 @dataclass
@@ -51,10 +41,9 @@ def enrich_chunk(
     full_mode: bool = False,
     llm_url: str = "",
 ) -> EnrichmentResult:
-    """Enrich a single chunk with context_prefix, keywords, and optional summary."""
+    """Enrich a single chunk with context_prefix and optional summary."""
     result = EnrichmentResult()
     result.context_prefix = _build_context_prefix(document_name, heading_path, section)
-    result.keywords = _extract_keywords_single(text)
 
     if full_mode and llm_url:
         result.chunk_summary = _generate_chunk_summary(text, document_name, heading_path, llm_url)
@@ -84,11 +73,6 @@ def enrich_batch(
         )
         for c in chunks
     ]
-
-    texts = [c["text"] for c in chunks]
-    keyword_list = _extract_keywords_batch(texts)
-    for r, kw in zip(results, keyword_list):
-        r.keywords = kw
 
     if full_mode and llm_url:
         for i, c in enumerate(chunks):
@@ -128,11 +112,6 @@ def enrich_chunks_bulk(
         )
         for (_text, doc_name, heading, section) in items
     ]
-
-    texts = [text for (text, *_) in items]
-    keyword_list = _extract_keywords_batch(texts)
-    for r, kw in zip(results, keyword_list):
-        r.keywords = kw
 
     if enrich_full and llm_url:
         for i, (text, doc_name, heading, _section) in enumerate(items):
@@ -174,57 +153,6 @@ def _build_context_prefix(
         return ""
 
     return ", ".join(parts) + "."
-
-
-def _extract_keywords_single(text: str, top_n: int = _KW_TOP_N) -> str:
-    """Extract keywords from a single text via the keyword-service."""
-    results = _extract_keywords_batch([text], top_n=top_n)
-    return results[0] if results else ""
-
-
-def _extract_keywords_batch(
-    texts: list[str],
-    top_n: int = _KW_TOP_N,
-) -> list[str]:
-    """Batch keyword extraction via the keyword-service HTTP API.
-
-    Returns a list of comma-separated keyword strings, one per input text.
-    """
-    if not texts:
-        return []
-
-    all_keywords: list[str] = []
-    for start in range(0, len(texts), _KW_BATCH_SIZE):
-        batch = texts[start : start + _KW_BATCH_SIZE]
-        try:
-            resp = httpx.post(
-                f"{KEYWORD_SERVICE_URL}/keywords/batch",
-                json={
-                    "texts": batch,
-                    "top_n": top_n,
-                    "ngram_range": [1, 2],
-                    "use_mmr": True,
-                    "diversity": 0.5,
-                },
-                timeout=120,
-            )
-            resp.raise_for_status()
-            batch_results = resp.json()["results"]
-            for kw_pairs in batch_results:
-                keywords = [kw for kw, _score in kw_pairs]
-                all_keywords.append(", ".join(keywords))
-        except Exception as e:
-            logger.warning("keyword-service batch extraction failed: %s", e)
-            all_keywords.extend([""] * len(batch))
-
-        if start + _KW_BATCH_SIZE < len(texts):
-            logger.debug(
-                "Keyword batch %d/%d done",
-                start // _KW_BATCH_SIZE + 1,
-                (len(texts) - 1) // _KW_BATCH_SIZE + 1,
-            )
-
-    return all_keywords
 
 
 def _generate_chunk_summary(
