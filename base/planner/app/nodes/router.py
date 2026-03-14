@@ -521,17 +521,17 @@ class RouterNode:
         Returns (packets, cohesion_lock_dict). The lock is taken from the
         first request that produces one (typically the main_question request).
         """
-        if settings.router_multi_query_enabled:
-            tasks = [
-                self.handle_single_request(req, task_context, difficulty, taxonomy_metadata=taxonomy_metadata)
-                for req in requests
-            ]
-        else:
-            queries = await self.batch_generate_queries(requests, task_context)
-            tasks = [
-                self.handle_single_request(req, task_context, difficulty, precomputed_query=q)
-                for req, q in zip(requests, queries)
-            ]
+        # Batch query generation: generate all base queries in a single LLM
+        # call, then let handle_single_request use them (with optional HyDE
+        # and expansion on top when multi_query is enabled).
+        queries = await self.batch_generate_queries(requests, task_context)
+        tasks = [
+            self.handle_single_request(
+                req, task_context, difficulty,
+                precomputed_query=q, taxonomy_metadata=taxonomy_metadata,
+            )
+            for req, q in zip(requests, queries)
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         packets: list[EvidencePacket] = []
         cohesion_lock: dict[str, Any] | None = None

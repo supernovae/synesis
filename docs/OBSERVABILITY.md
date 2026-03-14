@@ -150,55 +150,47 @@ MY_METRIC = Counter("synesis_my_metric_total", "Description", ["label"])
 4. Add a panel to `base/observability/perses-dashboard-synesis.yaml`
 5. Test with: `curl http://localhost:<port>/metrics | grep synesis_my_metric`
 
-## LLM Tracing: Opik Integration
+## LLM Tracing: SynesisTracer
 
-Synesis supports [Opik](https://github.com/comet-ml/opik) for LLM trace observability.
-When enabled, every LangGraph node invocation is auto-traced with inputs, outputs,
-latency, and metadata.
+Synesis includes a lightweight built-in tracing system that captures per-request
+pipeline traces and persists them to Redis. No external infrastructure required —
+the tracer reuses the existing Redis instance already deployed for feedback storage
+and LangGraph checkpointing.
 
-### What Opik Provides
+### What SynesisTracer Provides
 
-- **Per-node tracing**: entry_pipeline, router, planner, executor, writer, critic — all auto-traced via the `OpikTracer` LangChain callback
-- **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` logged as span-level feedback
+- **Per-node span tracing**: entry_pipeline, router, planner, executor, writer, critic — auto-traced via LangChain `BaseCallbackHandler`
+- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, truncated prompt/completion snippets
+- **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record
 - **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`
-- **Annotation queues**: Built-in UI for human rating of (prompt, response) pairs
-- **Failure mode aggregation**: Filter traces by `failure_modes_detected`, `evidence_underuse` rates
+- **Admin UI integration**: Trace list with filtering, trace detail with waterfall timeline, span tree, LLM call drill-down, and critic scores panel
 
 ### Configuration
 
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
-| `opik_enabled` | `SYNESIS_OPIK_ENABLED` | `false` | Master toggle; zero overhead when disabled |
-| `opik_url` | `SYNESIS_OPIK_URL` | `http://opik-backend.synesis-opik.svc.cluster.local:8080` | Opik backend API URL |
+| `trace_store_ttl_hours` | `SYNESIS_TRACE_TTL_HOURS` | `168` (7 days) | How long traces are retained in Redis |
+| `trace_snippet_max_chars` | `SYNESIS_TRACE_SNIPPET_MAX_CHARS` | `500` | Max chars for prompt/completion snippets |
 
-Additional environment variables set in the planner deployment:
-- `OPIK_URL_OVERRIDE` — SDK-level URL override
-- `OPIK_WORKSPACE=default` — Required for self-hosted Opik (must be "default")
-- `OPIK_PROJECT_NAME=synesis` — Project name in Opik UI
+The tracer activates automatically when `SYNESIS_REDIS_URL` is set (which it
+already is for feedback and session persistence). No separate toggle needed.
 
-The Opik Python client uses `host=` parameter (not `url=`). The `opik_utils.py` helper
-explicitly passes `host`, `workspace`, and `project_name` to the `opik.Opik()` constructor.
+### Storage Schema
 
-### Deployment
+Traces are stored in the same Redis instance:
 
-Opik infrastructure lives in `base/opik/` (Kustomize): single-node ClickHouse,
-MySQL (or compatible), Redis, Opik backend + frontend. Deployed to the `synesis-opik`
-namespace.
+- `synesis:traces:{trace_id}` — JSON blob per trace (typically 5–20KB)
+- `synesis:traces:index` — sorted set (score=timestamp) for time-range queries
 
-```bash
-oc apply -k base/opik/
-# Or deploy via deploy.sh dev (includes Opik in dev profile):
-./scripts/deploy.sh dev
-```
+Old entries are pruned automatically based on the TTL setting.
 
-### Troubleshooting
+### Viewing Traces
 
-| Symptom | Fix |
-|---------|-----|
-| No traces appearing | Verify `SYNESIS_OPIK_ENABLED=true` in deployment env |
-| `Workspace not found` 404 | Set `OPIK_WORKSPACE=default` (not project name) |
-| `unexpected keyword argument 'url'` | Use `host=` parameter, not `url=` in Opik client |
-| UI works but no events | Check planner logs: `oc logs deployment/synesis-planner -n synesis-planner` |
+Browse traces in the Admin UI under **Tracing > Activity Log**:
+
+- Filter by status (error/success), task type, difficulty, domain
+- Click any trace to see waterfall timeline, span details, LLM call snippets, and critic scores
+- Dashboard metrics (error rate, avg latency) are automatically derived from trace data
 
 ## Future Enhancements
 
@@ -206,5 +198,5 @@ oc apply -k base/opik/
   rejection rate, BM25 fallback spikes, model pod restarts
 - **Perses datasource TLS**: Enable if Thanos Querier enforces mTLS on your cluster
   (uncomment TLS section in `base/observability/perses-datasource.yaml`)
-- **Opik prompt optimization**: MIPRO/MetaPrompt optimizers to tune critic, query
-  generation, and summarizer prompts offline using collected traces
+- **Prompt optimization**: Use collected trace data for offline prompt tuning
+  (critic, query generation, summarizer)

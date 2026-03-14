@@ -424,12 +424,6 @@ wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
 wait_for_deployment synesis-webui open-webui
-wait_for_deployment synesis-opik zookeeper
-wait_for_deployment synesis-opik clickhouse
-wait_for_deployment synesis-opik mysql
-wait_for_deployment synesis-opik redis
-wait_for_deployment synesis-opik opik-backend
-wait_for_deployment synesis-opik opik-frontend
 
 log ""
 if [[ "$ENV" == "openrouter" ]]; then
@@ -475,16 +469,14 @@ log "=== Deployment complete ($ENV) ==="
 
 ROUTE_HOST=$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
-OPIK_HOST=$(oc get route opik -n synesis-opik -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-deployed")
+ADMIN_HOST=$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 
 log ""
 log "============================================================"
 log "  API endpoint:  https://$ROUTE_HOST"
 log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
-if [[ "$OPIK_HOST" != "not-deployed" ]]; then
-log "  Opik UI:       https://$OPIK_HOST"
-fi
+log "  Admin UI:      https://$ADMIN_HOST"
 log "============================================================"
 log ""
 log "Next: deploy indexer CronJobs (after Milvus is healthy):"

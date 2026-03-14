@@ -120,9 +120,9 @@ to prevent token-budget fading in long responses.
 | Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
 | Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
 | Epistemic discipline | `taxonomy_prompt_config.yaml` | `epistemic_guidance` |
-| Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` |
-| Required output sections | `taxonomy_prompt_config.yaml` | `required_elements` |
-| Evidence budget | `config.py` | `evidence_budget_chars` (default 24000) |
+| Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` (scoped to cohesion entity when lock active) |
+| Domain coverage checklist | `taxonomy_prompt_config.yaml` | `required_elements` (secondary to Document Outline) |
+| Evidence budget | `config.py` | `evidence_budget_chars` (default 24000, capped relative to `compiler_model_context`) |
 | Vertical-specific persona block | vertical plugins | `vertical_prompt.executor_persona_block` |
 
 **Example**: When the domain is `software_architecture`, the Writer receives
@@ -142,8 +142,8 @@ metadata injected from YAML.
 | Domain tone/persona | `taxonomy_prompt_config.yaml` | `worker_explain_tone` |
 | Persona label | `taxonomy_prompt_config.yaml` | `persona` |
 | Depth instructions | `taxonomy_prompt_config.yaml` | `depth_instructions` |
-| Required output sections | `taxonomy_prompt_config.yaml` | `required_elements` |
-| Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` |
+| Domain coverage checklist | `taxonomy_prompt_config.yaml` | `required_elements` (secondary to Document Outline) |
+| Discovery/enrichment prompts | `taxonomy_prompt_config.yaml` | `discovery_prompt` (scoped to cohesion entity when lock active) |
 | Vertical-specific persona block | vertical plugins | `vertical_prompt.executor_persona_block` |
 
 **Example**: Add a cybersecurity domain with strict output requirements:

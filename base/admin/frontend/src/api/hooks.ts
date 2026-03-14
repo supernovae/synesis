@@ -255,6 +255,39 @@ export function useFailureStats() {
   });
 }
 
+// --- Traces ---
+
+export function useTraces(params?: {
+  offset?: number;
+  limit?: number;
+  has_error?: boolean;
+  user_id?: string;
+  task_type?: string;
+  domain_tag?: string;
+}) {
+  return useQuery<{ traces: import("../types").TraceRecord[]; total: number }>({
+    queryKey: ["traces", params],
+    queryFn: () => client.get("/traces", { params }).then((r) => r.data),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useTrace(traceId: string) {
+  return useQuery<import("../types").TraceRecord>({
+    queryKey: ["traces", traceId],
+    queryFn: () => client.get(`/traces/${traceId}`).then((r) => r.data),
+    enabled: !!traceId,
+  });
+}
+
+export function useTraceStats() {
+  return useQuery<import("../types").TraceStats>({
+    queryKey: ["traces", "stats"],
+    queryFn: () => client.get("/traces/stats").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
 // --- Settings ---
 
 export function useSystemConfig() {

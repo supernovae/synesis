@@ -34,7 +34,8 @@ from .api_metrics import (
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
-from .graph import flush_opik_tracer, get_graph_config, graph
+from .graph import flush_tracer, get_graph_config, graph
+from .synesis_tracer import get_synesis_tracer
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -950,6 +951,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     run_id = str(uuid.uuid4())
     _set_telemetry_ctx(run_id=run_id, user_id=user_id)
+    _tracer = get_synesis_tracer()
+    if _tracer is not None:
+        _tracer.start_trace(trace_id=run_id, user_id=user_id, query=(last_user_content or "")[:500])
     coding_client = _is_coding_client(http_request)
     # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
     initial_state: dict[str, Any] = {
@@ -1062,7 +1066,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     return _emit_phase(desc, **kw)
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
-                stream_content = True
+                # When inline critic is active (critic_background=False), suppress
+                # writer/executor content streaming to prevent draft concatenation
+                # across critic rejection cycles.  Reasoning tokens still stream so
+                # the thinking UI stays responsive.  Final content is emitted from
+                # accumulated_state after the graph completes.
+                stream_content = settings.critic_background
                 content_streamed = False
                 _stream_closed = False
                 sent_role = False
@@ -1217,7 +1226,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     _stream_closed = True
 
                         # ── Token streaming from executor / writer LLM ──
-                        elif kind == "on_chat_model_stream" and lg_node in ("executor", "writer") and stream_content:
+                        elif kind == "on_chat_model_stream" and lg_node in ("executor", "writer"):
                             chunk_obj = event.get("data", {}).get("chunk")
                             if not chunk_obj:
                                 continue
@@ -1323,8 +1332,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         if short and len(short) > 3:
                                             thinking_phases.append(f"  → {short}")
 
-                            # ── Process content tokens (always raw markdown) ──
-                            if content_tok:
+                            # ── Process content tokens (gated on stream_content) ──
+                            # When inline critic is active, content tokens are
+                            # suppressed to prevent draft concatenation on revision
+                            # cycles.  Final content is emitted post-graph.
+                            if content_tok and stream_content:
                                 _diag_content_chunks += 1
                                 if _diag_first_content_ms is None:
                                     _diag_first_content_ms = elapsed_now
@@ -1361,7 +1373,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     yield "data: [DONE]\n\n"
                     return
                 finally:
-                    flush_opik_tracer()
+                    flush_tracer()
 
                 # Stream already closed (background critic mode) — skip all post-processing
                 if _stream_closed:
@@ -1631,7 +1643,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 finally:
                     if heartbeat_task:
                         heartbeat_task.cancel()
-                    flush_opik_tracer()
+                    flush_tracer()
 
                 if not result:
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
@@ -1683,7 +1695,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             detail="Graph execution failed. Check planner logs and admin status page for model health.",
         ) from None
     finally:
-        flush_opik_tracer()
+        flush_tracer()
 
     content, total_tokens = _extract_content_and_metrics(
         result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model

@@ -179,3 +179,60 @@ export interface BenchmarkResults {
   per_query: Array<Record<string, number>>;
   timestamp?: string;
 }
+
+// --- Traces ---
+
+export interface LLMCallRecord {
+  model: string;
+  node: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  latency_ms: number;
+  prompt_snippet: string;
+  completion_snippet: string;
+  timestamp: number;
+}
+
+export interface SpanRecord {
+  node_name: string;
+  start_time: number;
+  end_time: number;
+  latency_ms: number;
+  tokens_used: number;
+  confidence: number;
+  outcome: string;
+  reasoning: string;
+  llm_calls: LLMCallRecord[];
+}
+
+export interface TraceRecord {
+  trace_id: string;
+  user_id: string;
+  query_snippet: string;
+  timestamp: number;
+  total_duration_ms: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  difficulty: number;
+  task_type: string;
+  domain_tags: string[];
+  is_code_task: boolean;
+  has_error: boolean;
+  iteration_count: number;
+  spans: SpanRecord[];
+  critic_scores: Record<string, unknown>;
+  evidence_summary: Record<string, unknown>;
+  taxonomy: Record<string, unknown>;
+}
+
+export interface TraceStats {
+  total_traces_24h: number;
+  error_count_24h: number;
+  error_rate: number;
+  avg_duration_ms: number;
+  avg_tokens: number;
+  avg_cost_usd: number;
+  total_cost_usd: number;
+  traces_per_hour: number;
+}

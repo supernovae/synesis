@@ -40,6 +40,7 @@ from app.routers.pipeline import router as pipeline_router  # noqa: E402
 from app.routers.rag import router as rag_router  # noqa: E402
 from app.routers.settings import router as settings_router  # noqa: E402
 from app.routers.taxonomy import router as taxonomy_router  # noqa: E402
+from app.routers.traces import router as traces_router  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)
@@ -50,6 +51,7 @@ app.include_router(pipeline_router)
 app.include_router(integrations_router)
 app.include_router(feedback_router)
 app.include_router(observability_router)
+app.include_router(traces_router)
 app.include_router(settings_router)
 
 

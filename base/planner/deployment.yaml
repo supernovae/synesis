@@ -144,16 +144,6 @@ spec:
               value: "180"
             - name: SYNESIS_CRITIC_BACKGROUND
               value: "false"
-            - name: SYNESIS_OPIK_ENABLED
-              value: "false"
-            - name: SYNESIS_OPIK_URL
-              value: "http://opik-backend.synesis-opik.svc.cluster.local:8080"
-            - name: OPIK_URL_OVERRIDE
-              value: "http://opik-backend.synesis-opik.svc.cluster.local:8080"
-            - name: OPIK_WORKSPACE
-              value: "default"
-            - name: OPIK_PROJECT_NAME
-              value: "synesis"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
             # Semantic cache — shared Redis for cross-replica cache, sessions, and L2 archive

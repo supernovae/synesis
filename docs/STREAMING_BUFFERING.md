@@ -14,9 +14,23 @@ When Open WebUI or another client connects to the Planner via HAProxy/LiteLLM:
 
 ---
 
-## Background Critic Mode
+## Critic Modes and Streaming Behavior
 
-When `SYNESIS_CRITIC_BACKGROUND=true`, the SSE stream closes immediately after the writer/executor finishes streaming content. This shortens the SSE connection lifetime significantly (eliminates the ~23 second critic wait), which reduces buffering sensitivity and the risk of proxy timeouts.
+### Background Critic (`SYNESIS_CRITIC_BACKGROUND=true`)
+
+The SSE stream closes immediately after the writer/executor finishes streaming content. The critic runs asynchronously after the stream closes. This shortens the SSE connection lifetime significantly (eliminates the ~23 second critic wait), which reduces buffering sensitivity and the risk of proxy timeouts.
+
+Writer/executor tokens stream directly to the client in real-time.
+
+### Inline Critic (`SYNESIS_CRITIC_BACKGROUND=false`, the deployment default)
+
+When the inline critic rejects a draft and triggers a revision cycle, the writer generates a new draft. To prevent multiple drafts from being concatenated in the SSE stream (since SSE deltas cannot be retracted once sent), **writer/executor content tokens are not streamed directly** in this mode. Instead:
+
+1. Reasoning tokens (`reasoning_content`) still stream in real-time so the thinking UI stays responsive.
+2. Phase indicators (Searching, Planning, Writing, Reviewing, Revising) stream in real-time.
+3. After the graph completes, the final approved content is emitted progressively (paragraph-by-paragraph for large responses).
+
+This trades token-by-token streaming for **single-document coherence** — the user always sees exactly one approved response, not concatenated drafts from multiple revision cycles.
 
 ---
 

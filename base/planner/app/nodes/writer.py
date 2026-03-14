@@ -33,21 +33,29 @@ response from a plan outline and compiled evidence.
 CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
 2. Follow the plan outline — each step becomes a section.
-3. COMMIT to one recommended approach per decision point. Present the \
-   chosen approach with reasoning; mention rejected alternatives only \
-   to explain why the chosen path wins.
-4. Do NOT present a menu of options without a clear recommendation. \
-   If evidence is insufficient to choose, say so explicitly and state \
-   what information would resolve it.
-5. Prefer concrete tool/library/pattern names over abstract categories.
-6. Weave evidence naturally into prose. Cite sources inline when a \
+3. COMMIT to one recommended approach per decision point. Pick ONE \
+   tool, library, model, or pattern and name it. Present the chosen \
+   approach with reasoning; mention rejected alternatives only to \
+   explain why the chosen path wins. Never present "X or Y" without \
+   choosing.
+4. All decisions and quantitative claims MUST be internally consistent \
+   across all sections. If you choose FAISS in one section, do not use \
+   Pinecone in another. If you state "<500ms latency" early, do not \
+   state "<1s" later. One number, one technology, one architecture.
+5. If evidence is insufficient to choose, say so explicitly and state \
+   what information would resolve it — do NOT fill the gap with a menu.
+6. Prefer concrete tool/library/pattern names over abstract categories.
+7. Weave evidence naturally into prose. Cite sources inline when a \
    claim relies on evidence: [Source: doc_name — URL].
-7. Label assumptions inline with [Assumption] when materially relevant.
-8. Qualify unsupported claims with "roughly" / "approximately" or omit.
-9. Every paragraph must earn its space. Cut filler, generic scaffolding, \
-   and hedge phrases like "it depends on your use case".
-10. Do NOT invent information not present in the evidence or your \
+8. Label assumptions inline with [Assumption] when materially relevant.
+9. Qualify unsupported claims with "roughly" / "approximately" or omit.
+10. Every paragraph must earn its space. Cut filler, generic scaffolding, \
+    and hedge phrases like "it depends on your use case".
+11. Do NOT invent information not present in the evidence or your \
     training knowledge. When uncertain, say so.
+12. If a REVISION CONTEXT is provided below, PRESERVE all prior \
+    decisions that were not explicitly flagged by the reviewer. Only \
+    change what the reviewer asked you to change.
 
 FORMATTING — pick the right element for the content:
 - TABLE (pipe syntax with header row) when comparing options, models, \
@@ -178,16 +186,137 @@ def _long_context_reorder(items: list[str]) -> list[str]:
     return reordered
 
 
+def _build_revision_context(state: dict[str, Any]) -> str:
+    """Build revision instructions when the critic rejected a previous draft.
+
+    Injects the critic's feedback, prioritized repair instructions, and a
+    directive to preserve decisions that were NOT flagged, preventing
+    architectural oscillation across revision cycles.
+    """
+    iteration = state.get("iteration_count", 0)
+    if iteration < 1:
+        return ""
+
+    critic_feedback = (state.get("critic_feedback") or "").strip()
+    previous_draft = (state.get("generated_code") or "").strip()
+
+    if not critic_feedback and not previous_draft:
+        return ""
+
+    parts: list[str] = [
+        f"\n## REVISION CONTEXT (iteration {iteration})",
+        "A previous draft was reviewed and requires changes.",
+    ]
+
+    if critic_feedback:
+        parts.append(f"REVIEWER FEEDBACK:\n{critic_feedback[:2000]}")
+
+    # Prioritized repair instructions from the critic (concrete actions)
+    repair_instructions = state.get("repair_instructions") or []
+    if repair_instructions:
+        sorted_repairs = sorted(repair_instructions, key=lambda r: r.get("priority", 99))
+        repair_lines = []
+        for r in sorted_repairs[:8]:
+            target = r.get("target", "")
+            action = r.get("action", "")
+            reason = r.get("reason", "")
+            line = f"  {r.get('priority', '?')}. [{target}] {action}"
+            if reason:
+                line += f" — {reason[:150]}"
+            repair_lines.append(line)
+        parts.append("REPAIR ACTIONS (prioritized — address in this order):\n" + "\n".join(repair_lines))
+
+    # Requirement coverage gaps from the critic
+    requirement_coverage = state.get("requirement_coverage") or []
+    missed = [rc for rc in requirement_coverage if isinstance(rc, dict) and rc.get("status") in ("missed", "partial")]
+    if missed:
+        gap_lines = [f"  - [{rc.get('status', '?')}] {rc.get('requirement', '')}" for rc in missed[:6]]
+        parts.append("REQUIREMENT GAPS (these must be addressed):\n" + "\n".join(gap_lines))
+
+    parts.append(
+        "REVISION RULES:\n"
+        "1. Fix ONLY the issues the reviewer raised. Do not rewrite "
+        "sections the reviewer did not mention.\n"
+        "2. PRESERVE all technology choices, model names, cost/latency "
+        "numbers, and architectural decisions from the previous draft "
+        "unless the reviewer explicitly flagged them.\n"
+        "3. Do NOT switch libraries, databases, models, or frameworks "
+        "between revisions unless the reviewer requested it.\n"
+        "4. Produce a SINGLE complete document — not an addendum or "
+        "partial patch."
+    )
+
+    if previous_draft:
+        _extract_decisions(previous_draft, parts)
+
+    return "\n".join(parts) + "\n"
+
+
+_PROSE_DECISION_RE = re.compile(
+    r"(?:we (?:recommend|chose|use|selected|adopt)|"
+    r"the (?:best|recommended|chosen) (?:choice|option|approach) is|"
+    r"using \w+ (?:for|as|to)|"
+    r"(?:deploy|run|host) (?:on|with|via))\s+",
+    re.IGNORECASE,
+)
+_MERMAID_NODE_RE = re.compile(r'\w+\["([^"]+)"\]')
+
+
+def _extract_decisions(draft: str, parts: list[str]) -> None:
+    """Extract key decisions from previous draft for continuity.
+
+    Scans table rows, quantitative claims, prose-form technology choices,
+    and mermaid diagram node labels to build a settled-decisions summary
+    the writer must preserve.
+    """
+    decisions: list[str] = []
+    seen: set[str] = set()
+
+    def _add(text: str) -> None:
+        key = text.strip().lower()[:80]
+        if key not in seen:
+            seen.add(key)
+            decisions.append(text.strip()[:200])
+
+    for line in draft.split("\n"):
+        stripped = line.strip()
+
+        # Table rows (non-separator, non-header-divider)
+        if stripped.startswith("|") and not stripped.startswith("|--") and not stripped.startswith("| -"):
+            cells = [c.strip() for c in stripped.split("|") if c.strip()]
+            if len(cells) >= 2 and not all(c.startswith("-") for c in cells):
+                _add(" | ".join(cells[:3]))
+
+    # Quantitative claims (latency, cost, timelines, SLAs)
+    quant_pattern = re.compile(
+        r"(?:latency|cost|budget|timeline|P\d{2}|SL[AIO]|token|"
+        r"\$[\d.]+|<\s*\d+\s*(?:ms|s\b)|>\s*\d+)"
+    )
+    for line in draft.split("\n"):
+        if quant_pattern.search(line) and line.strip() and not line.strip().startswith("|"):
+            _add(line)
+
+    # Prose-form technology choices ("We recommend X", "Using Y for...")
+    for line in draft.split("\n"):
+        if _PROSE_DECISION_RE.search(line) and line.strip():
+            _add(line)
+
+    # Mermaid diagram node labels (A["FAISS"], B["Kubernetes"])
+    for m in _MERMAID_NODE_RE.finditer(draft):
+        label = m.group(1).strip()
+        if len(label) > 3:
+            _add(f"[diagram] {label}")
+
+    if decisions:
+        settled = "\n".join(f"- {d}" for d in decisions[:25])
+        parts.append(
+            f"SETTLED DECISIONS (preserve unless reviewer flagged):\n{settled}"
+        )
+
+
 _DECISIVE_BLOCK = """\
 
 DECISIVENESS (user explicitly requested committed recommendations):
-- Pick ONE tool, library, or approach per decision point. Name it.
-- Mention rejected alternatives only briefly to explain why the chosen \
-  option wins.
-- Do NOT present a menu of options without a clear recommendation. \
-  Saying "X or Y" without picking one is not acceptable.
-- If the evidence is insufficient to choose, say what information \
-  would resolve it rather than listing options.
 - Match architectural complexity to the stated timeline — fewer moving \
   parts that ship on time beats a perfect design that takes 2x longer.
 """
@@ -407,6 +536,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         section_groups.setdefault(sid, []).append(part)
 
     evidence_budget = settings.scaled_evidence_budget(difficulty)
+    # Safety guard: evidence must not starve the output budget
+    max_evidence_chars = (settings.compiler_model_context * 4) - (settings.writer_budget_max * 4) - 8000
+    if evidence_budget > max_evidence_chars > 0:
+        evidence_budget = max_evidence_chars
     num_groups = max(len(section_groups), 1)
     per_section_budget = evidence_budget // num_groups
 
@@ -431,7 +564,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     verbosity = style_contract.get("verbosity_target", "moderate")
 
     writer_budget = settings.scaled_writer_budget(difficulty)
-    writer_budget = max(2048, min(writer_budget, 12288))
+    writer_budget = max(2048, min(writer_budget, settings.writer_budget_max))
 
     writer_url = settings.writer_model_url or settings.general_model_url
     writer_name = settings.writer_model_name or settings.general_model_name
@@ -466,25 +599,52 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if difficulty >= 0.4:
             discovery = (taxonomy_meta.get("discovery_prompt") or "").strip()
             if discovery:
-                system_prompt += f"\n\nDISCOVERY:\n{discovery}"
+                lock = state.get("cohesion_lock") or {}
+                entity = lock.get("entity", "")
+                if entity:
+                    system_prompt += (
+                        f"\n\nDISCOVERY (stay within the frame of {entity}):\n{discovery}"
+                    )
+                else:
+                    system_prompt += f"\n\nDISCOVERY:\n{discovery}"
 
         if difficulty >= 0.5:
             required_elements = taxonomy_meta.get("required_elements") or []
             if required_elements:
                 elems = "\n".join(f"- {e}" for e in required_elements)
-                system_prompt += f"\n\nREQUIRED SECTIONS (domain mandate — include all):\n{elems}"
+                system_prompt += (
+                    "\n\nDOMAIN COVERAGE CHECKLIST (secondary to the Document Outline above):\n"
+                    "The Document Outline is your primary structure. Additionally, ensure "
+                    "these domain-mandated topics are covered somewhere in the response "
+                    "(they may already appear in the outline):\n" + elems
+                )
 
     if difficulty >= 0.7:
-        system_prompt += (
-            "\n\nSECTION DEPTH (high-complexity task):\n"
-            "- Each section must contain 2-4 substantive paragraphs with concrete details.\n"
-            "- Name specific tools, services, and versions — not abstract categories.\n"
-            "- If evidence for a section is thin, explicitly state what is missing "
-            "rather than padding with generic advice.\n"
-            "- A section that could apply to any project without modification is a failure."
-        )
+        style_contract = state.get("style_contract_locked") or {}
+        verbosity = style_contract.get("verbosity_target", "moderate")
+        if verbosity == "concise":
+            system_prompt += (
+                "\n\nSECTION DEPTH (high-complexity, concise):\n"
+                "- Each section must contain concrete specifics — but keep it tight.\n"
+                "- Name specific tools, services, and versions — not abstract categories.\n"
+                "- A section that could apply to any project without modification is a failure."
+            )
+        else:
+            system_prompt += (
+                "\n\nSECTION DEPTH (high-complexity task):\n"
+                "- Each section must contain 2-4 substantive paragraphs with concrete details.\n"
+                "- Name specific tools, services, and versions — not abstract categories.\n"
+                "- If evidence for a section is thin, explicitly state what is missing "
+                "rather than padding with generic advice.\n"
+                "- A section that could apply to any project without modification is a failure."
+            )
+
+    revision_context = _build_revision_context(state)
 
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"
+
+    if revision_context:
+        user_msg += revision_context + "\n"
 
     if decisive:
         user_msg += _DECISIVE_BLOCK + "\n"
@@ -514,12 +674,15 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         )
         writer_budget = max(2048, available_output)
 
+    iteration = state.get("iteration_count", 0)
     logger.info(
         "writer_start",
         extra={
             "evidence_len": len(compiled_evidence),
             "task_block_len": len(task_block),
             "outline_len": len(outline_block),
+            "revision_context_len": len(revision_context),
+            "iteration": iteration,
             "writer_budget": writer_budget,
             "input_estimate": estimated_input_tokens,
             "difficulty": round(difficulty, 2),

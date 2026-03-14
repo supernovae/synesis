@@ -22,6 +22,9 @@ const GraphVisualization = lazy(() => import("./pages/pipeline/GraphVisualizatio
 const NodePerformance = lazy(() => import("./pages/pipeline/NodePerformance"));
 const CriticAnalytics = lazy(() => import("./pages/pipeline/CriticAnalytics"));
 
+const TraceList = lazy(() => import("./pages/traces/TraceList"));
+const TraceDetail = lazy(() => import("./pages/traces/TraceDetail"));
+
 const McpTools = lazy(() => import("./pages/integrations/McpTools"));
 const WebSearch = lazy(() => import("./pages/integrations/WebSearch"));
 
@@ -65,6 +68,9 @@ export const router = createBrowserRouter([
       { path: "pipeline/graph", element: <GraphVisualization /> },
       { path: "pipeline/nodes", element: <NodePerformance /> },
       { path: "pipeline/critic", element: <CriticAnalytics /> },
+
+      { path: "traces", element: <TraceList /> },
+      { path: "traces/:traceId", element: <TraceDetail /> },
 
       { path: "integrations/mcp", element: <McpTools /> },
       { path: "integrations/search", element: <WebSearch /> },

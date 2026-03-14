@@ -871,19 +871,21 @@ Reply with JSON:
                             "rubric_items_checked": len(doc_parsed.requirement_coverage or []),
                         },
                     )
-                    from ..opik_utils import log_critic_scores
+                    from ..synesis_tracer import get_synesis_tracer
 
-                    log_critic_scores(
-                        weighted_overall=round(scores.weighted_overall, 1),
-                        task_faithfulness=round(scores.task_faithfulness, 1),
-                        constraint_compliance=round(scores.constraint_compliance, 1),
-                        coverage=round(scores.coverage, 1),
-                        judgment_quality=round(scores.judgment_quality, 1),
-                        failure_modes=failure_modes,
-                        approved=doc_approved,
-                        difficulty=round(difficulty, 2),
-                        hallucinated_urls_count=len(hallucinated_urls),
-                    )
+                    _tracer = get_synesis_tracer()
+                    if _tracer is not None:
+                        _tracer.set_critic_scores(
+                            weighted_overall=round(scores.weighted_overall, 1),
+                            task_faithfulness=round(scores.task_faithfulness, 1),
+                            constraint_compliance=round(scores.constraint_compliance, 1),
+                            coverage=round(scores.coverage, 1),
+                            judgment_quality=round(scores.judgment_quality, 1),
+                            failure_modes=failure_modes,
+                            approved=doc_approved,
+                            difficulty=round(difficulty, 2),
+                            hallucinated_urls_count=len(hallucinated_urls),
+                        )
 
                 # Deterministic override: reject if hallucinated URLs found
                 if hallucinated_urls:
@@ -933,12 +935,33 @@ Reply with JSON:
                         }
                     )
 
+                # Classify repair instructions: evidence gaps route to
+                # router, writing quality issues route directly to writer.
+                evidence_gap_repairs = [
+                    r for r in repair_list
+                    if any(kw in (r.get("reason", "") + r.get("action", "")).lower()
+                           for kw in ("evidence", "insufficient", "thin", "missing source", "ungrounded"))
+                ]
+                has_evidence_gap = bool(evidence_gap_repairs) and not doc_approved
+                doc_evidence_requests: list[dict[str, Any]] = []
+                if has_evidence_gap:
+                    for r in evidence_gap_repairs[:3]:
+                        doc_evidence_requests.append({
+                            "description": r.get("action", r.get("reason", "")),
+                            "domain_hints": (state.get("user_task") or {}).get("domain_tags", []),
+                            "section_id": None,
+                        })
+
+                doc_iteration = state.get("iteration_count", 0)
                 result = {
                     "what_if_analyses": [],
                     "critic_feedback": doc_parsed.revision_feedback or doc_parsed.overall_assessment or "",
                     "critic_approved": doc_approved,
                     "critic_should_continue": not doc_approved,
                     "critic_continue_reason": "needs_depth_revision" if not doc_approved else None,
+                    "need_more_evidence": has_evidence_gap,
+                    "evidence_requests": doc_evidence_requests,
+                    "iteration_count": doc_iteration + 1 if not doc_approved else doc_iteration,
                     "residual_risks": residual,
                     "crag_triggers": crag_triggers,
                     "repair_instructions": repair_list,

@@ -224,8 +224,8 @@ class Settings(BaseSettings):
     multi_query_min_difficulty: float = 0.6
     multi_query_max_queries: int = 3
     writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0
-    writer_budget_max: int = 12288  # writer synthesis budget at difficulty=1
-    compiler_model_context: int = 16384  # max context length of the compiler/writer model
+    writer_budget_max: int = 16384  # writer synthesis budget at difficulty=1
+    compiler_model_context: int = 65536  # max context length — safe for Qwen3-32B (128K) and DeepSeek-R1 (64K)
     evidence_budget_chars: int = 24000  # evidence budget at difficulty=0
     evidence_budget_chars_max: int = 40000  # evidence budget at difficulty=1
 
@@ -291,9 +291,9 @@ class Settings(BaseSettings):
     router_hyde_enabled: bool = True  # HyDE variant (hypothetical document embedding)
     taxonomy_query_expansion_enabled: bool = True  # expand queries with taxonomy hints
 
-    # Opik LLM observability (tracing, evaluation, annotation queues)
-    opik_enabled: bool = False
-    opik_url: str = "http://opik-backend.synesis-opik.svc.cluster.local:8080"
+    # SynesisTracer — lightweight built-in LLM tracing (Redis-backed)
+    trace_store_ttl_hours: int = 168  # 7 days
+    trace_snippet_max_chars: int = 500
 
     # Query normalizer — deterministic typo correction before classification
     query_normalizer_enabled: bool = True
@@ -313,7 +313,7 @@ class Settings(BaseSettings):
     stream_debug_chatter: bool = False  # Emit plan/router/critic/executor outputs as labeled SSE events (dev mode)
     node_timeout_seconds: float = 180.0  # Supervisor/critic/planner LLM calls; complex tasks need >90s
     critic_max_tokens: int = 4096  # CriticOut can exceed 2048 with what_if_analyses + assessment
-    critic_stop_sequence: str = '],"nonblocking":'  # stop after blocking_issues array (saves 30-40% tokens)
+    critic_stop_sequence: str = ""  # disabled — repair_instructions + requirement_coverage must not be truncated
 
     # HTTP timeout policy (seconds) — connect, read by service type
     http_connect_timeout: float = 5.0

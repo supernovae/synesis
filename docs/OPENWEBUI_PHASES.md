@@ -67,18 +67,29 @@ data: {"event": {"type": "status", "data": {"description": "› Gathering eviden
 
 ---
 
-## Background Critic Mode
+## Critic Modes
 
 **Config:** `SYNESIS_CRITIC_BACKGROUND` (default: `false`)
 
-When enabled, the SSE stream closes immediately after the writer/executor finishes streaming content. The graph continues running (critic, scrubber, respond) silently:
+### Background mode (`true`)
+
+The SSE stream closes immediately after the writer/executor finishes streaming content. The graph continues running (critic, scrubber, respond) silently:
 
 - Client receives `finish_reason: stop` and `[DONE]` as soon as content generation ends
 - No ~23 second dead air while the critic runs
 - Critic results are still logged and stored for analytics/feedback
-- When disabled (default), the critic runs inline and the user waits
+- Writer/executor content tokens stream in real-time
 
-This is useful when critic latency is high and you want instant UX. Toggle it on/off to decide what works best for your deployment.
+This is useful when critic latency is high and you want instant UX.
+
+### Inline mode (`false`, the deployment default)
+
+The critic runs inline after the writer. If it rejects, the writer revises. To prevent multiple draft concatenation in the SSE stream:
+
+- **Content tokens are not streamed directly** — they are emitted post-graph after the critic approves
+- Reasoning tokens still stream so the thinking UI stays responsive
+- Phase indicators stream in real-time (Writing, Reviewing, Revising)
+- The writer receives REVISION CONTEXT with settled decisions from the previous draft, preventing architectural oscillation across revision cycles
 
 ---
 

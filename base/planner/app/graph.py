@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from functools import wraps
 from typing import Any
@@ -272,7 +271,9 @@ def route_after_critic(state: dict[str, Any]) -> str:
     if need_evidence:
         return "router"
     if not approved and should_continue:
-        return "router"
+        # Writing-quality rejections go directly to writer (bypass router).
+        # Evidence gaps are handled above via need_evidence → router.
+        return "writer"
     if state.get("critic_continue_reason") in ("blocked_external", "needs_input"):
         return "respond"
 
@@ -729,22 +730,21 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "has_error": _fb_has_error,
         },
     )
-    from .opik_utils import log_request_feedback
-
-    log_request_feedback(
-        run_id=_fb_run_id,
-        difficulty=_fb_difficulty,
-        task_type=_fb_task_type,
-        domain_tags=_fb_domain_tags,
-        evidence_packet_count=_fb_evidence_count,
-        avg_evidence_confidence=_fb_avg_confidence,
-        critic_weighted_score=_fb_critic_score,
-        critic_blocking_issues=_fb_blocking,
-        iteration_count=_fb_iterations,
-        is_code_task=_fb_is_code,
-        response_length=_fb_resp_len,
-        has_error=_fb_has_error,
-    )
+    if _synesis_tracer is not None:
+        _synesis_tracer.set_request_metadata(
+            run_id=_fb_run_id,
+            difficulty=_fb_difficulty,
+            task_type=_fb_task_type,
+            domain_tags=_fb_domain_tags,
+            evidence_packet_count=_fb_evidence_count,
+            avg_evidence_confidence=_fb_avg_confidence,
+            critic_weighted_score=_fb_critic_score,
+            critic_blocking_issues=_fb_blocking,
+            iteration_count=_fb_iterations,
+            is_code_task=_fb_is_code,
+            response_length=_fb_resp_len,
+            has_error=_fb_has_error,
+        )
 
     # Fire background critic when graph skipped it (critic_background=True).
     # Runs asynchronously; results are logged but do not block the response.
@@ -840,11 +840,9 @@ timeout = settings.node_timeout_seconds
 
 graph_builder = StateGraph(GraphState)
 
-# OpikTracer (attached via get_graph_config callbacks) already creates per-node
-# spans from LangChain callback events.  Wrapping nodes with opik.track() via
-# track_node creates duplicate root traces because the two context mechanisms
-# (LangChain RunTree vs opik contextvars) are independent.  Rely solely on
-# OpikTracer for a single clean trace per request.
+# SynesisTracer (attached via get_graph_config callbacks) creates per-node
+# spans from LangChain callback events.  with_telemetry_node provides
+# structured logging + optional OTel spans independently.
 graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeout)(entry_pipeline_node)))
 graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
 graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
@@ -919,11 +917,11 @@ graph_builder.add_conditional_edges(
     {"router": "router", "critic": "critic"},
 )
 
-# Critic -> router (refinement) | final_scrubber (approved) | respond
+# Critic -> writer (quality revision) | router (evidence gap) | final_scrubber (approved) | respond
 graph_builder.add_conditional_edges(
     "critic",
     route_after_critic,
-    {"router": "router", "final_scrubber": "final_scrubber", "respond": "respond"},
+    {"writer": "writer", "router": "router", "final_scrubber": "final_scrubber", "respond": "respond"},
 )
 
 # Terminal edges
@@ -956,46 +954,23 @@ def _build_checkpointer():
 _checkpointer = _build_checkpointer()
 graph = graph_builder.compile(checkpointer=_checkpointer)
 
-_opik_tracer = None
-if settings.opik_enabled:
-    try:
-        os.environ.setdefault("OPIK_URL_OVERRIDE", settings.opik_url)
-        os.environ.setdefault("OPIK_WORKSPACE", "default")
-        os.environ.setdefault("OPIK_PROJECT_NAME", "synesis")
+from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer
 
-        from opik.integrations.langchain import OpikTracer
-
-        _opik_tracer = OpikTracer(
-            project_name="synesis",
-            tags=["synesis"],
-            metadata={"build": settings.build_version},
-        )
-        logger.info("opik_tracer_ready", extra={"url": settings.opik_url})
-    except Exception:
-        logger.warning("opik_init_failed", exc_info=True)
+_synesis_tracer = get_synesis_tracer()
 
 
-def flush_opik_tracer() -> None:
-    """Flush buffered Opik traces to the backend.
-
-    Must be called after each graph execution because the OpikTracer's
-    internal client uses batching and only auto-flushes on process exit
-    (via atexit), which never fires for a long-running server.
-    """
-    if _opik_tracer is not None:
-        try:
-            _opik_tracer.flush()
-        except Exception:
-            logger.debug("opik_flush_failed", exc_info=True)
+def flush_tracer() -> None:
+    """Flush the SynesisTracer after each graph execution."""
+    flush_synesis_tracer()
 
 
 def get_graph_config(extra: dict[str, Any] | None = None, thread_id: str = "") -> dict[str, Any]:
-    """Build graph invocation config with Opik callback and session thread_id."""
+    """Build graph invocation config with SynesisTracer callback and session thread_id."""
     cfg: dict[str, Any] = {"recursion_limit": 50}
     if extra:
         cfg.update(extra)
     if thread_id:
         cfg.setdefault("configurable", {})["thread_id"] = thread_id
-    if _opik_tracer is not None:
-        cfg.setdefault("callbacks", []).append(_opik_tracer)
+    if _synesis_tracer is not None:
+        cfg.setdefault("callbacks", []).append(_synesis_tracer)
     return cfg

@@ -16,6 +16,7 @@ import {
   Hexagon,
   PanelLeftClose,
   PanelLeft,
+  ScanSearch,
   type LucideIcon,
 } from "lucide-react";
 
@@ -66,6 +67,13 @@ const navigation: NavItem[] = [
       { label: "Graph", path: "/pipeline/graph" },
       { label: "Nodes", path: "/pipeline/nodes" },
       { label: "Critic", path: "/pipeline/critic" },
+    ],
+  },
+  {
+    label: "Tracing",
+    icon: ScanSearch,
+    children: [
+      { label: "Activity Log", path: "/traces" },
     ],
   },
   {

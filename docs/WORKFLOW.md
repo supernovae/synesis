@@ -78,7 +78,8 @@ flowchart TD
     PIG -->|"fail"| RT
 
     CR -->|"approved"| FS
-    CR -->|"need_more_evidence\nor revision"| RT
+    CR -->|"need_more_evidence"| RT
+    CR -->|"writing quality\nrevision"| WR
     CR -->|"oscillation or\nmax_iterations"| FS
 
     FS --> RS
@@ -162,13 +163,14 @@ The Router respects the `rag_mode` state signal set by the Entry Classifier:
 ```
 Router Node
 ├── [rag_mode check]           → short-circuit if disabled; light-mode constraints if light
-├── generate_query_variants()  → LLM calls (3 variants: direct, HyDE, conceptual expansion) [normal only]
+├── batch_generate_queries()   → single LLM call generates queries for ALL evidence requests
+├── generate_query_variants()  → HyDE + conceptual expansion on top of batch base query [normal only]
 ├── _multi_query_retrieve()    → parallel retrieval for all variants, RRF merge
 ├── retrieve()                 → RAG / web search backends (with preferred_web_scopes)
 ├── summarize()                → LLM call (summarization prompt, guided JSON)
 ├── refine_query()             → LLM call (refinement prompt) [normal only]
 ├── dedupe()                   → deterministic deduplication
-├── parallel_dispatch()        → asyncio.gather for independent requests
+├── parallel_dispatch()        → asyncio.gather for independent requests (uses batch base queries)
 └── produce evidence packet    → deterministic assembly
 ```
 
@@ -383,9 +385,11 @@ through the Router, which respects `rag_mode` to control retrieval depth.
 | oscillation score > threshold | `final_scrubber` (force-terminate with best draft) |
 | `critic_approved` and `!need_more_evidence` | `final_scrubber` |
 | `iteration >= max_iterations` | `final_scrubber` |
-| `need_more_evidence` | `router` |
-| `!approved` and `should_continue` | `router` |
+| `need_more_evidence` | `router` (targeted re-retrieval for evidence gaps) |
+| `!approved` and `should_continue` | `writer` (direct revision for writing-quality issues) |
 | else | `respond` |
+
+**Critic routing split**: Writing-quality rejections (style, depth, consistency) go directly to the writer — bypassing the router avoids redundant re-retrieval when the evidence is already sufficient. Evidence-gap rejections (missing sources, thin coverage) go to the router for targeted re-retrieval via `evidence_requests`.
 
 ## Key Invariants
 
@@ -496,15 +500,16 @@ Changing a frozen decision requires an explicit `OverrideRequest`:
 ### Oscillation Detection
 
 A deterministic scorer (no LLM calls) runs after the critic in `route_after_critic`.
-Scores five dimensions:
+Scores six dimensions:
 
-| Dimension | What it detects |
-|-----------|-----------------|
-| Style | Draft verbosity contradicts `style_contract_locked` |
-| Decision | Same `decision_id` overridden 2+ times in `override_log` |
-| Retrieval | Repeated critic complaints for same section triggering cache invalidation |
-| Section churn | Many fingerprint changes without corresponding critique items |
-| Unsupported overrides | `override_log` entries without approval or reason |
+| Dimension | Weight | What it detects |
+|-----------|--------|-----------------|
+| Style | 0.20 | Draft verbosity contradicts `style_contract_locked` |
+| Decision | 0.25 | Same `decision_id` overridden 2+ times in `override_log` |
+| Retrieval | 0.10 | Repeated critic complaints for same section triggering cache invalidation |
+| Section churn | 0.20 | Many fingerprint changes without corresponding critique items |
+| Unsupported overrides | 0.05 | `override_log` entries without approval or reason |
+| Content drift | 0.20 | Duplicate H1 headings (concatenation symptom), unguided rewrites, and repair instruction oscillation (same section targeted with different fixes across iterations) |
 
 When `total_score > oscillation_threshold` (default 0.7), the retry loop
 force-terminates with the best available draft.
@@ -731,9 +736,21 @@ Config: `critic_approval_threshold` (default 7.0), `critic_retry_threshold` (def
 
 ### Evidence-Aware Feedback
 
-When the critic rejects, it can set `need_more_evidence=true` and populate
-`evidence_requests` in state with descriptions of what evidence is missing.
-The Router picks these up and performs targeted retrieval.
+When the critic rejects, it classifies repairs into two categories:
+
+1. **Evidence gaps** (keywords: "evidence", "insufficient", "thin", "ungrounded"):
+   Sets `need_more_evidence=true` and populates `evidence_requests` with
+   descriptions of missing evidence. The Router picks these up for targeted
+   re-retrieval.
+
+2. **Writing quality** (depth, consistency, structure): Routes directly
+   to the Writer with `repair_instructions` (prioritized action list) and
+   `requirement_coverage` (gap analysis). The Writer consumes these in
+   `_build_revision_context()` to produce targeted fixes without redundant
+   re-retrieval.
+
+Both paths increment `iteration_count` so the Writer always receives
+revision context on subsequent passes.
 
 ## Streaming Architecture
 
@@ -811,19 +828,23 @@ overload on easy tasks:
 |---|---|---|---|
 | `DOMAIN DEPTH` | `depth_instructions` | complexity > 0.55 | Concrete depth guidance |
 | `OUTPUT STYLE` | `output_style_guidance` | always | Format/structure hints |
-| `DISCOVERY` | `discovery_prompt` | difficulty >= 0.4 | "Gotchas", "Challenge Yourself", etc. |
+| `DISCOVERY` | `discovery_prompt` | difficulty >= 0.4 | "Gotchas", "Challenge Yourself", etc. Scoped to the cohesion entity when a cohesion lock is active to prevent frame violations. |
 | `EPISTEMIC DISCIPLINE` | `epistemic_guidance` | difficulty >= 0.5 | Facts/assumptions/recommendations |
-| `REQUIRED SECTIONS` | `required_elements` | difficulty >= 0.5 | Mandatory section checklist |
-| `SECTION DEPTH` | (hardcoded) | difficulty >= 0.7 | Paragraph depth enforcement |
+| `DOMAIN COVERAGE CHECKLIST` | `required_elements` | difficulty >= 0.5 | Domain-mandated topics (secondary to the Document Outline). Ensures coverage without overriding the plan structure. |
+| `SECTION DEPTH` | (hardcoded) | difficulty >= 0.7 | Paragraph depth enforcement. Adjusts to concise variant when `verbosity_target == "concise"` to avoid conflicting length signals. |
+| `REVISION CONTEXT` | (built from state) | `iteration_count >= 1` | Injects reviewer feedback, prioritized repair actions, requirement gaps, settled decisions, and revision rules. Prevents stateless rewrites. |
 
 Trivial/easy tasks (difficulty < 0.4) receive only the persona tone and
 output style — no discovery prompts, no required section mandates, no
 epistemic scaffolding. This keeps simple answers direct and concise.
 
 **Evidence budget:** Compiled evidence is trimmed to `evidence_budget_chars`
-(default 24,000) before injection into the Writer prompt. This prevents
-token-budget fading where response quality degrades toward the end of long
-context windows.
+(default 24,000) before injection into the Writer prompt. A safety guard
+caps evidence at `(compiler_model_context * 4) - (writer_budget_max * 4) - 8000`
+characters to ensure evidence never starves the output budget. With
+`compiler_model_context=65536` (tuned for OpenRouter models like Qwen3-32B
+at 128K and DeepSeek-R1 at 64K), this prevents token-budget fading while
+making full use of available context.
 
 **Performance levers:**
 1. **Difficulty-based routing:** Trivial tasks skip the Router entirely
@@ -933,42 +954,37 @@ Web search is abstracted behind a `SearchProvider` protocol
 SearXNG. The `engine_authority_map` in `config.py` lets SearXNG engines
 be tagged with trust tiers.
 
-## Observability: Opik Integration
+## Observability: SynesisTracer
 
-Synesis supports [Opik](https://github.com/comet-ml/opik) for LLM trace observability, evaluation annotation, and failure mode aggregation.
+Synesis includes a built-in LLM tracing system (`SynesisTracer`) that persists per-request pipeline traces to Redis. It replaces the previous Opik integration, eliminating 6 infrastructure pods while providing equivalent tracing capability through the admin UI.
 
-### What Opik Provides
+### What SynesisTracer Captures
 
-- **Per-node tracing**: Every LangGraph node invocation (entry_pipeline, router, planner, executor, writer, critic) is auto-traced with inputs, outputs, and latency via the `OpikTracer` LangChain callback.
-- **Critic score correlation**: Critic scores (`weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality`) are logged as span-level feedback on the critic node.
-- **Request-level metadata**: Each completed request logs `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, and `response_length` as trace metadata and feedback scores.
-- **Annotation queues**: Opik's built-in annotation UI enables human rating of (prompt, response) pairs for critic calibration data collection.
-- **Failure mode aggregation**: Filter traces by `failure_modes_detected`, `evidence_underuse` rates, and critic blocking issues.
+- **Per-node span tracing**: entry_pipeline, router, planner, executor, writer, critic — auto-traced via a LangChain `BaseCallbackHandler` attached to every graph invocation.
+- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, and truncated prompt/completion snippets for each LLM call within a node.
+- **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record.
+- **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`, `is_code_task`, `has_error`.
+- **Admin UI integration**: Searchable trace list, waterfall timeline, expandable span tree with LLM call drill-down, and critic scores panel.
 
 ### Configuration
 
 | Setting | Env Var | Default | Purpose |
 |---------|---------|---------|---------|
-| `opik_enabled` | `SYNESIS_OPIK_ENABLED` | `false` | Master toggle; zero overhead when disabled |
-| `opik_url` | `SYNESIS_OPIK_URL` | `http://opik-backend.synesis-opik.svc.cluster.local:8080` | Opik backend API URL |
+| `trace_store_ttl_hours` | `SYNESIS_TRACE_TTL_HOURS` | `168` (7 days) | Trace retention period |
+| `trace_snippet_max_chars` | `SYNESIS_TRACE_SNIPPET_MAX_CHARS` | `500` | Max chars for prompt/completion snippets |
 
-The SDK also reads `OPIK_URL_OVERRIDE`, `OPIK_WORKSPACE`, and `OPIK_PROJECT_NAME` directly from the environment (set in planner deployment).
+The tracer activates automatically when `SYNESIS_REDIS_URL` is set. No additional infrastructure or toggle required.
 
-When disabled: no Opik imports, no network calls, no overhead. When enabled: traces flow to the Opik server; node behavior is unchanged.
+### Storage
 
-### Deployment
-
-Opik infrastructure lives in `base/opik/` (Kustomize): single-node ClickHouse, MySQL, Redis, Opik backend + frontend. Deployed to the `synesis-opik` namespace. The dev overlay includes Opik by default with `SYNESIS_OPIK_ENABLED=true`.
-
-```bash
-oc apply -k base/opik/
-```
-
-Or deploy via `deploy.sh dev` which includes Opik in the dev profile.
+Traces are stored in the existing Redis instance:
+- `synesis:traces:{trace_id}` — JSON blob (5–20KB per trace)
+- `synesis:traces:index` — sorted set for time-range queries
+- Auto-pruned based on TTL
 
 ### Future: Prompt Optimization
 
-Opik's MIPRO/MetaPrompt optimizers can tune the critic prompt, query generation prompt, and summarizer prompt offline using collected traces as evaluation data. This requires calibration data (annotation queue) to be populated first.
+Collected trace data can be used for offline prompt tuning (critic, query generation, summarizer) using evaluation frameworks.
 
 ## Research References
 

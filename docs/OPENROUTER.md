@@ -159,8 +159,7 @@ The `overlays/openrouter` Kustomize overlay includes everything **except** `base
 | SearXNG (web search) | `synesis-search` | Yes |
 | Sandbox (code execution) | `synesis-sandbox` | Yes |
 | LSP gateway | `synesis-lsp` | Yes |
-| Admin dashboard | `synesis-planner` | Yes |
-| Opik (observability) | `synesis-opik` | Yes |
+| Admin dashboard | `synesis-admin` | Yes |
 | vLLM model serving | `synesis-models` | **No** |
 
 ## What Changes vs. Self-Hosted
