@@ -379,15 +379,15 @@ jobs:
           SELF_CHANGED='${{ toJSON(needs.detect-changes.outputs) }}'
           BASE_CHANGED=$(echo "$SELF_CHANGED" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$BASE_KEY','false'))")
           BASE_REBUILDING="false"
-          if [[ "$BASE_CHANGED" == "true" ]]; then
-            BASE_REBUILDING="true"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             INPUT_FILTER="${{ inputs.images }}"
             if [[ -z "$INPUT_FILTER" ]]; then
               BASE_REBUILDING="true"
             elif echo ",$INPUT_FILTER," | grep -qi ",${{ matrix.base_arg }},"; then
               BASE_REBUILDING="true"
             fi
+          elif [[ "$BASE_CHANGED" == "true" ]]; then
+            BASE_REBUILDING="true"
           fi
           if [[ "$BASE_REBUILDING" == "true" ]]; then
             echo "arg=BASE_IMAGE=${{ env.REGISTRY }}/${{ matrix.base_arg }}:${{ needs.determine-tag.outputs.tag }}" >> "$GITHUB_OUTPUT"
