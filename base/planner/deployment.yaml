@@ -40,33 +40,30 @@ spec:
               containerPort: 8000
               protocol: TCP
           env:
-            # V3 Model Endpoints — see models.yaml for profile assignments
-            # Router (synesis-router) → router node, planner, advisor
+            # Model Endpoints — all route through LiteLLM proxy → OpenRouter
+            # See base/gateway/litellm-config.yaml for model mappings
             - name: SYNESIS_ROUTER_MODEL_URL
-              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_ROUTER_MODEL_NAME
               value: "synesis-router"
             - name: SYNESIS_PLANNER_MODEL_URL
-              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_PLANNER_MODEL_NAME
               value: "synesis-router"
             - name: SYNESIS_ADVISOR_MODEL_URL
-              value: "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_ADVISOR_MODEL_NAME
               value: "synesis-router"
-            # General (synesis-general) → executor and writer nodes
             - name: SYNESIS_GENERAL_MODEL_URL
-              value: "http://synesis-general.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_GENERAL_MODEL_NAME
               value: "synesis-general"
-            # Critic (synesis-critic) — Service selector is profile-aware
             - name: SYNESIS_CRITIC_MODEL_URL
-              value: "http://synesis-critic.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_CRITIC_MODEL_NAME
               value: "synesis-critic"
-            # Summarizer
             - name: SYNESIS_SUMMARIZER_MODEL_URL
-              value: "http://synesis-summarizer.synesis-models.svc.cluster.local:8080/v1"
+              value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
             - name: SYNESIS_SUMMARIZER_MODEL_NAME
               value: "synesis-summarizer"
             - name: SYNESIS_MILVUS_HOST
