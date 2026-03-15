@@ -34,6 +34,7 @@ export interface DashboardSummary {
 }
 
 export interface ModelEntry {
+  [key: string]: unknown;
   role: string;
   model_name: string;
   served_name: string;
@@ -43,6 +44,7 @@ export interface ModelEntry {
 }
 
 export interface ModelCost {
+  [key: string]: unknown;
   role: string;
   model: string;
   input_per_million: number;
@@ -91,6 +93,7 @@ export interface TaxonomyDomain {
 }
 
 export interface PipelineMetrics {
+  [key: string]: unknown;
   node: string;
   avg_confidence: number;
   avg_duration_ms: number;
@@ -106,6 +109,7 @@ export interface CriticStats {
 }
 
 export interface McpTool {
+  [key: string]: unknown;
   name: string;
   description: string;
   parameters: Record<string, unknown>;
@@ -114,6 +118,7 @@ export interface McpTool {
 }
 
 export interface FeedbackEntry {
+  [key: string]: unknown;
   message_id: string;
   run_id: string;
   vote: "up" | "down";
@@ -125,6 +130,7 @@ export interface FeedbackEntry {
 }
 
 export interface KnowledgeGap {
+  [key: string]: unknown;
   chunk_id: string;
   query: string;
   task_description: string;
@@ -147,6 +153,7 @@ export interface CuratorProposal {
 }
 
 export interface FailureRecord {
+  [key: string]: unknown;
   failure_id: string;
   code: string;
   error_output: string;

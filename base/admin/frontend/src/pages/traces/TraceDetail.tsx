@@ -263,12 +263,12 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
           <Bar dataKey="score" fill="#6366f1" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
-      {scores.failure_modes &&
-        (scores.failure_modes as string[]).length > 0 && (
+      {Array.isArray(scores.failure_modes) &&
+        scores.failure_modes.length > 0 && (
           <div className="mt-3">
             <p className="text-xs font-medium text-gray-500">Failure modes:</p>
             <div className="mt-1 flex flex-wrap gap-1">
-              {(scores.failure_modes as string[]).map((fm, i) => (
+              {(scores.failure_modes as string[]).map((fm: string, i: number) => (
                 <span
                   key={i}
                   className="rounded bg-red-50 px-2 py-0.5 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300"

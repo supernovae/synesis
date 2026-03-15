@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        language: [python]
+        language: [python, javascript-typescript]
     steps:
       - uses: actions/checkout@v4
 
@@ -161,3 +161,74 @@ jobs:
         with:
           name: semgrep-results
           path: semgrep-results.json
+
+  # ---------------------------------------------------------------------------
+  # Frontend (JavaScript/TypeScript/React) security
+  # ---------------------------------------------------------------------------
+  npm-audit:
+    name: npm Audit (Admin Frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: base/admin/frontend
+        run: npm ci --ignore-scripts 2>/dev/null || npm install
+
+      - name: npm audit (report)
+        working-directory: base/admin/frontend
+        run: npm audit --json > npm-audit-report.json || true
+
+      - name: npm audit (gate — high/critical)
+        working-directory: base/admin/frontend
+        run: npm audit --audit-level=high
+
+      - name: Upload npm audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-report
+          path: base/admin/frontend/npm-audit-report.json
+
+  semgrep-js:
+    name: Semgrep (JS/TS/React Security)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep on frontend (report)
+        run: |
+          semgrep scan \
+            --config "https://semgrep.dev/p/typescript" \
+            --config "https://semgrep.dev/p/react" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --config "https://semgrep.dev/p/xss" \
+            --error \
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
+            --json --json-output=semgrep-js-results.json \
+            base/admin/frontend/src/ || true
+
+      - name: Run Semgrep on frontend (gate)
+        run: |
+          semgrep scan \
+            --config "https://semgrep.dev/p/typescript" \
+            --config "https://semgrep.dev/p/react" \
+            --config "https://semgrep.dev/p/owasp-top-ten" \
+            --config "https://semgrep.dev/p/xss" \
+            --error \
+            --include "*.ts" --include "*.tsx" --include "*.js" --include "*.jsx" \
+            base/admin/frontend/src/
+
+      - name: Upload Semgrep JS results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-js-results
+          path: semgrep-js-results.json
