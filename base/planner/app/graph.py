@@ -930,24 +930,36 @@ graph_builder.add_edge("respond", END)
 
 
 def _build_checkpointer():
-    """Build LangGraph checkpointer from config. MemorySaver by default."""
+    """Build LangGraph checkpointer from config.
+
+    Redis path uses AsyncRedisSaver (async context manager) because the
+    graph is invoked via ainvoke/astream_events.  The sync RedisSaver's
+    async methods are stubs that raise NotImplementedError.
+    """
     if settings.session_checkpointer_backend == "redis" and settings.session_redis_url:
         try:
-            from langgraph.checkpoint.redis import RedisSaver
+            import asyncio
 
-            cm = RedisSaver.from_conn_string(settings.session_redis_url)
-            if hasattr(cm, "__enter__"):
-                saver = cm.__enter__()
-            else:
-                saver = cm
-            saver.setup()
-            logger.info("redis_checkpointer_ready", extra={"url": settings.session_redis_url[:40]})
+            from langgraph.checkpoint.redis import AsyncRedisSaver
+
+            async def _init_async_redis() -> AsyncRedisSaver:
+                cm = AsyncRedisSaver.from_conn_string(settings.session_redis_url)
+                saver = await cm.__aenter__()
+                await saver.asetup()
+                return saver
+
+            saver = asyncio.run(_init_async_redis())
+            logger.info(
+                "redis_checkpointer_ready",
+                extra={"url": settings.session_redis_url[:40], "type": "AsyncRedisSaver"},
+            )
             return saver
         except Exception:
             logger.warning("redis_checkpointer_init_failed, falling back to MemorySaver", exc_info=True)
 
     from langgraph.checkpoint.memory import MemorySaver
 
+    logger.info("memory_checkpointer_ready")
     return MemorySaver()
 
 
