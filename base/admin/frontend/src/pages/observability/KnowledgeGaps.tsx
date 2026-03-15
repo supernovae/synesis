@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useKnowledgeGaps, useKnowledgeGapStats } from "../../api/hooks";
+import { useObservabilityKnowledgeGaps, useKnowledgeGapStats } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
 
 export default function KnowledgeGaps() {
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useKnowledgeGaps({ page, page_size: 20 });
+  const { data, isLoading } = useObservabilityKnowledgeGaps({ page, page_size: 20 });
   const { data: stats } = useKnowledgeGapStats();
   const gaps = data?.gaps ?? [];
 

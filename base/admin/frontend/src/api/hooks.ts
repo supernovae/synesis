@@ -291,21 +291,9 @@ export function useFailureStats() {
   });
 }
 
-// --- Knowledge Gaps ---
+// --- Knowledge Gaps (Observability) ---
 
-interface KnowledgeGap {
-  chunk_id: string;
-  query: string;
-  task_description: string;
-  collections_queried: string;
-  max_score: number;
-  platform_context: string;
-  timestamp: number;
-  language: string;
-  [key: string]: unknown;
-}
-
-export function useKnowledgeGaps(params?: {
+export function useObservabilityKnowledgeGaps(params?: {
   page?: number;
   page_size?: number;
 }) {
