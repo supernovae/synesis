@@ -438,6 +438,16 @@ class Settings(BaseSettings):
     # rollback. The main LLM can still emit fenced code blocks in text_only mode.
     frontdoor_mode: Literal["text_only", "legacy_hybrid"] = "text_only"
 
+    # Inference mode: controls how aggressively the pipeline gates safeguards.
+    #   "full"      — current behavior: always-on frame extraction, retrieval,
+    #                  critic, and verification for non-trivial prompts.
+    #   "selective"  — answer-first: lean on the main LLM for most prompts,
+    #                  only escalate to frame repair / critic / RAG when
+    #                  difficulty or risk signals warrant it.
+    # Research basis: Adaptive-RAG (arXiv:2403.14403), Self-RAG (arXiv:2310.11511),
+    # CRAG (arXiv:2401.15884), CoVe (arXiv:2309.11495).
+    inference_mode: Literal["full", "selective"] = "full"
+
     # Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
 
@@ -476,6 +486,46 @@ class Settings(BaseSettings):
         """
         d = max(0.0, min(1.0, difficulty))
         return self.web_budget_base + int(d * (self.crag_max_web_queries - self.web_budget_base))
+
+    # --- Inference mode: effective thresholds ---
+    # In "selective" mode these raise the bar for expensive operations so
+    # more prompts go through the fast answer-first path. In "full" mode
+    # they return the existing (conservative) defaults.
+
+    @property
+    def effective_rag_disable_below(self) -> float:
+        """Difficulty below which rag_mode='disabled' (skip retrieval)."""
+        return 0.5 if self.inference_mode == "selective" else 0.3
+
+    @property
+    def effective_frame_repair_above(self) -> float:
+        """Difficulty at or above which LLM frame repair is allowed."""
+        return 0.6 if self.inference_mode == "selective" else 0.4
+
+    @property
+    def effective_entry_fast_path_below(self) -> float:
+        """Difficulty below which entry pipeline skips advisor + frame extractor."""
+        return 0.5 if self.inference_mode == "selective" else 0.3
+
+    @property
+    def effective_critic_skip_below(self) -> float:
+        """Difficulty below which critic is skipped entirely."""
+        return 0.3 if self.inference_mode == "selective" else self.critic_skip_below_difficulty
+
+    @property
+    def effective_critic_lenient_below(self) -> float:
+        """Difficulty below which critic runs in lenient (fast) mode."""
+        return 0.6 if self.inference_mode == "selective" else self.critic_lenient_below_difficulty
+
+    @property
+    def effective_multi_query_above(self) -> float:
+        """Difficulty at or above which multi-query fan-out is enabled."""
+        return 0.5 if self.inference_mode == "selective" else 0.3
+
+    @property
+    def effective_hyde_above(self) -> float:
+        """Difficulty at or above which HyDE variant is generated."""
+        return 0.7 if self.inference_mode == "selective" else 0.5
 
     @property
     def build_version(self) -> str:

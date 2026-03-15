@@ -73,9 +73,9 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Fast-path: skip advisor (~1s) and frame_extractor (~4-8s) when:
     #   1. Trivial tasks (difficulty < 0.15)
-    #   2. Easy no-retrieval tasks (rag_mode=disabled, difficulty < 0.3)
-    # These go straight to the writer from parametric knowledge — the
-    # semantic frame, advisor opinion, and predictive cache warm are waste.
+    #   2. Easy no-retrieval tasks (rag_mode=disabled, no plan required)
+    # In "selective" mode, the rag_mode=disabled threshold is higher (0.5
+    # vs 0.3), so more prompts hit this fast path.
     _is_easy_no_retrieval = (
         classified.get("rag_mode") == "disabled"
         and not classified.get("plan_required")

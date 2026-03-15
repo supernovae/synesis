@@ -332,7 +332,7 @@ class RouterNode:
 
         difficulty = evidence_request.get("_difficulty", 0.5)
 
-        if not settings.router_multi_query_enabled or difficulty < 0.3:
+        if not settings.router_multi_query_enabled or difficulty < settings.effective_multi_query_above:
             variants = [direct_query]
             original_q = evidence_request.get("original_query")
             if original_q and original_q != direct_query:
@@ -349,7 +349,7 @@ class RouterNode:
             expansion_hints = get_query_expansion_hints(taxonomy_metadata)
 
         tasks: list[asyncio.Task[str]] = []
-        if settings.router_hyde_enabled and difficulty >= 0.5:
+        if settings.router_hyde_enabled and difficulty >= settings.effective_hyde_above:
             tasks.append(asyncio.create_task(self.generate_hyde_variant(direct_query)))
         if settings.taxonomy_query_expansion_enabled:
             tasks.append(

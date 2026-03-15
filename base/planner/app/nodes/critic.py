@@ -599,7 +599,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
         is_code_task = state.get("is_code_task", False)
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         difficulty = state.get("difficulty", 0.5)
-        is_lenient = difficulty < settings.critic_lenient_below_difficulty
+        is_lenient = difficulty < settings.effective_critic_lenient_below
 
         is_document_taxonomy_path = not is_code_task and bool(taxonomy_metadata.get("required_elements"))
         if is_document_taxonomy_path:

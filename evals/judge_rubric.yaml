@@ -1,0 +1,164 @@
+# External Judge Rubric for Full vs Selective A/B Evaluation
+#
+# Each response is scored by a blinded external LLM judge on 5 dimensions
+# (1-10 scale) plus binary must-pass checks. The judge sees mode labels
+# "A" and "B" (randomly assigned per run) to prevent bias.
+#
+# Usage: evals/run_ab.py reads this rubric and constructs the judge prompt.
+
+version: 1
+
+judge_model: "openrouter/anthropic/claude-sonnet-4"
+
+dimensions:
+  instruction_satisfaction:
+    weight: 0.30
+    description: >
+      Does the response fully address every requirement in the prompt?
+      Score 1-10 where 10 = every stated requirement is addressed with
+      appropriate depth, 1 = most requirements are ignored or superficial.
+
+  factual_grounding:
+    weight: 0.25
+    description: >
+      Are claims factually correct and properly grounded? Does the response
+      cite sources when making evidence-based claims? Score 1-10 where
+      10 = all claims are accurate with proper attribution, 1 = contains
+      significant factual errors or unsupported claims presented as fact.
+
+  uncertainty_handling:
+    weight: 0.15
+    description: >
+      Does the response appropriately handle uncertainty? Does it escalate
+      or refuse when it lacks evidence? Does it label assumptions? Score
+      1-10 where 10 = clearly distinguishes known facts from assumptions,
+      appropriately hedges uncertain claims, 1 = confidently states
+      uncertain or incorrect information without qualification.
+
+  completeness_vs_concision:
+    weight: 0.15
+    description: >
+      Is the response appropriately sized for the question complexity?
+      Not too verbose for simple questions, not too thin for complex ones.
+      Score 1-10 where 10 = perfectly calibrated depth, 1 = either a
+      wall of text for a simple question or a shallow response for a
+      complex architecture task.
+
+  harmful_overconfidence:
+    weight: 0.15
+    description: >
+      Does the response avoid presenting speculation as certainty? Does it
+      avoid hallucinating specific numbers, tool names, or APIs that don't
+      exist? Score 1-10 where 10 = no overconfident claims detected,
+      1 = multiple fabricated specifics presented as fact.
+
+# Binary must-pass criteria (checked both by judge and deterministic code)
+must_pass_checks:
+  code_fenced:
+    description: "All code snippets are wrapped in triple-backtick fenced blocks with language tags"
+    applies_when: "code_snippet in capabilities"
+
+  syntactically_valid:
+    description: "Code snippets are syntactically valid for their language"
+    applies_when: "code_snippet in capabilities"
+
+  factually_correct:
+    description: "Core factual claims are accurate (not hallucinated)"
+    applies_when: "always"
+
+  makes_recommendation:
+    description: "When asked to choose, commits to a specific recommendation with reasoning"
+    applies_when: "prompt asks for recommendation or comparison"
+
+  tradeoffs_explicit:
+    description: "Trade-offs between options are explicitly stated, not just features listed"
+    applies_when: "prompt involves comparison or design decision"
+
+  assumptions_labeled:
+    description: "Material assumptions are explicitly labeled or called out"
+    applies_when: "hard bucket"
+
+  concise:
+    description: "Response is appropriately brief for the question complexity"
+    applies_when: "easy bucket"
+
+# Deterministic checks (run by code, no LLM needed)
+deterministic_checks:
+  code_fence_present:
+    description: "Response contains at least one triple-backtick code block"
+    regex: "```\\w+"
+    applies_when: "code_snippet in capabilities"
+
+  mermaid_present:
+    description: "Response contains a mermaid diagram block"
+    regex: "```mermaid"
+    applies_when: "mermaid_diagram in must_pass"
+
+  heading_structure:
+    description: "Response uses markdown headings for organization"
+    regex: "^#{1,3} "
+    applies_when: "hard bucket or medium bucket with multi_step"
+
+  no_think_tags:
+    description: "No raw <think> tags leaked into output"
+    regex_must_not_match: "<think>"
+    applies_when: "always"
+
+  no_self_narration:
+    description: "No 'Okay, I need to...' or 'Let me think...' self-narration"
+    regex_must_not_match: "^(Okay,? (I need|let me)|Let me (start|think)|I think I should)"
+    applies_when: "always"
+
+# Judge prompt template (blinded)
+judge_prompt_template: |
+  You are an expert evaluator comparing two AI assistant responses to the
+  same prompt. You will see Response A and Response B. You do NOT know
+  which system produced which response.
+
+  ## Evaluation Prompt
+  {prompt}
+
+  ## Response A
+  {response_a}
+
+  ## Response B
+  {response_b}
+
+  ## Scoring Instructions
+  Score EACH response on the following dimensions (1-10 scale):
+
+  1. **Instruction Satisfaction** ({dim_instruction_satisfaction}):
+  2. **Factual Grounding** ({dim_factual_grounding}):
+  3. **Uncertainty Handling** ({dim_uncertainty_handling}):
+  4. **Completeness vs Concision** ({dim_completeness_vs_concision}):
+  5. **Harmful Overconfidence** ({dim_harmful_overconfidence}):
+
+  Also check these must-pass criteria (pass/fail):
+  {must_pass_section}
+
+  ## Output Format
+  Return ONLY valid JSON:
+  ```json
+  {
+    "response_a": {
+      "instruction_satisfaction": <1-10>,
+      "factual_grounding": <1-10>,
+      "uncertainty_handling": <1-10>,
+      "completeness_vs_concision": <1-10>,
+      "harmful_overconfidence": <1-10>,
+      "must_pass": {"<check_name>": true/false, ...},
+      "notes": "<brief explanation of key differences>"
+    },
+    "response_b": {
+      "instruction_satisfaction": <1-10>,
+      "factual_grounding": <1-10>,
+      "uncertainty_handling": <1-10>,
+      "completeness_vs_concision": <1-10>,
+      "harmful_overconfidence": <1-10>,
+      "must_pass": {"<check_name>": true/false, ...},
+      "notes": "<brief explanation of key differences>"
+    },
+    "preferred": "A" | "B" | "tie",
+    "confidence": <0.0-1.0>
+  }
+  ```

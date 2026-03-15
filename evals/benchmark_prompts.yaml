@@ -1,0 +1,1062 @@
+# Synesis Full vs Selective A/B Evaluation Benchmark
+# 70 prompts: 25 easy, 25 medium, 20 hard
+# Each prompt tagged with: difficulty bucket, corpus_slice (corpus | no_corpus),
+# expected capabilities (parametric, retrieval, web, code_snippet, multi_step),
+# and must-pass quality criteria.
+#
+# Usage:
+#   python evals/run_ab.py --prompts evals/benchmark_prompts.yaml \
+#       --modes full,selective --judge openrouter
+
+metadata:
+  version: 1
+  created: "2026-03-15"
+  total_prompts: 70
+  buckets:
+    easy: 25
+    medium: 25
+    hard: 20
+
+prompts:
+  # =========================================================================
+  # EASY (25) — parametric knowledge, simple code, quick factual
+  # =========================================================================
+
+  - id: easy-01
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Tell me a fun fact about the Roman Empire."
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - concise
+
+  - id: easy-02
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Show me a code snippet of a website's sticky header in CSS and JavaScript."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  - id: easy-03
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What is the difference between a list and a tuple in Python?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - concise
+
+  - id: easy-04
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Write a Python function that reverses a string."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - correct_output
+
+  - id: easy-05
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Explain what a Kubernetes Pod is in two sentences."
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - concise
+
+  - id: easy-06
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What does the HTTP status code 429 mean?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+
+  - id: easy-07
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Show me a basic Dockerfile for a Python 3.12 Flask app."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  - id: easy-08
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What is the capital of New Zealand?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - concise
+
+  - id: easy-09
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Write a bash one-liner to count the number of lines in all .py files in the current directory."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - correct_output
+
+  - id: easy-10
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Explain the difference between git merge and git rebase."
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+
+  - id: easy-11
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What is a closure in JavaScript? Give a one-line example."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - factually_correct
+      - code_fenced
+
+  - id: easy-12
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "How do I create a virtual environment in Python 3?"
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - correct_output
+
+  - id: easy-13
+    bucket: easy
+    corpus_slice: corpus
+    prompt: "What embedding model does our RAG pipeline use?"
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+
+  - id: easy-14
+    bucket: easy
+    corpus_slice: corpus
+    prompt: "How is the keyword service deployed in our cluster?"
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+
+  - id: easy-15
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What are the SOLID principles in software engineering? List them briefly."
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - complete_list
+
+  - id: easy-16
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Show me a minimal Terraform resource block for an AWS S3 bucket."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  - id: easy-17
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What is the time complexity of Python's sorted() function?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+
+  - id: easy-18
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Write a SQL query to find duplicate email addresses in a users table."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  - id: easy-19
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What is the difference between TCP and UDP?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+
+  - id: easy-20
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Show me how to parse JSON in Go."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  - id: easy-21
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "What does CORS stand for and why does it exist?"
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+
+  - id: easy-22
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Write a Python one-liner to flatten a list of lists."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - correct_output
+
+  - id: easy-23
+    bucket: easy
+    corpus_slice: corpus
+    prompt: "What reranker options does Synesis support?"
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+
+  - id: easy-24
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Explain what a load balancer does."
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - concise
+
+  - id: easy-25
+    bucket: easy
+    corpus_slice: no_corpus
+    prompt: "Show me a CSS flexbox centered layout snippet."
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+
+  # =========================================================================
+  # MEDIUM (25) — mixed constraints, moderate ambiguity, retrieval helpful
+  # =========================================================================
+
+  - id: med-01
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Compare FastAPI and Flask for building a REST API that needs to handle
+      100 concurrent requests. Which should I choose and why? Include a minimal
+      example of each.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - makes_recommendation
+      - code_fenced
+      - tradeoffs_explicit
+
+  - id: med-02
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain how Kubernetes Horizontal Pod Autoscaler works. Show me a
+      complete HPA manifest for a deployment that scales between 2 and 10
+      replicas based on CPU utilization at 70%.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - factually_correct
+      - code_fenced
+      - syntactically_valid
+
+  - id: med-03
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      I have a Python FastAPI app that takes 3 seconds to respond under load.
+      Walk me through a systematic approach to diagnose and fix the bottleneck.
+      Be specific about tools and techniques.
+    capabilities: [parametric]
+    must_pass:
+      - actionable_steps
+      - tools_named
+
+  - id: med-04
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write a Python decorator that retries a function up to 3 times with
+      exponential backoff when it raises a ConnectionError. Include type hints.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - correct_output
+
+  - id: med-05
+    bucket: medium
+    corpus_slice: corpus
+    prompt: >
+      How does our retrieval pipeline handle the case where Milvus returns
+      low-confidence results? Walk me through the fallback chain.
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+      - describes_fallback
+
+  - id: med-06
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Design a database schema for a multi-tenant SaaS application that tracks
+      user subscriptions, billing, and usage metrics. Use PostgreSQL.
+      Show the CREATE TABLE statements and explain indexing choices.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - explains_indexes
+      - multi_tenant_addressed
+
+  - id: med-07
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain the CAP theorem with a concrete example. Then recommend whether
+      I should use PostgreSQL or Cassandra for a write-heavy IoT sensor
+      ingestion system processing 50k events/second.
+    capabilities: [parametric]
+    must_pass:
+      - factually_correct
+      - makes_recommendation
+      - tradeoffs_explicit
+
+  - id: med-08
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write a GitHub Actions workflow that runs Python tests with pytest,
+      builds a Docker image, and pushes it to GitHub Container Registry.
+      Only push the image on main branch.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - branch_condition_present
+
+  - id: med-09
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      I need to implement rate limiting for my API. Compare token bucket
+      vs sliding window approaches. Which is better for a public API with
+      bursty traffic? Show a Python implementation of your recommendation.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - makes_recommendation
+      - code_fenced
+      - tradeoffs_explicit
+
+  - id: med-10
+    bucket: medium
+    corpus_slice: corpus
+    prompt: >
+      Explain how Synesis decides whether to use web search vs internal RAG
+      for a given query. What triggers corrective retrieval?
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+      - describes_thresholds
+
+  - id: med-11
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      How do I set up a Python monorepo with multiple packages that share
+      dependencies? Compare using pyproject.toml workspaces vs a tool like
+      pants or bazel. Recommend one approach for a team of 10.
+    capabilities: [parametric]
+    must_pass:
+      - makes_recommendation
+      - tradeoffs_explicit
+
+  - id: med-12
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write a Terraform module that creates a VPC with public and private
+      subnets across 3 AZs in AWS. Include a NAT gateway for the private
+      subnets. Use variables for CIDR ranges.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - three_azs
+
+  - id: med-13
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain the difference between OAuth 2.0 authorization code flow and
+      PKCE flow. When should I use each? Draw a sequence diagram in mermaid.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - factually_correct
+      - mermaid_diagram
+      - makes_recommendation
+
+  - id: med-14
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      I'm seeing intermittent 502 errors from my Kubernetes ingress. The
+      pods are healthy according to readiness probes. What are the most
+      likely causes and how do I debug each one?
+    capabilities: [parametric]
+    must_pass:
+      - actionable_steps
+      - multiple_causes
+
+  - id: med-15
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write a Python script that watches a directory for new CSV files,
+      validates their schema against an expected set of columns, and
+      loads valid files into a SQLite database. Use watchdog and pandas.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - uses_watchdog
+
+  - id: med-16
+    bucket: medium
+    corpus_slice: corpus
+    prompt: >
+      How does the Synesis critic node decide whether to approve a response
+      or send it back for revision? What are the scoring thresholds?
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+      - describes_thresholds
+
+  - id: med-17
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain blue-green deployments vs canary deployments. Which is better
+      for a team deploying a stateful application with a PostgreSQL database?
+      Show a Kubernetes rollout strategy manifest for your recommendation.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - makes_recommendation
+      - code_fenced
+      - tradeoffs_explicit
+
+  - id: med-18
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write a Python async function that makes 50 HTTP requests concurrently
+      using aiohttp, collects results, and handles individual request failures
+      without killing the batch. Include proper error handling and typing.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - async_correct
+
+  - id: med-19
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      I need to implement full-text search in my application. Compare
+      Elasticsearch, Meilisearch, and PostgreSQL full-text search for
+      a dataset of 500k documents. I care about relevance, latency,
+      and operational complexity. Which should I pick?
+    capabilities: [parametric, web]
+    must_pass:
+      - makes_recommendation
+      - tradeoffs_explicit
+      - quantitative_comparison
+
+  - id: med-20
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain how gRPC streaming works. Show a complete protobuf definition
+      and Python server implementation for a bidirectional streaming chat
+      service.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - syntactically_valid
+      - bidirectional_shown
+
+  - id: med-21
+    bucket: medium
+    corpus_slice: corpus
+    prompt: >
+      What is the Synesis planner node's role in the pipeline? How does it
+      differ from the router and the writer?
+    capabilities: [retrieval]
+    must_pass:
+      - factually_correct
+      - distinguishes_roles
+
+  - id: med-22
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Design a circuit breaker pattern implementation in Python that supports
+      three states (closed, open, half-open) with configurable thresholds.
+      Include a usage example.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - three_states
+      - usage_example
+
+  - id: med-23
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      How should I structure a Python project that has both a CLI tool and
+      a REST API sharing the same domain logic? Show me the directory layout
+      and explain the dependency relationships.
+    capabilities: [parametric]
+    must_pass:
+      - directory_layout
+      - separation_explained
+
+  - id: med-24
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Write comprehensive pytest tests for a function that calculates
+      shipping costs based on weight, distance, and delivery speed.
+      Include edge cases, parametrized tests, and fixtures.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - code_fenced
+      - parametrize_used
+      - edge_cases
+
+  - id: med-25
+    bucket: medium
+    corpus_slice: no_corpus
+    prompt: >
+      Explain the difference between symmetric and asymmetric encryption.
+      When would I use each in a microservices architecture? Show me how to
+      implement mutual TLS between two Python services using self-signed certs.
+    capabilities: [parametric, code_snippet]
+    must_pass:
+      - factually_correct
+      - code_fenced
+      - mtls_addressed
+
+  # =========================================================================
+  # HARD (20) — multi-constraint architecture, deep planning, ambiguity
+  # =========================================================================
+
+  - id: hard-01
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      You are helping me design a production-ready AI assistant for a small engineering organization.
+      Task:
+      Propose a practical architecture for an internal coding assistant that can:
+      1. answer questions about company docs,
+      2. help write and review code,
+      3. avoid confidently making up facts,
+      4. escalate when it lacks enough evidence,
+      5. keep latency and cost reasonable.
+      Constraints:
+      - Team size: 80 engineers
+      - Mix of public and private knowledge
+      - Must support Kubernetes, Terraform, and Python workflows
+      - Budget is limited, so expensive always-on large models are undesirable
+      - Security matters, but the company is not in a highly regulated industry
+      - The system should be useful within 90 days, not as a multi-year research project
+      What I want from you:
+      - State the main design goals
+      - Propose a concrete architecture
+      - Explain model choices and where small vs large models should be used
+      - Explain how retrieval should work
+      - Describe failure modes and mitigations
+      - Explain how the system should decide when to ask clarifying questions, when to answer, and when to refuse
+      - Give a phased rollout plan for 30, 60, and 90 days
+      - List the top 5 risks or mistakes likely to cause failure
+      Important:
+      - Do not give a generic answer
+      - Make tradeoffs explicit
+      - Separate facts, assumptions, and recommendations
+      - If something is uncertain, say so clearly
+      - Be concise but specific
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - architecture_diagram
+      - phased_rollout
+      - model_choices_justified
+      - tradeoffs_explicit
+      - risks_listed
+      - assumptions_labeled
+
+  - id: hard-02
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a real-time fraud detection system for a fintech company processing
+      5 million transactions per day. Requirements:
+      - Sub-100ms decision latency for 95th percentile
+      - Must handle both rule-based and ML-based detection
+      - Needs to explain why a transaction was flagged
+      - Must support A/B testing of detection models
+      - Regulatory requirement: decisions must be auditable for 7 years
+      - Team has 5 ML engineers and 3 platform engineers
+
+      Propose the architecture, data pipeline, model serving strategy, and
+      operational runbook. Make specific technology choices and justify them.
+      Include a capacity planning estimate.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - architecture_diagram
+      - latency_addressed
+      - technology_choices_specific
+      - capacity_estimate
+      - auditability_addressed
+
+  - id: hard-03
+    bucket: hard
+    corpus_slice: corpus
+    prompt: |
+      Analyze the Synesis planner pipeline end-to-end. Identify the top 5
+      latency bottlenecks for a complex multi-section knowledge task with
+      difficulty 0.8. For each bottleneck:
+      1. Explain what it does and why it's slow
+      2. Quantify the expected latency contribution
+      3. Propose a concrete optimization with expected improvement
+      4. Assess the quality/cost tradeoff of each optimization
+      Present this as a prioritized action plan.
+    capabilities: [retrieval, multi_step]
+    must_pass:
+      - five_bottlenecks
+      - quantified
+      - actionable
+      - tradeoffs_explicit
+
+  - id: hard-04
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a multi-region active-active deployment for a social media
+      application serving 10M DAU across North America and Europe.
+      Requirements:
+      - Eventual consistency is acceptable for feeds (5s max lag)
+      - Strong consistency required for user profiles and auth
+      - Must handle a full region failure within 30 seconds
+      - Budget: $50k/month cloud infrastructure
+      - Team: 12 engineers, 2 SREs
+
+      Cover: architecture, database strategy (including conflict resolution),
+      CDN and caching layers, deployment pipeline, monitoring and alerting,
+      disaster recovery testing plan. Make specific technology choices.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - multi_region_architecture
+      - consistency_models_addressed
+      - conflict_resolution
+      - budget_addressed
+      - technology_choices_specific
+      - dr_testing_plan
+
+  - id: hard-05
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      I'm building a data platform for a logistics company with:
+      - 500 IoT sensors on trucks sending GPS + temperature every 10 seconds
+      - 3 legacy ERP systems (SAP, Oracle, custom) that need integration
+      - Regulatory requirement to retain all data for 5 years
+      - Analytics team of 8 who currently use Excel and want self-service BI
+      - Budget: $30k/month including cloud costs
+      - Must be production-ready in 6 months
+
+      Design the complete data architecture from ingestion to visualization.
+      Address schema evolution, data quality, access control, and cost
+      optimization. Make every technology choice specific and justified.
+      Show a phased delivery plan.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - end_to_end_architecture
+      - iot_ingestion_addressed
+      - erp_integration
+      - data_quality
+      - cost_within_budget
+      - phased_delivery
+
+  - id: hard-06
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Compare the architectural approaches for building a RAG system:
+      A) Naive RAG (retrieve-then-generate)
+      B) Advanced RAG (query rewriting, reranking, CRAG-style correction)
+      C) Agentic RAG (tool-using agents that decide when and how to retrieve)
+
+      For each approach:
+      - Describe the architecture with a diagram
+      - Analyze latency, cost, and quality characteristics
+      - Identify failure modes
+      - Specify when this approach is the right choice
+
+      Then recommend which approach to start with for a team of 5 engineers
+      building a customer support assistant over 100k documents.
+      Justify your recommendation with specific numbers where possible.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - three_architectures_compared
+      - diagrams_present
+      - failure_modes
+      - recommendation_justified
+      - quantitative_analysis
+
+  - id: hard-07
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a comprehensive observability stack for a Kubernetes-based
+      microservices platform with 40 services. Requirements:
+      - Unified metrics, logs, and traces
+      - Custom business metrics (revenue, conversion, latency by customer tier)
+      - Alerting with on-call rotation and escalation
+      - Cost must stay under $5k/month
+      - Must support 100GB/day of logs
+      - Incident response playbooks should be integrated
+
+      Compare: Datadog vs Grafana Cloud vs self-hosted (Prometheus+Loki+Tempo).
+      Make a recommendation. Show example alerting rules and dashboard layouts.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - three_options_compared
+      - cost_analysis
+      - recommendation_justified
+      - alerting_examples
+      - log_volume_addressed
+
+  - id: hard-08
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      I need to migrate a monolithic Django application (500k LOC, 200 models,
+      50 developers) to microservices. The app currently handles:
+      - User authentication and authorization
+      - Product catalog (1M SKUs)
+      - Order processing (10k orders/day)
+      - Payment processing (PCI-DSS compliant)
+      - Real-time inventory tracking
+      - Email/SMS notifications
+
+      Design the migration strategy. Cover:
+      - Service decomposition (what becomes its own service and why)
+      - Strangler fig pattern implementation details
+      - Database decomposition strategy (shared DB → service-owned)
+      - Data consistency across services (saga pattern vs 2PC)
+      - Team reorganization to support service ownership
+      - Risk mitigation for the migration itself
+      - Timeline with milestones (assume 18 months total)
+    capabilities: [parametric, multi_step]
+    must_pass:
+      - service_boundaries_justified
+      - migration_pattern
+      - database_strategy
+      - consistency_pattern
+      - timeline_with_milestones
+      - risk_mitigation
+
+  - id: hard-09
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a CI/CD pipeline for a platform team supporting 15 application
+      teams deploying to Kubernetes. Requirements:
+      - Multi-environment: dev, staging, production (3 clusters)
+      - GitOps with Argo CD
+      - Automated security scanning (container images, IaC, dependencies)
+      - Progressive delivery (canary with automated rollback)
+      - Cost optimization (spot instances, right-sizing)
+      - Compliance: SOC 2 audit trail, change approval for production
+      - Developer experience: PR previews, < 10 min from push to staging
+
+      Design the complete pipeline architecture. Show key config files
+      (ArgoCD ApplicationSet, GitHub Actions workflows, Kustomize overlays).
+      Address the tension between developer velocity and compliance.
+    capabilities: [parametric, code_snippet, multi_step]
+    must_pass:
+      - gitops_architecture
+      - security_scanning
+      - progressive_delivery
+      - compliance_addressed
+      - code_examples
+      - velocity_vs_compliance
+
+  - id: hard-10
+    bucket: hard
+    corpus_slice: corpus
+    prompt: |
+      Propose a redesign of the Synesis entry pipeline to reduce p95 latency
+      by 50% without regressing quality on hard prompts. Consider:
+      - Speculative execution (start writer while frame extractor runs)
+      - Model distillation (replace GLiNER2 + LLM repair with a fine-tuned classifier)
+      - Predictive routing (cache classifier → route mappings)
+      - Lazy frame extraction (skip for parametric-only queries)
+
+      For each approach, estimate: implementation effort, latency savings,
+      quality risk, and infrastructure cost impact. Recommend a specific
+      sequenced plan to implement the top 2-3 changes.
+    capabilities: [retrieval, multi_step]
+    must_pass:
+      - four_approaches_analyzed
+      - latency_estimates
+      - quality_risk_assessed
+      - implementation_plan
+
+  - id: hard-11
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a vector search system that can handle 100M embeddings (768-dim)
+      with sub-10ms p99 query latency. The system must support:
+      - Real-time upserts (10k/second)
+      - Filtered search (metadata predicates + vector similarity)
+      - Multi-tenancy with data isolation
+      - Horizontal scaling to 500M embeddings
+      - Cost under $2k/month
+
+      Compare FAISS+custom infra vs Milvus vs Qdrant vs Weaviate.
+      Make a specific recommendation with capacity planning numbers.
+      Show the infrastructure topology and deployment manifests.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - four_options_compared
+      - capacity_planning
+      - latency_analysis
+      - cost_estimate
+      - recommendation_justified
+
+  - id: hard-12
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      I'm building an event-driven architecture for an e-commerce platform.
+      Design the event schema strategy, including:
+      - Event versioning and schema evolution (backward + forward compatibility)
+      - Dead letter queue handling with automated retry policies
+      - Event sourcing vs event-carried state transfer — pick one and justify
+      - Exactly-once processing guarantees
+      - Cross-service event choreography vs orchestration
+
+      Compare Kafka vs Amazon EventBridge vs NATS JetStream for this use case.
+      Show example event schemas, consumer group configurations, and
+      error handling patterns in Python.
+    capabilities: [parametric, code_snippet, multi_step]
+    must_pass:
+      - schema_evolution
+      - dlq_handling
+      - exactly_once_addressed
+      - technology_comparison
+      - code_examples
+
+  - id: hard-13
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a zero-trust security architecture for a startup with:
+      - 200 employees, 50 remote
+      - Kubernetes workloads on AWS
+      - SaaS tools (Slack, GitHub, Jira, Google Workspace)
+      - BYOD policy for laptops
+      - No dedicated security team (1 SRE handles it part-time)
+      - Budget: $20k/year for security tooling
+
+      Cover: identity and access management, network segmentation, device
+      trust, secrets management, logging and incident detection, compliance
+      (SOC 2 readiness). Make every tool choice specific and explain
+      what you'd skip due to budget/team constraints.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - zero_trust_principles
+      - iam_design
+      - budget_realistic
+      - pragmatic_scope
+      - tool_choices_specific
+
+  - id: hard-14
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a machine learning feature store for a team of 15 ML engineers.
+      Requirements:
+      - Serve both batch (training) and real-time (inference) features
+      - Support point-in-time correct joins for training data
+      - Handle 10k feature lookups/second at p99 < 5ms
+      - Feature lineage and data quality monitoring
+      - Must integrate with existing Airflow + Spark ETL
+      - Team uses Python and PySpark
+
+      Compare Feast vs Tecton vs custom-built (Redis + Spark).
+      Recommend one approach. Show the architecture, data model, and
+      example feature definitions in Python.
+    capabilities: [parametric, web, code_snippet, multi_step]
+    must_pass:
+      - batch_and_realtime
+      - point_in_time
+      - technology_comparison
+      - recommendation_justified
+      - code_examples
+
+  - id: hard-15
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      I'm the tech lead for a team migrating from REST to GraphQL for our
+      mobile-first application. Currently serving 50 REST endpoints with
+      3 BFF (backend-for-frontend) services. Concerns:
+      - N+1 query problems
+      - Authorization at the field level
+      - Caching (CDN and in-memory)
+      - Rate limiting per query complexity
+      - Monitoring and observability
+      - Backward compatibility during migration
+
+      Design the GraphQL architecture. Show: schema design principles,
+      dataloader patterns, auth middleware, and a concrete migration plan
+      that doesn't break the mobile apps during transition.
+    capabilities: [parametric, code_snippet, multi_step]
+    must_pass:
+      - n_plus_one_addressed
+      - field_level_auth
+      - caching_strategy
+      - migration_plan
+      - backward_compatible
+
+  - id: hard-16
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a self-healing Kubernetes platform that automatically:
+      - Detects and remediates common failure modes (OOM, CrashLoopBackOff, stuck rollouts)
+      - Right-sizes resource requests based on actual usage (VPA-like)
+      - Scales cluster nodes proactively based on scheduling pressure predictions
+      - Implements chaos engineering tests on a schedule
+      - Provides a developer self-service portal for namespace/resource provisioning
+
+      The platform team has 4 engineers. Infrastructure: AWS EKS, 3 clusters,
+      200 namespaces. Show the operator architecture, CRD definitions,
+      and reconciliation logic for the auto-remediation controller.
+    capabilities: [parametric, code_snippet, multi_step]
+    must_pass:
+      - operator_architecture
+      - crd_definitions
+      - remediation_logic
+      - chaos_engineering
+      - self_service
+
+  - id: hard-17
+    bucket: hard
+    corpus_slice: corpus
+    prompt: |
+      Evaluate whether Synesis should replace its current multi-node
+      LangGraph architecture (entry → router → planner → writer → critic)
+      with a simpler single-LLM-call approach using a large reasoning model
+      (e.g., Claude 4, GPT-5) with tool use. Analyze:
+      - Quality comparison (grounding, factuality, citation accuracy)
+      - Latency comparison (p50, p95, p99)
+      - Cost comparison (token usage, infrastructure)
+      - Operational complexity
+      - Failure mode differences
+      - Migration risk and rollback strategy
+
+      Be specific with numbers where possible. Make a recommendation.
+    capabilities: [retrieval, web, multi_step]
+    must_pass:
+      - both_approaches_analyzed
+      - quantitative_comparison
+      - recommendation_justified
+      - migration_plan
+      - tradeoffs_explicit
+
+  - id: hard-18
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a distributed tracing and profiling system for a polyglot
+      microservices architecture (Python, Go, TypeScript, Rust). Requirements:
+      - Correlation of traces across all languages with W3C Trace Context
+      - Continuous profiling (CPU, memory, mutex) with flame graph visualization
+      - Tail-based sampling to capture interesting traces without excessive cost
+      - Integration with existing Prometheus metrics and Loki logs
+      - Cost: must process 50k spans/second at under $3k/month
+
+      Compare: Jaeger+Pyroscope, Grafana Tempo+Pyroscope, Honeycomb,
+      custom OTel Collector pipeline. Recommend one and show the
+      deployment architecture with OpenTelemetry Collector configuration.
+    capabilities: [parametric, web, code_snippet, multi_step]
+    must_pass:
+      - polyglot_addressed
+      - tail_sampling
+      - cost_analysis
+      - technology_comparison
+      - otel_config
+
+  - id: hard-19
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      I'm building a developer platform that provides ephemeral preview
+      environments for every pull request. Each environment needs:
+      - Full application stack (3 services + database + message queue)
+      - Seeded with realistic test data
+      - Accessible via unique URL within 3 minutes of PR creation
+      - Automatic cleanup after PR merge/close
+      - Cost optimization: environments must auto-sleep after 2h of inactivity
+      - Budget: $5k/month for all preview environments
+
+      Current stack: AWS EKS, GitHub, ArgoCD, PostgreSQL, RabbitMQ.
+      Design the complete system. Show the GitHub webhook handler,
+      namespace provisioning logic, and Kubernetes manifests.
+    capabilities: [parametric, code_snippet, multi_step]
+    must_pass:
+      - end_to_end_design
+      - cost_optimization
+      - auto_cleanup
+      - code_examples
+      - three_minute_sla
+
+  - id: hard-20
+    bucket: hard
+    corpus_slice: no_corpus
+    prompt: |
+      Design a comprehensive LLM evaluation and monitoring framework for a
+      company running 5 different LLM-powered features in production.
+      Requirements:
+      - Automated evaluation pipelines (factuality, relevance, safety)
+      - A/B testing framework for model swaps and prompt changes
+      - Drift detection for model quality degradation
+      - Human-in-the-loop feedback collection and annotation
+      - Cost tracking and optimization per feature
+      - Latency SLO monitoring with automated alerts
+      - Must work with both self-hosted (vLLM) and API-based (OpenAI) models
+
+      Design the architecture, evaluation rubrics, and deployment pipeline.
+      Show the key data models and API contracts. Address the challenge of
+      evaluating subjective output quality at scale.
+    capabilities: [parametric, web, multi_step]
+    must_pass:
+      - eval_pipeline
+      - ab_testing
+      - drift_detection
+      - cost_tracking
+      - subjective_quality_addressed
+      - both_deployment_types

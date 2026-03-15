@@ -96,6 +96,10 @@ spec:
             # the text pipeline. Set to legacy_hybrid to restore code-execution path.
             - name: SYNESIS_FRONTDOOR_MODE
               value: "text_only"
+            # Inference mode: "full" (current conservative) or "selective"
+            # (answer-first, verify-on-risk). Use for A/B evaluation.
+            - name: SYNESIS_INFERENCE_MODE
+              value: "full"
             - name: SYNESIS_SANDBOX_ENABLED
               value: "true"
             - name: SYNESIS_SANDBOX_NAMESPACE

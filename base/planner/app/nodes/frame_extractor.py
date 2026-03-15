@@ -298,13 +298,12 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         # Stage 3: LLM repair (only if needed AND difficulty warrants it)
-        # For easy/moderate prompts (difficulty < 0.4), the deterministic frame
-        # is sufficient — the writer answers from parametric knowledge. LLM
-        # repair is reserved for complex prompts where the planner needs a
-        # high-quality decomposition.
+        # The repair threshold adapts to inference_mode: "selective" raises it
+        # to 0.6 so more prompts use the deterministic frame; "full" keeps 0.4.
         tokens_used = 0
         extraction_mode = "gliner2_only"
-        if report.should_call_second_pass and difficulty >= 0.4:
+        _repair_threshold = settings.effective_frame_repair_above
+        if report.should_call_second_pass and difficulty >= _repair_threshold:
             extraction_mode = "gliner2_plus_llm_repair"
             user_task = await _llm_repair(prompt_text, first_pass, report)
             tokens_used = 0  # token tracking happens inside ChatOpenAI

@@ -909,10 +909,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # Log task payload for debugging empty-task issues (proxy/request transformation)
     _task_preview = (last_user_content or "")[:80]
     logger.info(
-        "chat_request task_len=%d preview=%r memory_scope=%s",
+        "chat_request task_len=%d preview=%r memory_scope=%s inference_mode=%s",
         len(last_user_content or ""),
         _task_preview,
         memory_scope,
+        settings.inference_mode,
         extra={"user_id": user_id, "conversation_id": conversation_id},
     )
 
@@ -1022,6 +1023,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         _tracer.start_trace(trace_id=run_id, user_id=user_id, query=(last_user_content or "")[:500])
     coding_client = _is_coding_client(http_request)
     # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
+    # Per-request inference mode override (for A/B evaluation)
+    _req_inference_mode = http_request.headers.get("x-synesis-inference-mode", "").strip().lower()
+    if _req_inference_mode in ("full", "selective"):
+        settings.inference_mode = _req_inference_mode  # type: ignore[assignment]
+
     initial_state: dict[str, Any] = {
         "messages": user_messages,
         "task_description": (last_user_content or "").strip()[:2000],

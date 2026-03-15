@@ -249,6 +249,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["risk_score"] = analysis.get("risk_score", 0)
     out["explicit_deliverables"] = analysis.get("explicit_deliverables", 0)
     out["domain_hints"] = analysis.get("domain_hints") or []
+    out["inference_mode"] = settings.inference_mode
     out["current_node"] = "entry_classifier"
     if norm_result:
         out["query_normalization"] = norm_result.to_dict()
@@ -312,7 +313,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["plan_required"] = bool(plan_session)
         out["bypass_supervisor"] = (difficulty >= bypass_threshold) and not plan_session
         if not out.get("is_code_task", False):
-            out["rag_mode"] = "light" if difficulty >= 0.3 else "disabled"
+            _rag_cutoff = settings.effective_rag_disable_below
+            out["rag_mode"] = "light" if difficulty >= _rag_cutoff else "disabled"
 
     if state.get("pending_question_continue") and not state.get("is_code_task", False):
         out["is_code_task"] = False

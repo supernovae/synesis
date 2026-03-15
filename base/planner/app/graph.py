@@ -282,7 +282,7 @@ def route_after_writer(state: dict[str, Any]) -> str:
     if settings.critic_background:
         return "final_scrubber"
     difficulty = state.get("difficulty", 0.5)
-    if difficulty < settings.critic_skip_below_difficulty:
+    if difficulty < settings.effective_critic_skip_below:
         return "final_scrubber"
     return "critic"
 
@@ -833,7 +833,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         settings.critic_background
         and not state.get("critic_approved")
         and not state.get("critic_feedback")
-        and state.get("difficulty", 0.5) >= settings.critic_skip_below_difficulty
+        and state.get("difficulty", 0.5) >= settings.effective_critic_skip_below
         and has_content
     ):
         _fire_background_critic(dict(state))

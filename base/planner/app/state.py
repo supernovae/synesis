@@ -256,6 +256,7 @@ class GraphState(TypedDict, total=False):
     # --- Always-plan routing ---
     plan_required: bool
     task_is_trivial: bool
+    inference_mode: str  # "full" | "selective" — logged for A/B comparison
 
     # --- Routing overrides ---
     task_size_override: str
