@@ -441,7 +441,7 @@ and pedagogical structure -- all from YAML.
 |---|---|---|
 | `entry_classifier_weights.yaml` | Base scoring keywords and thresholds | EntryClassifier |
 | `intent_weights.yaml` | Domain keywords, routing thresholds, intent detection | EntryClassifier, Query Normalizer lexicon |
-| `taxonomy_prompt_config.yaml` | 173 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic, Query Normalizer lexicon |
+| `taxonomy_prompt_config.yaml` | 190 domain entries (persona, depth, epistemic, output style, planner rules, query hints) | Router, Writer, Planner, Critic, Query Normalizer lexicon |
 | `query_normalizer_config.yaml` | Extra jargon, protected patterns for typo correction | Query Normalizer |
 | `intent_prompts.yaml` | Intent-specific critic behavior overlays | Critic |
 | `plugins/weights/vertical_*.yaml` | 41 vertical plugins (keywords, risk, prompts, critic tiers) | All roles |

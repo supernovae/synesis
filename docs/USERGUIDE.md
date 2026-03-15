@@ -68,6 +68,22 @@ When you want an explanation rather than code, use natural language:
 well-structured markdown with taxonomy-driven depth and tone. Domain-specific taxonomy
 prompts enrich responses with gotchas, trade-offs, and discovery prompts where appropriate.
 
+### Domain Vertical Coverage
+
+The taxonomy currently covers 190 domain entries across these high-impact verticals:
+
+| Cluster | Example Domains | What You Get |
+|---------|----------------|--------------|
+| **Software Engineering** | `software_architecture`, `api_design`, `testing_strategy`, `debugging`, `code_review`, `system_design`, `web_backend`, `web_frontend` | Architecture docs, API design rationale, test pyramid guidance, systematic debugging, constructive review feedback |
+| **Platform / Cloud** | `kubernetes`, `terraform`, `devops`, `ci_cd`, `sre`, `cost_optimization`, `observability`, `aws`, `gcp`, `azure` | Platform guides with YAML snippets, pipeline design, SLO frameworks, FinOps analysis |
+| **Data / AI** | `ai_ml`, `llm_rag`, `llm_evaluation`, `data_engineering`, `model_serving`, `ai_guardrails`, `data_science`, `ml_ops` | Pipeline architecture, serving optimization, guardrail design, evaluation frameworks |
+| **Product / Operations** | `product_planning`, `incident_postmortem`, `runbook`, `decision_memo`, `project_management`, `stakeholder_comms` | PRDs, blameless postmortems, operational runbooks, ADRs, stakeholder updates |
+| **Programming Languages** | `python`, `javascript`, `typescript`, `golang`, `rust`, `java`, `csharp`, `ruby`, `php`, `scala`, `elixir`, `haskell`, `perl`, `lua` | Idiomatic code with error handling, testing, and language-specific tips |
+| **Writing / Communication** | `business_writing`, `technical_writing`, `summarization`, `translation`, `creative_writing` | Audience-matched drafts, docs-as-code, concise summaries |
+| **Security / Compliance** | `cybersecurity`, `secops_hardening`, `ai_governance`, `healthcare_compliance`, `fintech_compliance` | Threat models, hardening guides, regulatory mapping |
+
+Each domain entry shapes persona, depth, required sections, epistemic guidance, and web search scopes. The system selects the best-matching domain automatically based on your query.
+
 ---
 
 ## 5. Language Hints

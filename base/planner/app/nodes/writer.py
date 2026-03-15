@@ -633,6 +633,32 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "- A section that could apply to any project without modification is a failure."
             )
 
+    # Phase 2: output control injection from resolved style contract
+    sc_precise = style_contract.get("precise", False)
+    sc_show_assumptions = style_contract.get("show_assumptions", False)
+
+    if sc_precise:
+        system_prompt += (
+            "\n\nPRECISION DISCIPLINE:\n"
+            "- Prefer specific names, versions, and numbers over vague language.\n"
+            "- Replace 'you could use X or Y' with a committed recommendation.\n"
+            "- Replace 'it depends' with the key variable and its effect.\n"
+            "- Replace 'there are many options' with the 2-3 that matter and why.\n"
+            "- If you must qualify, state the exact condition: 'If latency < 100ms, use X; otherwise Y.'\n"
+            "- Every sentence must add information the previous one did not."
+        )
+
+    if sc_show_assumptions:
+        system_prompt += (
+            "\n\nASSUMPTION VISIBILITY:\n"
+            "- Separate FACTS (evidence-backed or widely accepted), ASSUMPTIONS "
+            "(reasonable but unverified), and RECOMMENDATIONS (your professional judgment).\n"
+            "- Inline: tag key assumptions with [Assumption] and estimates with [Estimate].\n"
+            "- If a recommendation depends on an assumption, state which one.\n"
+            "- If you infer a constraint the user did not state, mark it [Assumed Constraint].\n"
+            "- For complex responses, consider grouping in a dedicated 'Assumptions & Caveats' section."
+        )
+
     revision_context = _build_revision_context(state)
 
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"

@@ -138,7 +138,7 @@ Validates `intent_weights.yaml` + all plugin YAMLs:
 
 ### Taxonomy Config Linter (`taxonomy_config_linter.py`)
 
-Validates `taxonomy_prompt_config.yaml` (173 entries) via Pydantic:
+Validates `taxonomy_prompt_config.yaml` (190 entries) via Pydantic:
 - **Required fields**: every entry must have `path` (str) and `complexity` (float 0.0-1.0)
 - **Type validation**: complexity in range, required_elements is list, persona is string
 - **Duplicate path detection**: warns if two entries share the same `path` value

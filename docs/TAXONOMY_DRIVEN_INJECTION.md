@@ -2,7 +2,7 @@
 
 How the Entry Classifier identifies a topic's complexity and uses taxonomy metadata
 to shape prompts for the Planner, Writer, and Critic. No new LLM — deterministic
-lookup from `taxonomy_prompt_config.yaml` (173 entries, compiled at startup).
+lookup from `taxonomy_prompt_config.yaml` (190 entries, compiled at startup).
 
 ---
 
@@ -87,7 +87,7 @@ preferred_web_scopes: list   # Steer web search to authoritative sites
 
 **Location:** `base/planner/taxonomy_prompt_config.yaml`
 
-**Size:** 173 domain entries across 27 top-level categories (Engineering, Science,
+**Size:** 190 domain entries across 28 top-level categories (Engineering, Science,
 Lifestyle, Writing, etc.).
 
 **Full entry example:**
@@ -178,4 +178,4 @@ Per-request cost is O(1) dict access. No YAML parsing, no disk I/O on the hot pa
 - [WORKFLOW.md](WORKFLOW.md) — Graph flow, routing, startup compilation details
 - `base/planner/app/taxonomy_prompt_factory.py` — `resolve_taxonomy_metadata`, `_load_config`, `_get_taxonomies`
 - `base/planner/app/taxonomy_config_linter.py` — Pydantic schema validation
-- `base/planner/taxonomy_prompt_config.yaml` — 173 taxonomy definitions
+- `base/planner/taxonomy_prompt_config.yaml` — 190 taxonomy definitions

@@ -414,7 +414,7 @@ through the Router, which respects `rag_mode` to control retrieval depth.
 3. **Taxonomy-Driven Everything**: Entry Classifier outputs
    `intent_class`, `is_code_task`, `active_domain_refs`,
    `taxonomy_metadata`, `difficulty`, and YAML-driven
-   `routing_thresholds`. 173 taxonomy entries define persona,
+   `routing_thresholds`. 190 taxonomy entries define persona,
    depth, output style, epistemic guidance, and planner rules.
    All raw YAML fields are forwarded via `dict(node_cfg)` overlay
    in `resolve_taxonomy_metadata()` — new fields added to YAML are
@@ -883,7 +883,7 @@ YAML config — no hardcoded if/else chains.
 |------|---------|
 | `intent_weights.yaml` | Core complexity/risk weights, intent classes, routing thresholds |
 | `plugins/weights/*.yaml` | Industry-specific keywords, weights, pairings, and vertical prompt data (41 plugins) |
-| `taxonomy_prompt_config.yaml` | 173 domain entries: persona, depth, epistemic_guidance, output_style_guidance, required_elements, query_expansion_hints, preferred_web_scopes, planner_decomposition_rules |
+| `taxonomy_prompt_config.yaml` | 190 domain entries: persona, depth, epistemic_guidance, output_style_guidance, required_elements, query_expansion_hints, preferred_web_scopes, planner_decomposition_rules |
 | `intent_prompts.yaml` | Intent → Critic behavior overlay (hallucination-sensitive, evidence-required, etc.) |
 
 **Plugin system:** Drop a YAML into `plugins/weights/` to add an
@@ -899,7 +899,7 @@ At service startup (`lifespan()` in `main.py`), the following runs in order:
    the filtered taxonomy index (`_cached_taxonomies`), and caches in module globals
 3. **Intent config linter** — validates `intent_weights.yaml` structure (thresholds,
    weights, pairings, overrides)
-4. **Taxonomy config linter** — Pydantic-based validation of all 173 entries:
+4. **Taxonomy config linter** — Pydantic-based validation of all 190 entries:
    required fields (`path`, `complexity`), type checks, complexity range (0.0-1.0),
    duplicate path detection, orphan domain detection (cross-refs routing YAML),
    alias collision detection (`query_expansion_hints` overlap)

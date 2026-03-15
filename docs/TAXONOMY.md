@@ -1,7 +1,7 @@
 # Synesis Intent Taxonomy — "The 95%" Coverage Design
 
 **Role:** Synesis Taxonomy Engineer
-**Goal:** A YAML-driven scoring engine covering 173 domain entries across 27 categories, with startup compilation and Pydantic schema validation.
+**Goal:** A YAML-driven scoring engine covering 190 domain entries across 28 categories, with startup compilation and Pydantic schema validation.
 
 ---
 
@@ -443,7 +443,7 @@ Implementation: `base/planner/app/critic_policy.py` — `check_evidence_gate`, `
 
 ## 11. Coverage Status
 
-**Current state:** 173 taxonomy entries, 0 orphan domains, 41 routing plugins.
+**Current state:** 190 taxonomy entries, 0 orphan domains, 41 routing plugins.
 
 The taxonomy config linter (`taxonomy_config_linter.py`) runs at startup and
 validates all entries. Orphan detection cross-references every `domain:` value
@@ -520,7 +520,7 @@ The unified indexer (`base/rag/indexer/`) uses the `domain` field in each source
 prompts for Planner, Writer, and Critic without adding new LLMs. Config-driven depth,
 style, and epistemic discipline.
 
-**File:** `base/planner/taxonomy_prompt_config.yaml` — 173 entries mapping taxonomy keys
+**File:** `base/planner/taxonomy_prompt_config.yaml` — 190 entries mapping taxonomy keys
 to full metadata. Compiled at startup into `_cached_taxonomies` with Pydantic schema
 validation via `taxonomy_config_linter.py`.
 

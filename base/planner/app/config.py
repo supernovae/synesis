@@ -423,6 +423,14 @@ class Settings(BaseSettings):
     injection_scan_enabled: bool = True
     injection_action: Literal["reduce", "block", "log"] = "reduce"
 
+    # Output controls (Phase 2) — global defaults when not set by request or taxonomy
+    output_controls_precise: bool = False
+    output_controls_show_assumptions: bool = False
+    output_controls_clarify_first: bool = False
+    # Clarify-first triggers only when ambiguity count >= this and difficulty >= threshold
+    clarify_first_min_ambiguities: int = 2
+    clarify_first_min_difficulty: float = 0.4
+
     # Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
 

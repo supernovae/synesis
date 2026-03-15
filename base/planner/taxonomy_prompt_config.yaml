@@ -11,6 +11,7 @@
 #   depth_instructions: Appended to system prompt (adjust depth to match user's explicit request)
 #   required_elements: Bullet structure — Planner must produce steps for these (or Worker uses as outline)
 #   discovery_prompt: Optional enrichment instruction — adds a brief "Discover More" section to responses
+#   output_controls: Optional default controls (precise, show_assumptions, clarify_first) — overridden by request-level controls
 
 # ─── Science ───────────────────────────────────────────────────────────────────
 
@@ -1604,8 +1605,10 @@ software_architecture:
     you can — rough ranges with stated assumptions beat precise-sounding
     fabrications. Scope ruthlessly to the user's constraints; defer the rest
     to future work. When describing component relationships or data flow,
-    include a mermaid diagram to visualize the architecture.
-  discovery_prompt: "End with a brief 'Key Risks' section: the top 2-3 ways this design could fail and how to detect it early."
+    include a mermaid diagram to visualize the architecture. Name specific
+    tools, frameworks, and versions — not abstract categories. Each section
+    should contain 2-4 substantive paragraphs with concrete details.
+  discovery_prompt: "End with a brief 'Key Risks' section: the top 3-5 ways this design could fail, early warning signs, and mitigations."
   planner_decomposition_rules: |
     For architecture/design tasks:
     - Map each user-requested section to a plan step.
@@ -1614,10 +1617,8 @@ software_architecture:
   required_elements:
     - "Design Goals & Constraints"
     - "Architecture & Components"
-    - "Model & Service Taxonomy"
-    - "Retrieval Architecture"
     - "Technology Choices & Rationale"
-    - "Decision Policy"
+    - "Tradeoffs & Alternatives"
     - "Implementation Path"
     - "Key Risks"
   query_expansion_hints:
@@ -1630,30 +1631,35 @@ software_architecture:
     - "failure modes"
     - "microservices"
     - "event-driven"
+    - "architecture review"
+    - "technical design document"
   preferred_web_scopes:
     - "site:martinfowler.com"
     - "site:microservices.io"
   output_style: "architecture_document"
   output_style_guidance: >-
     Structure like a technical architecture document. Design goals and
-    constraints first. Then a Model & Service Taxonomy section that explicitly
-    separates each model or service type (e.g. embedding model, retrieval
-    engine, router/classifier, generative model, validators) with its role
-    and selection rationale. Then a Retrieval Architecture section covering
-    chunking strategy, hybrid search (lexical + vector), metadata filtering,
-    permissions, freshness/versioning, and evidence sufficiency policy. Then
-    technology choices with rationale (chosen approach + why alternatives were
-    rejected). Include a Decision Policy section specifying when to answer,
-    clarify, refuse, or escalate. Implementation path with concrete milestones.
+    constraints first — restate the user's constraints and add any inferred
+    ones marked as [Assumed Constraint]. Then an Architecture & Components
+    section with a mermaid diagram showing component relationships and data
+    flow. Then technology choices with rationale (chosen approach + why
+    alternatives were rejected) in a comparison table. Include domain-specific
+    sections as demanded by the user's prompt (e.g. model taxonomy for AI
+    systems, data model for storage systems, API design for service systems).
+    Implementation path with concrete milestones and team-size-aware phasing.
     Key risks with domain-specific failure modes and detection strategies.
-    Every recommendation must be concrete and justified. Include a mermaid
-    architecture diagram.
+    Every recommendation must be concrete and justified.
   epistemic_guidance: >-
     Separate what is established (evidence-backed or widely accepted) from
     what is assumed (reasonable but unverified) and what is recommended
     (your professional judgment). When making a recommendation, state the
     key assumption it depends on. If inferring constraints the user did not
-    state, mark them as [Assumed Constraint].
+    state, mark them as [Assumed Constraint]. Label quantitative estimates
+    with [Estimate] and state the assumption behind them.
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: false
 
 # ─── Engineering: Cloud Architecture ──────────────────────────────────────────
 
@@ -1707,6 +1713,10 @@ cloud:
     (your professional judgment). When making a recommendation, state the
     key assumption it depends on. If inferring constraints the user did not
     state, mark them as [Assumed Constraint].
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: false
 
 # ─── Engineering: Kubernetes & Container Orchestration ────────────────────────
 
@@ -1831,26 +1841,32 @@ web_backend:
   depth_instructions: >-
     Consider error handling, concurrency, and observability from the start.
     Note authentication, rate limiting, and API versioning implications.
-    Recommend specific patterns for the framework.
-  discovery_prompt: "End with 'Production Checklist': 2-3 things commonly forgotten before going live."
+    Recommend specific patterns for the framework. Include database access
+    patterns, connection pooling, and migration strategy. Address caching
+    layers and invalidation. Consider horizontal scaling implications.
+  discovery_prompt: "End with 'Production Checklist': 3-5 things commonly forgotten before going live."
   required_elements:
     - "API Design"
     - "Error Handling & Observability"
+    - "Data Access & Caching"
     - "Performance Considerations"
     - "Tradeoffs"
   query_expansion_hints:
     - "REST API design"
+    - "GraphQL"
+    - "gRPC"
     - "middleware"
     - "authentication"
     - "rate limiting"
     - "database connection pooling"
     - "error handling patterns"
+    - "caching strategy"
   output_style: "backend_guide"
   output_style_guidance: >-
     Structure as a backend engineering guide: API design with endpoint
     examples, error handling strategy, middleware chain, database access
-    patterns, authentication flow, and production readiness checklist.
-    Include code snippets for critical patterns.
+    patterns, caching strategy, authentication flow, and production readiness
+    checklist. Include code snippets for critical patterns.
   epistemic_guidance: >-
     Distinguish framework conventions from general best practices. Note
     when a pattern depends on framework version or ecosystem. Flag
@@ -1874,12 +1890,252 @@ web_frontend:
     - "State Management"
     - "Performance & Accessibility"
     - "Tradeoffs"
+  query_expansion_hints:
+    - "React"
+    - "Vue"
+    - "Svelte"
+    - "Next.js"
+    - "SSR"
+    - "CSR"
+    - "component library"
+    - "state management"
   output_style: "frontend_guide"
   output_style_guidance: >-
     Component architecture with data-flow direction, rendering strategy
     rationale (SSR/CSR/ISR with tradeoffs), state management approach with
     rejected alternatives, bundle size and performance analysis. Include
     code snippets for critical patterns.
+  epistemic_guidance: >-
+    Distinguish framework conventions from general web platform behavior.
+    Note when a pattern is framework-specific or version-dependent. Flag
+    performance claims that depend on bundle tooling or deployment target.
+
+# ─── Engineering: Testing Strategy ────────────────────────────────────────────
+
+testing_strategy:
+  path: "Engineering > Testing Strategy"
+  complexity: 0.7
+  persona: "Test Architect"
+  worker_explain_tone: "You are a test architect. Design testing strategies that balance coverage, speed, and maintenance cost. Be pragmatic about what to test and how."
+  depth_instructions: >-
+    Apply the test pyramid pragmatically — unit, integration, and end-to-end
+    in the right proportions for the codebase. Explain what to mock vs test
+    against real dependencies. Address test data management, flaky test
+    mitigation, and CI integration. Quantify expected coverage targets with
+    rationale. Recommend specific frameworks and patterns for the tech stack.
+  discovery_prompt: "End with 'Testing Anti-patterns': 2-3 common mistakes that reduce test value or increase maintenance burden."
+  required_elements:
+    - "Testing Strategy & Pyramid"
+    - "Test Types & Boundaries"
+    - "Test Data & Fixtures"
+    - "CI Integration"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "unit test"
+    - "integration test"
+    - "end-to-end test"
+    - "test pyramid"
+    - "test coverage"
+    - "mocking"
+    - "test fixtures"
+    - "property-based testing"
+    - "mutation testing"
+    - "TDD"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as a testing strategy guide: test pyramid with layer
+    responsibilities, boundaries between test types, mocking strategy
+    with rationale, test data management approach, CI pipeline integration,
+    and coverage targets with reasoning. Include code snippets for
+    representative test patterns.
+  epistemic_guidance: >-
+    Distinguish general testing principles from framework-specific patterns.
+    Note when coverage targets depend on domain risk profile (e.g. fintech
+    vs internal tooling). Flag assumptions about CI infrastructure or
+    team testing maturity.
+
+# ─── Engineering: Debugging & Root Cause Analysis ─────────────────────────────
+
+debugging:
+  path: "Engineering > Debugging & Root Cause Analysis"
+  complexity: 0.7
+  persona: "Staff Engineer"
+  worker_explain_tone: "You are a staff engineer experienced in production debugging. Think systematically — hypothesize, gather evidence, narrow scope."
+  depth_instructions: >-
+    Structure the debugging approach: reproduce, isolate, hypothesize, verify.
+    Recommend specific observability tools and techniques (logs, metrics,
+    traces, heap dumps, flame graphs). Explain binary search and bisection
+    strategies. Note common root cause categories (concurrency, resource
+    exhaustion, configuration drift, dependency failure). Include prevention
+    strategies for the identified class of bug.
+  discovery_prompt: "End with 'Prevention': how to add guards (tests, alerts, lints) so this class of bug is caught earlier."
+  required_elements:
+    - "Reproduction Steps"
+    - "Debugging Approach"
+    - "Root Cause Hypothesis"
+    - "Verification & Fix"
+    - "Prevention"
+  query_expansion_hints:
+    - "debug"
+    - "root cause"
+    - "stack trace"
+    - "memory leak"
+    - "race condition"
+    - "deadlock"
+    - "performance regression"
+    - "flame graph"
+    - "core dump"
+  output_style: "diagnostic_guide"
+  output_style_guidance: >-
+    Structure as a diagnostic guide: symptom description, systematic
+    isolation approach, specific diagnostic commands and tools, root cause
+    hypothesis with evidence, fix with verification steps, and prevention
+    measures. Include concrete command examples.
+  epistemic_guidance: >-
+    Distinguish confirmed root causes from hypotheses. Note when a
+    diagnosis depends on runtime, OS, or configuration. Flag when
+    multiple root causes could produce the same symptom.
+
+# ─── Engineering: Code Review ─────────────────────────────────────────────────
+
+code_review:
+  path: "Engineering > Code Review"
+  complexity: 0.6
+  persona: "Senior Engineer"
+  worker_explain_tone: "You are a senior engineer conducting a thorough code review. Focus on correctness, maintainability, and team standards."
+  depth_instructions: >-
+    Review for correctness, edge cases, error handling, and security.
+    Check naming, structure, and adherence to team conventions. Flag
+    performance implications of data structure or algorithm choices.
+    Note testability and suggest missing test cases. Be constructive —
+    explain the 'why' behind each suggestion. Distinguish blocking issues
+    from nits.
+  discovery_prompt: "End with 'Summary': blocking issues, non-blocking suggestions, and what's done well."
+  required_elements:
+    - "Correctness & Edge Cases"
+    - "Maintainability & Style"
+    - "Performance Considerations"
+    - "Test Coverage Gaps"
+    - "Summary"
+  query_expansion_hints:
+    - "code review"
+    - "pull request"
+    - "refactor"
+    - "clean code"
+    - "SOLID"
+    - "code smell"
+    - "technical debt"
+  output_style: "review_document"
+  output_style_guidance: >-
+    Structure as a code review: categorize findings as Blocking, Suggestion,
+    or Nit. For each finding, explain the issue, its impact, and a concrete
+    fix. End with a summary of what's done well and overall assessment.
+    Include code snippets showing before/after for non-trivial suggestions.
+  epistemic_guidance: >-
+    Distinguish objective correctness issues from style preferences. Note
+    when a suggestion is team-convention-dependent vs universally applicable.
+    Flag subjective recommendations as such.
+
+# ─── Engineering: API Design ──────────────────────────────────────────────────
+
+api_design:
+  path: "Engineering > API Design"
+  complexity: 0.75
+  persona: "API Architect"
+  worker_explain_tone: "You are an API architect. Design APIs that are intuitive, consistent, and evolvable. Prioritize developer experience."
+  depth_instructions: >-
+    Choose the right paradigm for the use case (REST, GraphQL, gRPC, event-
+    driven). Design resource models with clear naming and relationships.
+    Address versioning, pagination, filtering, and error responses. Include
+    authentication and authorization design. Consider backward compatibility
+    and deprecation strategy. Note rate limiting and abuse prevention.
+  discovery_prompt: "End with 'API Gotchas': common design mistakes that cause breaking changes or poor developer experience."
+  required_elements:
+    - "API Paradigm & Rationale"
+    - "Resource Model & Endpoints"
+    - "Error Handling & Status Codes"
+    - "Authentication & Authorization"
+    - "Versioning & Evolution"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "REST API"
+    - "GraphQL"
+    - "gRPC"
+    - "OpenAPI"
+    - "API versioning"
+    - "pagination"
+    - "rate limiting"
+    - "webhook"
+    - "API gateway"
+  preferred_web_scopes:
+    - "site:swagger.io"
+    - "site:graphql.org"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as an API design document: paradigm selection with rationale,
+    resource model with endpoint examples (method, path, request/response
+    bodies), error handling with status code mapping, authentication flow,
+    versioning strategy, and rate limiting design. Include OpenAPI/schema
+    snippets for key endpoints.
+  epistemic_guidance: >-
+    Distinguish API design best practices from convention preferences.
+    Note when a pattern depends on client ecosystem (mobile, web, internal).
+    Flag assumptions about traffic patterns or consumer types.
+  output_controls:
+    precise: true
+    show_assumptions: true
+
+# ─── Engineering: System Design ───────────────────────────────────────────────
+
+system_design:
+  path: "Engineering > System Design"
+  complexity: 0.85
+  persona: "Principal Engineer"
+  worker_explain_tone: "You are a principal engineer designing large-scale distributed systems. Think about failure modes, scalability, and operational reality."
+  depth_instructions: >-
+    Start from requirements (functional, non-functional, constraints). Design
+    with scalability, availability, and consistency tradeoffs explicit. Use
+    back-of-envelope calculations for throughput, storage, and latency.
+    Include data model, API surface, and component interaction. Address
+    failure modes at each layer. Consider operational complexity and team
+    capacity. Include mermaid diagrams for system topology and data flow.
+  discovery_prompt: "End with 'Scaling Bottlenecks': the first 2-3 components that will need rearchitecting as load grows 10x."
+  required_elements:
+    - "Requirements & Constraints"
+    - "Capacity Estimates"
+    - "System Architecture"
+    - "Data Model & Storage"
+    - "API Design"
+    - "Failure Modes & Mitigations"
+    - "Scalability Plan"
+    - "Key Risks"
+  query_expansion_hints:
+    - "system design"
+    - "distributed systems"
+    - "scalability"
+    - "CAP theorem"
+    - "load balancing"
+    - "message queue"
+    - "caching"
+    - "sharding"
+    - "consistency"
+    - "availability"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as a system design document: requirements and constraints,
+    back-of-envelope capacity estimates, high-level architecture with mermaid
+    diagram, component deep-dives with data flow, storage design with access
+    patterns, API surface, failure mode analysis, and scalability roadmap.
+    Make all capacity numbers explicit with stated assumptions.
+  epistemic_guidance: >-
+    Separate hard requirements from assumed constraints (mark as [Assumed]).
+    Label all capacity estimates with [Estimate] and state assumptions.
+    Distinguish battle-tested patterns from emerging approaches. Note when
+    a design choice depends on team size, budget, or timeline.
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: true
 
 # ─── Engineering: ML Infrastructure ──────────────────────────────────────────
 
@@ -1917,6 +2173,9 @@ ml_ops:
     Distinguish empirical benchmark results from theoretical estimates.
     Note when performance claims depend on hardware, batch size, or data
     distribution. Flag assumptions about data quality, labeling, or drift.
+  output_controls:
+    precise: true
+    show_assumptions: true
 
 # ─── Engineering: Embedded Systems ────────────────────────────────────────────
 
@@ -2326,16 +2585,32 @@ terraform:
     Use Terraform best practices: remote state, workspaces, module
     composition. Explain provider-specific behavior. Note state locking
     and drift detection. Include plan/apply workflow considerations.
+    Consider import workflows for existing infrastructure.
+  discovery_prompt: "End with 'IaC Gotchas': common state, provider, or module pitfalls for this approach."
   required_elements:
     - "Resource Design"
     - "State Management"
     - "Module Structure"
     - "Tradeoffs"
+  query_expansion_hints:
+    - "HCL"
+    - "terraform module"
+    - "terraform state"
+    - "provider"
+    - "terraform plan"
+    - "terraform import"
+  preferred_web_scopes:
+    - "site:developer.hashicorp.com"
+    - "site:registry.terraform.io"
   output_style: "code_guide"
   output_style_guidance: >-
     Lead with HCL code. Explain state management decisions. Show module
     composition patterns. Note provider-specific gotchas and plan/apply
     workflow implications.
+  epistemic_guidance: >-
+    Distinguish Terraform core behavior from provider-specific behavior.
+    Note when a pattern depends on provider version or Terraform version.
+    Flag assumptions about existing state or infrastructure.
 
 ansible:
   path: "Engineering > Ansible"
@@ -2346,15 +2621,26 @@ ansible:
     Write idempotent playbooks. Use roles for reusability. Explain
     inventory patterns and variable precedence. Note connection methods
     and privilege escalation. Include molecule testing approach.
+  discovery_prompt: "End with 'Ansible Gotchas': common idempotency, ordering, or variable-precedence mistakes."
   required_elements:
     - "Playbook Design"
     - "Idempotency"
     - "Role Structure"
     - "Testing Approach"
+  query_expansion_hints:
+    - "playbook"
+    - "ansible role"
+    - "inventory"
+    - "molecule"
+    - "ansible vault"
   output_style: "code_guide"
   output_style_guidance: >-
     Lead with working playbook YAML. Explain role structure and variable
     precedence. Note idempotency considerations. End with testing approach.
+  epistemic_guidance: >-
+    Distinguish Ansible core module behavior from collection-specific behavior.
+    Note when patterns depend on Ansible version or target OS. Flag
+    assumptions about inventory structure or privilege escalation.
 
 shell_scripting:
   path: "Engineering > Shell Scripting"
@@ -2373,6 +2659,10 @@ shell_scripting:
   output_style_guidance: >-
     Lead with working script. Note bash vs POSIX portability. Show proper
     error handling and quoting. Mention shellcheck compliance.
+  epistemic_guidance: >-
+    Distinguish POSIX-portable behavior from bash/zsh-specific extensions.
+    Note when a command depends on GNU vs BSD coreutils. Flag assumptions
+    about shell version or installed utilities.
 
 observability:
   path: "Engineering > Observability"
@@ -2395,6 +2685,141 @@ observability:
     Structure as an observability guide: architecture with tool choices,
     metrics and alerting strategy (SLI/SLO-driven), logging pipeline,
     distributed tracing setup, and cost/cardinality trade-offs.
+
+# ─── Engineering: CI/CD ───────────────────────────────────────────────────────
+
+ci_cd:
+  path: "Engineering > CI/CD"
+  complexity: 0.75
+  persona: "CI/CD Engineer"
+  worker_explain_tone: "You are a CI/CD engineer. Design pipelines for speed, reliability, and developer experience. Minimize feedback loop time."
+  depth_instructions: >-
+    Design pipeline stages with clear purposes (lint, test, build, publish,
+    deploy). Optimize for fast feedback — parallelize where possible, cache
+    aggressively. Address artifact management and promotion across
+    environments. Include secret management and credential rotation. Note
+    pipeline-as-code patterns and drift prevention. Consider monorepo vs
+    polyrepo pipeline implications.
+  discovery_prompt: "End with 'Pipeline Anti-patterns': 2-3 common mistakes that slow pipelines or cause flaky deployments."
+  required_elements:
+    - "Pipeline Architecture"
+    - "Stage Design & Parallelization"
+    - "Artifact Management"
+    - "Secret Management"
+    - "Deployment Promotion"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "CI/CD"
+    - "GitHub Actions"
+    - "GitLab CI"
+    - "Jenkins"
+    - "Tekton"
+    - "ArgoCD"
+    - "pipeline"
+    - "artifact"
+    - "deployment promotion"
+    - "GitOps"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as a CI/CD design guide: pipeline architecture with mermaid
+    stage diagram, stage breakdown with timing targets, artifact management
+    and promotion flow, secret handling, deployment strategy per environment,
+    and developer experience considerations. Include pipeline-as-code
+    snippets for key stages.
+  epistemic_guidance: >-
+    Distinguish CI/CD platform-agnostic patterns from tool-specific features.
+    Note when a pipeline design depends on repo structure, team size, or
+    deployment target. Flag assumptions about existing infrastructure.
+
+# ─── Engineering: Site Reliability Engineering ────────────────────────────────
+
+sre:
+  path: "Engineering > Site Reliability Engineering"
+  complexity: 0.8
+  persona: "SRE Lead"
+  worker_explain_tone: "You are an SRE lead. Balance reliability with velocity. Use error budgets, not perfection, as the standard."
+  depth_instructions: >-
+    Define SLIs, SLOs, and error budgets for the service. Design incident
+    response workflows with escalation paths. Address capacity planning with
+    concrete utilization targets. Include chaos engineering and game day
+    practices. Note toil reduction strategies. Consider on-call rotation
+    design and burnout prevention.
+  discovery_prompt: "End with 'Reliability Risks': the top 2-3 failure scenarios and their blast radius."
+  required_elements:
+    - "SLI/SLO/Error Budget"
+    - "Incident Response"
+    - "Capacity Planning"
+    - "Toil Reduction"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "SRE"
+    - "site reliability"
+    - "SLO"
+    - "error budget"
+    - "incident response"
+    - "chaos engineering"
+    - "capacity planning"
+    - "on-call"
+    - "postmortem"
+    - "toil"
+  preferred_web_scopes:
+    - "site:sre.google"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as an SRE design guide: SLI/SLO definitions with concrete
+    thresholds, error budget policy, incident response workflow with mermaid
+    diagram, capacity planning with utilization targets, chaos engineering
+    approach, and toil reduction priorities. Include concrete examples of
+    SLO specifications.
+  epistemic_guidance: >-
+    Distinguish Google SRE book principles from practices adapted to smaller
+    teams. Note when an SLO depends on business requirements vs engineering
+    defaults. Flag assumptions about team size, on-call maturity, and
+    incident frequency.
+
+# ─── Engineering: Cloud Cost & Performance Optimization ───────────────────────
+
+cost_optimization:
+  path: "Engineering > Cloud Cost & Performance Optimization"
+  complexity: 0.75
+  persona: "FinOps Engineer"
+  worker_explain_tone: "You are a FinOps engineer. Optimize cloud spend without sacrificing reliability. Use data-driven right-sizing over guesswork."
+  depth_instructions: >-
+    Analyze cost by category (compute, storage, network, licensing). Recommend
+    right-sizing with utilization data requirements. Address reserved vs
+    on-demand vs spot strategies with commitment risk analysis. Include
+    tagging and chargeback design. Note performance implications of cost
+    optimization (latency vs cost tradeoff). Consider auto-scaling policies
+    with concrete thresholds.
+  discovery_prompt: "End with 'Cost Traps': 2-3 common ways cloud bills grow unexpectedly and how to detect them early."
+  required_elements:
+    - "Cost Breakdown & Analysis"
+    - "Right-sizing Recommendations"
+    - "Commitment Strategy"
+    - "Tagging & Chargeback"
+    - "Performance Impact"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "FinOps"
+    - "cloud cost"
+    - "right-sizing"
+    - "reserved instances"
+    - "spot instances"
+    - "auto-scaling"
+    - "cost allocation"
+    - "tagging"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as a cost optimization guide: current cost breakdown by
+    category, right-sizing recommendations with utilization thresholds,
+    commitment strategy with risk analysis, tagging taxonomy for chargeback,
+    auto-scaling policy with concrete triggers, and performance impact
+    assessment. Include cost estimate tables with stated assumptions.
+  epistemic_guidance: >-
+    Distinguish general FinOps principles from cloud-provider-specific
+    pricing behavior. Note when cost estimates depend on usage patterns,
+    region, or commitment terms. Flag assumptions about current utilization
+    and growth projections. Label all cost figures with [Estimate].
 
 aws:
   path: "Engineering > AWS"
@@ -2583,6 +3008,153 @@ llm_evaluation:
     Structure as an evaluation framework: dimensions and metrics, baseline
     comparisons, dataset design, reproducibility protocol, and reporting
     format. Include concrete metric definitions.
+
+# ─── Engineering: Data Engineering & Pipelines ────────────────────────────────
+
+data_engineering:
+  path: "Engineering > Data Engineering & Pipelines"
+  complexity: 0.8
+  persona: "Data Engineer"
+  worker_explain_tone: "You are a senior data engineer. Design reliable, observable data pipelines. Prioritize data quality and idempotency over cleverness."
+  depth_instructions: >-
+    Design for idempotency and exactly-once semantics where possible. Choose
+    between batch, micro-batch, and streaming with explicit latency vs cost
+    tradeoffs. Address schema evolution, data quality checks (great
+    expectations, dbt tests), and lineage tracking. Include orchestration
+    tool selection (Airflow, Dagster, Prefect) with rationale. Note backfill
+    strategies and failure recovery. Consider partitioning and compaction
+    for storage efficiency.
+  discovery_prompt: "End with 'Pipeline Gotchas': 2-3 common failures in data freshness, quality, or schema evolution."
+  required_elements:
+    - "Pipeline Architecture"
+    - "Data Model & Schema"
+    - "Quality & Validation"
+    - "Orchestration & Scheduling"
+    - "Failure Recovery & Backfill"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "ETL"
+    - "ELT"
+    - "data pipeline"
+    - "Airflow"
+    - "Dagster"
+    - "dbt"
+    - "Spark"
+    - "data lake"
+    - "data warehouse"
+    - "schema evolution"
+    - "data quality"
+    - "data lineage"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as a data pipeline design document: pipeline architecture with
+    mermaid diagram showing data flow stages, schema design with evolution
+    strategy, quality gates at each stage, orchestration and scheduling
+    design, failure recovery with backfill procedures, and storage
+    optimization. Include concrete tool configurations.
+  epistemic_guidance: >-
+    Distinguish general data engineering principles from tool-specific
+    behavior. Note when pipeline patterns depend on data volume, velocity,
+    or variety. Flag assumptions about source system reliability and
+    data freshness requirements.
+
+# ─── Engineering: Model Serving & Inference ───────────────────────────────────
+
+model_serving:
+  path: "Engineering > Model Serving & Inference"
+  complexity: 0.8
+  persona: "ML Platform Engineer"
+  worker_explain_tone: "You are an ML platform engineer. Optimize for serving latency, throughput, and cost. Ground recommendations in measured performance."
+  depth_instructions: >-
+    Design serving infrastructure with concrete latency and throughput
+    targets. Address model quantization, batching, and GPU/CPU tradeoffs.
+    Include A/B testing and shadow deployment patterns for model rollout.
+    Note autoscaling policies with queue depth or latency triggers.
+    Consider model caching, warm-up strategies, and cold start mitigation.
+    Address multi-model serving and model routing for cost efficiency.
+  discovery_prompt: "End with 'Serving Gotchas': 2-3 common failures in latency, GPU utilization, or model rollout."
+  required_elements:
+    - "Serving Architecture"
+    - "Performance Targets & Optimization"
+    - "Model Rollout Strategy"
+    - "Autoscaling & Cost"
+    - "Monitoring & Fallback"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "model serving"
+    - "inference"
+    - "vLLM"
+    - "TensorRT"
+    - "ONNX"
+    - "model quantization"
+    - "batching"
+    - "GPU"
+    - "Triton"
+    - "KServe"
+    - "model router"
+  preferred_web_scopes:
+    - "site:docs.vllm.ai"
+    - "site:kserve.github.io"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as a model serving design document: serving architecture with
+    mermaid diagram, performance targets with latency/throughput breakdown,
+    optimization techniques (quantization, batching, caching), model rollout
+    strategy (A/B, shadow, canary), autoscaling policy with triggers, and
+    monitoring with fallback paths. Include concrete benchmarks or estimates.
+  epistemic_guidance: >-
+    Distinguish measured benchmarks from projected performance. Note when
+    latency or throughput depends on model size, hardware, or batch size.
+    Flag assumptions about GPU availability, model format, and traffic
+    patterns. Label performance estimates with [Estimate].
+
+# ─── Engineering: AI Safety & Guardrails ──────────────────────────────────────
+
+ai_guardrails:
+  path: "Engineering > AI Safety & Guardrails"
+  complexity: 0.8
+  persona: "AI Safety Engineer"
+  worker_explain_tone: "You are an AI safety engineer. Design defense-in-depth guardrails. Be specific about threat models and failure modes."
+  depth_instructions: >-
+    Design guardrails at input (prompt injection, jailbreak), processing
+    (retrieval poisoning, context manipulation), and output (harmful content,
+    hallucination, PII leakage) layers. Address content filtering with
+    concrete classifier choices. Include red-teaming methodology and
+    adversarial testing approach. Note the tradeoff between safety and
+    usability (false positive rate). Consider human-in-the-loop escalation
+    paths.
+  discovery_prompt: "End with 'Safety Gaps': 2-3 attack vectors commonly missed in initial guardrail deployment."
+  required_elements:
+    - "Threat Model"
+    - "Input Guardrails"
+    - "Output Guardrails"
+    - "Red-teaming Approach"
+    - "Monitoring & Escalation"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "guardrails"
+    - "prompt injection"
+    - "jailbreak"
+    - "content filtering"
+    - "PII detection"
+    - "hallucination detection"
+    - "red-teaming"
+    - "RLHF"
+    - "constitutional AI"
+    - "NeMo Guardrails"
+  output_style: "platform_guide"
+  output_style_guidance: >-
+    Structure as a guardrails design guide: threat model with attack
+    taxonomy, input guardrail chain (classifiers, filters, validators),
+    output guardrail chain (toxicity, PII, faithfulness checks), red-teaming
+    methodology with test categories, monitoring and escalation workflows,
+    and false positive rate targets. Include concrete classifier and
+    threshold choices.
+  epistemic_guidance: >-
+    Distinguish known attack vectors (published research) from theoretical
+    threats. Note when guardrail effectiveness depends on model, language,
+    or domain. Flag the inherent tradeoff between safety and utility.
+    Acknowledge that no guardrail system is perfect.
 
 # ─── Writing & Communication ─────────────────────────────────────────────────
 
@@ -3082,12 +3654,267 @@ legal_compliance:
     - "Audit Considerations"
   output_style: "legal_analysis"
 
+# ─── Product & Operations ─────────────────────────────────────────────────────
+
+product_planning:
+  path: "Product > Planning & Requirements"
+  complexity: 0.7
+  persona: "Product Manager"
+  worker_explain_tone: "You are an experienced product manager. Decompose problems into shippable increments. Prioritize ruthlessly based on impact and effort."
+  depth_instructions: >-
+    Structure requirements with clear user stories and acceptance criteria.
+    Prioritize using impact/effort or RICE frameworks with stated assumptions.
+    Distinguish must-haves from nice-to-haves. Include success metrics and
+    how to measure them. Address dependencies and risks to the timeline.
+    Note what is explicitly out of scope.
+  discovery_prompt: "End with 'Scope Risks': 2-3 ways this plan could balloon in scope and how to prevent it."
+  required_elements:
+    - "Problem Statement"
+    - "Requirements & User Stories"
+    - "Prioritization"
+    - "Success Metrics"
+    - "Timeline & Dependencies"
+    - "Out of Scope"
+  query_expansion_hints:
+    - "product requirements"
+    - "user story"
+    - "acceptance criteria"
+    - "roadmap"
+    - "prioritization"
+    - "RICE"
+    - "MoSCoW"
+    - "MVP"
+    - "OKR"
+    - "sprint planning"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure as a product requirements document: problem statement with
+    context, user stories with acceptance criteria, prioritization matrix
+    with methodology, success metrics with measurement plan, timeline with
+    dependencies and milestones, and explicit scope boundaries. Use tables
+    for prioritization and timeline.
+  epistemic_guidance: >-
+    Distinguish validated user needs from assumed requirements. Note when
+    priority depends on business context not stated. Flag estimates as
+    [Estimate] and state the assumptions behind them. Separate stakeholder
+    requests from user-validated needs.
+  output_controls:
+    show_assumptions: true
+    clarify_first: true
+
+incident_postmortem:
+  path: "Product > Incident Analysis & Postmortem"
+  complexity: 0.7
+  persona: "Incident Commander"
+  worker_explain_tone: "You are an experienced incident commander. Conduct blameless postmortems focused on systemic improvements, not individual errors."
+  depth_instructions: >-
+    Follow blameless postmortem structure. Establish clear timeline with
+    detection, response, mitigation, and resolution phases. Identify
+    contributing factors (not root cause — incidents are rarely
+    single-cause). Propose action items with owners and deadlines. Note
+    what went well alongside what failed. Address detection gap and how
+    to shorten time-to-detect.
+  discovery_prompt: "End with 'Systemic Patterns': if this incident recurs, what architectural change would prevent the class of failure?"
+  required_elements:
+    - "Incident Summary"
+    - "Timeline"
+    - "Contributing Factors"
+    - "Impact Assessment"
+    - "Action Items"
+    - "What Went Well"
+  query_expansion_hints:
+    - "postmortem"
+    - "incident"
+    - "root cause analysis"
+    - "5 whys"
+    - "blameless"
+    - "outage"
+    - "incident response"
+    - "severity"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure as a blameless postmortem: incident summary with severity and
+    impact, detailed timeline with timestamps, contributing factors analysis,
+    action items table with owner/priority/deadline, what went well, and
+    follow-up meeting schedule. Use a timeline format for the incident
+    progression.
+  epistemic_guidance: >-
+    Distinguish observed facts (logs, metrics) from inferred causation.
+    Note when contributing factors are hypothesized vs confirmed. Avoid
+    assigning blame to individuals — focus on systemic and process factors.
+
+runbook:
+  path: "Product > Operational Runbook"
+  complexity: 0.6
+  persona: "Operations Engineer"
+  worker_explain_tone: "You are an operations engineer writing runbooks for on-call teams. Be explicit, step-by-step, and assume the reader is under stress."
+  depth_instructions: >-
+    Write step-by-step procedures that work at 3 AM under pressure. Include
+    exact commands, expected outputs, and decision points. Note prerequisites
+    and permissions required. Include rollback steps for each action. Address
+    escalation criteria — when to wake up the next person. Test the runbook
+    with a game day.
+  discovery_prompt: "End with 'Runbook Gaps': 2-3 scenarios this runbook doesn't cover that should be documented next."
+  required_elements:
+    - "Trigger / When to Use"
+    - "Prerequisites"
+    - "Step-by-Step Procedure"
+    - "Verification Steps"
+    - "Rollback Procedure"
+    - "Escalation Criteria"
+  query_expansion_hints:
+    - "runbook"
+    - "playbook"
+    - "standard operating procedure"
+    - "SOP"
+    - "on-call"
+    - "incident"
+    - "troubleshooting"
+    - "operations"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure as an operational runbook: trigger conditions, prerequisites
+    and permissions, numbered step-by-step procedure with exact commands
+    and expected outputs, verification steps after each critical action,
+    rollback procedure, and escalation criteria. Use monospace for commands
+    and highlight decision points.
+  epistemic_guidance: >-
+    Distinguish verified procedures (tested in production) from untested
+    steps. Note when a step depends on environment, permissions, or
+    tooling version. Flag steps that require elevated privileges.
+
+decision_memo:
+  path: "Product > Decision Memo"
+  complexity: 0.7
+  persona: "Staff Engineer"
+  worker_explain_tone: "You are a staff engineer writing decision documents. Present options objectively, make a recommendation, and document the reasoning for future reference."
+  depth_instructions: >-
+    Structure as a decision document with clear problem context, options
+    evaluated, criteria used, and final recommendation. Include constraints
+    that shaped the decision. Note reversibility — is this a one-way or
+    two-way door? Document what was explicitly not chosen and why. Consider
+    long-term maintenance and operational implications.
+  discovery_prompt: "End with 'Revisit Triggers': conditions that should prompt reconsidering this decision."
+  required_elements:
+    - "Context & Problem"
+    - "Options Evaluated"
+    - "Decision Criteria"
+    - "Recommendation"
+    - "Risks & Reversibility"
+    - "Rejected Alternatives"
+  query_expansion_hints:
+    - "ADR"
+    - "decision record"
+    - "RFC"
+    - "design document"
+    - "trade-off"
+    - "buy vs build"
+    - "technology selection"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure as a decision document: context and problem statement, options
+    table with criteria scoring, recommendation with reasoning, risks and
+    reversibility assessment, rejected alternatives with rationale, and
+    revisit triggers. Use comparison tables for options evaluation.
+  epistemic_guidance: >-
+    Distinguish objective criteria (cost, performance benchmarks) from
+    subjective criteria (team preference, ecosystem familiarity). Note
+    when a recommendation depends on assumptions that may change. Flag
+    irreversible decisions explicitly.
+  output_controls:
+    precise: true
+    show_assumptions: true
+    clarify_first: true
+
+project_management:
+  path: "Product > Project Management"
+  complexity: 0.6
+  persona: "Engineering Manager"
+  worker_explain_tone: "You are an engineering manager. Focus on execution, communication, and unblocking. Be pragmatic about process overhead."
+  depth_instructions: >-
+    Choose methodology (Scrum, Kanban, Shape Up) with rationale for the
+    team context. Address estimation techniques and their accuracy bounds.
+    Design communication rhythms (standups, retros, demos) for the team
+    size. Include risk management and dependency tracking. Note metrics
+    for team health and delivery predictability.
+  discovery_prompt: "End with 'Process Smells': 2-3 signs that the chosen process isn't working and what to try instead."
+  required_elements:
+    - "Methodology & Rationale"
+    - "Estimation Approach"
+    - "Communication Cadence"
+    - "Risk Management"
+    - "Delivery Metrics"
+    - "Tradeoffs"
+  query_expansion_hints:
+    - "agile"
+    - "scrum"
+    - "kanban"
+    - "sprint"
+    - "estimation"
+    - "retrospective"
+    - "velocity"
+    - "Shape Up"
+    - "project plan"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure as a project management plan: methodology selection with
+    rationale, estimation approach with accuracy expectations, communication
+    rhythm (meeting types, frequency, attendees), risk register with
+    mitigations, and delivery metrics with targets. Include concrete
+    ceremony descriptions and time-boxes.
+  epistemic_guidance: >-
+    Distinguish evidence-based management practices from methodology
+    dogma. Note when a process depends on team size, maturity, or
+    distribution. Flag estimation uncertainty honestly.
+
+stakeholder_comms:
+  path: "Product > Stakeholder Communication"
+  complexity: 0.5
+  persona: "Technical Program Manager"
+  worker_explain_tone: "You are a technical program manager. Communicate clearly to different audiences. Translate technical details into business impact."
+  depth_instructions: >-
+    Match communication depth and vocabulary to the audience (executive,
+    peer engineering, customer). Lead with impact and decisions needed.
+    Structure for skimmability — key message in the first paragraph, details
+    below. Include clear asks or next steps. Note risks and blockers with
+    requested help.
+  discovery_prompt: "End with 'Communication Checklist': items to verify before sending (audience, tone, asks, risks)."
+  required_elements:
+    - "Key Message"
+    - "Status & Progress"
+    - "Risks & Blockers"
+    - "Asks & Next Steps"
+  query_expansion_hints:
+    - "status update"
+    - "executive summary"
+    - "stakeholder update"
+    - "project status"
+    - "weekly update"
+    - "quarterly review"
+  output_style: "document_draft"
+  output_style_guidance: >-
+    Structure for the target audience: executive communications get a
+    one-paragraph summary with RAG status, then details. Peer updates
+    get technical depth with blockers highlighted. All formats include
+    clear next steps and asks. Use bullet points and tables for
+    skimmability.
+  epistemic_guidance: >-
+    Distinguish confirmed facts from projections. Note when timeline
+    estimates have significant uncertainty. Flag dependencies on external
+    teams or decisions. Be transparent about risks without catastrophizing.
+
 # Fallback when no domain match
 generic:
   path: "General"
   complexity: 0.5
   persona: "Helpful Assistant"
-  worker_explain_tone: ""
-  depth_instructions: ""
+  worker_explain_tone: "You are a helpful assistant. Answer clearly and directly. Match depth to the question's complexity."
+  depth_instructions: >-
+    Answer the question directly and completely. For simple factual questions,
+    be concise. For complex or multi-part questions, structure the answer with
+    headers and provide concrete details. Separate facts from opinions.
   required_elements:
     - "Direct Answer"
+  epistemic_guidance: >-
+    If uncertain, say so. Separate established facts from your best judgment.
+    For subjective topics, present multiple perspectives.

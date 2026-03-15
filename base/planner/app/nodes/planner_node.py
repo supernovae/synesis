@@ -240,11 +240,16 @@ def _derive_style_contract(
     user_task: dict[str, Any],
     difficulty: float,
     taxonomy_key: str = "",
+    output_controls: dict[str, Any] | None = None,
+    taxonomy_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a StyleContract from user_task + difficulty.
+    """Build a StyleContract from user_task + difficulty + output controls.
 
     verbosity_target is the sole length authority.  Token budgets (scaled
     by difficulty in config) enforce actual length.
+
+    Phase 2 controls (precise, show_assumptions, clarify_first) are resolved
+    with precedence: explicit request > user phrasing > taxonomy default > config.
     """
     meta_reqs = user_task.get("success_criteria") or []
 
@@ -258,9 +263,6 @@ def _derive_style_contract(
     else:
         verbosity = "moderate"
 
-    # Decisiveness: user wants committed recommendations, not surveys.
-    # Auto-enable for architecture/cloud/ML taxonomy keys so the writer
-    # commits to specific tools rather than presenting option menus.
     neg_constraints = user_task.get("negative_constraints") or []
     decision_signals = user_task.get("decision_signals") or []
     decisive = (
@@ -273,11 +275,29 @@ def _derive_style_contract(
         )
     )
 
+    oc = output_controls or {}
+    ut_oc = user_task.get("output_controls") or {}
+    tax = taxonomy_metadata or {}
+    tax_controls = tax.get("output_controls") or {}
+
+    def _resolve(name: str) -> bool:
+        """Precedence: request > user-task phrasing > taxonomy > config."""
+        if name in oc:
+            return bool(oc[name])
+        if name in ut_oc:
+            return bool(ut_oc[name])
+        if name in tax_controls:
+            return bool(tax_controls[name])
+        return bool(getattr(settings, f"output_controls_{name}", False))
+
     contract = StyleContract(
         direct_answer_first=direct_answer_first,
         citation_required=citation_required,
         verbosity_target=verbosity,
         decisive=decisive,
+        precise=_resolve("precise"),
+        show_assumptions=_resolve("show_assumptions"),
+        clarify_first=_resolve("clarify_first"),
     )
     return contract.model_dump()
 
@@ -426,6 +446,22 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             )
         if frame_success_criteria:
             system_prompt += "\nSuccess criteria (apply to ALL sections): " + "; ".join(frame_success_criteria[:6])
+
+        # Phase 2: hint output control expectations to plan structure
+        oc_state = state.get("output_controls") or {}
+        ut_oc = user_task.get("output_controls") or {}
+        tax_oc = taxonomy_meta.get("output_controls") or {}
+        if oc_state.get("show_assumptions") or ut_oc.get("show_assumptions") or tax_oc.get("show_assumptions"):
+            system_prompt += (
+                "\n\nASSUMPTION VISIBILITY: The final response must clearly separate "
+                "facts, assumptions, and recommendations. Plan sections that naturally "
+                "surface this distinction (e.g. constraints restatement, risk sections)."
+            )
+        if oc_state.get("precise") or ut_oc.get("precise") or tax_oc.get("precise"):
+            system_prompt += (
+                "\n\nPRECISION: Each plan step should target concrete, specific outputs — "
+                "named tools, quantified estimates, committed choices."
+            )
 
         if is_code_task:
             prompt = (
@@ -597,7 +633,13 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Anti-oscillation: emit decision ledger and locked style contract
         ledger = _extract_decisions(parsed, user_task)
-        style_locked = _derive_style_contract(user_task, difficulty, taxonomy_key=taxonomy_key)
+        style_locked = _derive_style_contract(
+            user_task,
+            difficulty,
+            taxonomy_key=taxonomy_key,
+            output_controls=state.get("output_controls"),
+            taxonomy_metadata=state.get("taxonomy_metadata"),
+        )
 
         # Evidence requests for sections that may need more retrieval
         domain_tags = list(state.get("active_domain_refs") or [])
@@ -614,6 +656,34 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     }
                 )
 
+        # Phase 2: clarify-first gate — deterministic, uses existing plumbing
+        clarify_question = ""
+        clarify_options: list[str] = []
+        if style_locked.get("clarify_first"):
+            ambiguities = user_task.get("ambiguities") or []
+            open_qs = plan.get("open_questions") or []
+            combined_qs = [q for q in (ambiguities + open_qs) if q and str(q).strip()]
+            trivial = state.get("task_is_trivial", False) or difficulty < settings.clarify_first_min_difficulty
+            already_clarified = bool(state.get("iteration_count", 0) > 0)
+            if (
+                not trivial
+                and not already_clarified
+                and len(combined_qs) >= settings.clarify_first_min_ambiguities
+            ):
+                top_qs = combined_qs[: 4]
+                clarify_question = (
+                    "Before I dive in, I want to make sure I get this right. "
+                    "A few things would materially change my answer:\n\n"
+                    + "\n".join(f"- {q}" for q in top_qs)
+                    + "\n\nFeel free to answer any or all, or just say 'proceed' "
+                    "and I'll state my assumptions and continue."
+                )
+                clarify_options = top_qs
+                logger.info(
+                    "clarify_first_triggered",
+                    extra={"ambiguities": len(combined_qs), "difficulty": difficulty},
+                )
+
         out: dict[str, Any] = {
             "execution_plan": plan,
             "touched_files": touched_files,
@@ -628,6 +698,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "next_node": next_node,
             "node_traces": [trace],
         }
+        if clarify_question:
+            out["clarification_question"] = clarify_question
+            out["clarification_options"] = clarify_options
+            out["next_node"] = "respond"
         if not needs_approval and not state.get("is_code_task", False):
             out["is_code_task"] = False
             out["allowed_tools"] = ["none"]

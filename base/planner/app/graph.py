@@ -186,7 +186,9 @@ def route_after_router(state: dict[str, Any]) -> str:
 
 
 def route_after_planner(state: dict[str, Any]) -> str:
-    """After planner: approval, evidence requests, or proceed to router for section evidence."""
+    """After planner: clarification, approval, evidence requests, or proceed to router for section evidence."""
+    if state.get("clarification_question"):
+        return "respond"
     if state.get("plan_pending_approval"):
         return "respond"
 

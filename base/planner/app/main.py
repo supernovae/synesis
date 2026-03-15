@@ -192,6 +192,14 @@ class RetrievalOptions(BaseModel):
     top_k: int = 5
 
 
+class OutputControlsRequest(BaseModel):
+    """Per-request output behavior overrides (all optional)."""
+
+    precise: bool | None = None
+    show_assumptions: bool | None = None
+    clarify_first: bool | None = None
+
+
 class ChatCompletionRequest(BaseModel):
     model: str = "synesis-agent"
     messages: list[ChatMessage]
@@ -202,6 +210,7 @@ class ChatCompletionRequest(BaseModel):
     user: str | None = None
     retrieval: RetrievalOptions | None = None
     conversation_id: str | None = None
+    output_controls: OutputControlsRequest | None = None
 
     model_config = {"extra": "ignore"}  # Open WebUI sends frequency_penalty, etc.
 
@@ -1037,6 +1046,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
     }
+    if request.output_controls:
+        oc = request.output_controls
+        initial_state["output_controls"] = {
+            k: v for k, v in {
+                "precise": oc.precise,
+                "show_assumptions": oc.show_assumptions,
+                "clarify_first": oc.clarify_first,
+            }.items() if v is not None
+        }
 
     # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
     if settings.memory_enabled:

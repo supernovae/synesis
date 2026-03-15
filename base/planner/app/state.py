@@ -263,6 +263,9 @@ class GraphState(TypedDict, total=False):
     score_breakdown: dict[str, Any]
     reclassify_override: str
 
+    # --- Output controls (Phase 2) ---
+    output_controls: dict[str, Any]
+
     # --- Anti-oscillation framework ---
     style_contract_locked: Annotated[dict[str, Any], _set_once_dict]
     decision_ledger: Annotated[list[dict[str, Any]], _append_only_ledger]
@@ -475,6 +478,9 @@ class SynesisState(BaseModel):
     next_node: str = ""
 
     error: str | None = None
+
+    # Output controls (Phase 2)
+    output_controls: dict[str, Any] = Field(default_factory=dict)
 
     # Anti-oscillation
     style_contract_locked: dict[str, Any] = Field(default_factory=dict)

@@ -812,6 +812,22 @@ class UserTask(BaseModel):
     decision_required: bool = False
     needs_web: bool = False
     persona: str = ""
+    output_controls: dict[str, bool] = Field(default_factory=dict)
+
+
+class OutputControls(BaseModel):
+    """Per-request output behavior controls.
+
+    Resolved from (highest to lowest precedence):
+    1. Explicit API-level request field
+    2. User phrasing signals detected by frame extractor
+    3. Taxonomy-level defaults
+    4. Global config defaults
+    """
+
+    precise: bool = False
+    show_assumptions: bool = False
+    clarify_first: bool = False
 
 
 class StyleContract(BaseModel):
@@ -826,6 +842,9 @@ class StyleContract(BaseModel):
     citation_required: bool = False
     verbosity_target: Literal["terse", "moderate", "thorough"] = "moderate"
     decisive: bool = False
+    precise: bool = False
+    show_assumptions: bool = False
+    clarify_first: bool = False
 
 
 class FinalAnswerAudit(BaseModel):

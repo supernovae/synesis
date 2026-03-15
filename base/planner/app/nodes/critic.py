@@ -172,11 +172,16 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
 
         if style_contract:
             verbosity = style_contract.get("verbosity_target", "moderate")
-            parts.append(
-                f"Style: verbosity={verbosity}"
-                + (", direct-answer-first" if style_contract.get("direct_answer_first", True) else "")
-                + (", citations-required" if style_contract.get("citation_required", False) else "")
-            )
+            style_flags = [f"verbosity={verbosity}"]
+            if style_contract.get("direct_answer_first", True):
+                style_flags.append("direct-answer-first")
+            if style_contract.get("citation_required", False):
+                style_flags.append("citations-required")
+            if style_contract.get("precise"):
+                style_flags.append("precision-mode")
+            if style_contract.get("show_assumptions"):
+                style_flags.append("assumption-labels-required")
+            parts.append(f"Style: {', '.join(style_flags)}")
 
     # Conditional rubric: tradeoff explicitness
     all_constraints_text = " ".join(c.lower() for c in (constraints + neg_constraints + success_criteria))
@@ -727,6 +732,25 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "knowledge alone? Score low if evidence is available but ignored."
                 )
 
+            # Phase 2: output control-aware rubric additions
+            sc = state.get("style_contract_locked") or {}
+            controls_block = ""
+            if sc.get("precise"):
+                controls_block += (
+                    "\nPRECISION CHECK: Flag 'genericity' if the response contains "
+                    "hedge phrases like 'it depends', 'you could use X or Y' without "
+                    "choosing, or 'there are many options'. Every recommendation should "
+                    "name a specific tool, version, or approach.\n"
+                )
+            if sc.get("show_assumptions"):
+                controls_block += (
+                    "\nASSUMPTION LABELING CHECK: Verify the response distinguishes facts, "
+                    "assumptions, and recommendations. Key assumptions should be tagged "
+                    "with [Assumption] or [Assumed Constraint], and estimates with [Estimate]. "
+                    "Flag 'false_certainty' if the response presents assumptions as established "
+                    "facts without qualification.\n"
+                )
+
             doc_system = f"""You are a quality gate. Decide whether the response is good enough to ship.
 
 QUALITY PRINCIPLES (always check):
@@ -739,6 +763,7 @@ QUALITY PRINCIPLES (always check):
 7. Does the response meaningfully incorporate the evidence provided, rather than generating from general knowledge alone?
 
 {frame_rubric}
+{controls_block}
 {grounding_section}
 {cohesion_section}
 Domain hints (use as context, not as mandatory checklist):
