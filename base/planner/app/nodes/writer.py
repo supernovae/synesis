@@ -309,9 +309,7 @@ def _extract_decisions(draft: str, parts: list[str]) -> None:
 
     if decisions:
         settled = "\n".join(f"- {d}" for d in decisions[:25])
-        parts.append(
-            f"SETTLED DECISIONS (preserve unless reviewer flagged):\n{settled}"
-        )
+        parts.append(f"SETTLED DECISIONS (preserve unless reviewer flagged):\n{settled}")
 
 
 _DECISIVE_BLOCK = """\
@@ -338,8 +336,7 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if requirements:
         req_bullets = "\n".join(f"    - {r}" for r in requirements[:10])
         parts.append(
-            "SYSTEM CAPABILITIES (each must be addressed in depth, not just "
-            "mentioned in passing):\n" + req_bullets
+            "SYSTEM CAPABILITIES (each must be addressed in depth, not just mentioned in passing):\n" + req_bullets
         )
 
     # Hard constraints get their own block for emphasis
@@ -414,9 +411,7 @@ def _build_sources_section(state: dict[str, Any]) -> str:
 
     sorted_packets = sorted(
         packets,
-        key=lambda p: float(
-            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
-        ),
+        key=lambda p: float(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)),
         reverse=True,
     )
 
@@ -451,13 +446,7 @@ def _build_sources_section(state: dict[str, Any]) -> str:
 
     body = "\n".join(lines)
     if settings.sources_collapsible:
-        return (
-            "## Sources\n\n"
-            "<details>\n"
-            f"<summary>{len(lines)} sources consulted</summary>\n\n"
-            f"{body}\n"
-            "</details>"
-        )
+        return f"## Sources\n\n<details>\n<summary>{len(lines)} sources consulted</summary>\n\n{body}\n</details>"
     return "## Sources\n\n" + body
 
 
@@ -470,9 +459,7 @@ def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
     """
     sorted_packets = sorted(
         packets,
-        key=lambda p: float(
-            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
-        ),
+        key=lambda p: float(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)),
         reverse=True,
     )
     cap = settings.max_cited_sources
@@ -511,9 +498,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     packets = state.get("evidence_packets") or []
     packets = sorted(
         packets,
-        key=lambda p: float(
-            p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
-        ),
+        key=lambda p: float(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)),
         reverse=True,
     )
 
@@ -602,9 +587,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 lock = state.get("cohesion_lock") or {}
                 entity = lock.get("entity", "")
                 if entity:
-                    system_prompt += (
-                        f"\n\nDISCOVERY (stay within the frame of {entity}):\n{discovery}"
-                    )
+                    system_prompt += f"\n\nDISCOVERY (stay within the frame of {entity}):\n{discovery}"
                 else:
                     system_prompt += f"\n\nDISCOVERY:\n{discovery}"
 

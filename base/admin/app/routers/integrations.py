@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends
 
 from ..auth import UserInfo, get_current_user
-from ..services.mcp_client import get_mcp_tools
 from ..services import prometheus_client_svc as prom
+from ..services.mcp_client import get_mcp_tools
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 

@@ -70,7 +70,6 @@ async def list_traces(
     min_score = since if since > 0 else "-inf"
 
     try:
-        total = r.zcount(_TRACE_INDEX_KEY, min_score, max_score)
         trace_ids = r.zrevrangebyscore(
             _TRACE_INDEX_KEY,
             max_score,

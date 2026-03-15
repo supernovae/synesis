@@ -297,11 +297,7 @@ def _score_content_drift(state: dict[str, Any]) -> float:
     # the multi-draft concatenation bug
     headings = _extract_heading_sig(current_draft)
     if headings:
-        h1_headings = [
-            m.group(2).strip().lower()
-            for m in _HEADING_RE.finditer(current_draft)
-            if m.group(1) == "#"
-        ]
+        h1_headings = [m.group(2).strip().lower() for m in _HEADING_RE.finditer(current_draft) if m.group(1) == "#"]
         if len(h1_headings) > 1:
             unique_h1 = set(h1_headings)
             if len(unique_h1) < len(h1_headings):
@@ -317,10 +313,7 @@ def _score_content_drift(state: dict[str, Any]) -> float:
 
     score = 0.0
     critique_register = state.get("critique_register") or {}
-    open_critiques = sum(
-        1 for v in critique_register.values()
-        if isinstance(v, dict) and v.get("status") == "open"
-    )
+    open_critiques = sum(1 for v in critique_register.values() if isinstance(v, dict) and v.get("status") == "open")
 
     # Every fingerprint change without corresponding open critiques
     # suggests the writer is rewriting without direction

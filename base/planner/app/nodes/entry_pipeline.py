@@ -105,7 +105,8 @@ def _get_keyword_async_client() -> httpx.AsyncClient:
     global _kw_async_client
     if _kw_async_client is None:
         _kw_async_client = httpx.AsyncClient(
-            base_url=settings.keyword_service_url, timeout=5,
+            base_url=settings.keyword_service_url,
+            timeout=5,
         )
     return _kw_async_client
 

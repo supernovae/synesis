@@ -15,6 +15,7 @@ Architecture:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -303,10 +304,8 @@ class RedisSemanticIndex:
 
     def _bump_usage(self, query_string: str, new_count: int) -> None:
         key = f"{self._prefix}{_query_hash(query_string)}"
-        try:
+        with contextlib.suppress(Exception):
             self._r.hset(key, b"usage_count", str(new_count).encode("utf-8"))
-        except Exception:
-            pass
 
     def _decode_hash(self, raw: dict[bytes, bytes]) -> tuple[IndexEntry, np.ndarray]:
         query_string = raw[b"query_string"].decode("utf-8")

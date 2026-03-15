@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -70,10 +71,8 @@ async def quality_domains(
     scorecards = report.get("scorecards", [])
     if health:
         scorecards = [s for s in scorecards if s.get("health") == health]
-    try:
+    with contextlib.suppress(Exception):
         scorecards.sort(key=lambda s: s.get(sort, ""))
-    except Exception:
-        pass
     return {"domains": scorecards}
 
 

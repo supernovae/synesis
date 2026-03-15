@@ -69,14 +69,43 @@ _PERSONA_PATTERNS: list[tuple[re.Pattern[str], str, bool]] = [
     (re.compile(r"\bas\s+(?:a|an)\s+(\w+)\b", re.IGNORECASE), "{0}", False),
     (re.compile(r"\bin\s+(?:the\s+)?(?:style|voice|tone)\s+of\s+(?:a\s+)?(\w+)", re.IGNORECASE), "{0}", False),
     (re.compile(r"\bexplain\s+(?:it\s+)?to\s+(?:a\s+)?(\d+)[\s-]*year[\s-]*old\b", re.IGNORECASE), "ELI{0}", True),
-    (re.compile(r"\bexplain\s+(?:it\s+)?(?:like|as if)\s+(?:I'?m|i am)\s+(?:a\s+)?(\w+)\b", re.IGNORECASE), "{0}", False),
+    (
+        re.compile(r"\bexplain\s+(?:it\s+)?(?:like|as if)\s+(?:I'?m|i am)\s+(?:a\s+)?(\w+)\b", re.IGNORECASE),
+        "{0}",
+        False,
+    ),
 ]
 
-_PERSONA_STOPWORDS = frozenset({
-    "the", "a", "an", "it", "this", "that", "my", "your", "me", "way",
-    "much", "more", "well", "also", "very", "how", "what", "why", "can",
-    "do", "should", "would", "could", "will", "following", "possible",
-})
+_PERSONA_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "it",
+        "this",
+        "that",
+        "my",
+        "your",
+        "me",
+        "way",
+        "much",
+        "more",
+        "well",
+        "also",
+        "very",
+        "how",
+        "what",
+        "why",
+        "can",
+        "do",
+        "should",
+        "would",
+        "could",
+        "will",
+        "following",
+        "possible",
+    }
+)
 
 
 def _detect_persona(raw_text: str) -> str:

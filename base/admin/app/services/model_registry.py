@@ -37,14 +37,16 @@ def get_model_registry() -> list[dict]:
     roles = data.get("roles", {})
     models = []
     for role_name, role_cfg in roles.items():
-        models.append({
-            "role": role_name,
-            "model_name": role_cfg.get("default_model", ""),
-            "served_name": role_cfg.get("served_model_name", role_name),
-            "endpoint": f"http://{role_cfg.get('service_name', role_name)}.{role_cfg.get('namespace', 'synesis-models')}.svc.cluster.local:8080/v1",
-            "status": "healthy",
-            "description": role_cfg.get("description", ""),
-        })
+        models.append(
+            {
+                "role": role_name,
+                "model_name": role_cfg.get("default_model", ""),
+                "served_name": role_cfg.get("served_model_name", role_name),
+                "endpoint": f"http://{role_cfg.get('service_name', role_name)}.{role_cfg.get('namespace', 'synesis-models')}.svc.cluster.local:8080/v1",
+                "status": "healthy",
+                "description": role_cfg.get("description", ""),
+            }
+        )
     return models
 
 
@@ -73,12 +75,14 @@ def get_cost_estimates() -> list[dict]:
                 except (ValueError, IndexError):
                     pass
 
-            costs.append({
-                "role": role,
-                "model": model,
-                "profile": profile_name,
-                "input_per_million": input_cost,
-                "output_per_million": output_cost,
-                "estimated_monthly": 0,
-            })
+            costs.append(
+                {
+                    "role": role,
+                    "model": model,
+                    "profile": profile_name,
+                    "input_per_million": input_cost,
+                    "output_per_million": output_cost,
+                    "estimated_monthly": 0,
+                }
+            )
     return costs

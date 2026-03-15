@@ -33,9 +33,7 @@ def _load_config() -> dict[str, Any]:
     except Exception as e:
         logger.warning("taxonomy_prompt_config_load_failed path=%s error=%s", _CONFIG_PATH, e)
         _cached = {}
-    _cached_taxonomies = {
-        k: v for k, v in (_cached or {}).items() if isinstance(v, dict) and "path" in v
-    }
+    _cached_taxonomies = {k: v for k, v in (_cached or {}).items() if isinstance(v, dict) and "path" in v}
     return _cached
 
 
@@ -109,21 +107,23 @@ def resolve_taxonomy_metadata(
 
     # Forward all raw YAML fields, then overlay computed values.
     result = dict(node_cfg)
-    result.update({
-        "path": path,
-        "complexity_score": blended_complexity,
-        "persona_instructions": persona_instructions,
-        "required_bullets": required_bullets,
-        "required_elements": required_elements,
-        "depth_instructions": depth_instructions,
-        "worker_explain_tone": str(node_cfg.get("worker_explain_tone", "")).strip(),
-        "discovery_prompt": str(node_cfg.get("discovery_prompt", "")).strip(),
-        "taxonomy_key": key,
-        "query_expansion_hints": list(node_cfg.get("query_expansion_hints") or []),
-        "preferred_web_scopes": list(node_cfg.get("preferred_web_scopes") or []),
-        "output_style": str(node_cfg.get("output_style", "")).strip(),
-        "output_style_guidance": str(node_cfg.get("output_style_guidance", "")).strip(),
-    })
+    result.update(
+        {
+            "path": path,
+            "complexity_score": blended_complexity,
+            "persona_instructions": persona_instructions,
+            "required_bullets": required_bullets,
+            "required_elements": required_elements,
+            "depth_instructions": depth_instructions,
+            "worker_explain_tone": str(node_cfg.get("worker_explain_tone", "")).strip(),
+            "discovery_prompt": str(node_cfg.get("discovery_prompt", "")).strip(),
+            "taxonomy_key": key,
+            "query_expansion_hints": list(node_cfg.get("query_expansion_hints") or []),
+            "preferred_web_scopes": list(node_cfg.get("preferred_web_scopes") or []),
+            "output_style": str(node_cfg.get("output_style", "")).strip(),
+            "output_style_guidance": str(node_cfg.get("output_style_guidance", "")).strip(),
+        }
+    )
     return result
 
 

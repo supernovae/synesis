@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends
 
 from ..auth import UserInfo, get_current_user
-from ..services.model_registry import get_model_registry, get_cost_estimates
 from ..services import prometheus_client_svc as prom
+from ..services.model_registry import get_cost_estimates, get_model_registry
 
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 

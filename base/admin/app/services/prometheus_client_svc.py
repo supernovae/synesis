@@ -31,7 +31,7 @@ def parse_prometheus_text(text: str) -> dict[str, Any]:
     for line in text.splitlines():
         if line.startswith("#") or not line.strip():
             continue
-        match = re.match(r'^(\w+)(\{[^}]*\})?\s+([\d.eE+-]+|NaN|Inf|-Inf)$', line)
+        match = re.match(r"^(\w+)(\{[^}]*\})?\s+([\d.eE+-]+|NaN|Inf|-Inf)$", line)
         if not match:
             continue
         name, labels_str, val_str = match.groups()
@@ -87,12 +87,14 @@ async def get_pipeline_node_metrics() -> list[dict[str, Any]]:
         if isinstance(entry, dict) and "synesis_node_confidence" in key:
             labels = entry.get("labels", {})
             node_name = labels.get("node", "unknown")
-            nodes.append({
-                "node": node_name,
-                "avg_confidence": entry.get("value", 0),
-                "avg_duration_ms": 0,
-                "call_count": 0,
-            })
+            nodes.append(
+                {
+                    "node": node_name,
+                    "avg_confidence": entry.get("value", 0),
+                    "avg_duration_ms": 0,
+                    "call_count": 0,
+                }
+            )
     return nodes
 
 

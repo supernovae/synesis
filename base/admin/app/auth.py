@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from fastapi import Depends, HTTPException
@@ -37,7 +37,7 @@ class UserInfo(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105 — standard OAuth2 field, not a password
     user: UserInfo
 
 
@@ -45,7 +45,7 @@ def create_token(username: str, role: str) -> str:
     payload = {
         "sub": username,
         "role": role,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRY_HOURS),
+        "exp": datetime.now(UTC) + timedelta(hours=TOKEN_EXPIRY_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
 
@@ -65,10 +65,10 @@ async def get_current_user(
     try:
         payload = verify_token(credentials.credentials)
         return UserInfo(username=payload["sub"], role=payload["role"])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    except jwt.ExpiredSignatureError as err:
+        raise HTTPException(status_code=401, detail="Token expired") from err
+    except jwt.InvalidTokenError as err:
+        raise HTTPException(status_code=401, detail="Invalid token") from err
 
 
 async def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:

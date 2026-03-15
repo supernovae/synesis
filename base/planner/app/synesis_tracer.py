@@ -27,8 +27,6 @@ from typing import Any
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
 
-from .config import settings
-
 logger = logging.getLogger("synesis.tracer")
 
 _TRACE_KEY_PREFIX = "synesis:traces:"
@@ -175,10 +173,7 @@ class SynesisTracer(BaseCallbackHandler):
             return
         record = self._current_trace
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
-        record.total_tokens = sum(
-            sum(c.total_tokens for c in s.llm_calls)
-            for s in record.spans
-        )
+        record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
         _persist_trace(record)
         self._current_trace = None
         self._active_spans.clear()
@@ -275,7 +270,7 @@ class SynesisTracer(BaseCallbackHandler):
                 if tag.startswith("graph:step:"):
                     node_name = tag.split(":", 2)[-1]
                     break
-        name = serialized.get("name", "") if not node_name else node_name
+        name = node_name if node_name else serialized.get("name", "")
         if not name or name in ("RunnableSequence", "RunnableLambda", "RunnableParallel"):
             return
         span = SpanRecord(

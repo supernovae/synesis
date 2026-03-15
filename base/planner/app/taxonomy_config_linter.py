@@ -90,11 +90,7 @@ def lint_taxonomy_config(
 
         taxonomy_cfg = _load_config()
 
-    taxonomies = {
-        k: v
-        for k, v in (taxonomy_cfg or {}).items()
-        if isinstance(v, dict) and "path" in v
-    }
+    taxonomies = {k: v for k, v in (taxonomy_cfg or {}).items() if isinstance(v, dict) and "path" in v}
 
     if not taxonomies:
         issues.append("No taxonomy entries found (expected dict entries with 'path' key)")
@@ -110,11 +106,7 @@ def lint_taxonomy_config(
                 issues.append(f"{key}.{loc}: {err['msg']}")
 
     # 2. Duplicate path detection
-    path_counts = Counter(
-        str(v.get("path", "")).strip()
-        for v in taxonomies.values()
-        if isinstance(v.get("path"), str)
-    )
+    path_counts = Counter(str(v.get("path", "")).strip() for v in taxonomies.values() if isinstance(v.get("path"), str))
     for path_val, count in path_counts.items():
         if count > 1:
             dupes = [k for k, v in taxonomies.items() if str(v.get("path", "")).strip() == path_val]

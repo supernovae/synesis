@@ -53,12 +53,8 @@ _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 _FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
 _MERMAID_BLOCK_RE = re.compile(r"(```mermaid\b)(.*?)(```)", re.DOTALL | re.IGNORECASE)
 
-_MERMAID_BRACKET_LABEL_RE = re.compile(
-    r'(\b[A-Za-z]\w*\[)([^\]"]*[(){}|][^\]"]*)(\])'
-)
-_MERMAID_DIAMOND_LABEL_RE = re.compile(
-    r'(\b[A-Za-z]\w*\{)([^}"]*[()|\[\]][^}"]*)(\})'
-)
+_MERMAID_BRACKET_LABEL_RE = re.compile(r'(\b[A-Za-z]\w*\[)([^\]"]*[(){}|][^\]"]*)(\])')
+_MERMAID_DIAMOND_LABEL_RE = re.compile(r'(\b[A-Za-z]\w*\{)([^}"]*[()|\[\]][^}"]*)(\})')
 
 _SECTION_OVERGROWTH_WORDS = 1200
 

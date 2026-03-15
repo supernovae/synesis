@@ -406,9 +406,18 @@ async def _vector_search(
 # ---------------------------------------------------------------------------
 
 _OUTPUT_FIELDS = [
-    "text", "chunk_id", "document_name", "origin_type", "authority",
-    "domain", "source_url", "heading_path", "context_prefix",
-    "chunk_summary", "handler", "source_type",
+    "text",
+    "chunk_id",
+    "document_name",
+    "origin_type",
+    "authority",
+    "domain",
+    "source_url",
+    "heading_path",
+    "context_prefix",
+    "chunk_summary",
+    "handler",
+    "source_type",
 ]
 
 
@@ -419,7 +428,7 @@ async def _hybrid_search(
     filter_expr: str = "",
 ) -> list[dict[str, Any]]:
     """Server-side hybrid search: dense (COSINE) + sparse (BM25), merged by RRFRanker."""
-    from pymilvus import AnnSearchRequest, MilvusClient, RRFRanker
+    from pymilvus import AnnSearchRequest, RRFRanker
 
     query_vector = await _embed_text(query)
     client = _get_milvus_client()
@@ -454,25 +463,30 @@ async def _hybrid_search(
         if isinstance(entity, dict):
             _get = entity.get
         else:
-            _get = lambda k, d="": getattr(entity, k, d)
-        formatted.append({
-            "text": _get("text", ""),
-            "source": _get("document_name", "") or _get("source_url", "unknown"),
-            "vector_score": 0.0,
-            "bm25_score": 0.0,
-            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
-            "retrieval_source": "hybrid",
-            "origin_type": _get("origin_type", ""),
-            "authority": _get("authority", ""),
-            "domain": _get("domain", ""),
-            "source_url": _get("source_url", ""),
-            "heading_path": _get("heading_path", ""),
-            "context_prefix": _get("context_prefix", ""),
-            "chunk_summary": _get("chunk_summary", ""),
-            "document_name": _get("document_name", ""),
-            "handler": _get("handler", ""),
-            "source_type": _get("source_type", ""),
-        })
+
+            def _get(k: str, d: str = "", _e: Any = entity) -> Any:
+                return getattr(_e, k, d)
+
+        formatted.append(
+            {
+                "text": _get("text", ""),
+                "source": _get("document_name", "") or _get("source_url", "unknown"),
+                "vector_score": 0.0,
+                "bm25_score": 0.0,
+                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
+                "retrieval_source": "hybrid",
+                "origin_type": _get("origin_type", ""),
+                "authority": _get("authority", ""),
+                "domain": _get("domain", ""),
+                "source_url": _get("source_url", ""),
+                "heading_path": _get("heading_path", ""),
+                "context_prefix": _get("context_prefix", ""),
+                "chunk_summary": _get("chunk_summary", ""),
+                "document_name": _get("document_name", ""),
+                "handler": _get("handler", ""),
+                "source_type": _get("source_type", ""),
+            }
+        )
 
     return formatted
 
@@ -503,24 +517,26 @@ async def _sparse_search(
     for hits in results:
         for hit in hits:
             entity = hit.get("entity", {})
-            formatted.append({
-                "text": entity.get("text", ""),
-                "source": entity.get("document_name") or entity.get("source_url", "unknown"),
-                "bm25_score": float(hit.get("distance", 0.0)),
-                "vector_score": 0.0,
-                "rrf_score": float(hit.get("distance", 0.0)),
-                "retrieval_source": "bm25",
-                "origin_type": entity.get("origin_type", ""),
-                "authority": entity.get("authority", ""),
-                "domain": entity.get("domain", ""),
-                "source_url": entity.get("source_url", ""),
-                "heading_path": entity.get("heading_path", ""),
-                "context_prefix": entity.get("context_prefix", ""),
-                "chunk_summary": entity.get("chunk_summary", ""),
-                "document_name": entity.get("document_name", ""),
-                "handler": entity.get("handler", ""),
-                "source_type": entity.get("source_type", ""),
-            })
+            formatted.append(
+                {
+                    "text": entity.get("text", ""),
+                    "source": entity.get("document_name") or entity.get("source_url", "unknown"),
+                    "bm25_score": float(hit.get("distance", 0.0)),
+                    "vector_score": 0.0,
+                    "rrf_score": float(hit.get("distance", 0.0)),
+                    "retrieval_source": "bm25",
+                    "origin_type": entity.get("origin_type", ""),
+                    "authority": entity.get("authority", ""),
+                    "domain": entity.get("domain", ""),
+                    "source_url": entity.get("source_url", ""),
+                    "heading_path": entity.get("heading_path", ""),
+                    "context_prefix": entity.get("context_prefix", ""),
+                    "chunk_summary": entity.get("chunk_summary", ""),
+                    "document_name": entity.get("document_name", ""),
+                    "handler": entity.get("handler", ""),
+                    "source_type": entity.get("source_type", ""),
+                }
+            )
 
     return formatted
 

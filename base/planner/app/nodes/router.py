@@ -527,8 +527,11 @@ class RouterNode:
         queries = await self.batch_generate_queries(requests, task_context)
         tasks = [
             self.handle_single_request(
-                req, task_context, difficulty,
-                precomputed_query=q, taxonomy_metadata=taxonomy_metadata,
+                req,
+                task_context,
+                difficulty,
+                precomputed_query=q,
+                taxonomy_metadata=taxonomy_metadata,
             )
             for req, q in zip(requests, queries)
         ]
@@ -641,7 +644,11 @@ class RouterNode:
             preferred_web_scopes=preferred_web_scopes,
         )
         cohesion_lock = bundle.cohesion_lock
-        packet = await self.summarize(query, bundle.results[:doc_cap_override] if doc_cap_override else bundle.results, cohesion_lock=cohesion_lock)
+        packet = await self.summarize(
+            query,
+            bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
+            cohesion_lock=cohesion_lock,
+        )
         packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
 
         # Skip refinement rounds for light mode

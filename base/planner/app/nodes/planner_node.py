@@ -22,10 +22,21 @@ logger = logging.getLogger("synesis.planner")
 
 # Quality/style prefixes — requirements matching these are constraints on
 # HOW to write, not WHAT the system must do (already captured as success_criteria).
-_QUALITY_PREFIXES = frozenset({
-    "be ", "keep ", "avoid ", "don't ", "do not ", "make ", "prefer ",
-    "ensure ", "if ", "separate ", "acknowledge ",
-})
+_QUALITY_PREFIXES = frozenset(
+    {
+        "be ",
+        "keep ",
+        "avoid ",
+        "don't ",
+        "do not ",
+        "make ",
+        "prefer ",
+        "ensure ",
+        "if ",
+        "separate ",
+        "acknowledge ",
+    }
+)
 
 
 def _filter_capability_requirements(
@@ -216,11 +227,13 @@ def _extract_decisions(
     return entries
 
 
-_DECISIVE_TAXONOMY_KEYS = frozenset({
-    "software_architecture",
-    "cloud",
-    "ml_ops",
-})
+_DECISIVE_TAXONOMY_KEYS = frozenset(
+    {
+        "software_architecture",
+        "cloud",
+        "ml_ops",
+    }
+)
 
 
 def _derive_style_contract(
@@ -394,9 +407,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         frame_requirements = user_task.get("explicit_requirements") or []
         if frame_requirements and frame_deliverables:
             deliverable_text = " ".join(d.lower() for d in frame_deliverables)
-            capability_reqs = _filter_capability_requirements(
-                frame_requirements, deliverable_text
-            )
+            capability_reqs = _filter_capability_requirements(frame_requirements, deliverable_text)
             if capability_reqs:
                 cap_list = "\n".join(f"  - {r}" for r in capability_reqs)
                 system_prompt += (

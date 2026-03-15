@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, Query
 
 from ..auth import UserInfo, get_current_user
 from ..deps import FAILURES_COLLECTION
-from ..services.health_prober import probe_all
 from ..services import prometheus_client_svc as prom
+from ..services.health_prober import probe_all
 from ..services.milvus_service import safe_query
 
 router = APIRouter(prefix="/api/v1/observability", tags=["observability"])
@@ -47,8 +47,15 @@ async def failure_list(
         FAILURES_COLLECTION,
         filter_expr=filter_expr,
         output_fields=[
-            "failure_id", "code", "error_output", "exit_code",
-            "error_type", "language", "task_description", "resolution", "timestamp",
+            "failure_id",
+            "code",
+            "error_output",
+            "exit_code",
+            "error_type",
+            "language",
+            "task_description",
+            "resolution",
+            "timestamp",
         ],
         limit=page_size,
         offset=offset,
@@ -92,8 +99,15 @@ async def failure_detail(
         FAILURES_COLLECTION,
         filter_expr=f'failure_id == "{failure_id}"',
         output_fields=[
-            "failure_id", "code", "error_output", "exit_code",
-            "error_type", "language", "task_description", "resolution", "timestamp",
+            "failure_id",
+            "code",
+            "error_output",
+            "exit_code",
+            "error_type",
+            "language",
+            "task_description",
+            "resolution",
+            "timestamp",
         ],
         limit=1,
     )

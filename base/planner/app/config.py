@@ -277,7 +277,9 @@ class Settings(BaseSettings):
 
     # Session persistence (LangGraph checkpointer)
     session_checkpointer_backend: str = "memory"  # "memory" | "redis"
-    session_redis_url: str = ""  # reuses synesis-redis; e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/1"
+    session_redis_url: str = (
+        ""  # reuses synesis-redis; e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/1"
+    )
 
     # L2 conversation archive (durable history store)
     l2_archive_redis_url: str = ""  # e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"

@@ -6,7 +6,6 @@ Serves the React SPA for all non-API routes and provides
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -30,17 +29,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers.auth_router import router as auth_router  # noqa: E402
-from app.routers.dashboard import router as dashboard_router  # noqa: E402
-from app.routers.feedback import router as feedback_router  # noqa: E402
-from app.routers.integrations import router as integrations_router  # noqa: E402
-from app.routers.models import router as models_router  # noqa: E402
-from app.routers.observability import router as observability_router  # noqa: E402
-from app.routers.pipeline import router as pipeline_router  # noqa: E402
-from app.routers.rag import router as rag_router  # noqa: E402
-from app.routers.settings import router as settings_router  # noqa: E402
-from app.routers.taxonomy import router as taxonomy_router  # noqa: E402
-from app.routers.traces import router as traces_router  # noqa: E402
+from app.routers.auth_router import router as auth_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.feedback import router as feedback_router
+from app.routers.integrations import router as integrations_router
+from app.routers.models import router as models_router
+from app.routers.observability import router as observability_router
+from app.routers.pipeline import router as pipeline_router
+from app.routers.rag import router as rag_router
+from app.routers.settings import router as settings_router
+from app.routers.taxonomy import router as taxonomy_router
+from app.routers.traces import router as traces_router
 
 app.include_router(auth_router)
 app.include_router(dashboard_router)

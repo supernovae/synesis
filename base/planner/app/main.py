@@ -35,7 +35,6 @@ from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
 from .graph import flush_tracer, get_graph_config, graph
-from .synesis_tracer import get_synesis_tracer
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -44,6 +43,7 @@ from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 from .streaming_events import StatusQueueCallback
+from .synesis_tracer import get_synesis_tracer
 
 # /why and /reclassify command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)

@@ -54,9 +54,7 @@ def _build_taxonomy_hints(metadata: dict[str, Any], difficulty: float) -> str:
     if required_elements:
         joined = ", ".join(str(e) for e in required_elements)
         if complexity >= 0.8:
-            lines.append(
-                f"Expected sections for this domain (flag as insufficient_depth if missing): {joined}"
-            )
+            lines.append(f"Expected sections for this domain (flag as insufficient_depth if missing): {joined}")
         else:
             lines.append(f"Typical elements for this domain: {joined}")
     if depth_instructions:
@@ -342,15 +340,74 @@ def _deterministic_depth_checks(
 
 
 # Stopwords excluded from requirement keyword extraction
-_REQ_STOPWORDS = frozenset({
-    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
-    "it", "its", "this", "that", "can", "will", "should", "must", "do",
-    "not", "when", "how", "about", "into", "also", "as", "so", "if",
-    "up", "out", "no", "than", "then", "them", "their", "they", "what",
-    "which", "who", "whom", "where", "each", "all", "any", "both",
-    "few", "more", "most", "other", "some", "such", "very", "just",
-})
+_REQ_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "it",
+        "its",
+        "this",
+        "that",
+        "can",
+        "will",
+        "should",
+        "must",
+        "do",
+        "not",
+        "when",
+        "how",
+        "about",
+        "into",
+        "also",
+        "as",
+        "so",
+        "if",
+        "up",
+        "out",
+        "no",
+        "than",
+        "then",
+        "them",
+        "their",
+        "they",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "where",
+        "each",
+        "all",
+        "any",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "very",
+        "just",
+    }
+)
 
 
 def _extract_requirement_keywords(requirement: str) -> set[str]:
@@ -608,8 +665,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             if cohesion_entity:
                 exclude_signals = cohesion_lock.get("exclude_signals") or []
                 exclude_line = (
-                    f"Content about [{', '.join(exclude_signals[:8])}] should NOT appear.\n"
-                    if exclude_signals else ""
+                    f"Content about [{', '.join(exclude_signals[:8])}] should NOT appear.\n" if exclude_signals else ""
                 )
                 cohesion_section = (
                     f"\nCOHESION COMPLIANCE:\n"
@@ -808,7 +864,9 @@ Reply with JSON:
                 # from the user's task has substantive treatment in the output.
                 if difficulty >= 0.6 and generated_code and user_task_data:
                     _req_failures = _deterministic_requirement_coverage(
-                        generated_code, user_task_data, difficulty,
+                        generated_code,
+                        user_task_data,
+                        difficulty,
                     )
                     for rf in _req_failures:
                         if rf not in failure_modes:
@@ -817,7 +875,9 @@ Reply with JSON:
                             critical_failures.add(rf)
 
                     _tech_failures = _deterministic_technology_coverage(
-                        generated_code, user_task_data, difficulty,
+                        generated_code,
+                        user_task_data,
+                        difficulty,
                     )
                     for tf in _tech_failures:
                         if tf not in failure_modes:
@@ -907,7 +967,8 @@ Reply with JSON:
 
                 if "missing_requirement_coverage" in failure_modes:
                     uncovered = [
-                        r for r in (user_task_data.get("explicit_requirements") or [])
+                        r
+                        for r in (user_task_data.get("explicit_requirements") or [])
                         if len(_extract_requirement_keywords(r)) >= 2
                     ]
                     repair_list.append(
@@ -917,8 +978,7 @@ Reply with JSON:
                             "action": "Add substantive paragraphs addressing each uncovered "
                             "system capability — not just a mention, but workflow details, "
                             "tool choices, and integration points",
-                            "reason": f"These user requirements lack dedicated coverage: "
-                            + "; ".join(uncovered[:5]),
+                            "reason": "These user requirements lack dedicated coverage: " + "; ".join(uncovered[:5]),
                         }
                     )
 
@@ -938,19 +998,24 @@ Reply with JSON:
                 # Classify repair instructions: evidence gaps route to
                 # router, writing quality issues route directly to writer.
                 evidence_gap_repairs = [
-                    r for r in repair_list
-                    if any(kw in (r.get("reason", "") + r.get("action", "")).lower()
-                           for kw in ("evidence", "insufficient", "thin", "missing source", "ungrounded"))
+                    r
+                    for r in repair_list
+                    if any(
+                        kw in (r.get("reason", "") + r.get("action", "")).lower()
+                        for kw in ("evidence", "insufficient", "thin", "missing source", "ungrounded")
+                    )
                 ]
                 has_evidence_gap = bool(evidence_gap_repairs) and not doc_approved
                 doc_evidence_requests: list[dict[str, Any]] = []
                 if has_evidence_gap:
                     for r in evidence_gap_repairs[:3]:
-                        doc_evidence_requests.append({
-                            "description": r.get("action", r.get("reason", "")),
-                            "domain_hints": (state.get("user_task") or {}).get("domain_tags", []),
-                            "section_id": None,
-                        })
+                        doc_evidence_requests.append(
+                            {
+                                "description": r.get("action", r.get("reason", "")),
+                                "domain_hints": (state.get("user_task") or {}).get("domain_tags", []),
+                                "section_id": None,
+                            }
+                        )
 
                 doc_iteration = state.get("iteration_count", 0)
                 result = {

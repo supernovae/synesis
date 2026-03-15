@@ -110,9 +110,7 @@ executor_llm = ChatOpenAI(
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.general_model_uds or None),
     model_kwargs=(
-        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
-        if settings.guided_json_enabled
-        else {}
+        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}} if settings.guided_json_enabled else {}
     ),
 )
 

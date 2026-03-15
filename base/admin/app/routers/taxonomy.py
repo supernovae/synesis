@@ -31,12 +31,14 @@ def _load_taxonomy() -> list[dict]:
         for key, cfg in raw.items():
             if not isinstance(cfg, dict):
                 continue
-            domains.append({
-                "key": key,
-                "path": cfg.get("path", ""),
-                "complexity": cfg.get("complexity", 0),
-                "persona": cfg.get("persona", ""),
-            })
+            domains.append(
+                {
+                    "key": key,
+                    "path": cfg.get("path", ""),
+                    "complexity": cfg.get("complexity", 0),
+                    "persona": cfg.get("persona", ""),
+                }
+            )
         _taxonomy_cache = sorted(domains, key=lambda d: d["path"])
         return _taxonomy_cache
     except Exception as exc:

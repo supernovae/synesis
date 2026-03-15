@@ -3,10 +3,10 @@
 from fastapi import APIRouter, Depends
 
 from ..auth import UserInfo, get_current_user
-from ..services.health_prober import probe_all
-from ..services.cost_estimator import get_cost_summary
 from ..services import prometheus_client_svc as prom
 from ..services import trace_store
+from ..services.cost_estimator import get_cost_summary
+from ..services.health_prober import probe_all
 from ..services.model_registry import get_model_registry
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])

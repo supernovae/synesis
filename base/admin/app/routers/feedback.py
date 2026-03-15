@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
@@ -73,8 +72,13 @@ async def knowledge_gaps(
         KNOWLEDGE_BACKLOG_COLLECTION,
         filter_expr=filter_expr,
         output_fields=[
-            "chunk_id", "query", "task_description", "max_score",
-            "platform_context", "timestamp", "language",
+            "chunk_id",
+            "query",
+            "task_description",
+            "max_score",
+            "platform_context",
+            "timestamp",
+            "language",
         ],
         limit=page_size,
         offset=offset,
@@ -112,17 +116,19 @@ def _load_curator_proposals() -> list[dict]:
         proposals = []
         for i, prop in enumerate(raw.get("proposals", [])):
             for src in prop.get("sources", []):
-                proposals.append({
-                    "id": f"{prop.get('domain', 'unk')}_{i}_{src.get('name', '')[:20]}",
-                    "domain": prop.get("domain", ""),
-                    "path": prop.get("path", ""),
-                    "source_name": src.get("name", ""),
-                    "handler": src.get("handler", ""),
-                    "url": src.get("config", {}).get("url", ""),
-                    "quality_score": src.get("_curator_metadata", {}).get("quality_score", 0),
-                    "rationale": src.get("_curator_metadata", {}).get("rationale", ""),
-                    "status": "pending",
-                })
+                proposals.append(
+                    {
+                        "id": f"{prop.get('domain', 'unk')}_{i}_{src.get('name', '')[:20]}",
+                        "domain": prop.get("domain", ""),
+                        "path": prop.get("path", ""),
+                        "source_name": src.get("name", ""),
+                        "handler": src.get("handler", ""),
+                        "url": src.get("config", {}).get("url", ""),
+                        "quality_score": src.get("_curator_metadata", {}).get("quality_score", 0),
+                        "rationale": src.get("_curator_metadata", {}).get("rationale", ""),
+                        "status": "pending",
+                    }
+                )
         return proposals
     except Exception as exc:
         logger.warning("curator_load_error error=%s", str(exc)[:80])

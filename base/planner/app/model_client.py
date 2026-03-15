@@ -151,9 +151,7 @@ def create_chat_model(
 
     model_kwargs = kwargs.pop("model_kwargs", {})
     if guided_json_enabled:
-        model_kwargs.setdefault("extra_body", {}).setdefault(
-            "chat_template_kwargs", {"enable_thinking": False}
-        )
+        model_kwargs.setdefault("extra_body", {}).setdefault("chat_template_kwargs", {"enable_thinking": False})
 
     return ChatOpenAI(
         base_url=base_url,
@@ -179,10 +177,7 @@ def _is_retriable(exc: Exception) -> bool:
     for code in _RETRIABLE_STATUS:
         if str(code) in msg:
             return True
-    for signal in ("timeout", "connection", "reset by peer", "broken pipe"):
-        if signal in msg:
-            return True
-    return False
+    return any(signal in msg for signal in ("timeout", "connection", "reset by peer", "broken pipe"))
 
 
 async def resilient_ainvoke(
@@ -218,7 +213,7 @@ async def resilient_ainvoke(
         except Exception as exc:
             last_exc = exc
             if attempt < max_retries and _is_retriable(exc):
-                wait = backoff_base ** attempt
+                wait = backoff_base**attempt
                 if _retry_counter:
                     _retry_counter.labels(role=role).inc()
                 logger.warning(

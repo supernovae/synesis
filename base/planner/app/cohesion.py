@@ -419,9 +419,7 @@ async def cohesion_filter(
             ]
             verdicts = await asyncio.gather(*tasks, return_exceptions=True)
             for (_, cand), verdict in zip(borderline, verdicts):
-                if isinstance(verdict, Exception):
-                    kept.append(cand)
-                elif verdict.get("keep", True):
+                if isinstance(verdict, Exception) or verdict.get("keep", True):
                     kept.append(cand)
                 else:
                     dropped_llm += 1
@@ -498,7 +496,7 @@ async def compress_to_cohesion(
             return results
 
         # Batch embed: lock entity + all sentences in one call
-        all_texts = [lock.entity] + all_sentences
+        all_texts = [lock.entity, *all_sentences]
         embeddings = await client.embed(all_texts, normalize=True)
         lock_emb = embeddings[0]
         sentence_embs = embeddings[1:]
