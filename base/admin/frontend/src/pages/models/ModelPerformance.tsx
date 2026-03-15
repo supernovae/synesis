@@ -49,7 +49,7 @@ export default function ModelPerformance() {
           <DataTable
             columns={[
               { key: "model", label: "Model", sortable: true },
-              { key: "tokens", label: "Total Tokens", sortable: true, render: (r) => (r.tokens as number).toLocaleString() },
+              { key: "tokens", label: "Total Tokens", sortable: true, render: (r) => r.tokens.toLocaleString() },
               { key: "requests", label: "Requests", sortable: true },
             ]}
             data={models}

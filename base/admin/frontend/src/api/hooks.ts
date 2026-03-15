@@ -47,8 +47,15 @@ export function useModelCosts() {
   });
 }
 
+interface ModelPerformanceEntry {
+  [key: string]: unknown;
+  model: string;
+  tokens: number;
+  requests: number;
+}
+
 export function useModelPerformance() {
-  return useQuery({
+  return useQuery<{ models: ModelPerformanceEntry[] }>({
     queryKey: ["models", "performance"],
     queryFn: () => client.get("/models/performance").then((r) => r.data),
     refetchInterval: 30_000,
@@ -114,8 +121,25 @@ export function useTaxonomyDomain(key: string) {
 
 // --- Pipeline ---
 
+interface GraphNode {
+  id: string;
+  label?: string;
+  type?: string;
+}
+
+interface GraphEdge {
+  from: string;
+  to: string;
+  label?: string;
+}
+
+interface PipelineGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export function usePipelineGraph() {
-  return useQuery({
+  return useQuery<PipelineGraph>({
     queryKey: ["pipeline", "graph"],
     queryFn: () => client.get("/pipeline/graph").then((r) => r.data),
   });
@@ -146,8 +170,14 @@ export function useMcpTools() {
   });
 }
 
+interface WebSearchStats {
+  total: number;
+  avg_latency_ms: number | null;
+  error_rate: number | null;
+}
+
 export function useWebSearchStats() {
-  return useQuery({
+  return useQuery<WebSearchStats>({
     queryKey: ["integrations", "web-search"],
     queryFn: () => client.get("/integrations/web-search").then((r) => r.data),
     refetchInterval: 30_000,
@@ -247,8 +277,14 @@ export function useFailureDetail(id: string) {
   });
 }
 
+interface FailureStats {
+  total: number;
+  by_type: Record<string, number>;
+  by_language: Record<string, number>;
+}
+
 export function useFailureStats() {
-  return useQuery({
+  return useQuery<FailureStats>({
     queryKey: ["observability", "failures", "stats"],
     queryFn: () =>
       client.get("/observability/failures/stats").then((r) => r.data),
@@ -290,8 +326,12 @@ export function useTraceStats() {
 
 // --- Settings ---
 
+interface SystemConfigData {
+  config: Record<string, unknown>;
+}
+
 export function useSystemConfig() {
-  return useQuery({
+  return useQuery<SystemConfigData>({
     queryKey: ["settings", "config"],
     queryFn: () => client.get("/settings/config").then((r) => r.data),
   });
