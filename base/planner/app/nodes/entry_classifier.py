@@ -15,6 +15,7 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
+from ..config import settings
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
 from ..query_normalizer import get_normalizer
