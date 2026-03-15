@@ -184,6 +184,11 @@ class Settings(BaseSettings):
     # Format: JSON dict, e.g. '{"internal-wiki": {"authority": "canonical", "origin_type": "internal"}}'
     engine_authority_map: dict[str, dict[str, str]] = Field(default_factory=dict)
 
+    # Search source catalog (search_sources.yaml — models.yaml-style config
+    # for multi-source retrieval federation). When present, derives
+    # engine_authority_map entries and enables parallel source fan-out.
+    search_sources_path: str = "/etc/synesis/search_sources.yaml"
+
     # LSP deep analysis
     lsp_enabled: bool = True
     lsp_mode: Literal["on_failure", "always", "disabled"] = "on_failure"

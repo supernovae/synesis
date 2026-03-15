@@ -192,6 +192,26 @@ Browse traces in the Admin UI under **Tracing > Activity Log**:
 - Click any trace to see waterfall timeline, span details, LLM call snippets, and critic scores
 - Dashboard metrics (error rate, avg latency) are automatically derived from trace data
 
+## Knowledge Gap Lifecycle
+
+Knowledge gaps (low-confidence retrieval events) are recorded in the `synesis_knowledge_backlog` Milvus collection. Admins can manage their lifecycle through the Admin UI or API:
+
+| Status | Description |
+|--------|-------------|
+| `open` | New gap — retrieval confidence was low |
+| `resolved` | Admin marked as addressed |
+| `reopened` | Previously resolved gap that resurfaced |
+
+Status metadata is stored in a companion `synesis_knowledge_gap_status` collection. Admin endpoints:
+
+| Action | Endpoint | Method |
+|--------|----------|--------|
+| List gaps | `/admin/observability/knowledge-gaps` | GET (with `?status=open\|resolved\|reopened`) |
+| Stats | `/admin/observability/knowledge-gaps/stats` | GET |
+| Resolve | `/admin/observability/knowledge-gaps/{chunk_id}/resolve` | POST |
+| Reopen | `/admin/observability/knowledge-gaps/{chunk_id}/reopen` | POST |
+| Purge | `/admin/observability/knowledge-gaps/{chunk_id}` | DELETE |
+
 ## Future Enhancements
 
 - **PrometheusRule alerting**: Latency p95 > 60s, circuit breaker open, high critic

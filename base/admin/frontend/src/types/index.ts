@@ -138,6 +138,10 @@ export interface KnowledgeGap {
   platform_context: string;
   timestamp: string;
   language: string;
+  status?: "open" | "resolved" | "reopened";
+  resolved_by?: string;
+  resolution_note?: string;
+  resolved_at?: number;
 }
 
 export interface CuratorProposal {

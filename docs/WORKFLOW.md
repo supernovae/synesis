@@ -188,6 +188,18 @@ All variants are retrieved in parallel. Results are merged via **Reciprocal Rank
 
 **Taxonomy-driven enrichment**: When a domain has `query_expansion_hints` in `taxonomy_prompt_config.yaml`, those terms are injected into the conceptual expansion variant. When `preferred_web_scopes` are defined (e.g. `site:martinfowler.com`), they're appended to web search queries. Frame-extracted `technologies` are also injected into the expansion variant.
 
+### Multi-Source Federation
+
+Web search is not a single monolithic call. The router fans out queries across multiple **search sources** defined in `search_sources.yaml` in parallel via `asyncio.gather`. Source selection is driven by three mechanisms:
+
+1. **Always-on** sources (e.g. `web_general`) included in every fan-out
+2. **Taxonomy-driven** sources activated when domain tags or task types match (e.g. `code_general` for programming domains)
+3. **Prompt-driven** sources activated by explicit user keywords (e.g. "include jira", "search github")
+
+Each source maps to SearXNG engine parameters and carries trust metadata (`authority`, `origin_type`) and a `weight` multiplier for RRF fusion. Internal sources can be weighted higher than external web results. Results are tagged with `source_id` end-to-end for provenance — visible in evidence packets, context blocks, and user-facing citations.
+
+See [Web Search & Multi-Source Federation](WEB_SEARCH.md) for the full catalog schema and configuration.
+
 ### Retrieval Discipline
 
 Only the Router may perform retrieval (RAG or web search). Rules:

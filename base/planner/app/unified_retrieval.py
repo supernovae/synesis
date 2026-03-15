@@ -37,7 +37,8 @@ import numpy as np
 
 from .config import settings
 from .rag_client import retrieve_context
-from .web_search import SearchResult, search_and_process
+from .search_sources import SearchSource, get_search_sources, select_sources
+from .web_search import SearchResult, search_and_process, search_sources_parallel
 
 logger = logging.getLogger("synesis.unified_retrieval")
 
@@ -71,6 +72,7 @@ class UnifiedResult:
     chunk_summary: str = ""
     document_name: str = ""
     domain: str = ""
+    source_id: str = ""  # search source catalog id (e.g. "web_general", "code_general")
 
 
 @dataclass
@@ -116,12 +118,13 @@ def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
     return out
 
 
-def _web_to_unified(web_results: list[SearchResult]) -> list[UnifiedResult]:
+def _web_to_unified(web_results: list[SearchResult], source_weight: float = 1.0) -> list[UnifiedResult]:
     """Convert SearchResult objects to UnifiedResult with authority boost.
 
     Web results get the same AUTHORITY_BOOST multipliers so that a
     [R:canonical] web result from an internal search engine ranks
     alongside canonical RAG hits, while [W] external results rank lower.
+    source_weight is an additional multiplier from the search source catalog.
     """
     out: list[UnifiedResult] = []
     for r in web_results:
@@ -138,9 +141,10 @@ def _web_to_unified(web_results: list[SearchResult]) -> list[UnifiedResult]:
                 authority=r.authority or "external",
                 origin_type=r.origin_type or "external",
                 retrieval_source="web",
-                score=r.relevance * boost,
+                score=r.relevance * boost * source_weight,
                 is_trusted=r.is_trusted,
                 title=r.title or "",
+                source_id=getattr(r, "source_id", "") or "",
             )
         )
     return out
@@ -316,6 +320,59 @@ async def _coherence_gate(
         return results
 
 
+async def _multi_source_web_search(
+    query: str,
+    domain_hints: list[str] | None = None,
+    search_source_ids: list[str] | None = None,
+) -> dict[str, list[SearchResult]]:
+    """Select and fan-out across configured search sources in parallel.
+
+    Falls back to the legacy single-profile search_and_process() when no
+    source catalog is configured or only the default web_general source is active.
+    """
+    all_sources = get_search_sources()
+    if not all_sources:
+        results = await search_and_process(query, profile="web", fetch_pages=True)
+        return {"web_general": results}
+
+    if search_source_ids:
+        selected = [s for s in all_sources if s.id in search_source_ids]
+    else:
+        selected = select_sources(
+            all_sources,
+            domain_tags=domain_hints,
+        )
+
+    if not selected:
+        results = await search_and_process(query, profile="web", fetch_pages=True)
+        return {"web_general": results}
+
+    # Single source: use direct search for efficiency
+    if len(selected) == 1:
+        src = selected[0]
+        results = await search_and_process(
+            query,
+            profile="web" if not src.searxng_params.get("engines") else "code",
+            fetch_pages=src.fetch_pages,
+        )
+        for r in results:
+            r.source_id = src.id
+        return {src.id: results}
+
+    # Multiple sources: parallel fan-out
+    source_dicts = [
+        {
+            "source_id": src.id,
+            "searxng_params": src.searxng_params,
+            "trust": {"authority": src.trust.authority, "origin_type": src.trust.origin_type},
+            "max_results": src.max_results,
+            "fetch_pages": src.fetch_pages,
+        }
+        for src in selected
+    ]
+    return await search_sources_parallel(query, source_dicts)
+
+
 async def retrieve_unified(
     query: str,
     difficulty: float = 0.5,
@@ -325,8 +382,9 @@ async def retrieve_unified(
     force_web: bool = False,
     domain_hints: list[str] | None = None,
     skip_web: bool = False,
+    search_source_ids: list[str] | None = None,
 ) -> RetrievalBundle:
-    """Parallel RAG + web retrieval with authority-weighted RRF fusion.
+    """Parallel RAG + multi-source web retrieval with authority-weighted RRF fusion.
 
     Args:
       query: RAG retrieval query (frame-distilled when available).
@@ -337,12 +395,14 @@ async def retrieve_unified(
                     narrows Milvus vector search to matching domains.
       skip_web: When True (e.g. needs_web=false in frame), web search is
                 disabled regardless of other settings.
+      search_source_ids: Explicit list of search source IDs to query. When
+                         provided, overrides automatic source selection.
 
     Returns:
       RetrievalBundle with results and optional cohesion_lock metadata.
 
     Steps:
-      1. asyncio.gather(RAG, web) — parallel execution
+      1. asyncio.gather(RAG, multi-source web) — parallel execution
       2. Convert both to UnifiedResult with authority metadata preserved
       3. Adaptive web gating (L-RAG pattern): if RAG returns 3+ results,
          cap web slots so RAG dominates; if RAG is empty, web fills the gap
@@ -371,16 +431,20 @@ async def retrieve_unified(
     overfetch_max = getattr(settings, "rag_overfetch_max", 50)
     overfetch = int(overfetch_min + difficulty * (overfetch_max - overfetch_min))
 
-    # Phase 1: parallel retrieval
+    # Phase 1: parallel retrieval (RAG + multi-source web fan-out)
     rag_coro = retrieve_context(query=query, collections=collections, top_k=overfetch, domain_filter=domain_filter)
 
     if web_enabled:
         effective_web_query = web_query if web_query else query[:120]
-        web_coro = search_and_process(effective_web_query, profile="web", fetch_pages=True)
-        rag_raw, web_raw = await asyncio.gather(rag_coro, web_coro, return_exceptions=True)
+        web_coro = _multi_source_web_search(
+            effective_web_query,
+            domain_hints=domain_hints,
+            search_source_ids=search_source_ids,
+        )
+        rag_raw, web_multi_raw = await asyncio.gather(rag_coro, web_coro, return_exceptions=True)
     else:
         rag_raw = await rag_coro
-        web_raw: list[SearchResult] = []
+        web_multi_raw: dict[str, list[SearchResult]] = {}
 
     _rag_degraded = False
     _web_degraded = False
@@ -391,11 +455,26 @@ async def retrieve_unified(
         rag_raw = []
         _rag_degraded = True
         _degradation_notes_parts.append("RAG retrieval failed")
-    if isinstance(web_raw, BaseException):
-        logger.warning("unified_web_failed", extra={"error": str(web_raw)[:200]})
-        web_raw = []
+    if isinstance(web_multi_raw, BaseException):
+        logger.warning("unified_web_failed", extra={"error": str(web_multi_raw)[:200]})
+        web_multi_raw = {}
         _web_degraded = True
         _degradation_notes_parts.append("Web search failed")
+
+    # Flatten multi-source web results into a single list with source-weight
+    web_raw: list[SearchResult] = []
+    _source_weights: dict[str, float] = {}
+    if isinstance(web_multi_raw, dict):
+        for sid, results in web_multi_raw.items():
+            web_raw.extend(results)
+            if results:
+                _source_weights[sid] = results[0].score if results else 1.0
+        if web_multi_raw:
+            _src_summary = {sid: len(res) for sid, res in web_multi_raw.items() if res}
+            if _src_summary:
+                _degradation_notes_parts.append(
+                    f"Sources queried: {', '.join(f'{k}({v})' for k, v in _src_summary.items())}"
+                )
 
     # Phase 2: convert to unified format (authority metadata preserved)
     rag_unified = _rag_to_unified(rag_raw)
@@ -422,8 +501,8 @@ async def retrieve_unified(
 
         for idx, candidate in enumerate(fallback_candidates[:3], start=1):
             try:
-                web_raw = await search_and_process(candidate, profile="web", fetch_pages=True)
-                web_unified = _web_to_unified(web_raw if not isinstance(web_raw, BaseException) else [])
+                web_raw_fb = await search_and_process(candidate, profile="web", fetch_pages=True)
+                web_unified = _web_to_unified(web_raw_fb if not isinstance(web_raw_fb, BaseException) else [])
             except Exception:
                 logger.warning("unified_web_fallback_failed", extra={"attempt": idx, "query": candidate[:80]}, exc_info=True)
                 web_unified = []

@@ -130,6 +130,8 @@ spec:
               value: "5"
             - name: SYNESIS_WEB_SEARCH_MAX_RESULTS
               value: "5"
+            - name: SYNESIS_SEARCH_SOURCES_PATH
+              value: "/etc/synesis/search_sources.yaml"
             - name: SYNESIS_WEB_SEARCH_CRITIC_ENABLED
               value: "false"
             - name: SYNESIS_LSP_ENABLED

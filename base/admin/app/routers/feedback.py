@@ -56,10 +56,14 @@ async def feedback_stats(_user: UserInfo = Depends(get_current_user)):
     return {"up": up, "down": down, "total": len(entries)}
 
 
+KNOWLEDGE_GAP_STATUS_COLLECTION = "synesis_knowledge_gap_status"
+
+
 @router.get("/knowledge-gaps")
 async def knowledge_gaps(
     _user: UserInfo = Depends(get_current_user),
     domain: str = Query("", description="Filter by domain"),
+    status: str = Query("", description="Filter by status: open, resolved, reopened"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
@@ -83,7 +87,34 @@ async def knowledge_gaps(
         limit=page_size,
         offset=offset,
     )
+
+    # Enrich with lifecycle status
+    chunk_ids = [g.get("chunk_id", "") for g in gaps if g.get("chunk_id")]
+    statuses = _batch_gap_statuses(chunk_ids)
+    for g in gaps:
+        cid = g.get("chunk_id", "")
+        st = statuses.get(cid, {})
+        g["status"] = st.get("status", "open")
+        g["resolved_by"] = st.get("resolved_by", "")
+        g["resolution_note"] = st.get("resolution_note", "")
+
+    if status:
+        gaps = [g for g in gaps if g.get("status") == status]
+
     return {"gaps": gaps, "total": len(gaps)}
+
+
+def _batch_gap_statuses(chunk_ids: list[str]) -> dict[str, dict]:
+    if not chunk_ids:
+        return {}
+    id_list = ",".join(f'"{cid[:64]}"' for cid in chunk_ids[:200])
+    results = safe_query(
+        KNOWLEDGE_GAP_STATUS_COLLECTION,
+        filter_expr=f"chunk_id in [{id_list}]",
+        output_fields=["chunk_id", "status", "resolved_at", "resolved_by", "resolution_note", "updated_at"],
+        limit=200,
+    )
+    return {r["chunk_id"]: r for r in results}
 
 
 class KnowledgeSubmit(BaseModel):

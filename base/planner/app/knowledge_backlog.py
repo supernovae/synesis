@@ -2,6 +2,11 @@
 
 When Context Curator finds max RAG score < threshold, publishes the query to Milvus
 so admins can discover "what we don't know" and prioritize SOP authoring.
+
+Gap lifecycle statuses:
+  - open (default): newly surfaced gap
+  - resolved: admin marked as satisfied/addressed
+  - reopened: was resolved but resurfaced
 """
 
 from __future__ import annotations
@@ -9,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from typing import Literal
 
 from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
@@ -17,7 +23,10 @@ from .config import settings
 logger = logging.getLogger("synesis.knowledge_backlog")
 
 COLLECTION = "synesis_knowledge_backlog"
+STATUS_COLLECTION = "synesis_knowledge_gap_status"
 EMBEDDING_DIM = 384
+
+GapStatus = Literal["open", "resolved", "reopened"]
 
 _client: MilvusClient | None = None
 _initialized = False
@@ -135,3 +144,126 @@ async def publish_knowledge_gap(
     except Exception as e:
         logger.warning("publish_knowledge_gap_failed", extra={"error": str(e)[:200]})
         return None
+
+
+# ---------------------------------------------------------------------------
+# Gap lifecycle — status tracking (companion to the main backlog collection)
+# ---------------------------------------------------------------------------
+
+_status_initialized = False
+
+
+def _ensure_status_collection() -> None:
+    global _status_initialized
+    if _status_initialized:
+        return
+
+    client = _get_client()
+    if STATUS_COLLECTION in client.list_collections():
+        try:
+            client.load_collection(collection_name=STATUS_COLLECTION)
+        except Exception as e:
+            logger.debug("status_collection_load_deferred", extra={"error": str(e)[:200]})
+        _status_initialized = True
+        return
+
+    schema = CollectionSchema(
+        fields=[
+            FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+            FieldSchema(name="status", dtype=DataType.VARCHAR, max_length=20),
+            FieldSchema(name="resolved_at", dtype=DataType.INT64),
+            FieldSchema(name="resolved_by", dtype=DataType.VARCHAR, max_length=128),
+            FieldSchema(name="resolution_note", dtype=DataType.VARCHAR, max_length=1024),
+            FieldSchema(name="updated_at", dtype=DataType.INT64),
+        ],
+        description="Synesis knowledge gap lifecycle status",
+    )
+    client.create_collection(collection_name=STATUS_COLLECTION, schema=schema)
+    logger.info("milvus_collection_created", extra={"collection": STATUS_COLLECTION})
+    try:
+        client.load_collection(collection_name=STATUS_COLLECTION)
+    except Exception as e:
+        logger.debug("initial_status_load_deferred", extra={"error": str(e)[:200]})
+    _status_initialized = True
+
+
+def get_gap_status(chunk_id: str) -> dict | None:
+    """Get the lifecycle status of a knowledge gap."""
+    try:
+        _ensure_status_collection()
+        client = _get_client()
+        results = client.query(
+            collection_name=STATUS_COLLECTION,
+            filter=f'chunk_id == "{chunk_id}"',
+            output_fields=["chunk_id", "status", "resolved_at", "resolved_by", "resolution_note", "updated_at"],
+            limit=1,
+        )
+        return results[0] if results else None
+    except Exception:
+        logger.warning("get_gap_status_failed", exc_info=True)
+        return None
+
+
+def update_gap_status(
+    chunk_id: str,
+    status: GapStatus,
+    resolved_by: str = "",
+    resolution_note: str = "",
+) -> bool:
+    """Update the lifecycle status of a knowledge gap."""
+    try:
+        _ensure_status_collection()
+        client = _get_client()
+        now = int(time.time())
+        entity = {
+            "chunk_id": chunk_id[:64],
+            "status": status,
+            "resolved_at": now if status == "resolved" else 0,
+            "resolved_by": (resolved_by or "")[:128],
+            "resolution_note": (resolution_note or "")[:1024],
+            "updated_at": now,
+        }
+        client.upsert(collection_name=STATUS_COLLECTION, data=[entity])
+        logger.info(
+            "gap_status_updated",
+            extra={"chunk_id": chunk_id[:12], "status": status, "by": resolved_by[:30]},
+        )
+        return True
+    except Exception:
+        logger.warning("update_gap_status_failed", exc_info=True)
+        return False
+
+
+def delete_gap(chunk_id: str) -> bool:
+    """Purge a knowledge gap and its status record."""
+    try:
+        client = _get_client()
+        _ensure_collection()
+        client.delete(collection_name=COLLECTION, filter=f'chunk_id == "{chunk_id}"')
+        _ensure_status_collection()
+        client.delete(collection_name=STATUS_COLLECTION, filter=f'chunk_id == "{chunk_id}"')
+        logger.info("gap_purged", extra={"chunk_id": chunk_id[:12]})
+        return True
+    except Exception:
+        logger.warning("delete_gap_failed", exc_info=True)
+        return False
+
+
+def list_gap_statuses(chunk_ids: list[str]) -> dict[str, dict]:
+    """Batch-fetch gap statuses for a list of chunk_ids."""
+    if not chunk_ids:
+        return {}
+    try:
+        _ensure_status_collection()
+        client = _get_client()
+        id_list = ",".join(f'"{cid[:64]}"' for cid in chunk_ids[:200])
+        results = client.query(
+            collection_name=STATUS_COLLECTION,
+            filter=f"chunk_id in [{id_list}]",
+            output_fields=["chunk_id", "status", "resolved_at", "resolved_by", "resolution_note", "updated_at"],
+            limit=200,
+        )
+        return {r["chunk_id"]: r for r in results}
+    except Exception:
+        logger.warning("list_gap_statuses_failed", exc_info=True)
+        return {}

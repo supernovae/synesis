@@ -82,6 +82,8 @@ def format_context_block(
         chunk_summary = _getfield(r, "chunk_summary", "")
         source_url = _getfield(r, "source_url", "")
 
+        source_id = _getfield(r, "source_id", "")
+
         # Authority marker
         if retrieval_source == "rag" or is_trusted:
             prefix = f"[R:{authority}]" if authority else "[R]"
@@ -90,6 +92,8 @@ def format_context_block(
 
         # Structural context line
         parts: list[str] = []
+        if source_id and retrieval_source == "web":
+            parts.append(source_id)
         if heading_path:
             parts.append(heading_path)
         if document_name:

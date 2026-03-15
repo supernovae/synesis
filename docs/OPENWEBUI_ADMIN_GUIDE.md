@@ -93,6 +93,19 @@ oc port-forward svc/synesis-admin 8080:8080 -n synesis-planner
 | `/admin/failures/gaps` | RAG corpus gaps: unresolved failures suggest missing documentation |
 | `/admin/failures/{id}` | Detail view with code, error output, resolution |
 | `/admin/status` | Model health (executor, router, critic) |
+| `/admin/observability/knowledge-gaps` | Knowledge gap list with status filter (open/resolved/reopened) and admin actions |
+| `/admin/feedback/knowledge-gaps` | Knowledge gaps surfaced via user feedback, same lifecycle actions |
+
+### Knowledge Gap Lifecycle
+
+The admin UI allows managing the lifecycle of knowledge gaps:
+
+- **Filter by status**: Open, Resolved, Reopened, or All
+- **Resolve**: Mark a gap as addressed, with an optional resolution note
+- **Reopen**: Return a resolved gap to open status if it resurfaces
+- **Purge**: Permanently delete a gap and its status record
+
+The gap status data is stored in a companion Milvus collection (`synesis_knowledge_gap_status`) alongside the original backlog collection.
 
 ---
 

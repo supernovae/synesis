@@ -296,6 +296,7 @@ export function useFailureStats() {
 export function useObservabilityKnowledgeGaps(params?: {
   page?: number;
   page_size?: number;
+  status?: string;
 }) {
   return useQuery<{ gaps: KnowledgeGap[]; total: number }>({
     queryKey: ["observability", "knowledge-gaps", params],
@@ -303,6 +304,44 @@ export function useObservabilityKnowledgeGaps(params?: {
       client
         .get("/observability/knowledge-gaps", { params })
         .then((r) => r.data),
+  });
+}
+
+export function useResolveGap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { chunk_id: string; resolution_note?: string }) =>
+      client.post(`/observability/knowledge-gaps/${data.chunk_id}/resolve`, {
+        resolution_note: data.resolution_note || "",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
+    },
+  });
+}
+
+export function useReopenGap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chunk_id: string) =>
+      client.post(`/observability/knowledge-gaps/${chunk_id}/reopen`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
+    },
+  });
+}
+
+export function usePurgeGap() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (chunk_id: string) =>
+      client.delete(`/observability/knowledge-gaps/${chunk_id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
+    },
   });
 }
 

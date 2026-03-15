@@ -481,6 +481,7 @@ class RouterNode:
         force_web: bool = False,
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
+        search_source_ids: list[str] | None = None,
     ) -> RetrievalBundle:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
@@ -497,6 +498,7 @@ class RouterNode:
             domain_hints=domain_hints,
             force_web=force_web,
             skip_web=skip_web,
+            search_source_ids=search_source_ids,
         )
         bundle.results = bundle.results[:doc_cap]
         return bundle
@@ -584,6 +586,7 @@ class RouterNode:
         domain_hints: list[str] | None = None,
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
+        search_source_ids: list[str] | None = None,
     ) -> RetrievalBundle:
         """Retrieve using multiple query variants and merge via RRF."""
         if len(variants) <= 1:
@@ -593,6 +596,7 @@ class RouterNode:
                 domain_hints=domain_hints,
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
+                search_source_ids=search_source_ids,
             )
 
         tasks = [
@@ -602,6 +606,7 @@ class RouterNode:
                 domain_hints=domain_hints,
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
+                search_source_ids=search_source_ids,
             )
             for q in variants
         ]
@@ -650,6 +655,7 @@ class RouterNode:
         """
         domain_hints = evidence_request.get("domain_hints") or []
         skip_web = evidence_request.get("skip_web", False)
+        search_source_ids: list[str] = evidence_request.get("search_source_ids") or []
 
         preferred_web_scopes: list[str] = []
         if taxonomy_metadata:
@@ -683,6 +689,7 @@ class RouterNode:
                     domain_hints=domain_hints,
                     skip_web=skip_web,
                     preferred_web_scopes=preferred_web_scopes,
+                    search_source_ids=search_source_ids or None,
                 ),
                 timeout=self.retrieve_timeout_seconds,
             )
@@ -752,6 +759,7 @@ class RouterNode:
                         domain_hints=domain_hints,
                         skip_web=skip_web,
                         preferred_web_scopes=preferred_web_scopes,
+                        search_source_ids=search_source_ids or None,
                     ),
                     timeout=self.retrieve_timeout_seconds,
                 )
@@ -975,11 +983,16 @@ class RouterNode:
         technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
 
-        base = {
+        # Resolve search source IDs from taxonomy + prompt cues
+        search_source_ids = self._resolve_search_sources(state, domain_tags)
+
+        base: dict[str, Any] = {
             "domain_hints": domain_tags,
             "technologies": technologies,
             "skip_web": skip_web,
         }
+        if search_source_ids:
+            base["search_source_ids"] = search_source_ids
 
         requests = []
         main_q = user_task.get("main_question", task_desc)
@@ -997,6 +1010,40 @@ class RouterNode:
                 requests.append({**base, "section_id": i, "description": d if isinstance(d, str) else str(d)})
 
         return requests if requests else [{**base, "description": task_desc}]
+
+    def _resolve_search_sources(self, state: dict[str, Any], domain_tags: list[str]) -> list[str]:
+        """Determine which search sources to use based on taxonomy metadata and prompt cues.
+
+        Extracts prompt-level source hints (e.g. "include github+jira") from the
+        user's query and combines them with taxonomy-driven source selection from
+        the search_sources catalog.
+        """
+        from ..search_sources import get_search_sources, select_sources
+
+        all_sources = get_search_sources()
+        if not all_sources:
+            return []
+
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
+        task_type = ""
+        if taxonomy_metadata:
+            task_type = str(taxonomy_metadata.get("taxonomy_key", "")).split(".")[-1] if taxonomy_metadata.get("taxonomy_key") else ""
+
+        prompt_hints = _extract_prompt_source_hints(state.get("task_description", ""), all_sources)
+
+        selected = select_sources(
+            all_sources,
+            domain_tags=domain_tags,
+            task_type=task_type,
+            prompt_source_hints=prompt_hints,
+        )
+        ids = [s.id for s in selected]
+        if ids:
+            logger.debug(
+                "search_sources_selected",
+                extra={"source_ids": ids, "prompt_hints": prompt_hints[:5], "domain_tags": domain_tags[:5]},
+            )
+        return ids
 
     def _build_light_request(self, state: dict[str, Any]) -> dict[str, Any]:
         """Build a single evidence request for rag_mode=light.
@@ -1023,8 +1070,11 @@ class RouterNode:
         parts: list[str] = []
         for i, r in enumerate(results[:MAX_DOCS_PER_QUERY]):
             source_type = "web" if r.retrieval_source == "web" else "rag"
+            source_label = f"{source_type}"
+            if r.source_id:
+                source_label = f"{source_type}/{r.source_id}"
             parts.append(
-                f"[{i + 1}] ({source_type}) score={r.score:.3f} "
+                f"[{i + 1}] ({source_label}) score={r.score:.3f} "
                 f"authority={r.authority} url={r.source_url}\n"
                 f"title: {r.title}\n"
                 f"heading: {r.heading_path}\n"
@@ -1040,15 +1090,26 @@ class RouterNode:
         raw_results: list[UnifiedResult],
     ) -> EvidencePacket:
         """Parse LLM JSON output into an EvidencePacket with fallback."""
+        # Build source_id lookup from raw results for provenance injection
+        _url_to_source_id: dict[str, str] = {}
+        for r in raw_results:
+            if r.source_url and r.source_id:
+                _url_to_source_id[r.source_url] = r.source_id
+
         try:
             data = safe_parse_json(llm_output)
             sources = []
             for s in data.get("sources", [])[:MAX_DOCS_PER_QUERY]:
+                meta = dict(s.get("metadata", {}))
+                uri = s.get("uri", "")
+                sid = _url_to_source_id.get(uri, "")
+                if sid:
+                    meta.setdefault("source_id", sid)
                 sources.append(
                     EvidenceSource(
-                        uri=s.get("uri", ""),
+                        uri=uri,
                         type=s.get("type", "doc"),
-                        metadata=s.get("metadata", {}),
+                        metadata=meta,
                     )
                 )
             snippets = []
@@ -1103,16 +1164,19 @@ def _fallback_packet(query: str, raw_results: list[UnifiedResult]) -> EvidencePa
     snippets = []
     for r in raw_results[:MAX_DOCS_PER_QUERY]:
         src_type = "web" if r.retrieval_source == "web" else "doc"
+        meta: dict[str, Any] = {
+            "authority": r.authority,
+            "origin_type": r.origin_type,
+            "heading_path": r.heading_path,
+            "document_name": r.document_name,
+        }
+        if r.source_id:
+            meta["source_id"] = r.source_id
         sources.append(
             EvidenceSource(
                 uri=r.source_url or r.title or "unknown",
                 type=src_type,
-                metadata={
-                    "authority": r.authority,
-                    "origin_type": r.origin_type,
-                    "heading_path": r.heading_path,
-                    "document_name": r.document_name,
-                },
+                metadata=meta,
             )
         )
     for r in raw_results[:MAX_SNIPPETS_PER_PACKET]:
@@ -1135,6 +1199,16 @@ def _fallback_packet(query: str, raw_results: list[UnifiedResult]) -> EvidencePa
         confidence=confidence,
         retrieval_notes="Fallback: LLM summarization failed, evidence assembled from raw results.",
     )
+
+
+def _extract_prompt_source_hints(
+    prompt: str,
+    all_sources: list | None = None,
+) -> list[str]:
+    """Delegate to search_sources.extract_prompt_source_hints()."""
+    from ..search_sources import extract_prompt_source_hints
+
+    return extract_prompt_source_hints(prompt, all_sources)
 
 
 def _timeout_packet(query: str, reason: str) -> EvidencePacket:

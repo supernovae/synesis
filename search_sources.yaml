@@ -1,0 +1,150 @@
+# ============================================================================
+# Synesis Search Source Catalog — Single Source of Truth
+# ============================================================================
+#
+# Defines all search sources available to the retrieval pipeline. Each source
+# maps to one or more SearXNG engines/categories and carries trust metadata
+# used for authority-weighted fusion (RRF + boost).
+#
+# The planner loads this file at startup (SYNESIS_SEARCH_SOURCES_PATH env var
+# or /etc/synesis/search_sources.yaml) and derives engine_authority_map entries
+# automatically. Sources with enabled: false are ignored unless explicitly
+# requested via prompt aliases.
+#
+# See docs/WEB_SEARCH.md and the search federation plan for context.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Source definitions
+# ---------------------------------------------------------------------------
+#
+# Each source declares:
+#   id             — unique identifier used in logs, metrics, and evidence metadata
+#   label          — human-readable display name (shown in admin UI and citations)
+#   description    — what this source covers
+#   enabled        — whether to include by default in every retrieval fan-out
+#   searxng_params — dict passed to SearXNG (engines, categories, etc.)
+#   trust          — authority and origin_type for scoring/fusion
+#     authority    — "canonical" | "vetted" | "community" | "external"
+#     origin_type  — "internal" | "curated" | "external"
+#   weight         — RRF fusion weight multiplier (1.0 = neutral)
+#   max_results    — cap results from this source per query
+#   fetch_pages    — whether to follow URLs and extract page content
+#   routing        — when/how this source is selected
+#     tags         — domain taxonomy tags that trigger this source
+#     task_types   — task type labels that trigger this source
+#     prompt_aliases — user-facing keywords that explicitly request this source
+#     always       — if true, included in every fan-out regardless of routing
+# ---------------------------------------------------------------------------
+
+sources:
+  - id: web_general
+    label: "Web Search"
+    description: "General web search via Google, Bing, DuckDuckGo"
+    enabled: true
+    searxng_params:
+      categories: "general"
+    trust:
+      authority: "external"
+      origin_type: "external"
+    weight: 1.0
+    max_results: 5
+    fetch_pages: true
+    routing:
+      tags: []
+      task_types: []
+      prompt_aliases: ["web", "internet", "search"]
+      always: true
+
+  - id: code_general
+    label: "Code Search"
+    description: "Code-focused search via GitHub and StackOverflow"
+    enabled: true
+    searxng_params:
+      engines: "github,stackoverflow"
+    trust:
+      authority: "community"
+      origin_type: "external"
+    weight: 1.1
+    max_results: 5
+    fetch_pages: false
+    routing:
+      tags: ["software-engineering", "programming", "devops"]
+      task_types: ["code", "debug", "architecture"]
+      prompt_aliases: ["code", "github", "stackoverflow"]
+      always: false
+
+  # --- Examples of additional sources (disabled by default) ---
+  # Uncomment and configure to enable.
+
+  # - id: github_internal
+  #   label: "Internal GitHub"
+  #   description: "Internal GitHub Enterprise code and issues"
+  #   enabled: false
+  #   searxng_params:
+  #     engines: "github"
+  #   trust:
+  #     authority: "vetted"
+  #     origin_type: "internal"
+  #   weight: 1.3
+  #   max_results: 5
+  #   fetch_pages: false
+  #   routing:
+  #     tags: ["internal", "engineering"]
+  #     task_types: ["code", "debug"]
+  #     prompt_aliases: ["internal github", "our repos", "our code"]
+  #     always: false
+
+  # - id: jira_internal
+  #   label: "Jira"
+  #   description: "Internal Jira tickets and epics"
+  #   enabled: false
+  #   searxng_params:
+  #     engines: "jira"
+  #   trust:
+  #     authority: "canonical"
+  #     origin_type: "internal"
+  #   weight: 1.4
+  #   max_results: 5
+  #   fetch_pages: false
+  #   routing:
+  #     tags: ["project-management", "engineering"]
+  #     task_types: ["planning", "status"]
+  #     prompt_aliases: ["jira", "tickets", "issues", "epics"]
+  #     always: false
+
+  # - id: helpdesk_internal
+  #   label: "Helpdesk"
+  #   description: "Internal helpdesk / knowledge base articles"
+  #   enabled: false
+  #   searxng_params:
+  #     engines: "helpdesk"
+  #   trust:
+  #     authority: "canonical"
+  #     origin_type: "internal"
+  #   weight: 1.4
+  #   max_results: 5
+  #   fetch_pages: true
+  #   routing:
+  #     tags: ["support", "operations"]
+  #     task_types: ["troubleshooting", "how-to"]
+  #     prompt_aliases: ["helpdesk", "kb", "knowledge base", "support"]
+  #     always: false
+
+  # - id: confluence_internal
+  #   label: "Confluence"
+  #   description: "Internal Confluence wiki pages"
+  #   enabled: false
+  #   searxng_params:
+  #     engines: "confluence"
+  #   trust:
+  #     authority: "vetted"
+  #     origin_type: "internal"
+  #   weight: 1.3
+  #   max_results: 5
+  #   fetch_pages: true
+  #   routing:
+  #     tags: ["documentation", "engineering"]
+  #     task_types: []
+  #     prompt_aliases: ["confluence", "wiki", "internal docs"]
+  #     always: false

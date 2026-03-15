@@ -120,7 +120,27 @@ When RAG retrieval finds no good match (max score < 0.6), Synesis:
 - Publishes the gap to `synesis_knowledge_backlog`
 - Respond appends: *"I've flagged this for update."*
 
-Admins can view gaps in the **Knowledge Gaps** page and submit new content via the planner API or admin form. See [PLAN-domain-aligner-universal-expertise.md](PLAN-domain-aligner-universal-expertise.md).
+### Gap Lifecycle
+
+Knowledge gaps now support a full lifecycle managed from the Admin UI:
+
+| Status | Meaning |
+|--------|---------|
+| **open** | New gap — retrieval confidence was low, content needed |
+| **resolved** | Admin marked the gap as addressed (with optional resolution note) |
+| **reopened** | Previously resolved gap that has resurfaced |
+
+Admins can view, filter by status, resolve, reopen, or purge gaps from the **Knowledge Gaps** pages in both the Observability and Feedback sections of synesis-admin.
+
+### Admin Actions
+
+| Action | API | Effect |
+|--------|-----|--------|
+| Resolve | `POST /admin/observability/knowledge-gaps/{chunk_id}/resolve` | Marks gap as `resolved` with optional note |
+| Reopen | `POST /admin/observability/knowledge-gaps/{chunk_id}/reopen` | Returns a resolved gap to `open` status |
+| Purge | `DELETE /admin/observability/knowledge-gaps/{chunk_id}` | Permanently deletes the gap record |
+
+Gaps can also be submitted via the planner API or admin form. See [PLAN-domain-aligner-universal-expertise.md](PLAN-domain-aligner-universal-expertise.md).
 
 ---
 

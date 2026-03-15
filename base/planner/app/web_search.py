@@ -64,6 +64,7 @@ class SearchResult:
     authority: str = "external"
     origin_type: str = "external"
     is_trusted: bool = False
+    source_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -517,6 +518,44 @@ class WebSearchClient:
         }
         params.update(PROFILE_PARAMS.get(profile, PROFILE_PARAMS["web"]))
 
+        return await self._execute_search(query, params, limit, profile)
+
+    async def search_raw(
+        self,
+        query: str,
+        searxng_params: dict[str, str] | None = None,
+        max_results: int | None = None,
+    ) -> list[SearchResult]:
+        """Search with arbitrary SearXNG params (for source fan-out)."""
+        if not settings.web_search_enabled or not self._base_url:
+            return []
+
+        if self._breaker.is_open:
+            logger.debug("Web search circuit breaker open, skipping")
+            return []
+
+        if not query.strip():
+            return []
+
+        limit = max_results or self._max_results
+        params: dict[str, Any] = {
+            "q": query,
+            "format": "json",
+            "pageno": 1,
+        }
+        if searxng_params:
+            params.update(searxng_params)
+
+        return await self._execute_search(query, params, limit, "source")
+
+    async def _execute_search(
+        self,
+        query: str,
+        params: dict[str, Any],
+        limit: int,
+        profile_label: str,
+    ) -> list[SearchResult]:
+        """Shared search execution with circuit breaker and metrics."""
         start = time.monotonic()
         try:
             _timeout = httpx.Timeout(
@@ -548,14 +587,14 @@ class WebSearchClient:
 
             elapsed = time.monotonic() - start
             if _search_counter:
-                _search_counter.labels(profile=profile, outcome="success").inc()
+                _search_counter.labels(profile=profile_label, outcome="success").inc()
             if _search_latency:
-                _search_latency.labels(profile=profile).observe(elapsed)
+                _search_latency.labels(profile=profile_label).observe(elapsed)
 
             logger.info(
                 "web_search_completed",
                 extra={
-                    "profile": profile,
+                    "profile": profile_label,
                     "query": query[:120],
                     "results_count": len(results),
                     "latency_s": round(elapsed, 3),
@@ -568,9 +607,9 @@ class WebSearchClient:
             elapsed = time.monotonic() - start
 
             if _search_counter:
-                _search_counter.labels(profile=profile, outcome="error").inc()
+                _search_counter.labels(profile=profile_label, outcome="error").inc()
             if _search_latency:
-                _search_latency.labels(profile=profile).observe(elapsed)
+                _search_latency.labels(profile=profile_label).observe(elapsed)
 
             logger.warning(
                 "web_search_failed",
@@ -579,7 +618,7 @@ class WebSearchClient:
                     "error_type": type(e).__name__,
                     "latency_s": round(elapsed, 2),
                     "query": query[:120],
-                    "profile": profile,
+                    "profile": profile_label,
                     "breaker_open": self._breaker.is_open,
                 },
             )
@@ -668,6 +707,88 @@ async def search_and_process(
 
     filtered = score_and_filter(query, raw, min_relevance=min_relevance)
     return classify_results_by_trust(filtered)
+
+
+async def search_source(
+    query: str,
+    source_id: str,
+    searxng_params: dict[str, str],
+    trust_authority: str = "external",
+    trust_origin_type: str = "external",
+    max_results: int = 5,
+    fetch_pages: bool = True,
+    min_relevance: float = 0.5,
+) -> list[SearchResult]:
+    """Search a single configured source with custom SearXNG params.
+
+    Used by the parallel source fan-out in unified_retrieval. Each source
+    gets its own SearXNG call with the engine/category params from
+    search_sources.yaml, and results are tagged with the source's trust
+    metadata and source_id.
+    """
+    raw = await search_client.search_raw(query, searxng_params=searxng_params, max_results=max_results)
+    if not raw:
+        return []
+
+    for r in raw:
+        r.source_id = source_id
+        if trust_authority != "external" or trust_origin_type != "external":
+            r.authority = trust_authority
+            r.origin_type = trust_origin_type
+            r.is_trusted = trust_authority not in ("external", "")
+
+    if fetch_pages:
+        raw = await fetch_page_contents(raw)
+
+    filtered = score_and_filter(query, raw, min_relevance=min_relevance)
+    return classify_results_by_trust(filtered)
+
+
+async def search_sources_parallel(
+    query: str,
+    sources: list[dict[str, Any]],
+    min_relevance: float = 0.5,
+) -> dict[str, list[SearchResult]]:
+    """Fan out a query across multiple search sources in parallel.
+
+    Args:
+        query: The search query.
+        sources: List of dicts with keys: source_id, searxng_params, trust,
+                 max_results, fetch_pages (matching SearchSource fields).
+
+    Returns:
+        Dict mapping source_id to its list of SearchResult objects.
+    """
+    if not sources:
+        return {}
+
+    async def _search_one(src: dict[str, Any]) -> tuple[str, list[SearchResult]]:
+        sid = src["source_id"]
+        trust = src.get("trust", {})
+        try:
+            results = await search_source(
+                query=query,
+                source_id=sid,
+                searxng_params=src.get("searxng_params", {}),
+                trust_authority=trust.get("authority", "external"),
+                trust_origin_type=trust.get("origin_type", "external"),
+                max_results=src.get("max_results", 5),
+                fetch_pages=src.get("fetch_pages", True),
+                min_relevance=min_relevance,
+            )
+            return sid, results
+        except Exception:
+            logger.warning("search_source_failed", exc_info=True, extra={"source_id": sid})
+            return sid, []
+
+    results = await asyncio.gather(*[_search_one(s) for s in sources], return_exceptions=True)
+    out: dict[str, list[SearchResult]] = {}
+    for r in results:
+        if isinstance(r, tuple):
+            out[r[0]] = r[1]
+        elif isinstance(r, Exception):
+            logger.warning("search_sources_parallel_error", extra={"error": str(r)[:200]})
+    return out
 
 
 search_client = WebSearchClient(

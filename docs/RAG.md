@@ -109,4 +109,4 @@ oc set env deployment/synesis-planner -n synesis-planner \
 
 ---
 
-Back to [README](../README.md) | See also: [Knowledge Indexers](INDEXERS.md)
+Back to [README](../README.md) | See also: [Knowledge Indexers](INDEXERS.md) | [Web Search & Multi-Source Federation](WEB_SEARCH.md)
