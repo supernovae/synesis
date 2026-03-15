@@ -71,14 +71,21 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
         classified["current_node"] = "entry_pipeline"
         return classified
 
-    # Trivial fast-path: when the classifier marks a task as trivial, skip
-    # advisor (~1s) and frame_extractor (~8s) entirely.  The writer/executor
-    # can answer from parametric knowledge without a semantic frame.
-    if classified.get("task_is_trivial"):
+    # Fast-path: skip advisor (~1s) and frame_extractor (~4-8s) when:
+    #   1. Trivial tasks (difficulty < 0.15)
+    #   2. Easy no-retrieval tasks (rag_mode=disabled, difficulty < 0.3)
+    # These go straight to the writer from parametric knowledge — the
+    # semantic frame, advisor opinion, and predictive cache warm are waste.
+    _is_easy_no_retrieval = (
+        classified.get("rag_mode") == "disabled"
+        and not classified.get("plan_required")
+    )
+    if classified.get("task_is_trivial") or _is_easy_no_retrieval:
         logger.info(
-            "entry_pipeline_trivial_fast_path",
+            "entry_pipeline_fast_path",
             extra={
                 "difficulty": classified.get("difficulty", 0),
+                "rag_mode": classified.get("rag_mode", ""),
                 "classifier_ms": round(_classifier_ms, 1),
                 "skipped": "advisor+frame_extractor",
             },
