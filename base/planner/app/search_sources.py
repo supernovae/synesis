@@ -246,7 +246,7 @@ def reload_search_sources() -> list[SearchSource]:
 # Prompt-level source hint extraction
 # ---------------------------------------------------------------------------
 
-import re as _re  # noqa: E402
+import re as _re
 
 _TRIGGER_RE = _re.compile(
     r"(?:include|search|use|query|check|add)\s+([\w\s+,]+?)(?:\s+(?:for|in|as|to|and|$)|\.|,|$)",

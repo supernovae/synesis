@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +29,14 @@ EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_JUDGE_MODEL = "synesis-general"
 
 OUTPUT_FIELDS = [
-    "chunk_id", "text", "document_name", "domain", "authority",
-    "source_url", "heading_path", "context_prefix",
+    "chunk_id",
+    "text",
+    "document_name",
+    "domain",
+    "authority",
+    "source_url",
+    "heading_path",
+    "context_prefix",
 ]
 
 JUDGE_PROMPT = """\
@@ -54,6 +59,7 @@ Respond with ONLY a single digit (0, 1, 2, or 3)."""
 # ---------------------------------------------------------------------------
 # Embedding + search helpers
 # ---------------------------------------------------------------------------
+
 
 def embed_text(text: str, embedder_url: str) -> list[float]:
     resp = httpx.post(
@@ -94,21 +100,24 @@ def hybrid_search(
     formatted = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="": getattr(entity, k, d)
-        formatted.append({
-            "chunk_id": get("chunk_id", ""),
-            "text": get("text", ""),
-            "document_name": get("document_name", ""),
-            "domain": get("domain", ""),
-            "authority": get("authority", ""),
-            "source_url": get("source_url", ""),
-        })
+        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+        formatted.append(
+            {
+                "chunk_id": get("chunk_id", ""),
+                "text": get("text", ""),
+                "document_name": get("document_name", ""),
+                "domain": get("domain", ""),
+                "authority": get("authority", ""),
+                "source_url": get("source_url", ""),
+            }
+        )
     return formatted
 
 
 # ---------------------------------------------------------------------------
 # LLM judge
 # ---------------------------------------------------------------------------
+
 
 def judge_relevance(
     query: str,
@@ -158,17 +167,17 @@ def save_cache(cache: dict[str, int], cache_path: Path) -> None:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="LLM-as-judge relevance labeling")
     parser.add_argument("--milvus-uri", default="http://localhost:19530")
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
-    parser.add_argument("--llm-url", default="http://localhost:4000/v1",
-                        help="OpenAI-compatible endpoint (LiteLLM gateway or direct)")
+    parser.add_argument(
+        "--llm-url", default="http://localhost:4000/v1", help="OpenAI-compatible endpoint (LiteLLM gateway or direct)"
+    )
     parser.add_argument("--model", default=DEFAULT_JUDGE_MODEL)
-    parser.add_argument("--pool-k", type=int, default=30,
-                        help="Top-K results to pool per query for judging")
-    parser.add_argument("--threshold", type=int, default=2,
-                        help="Min LLM score to count as relevant (0-3)")
+    parser.add_argument("--pool-k", type=int, default=30, help="Top-K results to pool per query for judging")
+    parser.add_argument("--threshold", type=int, default=2, help="Min LLM score to count as relevant (0-3)")
     parser.add_argument("--queries", default="benchmarks/bm25/queries.yaml")
     parser.add_argument("--output", default="benchmarks/corpus/relevance_labels_llm.json")
     parser.add_argument("--judgments-cache", default="benchmarks/corpus/judgments_cache.json")
@@ -198,7 +207,7 @@ def main():
     for qi, q in enumerate(queries):
         qid = q["id"]
         query_text = q["query"]
-        print(f"\n[{qi+1}/{len(queries)}] {qid}: {query_text}")
+        print(f"\n[{qi + 1}/{len(queries)}] {qid}: {query_text}")
 
         query_vector = embed_text(query_text, embedder_url)
         candidates = hybrid_search(query_text, query_vector, client, args.pool_k)
@@ -239,7 +248,7 @@ def main():
     with open(output_path, "w") as f:
         json.dump(labels, f, indent=2)
 
-    print(f"\n=== LLM Judge Summary ===")
+    print("\n=== LLM Judge Summary ===")
     print(f"  Queries:          {len(queries)}")
     print(f"  Total judged:     {total_judged} (new)")
     print(f"  From cache:       {total_cached}")

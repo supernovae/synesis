@@ -13,7 +13,6 @@ in local dev environments without the full dependency set.
 from __future__ import annotations
 
 import pytest
-
 from app.web_search import SearchResult
 
 _has_langgraph = True

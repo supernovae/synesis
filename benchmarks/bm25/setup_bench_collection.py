@@ -32,10 +32,24 @@ SOURCE_COLLECTION = "synesis_catalog"
 EMBEDDING_DIM = 384
 
 SOURCE_OUTPUT_FIELDS = [
-    "chunk_id", "doc_id", "chunk_index", "text", "context_prefix",
-    "chunk_summary", "heading_path", "section", "document_name",
-    "source_type", "handler", "domain", "tags", "keywords",
-    "origin_type", "authority", "source_url", "embedding",
+    "chunk_id",
+    "doc_id",
+    "chunk_index",
+    "text",
+    "context_prefix",
+    "chunk_summary",
+    "heading_path",
+    "section",
+    "document_name",
+    "source_type",
+    "handler",
+    "domain",
+    "tags",
+    "keywords",
+    "origin_type",
+    "authority",
+    "source_url",
+    "embedding",
 ]
 
 
@@ -64,8 +78,13 @@ def create_bench_collection(client: MilvusClient, drop: bool = False) -> None:
             FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
             FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
             FieldSchema(name="chunk_index", dtype=DataType.INT64),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192,
-                        enable_analyzer=True, analyzer_params={"type": "english"}),
+            FieldSchema(
+                name="text",
+                dtype=DataType.VARCHAR,
+                max_length=8192,
+                enable_analyzer=True,
+                analyzer_params={"type": "english"},
+            ),
             FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
             FieldSchema(name="heading_path", dtype=DataType.VARCHAR, max_length=512),
@@ -82,8 +101,13 @@ def create_bench_collection(client: MilvusClient, drop: bool = False) -> None:
             # Dense vector (same as production)
             FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
             # Enriched text for native BM25 Condition B2
-            FieldSchema(name="bm25_text", dtype=DataType.VARCHAR, max_length=16384,
-                        enable_analyzer=True, analyzer_params={"type": "english"}),
+            FieldSchema(
+                name="bm25_text",
+                dtype=DataType.VARCHAR,
+                max_length=16384,
+                enable_analyzer=True,
+                analyzer_params={"type": "english"},
+            ),
             # Sparse fields auto-populated by BM25 Functions
             FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
             FieldSchema(name="sparse_bm25_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
@@ -93,34 +117,42 @@ def create_bench_collection(client: MilvusClient, drop: bool = False) -> None:
     )
 
     # B1: BM25 on raw text field
-    schema.add_function(Function(
-        name="bm25_text_fn",
-        input_field_names=["text"],
-        output_field_names=["sparse_text"],
-        function_type=FunctionType.BM25,
-    ))
+    schema.add_function(
+        Function(
+            name="bm25_text_fn",
+            input_field_names=["text"],
+            output_field_names=["sparse_text"],
+            function_type=FunctionType.BM25,
+        )
+    )
 
     # B2: BM25 on enriched bm25_text field
-    schema.add_function(Function(
-        name="bm25_enriched_fn",
-        input_field_names=["bm25_text"],
-        output_field_names=["sparse_bm25_text"],
-        function_type=FunctionType.BM25,
-    ))
+    schema.add_function(
+        Function(
+            name="bm25_enriched_fn",
+            input_field_names=["bm25_text"],
+            output_field_names=["sparse_bm25_text"],
+            function_type=FunctionType.BM25,
+        )
+    )
 
     client.create_collection(collection_name=BENCH_COLLECTION, schema=schema)
 
     index_params = MilvusClient.prepare_index_params()
     index_params.add_index(
-        field_name="embedding", index_type="HNSW",
-        metric_type="COSINE", params={"M": 16, "efConstruction": 200},
+        field_name="embedding",
+        index_type="HNSW",
+        metric_type="COSINE",
+        params={"M": 16, "efConstruction": 200},
     )
     index_params.add_index(
-        field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX",
+        field_name="sparse_text",
+        index_type="SPARSE_INVERTED_INDEX",
         metric_type="BM25",
     )
     index_params.add_index(
-        field_name="sparse_bm25_text", index_type="SPARSE_INVERTED_INDEX",
+        field_name="sparse_bm25_text",
+        index_type="SPARSE_INVERTED_INDEX",
         metric_type="BM25",
     )
     client.create_index(collection_name=BENCH_COLLECTION, index_params=index_params)
@@ -140,8 +172,10 @@ def populate_from_source(client: MilvusClient) -> int:
 
     try:
         iterator = client.query_iterator(
-            collection_name=SOURCE_COLLECTION, filter="",
-            output_fields=SOURCE_OUTPUT_FIELDS, batch_size=batch_size,
+            collection_name=SOURCE_COLLECTION,
+            filter="",
+            output_fields=SOURCE_OUTPUT_FIELDS,
+            batch_size=batch_size,
         )
     except (AttributeError, Exception):
         print("query_iterator not available, falling back to offset pagination")
@@ -166,9 +200,11 @@ def populate_from_source(client: MilvusClient) -> int:
         offset = 0
         while True:
             results = client.query(
-                collection_name=SOURCE_COLLECTION, filter="",
+                collection_name=SOURCE_COLLECTION,
+                filter="",
                 output_fields=SOURCE_OUTPUT_FIELDS,
-                limit=batch_size, offset=offset,
+                limit=batch_size,
+                offset=offset,
             )
             if not results:
                 break

@@ -244,4 +244,3 @@ class TestRespondNode:
         assert "cannot proceed" in content.lower()
         assert "dependency" in content.lower() or "credential" in content.lower()
         assert "API key" in content
-

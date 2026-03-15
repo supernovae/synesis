@@ -34,6 +34,8 @@ def _embedder_available() -> bool:
         return r.status_code == 200
     except Exception:
         return False
+
+
 PLAN_FLOOR = 0.70
 
 

@@ -13,7 +13,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from app.search_sources import (
     SearchSource,
     SourceRouting,
@@ -206,7 +205,8 @@ class TestPromptSourceHints:
     def test_extract_include_github(self):
         from app.search_sources import extract_prompt_source_hints
 
-        sources = _default_sources() + [
+        sources = [
+            *_default_sources(),
             SearchSource(
                 id="jira",
                 routing=SourceRouting(prompt_aliases=["jira", "tickets"]),

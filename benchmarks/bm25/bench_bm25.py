@@ -38,15 +38,25 @@ SOURCE_COLLECTION = "synesis_catalog"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 OUTPUT_FIELDS = [
-    "chunk_id", "text", "document_name", "origin_type", "authority",
-    "domain", "source_url", "heading_path", "context_prefix",
-    "chunk_summary", "handler", "source_type",
+    "chunk_id",
+    "text",
+    "document_name",
+    "origin_type",
+    "authority",
+    "domain",
+    "source_url",
+    "heading_path",
+    "context_prefix",
+    "chunk_summary",
+    "handler",
+    "source_type",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Embedding helper
 # ---------------------------------------------------------------------------
+
 
 def embed_text(text: str, embedder_url: str) -> list[float]:
     resp = httpx.post(
@@ -61,6 +71,7 @@ def embed_text(text: str, embedder_url: str) -> list[float]:
 # ---------------------------------------------------------------------------
 # Condition A: Custom BM25 microservice + vector search + client RRF
 # ---------------------------------------------------------------------------
+
 
 def condition_a(
     query: str,
@@ -83,12 +94,14 @@ def condition_a(
     for hits in vector_results:
         for hit in hits:
             entity = hit.get("entity", {})
-            vec_formatted.append({
-                "chunk_id": entity.get("chunk_id", ""),
-                "text": entity.get("text", ""),
-                "vector_score": float(hit.get("distance", 0.0)),
-                **{k: entity.get(k, "") for k in OUTPUT_FIELDS if k not in ("chunk_id", "text")},
-            })
+            vec_formatted.append(
+                {
+                    "chunk_id": entity.get("chunk_id", ""),
+                    "text": entity.get("text", ""),
+                    "vector_score": float(hit.get("distance", 0.0)),
+                    **{k: entity.get(k, "") for k in OUTPUT_FIELDS if k not in ("chunk_id", "text")},
+                }
+            )
 
     # BM25 search via microservice
     try:
@@ -135,6 +148,7 @@ def _rrf_merge(
 # Condition B1/B2: Milvus native BM25 + hybrid_search with RRFRanker
 # ---------------------------------------------------------------------------
 
+
 def condition_b(
     query: str,
     query_vector: list[float],
@@ -174,12 +188,14 @@ def condition_b(
             chunk_id = entity.get("chunk_id", "") if isinstance(entity, dict) else getattr(entity, "chunk_id", "")
         else:
             chunk_id = entity.get("chunk_id", "")
-        formatted.append({
-            "chunk_id": chunk_id if isinstance(chunk_id, str) else str(chunk_id),
-            "text": entity.get("text", "") if isinstance(entity, dict) else getattr(entity, "text", ""),
-            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
-            "retrieval_source": "hybrid_native",
-        })
+        formatted.append(
+            {
+                "chunk_id": chunk_id if isinstance(chunk_id, str) else str(chunk_id),
+                "text": entity.get("text", "") if isinstance(entity, dict) else getattr(entity, "text", ""),
+                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
+                "retrieval_source": "hybrid_native",
+            }
+        )
 
     return formatted
 
@@ -187,6 +203,7 @@ def condition_b(
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
+
 
 def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
     if not relevant_ids:
@@ -215,7 +232,9 @@ def ndcg_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float
 
 
 def compute_metrics(
-    retrieved: list[dict], relevant_ids: set[str], ks: list[int],
+    retrieved: list[dict],
+    relevant_ids: set[str],
+    ks: list[int],
 ) -> dict[str, float]:
     rids = [r.get("chunk_id", "") for r in retrieved]
     metrics = {}
@@ -229,6 +248,7 @@ def compute_metrics(
 # ---------------------------------------------------------------------------
 # Relevance label generation via pooling + LLM judge
 # ---------------------------------------------------------------------------
+
 
 def generate_relevance_labels(
     queries: list[dict],
@@ -285,6 +305,7 @@ def generate_relevance_labels(
 # Main benchmark runner
 # ---------------------------------------------------------------------------
 
+
 def run_benchmark(args):
     queries_path = Path(__file__).parent / "queries.yaml"
     with open(queries_path) as f:
@@ -314,7 +335,10 @@ def run_benchmark(args):
             relevance_labels = json.load(f)
     else:
         relevance_labels = generate_relevance_labels(
-            queries, milvus_client, bm25_svc, embedder_url,
+            queries,
+            milvus_client,
+            bm25_svc,
+            embedder_url,
         )
         with open(labels_path, "w") as f:
             json.dump(relevance_labels, f, indent=2)
@@ -356,10 +380,14 @@ def run_benchmark(args):
             all_results["A_custom"]["latencies"].append(a_latency)
             if run_idx == 0:
                 a_metrics = compute_metrics(a_res, relevant, ks)
-                all_results["A_custom"]["per_query"].append({
-                    "query_id": qid, "query": query_text, **a_metrics,
-                    "retrieved_ids": [r.get("chunk_id", "") for r in a_res[:20]],
-                })
+                all_results["A_custom"]["per_query"].append(
+                    {
+                        "query_id": qid,
+                        "query": query_text,
+                        **a_metrics,
+                        "retrieved_ids": [r.get("chunk_id", "") for r in a_res[:20]],
+                    }
+                )
 
             # Condition B1
             try:
@@ -369,10 +397,14 @@ def run_benchmark(args):
                 all_results["B1_native_text"]["latencies"].append(b1_latency)
                 if run_idx == 0:
                     b1_metrics = compute_metrics(b1_res, relevant, ks)
-                    all_results["B1_native_text"]["per_query"].append({
-                        "query_id": qid, "query": query_text, **b1_metrics,
-                        "retrieved_ids": [r.get("chunk_id", "") for r in b1_res[:20]],
-                    })
+                    all_results["B1_native_text"]["per_query"].append(
+                        {
+                            "query_id": qid,
+                            "query": query_text,
+                            **b1_metrics,
+                            "retrieved_ids": [r.get("chunk_id", "") for r in b1_res[:20]],
+                        }
+                    )
             except Exception as e:
                 print(f"  B1 failed on {qid}: {e}")
 
@@ -384,10 +416,14 @@ def run_benchmark(args):
                 all_results["B2_native_enriched"]["latencies"].append(b2_latency)
                 if run_idx == 0:
                     b2_metrics = compute_metrics(b2_res, relevant, ks)
-                    all_results["B2_native_enriched"]["per_query"].append({
-                        "query_id": qid, "query": query_text, **b2_metrics,
-                        "retrieved_ids": [r.get("chunk_id", "") for r in b2_res[:20]],
-                    })
+                    all_results["B2_native_enriched"]["per_query"].append(
+                        {
+                            "query_id": qid,
+                            "query": query_text,
+                            **b2_metrics,
+                            "retrieved_ids": [r.get("chunk_id", "") for r in b2_res[:20]],
+                        }
+                    )
             except Exception as e:
                 print(f"  B2 failed on {qid}: {e}")
 
@@ -404,7 +440,9 @@ def run_benchmark(args):
 
 
 def build_report(
-    all_results: dict, ks: list[int], conditions: dict,
+    all_results: dict,
+    ks: list[int],
+    conditions: dict,
 ) -> dict[str, dict]:
     report = {}
     for cond_key, cond_label in conditions.items():
@@ -443,10 +481,16 @@ def print_markdown_report(report: dict, conditions: dict) -> None:
     print("=" * 80)
 
     metric_keys = [
-        "recall@5", "recall@10", "recall@20",
-        "mrr@10", "mrr@20",
-        "ndcg@10", "ndcg@20",
-        "p50_ms", "p95_ms", "p99_ms",
+        "recall@5",
+        "recall@10",
+        "recall@20",
+        "mrr@10",
+        "mrr@20",
+        "ndcg@10",
+        "ndcg@20",
+        "p50_ms",
+        "p95_ms",
+        "p99_ms",
     ]
 
     headers = ["Metric"] + [report[c]["label"][:30] for c in conditions]
@@ -471,7 +515,9 @@ def print_markdown_report(report: dict, conditions: dict) -> None:
     print()
     for cond_key in conditions:
         m = report[cond_key]["metrics"]
-        print(f"  {report[cond_key]['label']}: {int(m['query_count'])} queries, {int(m['latency_samples'])} latency samples")
+        print(
+            f"  {report[cond_key]['label']}: {int(m['query_count'])} queries, {int(m['latency_samples'])} latency samples"
+        )
 
 
 def main():

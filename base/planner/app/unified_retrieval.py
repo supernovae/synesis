@@ -37,7 +37,7 @@ import numpy as np
 
 from .config import settings
 from .rag_client import retrieve_context
-from .search_sources import SearchSource, get_search_sources, select_sources
+from .search_sources import get_search_sources, select_sources
 from .web_search import SearchResult, search_and_process, search_sources_parallel
 
 logger = logging.getLogger("synesis.unified_retrieval")
@@ -504,7 +504,9 @@ async def retrieve_unified(
                 web_raw_fb = await search_and_process(candidate, profile="web", fetch_pages=True)
                 web_unified = _web_to_unified(web_raw_fb if not isinstance(web_raw_fb, BaseException) else [])
             except Exception:
-                logger.warning("unified_web_fallback_failed", extra={"attempt": idx, "query": candidate[:80]}, exc_info=True)
+                logger.warning(
+                    "unified_web_fallback_failed", extra={"attempt": idx, "query": candidate[:80]}, exc_info=True
+                )
                 web_unified = []
                 _degradation_notes_parts.append(f"Web fallback attempt {idx} failed")
                 continue

@@ -23,9 +23,7 @@ import json
 import math
 import statistics
 import sys
-import time
 from pathlib import Path
-from typing import Any
 
 import httpx
 import yaml
@@ -55,6 +53,7 @@ OUTPUT_FIELDS = ["chunk_id", "text", "document_name"]
 # Embedding
 # ---------------------------------------------------------------------------
 
+
 def embed_texts(texts: list[str], embedder_url: str) -> list[list[float]]:
     resp = httpx.post(
         f"{embedder_url}/embeddings",
@@ -68,6 +67,7 @@ def embed_texts(texts: list[str], embedder_url: str) -> list[list[float]]:
 # ---------------------------------------------------------------------------
 # Chunking (inline to avoid import from the indexer package)
 # ---------------------------------------------------------------------------
+
 
 def word_chunk(text: str, max_words: int, overlap_words: int) -> list[str]:
     """Simple word-based chunking with overlap."""
@@ -90,34 +90,42 @@ def word_chunk(text: str, max_words: int, overlap_words: int) -> list[str]:
 # Temporary collection management
 # ---------------------------------------------------------------------------
 
+
 def create_temp_collection(client: MilvusClient, name: str) -> None:
     """Create a temporary collection mirroring the production schema."""
     fields = [
         FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=128),
         FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
-        FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192,
-                    enable_analyzer=True, analyzer_params={"type": "english"}),
+        FieldSchema(
+            name="text",
+            dtype=DataType.VARCHAR,
+            max_length=8192,
+            enable_analyzer=True,
+            analyzer_params={"type": "english"},
+        ),
         FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
         FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
     ]
     schema = CollectionSchema(fields=fields, enable_dynamic_field=False)
-    schema.add_function(Function(
-        name="bm25_fn",
-        input_field_names=["text"],
-        output_field_names=["sparse_text"],
-        function_type=FunctionType.BM25,
-    ))
+    schema.add_function(
+        Function(
+            name="bm25_fn",
+            input_field_names=["text"],
+            output_field_names=["sparse_text"],
+            function_type=FunctionType.BM25,
+        )
+    )
 
     if name in client.list_collections():
         client.drop_collection(name)
     client.create_collection(collection_name=name, schema=schema)
 
     index_params = MilvusClient.prepare_index_params()
-    index_params.add_index(field_name="embedding", index_type="HNSW",
-                           metric_type="COSINE", params={"M": 16, "efConstruction": 200})
-    index_params.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX",
-                           metric_type="BM25")
+    index_params.add_index(
+        field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 200}
+    )
+    index_params.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
     client.create_index(collection_name=name, index_params=index_params)
     client.load_collection(name)
 
@@ -130,6 +138,7 @@ def drop_temp_collection(client: MilvusClient, name: str) -> None:
 # ---------------------------------------------------------------------------
 # Fetch sample documents from production
 # ---------------------------------------------------------------------------
+
 
 def fetch_sample_docs(client: MilvusClient, n_docs: int = 10) -> list[dict]:
     """Fetch a diverse set of documents by selecting chunks with distinct doc_ids."""
@@ -158,13 +167,15 @@ def fetch_sample_docs(client: MilvusClient, n_docs: int = 10) -> list[dict]:
         full_text = "\n\n".join(c.get("text", "") for c in chunks)
         if len(full_text.split()) < 300:
             continue
-        selected.append({
-            "doc_id": did,
-            "document_name": chunks[0].get("document_name", ""),
-            "handler": handler,
-            "full_text": full_text,
-            "original_chunks": len(chunks),
-        })
+        selected.append(
+            {
+                "doc_id": did,
+                "document_name": chunks[0].get("document_name", ""),
+                "handler": handler,
+                "full_text": full_text,
+                "original_chunks": len(chunks),
+            }
+        )
         seen_handlers.add(handler)
 
     return selected
@@ -173,6 +184,7 @@ def fetch_sample_docs(client: MilvusClient, n_docs: int = 10) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+
 
 def hybrid_search(
     query: str,
@@ -203,17 +215,20 @@ def hybrid_search(
     formatted = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="": getattr(entity, k, d)
-        formatted.append({
-            "chunk_id": get("chunk_id", ""),
-            "text": get("text", ""),
-        })
+        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+        formatted.append(
+            {
+                "chunk_id": get("chunk_id", ""),
+                "text": get("text", ""),
+            }
+        )
     return formatted
 
 
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
+
 
 def recall_at_k(rids: list[str], relevant: set[str], k: int) -> float:
     if not relevant:
@@ -237,6 +252,7 @@ def ndcg_at_k(rids: list[str], relevant: set[str], k: int) -> float:
 # ---------------------------------------------------------------------------
 # Main sweep
 # ---------------------------------------------------------------------------
+
 
 def main():
     parser = argparse.ArgumentParser(description="Chunk size parameter sweep")
@@ -284,7 +300,7 @@ def main():
         for q in queries:
             qvec = embed_texts([q["query"]], embedder_url)[0]
             prod_results = hybrid_search(q["query"], qvec, client, PROD_COLLECTION, args.top_k * 2)
-            relevance_labels[q["id"]] = [r["chunk_id"] for r in prod_results[:args.top_k]]
+            relevance_labels[q["id"]] = [r["chunk_id"] for r in prod_results[: args.top_k]]
 
     # Pre-compute query vectors
     print("Pre-computing query embeddings...")
@@ -299,7 +315,7 @@ def main():
     for ci, (max_words, overlap_words) in enumerate(configs):
         config_name = f"w{max_words}_o{overlap_words}"
         coll_name = f"{BENCH_COLLECTION_PREFIX}{config_name}"
-        print(f"\n--- Config {ci+1}/{len(configs)}: max_words={max_words}, overlap={overlap_words} ---")
+        print(f"\n--- Config {ci + 1}/{len(configs)}: max_words={max_words}, overlap={overlap_words} ---")
 
         # Create collection and populate
         create_temp_collection(client, coll_name)
@@ -312,18 +328,20 @@ def main():
                 if len(chunk_text.strip()) < 20:
                     continue
                 cid = f"{doc['doc_id']}_{ci2}_{config_name}"
-                batch_entities.append({
-                    "chunk_id": cid[:128],
-                    "doc_id": doc["doc_id"][:128],
-                    "text": chunk_text[:8192],
-                    "document_name": doc["document_name"][:256],
-                })
+                batch_entities.append(
+                    {
+                        "chunk_id": cid[:128],
+                        "doc_id": doc["doc_id"][:128],
+                        "text": chunk_text[:8192],
+                        "document_name": doc["document_name"][:256],
+                    }
+                )
             total_chunks += len(chunks)
 
         # Embed in batches
         EMBED_BATCH = 32
         for i in range(0, len(batch_entities), EMBED_BATCH):
-            batch = batch_entities[i:i + EMBED_BATCH]
+            batch = batch_entities[i : i + EMBED_BATCH]
             texts = [e["text"] for e in batch]
             embeddings = embed_texts(texts, embedder_url)
             for e, emb in zip(batch, embeddings):
@@ -332,7 +350,7 @@ def main():
         # Upsert
         if batch_entities:
             for i in range(0, len(batch_entities), 100):
-                client.upsert(collection_name=coll_name, data=batch_entities[i:i+100])
+                client.upsert(collection_name=coll_name, data=batch_entities[i : i + 100])
 
         print(f"  Indexed {len(batch_entities)} chunks (from {total_chunks} raw)")
 
@@ -348,7 +366,11 @@ def main():
                 continue
 
             results = hybrid_search(
-                q["query"], query_vectors[q["id"]], client, coll_name, args.top_k,
+                q["query"],
+                query_vectors[q["id"]],
+                client,
+                coll_name,
+                args.top_k,
             )
 
             # Text-overlap matching: a retrieved chunk is "relevant" if it
@@ -356,15 +378,17 @@ def main():
             # This approximation works because the same source documents are used
             retrieved_texts = [r["text"] for r in results]
             hits = 0
-            for rt in retrieved_texts[:args.top_k]:
+            for rt in retrieved_texts[: args.top_k]:
                 rt_words = set(rt.lower().split()[:50])
                 if len(rt_words) >= 10:
                     hits += 1
 
-            per_query_metrics.append({
-                "query_id": q["id"],
-                "results_count": len(results),
-            })
+            per_query_metrics.append(
+                {
+                    "query_id": q["id"],
+                    "results_count": len(results),
+                }
+            )
 
         agg = {
             "max_words": max_words,

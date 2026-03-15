@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import statistics
 import sys
 import time
@@ -32,19 +31,32 @@ COLLECTION = "synesis_catalog"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 SEARCH_OUTPUT_FIELDS = [
-    "chunk_id", "doc_id", "text", "document_name", "domain", "authority",
-    "source_url", "handler", "heading_path",
+    "chunk_id",
+    "doc_id",
+    "text",
+    "document_name",
+    "domain",
+    "authority",
+    "source_url",
+    "handler",
+    "heading_path",
 ]
 
 INVENTORY_FIELDS = [
-    "chunk_id", "doc_id", "document_name", "domain", "authority",
-    "source_url", "handler",
+    "chunk_id",
+    "doc_id",
+    "document_name",
+    "domain",
+    "authority",
+    "source_url",
+    "handler",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Search helpers
 # ---------------------------------------------------------------------------
+
 
 def embed_text(text: str, embedder_url: str) -> list[float]:
     resp = httpx.post(
@@ -87,24 +99,27 @@ def hybrid_search(
     formatted = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="": getattr(entity, k, d)
-        formatted.append({
-            "chunk_id": get("chunk_id", ""),
-            "doc_id": get("doc_id", ""),
-            "text": get("text", ""),
-            "document_name": get("document_name", ""),
-            "domain": get("domain", ""),
-            "authority": get("authority", ""),
-            "source_url": get("source_url", ""),
-            "handler": get("handler", ""),
-            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
-        })
+        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+        formatted.append(
+            {
+                "chunk_id": get("chunk_id", ""),
+                "doc_id": get("doc_id", ""),
+                "text": get("text", ""),
+                "document_name": get("document_name", ""),
+                "domain": get("domain", ""),
+                "authority": get("authority", ""),
+                "source_url": get("source_url", ""),
+                "handler": get("handler", ""),
+                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
+            }
+        )
     return formatted
 
 
 # ---------------------------------------------------------------------------
 # Query generation from taxonomy config
 # ---------------------------------------------------------------------------
+
 
 def generate_queries_from_taxonomy(
     domain_key: str,
@@ -147,10 +162,15 @@ def generate_queries_from_taxonomy(
                 f"{llm_url}/chat/completions",
                 json={
                     "model": model,
-                    "messages": [{"role": "user", "content": (
-                        f"Generate 5 diverse search queries that someone studying "
-                        f"'{path}' would ask. One per line, no numbering."
-                    )}],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Generate 5 diverse search queries that someone studying "
+                                f"'{path}' would ask. One per line, no numbering."
+                            ),
+                        }
+                    ],
                     "max_tokens": 200,
                     "temperature": 0.7,
                 },
@@ -171,6 +191,7 @@ def generate_queries_from_taxonomy(
 # ---------------------------------------------------------------------------
 # Corpus inventory
 # ---------------------------------------------------------------------------
+
 
 def get_corpus_inventory(
     client: MilvusClient,
@@ -203,6 +224,7 @@ def get_corpus_inventory(
 # ---------------------------------------------------------------------------
 # Audit logic
 # ---------------------------------------------------------------------------
+
 
 def audit_domain(
     domain_key: str,
@@ -316,17 +338,16 @@ def classify_domain(scorecard: dict) -> str:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Corpus quality audit")
     parser.add_argument("--milvus-uri", default="http://localhost:19530")
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
-    parser.add_argument("--llm-url", default=None,
-                        help="Optional: LLM URL for richer query generation")
+    parser.add_argument("--llm-url", default=None, help="Optional: LLM URL for richer query generation")
     parser.add_argument("--model", default="synesis-general")
     parser.add_argument("--taxonomy", default="base/planner/taxonomy_prompt_config.yaml")
     parser.add_argument("--top-k", type=int, default=20)
-    parser.add_argument("--domains", default="",
-                        help="Comma-separated list of domains to audit (empty = all)")
+    parser.add_argument("--domains", default="", help="Comma-separated list of domains to audit (empty = all)")
     parser.add_argument("--output", default="benchmarks/corpus/corpus_audit_report.json")
     args = parser.parse_args()
 
@@ -338,7 +359,9 @@ def main():
     with open(taxonomy_path) as f:
         taxonomy = yaml.safe_load(f)
 
-    target_domains = [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else list(taxonomy.keys())
+    target_domains = (
+        [d.strip() for d in args.domains.split(",") if d.strip()] if args.domains else list(taxonomy.keys())
+    )
 
     client = MilvusClient(uri=args.milvus_uri)
     embedder_url = args.embedder_url.rstrip("/")
@@ -354,11 +377,16 @@ def main():
         if not isinstance(domain_config, dict) or "path" not in domain_config:
             continue
 
-        print(f"\n[{i+1}/{len(target_domains)}] {domain_key} ({domain_config.get('path', '')})")
+        print(f"\n[{i + 1}/{len(target_domains)}] {domain_key} ({domain_config.get('path', '')})")
 
         scorecard = audit_domain(
-            domain_key, domain_config, client, embedder_url,
-            args.top_k, args.llm_url, args.model,
+            domain_key,
+            domain_config,
+            client,
+            embedder_url,
+            args.top_k,
+            args.llm_url,
+            args.model,
         )
         health = classify_domain(scorecard)
         scorecard["health"] = health
@@ -367,9 +395,11 @@ def main():
 
         cov = scorecard["coverage"]
         inv = scorecard["inventory"]
-        print(f"  {health.upper()}: {inv['total_chunks']} chunks, "
-              f"hit_rate={cov['hit_rate']:.0%}, mrr={cov['mean_mrr']:.3f}, "
-              f"diversity={cov['source_diversity']}")
+        print(
+            f"  {health.upper()}: {inv['total_chunks']} chunks, "
+            f"hit_rate={cov['hit_rate']:.0%}, mrr={cov['mean_mrr']:.3f}, "
+            f"diversity={cov['source_diversity']}"
+        )
 
     elapsed = time.time() - t0
 

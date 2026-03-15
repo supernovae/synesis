@@ -37,6 +37,7 @@ DEFAULT_MODEL = "synesis-general"
 # Web search via SearXNG
 # ---------------------------------------------------------------------------
 
+
 def searxng_search(
     query: str,
     searxng_url: str,
@@ -59,11 +60,13 @@ def searxng_search(
         data = resp.json()
         results = []
         for r in data.get("results", [])[:max_results]:
-            results.append({
-                "title": r.get("title", ""),
-                "url": r.get("url", ""),
-                "snippet": r.get("content", ""),
-            })
+            results.append(
+                {
+                    "title": r.get("title", ""),
+                    "url": r.get("url", ""),
+                    "snippet": r.get("content", ""),
+                }
+            )
         return results
     except Exception as e:
         print(f"  SearXNG search failed: {e}", file=sys.stderr)
@@ -73,6 +76,7 @@ def searxng_search(
 # ---------------------------------------------------------------------------
 # LLM helpers
 # ---------------------------------------------------------------------------
+
 
 def llm_complete(prompt: str, llm_url: str, model: str, max_tokens: int = 500) -> str:
     try:
@@ -161,6 +165,7 @@ def llm_evaluate_source(
 # Source discovery pipeline
 # ---------------------------------------------------------------------------
 
+
 def discover_sources_for_domain(
     domain_key: str,
     domain_config: dict,
@@ -209,15 +214,22 @@ def discover_sources_for_domain(
     evaluated = []
     for c in candidates[:15]:
         eval_result = llm_evaluate_source(
-            c["title"], c["snippet"], c["url"], path, llm_url, model,
+            c["title"],
+            c["snippet"],
+            c["url"],
+            path,
+            llm_url,
+            model,
         )
-        evaluated.append({
-            "title": c["title"] or urlparse(c["url"]).netloc,
-            "url": c["url"],
-            "snippet": c["snippet"][:200],
-            "quality_score": eval_result["score"],
-            "rationale": eval_result["rationale"],
-        })
+        evaluated.append(
+            {
+                "title": c["title"] or urlparse(c["url"]).netloc,
+                "url": c["url"],
+                "snippet": c["snippet"][:200],
+                "quality_score": eval_result["score"],
+                "rationale": eval_result["rationale"],
+            }
+        )
 
     # Sort by quality score descending
     evaluated.sort(key=lambda x: x["quality_score"], reverse=True)
@@ -251,18 +263,18 @@ def generate_source_entry(
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Auto-curation agent for weak taxonomy domains")
-    parser.add_argument("--audit-report", default="benchmarks/corpus/corpus_audit_report.json",
-                        help="Path to corpus audit report")
+    parser.add_argument(
+        "--audit-report", default="benchmarks/corpus/corpus_audit_report.json", help="Path to corpus audit report"
+    )
     parser.add_argument("--taxonomy", default="base/planner/taxonomy_prompt_config.yaml")
     parser.add_argument("--llm-url", default="http://localhost:4000/v1")
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--searxng-url", default="http://localhost:8888")
-    parser.add_argument("--max-domains", type=int, default=10,
-                        help="Max number of weak domains to process")
-    parser.add_argument("--min-quality", type=int, default=3,
-                        help="Min quality score (1-5) for proposed sources")
+    parser.add_argument("--max-domains", type=int, default=10, help="Max number of weak domains to process")
+    parser.add_argument("--min-quality", type=int, default=3, help="Min quality score (1-5) for proposed sources")
     parser.add_argument("--output", default="tools/curator/proposed_sources.yaml")
     args = parser.parse_args()
 
@@ -283,7 +295,7 @@ def main():
 
     # Collect weak + empty domains from audit
     target_domains = audit.get("weak_domains", []) + audit.get("empty_domains", [])
-    target_domains = target_domains[:args.max_domains]
+    target_domains = target_domains[: args.max_domains]
 
     if not target_domains:
         print("No weak or empty domains found in audit report. Corpus looks healthy!")
@@ -300,11 +312,14 @@ def main():
             continue
 
         path = domain_config.get("path", domain_key)
-        print(f"\n[{i+1}/{len(target_domains)}] {domain_key} ({path})")
+        print(f"\n[{i + 1}/{len(target_domains)}] {domain_key} ({path})")
 
         candidates = discover_sources_for_domain(
-            domain_key, domain_config,
-            args.searxng_url, args.llm_url, args.model,
+            domain_key,
+            domain_config,
+            args.searxng_url,
+            args.llm_url,
+            args.model,
         )
 
         # Filter by quality threshold
@@ -318,11 +333,13 @@ def main():
             print(f"    [{c['quality_score']}/5] {c['title'][:60]} — {c['url'][:80]}")
 
         if domain_entries:
-            all_proposals.append({
-                "domain": domain_key,
-                "path": path,
-                "sources": domain_entries,
-            })
+            all_proposals.append(
+                {
+                    "domain": domain_key,
+                    "path": path,
+                    "sources": domain_entries,
+                }
+            )
 
     elapsed = time.time() - t0
 
@@ -355,12 +372,12 @@ def main():
     print(f"  Domains processed:  {len(all_proposals)}")
     print(f"  Sources proposed:   {len(flat_sources)}")
     print(f"  Output:             {output_path}")
-    print(f"\n  Next steps:")
+    print("\n  Next steps:")
     print(f"    1. Review {output_path}")
-    print(f"    2. Adjust authority levels for vetted sources")
-    print(f"    3. Copy approved entries to sources-docs.yaml or sources-research.yaml")
-    print(f"    4. Run indexer to ingest new sources")
-    print(f"    5. Re-run audit_corpus.py to verify improvement")
+    print("    2. Adjust authority levels for vetted sources")
+    print("    3. Copy approved entries to sources-docs.yaml or sources-research.yaml")
+    print("    4. Run indexer to ingest new sources")
+    print("    5. Re-run audit_corpus.py to verify improvement")
 
 
 if __name__ == "__main__":

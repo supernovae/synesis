@@ -10,7 +10,7 @@ from ..auth import UserInfo, get_current_user, require_admin
 from ..deps import FAILURES_COLLECTION, KNOWLEDGE_BACKLOG_COLLECTION
 from ..services import prometheus_client_svc as prom
 from ..services.health_prober import probe_all
-from ..services.milvus_service import safe_query, safe_upsert, safe_delete
+from ..services.milvus_service import safe_delete, safe_query, safe_upsert
 
 logger = logging.getLogger("synesis.admin.observability")
 

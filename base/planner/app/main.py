@@ -1174,7 +1174,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                         try:
                             event = await asyncio.wait_for(_event_iter.__anext__(), timeout=1.0)
-                        except asyncio.TimeoutError:
+                        except TimeoutError:
                             # No new graph event yet; loop so heartbeat can continue.
                             continue
                         except StopAsyncIteration:
@@ -1367,8 +1367,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 content_tok = _raw
                             elif isinstance(_raw, list):
                                 content_tok = "".join(
-                                    (p.get("text", "") if isinstance(p, dict) else str(p))
-                                    for p in _raw
+                                    (p.get("text", "") if isinstance(p, dict) else str(p)) for p in _raw
                                 )
                             else:
                                 content_tok = ""

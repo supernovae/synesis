@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -93,6 +94,7 @@ def _ensure_status_collection(client: Any, collection: str) -> None:
         return
     try:
         from pymilvus import CollectionSchema, DataType, FieldSchema
+
         schema = CollectionSchema(
             fields=[
                 FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
@@ -106,10 +108,8 @@ def _ensure_status_collection(client: Any, collection: str) -> None:
         )
         client.create_collection(collection_name=collection, schema=schema)
         logger.info("milvus_collection_created collection=%s", collection)
-        try:
+        with contextlib.suppress(Exception):
             client.load_collection(collection_name=collection)
-        except Exception:
-            pass
     except Exception as exc:
         logger.warning("ensure_status_collection_error error=%s", str(exc)[:120])
 

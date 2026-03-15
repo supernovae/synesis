@@ -37,8 +37,12 @@ COLLECTION = "synesis_catalog"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 OUTPUT_FIELDS = [
-    "chunk_id", "text", "document_name", "context_prefix",
-    "heading_path", "authority",
+    "chunk_id",
+    "text",
+    "document_name",
+    "context_prefix",
+    "heading_path",
+    "authority",
 ]
 
 
@@ -68,15 +72,18 @@ def vector_search(
     for hits in results:
         for hit in hits:
             entity = hit.get("entity", {})
-            formatted.append({
-                "chunk_id": entity.get("chunk_id", ""),
-                "text": entity.get("text", ""),
-                "score": float(hit.get("distance", 0.0)),
-            })
+            formatted.append(
+                {
+                    "chunk_id": entity.get("chunk_id", ""),
+                    "text": entity.get("text", ""),
+                    "score": float(hit.get("distance", 0.0)),
+                }
+            )
     return formatted
 
 
 # ---- Metrics ----------------------------------------------------------------
+
 
 def recall_at_k(rids: list[str], relevant: set[str], k: int) -> float:
     if not relevant:
@@ -99,14 +106,18 @@ def ndcg_at_k(rids: list[str], relevant: set[str], k: int) -> float:
 
 # ---- Main -------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Enrichment A/B test (context_prefix vs raw)")
     parser.add_argument("--milvus-uri", default="http://localhost:19530")
     parser.add_argument("--embedder-url", default="http://localhost:8082/v1")
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--output", default="benchmarks/retrieval/results_enrichment.json")
-    parser.add_argument("--use-llm-labels", action="store_true",
-                        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based")
+    parser.add_argument(
+        "--use-llm-labels",
+        action="store_true",
+        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based",
+    )
     args = parser.parse_args()
 
     queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
@@ -188,7 +199,7 @@ def main():
         dfmt = "{:+8.1f} ms" if "ms" in key else "{:+8.4f}"
         print(f"  {key:>10s} | {fmt.format(va):>16s} | {fmt.format(vb):>16s} | {dfmt.format(delta):>10s}")
 
-    print(f"\nNote: Both conditions query the same index (embeddings include context_prefix).")
+    print("\nNote: Both conditions query the same index (embeddings include context_prefix).")
     print("A full A/B requires re-indexing with raw-text-only embeddings for Condition B.")
 
     output_path = Path(args.output)

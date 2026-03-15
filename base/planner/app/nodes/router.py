@@ -532,6 +532,7 @@ class RouterNode:
         # call, then let handle_single_request use them (with optional HyDE
         # and expansion on top when multi_query is enabled).
         queries = await self.batch_generate_queries(requests, task_context)
+
         async def _run_request(req: dict[str, Any], q: str) -> tuple[EvidencePacket, dict[str, Any] | None]:
             query_hint = q or str(req.get("description") or "")[:120]
             try:
@@ -545,7 +546,7 @@ class RouterNode:
                     ),
                     timeout=self.request_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "router_request_timeout",
                     extra={"query": query_hint[:80], "timeout_seconds": round(self.request_timeout_seconds, 1)},
@@ -574,9 +575,7 @@ class RouterNode:
                     cohesion_lock = lock
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
-                packets.append(
-                    _timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})")
-                )
+                packets.append(_timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})"))
         return packets, cohesion_lock
 
     async def _multi_query_retrieve(
@@ -634,12 +633,26 @@ class RouterNode:
         _deg = "; ".join(dict.fromkeys(_deg_notes)) if _deg_notes else ""
 
         if not per_query_results:
-            return RetrievalBundle(results=[], rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
+            return RetrievalBundle(
+                results=[], rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg
+            )
         if len(per_query_results) == 1:
-            return RetrievalBundle(results=per_query_results[0], cohesion_lock=first_lock, rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
+            return RetrievalBundle(
+                results=per_query_results[0],
+                cohesion_lock=first_lock,
+                rag_degraded=_any_rag_degraded,
+                web_degraded=_any_web_degraded,
+                degradation_notes=_deg,
+            )
 
         merged = _rrf_merge(per_query_results, k=60)
-        return RetrievalBundle(results=merged, cohesion_lock=first_lock, rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
+        return RetrievalBundle(
+            results=merged,
+            cohesion_lock=first_lock,
+            rag_degraded=_any_rag_degraded,
+            web_degraded=_any_web_degraded,
+            degradation_notes=_deg,
+        )
 
     async def handle_single_request(
         self,
@@ -693,7 +706,7 @@ class RouterNode:
                 ),
                 timeout=self.retrieve_timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "router_retrieve_timeout",
                 extra={"query": query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
@@ -709,7 +722,7 @@ class RouterNode:
                 ),
                 timeout=self.summarize_timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "router_summarize_timeout",
                 extra={"query": query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
@@ -717,9 +730,7 @@ class RouterNode:
             packet = _fallback_packet(query, bundle.results)
             existing_notes = packet.retrieval_notes or ""
             sep = "; " if existing_notes else ""
-            packet = packet.model_copy(
-                update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"}
-            )
+            packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"})
         update_fields: dict[str, Any] = {"section_id": evidence_request.get("section_id")}
         if bundle.degradation_notes:
             existing_notes = packet.retrieval_notes or ""
@@ -736,14 +747,16 @@ class RouterNode:
                     self.refine_query(query, packet),
                     timeout=self.refine_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "router_refine_timeout",
                     extra={"query": query[:80], "timeout_seconds": round(self.refine_timeout_seconds, 1)},
                 )
                 existing_notes = packet.retrieval_notes or ""
                 sep = "; " if existing_notes else ""
-                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}query refinement timed out"})
+                packet = packet.model_copy(
+                    update={"retrieval_notes": f"{existing_notes}{sep}query refinement timed out"}
+                )
                 break
             cached = await self.cache.aget(refined_query)
             if cached is not None:
@@ -763,14 +776,16 @@ class RouterNode:
                     ),
                     timeout=self.retrieve_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "router_refine_retrieve_timeout",
                     extra={"query": refined_query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
                 )
                 existing_notes = packet.retrieval_notes or ""
                 sep = "; " if existing_notes else ""
-                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}refined retrieval timed out"})
+                packet = packet.model_copy(
+                    update={"retrieval_notes": f"{existing_notes}{sep}refined retrieval timed out"}
+                )
                 break
             if cohesion_lock is None and refine_bundle.cohesion_lock:
                 cohesion_lock = refine_bundle.cohesion_lock
@@ -779,7 +794,7 @@ class RouterNode:
                     self.summarize(refined_query, refine_bundle.results, cohesion_lock=cohesion_lock),
                     timeout=self.summarize_timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "router_refine_summarize_timeout",
                     extra={"query": refined_query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
@@ -787,7 +802,9 @@ class RouterNode:
                 packet = _fallback_packet(refined_query, refine_bundle.results)
                 existing_notes = packet.retrieval_notes or ""
                 sep = "; " if existing_notes else ""
-                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}refined summarization timed out"})
+                packet = packet.model_copy(
+                    update={"retrieval_notes": f"{existing_notes}{sep}refined summarization timed out"}
+                )
             packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             query = refined_query
             rounds += 1
@@ -1027,7 +1044,11 @@ class RouterNode:
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         task_type = ""
         if taxonomy_metadata:
-            task_type = str(taxonomy_metadata.get("taxonomy_key", "")).split(".")[-1] if taxonomy_metadata.get("taxonomy_key") else ""
+            task_type = (
+                str(taxonomy_metadata.get("taxonomy_key", "")).split(".")[-1]
+                if taxonomy_metadata.get("taxonomy_key")
+                else ""
+            )
 
         prompt_hints = _extract_prompt_source_hints(state.get("task_description", ""), all_sources)
 

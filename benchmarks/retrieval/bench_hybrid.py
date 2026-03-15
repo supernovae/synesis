@@ -29,9 +29,18 @@ COLLECTION = "synesis_catalog"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 OUTPUT_FIELDS = [
-    "chunk_id", "text", "document_name", "origin_type", "authority",
-    "domain", "source_url", "heading_path", "context_prefix",
-    "chunk_summary", "handler", "source_type",
+    "chunk_id",
+    "text",
+    "document_name",
+    "origin_type",
+    "authority",
+    "domain",
+    "source_url",
+    "heading_path",
+    "context_prefix",
+    "chunk_summary",
+    "handler",
+    "source_type",
 ]
 
 
@@ -74,16 +83,19 @@ def hybrid_search(
     formatted = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
-        get = entity.get if isinstance(entity, dict) else lambda k, d="": getattr(entity, k, d)
-        formatted.append({
-            "chunk_id": get("chunk_id", ""),
-            "text": get("text", ""),
-            "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
-        })
+        get = entity.get if isinstance(entity, dict) else lambda k, d="", _e=entity: getattr(_e, k, d)
+        formatted.append(
+            {
+                "chunk_id": get("chunk_id", ""),
+                "text": get("text", ""),
+                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else 0.0,
+            }
+        )
     return formatted
 
 
 # ---- Metrics ----------------------------------------------------------------
+
 
 def recall_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float:
     if not relevant_ids:
@@ -106,6 +118,7 @@ def ndcg_at_k(retrieved_ids: list[str], relevant_ids: set[str], k: int) -> float
 
 # ---- Main -------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="Hybrid retrieval regression benchmark")
     parser.add_argument("--milvus-uri", default="http://localhost:19530")
@@ -114,10 +127,14 @@ def main():
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--output", default="benchmarks/retrieval/results_hybrid.json")
     parser.add_argument("--baseline", default="benchmarks/retrieval/baseline.json")
-    parser.add_argument("--tolerance", type=float, default=0.05,
-                        help="Max allowed relative drop from baseline before failing")
-    parser.add_argument("--use-llm-labels", action="store_true",
-                        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based")
+    parser.add_argument(
+        "--tolerance", type=float, default=0.05, help="Max allowed relative drop from baseline before failing"
+    )
+    parser.add_argument(
+        "--use-llm-labels",
+        action="store_true",
+        help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based",
+    )
     args = parser.parse_args()
 
     queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
@@ -212,7 +229,9 @@ def main():
             base_val = baseline.get(key, 0.0)
             curr_val = agg.get(key, 0.0)
             if base_val > 0 and (base_val - curr_val) / base_val > args.tolerance:
-                regressions.append(f"{key}: {curr_val:.4f} < baseline {base_val:.4f} (>{args.tolerance*100:.0f}% drop)")
+                regressions.append(
+                    f"{key}: {curr_val:.4f} < baseline {base_val:.4f} (>{args.tolerance * 100:.0f}% drop)"
+                )
         if regressions:
             print("\nREGRESSIONS DETECTED:")
             for r in regressions:

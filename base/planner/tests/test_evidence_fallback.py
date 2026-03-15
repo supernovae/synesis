@@ -15,7 +15,9 @@ import pytest
 
 _has_langgraph = bool(sys.modules.get("langgraph")) or __import__("importlib").util.find_spec("langgraph") is not None
 _has_fastapi = bool(sys.modules.get("fastapi")) or __import__("importlib").util.find_spec("fastapi") is not None
-_has_asyncio = bool(sys.modules.get("pytest_asyncio")) or __import__("importlib").util.find_spec("pytest_asyncio") is not None
+_has_asyncio = (
+    bool(sys.modules.get("pytest_asyncio")) or __import__("importlib").util.find_spec("pytest_asyncio") is not None
+)
 
 skip_no_langgraph = pytest.mark.skipif(not _has_langgraph, reason="langgraph not installed")
 skip_no_fastapi = pytest.mark.skipif(not _has_fastapi, reason="fastapi not installed")
