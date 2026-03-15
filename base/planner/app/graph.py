@@ -951,8 +951,22 @@ def _build_checkpointer():
     return MemorySaver()
 
 
+def _log_graph_init_memory(label: str) -> None:
+    """Log RSS during module-level graph init for OOM diagnosis."""
+    import resource as _res
+
+    rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+    import os as _os
+
+    rss_mib = rss_kb / (1024 if _os.uname().sysname != "Darwin" else (1024 * 1024))
+    logger.info("graph_init_memory", extra={"label": label, "rss_mib": round(rss_mib, 1)})
+
+
+_log_graph_init_memory("before_checkpointer")
 _checkpointer = _build_checkpointer()
+_log_graph_init_memory("after_checkpointer")
 graph = graph_builder.compile(checkpointer=_checkpointer)
+_log_graph_init_memory("after_graph_compile")
 
 from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer
 

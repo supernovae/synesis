@@ -465,12 +465,27 @@ def get_retrieval_cache() -> HybridRetrievalCache:
     return _cache
 
 
+_WARM_CACHE_RSS_CEILING_MIB = 1500  # abort warming if RSS exceeds this
+
+
+def _rss_mib() -> float:
+    """Current max-RSS of this process in MiB."""
+    import os
+    import resource as _res
+
+    rss_kb = _res.getrusage(_res.RUSAGE_SELF).ru_maxrss
+    return rss_kb / (1024 if os.uname().sysname != "Darwin" else (1024 * 1024))
+
+
 async def warm_cache() -> int:
     """Pre-warm the retrieval cache with common query patterns.
 
     Runs WARM_QUERIES through the router to populate the semantic index.
     Returns the number of entries successfully cached. Safe to call multiple
     times — already-cached queries are skipped via exact match.
+
+    Aborts early if RSS exceeds ``_WARM_CACHE_RSS_CEILING_MIB`` to prevent
+    OOMKill during startup.
     """
     import asyncio
 
@@ -482,6 +497,13 @@ async def warm_cache() -> int:
 
         router = RouterNode(cache=cache)
         for wq in WARM_QUERIES:
+            rss = _rss_mib()
+            if rss > _WARM_CACHE_RSS_CEILING_MIB:
+                logger.warning(
+                    "warm_cache_aborted_memory",
+                    extra={"rss_mib": round(rss, 1), "ceiling_mib": _WARM_CACHE_RSS_CEILING_MIB, "warmed": warmed},
+                )
+                break
             query_str = str(wq["query"])
             if cache.get(query_str) is not None:
                 continue
@@ -497,10 +519,9 @@ async def warm_cache() -> int:
                     warmed += 1
             except Exception:
                 logger.debug("warm_cache_query_failed", extra={"query": query_str}, exc_info=True)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
     except Exception:
         logger.warning("warm_cache_failed", exc_info=True)
 
-    if warmed:
-        logger.info("warm_cache_complete", extra={"warmed": warmed, "total_queries": len(WARM_QUERIES)})
+    logger.info("warm_cache_complete", extra={"warmed": warmed, "total_queries": len(WARM_QUERIES)})
     return warmed

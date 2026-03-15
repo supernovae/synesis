@@ -268,7 +268,7 @@ class Settings(BaseSettings):
     retrieval_cache_tool_similarity_threshold: float = 0.95  # stricter threshold for pre-retrieval cache check
     retrieval_cache_confidence_threshold: float = 0.6
     retrieval_cache_backend: str = "numpy"  # "numpy" | "redis" (shared, for horizontal scaling)
-    retrieval_cache_warm_on_startup: bool = True
+    retrieval_cache_warm_on_startup: bool = False  # disabled by default; heavy startup cost (8 router pipelines × workers)
     retrieval_cache_model_version: str = ""  # auto-invalidate cache when model changes; defaults to general_model_name
 
     # Redis shared cache (used when retrieval_cache_backend="redis", session, and L2 archive)

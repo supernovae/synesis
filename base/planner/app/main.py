@@ -11,7 +11,9 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import re
+import resource
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -59,6 +61,28 @@ logger = get_logger("synesis.api")
 _background_tasks: set[asyncio.Task] = set()
 
 
+def _log_rss(label: str) -> float:
+    """Log current RSS in MiB and return the value for delta tracking."""
+    rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if os.uname().sysname == "Darwin":
+        rss_mib = rss_kb / (1024 * 1024)
+    else:
+        rss_mib = rss_kb / 1024
+    cgroup_mib = 0.0
+    for path in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
+        try:
+            with open(path) as f:
+                cgroup_mib = int(f.read().strip()) / (1024 * 1024)
+            break
+        except OSError:
+            continue
+    logger.info(
+        "startup_memory_checkpoint",
+        extra={"label": label, "rss_mib": round(rss_mib, 1), "cgroup_mib": round(cgroup_mib, 1)},
+    )
+    return rss_mib
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .entry_classifier_engine import get_scoring_engine
@@ -71,8 +95,14 @@ async def lifespan(app: FastAPI):
         settings.build_version,
         settings.port,
     )
+    _log_rss("lifespan_start")
+
     get_scoring_engine()
+    _log_rss("after_scoring_engine")
+
     _load_taxonomy_config()
+    _log_rss("after_taxonomy_load")
+
     intent_issues = lint_intent_config()
     if intent_issues:
         for msg in intent_issues:
@@ -89,6 +119,7 @@ async def lifespan(app: FastAPI):
             "query_normalizer_ready",
             extra={"lexicon_size": len(normalizer._lexicon)},
         )
+    _log_rss("after_normalizer")
 
     logger.info(
         "sse_status_format",
@@ -99,13 +130,17 @@ async def lifespan(app: FastAPI):
         },
     )
 
-    if getattr(settings, "retrieval_cache_warm_on_startup", True):
+    if settings.retrieval_cache_warm_on_startup:
         from .retrieval_cache import warm_cache
 
         task = asyncio.create_task(warm_cache())
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
+        logger.info("warm_cache_scheduled")
+    else:
+        logger.info("warm_cache_disabled")
 
+    _log_rss("lifespan_ready")
     yield
     logger.info("Synesis planner shutting down")
 

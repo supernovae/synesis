@@ -146,6 +146,12 @@ spec:
               value: "false"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
+            # Worker count — keep low to avoid OOM under 4Gi limit
+            - name: WEB_CONCURRENCY
+              value: "2"
+            # Warm cache disabled — runs 8 full router pipelines at startup per worker
+            - name: SYNESIS_RETRIEVAL_CACHE_WARM_ON_STARTUP
+              value: "false"
             # Semantic cache — shared Redis for cross-replica cache, sessions, and L2 archive
             - name: SYNESIS_RETRIEVAL_CACHE_BACKEND
               value: "redis"
