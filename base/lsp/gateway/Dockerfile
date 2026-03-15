@@ -17,12 +17,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # basedpyright for Python type checking
-RUN pip install --no-cache-dir basedpyright
+RUN uv pip install --system --no-cache basedpyright
 
 # Python app dependencies
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY app/ app/
 

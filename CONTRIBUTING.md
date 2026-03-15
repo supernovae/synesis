@@ -19,8 +19,15 @@ For intent-flow and prompting validation (unit tests + live integration), see [d
 ## Development Setup
 
 ```bash
-# Install Python tooling
-pip install ruff yamllint
+# Install uv (recommended — used in CI and containers)
+# macOS
+brew install uv
+# or standalone installer
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python tooling via uv
+uvx ruff check base/        # no install needed — uvx runs tools ephemerally
+uvx yamllint -c .yamllint.yml base/
 
 # Install ShellCheck (macOS)
 brew install shellcheck

@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.description="Synesis ML base image — PyTorch + 
 USER 0
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt \
+RUN uv pip install --system --no-cache -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 USER 1001

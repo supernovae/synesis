@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         jq \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
+RUN uv pip install --system --no-cache \
     ruff \
     bandit \
     semgrep

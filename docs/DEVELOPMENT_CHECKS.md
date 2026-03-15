@@ -14,7 +14,7 @@ From project root:
 | `make online-tests` | Hit live planner via `oc port-forward`. Requires tunnel running. |
 | `make tests` | Alias for `mock-tests` |
 
-Prerequisites for mock-tests: `cd base/planner && pip install -r requirements.txt -r requirements-test.txt`
+Prerequisites for mock-tests: `cd base/planner && uv pip install --system -r requirements-test.txt` (or `pip install -r requirements-test.txt` if uv is not installed)
 
 ---
 
@@ -34,7 +34,7 @@ EntryClassifier and routing logic are deterministic. Run anytime without deploym
 make mock-tests
 # Or manually:
 cd base/planner
-pip install -r requirements.txt -r requirements-test.txt
+uv pip install --system -r requirements-test.txt
 pytest tests/test_intent_validation.py tests/test_graph_routing.py tests/test_routing_parity.py tests/test_e2e_graph.py tests/test_api.py -v
 ```
 
@@ -85,7 +85,7 @@ python scripts/validate-intent-live.py --url http://localhost:8000
 python scripts/validate-intent-live.py -v
 ```
 
-**Requirements:** `pip install httpx pyyaml` for full prompt set. Without them: uses stdlib urllib and inline fallback (2 prompts).
+**Requirements:** `uv pip install --system httpx pyyaml` (or `pip install httpx pyyaml`) for full prompt set. Without them: uses stdlib urllib and inline fallback (2 prompts).
 
 ### Expected Output
 

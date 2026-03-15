@@ -11,7 +11,7 @@ USER 0
 WORKDIR /opt/app-root/src
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # Pre-download FlashRank reranker model so it's baked into the image
 # instead of fetching 21MB on first request at runtime.

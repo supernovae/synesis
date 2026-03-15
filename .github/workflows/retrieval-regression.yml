@@ -23,12 +23,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "benchmarks/retrieval/requirements.txt"
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r benchmarks/retrieval/requirements.txt
+        run: uv pip install --system -r benchmarks/retrieval/requirements.txt
 
       - name: Run retrieval benchmark
         env:

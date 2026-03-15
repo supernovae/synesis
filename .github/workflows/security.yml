@@ -74,19 +74,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install bandit
-        run: pip install bandit[toml]
+      - uses: astral-sh/setup-uv@v5
 
       - name: Run Bandit (report)
         run: |
-          bandit -r base/ \
+          uvx "bandit[toml]" -r base/ \
             --severity-level medium \
             --confidence-level medium \
             -f json -o bandit-report.json || true
 
       - name: Run Bandit (gate)
         run: |
-          bandit -r base/ \
+          uvx "bandit[toml]" -r base/ \
             --severity-level medium \
             --confidence-level medium
 
@@ -135,12 +134,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install semgrep
-        run: pip install semgrep
+      - uses: astral-sh/setup-uv@v5
 
       - name: Run Semgrep (report)
         run: |
-          semgrep scan \
+          uvx semgrep scan \
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
@@ -149,7 +147,7 @@ jobs:
 
       - name: Run Semgrep (gate)
         run: |
-          semgrep scan \
+          uvx semgrep scan \
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
@@ -200,12 +198,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install semgrep
-        run: pip install semgrep
+      - uses: astral-sh/setup-uv@v5
 
       - name: Run Semgrep on frontend (report)
         run: |
-          semgrep scan \
+          uvx semgrep scan \
             --config "https://semgrep.dev/p/typescript" \
             --config "https://semgrep.dev/p/react" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
@@ -217,7 +214,7 @@ jobs:
 
       - name: Run Semgrep on frontend (gate)
         run: |
-          semgrep scan \
+          uvx semgrep scan \
             --config "https://semgrep.dev/p/typescript" \
             --config "https://semgrep.dev/p/react" \
             --config "https://semgrep.dev/p/owasp-top-ten" \

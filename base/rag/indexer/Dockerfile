@@ -1,5 +1,7 @@
 FROM python:3.13-slim
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 # System deps: git + Chromium shared libraries required by Playwright.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
@@ -30,10 +32,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY images/base-api/synesis-telemetry/ /tmp/synesis-telemetry/
-RUN pip install --no-cache-dir /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
+RUN uv pip install --system --no-cache /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
 
 COPY rag/indexer/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
 # PLAYWRIGHT_BROWSERS_PATH must be readable by the arbitrary UID at runtime.

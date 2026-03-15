@@ -56,12 +56,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "benchmarks/corpus/requirements.txt"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r benchmarks/corpus/requirements.txt
+        run: uv pip install --system -r benchmarks/corpus/requirements.txt
 
       - name: Run corpus audit
         run: |
@@ -107,12 +112,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "benchmarks/corpus/requirements.txt"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r benchmarks/corpus/requirements.txt
+        run: uv pip install --system -r benchmarks/corpus/requirements.txt
 
       - name: Restore judgment cache
         uses: actions/cache@v4
@@ -148,12 +158,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "tools/curator/requirements.txt"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r tools/curator/requirements.txt
+        run: uv pip install --system -r tools/curator/requirements.txt
 
       - name: Download audit report
         uses: actions/download-artifact@v4

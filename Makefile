@@ -1,6 +1,6 @@
 # Synesis Makefile
 # Run from project root.
-# Prerequisites: pip install -r base/planner/requirements-test.txt (from base/planner)
+# Prerequisites: uv pip install --system -r base/planner/requirements-test.txt (from base/planner)
 
 .PHONY: mock-tests online-tests tests help
 .PHONY: bench-retrieval bench-llm-judge bench-corpus-audit bench-chunking

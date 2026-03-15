@@ -14,7 +14,7 @@ FROM ${BASE_IMAGE}
 USER 0
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY app/ ./app/
 COPY --from=frontend /build/dist ./static/

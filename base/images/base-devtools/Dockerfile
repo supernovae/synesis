@@ -4,6 +4,8 @@ LABEL org.opencontainers.image.description="Synesis dev-tools base — shellchec
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         git \
