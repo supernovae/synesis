@@ -11,153 +11,178 @@ import pytest
 from app.graph import (
     respond_node,
     route_after_critic,
-    route_after_entry_classifier,
+    route_after_entry_pipeline,
+    route_after_executor,
     route_after_patch_integrity_gate,
     route_after_planner,
-    route_after_supervisor,
-    route_after_worker,
+    route_after_router,
+    route_after_writer,
 )
 
 
-class TestRouteAfterEntryClassifier:
-    def test_no_pending_routes_to_context_curator(self):
-        """Default path: no trivial, no pending, no code → context_curator."""
-        assert route_after_entry_classifier({}) == "context_curator"
+class TestRouteAfterEntryPipeline:
+    def test_default_routes_to_router(self):
+        assert route_after_entry_pipeline({}) == "router"
 
-    def test_pending_question_continue_routes_by_source(self):
-        state = {"pending_question_continue": True, "pending_question_source": "worker"}
-        assert route_after_entry_classifier(state) == "context_curator"
-
-        state["pending_question_source"] = "supervisor"
-        assert route_after_entry_classifier(state) == "supervisor"
-
-    def test_pending_plan_routes_via_context_curator(self):
-        """Planner/Worker source routes through context curator before worker."""
-        state = {"pending_question_continue": True, "pending_question_source": "planner"}
-        assert route_after_entry_classifier(state) == "context_curator"
-
-    def test_trivial_routes_to_context_curator(self):
-        """Low difficulty, bypass → context_curator."""
-        state = {"task_is_trivial": True, "bypass_supervisor": True}
-        assert route_after_entry_classifier(state) == "context_curator"
+    def test_pending_question_routes_to_router(self):
+        state = {"pending_question_continue": True}
+        assert route_after_entry_pipeline(state) == "router"
 
     def test_ui_helper_routes_to_respond(self):
         state = {"message_origin": "ui_helper"}
-        assert route_after_entry_classifier(state) == "respond"
+        assert route_after_entry_pipeline(state) == "respond"
+
+    def test_trivial_non_code_routes_to_writer(self):
+        state = {"task_is_trivial": True, "is_code_task": False}
+        assert route_after_entry_pipeline(state) == "writer"
+
+    def test_trivial_code_routes_to_executor(self):
+        state = {"task_is_trivial": True, "is_code_task": True}
+        assert route_after_entry_pipeline(state) == "executor"
 
 
-class TestRouteAfterWorker:
+class TestRouteAfterRouter:
+    def test_error_routes_to_respond(self):
+        state = {"error": "something broke"}
+        assert route_after_router(state) == "respond"
+
+    def test_next_node_planner(self):
+        state = {"next_node": "planner"}
+        assert route_after_router(state) == "planner"
+
+    def test_next_node_writer(self):
+        state = {"next_node": "writer"}
+        assert route_after_router(state) == "writer"
+
+    def test_next_node_executor(self):
+        state = {"next_node": "executor"}
+        assert route_after_router(state) == "executor"
+
+    def test_default_routes_to_planner(self):
+        assert route_after_router({}) == "planner"
+
+    def test_invalid_next_node_defaults_to_planner(self):
+        state = {"next_node": "nonexistent"}
+        assert route_after_router(state) == "planner"
+
+
+class TestRouteAfterPlanner:
+    def test_plan_approval_routes_to_respond(self):
+        state = {"plan_pending_approval": True}
+        assert route_after_planner(state) == "respond"
+
+    def test_no_approval_routes_to_router(self):
+        state = {"plan_pending_approval": False}
+        assert route_after_planner(state) == "router"
+
+    def test_default_routes_to_router(self):
+        assert route_after_planner({}) == "router"
+
+    def test_planner_errors_with_plan_routes_to_router(self):
+        state = {
+            "planner_error_count": 3,
+            "execution_plan": {"steps": [{"id": 1, "action": "test"}]},
+        }
+        assert route_after_planner(state) == "router"
+
+    def test_planner_errors_without_plan_routes_to_respond(self):
+        state = {"planner_error_count": 3, "execution_plan": {}}
+        assert route_after_planner(state) == "respond"
+
+    def test_evidence_requests_routes_to_router(self):
+        state = {"evidence_requests": [{"description": "need more"}]}
+        assert route_after_planner(state) == "router"
+
+
+class TestRouteAfterExecutor:
     def test_needs_input_routes_to_respond(self):
         state = {"needs_input_question": "Which database?"}
-        assert route_after_worker(state) == "respond"
+        assert route_after_executor(state) == "respond"
 
     def test_stop_reason_routes_to_respond(self):
-        for reason in ("blocked_external", "cannot_reproduce", "unsafe_request"):
-            state = {"stop_reason": reason}
-            assert route_after_worker(state) == "respond"
+        state = {"stop_reason": "blocked_external"}
+        assert route_after_executor(state) == "respond"
 
-    def test_needs_scope_expansion_routes_to_supervisor(self):
-        state = {"stop_reason": "needs_scope_expansion"}
-        assert route_after_worker(state) == "supervisor"
-
-    def test_has_code_routes_to_patch_integrity_gate(self):
+    def test_code_task_routes_to_patch_gate(self):
         state = {"is_code_task": True}
-        assert route_after_worker(state) == "patch_integrity_gate"
+        assert route_after_executor(state) == "patch_integrity_gate"
 
     def test_non_code_routes_to_respond(self):
-        state = {}
-        assert route_after_worker(state) == "respond"
+        assert route_after_executor({}) == "respond"
+
+
+class TestRouteAfterWriter:
+    @patch("app.graph.settings")
+    def test_background_critic_routes_to_scrubber(self, mock_settings):
+        mock_settings.critic_background = True
+        assert route_after_writer({}) == "final_scrubber"
+
+    @patch("app.graph.settings")
+    def test_low_difficulty_routes_to_scrubber(self, mock_settings):
+        mock_settings.critic_background = False
+        mock_settings.critic_skip_below_difficulty = 0.3
+        state = {"difficulty": 0.1}
+        assert route_after_writer(state) == "final_scrubber"
+
+    @patch("app.graph.settings")
+    def test_high_difficulty_routes_to_critic(self, mock_settings):
+        mock_settings.critic_background = False
+        mock_settings.critic_skip_below_difficulty = 0.3
+        state = {"difficulty": 0.8}
+        assert route_after_writer(state) == "critic"
 
 
 class TestRouteAfterPatchIntegrityGate:
-    def test_fail_routes_to_context_curator(self):
-        """Gate fail routes through context_curator before worker."""
+    def test_fail_routes_to_router(self):
         state = {"integrity_passed": False}
-        assert route_after_patch_integrity_gate(state) == "context_curator"
+        assert route_after_patch_integrity_gate(state) == "router"
 
     def test_pass_routes_to_critic(self):
         state = {"integrity_passed": True}
         assert route_after_patch_integrity_gate(state) == "critic"
 
-    def test_default_pass_routes_to_critic(self):
-        state = {}
-        assert route_after_patch_integrity_gate(state) == "critic"
-
-
-class TestRouteAfterPlanner:
-    """Planner never ends the graph — always continues to context_curator or respond."""
-
-    def test_no_approval_routes_to_context_curator(self):
-        """Default: plan auto-proceeds to context_curator → worker."""
-        state = {"plan_pending_approval": False}
-        assert route_after_planner(state) == "context_curator"
-
-    def test_plan_approval_routes_to_respond(self):
-        """When plan needs approval, surface to user; user replies to continue."""
-        state = {"plan_pending_approval": True}
-        assert route_after_planner(state) == "respond"
-
-    def test_missing_plan_pending_defaults_to_continue(self):
-        """Missing plan_pending_approval treated as False → context_curator."""
-        state = {}
-        assert route_after_planner(state) == "context_curator"
-
-    def test_never_returns_planner(self):
-        """Invariant: we never 'end' at planner; always context_curator or respond."""
-        for pending in (True, False):
-            out = route_after_planner({"plan_pending_approval": pending})
-            assert out in ("context_curator", "respond"), f"plan_pending={pending} → {out}"
-
-
-class TestRouteAfterSupervisor:
-    def test_routes_to_worker(self):
-        """Supervisor→worker path goes via context_curator (RAG) first; graph has no direct supervisor→worker edge."""
-        state = {"next_node": "worker"}
-        assert route_after_supervisor(state) == "context_curator"
-
-    def test_routes_to_planner(self):
-        state = {"next_node": "planner"}
-        assert route_after_supervisor(state) == "planner"
-
-    def test_routes_to_respond_on_error(self):
-        state = {"next_node": "worker", "error": "something broke"}
-        assert route_after_supervisor(state) == "respond"
-
-    def test_routes_to_respond_by_default(self):
-        state = {"next_node": "respond"}
-        assert route_after_supervisor(state) == "respond"
-
-    def test_routes_to_respond_on_missing_next(self):
-        state = {}
-        assert route_after_supervisor(state) == "respond"
+    def test_default_routes_to_critic(self):
+        assert route_after_patch_integrity_gate({}) == "critic"
 
 
 class TestRouteAfterCritic:
     @patch("app.graph.settings")
-    def test_approved_routes_to_respond(self, mock_settings):
+    def test_approved_routes_to_scrubber(self, mock_settings):
         mock_settings.max_iterations = 3
         mock_settings.oscillation_threshold = 0.7
         state = {"critic_approved": True}
-        assert route_after_critic(state) == "respond"
+        assert route_after_critic(state) == "final_scrubber"
 
     @patch("app.graph.settings")
-    def test_not_approved_routes_to_supervisor(self, mock_settings):
-        """Critic not approved + should_continue → supervisor for revision (critic sets both when not approved)."""
+    def test_not_approved_needs_evidence_routes_to_router(self, mock_settings):
         mock_settings.max_iterations = 3
         mock_settings.oscillation_threshold = 0.7
         state = {
             "critic_approved": False,
+            "need_more_evidence": True,
             "critic_should_continue": True,
             "iteration_count": 1,
         }
-        assert route_after_critic(state) == "supervisor"
+        assert route_after_critic(state) == "router"
 
     @patch("app.graph.settings")
-    def test_not_approved_at_max_iterations(self, mock_settings):
+    def test_not_approved_writing_quality_routes_to_writer(self, mock_settings):
+        mock_settings.max_iterations = 3
+        mock_settings.oscillation_threshold = 0.7
+        state = {
+            "critic_approved": False,
+            "need_more_evidence": False,
+            "critic_should_continue": True,
+            "iteration_count": 1,
+        }
+        assert route_after_critic(state) == "writer"
+
+    @patch("app.graph.settings")
+    def test_max_iterations_routes_to_scrubber(self, mock_settings):
         mock_settings.max_iterations = 3
         mock_settings.oscillation_threshold = 0.7
         state = {"critic_approved": False, "iteration_count": 3}
-        assert route_after_critic(state) == "respond"
+        assert route_after_critic(state) == "final_scrubber"
 
     @patch("app.graph.settings")
     def test_error_routes_to_respond(self, mock_settings):
@@ -165,12 +190,10 @@ class TestRouteAfterCritic:
         assert route_after_critic(state) == "respond"
 
     @patch("app.graph.settings")
-    def test_default_approved_true(self, mock_settings):
-        """critic_approved defaults to True (missing key), so route to respond."""
+    def test_default_approved_routes_to_scrubber(self, mock_settings):
         mock_settings.max_iterations = 3
         mock_settings.oscillation_threshold = 0.7
-        state = {}
-        assert route_after_critic(state) == "respond"
+        assert route_after_critic({}) == "final_scrubber"
 
 
 class TestRespondNode:
@@ -223,7 +246,6 @@ class TestRespondNode:
         assert "API key" in content
 
     def test_no_teach_mode_chunks_injected(self):
-        """Teach mode removed: no invariant_teach_mode chunks should exist."""
         from app.nodes.context_curator import _build_pinned_context
 
         chunks = _build_pinned_context(
