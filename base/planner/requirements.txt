@@ -1,6 +1,8 @@
 langchain-core>=1.2.13,<2.0.0
 langchain-openai>=1.1.10,<2.0.0
 langgraph>=1.0.0,<2.0.0
+pydantic>=2.10.0
+pydantic-settings>=2.7.0
 pymilvus>=2.5.0
 pyyaml>=6.0
 FlashRank>=0.2.10

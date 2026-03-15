@@ -14,9 +14,7 @@ from io import StringIO
 
 import pytest
 
-sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "images", "base-api", "synesis-telemetry")
-)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "images", "base-api", "synesis-telemetry"))
 
 from synesis_telemetry import (
     configure_logging,

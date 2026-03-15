@@ -74,8 +74,9 @@ CATALOG_FIELDS = [
     FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="chunk_index", dtype=DataType.INT64),
     # Content (english analyzer enables native Milvus BM25 full-text search)
-    FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=8192,
-                enable_analyzer=True, analyzer_params={"type": "english"}),
+    FieldSchema(
+        name="text", dtype=DataType.VARCHAR, max_length=8192, enable_analyzer=True, analyzer_params={"type": "english"}
+    ),
     FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
     FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
     # Structure

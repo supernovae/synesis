@@ -16,7 +16,6 @@ from dataclasses import dataclass
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: minimal mock for UnifiedResult-like objects
 # ---------------------------------------------------------------------------
@@ -306,14 +305,47 @@ class TestPersonaDetection:
             (re.compile(r"\blike\s+a\s+(\w+)\b", re.IGNORECASE), "{0}", False),
             (re.compile(r"\bas\s+(?:a|an)\s+(\w+)\b", re.IGNORECASE), "{0}", False),
             (re.compile(r"\bin\s+(?:the\s+)?(?:style|voice|tone)\s+of\s+(?:a\s+)?(\w+)", re.IGNORECASE), "{0}", False),
-            (re.compile(r"\bexplain\s+(?:it\s+)?to\s+(?:a\s+)?(\d+)[\s-]*year[\s-]*old\b", re.IGNORECASE), "ELI{0}", True),
-            (re.compile(r"\bexplain\s+(?:it\s+)?(?:like|as if)\s+(?:I'?m|i am)\s+(?:a\s+)?(\w+)\b", re.IGNORECASE), "{0}", False),
+            (
+                re.compile(r"\bexplain\s+(?:it\s+)?to\s+(?:a\s+)?(\d+)[\s-]*year[\s-]*old\b", re.IGNORECASE),
+                "ELI{0}",
+                True,
+            ),
+            (
+                re.compile(r"\bexplain\s+(?:it\s+)?(?:like|as if)\s+(?:I'?m|i am)\s+(?:a\s+)?(\w+)\b", re.IGNORECASE),
+                "{0}",
+                False,
+            ),
         ]
-        _PERSONA_STOPWORDS = frozenset({
-            "the", "a", "an", "it", "this", "that", "my", "your", "me", "way",
-            "much", "more", "well", "also", "very", "how", "what", "why", "can",
-            "do", "should", "would", "could", "will", "following", "possible",
-        })
+        _PERSONA_STOPWORDS = frozenset(
+            {
+                "the",
+                "a",
+                "an",
+                "it",
+                "this",
+                "that",
+                "my",
+                "your",
+                "me",
+                "way",
+                "much",
+                "more",
+                "well",
+                "also",
+                "very",
+                "how",
+                "what",
+                "why",
+                "can",
+                "do",
+                "should",
+                "would",
+                "could",
+                "will",
+                "following",
+                "possible",
+            }
+        )
         for pattern, template, skip_check in _PERSONA_PATTERNS:
             match = pattern.search(raw_text)
             if match:

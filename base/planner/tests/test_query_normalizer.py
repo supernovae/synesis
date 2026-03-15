@@ -34,11 +34,24 @@ def normalizer(lexicon: frozenset[str]) -> QueryNormalizer:
 @pytest.fixture()
 def tiny_normalizer() -> QueryNormalizer:
     """Normalizer with a small controlled lexicon for deterministic tests."""
-    tiny_lex = frozenset([
-        "kubernetes", "terraform", "python", "fastapi", "docker",
-        "deployment", "container", "microservice", "microservices",
-        "aws", "react", "flask", "django", "openshift",
-    ])
+    tiny_lex = frozenset(
+        [
+            "kubernetes",
+            "terraform",
+            "python",
+            "fastapi",
+            "docker",
+            "deployment",
+            "container",
+            "microservice",
+            "microservices",
+            "aws",
+            "react",
+            "flask",
+            "django",
+            "openshift",
+        ]
+    )
     return QueryNormalizer(tiny_lex)
 
 
