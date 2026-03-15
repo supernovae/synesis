@@ -233,39 +233,106 @@ domain_keywords:
   data_science:
     domain: data_science
     min_hits: 2
-    keywords: ["pandas", "jupyter", "matplotlib", "seaborn", "statistical analysis",
-      "data visualization", "hypothesis test", "correlation", "regression",
-      "data analysis", "data science", "exploratory", "feature engineering",
-      "scikit-learn", "scipy", "statsmodels", "dataframe"]
+    keywords:
+      - "pandas"
+      - "jupyter"
+      - "matplotlib"
+      - "seaborn"
+      - "statistical analysis"
+      - "data visualization"
+      - "hypothesis test"
+      - "correlation"
+      - "regression"
+      - "data analysis"
+      - "data science"
+      - "exploratory"
+      - "feature engineering"
+      - "scikit-learn"
+      - "scipy"
+      - "statsmodels"
+      - "dataframe"
   business_writing:
     domain: business_writing
-    keywords: ["email draft", "proposal", "memo", "executive summary",
-      "business report", "cover letter", "professional writing",
-      "write an email", "draft a letter", "write a proposal"]
+    keywords:
+      - "email draft"
+      - "proposal"
+      - "memo"
+      - "executive summary"
+      - "business report"
+      - "cover letter"
+      - "professional writing"
+      - "write an email"
+      - "draft a letter"
+      - "write a proposal"
   summarization:
     domain: summarization
-    keywords: ["summarize", "summary", "key points", "tldr", "condense",
-      "brief overview", "digest", "summarise", "bullet points from",
-      "main takeaways"]
+    keywords:
+      - "summarize"
+      - "summary"
+      - "key points"
+      - "tldr"
+      - "condense"
+      - "brief overview"
+      - "digest"
+      - "summarise"
+      - "bullet points from"
+      - "main takeaways"
   translation:
     domain: translation
-    keywords: ["translate", "translation", "localize", "localization",
-      "interpret", "translated to", "in spanish", "in french",
-      "in german", "in japanese", "in chinese", "in korean"]
+    keywords:
+      - "translate"
+      - "translation"
+      - "localize"
+      - "localization"
+      - "interpret"
+      - "translated to"
+      - "in spanish"
+      - "in french"
+      - "in german"
+      - "in japanese"
+      - "in chinese"
+      - "in korean"
   ai_ml:
     domain: ai_ml
     min_hits: 2
-    keywords: ["machine learning", "deep learning", "neural network",
-      "transformer", "fine-tune", "fine-tuning", "training data",
-      "classification", "NLP", "computer vision", "reinforcement learning",
-      "feature extraction", "model training", "backpropagation",
-      "loss function", "gradient descent", "convolutional", "attention mechanism"]
+    keywords:
+      - "machine learning"
+      - "deep learning"
+      - "neural network"
+      - "transformer"
+      - "fine-tune"
+      - "fine-tuning"
+      - "training data"
+      - "classification"
+      - "NLP"
+      - "computer vision"
+      - "reinforcement learning"
+      - "feature extraction"
+      - "model training"
+      - "backpropagation"
+      - "loss function"
+      - "gradient descent"
+      - "convolutional"
+      - "attention mechanism"
   cybersecurity:
     domain: cybersecurity
-    keywords: ["vulnerability", "CVE", "penetration test", "threat model",
-      "OWASP", "security audit", "hardening", "zero trust", "red team",
-      "blue team", "SOC", "incident response", "malware", "phishing",
-      "ransomware", "zero-day"]
+    keywords:
+      - "vulnerability"
+      - "CVE"
+      - "penetration test"
+      - "threat model"
+      - "OWASP"
+      - "security audit"
+      - "hardening"
+      - "zero trust"
+      - "red team"
+      - "blue team"
+      - "SOC"
+      - "incident response"
+      - "malware"
+      - "phishing"
+      - "ransomware"
+      - "zero-day"
 
 pairings:
   - keywords: ["delete", "database"]

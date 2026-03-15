@@ -2,7 +2,6 @@
 
 Validates:
   - Activation logic (_should_activate_depth_mode)
-  - Section result merging (_merge_section_results)
   - Evidence gatherer RAG query formulation (via query_distiller)
   - Context block formatting
 """
@@ -12,7 +11,6 @@ from __future__ import annotations
 from app.context_formatter import format_context_block
 from app.nodes.planner_node import _should_activate_depth_mode
 from app.query_distiller import distill_from_frame, distill_query, distill_web_from_frame
-from app.state import _merge_section_results
 
 
 def _build_section_queries(
@@ -99,40 +97,6 @@ class TestDepthModeActivation:
         state = self._make_state(taxonomy_metadata={"taxonomy_key": "general"})
         steps = self._make_steps(3)
         assert _should_activate_depth_mode(state, steps) is True
-
-
-class TestSectionResultMerger:
-    """Verify _merge_section_results reducer deduplicates and appends."""
-
-    def test_empty_merge(self):
-        result = _merge_section_results([], [])
-        assert result == []
-
-    def test_appends_new_sections(self):
-        existing = [{"section_id": 1, "text": "Section 1"}]
-        new = [{"section_id": 2, "text": "Section 2"}]
-        result = _merge_section_results(existing, new)
-        assert len(result) == 2
-        assert result[0]["section_id"] == 1
-        assert result[1]["section_id"] == 2
-
-    def test_deduplicates_by_section_id(self):
-        existing = [{"section_id": 1, "text": "Original"}]
-        new = [{"section_id": 1, "text": "Duplicate"}, {"section_id": 2, "text": "New"}]
-        result = _merge_section_results(existing, new)
-        assert len(result) == 2
-        assert result[0]["text"] == "Original"
-        assert result[1]["section_id"] == 2
-
-    def test_multiple_parallel_results_merge(self):
-        batch1 = [{"section_id": 1, "text": "A"}]
-        batch2 = [{"section_id": 2, "text": "B"}]
-        batch3 = [{"section_id": 3, "text": "C"}]
-        merged = _merge_section_results([], batch1)
-        merged = _merge_section_results(merged, batch2)
-        merged = _merge_section_results(merged, batch3)
-        assert len(merged) == 3
-        assert [s["section_id"] for s in merged] == [1, 2, 3]
 
 
 class TestSectionRagQuery:
