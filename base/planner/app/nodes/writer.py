@@ -545,11 +545,22 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     task_block = _build_task_block(state)
     outline_block = _build_outline_block(state)
 
+    # Trivial fast-path: frame_extractor and planner are skipped, so
+    # user_task / execution_plan are empty.  Fall back to the raw user
+    # question so the writer always knows what was asked.
+    if not task_block:
+        raw_question = (state.get("last_user_content") or state.get("task_description") or "").strip()
+        if raw_question:
+            task_block = f"User question: {raw_question}"
+
     style_contract = state.get("style_contract_locked") or {}
     verbosity = style_contract.get("verbosity_target", "moderate")
 
     writer_budget = settings.scaled_writer_budget(difficulty)
-    writer_budget = max(2048, min(writer_budget, settings.writer_budget_max))
+    if difficulty < 0.2:
+        writer_budget = max(512, min(writer_budget, settings.writer_budget_max))
+    else:
+        writer_budget = max(2048, min(writer_budget, settings.writer_budget_max))
 
     writer_url = settings.writer_model_url or settings.general_model_url
     writer_name = settings.writer_model_name or settings.general_model_name
@@ -655,9 +666,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "model_context": model_context,
             },
         )
-        writer_budget = max(2048, available_output)
+        writer_budget = max(512 if difficulty < 0.2 else 2048, available_output)
 
     iteration = state.get("iteration_count", 0)
+    _used_raw_fallback = not bool(_build_task_block(state))
     logger.info(
         "writer_start",
         extra={
@@ -669,6 +681,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "writer_budget": writer_budget,
             "input_estimate": estimated_input_tokens,
             "difficulty": round(difficulty, 2),
+            "user_msg_preview": (task_block or "")[:120],
+            "has_task_frame": not _used_raw_fallback,
+            "has_outline": bool(outline_block),
+            "has_evidence": bool(compiled_evidence),
         },
     )
 

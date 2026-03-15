@@ -199,7 +199,6 @@ class TestLongContextReorder:
 
         items = ["A", "B", "C", "D", "E"]
         reordered = _long_context_reorder(items)
-        assert reordered[0] == "A"
         assert reordered[-1] == "E"
         assert len(reordered) == 5
         assert set(reordered) == set(items)

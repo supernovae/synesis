@@ -120,31 +120,6 @@ class TestContextRefsResolver:
 class TestFreeGenerationParsing:
     """Router and critic use free generation + parse_and_validate (no guided decoding)."""
 
-    @patch("app.nodes.supervisor.supervisor_llm")
-    @pytest.mark.asyncio
-    async def test_router_parses_minimal_json(self, mock_raw_llm):
-        """Router parses RouterDecision JSON (6 fields) for routing."""
-        from app.nodes.supervisor import supervisor_node
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        raw_json = '{"route":"worker","rag_mode":"disabled","reasoning":"simple greeting","confidence":0.9}'
-        mock_raw_llm.ainvoke = AsyncMock(return_value=AIMessage(content=raw_json))
-
-        state = {
-            "messages": [HumanMessage(content="hello world")],
-            "task_description": "hello world",
-            "last_user_content": "hello world",
-            "conversation_history": [],
-            "iteration_count": 0,
-            "task_size": "medium",
-            "is_code_task": True,
-        }
-
-        result = await supervisor_node(state)
-
-        assert result.get("next_node") in ("worker", "context_curator", "respond")
-        mock_raw_llm.ainvoke.assert_called_once()
-
     @patch("app.nodes.critic.critic_llm")
     @pytest.mark.asyncio
     async def test_critic_parses_free_generation(self, mock_critic_llm):

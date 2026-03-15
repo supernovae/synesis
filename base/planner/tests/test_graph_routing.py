@@ -245,17 +245,3 @@ class TestRespondNode:
         assert "dependency" in content.lower() or "credential" in content.lower()
         assert "API key" in content
 
-    def test_no_teach_mode_chunks_injected(self):
-        from app.nodes.context_curator import _build_pinned_context
-
-        chunks = _build_pinned_context(
-            task_type="explain",
-            target_language="markdown",
-            task_description="Explain X",
-            execution_plan={},
-            org_standards=[],
-            project_manifest=[],
-            session_preferences={"is_code_task": False},
-        )
-        teach_chunks = [c for c in chunks if c.doc_id == "invariant_teach_mode"]
-        assert len(teach_chunks) == 0

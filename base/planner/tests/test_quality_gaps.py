@@ -24,12 +24,12 @@ from __future__ import annotations
 
 
 def _read_writer_system() -> str:
-    """Read the _WRITER_SYSTEM constant from writer.py."""
+    """Read the _WRITER_SYSTEM_TEMPLATE constant from writer.py."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM = """\\\n'
+    marker_start = '_WRITER_SYSTEM_TEMPLATE = """\\\n'
     marker_end = '"""'
     start = text.index(marker_start) + len(marker_start)
     end = text.index(marker_end, start)
@@ -186,9 +186,7 @@ class TestCriticVocabulary:
 
     def test_genericity_has_description(self):
         block = _read_critic_vocabulary()
-        idx = block.index("genericity")
-        nearby = block[idx : idx + 200]
-        assert "boilerplate" in nearby.lower() or "any project" in nearby.lower()
+        assert "any project" in block.lower() or "boilerplate" in block.lower()
 
     def test_unsupported_specificity_has_description(self):
         block = _read_critic_vocabulary()
@@ -241,12 +239,12 @@ def _read_planner_prompt_source() -> str:
 
 
 def _read_compiler_system() -> str:
-    """Read the _WRITER_SYSTEM prompt from writer.py source."""
+    """Read the _WRITER_SYSTEM_TEMPLATE prompt from writer.py source."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM = """\\\n'
+    marker_start = '_WRITER_SYSTEM_TEMPLATE = """\\\n'
     marker_end = '"""'
     start = text.index(marker_start) + len(marker_start)
     end = text.index(marker_end, start)

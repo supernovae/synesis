@@ -23,6 +23,17 @@ import pytest
 from app.nodes.entry_classifier import entry_classifier_node
 
 TRIVIAL_CEILING = 0.15
+
+
+def _embedder_available() -> bool:
+    """Check if the TEI embedder is reachable (required for semantic is_code_task)."""
+    try:
+        import httpx
+
+        r = httpx.get("http://embedder.synesis-rag.svc.cluster.local:8080/health", timeout=1)
+        return r.status_code == 200
+    except Exception:
+        return False
 PLAN_FLOOR = 0.70
 
 
@@ -72,42 +83,21 @@ class TestEntryClassifierValidation:
             )
 
 
-class TestEntryClassifierTrivialPath:
-    """Explicit tests for trivial fast-path routing."""
+class TestEntryPipelineTrivialPath:
+    """Explicit tests for trivial fast-path routing via route_after_entry_pipeline."""
 
-    def test_trivial_routes_to_context_curator(self):
-        """route_after_entry_classifier: trivial → context_curator."""
-        from app.graph import route_after_entry_classifier
+    def test_trivial_routes_to_writer(self):
+        """route_after_entry_pipeline: trivial non-code → writer."""
+        from app.graph import route_after_entry_pipeline
 
         state = {"messages": [{"content": "hello world"}]}
         out = entry_classifier_node(state)
         state.update(out)
         assert out["difficulty"] < TRIVIAL_CEILING
-        assert route_after_entry_classifier(state) == "context_curator"
-
-    def test_mid_range_code_routes_to_context_curator(self):
-        """Mid-range code task → context_curator (bypass supervisor in mid difficulty range)."""
-        from app.graph import route_after_entry_classifier
-
-        state = {"messages": [{"content": "parse this json file and save to disk"}]}
-        out = entry_classifier_node(state)
-        state.update(out)
-        assert TRIVIAL_CEILING <= out["difficulty"] < PLAN_FLOOR
-        assert route_after_entry_classifier(state) == "context_curator"
-
-    def test_complex_routes_to_planner(self):
-        """High-difficulty task → planner path."""
-        from app.graph import route_after_entry_classifier
-
-        state = {"messages": [{"content": "design the architecture for our microservices migration"}]}
-        out = entry_classifier_node(state)
-        state.update(out)
-        assert out["difficulty"] >= PLAN_FLOOR
-        assert out["plan_required"] is True
-        assert route_after_entry_classifier(state) == "planner"
+        assert route_after_entry_pipeline(state) == "writer"
 
     def test_ui_helper_routes_to_respond(self):
-        from app.graph import route_after_entry_classifier
+        from app.graph import route_after_entry_pipeline
 
         state = {
             "messages": [{"content": "suggest 3-5 follow-up questions"}],
@@ -115,7 +105,7 @@ class TestEntryClassifierTrivialPath:
         }
         out = entry_classifier_node(state)
         state.update(out)
-        assert route_after_entry_classifier(state) == "respond"
+        assert route_after_entry_pipeline(state) == "respond"
 
 
 class TestEducationalPrompts:
@@ -384,8 +374,12 @@ class TestOutputTypeCoverage:
             "parse this csv and save to database",
         ],
     )
+    @pytest.mark.skipif(
+        not _embedder_available(),
+        reason="is_code_task relies on TEI embedder for semantic intent",
+    )
     def test_code_intents_stay_code(self, prompt: str):
-        """Code intents → is_code_task=True."""
+        """Code intents → is_code_task=True (requires running TEI embedder)."""
         state = {"messages": [{"content": prompt}]}
         out = entry_classifier_node(state)
         assert out.get("is_code_task") is True

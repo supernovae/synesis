@@ -10,22 +10,16 @@ import inspect
 
 import pytest
 
-# Nodes that set next_node, and the router that consumes it (outgoing edge).
-# Format: (node_module, node_func_name, router_func_name)
 NEXT_NODE_PRODUCERS_AND_ROUTERS = [
-    ("supervisor", "supervisor_node", "route_after_supervisor"),
     ("planner_node", "planner_node", "route_after_planner"),
     ("patch_integrity_gate", "patch_integrity_gate_node", "route_after_patch_integrity_gate"),
     ("critic", "critic_node", "route_after_critic"),
 ]
 
-# Routers that MUST read next_node (or equivalent) when the node sets it.
-# Keys: router name. Values: substring to grep for in router source (proof it reads the signal).
 ROUTER_MUST_READ = {
-    "route_after_supervisor": "next_node",
-    "route_after_planner": "plan_pending_approval",  # planner uses this, not next_node directly
+    "route_after_planner": "plan_pending_approval",
     "route_after_patch_integrity_gate": "integrity_passed",
-    "route_after_critic": "critic_approved",  # critic sets next_node; router uses critic_approved/etc
+    "route_after_critic": "critic_approved",
 }
 
 
@@ -34,11 +28,9 @@ def _get_router_source(router_name: str) -> str:
         route_after_critic,
         route_after_patch_integrity_gate,
         route_after_planner,
-        route_after_supervisor,
     )
 
     routers = {
-        "route_after_supervisor": route_after_supervisor,
         "route_after_planner": route_after_planner,
         "route_after_patch_integrity_gate": route_after_patch_integrity_gate,
         "route_after_critic": route_after_critic,
@@ -54,7 +46,6 @@ def _node_sets_next_node(module_name: str, func_name: str) -> bool:
     mod_map = {
         "planner_node": ("app.nodes.planner_node", "planner_node"),
         "patch_integrity_gate": ("app.nodes.patch_integrity_gate", "patch_integrity_gate_node"),
-        "supervisor": ("app.nodes.supervisor", "supervisor_node"),
         "critic": ("app.nodes.critic", "critic_node"),
     }
     try:

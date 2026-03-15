@@ -1158,7 +1158,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     async for event in graph.astream_events(
                         initial_state,
                         version="v2",
-                        config=get_graph_config(thread_id=memory_scope),
+                        config=get_graph_config(thread_id=run_id),
                     ):
                         # Drain keepalive queue between graph events
                         while not _hb_queue.empty():
@@ -1321,11 +1321,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                             if _diag_stream_events == 1:
                                 _ak = getattr(chunk_obj, "additional_kwargs", {}) or {}
+                                _raw_content = getattr(chunk_obj, "content", None)
                                 logger.info(
                                     "sse_first_executor_chunk_diag",
                                     extra={
                                         "elapsed_ms": elapsed_now,
-                                        "content_sample": (chunk_obj.content or "")[:80],
+                                        "content_sample": (str(_raw_content) or "")[:80],
+                                        "content_type": type(_raw_content).__name__,
                                         "has_reasoning_attr": hasattr(chunk_obj, "reasoning_content"),
                                         "reasoning_attr_val": (getattr(chunk_obj, "reasoning_content", None) or "")[
                                             :80
@@ -1333,13 +1335,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         "ak_keys": sorted(_ak.keys())[:10],
                                         "ak_reasoning": (_ak.get("reasoning_content", "") or "")[:80],
                                         "chunk_type": type(chunk_obj).__name__,
+                                        "has_text_attr": hasattr(chunk_obj, "text"),
                                     },
                                 )
 
                             # ── Reasoning extraction (3 paths: langchain attr, <think> tags, empty-chunk fallback) ──
 
                             # Path 1: langchain-openai reasoning_content attribute
-                            # (works when langchain-openai properly forwards vLLM's reasoning_content)
                             rc = ""
                             if hasattr(chunk_obj, "reasoning_content") and chunk_obj.reasoning_content:
                                 rc = chunk_obj.reasoning_content
@@ -1349,7 +1351,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             # Path 2: <think> tag parsing from content stream
                             # (fallback when langchain drops reasoning_content — langchain-ai/langchain#34706,
                             #  or when vLLM runs without --reasoning-parser and sends raw <think> tags)
-                            content_tok = chunk_obj.content if hasattr(chunk_obj, "content") else ""
+                            # Robust content extraction: .content can be None, str, or list
+                            _raw = getattr(chunk_obj, "content", None)
+                            if isinstance(_raw, str):
+                                content_tok = _raw
+                            elif isinstance(_raw, list):
+                                content_tok = "".join(
+                                    (p.get("text", "") if isinstance(p, dict) else str(p))
+                                    for p in _raw
+                                )
+                            else:
+                                content_tok = ""
                             if content_tok and not rc:
                                 think_rc, think_content = _think_parser.feed(content_tok)
                                 if think_rc:
@@ -1363,6 +1375,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             if not rc and not content_tok:
                                 _consecutive_empty += 1
                                 _diag_empty_chunks += 1
+                                if _diag_empty_chunks in (1, 10, 100):
+                                    _raw_c = getattr(chunk_obj, "content", None)
+                                    logger.info(
+                                        "sse_empty_chunk_sample",
+                                        extra={
+                                            "n": _diag_empty_chunks,
+                                            "raw_content_type": type(_raw_c).__name__,
+                                            "raw_content_repr": repr(_raw_c)[:120],
+                                            "chunk_type": type(chunk_obj).__name__,
+                                        },
+                                    )
                                 if _consecutive_empty >= 3 and not _empty_thinking_emitted:
                                     _empty_thinking_emitted = True
                                     yield _flow_phase("Thinking\u2026")
@@ -1665,7 +1688,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 result = None
                 heartbeat_task = None
                 try:
-                    config = get_graph_config(thread_id=memory_scope)
+                    config = get_graph_config(thread_id=run_id)
                     config.setdefault("callbacks", []).append(status_callback)
 
                     async def _heartbeat(queue: asyncio.Queue, interval: float = 5.0) -> None:
@@ -1768,7 +1791,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     # Non-streaming: run graph once, then build response
     try:
-        config = get_graph_config(thread_id=memory_scope)
+        config = get_graph_config(thread_id=run_id)
         result = await graph.ainvoke(initial_state, config=config)
     except Exception:
         logger.exception("graph_execution_error")
