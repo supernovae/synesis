@@ -631,7 +631,20 @@ def _extract_content_and_metrics(
     scope = memory_scope or user_id
     messages = result.get("messages", [])
     last_message = messages[-1] if messages else None
-    content = last_message.content if last_message else "No response generated."
+
+    # Guard: only use content from assistant (AI) messages.  If the graph
+    # was interrupted before producing a response, the last message may
+    # still be the user's HumanMessage — echoing it back would be a bug.
+    if last_message and getattr(last_message, "type", "") == "ai":
+        content = last_message.content
+    elif last_message:
+        logger.warning(
+            "extract_content_not_ai_message",
+            extra={"msg_type": getattr(last_message, "type", "unknown"), "run_id": run_id},
+        )
+        content = "I encountered an issue while processing your request. Please try again."
+    else:
+        content = "No response generated."
 
     # Defensive fallback: Worker produced code but Respond saw empty (state merge loss)
     if "no output to show" in (content or ""):
@@ -1154,12 +1167,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 _hb_task = asyncio.create_task(_keepalive())
 
+                # Track the pending __anext__ task outside the try block so
+                # the finally can clean it up even on exception.
+                _pending_next: asyncio.Task | None = None
+
                 try:
                     _event_iter = graph.astream_events(
                         initial_state,
                         version="v2",
                         config=get_graph_config(thread_id=run_id),
                     )
+                    # Use asyncio.wait instead of asyncio.wait_for to poll
+                    # for events.  wait_for cancels the __anext__() coroutine
+                    # on timeout, which throws CancelledError into the async
+                    # generator and destroys the entire graph.  asyncio.wait
+                    # leaves the task alive on timeout so the generator is
+                    # never corrupted.
                     while True:
                         # Drain keepalive queue continuously, even when no
                         # LangGraph events are emitted during long-running nodes.
@@ -1172,13 +1195,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             except asyncio.QueueEmpty:
                                 break
 
-                        try:
-                            event = await asyncio.wait_for(_event_iter.__anext__(), timeout=1.0)
-                        except TimeoutError:
-                            # No new graph event yet; loop so heartbeat can continue.
+                        if _pending_next is None:
+                            _pending_next = asyncio.ensure_future(_event_iter.__anext__())
+
+                        done, _ = await asyncio.wait({_pending_next}, timeout=1.0)
+
+                        if not done:
+                            # Timeout — no new event yet; loop to drain
+                            # heartbeats and poll again without cancelling.
                             continue
+
+                        try:
+                            event = _pending_next.result()
                         except StopAsyncIteration:
+                            _pending_next = None
                             break
+                        _pending_next = None
 
                         if _stream_closed:
                             continue
@@ -1488,13 +1520,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     return
                 finally:
                     _hb_task.cancel()
+                    if _pending_next is not None and not _pending_next.done():
+                        _pending_next.cancel()
                     flush_tracer()
 
                 # Stream already closed (background critic mode) — skip all post-processing
                 if _stream_closed:
                     return
 
-                if not accumulated_state.get("messages"):
+                _msgs = accumulated_state.get("messages")
+                _has_ai_msg = _msgs and any(getattr(m, "type", "") == "ai" for m in _msgs)
+                if not _msgs or not _has_ai_msg:
+                    if _msgs and not _has_ai_msg:
+                        logger.warning("sse_no_ai_message msg_count=%d", len(_msgs))
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return

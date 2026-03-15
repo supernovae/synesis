@@ -90,7 +90,7 @@ async def _llm_repair(
         model=settings.planner_model_name,
         temperature=0.1,
         max_completion_tokens=2048 if not settings.guided_json_enabled else 1024,
-        streaming=False,
+        streaming=True,
         use_responses_api=False,
         model_kwargs=_repair_kw,
         http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),

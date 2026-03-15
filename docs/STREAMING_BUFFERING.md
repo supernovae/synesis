@@ -81,6 +81,28 @@ When Planner and vLLM are co-located with UDS:
 
 ---
 
+## Event Iterator Safety
+
+The SSE generator polls the LangGraph event iterator with a 1-second timeout to interleave heartbeat keepalives. The polling uses `asyncio.wait` on a persistent task — **not** `asyncio.wait_for`.
+
+**Why this matters:** `asyncio.wait_for` cancels the `__anext__()` coroutine when the timeout fires. For async generators (like `astream_events`), this throws `CancelledError` into the generator, permanently closing it and cascading cancellation into the running graph node. When this happens during a long-running internal LLM call (e.g. frame extraction repair), the entire pipeline is destroyed and the graph produces no output.
+
+`asyncio.wait` does not cancel the task on timeout — it simply returns an empty `done` set, allowing the heartbeat loop to continue while the event task stays alive. This is the correct pattern for non-blocking polling of async iterators.
+
+Additionally, all internal LLM calls within the entry pipeline now use `streaming=True` (even when using `ainvoke()` which buffers the full response). This ensures that LangChain emits `on_chat_model_stream` events during the call, keeping the event iterator active and preventing silent windows.
+
+---
+
+## Response Echo Guard
+
+As defense-in-depth, the planner verifies that the last message in the accumulated state is an `AIMessage` before returning it as the response. If the graph was interrupted before producing an assistant response (e.g. by cancellation or timeout), `accumulated_state["messages"]` may still contain only user `HumanMessage`s. Without this check, the user's own prompt could be echoed back as the "response."
+
+Two guards prevent this:
+1. **`_extract_content_and_metrics`**: Checks `message.type == "ai"` before using content; returns an error message for non-AI messages.
+2. **SSE no-result check**: Verifies at least one `AIMessage` exists in `accumulated_state["messages"]` before proceeding to emit content. If none exist, an error event is sent instead.
+
+---
+
 ## Verification
 
 1. Enable streaming in the client (`stream: true`).
