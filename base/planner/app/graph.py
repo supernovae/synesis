@@ -155,8 +155,10 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
 
     Trivial tasks (difficulty < 0.15) skip the router and planner entirely,
     going straight to the writer to answer from parametric knowledge.
-    Easy tasks (difficulty < 0.3, rag_mode=disabled) still hit the router
-    for its fast-path (no retrieval) but skip the planner.
+
+    Easy tasks where the classifier set rag_mode=disabled (difficulty < 0.3,
+    no plan required) also skip the router — there's nothing to retrieve, so
+    the router adds only latency and memory overhead.
 
     In text_only front door mode, code tasks are never routed to executor;
     they use the writer path (which can emit fenced code blocks).
@@ -177,6 +179,27 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
             extra={
                 "target": target,
                 "difficulty": state.get("difficulty", 0),
+                "frontdoor_mode": settings.frontdoor_mode,
+            },
+        )
+        return target
+
+    # Easy tasks with no retrieval needed go straight to writer.
+    # The entry classifier sets rag_mode="disabled" for difficulty < 0.3
+    # (parametric knowledge only — code snippets, general questions, etc.).
+    # Skipping the router avoids initializing the full retrieval stack.
+    rag_mode = state.get("rag_mode", "normal")
+    if rag_mode == "disabled" and not state.get("plan_required"):
+        target = "writer"
+        if not text_only and state.get("is_code_task", False):
+            target = "executor"
+        logger.info(
+            "entry_pipeline_easy_no_retrieval",
+            extra={
+                "target": target,
+                "difficulty": state.get("difficulty", 0),
+                "rag_mode": rag_mode,
+                "intent_class": state.get("intent_class", ""),
                 "frontdoor_mode": settings.frontdoor_mode,
             },
         )

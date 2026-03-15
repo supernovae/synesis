@@ -522,14 +522,18 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     difficulty = state.get("difficulty", 0.5)
     task_is_trivial = state.get("task_is_trivial", False)
 
-    # ── Trivial fast-stream: defer to main.py SSE loop for direct streaming ──
-    # For trivial tasks (difficulty < 0.15) we skip the full writer machinery
-    # and return a direct_stream_request. This gives instant time-to-first-token
-    # because main.py streams from the model via the raw OpenAI SDK instead of
-    # blocking on ainvoke for the full response.
+    # ── Fast-stream: defer to main.py SSE loop for direct streaming ──
+    # Triggers for:
+    #   1. Trivial tasks (difficulty < 0.15)
+    #   2. Easy tasks that skipped the router (rag_mode=disabled, difficulty < 0.3)
+    # We skip the full writer machinery and return a direct_stream_request.
+    # This gives instant time-to-first-token because main.py streams from
+    # the model via the raw OpenAI SDK instead of blocking on ainvoke.
     rt = state.get("routing_thresholds") or {}
     trivial_threshold = float(rt.get("trivial_below", 0.15))
-    if task_is_trivial or difficulty < trivial_threshold:
+    rag_mode = state.get("rag_mode", "normal")
+    no_retrieval_easy = rag_mode == "disabled" and difficulty < 0.3
+    if task_is_trivial or difficulty < trivial_threshold or no_retrieval_easy:
         raw_question = (
             state.get("last_user_content")
             or state.get("task_description")
@@ -545,14 +549,19 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             ds_messages.extend(conv_history)
             ds_messages.append({"role": "user", "content": raw_question})
 
-            trivial_budget = settings.trivial_writer_budget
+            # Easy tasks (0.15–0.3) get a larger budget than truly trivial ones
+            if no_retrieval_easy and not task_is_trivial and difficulty >= trivial_threshold:
+                fast_budget = settings.scaled_writer_budget(difficulty)
+            else:
+                fast_budget = settings.trivial_writer_budget
             latency = (time.monotonic() - start) * 1000
             logger.info(
-                "writer_trivial_fast_stream",
+                "writer_fast_stream",
                 extra={
                     "difficulty": difficulty,
-                    "token_budget": trivial_budget,
+                    "token_budget": fast_budget,
                     "question_len": len(raw_question),
+                    "rag_mode": rag_mode,
                     "latency_ms": round(latency, 1),
                 },
             )
@@ -561,7 +570,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "compiled_answer": "",
                 "direct_stream_request": {
                     "messages": ds_messages,
-                    "max_completion_tokens": trivial_budget,
+                    "max_completion_tokens": fast_budget,
                     "temperature": 0.4,
                     **(
                         {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
@@ -574,7 +583,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "node_traces": [
                     NodeTrace(
                         node_name=node_name,
-                        reasoning="Trivial fast-stream deferred to SSE loop",
+                        reasoning=f"Fast-stream deferred to SSE loop (rag_mode={rag_mode})",
                         confidence=0.9,
                         outcome=NodeOutcome.SUCCESS,
                         latency_ms=latency,
