@@ -941,7 +941,14 @@ async def upgrade_checkpointer_to_redis() -> bool:
     if settings.session_checkpointer_backend != "redis" or not settings.session_redis_url:
         return False
     try:
+        import os
+
         from langgraph.checkpoint.redis import AsyncRedisSaver
+
+        # redisvl (transitive dep of langgraph-checkpoint-redis) creates its
+        # own Redis connections via get_address_from_env() which reads REDIS_URL.
+        # Without this, aput() raises ValueError after every graph execution.
+        os.environ.setdefault("REDIS_URL", settings.session_redis_url)
 
         cm = AsyncRedisSaver.from_conn_string(settings.session_redis_url)
         saver = await cm.__aenter__()
