@@ -118,6 +118,9 @@ def with_timeout(timeout_seconds: float):
                     "generated_code": state.get("generated_code", ""),
                     "code_explanation": state.get("code_explanation", ""),
                     "patch_ops": state.get("patch_ops", []) or [],
+                    "evidence_packets": state.get("evidence_packets", []) or [],
+                    "retrieval_degraded": state.get("retrieval_degraded", False),
+                    "retrieval_degradation_notes": state.get("retrieval_degradation_notes", ""),
                     "node_traces": [
                         NodeTrace(
                             node_name=node_name,
@@ -128,6 +131,10 @@ def with_timeout(timeout_seconds: float):
                         )
                     ],
                 }
+            except asyncio.CancelledError:
+                node_name = func.__name__.replace("_node", "")
+                logger.warning("node_cancelled", extra={"node": node_name, "timeout_seconds": timeout_seconds})
+                raise
 
         return wrapper
 
@@ -587,7 +594,21 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             extra={"len": len(content)},
         )
     elif error:
-        content = f"I encountered an issue while processing your request: {error}"
+        err_text = str(error)
+        if "timed out" in err_text.lower() and "router" in err_text.lower():
+            content = (
+                "I ran out of time while gathering evidence. "
+                "I was still retrieving and summarizing sources when the router hit its time limit."
+            )
+            deg_notes = (state.get("retrieval_degradation_notes") or "").strip()
+            if deg_notes:
+                content += f"\n\nWhat I found before timing out: {deg_notes}"
+            content += (
+                "\n\nTry narrowing scope or asking for a phased answer "
+                "(for example: key decisions first, then deeper sections)."
+            )
+        else:
+            content = f"I encountered an issue while processing your request: {error}"
         if code:
             content += f"\n\nPartial result:\n```\n{code}\n```"
     else:

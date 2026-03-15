@@ -243,6 +243,11 @@ class RouterNode:
         cache: HybridRetrievalCache | None = None,
     ) -> None:
         self.cache = cache or get_retrieval_cache()
+        timeout = float(getattr(settings, "node_timeout_seconds", 180.0))
+        self.request_timeout_seconds = max(30.0, timeout * 0.7)
+        self.retrieve_timeout_seconds = max(10.0, min(60.0, timeout * 0.33))
+        self.summarize_timeout_seconds = max(10.0, min(45.0, timeout * 0.25))
+        self.refine_timeout_seconds = max(8.0, min(30.0, timeout * 0.2))
 
     # ----- LLM sub-tasks -----
 
@@ -525,20 +530,40 @@ class RouterNode:
         # call, then let handle_single_request use them (with optional HyDE
         # and expansion on top when multi_query is enabled).
         queries = await self.batch_generate_queries(requests, task_context)
-        tasks = [
-            self.handle_single_request(
-                req,
-                task_context,
-                difficulty,
-                precomputed_query=q,
-                taxonomy_metadata=taxonomy_metadata,
-            )
-            for req, q in zip(requests, queries)
-        ]
+        async def _run_request(req: dict[str, Any], q: str) -> tuple[EvidencePacket, dict[str, Any] | None]:
+            query_hint = q or str(req.get("description") or "")[:120]
+            try:
+                return await asyncio.wait_for(
+                    self.handle_single_request(
+                        req,
+                        task_context,
+                        difficulty,
+                        precomputed_query=q,
+                        taxonomy_metadata=taxonomy_metadata,
+                    ),
+                    timeout=self.request_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "router_request_timeout",
+                    extra={"query": query_hint[:80], "timeout_seconds": round(self.request_timeout_seconds, 1)},
+                )
+                return _timeout_packet(
+                    query_hint or "evidence request",
+                    f"Evidence request timed out after {self.request_timeout_seconds:.1f}s",
+                ), None
+
+        tasks = [_run_request(req, q) for req, q in zip(requests, queries)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         packets: list[EvidencePacket] = []
         cohesion_lock: dict[str, Any] | None = None
-        for r in results:
+        for idx, r in enumerate(results):
+            req = requests[idx] if idx < len(requests) else {}
+            query_hint = ""
+            if idx < len(queries):
+                query_hint = queries[idx]
+            if not query_hint:
+                query_hint = str(req.get("description") or req.get("query") or "evidence request")[:120]
             if isinstance(r, tuple) and len(r) == 2:
                 packet, lock = r
                 if isinstance(packet, EvidencePacket):
@@ -547,6 +572,9 @@ class RouterNode:
                     cohesion_lock = lock
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
+                packets.append(
+                    _timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})")
+                )
         return packets, cohesion_lock
 
     async def _multi_query_retrieve(
@@ -647,19 +675,44 @@ class RouterNode:
             return cached, None
 
         doc_cap_override = 3 if light_mode else None
-        bundle = await self._multi_query_retrieve(
-            variants,
-            difficulty,
-            domain_hints=domain_hints,
-            skip_web=skip_web,
-            preferred_web_scopes=preferred_web_scopes,
-        )
+        try:
+            bundle = await asyncio.wait_for(
+                self._multi_query_retrieve(
+                    variants,
+                    difficulty,
+                    domain_hints=domain_hints,
+                    skip_web=skip_web,
+                    preferred_web_scopes=preferred_web_scopes,
+                ),
+                timeout=self.retrieve_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "router_retrieve_timeout",
+                extra={"query": query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
+            )
+            return _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s"), None
         cohesion_lock = bundle.cohesion_lock
-        packet = await self.summarize(
-            query,
-            bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
-            cohesion_lock=cohesion_lock,
-        )
+        try:
+            packet = await asyncio.wait_for(
+                self.summarize(
+                    query,
+                    bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
+                    cohesion_lock=cohesion_lock,
+                ),
+                timeout=self.summarize_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "router_summarize_timeout",
+                extra={"query": query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
+            )
+            packet = _fallback_packet(query, bundle.results)
+            existing_notes = packet.retrieval_notes or ""
+            sep = "; " if existing_notes else ""
+            packet = packet.model_copy(
+                update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"}
+            )
         update_fields: dict[str, Any] = {"section_id": evidence_request.get("section_id")}
         if bundle.degradation_notes:
             existing_notes = packet.retrieval_notes or ""
@@ -671,23 +724,62 @@ class RouterNode:
         max_refine = 0 if light_mode else MAX_REFINEMENT_ROUNDS
         rounds = 0
         while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < max_refine:
-            refined_query = await self.refine_query(query, packet)
+            try:
+                refined_query = await asyncio.wait_for(
+                    self.refine_query(query, packet),
+                    timeout=self.refine_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "router_refine_timeout",
+                    extra={"query": query[:80], "timeout_seconds": round(self.refine_timeout_seconds, 1)},
+                )
+                existing_notes = packet.retrieval_notes or ""
+                sep = "; " if existing_notes else ""
+                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}query refinement timed out"})
+                break
             cached = await self.cache.aget(refined_query)
             if cached is not None:
                 packet = cached
                 if evidence_request.get("section_id") is not None:
                     packet = packet.model_copy(update={"section_id": evidence_request["section_id"]})
                 break
-            refine_bundle = await self.retrieve(
-                refined_query,
-                difficulty,
-                domain_hints=domain_hints,
-                skip_web=skip_web,
-                preferred_web_scopes=preferred_web_scopes,
-            )
+            try:
+                refine_bundle = await asyncio.wait_for(
+                    self.retrieve(
+                        refined_query,
+                        difficulty,
+                        domain_hints=domain_hints,
+                        skip_web=skip_web,
+                        preferred_web_scopes=preferred_web_scopes,
+                    ),
+                    timeout=self.retrieve_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "router_refine_retrieve_timeout",
+                    extra={"query": refined_query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
+                )
+                existing_notes = packet.retrieval_notes or ""
+                sep = "; " if existing_notes else ""
+                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}refined retrieval timed out"})
+                break
             if cohesion_lock is None and refine_bundle.cohesion_lock:
                 cohesion_lock = refine_bundle.cohesion_lock
-            packet = await self.summarize(refined_query, refine_bundle.results, cohesion_lock=cohesion_lock)
+            try:
+                packet = await asyncio.wait_for(
+                    self.summarize(refined_query, refine_bundle.results, cohesion_lock=cohesion_lock),
+                    timeout=self.summarize_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "router_refine_summarize_timeout",
+                    extra={"query": refined_query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
+                )
+                packet = _fallback_packet(refined_query, refine_bundle.results)
+                existing_notes = packet.retrieval_notes or ""
+                sep = "; " if existing_notes else ""
+                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}refined summarization timed out"})
             packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
             query = refined_query
             rounds += 1
@@ -1042,6 +1134,18 @@ def _fallback_packet(query: str, raw_results: list[UnifiedResult]) -> EvidencePa
         summary=summary[: settings.router_max_summary_tokens * 4],
         confidence=confidence,
         retrieval_notes="Fallback: LLM summarization failed, evidence assembled from raw results.",
+    )
+
+
+def _timeout_packet(query: str, reason: str) -> EvidencePacket:
+    """Build a minimal packet when an evidence request times out/fails."""
+    return EvidencePacket(
+        query=(query or "evidence request")[:200],
+        sources=[],
+        snippets=[],
+        summary="",
+        confidence=0.0,
+        retrieval_notes=reason[:300],
     )
 
 

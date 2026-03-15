@@ -410,15 +410,34 @@ async def retrieve_unified(
             "unified_rag_empty_web_fallback",
             extra={"query": query[:80], "skip_web_overridden": True},
         )
-        effective_web_query = web_query if web_query else query[:120]
-        try:
-            web_raw = await search_and_process(effective_web_query, profile="web", fetch_pages=True)
-            web_unified = _web_to_unified(web_raw if not isinstance(web_raw, BaseException) else [])
-        except Exception:
-            logger.warning("unified_web_fallback_failed", exc_info=True)
-            web_unified = []
+        effective_web_query = (web_query if web_query else query[:120]).strip()
+        fallback_candidates: list[str] = [effective_web_query]
+        compact_query = " ".join(effective_web_query.split()[:12]).strip()
+        if compact_query and compact_query != effective_web_query:
+            fallback_candidates.append(compact_query)
+        if domain_hints:
+            scope_query = f"{compact_query or effective_web_query} {' '.join(domain_hints[:2])}".strip()
+            if scope_query and scope_query not in fallback_candidates:
+                fallback_candidates.append(scope_query)
+
+        for idx, candidate in enumerate(fallback_candidates[:3], start=1):
+            try:
+                web_raw = await search_and_process(candidate, profile="web", fetch_pages=True)
+                web_unified = _web_to_unified(web_raw if not isinstance(web_raw, BaseException) else [])
+            except Exception:
+                logger.warning("unified_web_fallback_failed", extra={"attempt": idx, "query": candidate[:80]}, exc_info=True)
+                web_unified = []
+                _degradation_notes_parts.append(f"Web fallback attempt {idx} failed")
+                continue
+
+            if web_unified:
+                _degradation_notes_parts.append(f"Web fallback attempt {idx} succeeded ({len(web_unified)} hits)")
+                break
+            _degradation_notes_parts.append(f"Web fallback attempt {idx} returned no usable results")
+
+        if not web_unified:
             _web_degraded = True
-            _degradation_notes_parts.append("Web fallback also failed")
+            _degradation_notes_parts.append("Web fallback exhausted without usable results")
     elif not rag_unified and not _rag_degraded:
         _rag_degraded = True
         _degradation_notes_parts.append("RAG returned no results")

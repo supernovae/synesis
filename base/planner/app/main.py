@@ -1155,12 +1155,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _hb_task = asyncio.create_task(_keepalive())
 
                 try:
-                    async for event in graph.astream_events(
+                    _event_iter = graph.astream_events(
                         initial_state,
                         version="v2",
                         config=get_graph_config(thread_id=run_id),
-                    ):
-                        # Drain keepalive queue between graph events
+                    )
+                    while True:
+                        # Drain keepalive queue continuously, even when no
+                        # LangGraph events are emitted during long-running nodes.
                         while not _hb_queue.empty():
                             try:
                                 hb_msg = _hb_queue.get_nowait()
@@ -1169,6 +1171,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     await asyncio.sleep(0)
                             except asyncio.QueueEmpty:
                                 break
+
+                        try:
+                            event = await asyncio.wait_for(_event_iter.__anext__(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            # No new graph event yet; loop so heartbeat can continue.
+                            continue
+                        except StopAsyncIteration:
+                            break
 
                         if _stream_closed:
                             continue
