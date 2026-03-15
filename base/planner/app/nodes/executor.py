@@ -922,6 +922,7 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         updates: dict[str, Any] = {
             "generated_code": generated_code,
+            "compiled_answer": content,
             "code_explanation": "",
             "files_touched": files_touched,
             "unified_diff": None,

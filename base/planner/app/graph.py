@@ -589,10 +589,17 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
     parts: list[str] = []
     scrubbed = state.get("scrubbed_answer", "")
+    compiled = state.get("compiled_answer", "")
     if scrubbed:
         content = scrubbed
         logger.info(
             "respond_using_scrubbed_answer",
+            extra={"len": len(content)},
+        )
+    elif compiled:
+        content = compiled
+        logger.info(
+            "respond_using_compiled_answer",
             extra={"len": len(content)},
         )
     elif error:
