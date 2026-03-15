@@ -44,7 +44,7 @@ app = FastAPI(title="Synesis MCP Server", version="0.1.0")
 # ---------------------------------------------------------------------------
 # MCP Tool Registry
 # ---------------------------------------------------------------------------
-from .tools import cve_lookup, documentation, license_compliance
+from .tools import cve_lookup, documentation, license_compliance, patch_integrity
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -248,6 +248,7 @@ _TOOL_HANDLERS = {
     "synesis_license_check": license_compliance.handle,
     "synesis_cve_check": cve_lookup.handle,
     "synesis_docs_lookup": documentation.handle,
+    "synesis_patch_integrity": patch_integrity.handle,
 }
 
 # Register additional tool definitions
@@ -256,6 +257,7 @@ TOOLS.extend(
         license_compliance.TOOL_DEFINITION,
         cve_lookup.TOOL_DEFINITION,
         documentation.TOOL_DEFINITION,
+        patch_integrity.TOOL_DEFINITION,
     ]
 )
 

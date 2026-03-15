@@ -21,17 +21,18 @@ data:
           model: openai/synesis-agent
           api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
           api_key: "not-needed"
-          max_tokens: 8192
+          max_tokens: 32768
           temperature: 0.2
 
       # Router (Qwen2.5-14B-Instruct FP8) — supervisor, planner, advisor roles
+      # Temperature 0.1: classification/routing needs deterministic consistency
       - model_name: synesis-router
         litellm_params:
           model: openai/synesis-router
           api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 4096
-          temperature: 0.3
+          temperature: 0.1
 
       # Critic — routes to synesis-critic Service.
       # Small profile: resolves to Qwen2.5-14B-Instruct (router pod, prompt-based CoT).
@@ -46,12 +47,13 @@ data:
           temperature: 0.1
 
       # General (Qwen3.5-35B-A3B FP8) — worker/writer response generation
+      # max_tokens raised for OpenRouter — models support 128K+ context
       - model_name: synesis-general
         litellm_params:
           model: openai/synesis-general
           api_base: http://synesis-general.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
-          max_tokens: 8192
+          max_tokens: 32768
           temperature: 0.3
 
       # Coder (Qwen3-Coder-Next-FP8) — direct IDE endpoint, agentic coding
@@ -70,7 +72,7 @@ data:
           model: openai/synesis-critic
           api_base: http://synesis-critic.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
-          max_tokens: 8192
+          max_tokens: 16384
           temperature: 0.2
 
     litellm_settings:

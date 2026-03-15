@@ -1569,11 +1569,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     sent_role = True
 
                 # ── Deferred direct stream for text mode ──
-                # When the worker returns a direct_stream_request instead of
-                # calling langchain (which drops reasoning_content), we stream
-                # directly from the executor via the raw openai SDK. This
-                # preserves reasoning_content in the SSE delta so Open WebUI
-                # renders it natively in a collapsible Thinking UI.
+                # When the writer or executor returns a direct_stream_request
+                # instead of calling langchain (which drops reasoning_content),
+                # we stream directly via the raw openai SDK. This preserves
+                # reasoning_content and gives fast time-to-first-token for
+                # trivial tasks.
                 _stream_req = accumulated_state.get("direct_stream_request")
                 if _stream_req and not content_streamed:
                     # Close the pipeline-status section so Open WebUI collapses the
@@ -1585,8 +1585,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     try:
                         import openai as _openai
 
+                        _ds_base_url = _stream_req.pop("base_url", None) or settings.general_model_url
+                        _ds_model = _stream_req.pop("model", None) or settings.general_model_name
                         _aclient = _openai.AsyncOpenAI(
-                            base_url=settings.general_model_url,
+                            base_url=_ds_base_url,
                             api_key="not-needed",
                         )
                         _ds_full_content = ""
@@ -1598,7 +1600,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         await asyncio.sleep(0)
 
                         _ds_stream = await _aclient.chat.completions.create(
-                            model=settings.general_model_name,
+                            model=_ds_model,
                             stream=True,
                             **_stream_req,
                         )
@@ -1614,11 +1616,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 if not _ds_in_reasoning:
                                     _ds_in_reasoning = True
                                     _diag_first_reasoning_ms = int((time.monotonic() - t_start) * 1000)
+                                    _ds_source_node = accumulated_state.get("current_node") or "executor"
                                     logger.info(
                                         "sse_first_reasoning_token",
                                         extra={
                                             "elapsed_ms": _diag_first_reasoning_ms,
-                                            "node": "executor",
+                                            "node": _ds_source_node,
                                             "sample": _ds_rc[:120],
                                             "source": "direct_stream",
                                         },
@@ -1639,7 +1642,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         extra={
                                             "elapsed_ms": _diag_first_content_ms,
                                             "reasoning_chunks": _diag_reasoning_chunks,
-                                            "node": "executor",
+                                            "node": accumulated_state.get("current_node") or "executor",
                                             "source": "direct_stream",
                                         },
                                     )

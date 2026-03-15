@@ -24,9 +24,13 @@ Synesis classifies your request into three tiers before any LLM runs:
 
 | Tier | Path | When |
 |------|------|------|
-| **Trivial** | EntryClassifier → Router → Executor → Gate → Sandbox → Critic → Respond | Regex matches (hello world, print X, basic unit test, parse json, fizzbuzz, simple script, etc.) |
-| **Small** | EntryClassifier → **Router** → Executor → … | Default when not trivial or complex |
-| **Complex** | EntryClassifier → **Router** → Planner (plan approval) → Executor → … | Matches: deploy, architecture, design, migrate, security, credentials, whole repo, destructive ops |
+| **Trivial** | EntryClassifier → Writer → Scrubber → Respond | Regex matches (hello world, print X, basic unit test, parse json, fizzbuzz, etc.) |
+| **Small** | EntryClassifier → **Router** → Writer → … | Default when not trivial or complex |
+| **Complex** | EntryClassifier → **Router** → Planner → Writer → Critic → … | Matches: deploy, architecture, design, migrate, security, credentials, whole repo |
+
+> **Note:** Code generation and editing is handled by the **Coder front door**
+> (Qwen Coder via LiteLLM → IDE coding agents). The planner pipeline focuses on
+> knowledge synthesis and can include code snippets in fenced markdown blocks.
 
 **Trivial** gets minimal context from Router. **Small** and **Complex** run through the Router, which may suggest planning or ask clarification (within budget).
 

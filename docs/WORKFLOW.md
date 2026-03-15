@@ -15,11 +15,26 @@ All evidence flows through structured **Evidence Packets** — downstream
 agents (Planner, Executor, Writer, Critic) consume evidence but never
 retrieve it directly.
 
-**Output philosophy:** The Executor produces code tasks; the Writer
-produces knowledge responses. Both output **streaming markdown** — no
-JSON wrapper, no format bifurcation. Code tasks include fenced code
-blocks; explanations are prose. The `is_code_task` boolean controls
-routing between Executor (code) and Writer (knowledge).
+**Two Front Doors:**
+
+- **Planner front door** (this pipeline): Owns reasoning, RAG
+  synthesis, architecture guidance, and markdown answers — including
+  code snippets in fenced blocks. Runs in `text_only` mode by default.
+- **Coder front door** (Qwen Coder via LiteLLM): Owns file edits,
+  patches, and execution loops for IDE coding agents (Cursor, Claude
+  Code). Accessed directly through LiteLLM, not through the planner
+  pipeline.
+
+The planner can still emit fenced code blocks (```lang ... ```) in its
+markdown responses. It does **not** orchestrate code execution, sandbox
+runs, or patch-apply workflows — those belong to the coder front door.
+
+**Front Door Mode (`frontdoor_mode` in config.py / `SYNESIS_FRONTDOOR_MODE` env var):**
+
+| Mode | Default | Behavior |
+|------|---------|----------|
+| `text_only` | **Yes** | All requests route through Writer. Executor and patch integrity gate are bypassed. `is_code_task` is always False. |
+| `legacy_hybrid` | No | Preserves the old code-task routing through Executor → Patch Integrity Gate → Critic. Rollback safety net. |
 
 **Sandbox and LSP are not in the default pipeline.** They remain
 available as tool-accessible resources for future agent-based
@@ -50,6 +65,37 @@ Decoupling](#architecture-decision-sandboxlsp-decoupling)).
 All requests enter through the same pipeline: Entry Classifier →
 Strategic Advisor → Frame Extractor. From there, routing depends on
 the **continuous difficulty score** and the resulting `rag_mode`:
+
+### text_only mode (default)
+
+```mermaid
+flowchart TD
+    EC["entry_classifier\n(deterministic)"] --> SA["strategic_advisor\n(domain alignment)"]
+    SA --> FE["frame_extractor\n(semantic frame)"]
+
+    FE -->|"trivial\n(diff < 0.15)"| WR["writer\n(knowledge synthesis)"]
+    FE -->|"easy/medium/hard"| RT["router\n(evidence orchestrator)"]
+
+    RT -->|"hard + no plan"| PL["planner\n(structured plan)"]
+    RT -->|"plan ready"| WR
+    RT -->|"error"| RS["respond"]
+
+    PL -->|"evidence requests\nor plan ready"| RT
+    PL -->|"plan_pending_approval"| RS
+
+    WR -->|"high difficulty"| CR["critic\n(quality gate)"]
+    WR -->|"low difficulty"| FS["final_scrubber"]
+
+    CR -->|"approved"| FS
+    CR -->|"need_more_evidence"| RT
+    CR -->|"writing quality\nrevision"| WR
+    CR -->|"oscillation or\nmax_iterations"| FS
+
+    FS --> RS
+    RS --> END([END])
+```
+
+### legacy_hybrid mode (rollback)
 
 ```mermaid
 flowchart TD
@@ -92,11 +138,11 @@ The entry classifier sets `rag_mode` and `task_is_trivial` based on
 the continuous difficulty score. These signals control which nodes
 are visited and how much retrieval work is done:
 
-| Difficulty | rag_mode | task_is_trivial | Path |
-|---|---|---|---|
-| < 0.15 (trivial) | `disabled` | `true` | Entry → **Writer/Executor** → Scrubber → Respond |
-| 0.15-0.29 (easy) | `disabled` | `false` | Entry → Router (skip retrieval) → **Writer/Executor** → Scrubber → Respond |
-| 0.3-0.69 (medium) | `light` | `false` | Entry → Router (single query, 3 docs, no refinement) → **Writer/Executor** → [Critic] → Scrubber → Respond |
+| Difficulty | rag_mode | task_is_trivial | Path (text_only) | Path (legacy_hybrid) |
+|---|---|---|---|---|
+| < 0.15 (trivial) | `disabled` | `true` | Entry → **Writer** → Scrubber → Respond | Entry → **Writer/Executor** → Scrubber → Respond |
+| 0.15-0.29 (easy) | `disabled` | `false` | Entry → Router → **Writer** → Scrubber → Respond | Entry → Router → **Writer/Executor** → Scrubber → Respond |
+| 0.3-0.69 (medium) | `light` | `false` | Entry → Router → **Writer** → [Critic] → Scrubber → Respond | Entry → Router → **Writer/Executor** → [Critic] → Scrubber → Respond |
 | >= 0.7 (hard) | `normal` | `false` | Entry → Router (multi-query, HyDE, 8 docs) → **Planner** → Router (section evidence) → Writer/Executor → Critic → Scrubber → Respond |
 
 **Key behaviors by rag_mode:**
@@ -792,36 +838,82 @@ Only phase transitions emit new status events. During long-running phases
 (>5s), elapsed-time heartbeats update the status (e.g., "Researching... (15s)")
 so the user knows the system hasn't stalled.
 
+## Architecture Decision: Two Front Doors
+
+**Decision**: The planner pipeline operates as a text-first front door
+(`frontdoor_mode=text_only`). Code editing/execution is owned by the
+coder front door (Qwen Coder via LiteLLM → IDE agents).
+
+The planner still emits fenced code blocks in markdown responses but
+does not orchestrate code execution, sandbox runs, or patch workflows.
+
+**Default flow** (`text_only`):
+```
+Writer -> [Critic] -> FinalScrubber -> Respond
+```
+
+**Rollback flow** (`legacy_hybrid`):
+```
+Executor -> PatchIntegrityGate -> Critic -> FinalScrubber -> Respond
+```
+
+## Architecture Decision: Patch Integrity as MCP Service
+
+PatchIntegrityGate logic has been extracted to `integrity_core.py` — a
+framework-agnostic module with pure check functions. It is exposed as
+the `synesis_patch_integrity` MCP tool for coder agents that need
+deterministic safety checks (secrets, network, workspace boundaries,
+import integrity, AST syntax, dangerous commands).
+
+**MCP contract:**
+
+```
+POST /mcp/tools/call
+{
+  "name": "synesis_patch_integrity",
+  "arguments": {
+    "code": "...",
+    "language": "python",
+    "patch_ops": [{"path": "...", "op": "modify", "text": "..."}],
+    "files_touched": ["..."],
+    "target_workspace": "/workspace",
+    "commands": ["pytest"]
+  }
+}
+→ {"passed": true/false, "failures": [{"category": "...", "evidence": "...", "remediation": "..."}]}
+```
+
+**Deprecation timeline:**
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | **Complete** | `text_only` mode default, `legacy_hybrid` rollback available |
+| Phase 2 | **Complete** | Writer and scrubber preserve fenced code blocks |
+| Phase 3 | **Complete** | Integrity checks extracted to `integrity_core.py`, MCP tool registered |
+| Phase 4 | **Current** | `is_code_task` branches marked `DEPRECATION(is_code_task)` in source |
+| Phase 5 | Pending | After one release cycle with near-zero `legacy_hybrid` usage, remove dead branches |
+
 ## Architecture Decision: Sandbox/LSP Decoupling
 
 **Decision**: Sandbox and LSP are removed from the default graph
 edges. They remain as tool-accessible resources for future
 agent-based self-correction loops.
 
-**Current code path** (default):
-```
-Executor -> PatchIntegrityGate -> Critic -> Respond
-```
-
-PatchIntegrityGate provides deterministic safety checks (secrets,
-network, workspace boundaries, import integrity, AST syntax) in
-<10ms. The Critic operates in Advisory mode for easy/medium tasks
-(no LLM call) and Full JCS mode for hard tasks.
-
 ## Planner: When, Why, and Performance
 
 **When Planner runs:**
-1. **Hard code tasks**: `difficulty >= 0.7` + `is_code_task` (multi-step,
-   protocol-heavy). Uses `PLANNER_SYSTEM_PROMPT` with atomic steps,
+1. **Hard tasks**: `difficulty >= 0.7`. Uses `KNOWLEDGE_PLANNER_PROMPT`
+   which creates section outlines based on the user's explicitly
+   requested deliverables. (In `text_only` mode, the code-specific
+   `PLANNER_SYSTEM_PROMPT` branch is inactive.)
+2. **Legacy hybrid only**: Hard code tasks (`difficulty >= 0.7` +
+   `is_code_task`) use `PLANNER_SYSTEM_PROMPT` with atomic steps,
    file manifests, and verification commands.
-2. **Hard knowledge**: `difficulty >= 0.7` + `is_code_task=false`.
-   Uses `KNOWLEDGE_PLANNER_PROMPT` which creates section outlines
-   based on the user's explicitly requested deliverables.
 
 **When Planner is skipped:**
-- **Trivial** (diff < 0.15): Entry → Writer/Executor directly (no Router either).
-- **Easy** (diff 0.15-0.29): Router fast-path (no retrieval) → Writer/Executor.
-- **Medium** (diff 0.3-0.69): Router light retrieval → Writer/Executor.
+- **Trivial** (diff < 0.15): Entry → Writer directly (no Router either).
+- **Easy** (diff 0.15-0.29): Router fast-path (no retrieval) → Writer.
+- **Medium** (diff 0.3-0.69): Router light retrieval → Writer.
 
 The Planner only runs when `rag_mode=normal` (hard tasks). For all
 other difficulty levels, the Router routes directly to Writer/Executor

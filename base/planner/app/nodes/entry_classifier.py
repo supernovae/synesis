@@ -217,12 +217,22 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["active_domain_refs"] = active_domains
 
     out["intent_class"] = analysis.get("intent_class", "general")
-    out["is_code_task"] = analysis.get("is_code_task", False)
 
-    # target_language: is_code_task=False→markdown; explicit lang→use it; else infer
+    # Front door mode: text_only forces all requests through the text pipeline.
+    # is_code_task is only used for routing in legacy_hybrid mode; in text_only
+    # mode it's always False (coder agents handle code via their own front door).
+    _text_only = settings.frontdoor_mode == "text_only"
+    out["is_code_task"] = False if _text_only else analysis.get("is_code_task", False)
+
+    # target_language: kept for formatting hints (code fences) even in text_only.
     is_code_task = out.get("is_code_task", False)
     if not is_code_task:
-        out["target_language"] = "markdown"
+        # Detect language for formatting hints even in text_only mode
+        if _text_only and _language_explicitly_mentioned(last_content):
+            out["target_language"] = "markdown"
+            out["detected_language_hint"] = _detect_language(last_content)
+        else:
+            out["target_language"] = "markdown"
     elif _language_explicitly_mentioned(last_content):
         out["target_language"] = _detect_language(last_content)
     else:
@@ -258,8 +268,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["escalation_reason"] = "reclassify_override" if not bypass_supervisor else ""
 
     # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
+    # Skipped in text_only mode — coder agents use their own front door.
     if (
-        state.get("coding_client_detected")
+        not _text_only
+        and state.get("coding_client_detected")
         and out.get("intent_class") != "knowledge"
         and analysis.get("intent_class") == "general"
         and not analysis.get("is_code_task", False)
@@ -307,7 +319,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["rag_mode"] = "normal" if difficulty >= 0.3 else "light"
 
     # Code trivial fast-path: low-difficulty code tasks bypass supervisor
-    if out.get("is_code_task") and difficulty < trivial_threshold and not plan_session:
+    # In text_only mode is_code_task is always False so this block is inert.
+    if out.get("is_code_task") and not _text_only and difficulty < trivial_threshold and not plan_session:
         out["task_is_trivial"] = True
         out["rag_mode"] = "disabled"
         out["task_description"] = (last_content or "").strip()[:2000]

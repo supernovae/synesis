@@ -830,9 +830,15 @@ class RouterNode:
         Skips the planner for easy/medium tasks (rag_mode != normal) since
         the planner adds latency but little value when retrieval is light
         or disabled. Hard tasks (rag_mode=normal) always go through planner.
+
+        In text_only front door mode, executor is never a valid target;
+        all paths route through writer instead.
         """
+        from ..config import settings
+
+        text_only = settings.frontdoor_mode == "text_only"
         execution_plan = state.get("execution_plan") or {}
-        is_code_task = state.get("is_code_task", False)
+        is_code_task = state.get("is_code_task", False) and not text_only
         task_is_trivial = state.get("task_is_trivial", False)
         rag_mode = state.get("rag_mode", "normal")
 

@@ -151,7 +151,7 @@ planner_llm = ChatOpenAI(
     base_url=settings.planner_model_url,
     api_key="not-needed",
     model=settings.planner_model_name,
-    temperature=0.2,
+    temperature=0.1,
     max_completion_tokens=2048,
     streaming=False,
     use_responses_api=False,
@@ -395,6 +395,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         difficulty = state.get("difficulty", 0.5)
         explicit_deliverables = state.get("explicit_deliverables", 0)
         user_task = state.get("user_task") or {}
+        # DEPRECATION(is_code_task): In text_only mode is_code_task is always False.
+        # Remove the PLANNER_SYSTEM_PROMPT branch when legacy_hybrid is retired.
         base_prompt = _build_knowledge_planner_prompt(difficulty) if not is_code_task else PLANNER_SYSTEM_PROMPT
         system_prompt = base_prompt + taxonomy_append
 
@@ -463,6 +465,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "named tools, quantified estimates, committed choices."
             )
 
+        # DEPRECATION(is_code_task): code-task prompt branch is dead in text_only mode.
+        # Remove when legacy_hybrid is retired.
         if is_code_task:
             prompt = (
                 f"## Task\nLanguage: {target_lang}\n{task_desc}\n"

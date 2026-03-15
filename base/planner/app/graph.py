@@ -146,6 +146,10 @@ def with_timeout(timeout_seconds: float):
 # ---------------------------------------------------------------------------
 
 
+def _is_text_only() -> bool:
+    return settings.frontdoor_mode == "text_only"
+
+
 def route_after_entry_pipeline(state: dict[str, Any]) -> str:
     """After entry pipeline -> router OR directly to writer.
 
@@ -153,6 +157,9 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
     going straight to the writer to answer from parametric knowledge.
     Easy tasks (difficulty < 0.3, rag_mode=disabled) still hit the router
     for its fast-path (no retrieval) but skip the planner.
+
+    In text_only front door mode, code tasks are never routed to executor;
+    they use the writer path (which can emit fenced code blocks).
     """
     if state.get("pending_question_continue"):
         return "router"
@@ -160,14 +167,17 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
     if state.get("message_origin") == "ui_helper":
         return "respond"
 
+    text_only = _is_text_only()
+
     if state.get("task_is_trivial"):
         is_code = state.get("is_code_task", False)
-        target = "executor" if is_code else "writer"
+        target = "executor" if (is_code and not text_only) else "writer"
         logger.info(
             "entry_pipeline_trivial_fast_path",
             extra={
                 "target": target,
                 "difficulty": state.get("difficulty", 0),
+                "frontdoor_mode": settings.frontdoor_mode,
             },
         )
         return target
@@ -176,10 +186,15 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
 
 
 def route_after_router(state: dict[str, Any]) -> str:
-    """Router sets next_node based on mode detection."""
+    """Router sets next_node based on mode detection.
+
+    In text_only mode, executor is never a valid target; redirect to writer.
+    """
     if state.get("error"):
         return "respond"
     next_node = state.get("next_node", "planner")
+    if _is_text_only() and next_node == "executor":
+        next_node = "writer"
     if next_node in ("planner", "executor", "writer", "respond"):
         return next_node
     return "planner"
@@ -217,7 +232,13 @@ def route_after_planner(state: dict[str, Any]) -> str:
 
 
 def route_after_executor(state: dict[str, Any]) -> str:
-    """Route after executor (code tasks)."""
+    """Route after executor (code tasks).
+
+    In text_only mode, executor should not be reached but as a safety net
+    routes straight to respond and skips patch_integrity_gate.
+    """
+    if _is_text_only():
+        return "respond"
     if state.get("needs_input_question"):
         return "respond"
     stop_reason = state.get("stop_reason", "")
@@ -351,6 +372,10 @@ _WRITER_SYSTEM = (
     "Your job is to synthesize these into a single, coherent, well-structured "
     "response. Do not add information — only improve flow, tone, and structure. "
     "Preserve all code blocks and markdown formatting verbatim.\n\n"
+    "CODE FENCE RULE:\n"
+    "- NEVER strip, flatten, or omit triple-backtick fenced code blocks.\n"
+    "- Every code snippet MUST be wrapped in ```lang ... ``` fences.\n"
+    "- If the input already has fenced blocks, keep them exactly as-is.\n\n"
     "CRITICAL CLEANUP RULES:\n"
     "- REMOVE any <think>...</think> blocks or model reasoning artifacts.\n"
     "- REMOVE any 'Okay, I need to...' or 'Let me think about...' self-narration.\n"

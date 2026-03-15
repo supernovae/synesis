@@ -89,7 +89,7 @@ Example — upgrade the general model to Qwen3-235B:
   litellm_params:
     model: openrouter/qwen/qwen3-235b-a22b    # was qwen/qwen3-32b
     api_key: "os.environ/OPENROUTER_API_KEY"
-    max_tokens: 8192
+    max_tokens: 32768
     temperature: 0.3
 ```
 

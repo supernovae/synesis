@@ -92,6 +92,10 @@ spec:
               value: "true"
             - name: SYNESIS_MAX_ITERATIONS
               value: "3"
+            # Front door mode: text_only (default) routes all requests through
+            # the text pipeline. Set to legacy_hybrid to restore code-execution path.
+            - name: SYNESIS_FRONTDOOR_MODE
+              value: "text_only"
             - name: SYNESIS_SANDBOX_ENABLED
               value: "true"
             - name: SYNESIS_SANDBOX_NAMESPACE

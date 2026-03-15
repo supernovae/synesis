@@ -62,7 +62,10 @@ FORMATTING — pick the right element for the content:
   tools, or alternatives side-by-side.
 - NUMBERED LIST when describing ordered steps or a procedure.
 - BULLET LIST when listing features, properties, or unordered items.
-- CODE BLOCK (```lang) when showing commands, config, or file paths.
+- CODE BLOCK (triple-backtick fenced with language tag, e.g. ```python) \
+  when showing commands, config, snippets, or file paths. NEVER output \
+  code without triple-backtick fences — unfenced code blocks will render \
+  as plain text and confuse the reader.
 - DIAGRAM (```mermaid) when visualizing architecture, data flow, \
   sequences, or component relationships. Diagrams are valuable.
   In mermaid nodes, ALWAYS quote labels containing parentheses or special \
@@ -487,14 +490,100 @@ def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
     return "## AVAILABLE SOURCES (cite ONLY these URLs)\n" + "\n".join(lines) + "\n"
 
 
+def _build_conversation_messages(state: dict[str, Any]) -> list[dict[str, str]]:
+    """Extract recent conversation history as openai-format message dicts."""
+    conv_history = state.get("conversation_history") or []
+    messages: list[dict[str, str]] = []
+    for entry in conv_history[-6:]:
+        if not isinstance(entry, str):
+            continue
+        if entry.startswith("[user]: "):
+            messages.append({"role": "user", "content": entry[8:]})
+        elif entry.startswith("[assistant]: "):
+            messages.append({"role": "assistant", "content": entry[13:]})
+        elif entry.startswith("[system]: "):
+            messages.append({"role": "system", "content": entry[10:]})
+    return messages
+
+
+_TRIVIAL_SYSTEM = (
+    "You are a helpful, knowledgeable assistant. Answer the user's question "
+    "directly and concisely. Use markdown formatting where appropriate "
+    "(headings, bold, lists, fenced code blocks). Keep the answer short — "
+    "one to three paragraphs unless the user explicitly asks for more."
+)
+
+
 async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     """Produce the full response from plan outline + evidence packets."""
     start = time.monotonic()
     node_name = "writer"
 
+    difficulty = state.get("difficulty", 0.5)
+    task_is_trivial = state.get("task_is_trivial", False)
+
+    # ── Trivial fast-stream: defer to main.py SSE loop for direct streaming ──
+    # For trivial tasks (difficulty < 0.15) we skip the full writer machinery
+    # and return a direct_stream_request. This gives instant time-to-first-token
+    # because main.py streams from the model via the raw OpenAI SDK instead of
+    # blocking on ainvoke for the full response.
+    rt = state.get("routing_thresholds") or {}
+    trivial_threshold = float(rt.get("trivial_below", 0.15))
+    if task_is_trivial or difficulty < trivial_threshold:
+        raw_question = (
+            state.get("last_user_content")
+            or state.get("task_description")
+            or ""
+        ).strip()
+        if raw_question:
+            writer_url = settings.writer_model_url or settings.general_model_url
+            writer_name = settings.writer_model_name or settings.general_model_name
+
+            # Conversation history for context continuity
+            conv_history = _build_conversation_messages(state)
+            ds_messages = [{"role": "system", "content": _TRIVIAL_SYSTEM}]
+            ds_messages.extend(conv_history)
+            ds_messages.append({"role": "user", "content": raw_question})
+
+            trivial_budget = settings.trivial_writer_budget
+            latency = (time.monotonic() - start) * 1000
+            logger.info(
+                "writer_trivial_fast_stream",
+                extra={
+                    "difficulty": difficulty,
+                    "token_budget": trivial_budget,
+                    "question_len": len(raw_question),
+                    "latency_ms": round(latency, 1),
+                },
+            )
+            return {
+                "generated_code": "",
+                "compiled_answer": "",
+                "direct_stream_request": {
+                    "messages": ds_messages,
+                    "max_completion_tokens": trivial_budget,
+                    "temperature": 0.4,
+                    **(
+                        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+                        if settings.guided_json_enabled
+                        else {}
+                    ),
+                },
+                "error": None,
+                "current_node": node_name,
+                "node_traces": [
+                    NodeTrace(
+                        node_name=node_name,
+                        reasoning="Trivial fast-stream deferred to SSE loop",
+                        confidence=0.9,
+                        outcome=NodeOutcome.SUCCESS,
+                        latency_ms=latency,
+                    )
+                ],
+            }
+
     # Build evidence from Router's evidence packets (summaries + top snippets).
     # Group by section_id so each plan section gets proportional budget.
-    difficulty = state.get("difficulty", 0.5)
     packets = state.get("evidence_packets") or []
     packets = sorted(
         packets,

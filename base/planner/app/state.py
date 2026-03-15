@@ -118,6 +118,8 @@ class GraphState(TypedDict, total=False):
     query_normalization: dict[str, Any]
 
     # --- Classification / routing ---
+    # DEPRECATION(is_code_task): Always False in text_only front door mode.
+    # Kept for legacy_hybrid rollback and analytics. Remove when legacy_hybrid retired.
     is_code_task: bool
     include_tests: bool
     include_run_commands: bool
@@ -242,6 +244,7 @@ class GraphState(TypedDict, total=False):
     # --- Writer / compiler pipeline ---
     compiled_answer: str
     scrubbed_answer: str
+    direct_stream_request: dict[str, Any]  # deferred SSE stream for trivial/text tasks
     final_answer_audit: dict[str, Any] | None
 
     # --- Task-faithful critic outputs ---

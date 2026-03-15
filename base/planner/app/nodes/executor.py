@@ -105,7 +105,7 @@ executor_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.general_model_name,
     temperature=0.2,
-    max_completion_tokens=4096,
+    max_completion_tokens=16384,
     streaming=True,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.general_model_uds or None),
@@ -647,6 +647,9 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             effective_size = "medium"
 
         # ── Build system prompt: universal base + taxonomy steering ──
+        # DEPRECATION(is_code_task): In text_only mode is_code_task is always False.
+        # When legacy_hybrid is retired, remove the is_code_task branches below
+        # and keep only the text-mode paths.
         is_code_task = state.get("is_code_task", False)
 
         from ..taxonomy_prompt_factory import get_discovery_prompt, get_executor_depth_block, get_worker_explain_tone
@@ -683,7 +686,7 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # ── Token budget: continuous difficulty curve ──
         _MIN_BUDGET = 1024
-        _MAX_BUDGET = 8192
+        _MAX_BUDGET = 16384
         raw_complexity = state.get("complexity_score", 0) or 0
         difficulty = state.get("difficulty") or min(1.0, float(raw_complexity) / 30.0)
         brevity_score = state.get("brevity_score", 0)
@@ -693,9 +696,9 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             token_budget = min(token_budget, 1536)
         elif not is_code_task:
             if state.get("plan_required") and difficulty >= 0.6:
-                token_budget = max(token_budget, 4096)
+                token_budget = max(token_budget, 8192)
             elif state.get("plan_required"):
-                token_budget = max(token_budget, 2048)
+                token_budget = max(token_budget, 4096)
             else:
                 token_budget = max(token_budget, 1536)
 

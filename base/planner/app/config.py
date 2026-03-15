@@ -228,17 +228,18 @@ class Settings(BaseSettings):
     # Continuous budget scaling: difficulty (0.0-1.0) drives budgets.
     # Actual budget = base + (difficulty * (max - base))
     section_budget_base: int = 1024  # tokens per section at difficulty=0
-    section_budget_max: int = 6144  # tokens per section at difficulty=1
+    section_budget_max: int = 8192  # tokens per section at difficulty=1
 
     # Multi-query fan-out: for high-difficulty sections, decompose into
     # parallel sub-queries to cover distinct sub-topics.
     multi_query_min_difficulty: float = 0.6
     multi_query_max_queries: int = 3
-    writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0
-    writer_budget_max: int = 16384  # writer synthesis budget at difficulty=1
-    compiler_model_context: int = 65536  # max context length — safe for Qwen3-32B (128K) and DeepSeek-R1 (64K)
+    trivial_writer_budget: int = 768  # writer budget for trivial tasks (difficulty < 0.15) — direct streamed
+    writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0 (non-trivial)
+    writer_budget_max: int = 32768  # writer synthesis budget at difficulty=1 (OpenRouter models support 128K+)
+    compiler_model_context: int = 131072  # max context length — safe for OpenRouter and Qwen3 (128K native)
     evidence_budget_chars: int = 24000  # evidence budget at difficulty=0
-    evidence_budget_chars_max: int = 40000  # evidence budget at difficulty=1
+    evidence_budget_chars_max: int = 60000  # evidence budget at difficulty=1
 
     # Sources section: max sources shown and whether to wrap in collapsible <details>
     max_cited_sources: int = 5
@@ -430,6 +431,12 @@ class Settings(BaseSettings):
     # Clarify-first triggers only when ambiguity count >= this and difficulty >= threshold
     clarify_first_min_ambiguities: int = 2
     clarify_first_min_difficulty: float = 0.4
+
+    # Front door mode: "text_only" routes all requests through the text pipeline
+    # (writer). Code generation/editing is handled by dedicated coder models via
+    # LiteLLM. "legacy_hybrid" preserves the old is_code_task executor path for
+    # rollback. The main LLM can still emit fenced code blocks in text_only mode.
+    frontdoor_mode: Literal["text_only", "legacy_hybrid"] = "text_only"
 
     # Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
