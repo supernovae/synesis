@@ -581,21 +581,32 @@ class RouterNode:
 
         per_query_results: list[list[UnifiedResult]] = []
         first_lock: dict[str, Any] | None = None
+        _any_rag_degraded = False
+        _any_web_degraded = False
+        _deg_notes: list[str] = []
         for r in all_results:
             if isinstance(r, RetrievalBundle):
                 per_query_results.append(r.results)
                 if first_lock is None and r.cohesion_lock:
                     first_lock = r.cohesion_lock
+                if r.rag_degraded:
+                    _any_rag_degraded = True
+                if r.web_degraded:
+                    _any_web_degraded = True
+                if r.degradation_notes:
+                    _deg_notes.append(r.degradation_notes)
             elif isinstance(r, Exception):
                 logger.debug("multi_query_retrieve_error", extra={"error": str(r)[:100]})
 
+        _deg = "; ".join(dict.fromkeys(_deg_notes)) if _deg_notes else ""
+
         if not per_query_results:
-            return RetrievalBundle(results=[])
+            return RetrievalBundle(results=[], rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
         if len(per_query_results) == 1:
-            return RetrievalBundle(results=per_query_results[0], cohesion_lock=first_lock)
+            return RetrievalBundle(results=per_query_results[0], cohesion_lock=first_lock, rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
 
         merged = _rrf_merge(per_query_results, k=60)
-        return RetrievalBundle(results=merged, cohesion_lock=first_lock)
+        return RetrievalBundle(results=merged, cohesion_lock=first_lock, rag_degraded=_any_rag_degraded, web_degraded=_any_web_degraded, degradation_notes=_deg)
 
     async def handle_single_request(
         self,
@@ -649,7 +660,12 @@ class RouterNode:
             bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
             cohesion_lock=cohesion_lock,
         )
-        packet = packet.model_copy(update={"section_id": evidence_request.get("section_id")})
+        update_fields: dict[str, Any] = {"section_id": evidence_request.get("section_id")}
+        if bundle.degradation_notes:
+            existing_notes = packet.retrieval_notes or ""
+            sep = "; " if existing_notes else ""
+            update_fields["retrieval_notes"] = f"{existing_notes}{sep}{bundle.degradation_notes}"
+        packet = packet.model_copy(update=update_fields)
 
         # Skip refinement rounds for light mode
         max_refine = 0 if light_mode else MAX_REFINEMENT_ROUNDS
@@ -812,6 +828,30 @@ class RouterNode:
             },
         )
 
+        # Aggregate degradation signals across all packets
+        _any_degraded = any(p.retrieval_notes for p in packets)
+        _deg_notes_all = [p.retrieval_notes for p in packets if p.retrieval_notes]
+        _deg_summary = "; ".join(dict.fromkeys(_deg_notes_all)) if _deg_notes_all else ""
+
+        # Publish knowledge gaps for low-confidence packets so admins can
+        # discover what the RAG corpus is missing.
+        _gap_threshold = getattr(settings, "curator_knowledge_gap_threshold", 0.4)
+        for pkt in packets:
+            if pkt.confidence < _gap_threshold:
+                try:
+                    from ..knowledge_backlog import publish_knowledge_gap
+
+                    await publish_knowledge_gap(
+                        query=pkt.query,
+                        task_description=task_desc[:512],
+                        collections_queried=["synesis_catalog"],
+                        max_score=pkt.confidence,
+                        platform_context="router",
+                        target_language=state.get("target_language", "python"),
+                    )
+                except Exception:
+                    logger.debug("knowledge_gap_publish_skipped", exc_info=True)
+
         result: dict[str, Any] = {
             "evidence_packets": [p.model_dump() for p in packets],
             "evidence_requests": [],
@@ -819,6 +859,8 @@ class RouterNode:
             "error": None,
             "next_node": next_node,
             "current_node": "router",
+            "retrieval_degraded": _any_degraded,
+            "retrieval_degradation_notes": _deg_summary,
             "node_traces": [
                 NodeTrace(
                     node_name="router",

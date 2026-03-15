@@ -49,10 +49,16 @@ def _has_session_context(state: dict[str, Any]) -> bool:
 async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     """Single graph node that replaces the 3-node sequential entry chain."""
 
+    import time as _time
+
+    _t0 = _time.monotonic()
+
     # Phase 1: classifier (fast, deterministic — always runs so difficulty is fresh)
     classified = entry_classifier_node(state)
     if asyncio.iscoroutine(classified):
         classified = await classified
+
+    _classifier_ms = (_time.monotonic() - _t0) * 1000
 
     # Session resume: if a prior checkpoint already set semantic_frame and
     # style_contract_locked, skip the expensive advisor + frame_extractor.
@@ -61,6 +67,21 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "session_resumed",
             extra={"has_frame": True, "has_contract": True},
+        )
+        classified["current_node"] = "entry_pipeline"
+        return classified
+
+    # Trivial fast-path: when the classifier marks a task as trivial, skip
+    # advisor (~1s) and frame_extractor (~8s) entirely.  The writer/executor
+    # can answer from parametric knowledge without a semantic frame.
+    if classified.get("task_is_trivial"):
+        logger.info(
+            "entry_pipeline_trivial_fast_path",
+            extra={
+                "difficulty": classified.get("difficulty", 0),
+                "classifier_ms": round(_classifier_ms, 1),
+                "skipped": "advisor+frame_extractor",
+            },
         )
         classified["current_node"] = "entry_pipeline"
         return classified
@@ -88,6 +109,18 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     combined["node_traces"] = traces
 
     combined["current_node"] = "entry_pipeline"
+
+    _total_ms = (_time.monotonic() - _t0) * 1000
+    logger.info(
+        "entry_pipeline_complete",
+        extra={
+            "difficulty": classified.get("difficulty", 0),
+            "task_is_trivial": classified.get("task_is_trivial", False),
+            "classifier_ms": round(_classifier_ms, 1),
+            "total_ms": round(_total_ms, 1),
+        },
+    )
+
     return combined
 
 

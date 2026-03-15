@@ -609,6 +609,12 @@ def _build_pipeline_trace(state: dict[str, Any]) -> dict[str, Any]:
     trace["task_size"] = state.get("task_size", "")
     trace["iteration_count"] = state.get("iteration_count", 1)
 
+    if state.get("retrieval_degraded"):
+        trace["retrieval"] = {
+            "degraded": True,
+            "notes": state.get("retrieval_degradation_notes", ""),
+        }
+
     return trace
 
 
@@ -1132,12 +1138,38 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _consecutive_empty = 0
                 _empty_thinking_emitted = False
 
+                # Heartbeat queue — background task pushes keepalive strings
+                # so proxies and clients see activity during long evidence phases.
+                _hb_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=4)
+                _hb_interval = _HEARTBEAT_AFTER_S
+
+                async def _keepalive() -> None:
+                    while True:
+                        await asyncio.sleep(_hb_interval)
+                        if _current_phase and not _stream_closed:
+                            elapsed = int(time.monotonic() - _phase_start)
+                            base = _current_phase.rstrip("\u2026")
+                            with contextlib.suppress(asyncio.QueueFull):
+                                _hb_queue.put_nowait(f"{base}\u2026 ({elapsed}s)")
+
+                _hb_task = asyncio.create_task(_keepalive())
+
                 try:
                     async for event in graph.astream_events(
                         initial_state,
                         version="v2",
                         config=get_graph_config(thread_id=memory_scope),
                     ):
+                        # Drain keepalive queue between graph events
+                        while not _hb_queue.empty():
+                            try:
+                                hb_msg = _hb_queue.get_nowait()
+                                if hb_msg and not _stream_closed:
+                                    yield _flow_phase(hb_msg)
+                                    await asyncio.sleep(0)
+                            except asyncio.QueueEmpty:
+                                break
+
                         if _stream_closed:
                             continue
 
@@ -1190,6 +1222,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                                 # Rich status: describe what the router found
                                 if node_label == "router":
+                                    # Degradation notice (RAG empty, web fallback, etc.)
+                                    _deg_notes = output.get("retrieval_degradation_notes") or ""
+                                    if _deg_notes:
+                                        yield _flow_phase(_deg_notes[:120])
+                                        await asyncio.sleep(0)
+
                                     packets = output.get("evidence_packets") or []
                                     if packets:
                                         for p in packets[:3]:
@@ -1210,6 +1248,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             if q:
                                                 yield _flow_phase(f"Searched: {q}{detail}")
                                                 await asyncio.sleep(0)
+                                    elif not _deg_notes:
+                                        yield _flow_phase("No evidence found, answering from knowledge\u2026")
+                                        await asyncio.sleep(0)
 
                                 # Rich status: summarise the plan
                                 elif node_label == "planner":
@@ -1407,10 +1448,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 except Exception:
                     logger.exception("graph_execution_error")
                     record_chat_error(time.monotonic() - start)
-                    yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
-                    yield "data: [DONE]\n\n"
+                    try:
+                        yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
+                        yield "data: [DONE]\n\n"
+                    except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError):
+                        pass
                     return
                 finally:
+                    _hb_task.cancel()
                     flush_tracer()
 
                 # Stream already closed (background critic mode) — skip all post-processing

@@ -79,6 +79,9 @@ class RetrievalBundle:
 
     results: list[UnifiedResult]
     cohesion_lock: dict[str, Any] | None = None
+    rag_degraded: bool = False
+    web_degraded: bool = False
+    degradation_notes: str = ""
 
 
 def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
@@ -379,16 +382,46 @@ async def retrieve_unified(
         rag_raw = await rag_coro
         web_raw: list[SearchResult] = []
 
+    _rag_degraded = False
+    _web_degraded = False
+    _degradation_notes_parts: list[str] = []
+
     if isinstance(rag_raw, BaseException):
         logger.warning("unified_rag_failed", extra={"error": str(rag_raw)[:200]})
         rag_raw = []
+        _rag_degraded = True
+        _degradation_notes_parts.append("RAG retrieval failed")
     if isinstance(web_raw, BaseException):
         logger.warning("unified_web_failed", extra={"error": str(web_raw)[:200]})
         web_raw = []
+        _web_degraded = True
+        _degradation_notes_parts.append("Web search failed")
 
     # Phase 2: convert to unified format (authority metadata preserved)
     rag_unified = _rag_to_unified(rag_raw)
     web_unified = _web_to_unified(web_raw)
+
+    # Phase 2b: graceful degradation — when RAG is empty/failed and web was
+    # skipped, force a fallback web search so the user still gets evidence.
+    if not rag_unified and not web_unified and not web_enabled and settings.web_search_enabled:
+        _rag_degraded = True
+        _degradation_notes_parts.append("Local evidence unavailable, expanding to web search")
+        logger.info(
+            "unified_rag_empty_web_fallback",
+            extra={"query": query[:80], "skip_web_overridden": True},
+        )
+        effective_web_query = web_query if web_query else query[:120]
+        try:
+            web_raw = await search_and_process(effective_web_query, profile="web", fetch_pages=True)
+            web_unified = _web_to_unified(web_raw if not isinstance(web_raw, BaseException) else [])
+        except Exception:
+            logger.warning("unified_web_fallback_failed", exc_info=True)
+            web_unified = []
+            _web_degraded = True
+            _degradation_notes_parts.append("Web fallback also failed")
+    elif not rag_unified and not _rag_degraded:
+        _rag_degraded = True
+        _degradation_notes_parts.append("RAG returned no results")
 
     rag_with_url = sum(1 for r in rag_unified if r.source_url)
     web_with_url = sum(1 for r in web_unified if r.source_url)
@@ -492,7 +525,13 @@ async def retrieve_unified(
             },
         )
 
-    return RetrievalBundle(results=final, cohesion_lock=cohesion_lock_dict)
+    return RetrievalBundle(
+        results=final,
+        cohesion_lock=cohesion_lock_dict,
+        rag_degraded=_rag_degraded,
+        web_degraded=_web_degraded,
+        degradation_notes="; ".join(_degradation_notes_parts) if _degradation_notes_parts else "",
+    )
 
 
 def format_unified_context(

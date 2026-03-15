@@ -101,6 +101,7 @@ const navigation: NavItem[] = [
       { label: "Cache", path: "/observability/cache" },
       { label: "Circuit Breakers", path: "/observability/circuit-breakers" },
       { label: "Errors", path: "/observability/errors" },
+      { label: "Retrieval Gaps", path: "/observability/retrieval-gaps" },
     ],
   },
   { label: "Settings", icon: Settings, path: "/settings" },

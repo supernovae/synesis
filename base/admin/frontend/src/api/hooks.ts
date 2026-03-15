@@ -291,6 +291,51 @@ export function useFailureStats() {
   });
 }
 
+// --- Knowledge Gaps ---
+
+interface KnowledgeGap {
+  chunk_id: string;
+  query: string;
+  task_description: string;
+  collections_queried: string;
+  max_score: number;
+  platform_context: string;
+  timestamp: number;
+  language: string;
+  [key: string]: unknown;
+}
+
+export function useKnowledgeGaps(params?: {
+  page?: number;
+  page_size?: number;
+}) {
+  return useQuery<{ gaps: KnowledgeGap[]; total: number }>({
+    queryKey: ["observability", "knowledge-gaps", params],
+    queryFn: () =>
+      client
+        .get("/observability/knowledge-gaps", { params })
+        .then((r) => r.data),
+  });
+}
+
+interface KnowledgeGapStats {
+  total_gaps: number;
+  avg_score: number;
+  by_context: Record<string, number>;
+  by_language: Record<string, number>;
+  [key: string]: unknown;
+}
+
+export function useKnowledgeGapStats() {
+  return useQuery<KnowledgeGapStats>({
+    queryKey: ["observability", "knowledge-gaps", "stats"],
+    queryFn: () =>
+      client
+        .get("/observability/knowledge-gaps/stats")
+        .then((r) => r.data),
+  });
+}
+
 // --- Traces ---
 
 export function useTraces(params?: {

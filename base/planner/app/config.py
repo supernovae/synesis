@@ -245,6 +245,9 @@ class Settings(BaseSettings):
     # When RAG returns 3+ results above this score, web slots are capped so
     # RAG dominates.  When RAG is empty/weak, web fills the context budget.
     rag_confidence_gate: float = 0.7
+    # Fallback budget floor: when RAG is empty/degraded, force at least this many
+    # web queries even if skip_web was set by the frame.
+    rag_empty_web_budget_min: int = 3
 
     # Critic scaling by difficulty
     critic_skip_below_difficulty: float = 0.15  # skip critic entirely for trivial tasks
