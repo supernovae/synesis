@@ -198,12 +198,15 @@ def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, Mis
                 requested_format = fmt
                 break
 
-    # Pick main_question
+    # Pick main_question — prefer extracted candidates, fall back to raw text
+    # for short single-sentence prompts where GLiNER missed the question.
     main_question = ""
     if main_q_candidates:
         main_question = main_q_candidates[0].text
     elif requirements:
         main_question = requirements[0].text
+    elif raw_text and len(raw_text) < 300 and raw_text.count("\n") <= 1:
+        main_question = raw_text.strip()
 
     # Build success_criteria from quality_instructions
     success_criteria = _extract_texts(quality_instructions)

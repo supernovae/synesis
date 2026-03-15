@@ -297,13 +297,26 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        # Stage 3: LLM repair (only if needed)
+        # Stage 3: LLM repair (only if needed AND difficulty warrants it)
+        # For easy/moderate prompts (difficulty < 0.4), the deterministic frame
+        # is sufficient — the writer answers from parametric knowledge. LLM
+        # repair is reserved for complex prompts where the planner needs a
+        # high-quality decomposition.
         tokens_used = 0
         extraction_mode = "gliner2_only"
-        if report.should_call_second_pass:
+        if report.should_call_second_pass and difficulty >= 0.4:
             extraction_mode = "gliner2_plus_llm_repair"
             user_task = await _llm_repair(prompt_text, first_pass, report)
             tokens_used = 0  # token tracking happens inside ChatOpenAI
+        elif report.should_call_second_pass:
+            extraction_mode = "gliner2_skip_repair_low_difficulty"
+            logger.info(
+                "frame_repair_skipped_low_difficulty",
+                extra={
+                    "difficulty": round(difficulty, 2),
+                    "reasons": report.reasons,
+                },
+            )
 
         # Merge taxonomy defaults if GLiNER2 missed domain
         if not user_task.domain_tags:
