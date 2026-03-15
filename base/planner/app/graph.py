@@ -929,38 +929,32 @@ graph_builder.add_edge("final_scrubber", "respond")
 graph_builder.add_edge("respond", END)
 
 
-def _build_checkpointer():
-    """Build LangGraph checkpointer from config.
+async def upgrade_checkpointer_to_redis() -> bool:
+    """Upgrade the compiled graph's checkpointer from MemorySaver to AsyncRedisSaver.
 
-    Redis path uses AsyncRedisSaver (async context manager) because the
-    graph is invoked via ainvoke/astream_events.  The sync RedisSaver's
-    async methods are stubs that raise NotImplementedError.
+    Must be called from an async context (e.g. FastAPI lifespan).  AsyncRedisSaver
+    requires an async context manager, so it cannot be initialized at module level
+    where uvicorn's event loop is already running.
+
+    Returns True if upgrade succeeded, False if Redis is unavailable.
     """
-    if settings.session_checkpointer_backend == "redis" and settings.session_redis_url:
-        try:
-            import asyncio
+    if settings.session_checkpointer_backend != "redis" or not settings.session_redis_url:
+        return False
+    try:
+        from langgraph.checkpoint.redis import AsyncRedisSaver
 
-            from langgraph.checkpoint.redis import AsyncRedisSaver
-
-            async def _init_async_redis() -> AsyncRedisSaver:
-                cm = AsyncRedisSaver.from_conn_string(settings.session_redis_url)
-                saver = await cm.__aenter__()
-                await saver.asetup()
-                return saver
-
-            saver = asyncio.run(_init_async_redis())
-            logger.info(
-                "redis_checkpointer_ready",
-                extra={"url": settings.session_redis_url[:40], "type": "AsyncRedisSaver"},
-            )
-            return saver
-        except Exception:
-            logger.warning("redis_checkpointer_init_failed, falling back to MemorySaver", exc_info=True)
-
-    from langgraph.checkpoint.memory import MemorySaver
-
-    logger.info("memory_checkpointer_ready")
-    return MemorySaver()
+        cm = AsyncRedisSaver.from_conn_string(settings.session_redis_url)
+        saver = await cm.__aenter__()
+        await saver.asetup()
+        graph.checkpointer = saver
+        logger.info(
+            "redis_checkpointer_ready",
+            extra={"url": settings.session_redis_url[:40], "type": "AsyncRedisSaver"},
+        )
+        return True
+    except Exception:
+        logger.warning("redis_checkpointer_init_failed, keeping MemorySaver", exc_info=True)
+        return False
 
 
 def _log_graph_init_memory(label: str) -> None:
@@ -974,10 +968,10 @@ def _log_graph_init_memory(label: str) -> None:
     logger.info("graph_init_memory", extra={"label": label, "rss_mib": round(rss_mib, 1)})
 
 
-_log_graph_init_memory("before_checkpointer")
-_checkpointer = _build_checkpointer()
-_log_graph_init_memory("after_checkpointer")
-graph = graph_builder.compile(checkpointer=_checkpointer)
+_log_graph_init_memory("before_graph_compile")
+from langgraph.checkpoint.memory import MemorySaver
+
+graph = graph_builder.compile(checkpointer=MemorySaver())
 _log_graph_init_memory("after_graph_compile")
 
 from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer

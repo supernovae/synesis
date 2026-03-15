@@ -36,7 +36,7 @@ from .api_metrics import (
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
-from .graph import flush_tracer, get_graph_config, graph
+from .graph import flush_tracer, get_graph_config, graph, upgrade_checkpointer_to_redis
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -129,6 +129,9 @@ async def lifespan(app: FastAPI):
             "streaming_events_enabled": settings.streaming_events_enabled,
         },
     )
+
+    await upgrade_checkpointer_to_redis()
+    _log_rss("after_checkpointer_upgrade")
 
     if settings.retrieval_cache_warm_on_startup:
         from .retrieval_cache import warm_cache
