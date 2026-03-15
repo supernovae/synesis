@@ -211,6 +211,39 @@ Status metadata is stored in a companion `synesis_knowledge_gap_status` collecti
 | Resolve | `/admin/observability/knowledge-gaps/{chunk_id}/resolve` | POST |
 | Reopen | `/admin/observability/knowledge-gaps/{chunk_id}/reopen` | POST |
 | Purge | `/admin/observability/knowledge-gaps/{chunk_id}` | DELETE |
+| **Validate** | `/admin/observability/knowledge-gaps/validate` | POST |
+
+### Post-RAG-Load Gap Validation
+
+After indexing new content, trigger validation to auto-resolve satisfied gaps:
+
+```
+POST /admin/observability/knowledge-gaps/validate
+{
+  "score_threshold": 0.6,
+  "max_gaps": 200
+}
+```
+
+The endpoint:
+1. Queries all open/reopened gaps from `synesis_knowledge_backlog`
+2. For each gap, runs a vector similarity search against `synesis_catalog` using the gap's stored embedding
+3. If the top retrieval score exceeds the threshold, auto-resolves the gap with `resolution_note: "auto-validated: RAG score {score}"`
+4. Returns a summary:
+
+```json
+{
+  "validated": 12,
+  "still_open": 8,
+  "errors": 0,
+  "details": [
+    {"chunk_id": "abc123", "status": "validated", "score": 0.82, "query": "..."},
+    {"chunk_id": "def456", "status": "still_open", "score": 0.41, "query": "..."}
+  ]
+}
+```
+
+Run this after every indexer pipeline completion to close the feedback loop between retrieval gaps and corpus improvements.
 
 ## Future Enhancements
 

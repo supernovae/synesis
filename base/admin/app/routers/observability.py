@@ -10,7 +10,7 @@ from ..auth import UserInfo, get_current_user, require_admin
 from ..deps import FAILURES_COLLECTION, KNOWLEDGE_BACKLOG_COLLECTION
 from ..services import prometheus_client_svc as prom
 from ..services.health_prober import probe_all
-from ..services.milvus_service import safe_delete, safe_query, safe_upsert
+from ..services.milvus_service import safe_delete, safe_query, safe_upsert, safe_vector_search
 
 logger = logging.getLogger("synesis.admin.observability")
 
@@ -268,6 +268,142 @@ async def purge_gap(
     safe_delete(KNOWLEDGE_BACKLOG_COLLECTION, chunk_id)
     safe_delete(KNOWLEDGE_GAP_STATUS_COLLECTION, chunk_id)
     return {"status": "purged", "chunk_id": chunk_id}
+
+
+class GapValidateRequest(BaseModel):
+    score_threshold: float = 0.6
+    max_gaps: int = 200
+
+
+class GapValidateResponse(BaseModel):
+    validated: int = 0
+    still_open: int = 0
+    errors: int = 0
+    details: list[dict] = []
+
+
+@router.post("/knowledge-gaps/validate", response_model=GapValidateResponse)
+async def validate_knowledge_gaps(
+    req: GapValidateRequest | None = None,
+    user: UserInfo = Depends(require_admin),
+):
+    """Re-query RAG for open knowledge gaps and auto-resolve satisfied ones.
+
+    For each open/reopened gap, runs a vector similarity search against
+    synesis_catalog using the gap's embedding. If the top hit score exceeds
+    the threshold, the gap is auto-resolved.
+    """
+    threshold = req.score_threshold if req else 0.6
+    max_gaps = req.max_gaps if req else 200
+
+    all_gaps = safe_query(
+        KNOWLEDGE_BACKLOG_COLLECTION,
+        output_fields=["chunk_id", "query", "embedding", "max_score", "timestamp"],
+        limit=max_gaps,
+    )
+    if not all_gaps:
+        return GapValidateResponse()
+
+    chunk_ids = [g.get("chunk_id", "") for g in all_gaps if g.get("chunk_id")]
+    statuses = _batch_gap_statuses(chunk_ids)
+
+    open_gaps = [
+        g for g in all_gaps if statuses.get(g.get("chunk_id", ""), {}).get("status", "open") in ("open", "reopened")
+    ]
+
+    validated = 0
+    still_open = 0
+    errors = 0
+    details: list[dict] = []
+
+    for gap in open_gaps:
+        chunk_id = gap.get("chunk_id", "")
+        query = gap.get("query", "")
+        embedding = gap.get("embedding")
+
+        if not embedding or not isinstance(embedding, list) or len(embedding) < 10:
+            errors += 1
+            details.append({"chunk_id": chunk_id, "status": "error", "reason": "missing_embedding"})
+            continue
+
+        try:
+            hits = safe_vector_search(
+                "synesis_catalog",
+                vector=embedding,
+                top_k=1,
+                output_fields=["chunk_id", "text", "source_url"],
+            )
+        except Exception as exc:
+            errors += 1
+            details.append({"chunk_id": chunk_id, "status": "error", "reason": str(exc)[:120]})
+            continue
+
+        if hits:
+            top_distance = hits[0].get("distance", 0.0)
+            top_score = 1.0 - top_distance if top_distance < 1.0 else 0.0
+
+            if top_score >= threshold:
+                ok = safe_upsert(
+                    KNOWLEDGE_GAP_STATUS_COLLECTION,
+                    {
+                        "chunk_id": chunk_id[:64],
+                        "status": "resolved",
+                        "resolved_at": int(time.time()),
+                        "resolved_by": user.username,
+                        "resolution_note": f"auto-validated: RAG score {top_score:.3f}",
+                        "updated_at": int(time.time()),
+                    },
+                )
+                if ok:
+                    validated += 1
+                    details.append(
+                        {
+                            "chunk_id": chunk_id,
+                            "status": "validated",
+                            "score": round(top_score, 3),
+                            "query": query[:80],
+                        }
+                    )
+                else:
+                    errors += 1
+                    details.append({"chunk_id": chunk_id, "status": "error", "reason": "upsert_failed"})
+            else:
+                still_open += 1
+                details.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "status": "still_open",
+                        "score": round(top_score, 3),
+                        "query": query[:80],
+                    }
+                )
+        else:
+            still_open += 1
+            details.append(
+                {
+                    "chunk_id": chunk_id,
+                    "status": "still_open",
+                    "score": 0.0,
+                    "query": query[:80],
+                }
+            )
+
+    logger.info(
+        "knowledge_gaps_validated",
+        extra={
+            "validated": validated,
+            "still_open": still_open,
+            "errors": errors,
+            "total_checked": len(open_gaps),
+            "threshold": threshold,
+        },
+    )
+    return GapValidateResponse(
+        validated=validated,
+        still_open=still_open,
+        errors=errors,
+        details=details,
+    )
 
 
 def _batch_gap_statuses(chunk_ids: list[str]) -> dict[str, dict]:

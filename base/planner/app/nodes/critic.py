@@ -820,10 +820,32 @@ Reply with JSON:
                 if missed_reqs >= 3:
                     critical_failures.add("partial_answer")
 
+                # Detect zero-evidence scenario: when RAG+web returned nothing,
+                # the writer operated from parametric knowledge alone. Rejecting
+                # for depth/evidence issues would trigger another costly writer
+                # cycle with the same empty evidence.
+                _evidence_snippets_total = 0
+                for _ep in packets:
+                    _ep_snippets = _ep.get("snippets", []) if isinstance(_ep, dict) else getattr(_ep, "snippets", [])
+                    _evidence_snippets_total += len(_ep_snippets)
+                _zero_evidence = _evidence_snippets_total == 0
+
+                if _zero_evidence:
+                    failure_modes = [f for f in failure_modes if f not in ("evidence_underuse", "insufficient_depth")]
+                    logger.info(
+                        "critic_zero_evidence_leniency",
+                        extra={
+                            "removed_modes": ["evidence_underuse", "insufficient_depth"],
+                            "remaining_modes": failure_modes,
+                            "difficulty": round(difficulty, 2),
+                        },
+                    )
+
                 # Depth gate: for hard tasks, insufficient_depth/evidence_underuse
-                # is a blocking issue (ResearchRubrics + ARES)
+                # is a blocking issue (ResearchRubrics + ARES).
+                # Skipped when zero evidence: writer can't cite what doesn't exist.
                 depth_failures = {"insufficient_depth", "evidence_underuse"} & set(failure_modes)
-                if depth_failures and difficulty >= 0.6:
+                if depth_failures and difficulty >= 0.6 and not _zero_evidence:
                     depth_count = sum(1 for f in failure_modes if f in depth_failures)
                     response_len = len(generated_code)
                     hard_task_shallow = difficulty >= 0.7 and (depth_count >= 1 or response_len < 3000)
@@ -831,8 +853,9 @@ Reply with JSON:
                         critical_failures.update(depth_failures)
 
                 # Deterministic evidence citation rate check: if < 30% of
-                # evidence packets are cited at difficulty >= 0.6, flag underuse
-                if difficulty >= 0.6 and packets and "evidence_underuse" not in failure_modes:
+                # evidence packets are cited at difficulty >= 0.6, flag underuse.
+                # Skipped when zero evidence to avoid penalising parametric-only responses.
+                if difficulty >= 0.6 and packets and not _zero_evidence and "evidence_underuse" not in failure_modes:
                     packet_uris: set[str] = set()
                     for pkt in packets:
                         srcs = pkt.get("sources", []) if isinstance(pkt, dict) else getattr(pkt, "sources", [])
@@ -883,9 +906,15 @@ Reply with JSON:
                         if tf not in failure_modes:
                             failure_modes.append(tf)
 
-                if scores and scores.weighted_overall >= settings.critic_approval_threshold and not critical_failures:
+                _approval_threshold = settings.critic_approval_threshold
+                _retry_threshold = settings.critic_retry_threshold
+                if _zero_evidence:
+                    _approval_threshold = max(_approval_threshold - 1.5, 3.0)
+                    _retry_threshold = max(_retry_threshold - 1.0, 2.0)
+
+                if scores and scores.weighted_overall >= _approval_threshold and not critical_failures:
                     doc_approved = True
-                elif (scores and scores.weighted_overall < settings.critic_retry_threshold) or critical_failures:
+                elif (scores and scores.weighted_overall < _retry_threshold) or critical_failures:
                     doc_approved = False
                 else:
                     doc_approved = doc_parsed.approved

@@ -114,6 +114,61 @@ def _ensure_status_collection(client: Any, collection: str) -> None:
         logger.warning("ensure_status_collection_error error=%s", str(exc)[:120])
 
 
+def safe_vector_search(
+    collection: str,
+    vector: list[float],
+    top_k: int = 5,
+    output_fields: list[str] | None = None,
+    filter_expr: str = "",
+) -> list[dict[str, Any]]:
+    """Run a vector similarity search against a Milvus collection.
+
+    Returns list of dicts with requested output_fields plus 'distance'.
+    """
+    try:
+        client = get_milvus()
+        if collection not in client.list_collections():
+            return []
+        try:
+            results = client.search(
+                collection_name=collection,
+                data=[vector],
+                limit=top_k,
+                output_fields=output_fields or [],
+                filter=filter_expr or "",
+                anns_field="embedding",
+            )
+        except Exception as exc:
+            if "collection not loaded" in str(exc).lower():
+                client.load_collection(collection_name=collection)
+                results = client.search(
+                    collection_name=collection,
+                    data=[vector],
+                    limit=top_k,
+                    output_fields=output_fields or [],
+                    filter=filter_expr or "",
+                    anns_field="embedding",
+                )
+            else:
+                raise
+
+        if not results or not results[0]:
+            return []
+        out: list[dict[str, Any]] = []
+        for hit in results[0]:
+            entry = dict(hit.get("entity", hit) if isinstance(hit, dict) else {})
+            entry["distance"] = (
+                getattr(hit, "distance", hit.get("distance", 0.0))
+                if isinstance(hit, dict)
+                else getattr(hit, "distance", 0.0)
+            )
+            out.append(entry)
+        return out
+    except Exception as exc:
+        logger.warning("milvus_vector_search_error collection=%s error=%s", collection, str(exc)[:120])
+        return []
+
+
 def collection_stats(collection: str) -> dict[str, Any]:
     try:
         client = get_milvus()

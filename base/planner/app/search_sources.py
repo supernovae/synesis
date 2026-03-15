@@ -35,6 +35,22 @@ class SourceTrust:
 
 
 @dataclass
+class DomainPolicy:
+    """Per-source domain policy for taxonomy-preferred web scopes.
+
+    mode:
+      - "prefer" (default): boost results from listed domains (1.4x score)
+      - "restrict": only allow results from listed domains (allowlist)
+    domains:
+      Static list of allowed/preferred domains for this source. At runtime,
+      taxonomy preferred_web_scopes are merged in.
+    """
+
+    mode: str = "prefer"
+    domains: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SearchSource:
     id: str
     label: str = ""
@@ -46,6 +62,7 @@ class SearchSource:
     max_results: int = 5
     fetch_pages: bool = True
     routing: SourceRouting = field(default_factory=SourceRouting)
+    domain_policy: DomainPolicy = field(default_factory=DomainPolicy)
 
     @property
     def prompt_alias_set(self) -> frozenset[str]:
@@ -81,6 +98,12 @@ def _parse_source(raw: dict[str, Any]) -> SearchSource | None:
         always=bool(routing_raw.get("always", False)),
     )
 
+    dp_raw = raw.get("domain_policy") or {}
+    domain_policy = DomainPolicy(
+        mode=str(dp_raw.get("mode", "prefer")),
+        domains=list(dp_raw.get("domains") or []),
+    )
+
     return SearchSource(
         id=str(src_id),
         label=str(raw.get("label", src_id)),
@@ -92,6 +115,7 @@ def _parse_source(raw: dict[str, Any]) -> SearchSource | None:
         max_results=int(raw.get("max_results", 5)),
         fetch_pages=bool(raw.get("fetch_pages", True)),
         routing=routing,
+        domain_policy=domain_policy,
     )
 
 

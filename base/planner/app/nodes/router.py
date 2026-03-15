@@ -485,9 +485,6 @@ class RouterNode:
     ) -> RetrievalBundle:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
-        if preferred_web_scopes and not skip_web:
-            scope_suffix = " ".join(preferred_web_scopes[:2])
-            web_query = f"{web_query} {scope_suffix}"
 
         doc_cap = max_docs_for_difficulty(difficulty)
         bundle = await retrieve_unified(
@@ -499,6 +496,7 @@ class RouterNode:
             force_web=force_web,
             skip_web=skip_web,
             search_source_ids=search_source_ids,
+            preferred_domains=preferred_web_scopes,
         )
         bundle.results = bundle.results[:doc_cap]
         return bundle
@@ -953,8 +951,10 @@ class RouterNode:
         # Publish knowledge gaps for low-confidence packets so admins can
         # discover what the RAG corpus is missing.
         _gap_threshold = getattr(settings, "curator_knowledge_gap_threshold", 0.4)
+        _gaps_published = 0
         for pkt in packets:
             if pkt.confidence < _gap_threshold:
+                _is_zero_result = len(pkt.snippets) == 0
                 try:
                     from ..knowledge_backlog import publish_knowledge_gap
 
@@ -966,8 +966,32 @@ class RouterNode:
                         platform_context="router",
                         target_language=state.get("target_language", "python"),
                     )
+                    _gaps_published += 1
+                    logger.info(
+                        "knowledge_gap_published",
+                        extra={
+                            "query": pkt.query[:80],
+                            "confidence": round(pkt.confidence, 3),
+                            "total_snippets": len(pkt.snippets),
+                            "reason": "zero_results" if _is_zero_result else "low_confidence",
+                        },
+                    )
                 except Exception:
                     logger.debug("knowledge_gap_publish_skipped", exc_info=True)
+
+        # Enhance degradation notes when ALL packets have zero evidence
+        _total_snippets = sum(len(p.snippets) for p in packets)
+        if _total_snippets == 0 and packets:
+            _zero_note = (
+                "No matching documents found in local corpus or web search -- responding from general knowledge"
+            )
+            if _gaps_published:
+                _zero_note += f" ({_gaps_published} knowledge gap(s) recorded for admin review)"
+            if _deg_summary:
+                _deg_summary = f"{_zero_note}; {_deg_summary}"
+            else:
+                _deg_summary = _zero_note
+            _any_degraded = True
 
         result: dict[str, Any] = {
             "evidence_packets": [p.model_dump() for p in packets],

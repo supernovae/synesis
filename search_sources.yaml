@@ -30,6 +30,9 @@
 #   weight         — RRF fusion weight multiplier (1.0 = neutral)
 #   max_results    — cap results from this source per query
 #   fetch_pages    — whether to follow URLs and extract page content
+#   domain_policy  — how taxonomy preferred_web_scopes are applied to this source
+#     mode         — "prefer" (boost matching domains, default) or "restrict" (allowlist-only)
+#     domains      — static list of preferred/allowed domains for this source
 #   routing        — when/how this source is selected
 #     tags         — domain taxonomy tags that trigger this source
 #     task_types   — task type labels that trigger this source
@@ -50,6 +53,9 @@ sources:
     weight: 1.0
     max_results: 5
     fetch_pages: true
+    domain_policy:
+      mode: prefer
+      domains: []
     routing:
       tags: []
       task_types: []
@@ -68,6 +74,9 @@ sources:
     weight: 1.1
     max_results: 5
     fetch_pages: false
+    domain_policy:
+      mode: prefer
+      domains: []
     routing:
       tags: ["software-engineering", "programming", "devops"]
       task_types: ["code", "debug", "architecture"]

@@ -74,6 +74,7 @@ class SearchResult:
 _BM25_K1 = 1.2
 _BM25_B = 0.75
 _WORD_RE = re.compile(r"\w+")
+_SITE_OPERATOR_RE = re.compile(r"\bsite:\S+", re.IGNORECASE)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -119,7 +120,8 @@ def score_and_filter(
     """
     if not results:
         return []
-    query_tokens = _tokenize(query)
+    clean_query = _SITE_OPERATOR_RE.sub("", query).strip()
+    query_tokens = _tokenize(clean_query or query)
     if not query_tokens:
         return results
 

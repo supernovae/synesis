@@ -47,6 +47,8 @@ Search sources are defined in `search_sources.yaml` at the repo root — the sam
 | `weight` | RRF fusion weight multiplier (1.0 = neutral, >1 = boosted) |
 | `max_results` | Cap results from this source per query |
 | `fetch_pages` | Whether to follow URLs and extract page content |
+| `domain_policy.mode` | `prefer` (boost matching domains) or `restrict` (allowlist-only) |
+| `domain_policy.domains` | Static list of preferred/allowed domains for this source |
 | `routing.tags` | Domain taxonomy tags that activate this source |
 | `routing.task_types` | Task type labels that activate this source |
 | `routing.prompt_aliases` | User-facing keywords that explicitly request this source |
@@ -101,6 +103,44 @@ Results from different sources are scored with three layers:
 4. **Authority boost**: Trust-tier boost from `engine_authority_map` / source catalog (canonical 1.5x, vetted 1.3x, community 1.0x, external 0.7x)
 
 All scores feed into Reciprocal Rank Fusion (RRF) for final ranking.
+
+## Domain Policy (Prefer / Restrict)
+
+Taxonomy configurations can declare `preferred_web_scopes` (e.g. `site:kubernetes.io`, `site:docs.aws.amazon.com`). These are applied as a **post-retrieval domain policy**, not injected into the search query string.
+
+### `prefer` mode (default)
+
+Results from preferred domains receive a configurable score boost (default 1.4x) before RRF merge. Results from other domains still appear, just ranked lower. This prevents the zero-result problem that occurred when `site:` operators were injected into query strings for engines (GitHub, StackOverflow) that don't support them.
+
+### `restrict` mode
+
+Web results whose URL hostname doesn't match any preferred domain are dropped before RRF merge. RAG results are never filtered. Use this for locked-down environments where only approved domains should appear in evidence.
+
+### Configuration
+
+| Setting | Env Var | Default | Description |
+|---------|---------|---------|-------------|
+| `domain_policy_mode` | `SYNESIS_DOMAIN_POLICY_MODE` | `prefer` | `prefer` or `restrict` |
+| `domain_policy_boost` | `SYNESIS_DOMAIN_POLICY_BOOST` | `1.4` | Score multiplier for prefer mode |
+
+Per-source overrides are also available via `domain_policy` in `search_sources.yaml`:
+
+```yaml
+- id: web_general
+  domain_policy:
+    mode: prefer      # or "restrict" for allowlist-only
+    domains:          # static domains (merged with taxonomy scopes at runtime)
+      - kubernetes.io
+      - docs.aws.amazon.com
+```
+
+## Empty-Evidence Degradation
+
+When both RAG and web search return zero results, the planner:
+
+1. Sets a clear degradation note: "No matching documents found in local corpus or web search -- responding from general knowledge"
+2. Publishes knowledge gaps to the admin backlog with explicit `reason: "zero_results"` logging
+3. Relaxes the critic's approval threshold so the writer's parametric-only response is not rejected for "insufficient depth" (which would trigger expensive revision cycles with the same empty evidence)
 
 ## Source Provenance
 

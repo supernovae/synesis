@@ -189,6 +189,12 @@ class Settings(BaseSettings):
     # engine_authority_map entries and enables parallel source fan-out.
     search_sources_path: str = "/etc/synesis/search_sources.yaml"
 
+    # Domain policy for taxonomy-preferred web scopes.
+    # "prefer" (default): boost results from preferred domains by 1.4x
+    # "restrict": only allow results from preferred domains (allowlist mode)
+    domain_policy_mode: Literal["prefer", "restrict"] = "prefer"
+    domain_policy_boost: float = 1.4
+
     # LSP deep analysis
     lsp_enabled: bool = True
     lsp_mode: Literal["on_failure", "always", "disabled"] = "on_failure"

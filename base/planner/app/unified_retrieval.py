@@ -32,6 +32,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import numpy as np
 
@@ -221,6 +222,98 @@ def _taxonomy_boost(
     return results
 
 
+def _parse_preferred_domains(preferred_domains: list[str] | None) -> set[str]:
+    """Extract bare domain names from 'site:X' style scope strings."""
+    if not preferred_domains:
+        return set()
+    domains: set[str] = set()
+    for scope in preferred_domains:
+        d = scope.replace("site:", "").strip().lower()
+        if d:
+            domains.add(d)
+    return domains
+
+
+def _preferred_domain_boost(
+    results: list[UnifiedResult],
+    preferred_domains: list[str] | None = None,
+    boost: float = 1.4,
+) -> list[UnifiedResult]:
+    """Boost web results from taxonomy-preferred domains.
+
+    Replaces the previous approach of injecting site: operators into the
+    search query (which broke non-web engines and filtered out all results
+    when the preferred domains didn't cover the query topic). Instead, results
+    from preferred domains get a multiplicative score boost so they rank
+    higher when available, without excluding everything else.
+    """
+    domains = _parse_preferred_domains(preferred_domains)
+    if not domains or not results:
+        return results
+
+    boosted = 0
+    for r in results:
+        if r.retrieval_source != "web" or not r.source_url:
+            continue
+        try:
+            host = (urlparse(r.source_url).hostname or "").lower()
+        except Exception:
+            continue
+        if any(host == d or host.endswith("." + d) for d in domains):
+            r.score *= boost
+            boosted += 1
+
+    if boosted:
+        results.sort(key=lambda r: r.score, reverse=True)
+        logger.debug(
+            "preferred_domain_boost_applied",
+            extra={"boosted": boosted, "domains": sorted(domains)[:5]},
+        )
+
+    return results
+
+
+def _restrict_domain_filter(
+    results: list[UnifiedResult],
+    preferred_domains: list[str] | None = None,
+) -> list[UnifiedResult]:
+    """Drop web results whose URL hostname is not in the allowed domain list.
+
+    Used in 'restrict' domain_policy mode for locked-down environments that
+    only want results from approved domains. RAG results are never filtered.
+    """
+    domains = _parse_preferred_domains(preferred_domains)
+    if not domains or not results:
+        return results
+
+    kept: list[UnifiedResult] = []
+    dropped = 0
+    for r in results:
+        if r.retrieval_source != "web":
+            kept.append(r)
+            continue
+        if not r.source_url:
+            kept.append(r)
+            continue
+        try:
+            host = (urlparse(r.source_url).hostname or "").lower()
+        except Exception:
+            kept.append(r)
+            continue
+        if any(host == d or host.endswith("." + d) for d in domains):
+            kept.append(r)
+        else:
+            dropped += 1
+
+    if dropped:
+        logger.info(
+            "restrict_domain_filter_applied",
+            extra={"dropped": dropped, "kept": len(kept), "domains": sorted(domains)[:5]},
+        )
+
+    return kept
+
+
 def _adaptive_topk(
     results: list[UnifiedResult],
     max_k: int = 8,
@@ -383,6 +476,7 @@ async def retrieve_unified(
     domain_hints: list[str] | None = None,
     skip_web: bool = False,
     search_source_ids: list[str] | None = None,
+    preferred_domains: list[str] | None = None,
 ) -> RetrievalBundle:
     """Parallel RAG + multi-source web retrieval with authority-weighted RRF fusion.
 
@@ -397,6 +491,10 @@ async def retrieve_unified(
                 disabled regardless of other settings.
       search_source_ids: Explicit list of search source IDs to query. When
                          provided, overrides automatic source selection.
+      preferred_domains: Taxonomy-derived preferred web domains (e.g.
+                         ["site:kubernetes.io"]). Applied as a post-retrieval
+                         boost or restrict filter based on domain_policy mode,
+                         NOT injected into the search query string.
 
     Returns:
       RetrievalBundle with results and optional cohesion_lock metadata.
@@ -406,6 +504,7 @@ async def retrieve_unified(
       2. Convert both to UnifiedResult with authority metadata preserved
       3. Adaptive web gating (L-RAG pattern): if RAG returns 3+ results,
          cap web slots so RAG dominates; if RAG is empty, web fills the gap
+      3b. Domain policy: prefer (boost) or restrict (filter) by taxonomy domains
       4. RRF merge into one ranked list
       5. Adaptive top-k via cliff detection
       5b. Cohesion lock detection (dominant entity from top 3)
@@ -553,6 +652,15 @@ async def retrieve_unified(
                 "max_web": max_web,
             },
         )
+
+    # Phase 3b: domain policy — boost or restrict web results by taxonomy domains
+    if preferred_domains and web_unified:
+        _domain_policy_mode = getattr(settings, "domain_policy_mode", "prefer")
+        if _domain_policy_mode == "restrict":
+            web_unified = _restrict_domain_filter(web_unified, preferred_domains)
+        else:
+            _boost = getattr(settings, "domain_policy_boost", 1.4)
+            web_unified = _preferred_domain_boost(web_unified, preferred_domains, boost=_boost)
 
     # Phase 4: RRF merge
     merged = _rrf_merge(rag_unified, web_unified, k=settings.rag_rrf_k)

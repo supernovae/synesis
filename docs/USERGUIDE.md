@@ -142,6 +142,24 @@ Admins can view, filter by status, resolve, reopen, or purge gaps from the **Kno
 
 Gaps can also be submitted via the planner API or admin form. See [PLAN-domain-aligner-universal-expertise.md](PLAN-domain-aligner-universal-expertise.md).
 
+### Post-RAG-Load Validation
+
+After loading new content into the RAG corpus, admins can validate whether open gaps are now satisfied:
+
+```
+POST /admin/observability/knowledge-gaps/validate
+{"score_threshold": 0.6}
+```
+
+This re-queries RAG for each open gap and auto-resolves any where the top retrieval score exceeds the threshold. Run it after every indexer pipeline to close the feedback loop.
+
+### Zero-Evidence Behavior
+
+When both RAG and web search return zero results, the system:
+- Publishes knowledge gaps for admin review (logged with `reason: "zero_results"`)
+- Notifies the user: "No matching documents found -- responding from general knowledge"
+- Relaxes the critic threshold to avoid wasting revision cycles without evidence
+
 ---
 
 ## 9. Pending Questions
