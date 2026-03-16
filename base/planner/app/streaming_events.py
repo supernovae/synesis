@@ -39,9 +39,10 @@ class StatusQueueCallback(AsyncCallbackHandler):
     Used as CallbackHandler passed via config; runs as Planner/Worker/Sandbox execute.
     """
 
-    def __init__(self, queue: asyncio.Queue[str | None]) -> None:
+    def __init__(self, queue: asyncio.Queue[str | None], enhanced_progress: bool = False) -> None:
         super().__init__()
         self._queue = queue
+        self._enhanced_progress = enhanced_progress
 
     def _put(self, desc: str) -> None:
         with contextlib.suppress(asyncio.QueueFull):
@@ -98,3 +99,40 @@ class StatusQueueCallback(AsyncCallbackHandler):
         name = serialized.get("name", "")
         if name:
             self._put(f"Running: {name}")
+
+    def on_chain_end(
+        self,
+        outputs: dict[str, Any],
+        *,
+        run_id: Any = None,
+        parent_run_id: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        if not self._enhanced_progress or not isinstance(outputs, dict):
+            return
+
+        packets = outputs.get("evidence_packets")
+        if isinstance(packets, list) and packets:
+            total_sources = 0
+            total_web = 0
+            for p in packets:
+                if not isinstance(p, dict):
+                    continue
+                sources = p.get("sources") or []
+                total_sources += len(sources)
+                total_web += sum(1 for s in sources if isinstance(s, dict) and s.get("type") == "web")
+            total_docs = max(total_sources - total_web, 0)
+            parts: list[str] = []
+            if total_web:
+                parts.append(f"{total_web} web")
+            if total_docs:
+                parts.append(f"{total_docs} docs")
+            detail = f" ({' + '.join(parts)})" if parts else ""
+            if total_sources:
+                self._put(f"Evidence gathered: {total_sources} sources{detail}")
+
+        plan = outputs.get("execution_plan")
+        if isinstance(plan, dict):
+            steps = plan.get("steps")
+            if isinstance(steps, list) and steps:
+                self._put(f"Plan ready: {len(steps)} sections prepared")

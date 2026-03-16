@@ -2,6 +2,8 @@
 
 Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
 
+Current pinned image in manifests: `ghcr.io/open-webui/open-webui:v0.8.10`.
+
 ## Zero-Configuration Setup
 
 The deploy script automatically:
@@ -63,6 +65,8 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 ## Phase/Status Display
 
 The planner emits SSE status events during graph execution (Thinking, Validating, Testing). See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details and troubleshooting.
+
+If you want GPT-like visible progress inside the chat transcript (not only the status bar), import the Synesis Progress Pipe from `integrations/openwebui-synesis-progress/` and use that model in Open WebUI.
 
 ## Configuration
 

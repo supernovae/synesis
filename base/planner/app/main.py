@@ -518,6 +518,41 @@ def _phase_for_node(node: str) -> str:
     return _NODE_TO_PHASE.get(node, "")
 
 
+def _phase_detail_hint(phase: str) -> str:
+    """Return a generic sub-status for long-running phases."""
+    p = (phase or "").lower()
+    if "analyzing request" in p:
+        return "Interpreting intent and constraints..."
+    if "gathering evidence" in p:
+        return "Searching sources and ranking relevance..."
+    if "building plan" in p:
+        return "Mapping requirements into structured sections..."
+    if "composing response" in p:
+        return "Synthesizing evidence into final narrative..."
+    if "evaluating quality" in p:
+        return "Checking coverage, grounding, and consistency..."
+    if "polishing" in p:
+        return "Applying final clarity and formatting checks..."
+    return ""
+
+
+def _router_domain_summary(requests: list[dict[str, Any]]) -> str:
+    """Build a compact domain summary from evidence requests."""
+    labels: list[str] = []
+    for req in requests:
+        if not isinstance(req, dict):
+            continue
+        for hint in req.get("domain_hints") or []:
+            label = str(hint or "").strip().replace("_", " ")
+            if label and label not in labels:
+                labels.append(label)
+            if len(labels) >= 2:
+                break
+        if len(labels) >= 2:
+            break
+    return ", ".join(labels[:2])
+
+
 def _router_phase(input_data: dict) -> str:
     """Build a status label from router input state.
 
@@ -527,6 +562,13 @@ def _router_phase(input_data: dict) -> str:
     requests = input_data.get("evidence_requests") or []
     if not requests:
         return "Gathering evidence\u2026"
+    if settings.enhanced_progress_ui:
+        domains = _router_domain_summary(requests)
+        if len(requests) == 1:
+            return f"Gathering evidence for {domains}\u2026" if domains else "Gathering evidence for 1 topic\u2026"
+        if domains:
+            return f"Gathering evidence ({len(requests)} topics across {domains})\u2026"
+        return f"Gathering evidence ({len(requests)} topics)\u2026"
     if len(requests) == 1:
         q = (requests[0].get("description") or requests[0].get("query") or "")[:50]
         return f"Gathering evidence: {q}\u2026" if q else "Gathering evidence\u2026"
@@ -1185,7 +1227,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         await asyncio.sleep(_hb_interval)
                         if _current_phase and not _stream_closed:
                             elapsed = int(time.monotonic() - _phase_start)
-                            base = _current_phase.rstrip("\u2026")
+                            if settings.enhanced_progress_ui:
+                                hint = _phase_detail_hint(_current_phase)
+                                base = hint.rstrip("...") if hint else _current_phase.rstrip("\u2026")
+                            else:
+                                base = _current_phase.rstrip("\u2026")
                             with contextlib.suppress(asyncio.QueueFull):
                                 _hb_queue.put_nowait(f"{base}\u2026 ({elapsed}s)")
 
@@ -1270,7 +1316,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 await asyncio.sleep(0)
                             elif phase and _current_phase and (now - _phase_start) >= _HEARTBEAT_AFTER_S:
                                 elapsed = int(now - _phase_start)
-                                _phase_base = _current_phase.rstrip("\u2026")
+                                if settings.enhanced_progress_ui:
+                                    _hint = _phase_detail_hint(_current_phase)
+                                    _phase_base = _hint.rstrip("...") if _hint else _current_phase.rstrip("\u2026")
+                                else:
+                                    _phase_base = _current_phase.rstrip("\u2026")
                                 yield _flow_phase(f"{_phase_base}\u2026 ({elapsed}s)")
                                 await asyncio.sleep(0)
 
@@ -1296,24 +1346,57 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                                     packets = output.get("evidence_packets") or []
                                     if packets:
-                                        for p in packets[:3]:
-                                            if not isinstance(p, dict):
-                                                continue
-                                            q = (p.get("query") or "")[:60]
-                                            sources = p.get("sources") or []
-                                            web_n = sum(
-                                                1 for s in sources if isinstance(s, dict) and s.get("type") == "web"
-                                            )
-                                            rag_n = len(sources) - web_n
+                                        if settings.enhanced_progress_ui:
+                                            total_sources = 0
+                                            total_web = 0
+                                            for p in packets:
+                                                if not isinstance(p, dict):
+                                                    continue
+                                                sources = p.get("sources") or []
+                                                total_sources += len(sources)
+                                                total_web += sum(
+                                                    1 for s in sources if isinstance(s, dict) and s.get("type") == "web"
+                                                )
+                                            total_docs = max(total_sources - total_web, 0)
                                             parts: list[str] = []
-                                            if web_n:
-                                                parts.append(f"{web_n} web")
-                                            if rag_n:
-                                                parts.append(f"{rag_n} docs")
+                                            if total_web:
+                                                parts.append(f"{total_web} web")
+                                            if total_docs:
+                                                parts.append(f"{total_docs} docs")
                                             detail = f" ({' + '.join(parts)})" if parts else ""
-                                            if q:
-                                                yield _flow_phase(f"Searched: {q}{detail}")
+                                            if total_sources:
+                                                yield _flow_phase(f"Evidence gathered: {total_sources} sources{detail}")
                                                 await asyncio.sleep(0)
+                                            planned_topics = len(accumulated_state.get("evidence_requests") or [])
+                                            covered_topics = sum(
+                                                1
+                                                for p in packets
+                                                if isinstance(p, dict) and (p.get("sources") or p.get("snippets"))
+                                            )
+                                            if planned_topics:
+                                                yield _flow_phase(
+                                                    f"Research progress: {covered_topics}/{planned_topics} topics supported"
+                                                )
+                                                await asyncio.sleep(0)
+                                        else:
+                                            for p in packets[:3]:
+                                                if not isinstance(p, dict):
+                                                    continue
+                                                q = (p.get("query") or "")[:60]
+                                                sources = p.get("sources") or []
+                                                web_n = sum(
+                                                    1 for s in sources if isinstance(s, dict) and s.get("type") == "web"
+                                                )
+                                                rag_n = len(sources) - web_n
+                                                parts: list[str] = []
+                                                if web_n:
+                                                    parts.append(f"{web_n} web")
+                                                if rag_n:
+                                                    parts.append(f"{rag_n} docs")
+                                                detail = f" ({' + '.join(parts)})" if parts else ""
+                                                if q:
+                                                    yield _flow_phase(f"Searched: {q}{detail}")
+                                                    await asyncio.sleep(0)
                                     elif not _deg_notes:
                                         yield _flow_phase("No evidence found, answering from knowledge\u2026")
                                         await asyncio.sleep(0)
@@ -1323,8 +1406,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     plan = output.get("execution_plan") or {}
                                     steps = plan.get("steps", []) if isinstance(plan, dict) else []
                                     if steps:
-                                        yield _flow_phase(f"Plan ready: {len(steps)} sections")
-                                        await asyncio.sleep(0)
+                                        if settings.enhanced_progress_ui:
+                                            yield _flow_phase(f"Plan ready: {len(steps)} sections prepared")
+                                            await asyncio.sleep(0)
+                                            yield _flow_phase("Execution strategy finalized, moving to synthesis\u2026")
+                                            await asyncio.sleep(0)
+                                        else:
+                                            yield _flow_phase(f"Plan ready: {len(steps)} sections")
+                                            await asyncio.sleep(0)
 
                                 # ── Background critic: close stream after writer/executor ──
                                 elif (
@@ -1747,7 +1836,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             # ── Fallback: buffered astream(values) + StatusQueueCallback ──
 
             status_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=128)
-            status_callback = StatusQueueCallback(status_queue)
+            status_callback = StatusQueueCallback(status_queue, enhanced_progress=settings.enhanced_progress_ui)
 
             async def sse_generator() -> object:
                 yield _emit_phase("Starting\u2026")
