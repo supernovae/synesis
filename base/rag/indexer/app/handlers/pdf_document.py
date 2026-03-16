@@ -70,7 +70,7 @@ class PDFDocumentHandler:
 
         full_text = ""
         for page in pdf_doc:
-            full_text += page.get_text() + "\n"
+            full_text += _page_text_with_tables(page) + "\n"
         pdf_doc.close()
 
         if not full_text.strip():
@@ -100,6 +100,21 @@ class PDFDocumentHandler:
 
         logger.info("Extracted %d chunks from PDF: %s", len(chunks), doc.name)
         return chunks
+
+
+def _page_text_with_tables(page) -> str:
+    """Extract page text and append any detected tables as markdown (PyMuPDF 1.23+)."""
+    text = page.get_text() + "\n"
+    try:
+        finder = page.find_tables()
+        if finder.tables:
+            for tbl in finder.tables:
+                md = tbl.to_markdown()
+                if md and md.strip():
+                    text += "\n\n" + md.strip() + "\n\n"
+    except (AttributeError, TypeError) as e:
+        logger.debug("PyMuPDF find_tables/to_markdown not available or failed: %s", e)
+    return text
 
 
 _PDF_HEADING_RE = re.compile(

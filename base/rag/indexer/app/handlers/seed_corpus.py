@@ -187,9 +187,11 @@ class SeedCorpusHandler:
             logger.warning("Failed to open PDF %s: %s", doc.name, e)
             return []
 
+        from .pdf_document import _page_text_with_tables
+
         full_text = ""
         for page in pdf_doc:
-            full_text += page.get_text() + "\n"
+            full_text += _page_text_with_tables(page) + "\n"
         pdf_doc.close()
 
         if not full_text.strip():

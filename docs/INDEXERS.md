@@ -46,7 +46,7 @@ base/rag/indexer/
 | `github_code` | GitHub repos | AST-aware chunking via tree-sitter (functions, classes as semantic units) |
 | `openapi_spec` | URLs | Parses OpenAPI 3.x / Swagger 2.0 into endpoint-level chunks |
 | `web_page` | URLs | Crawl4AI-based web crawling, HTML→Markdown conversion, heading-aware chunking |
-| `pdf_document` | URLs | PyMuPDF text extraction, section-based splitting |
+| `pdf_document` | URLs | PyMuPDF text extraction plus structured table markdown (`find_tables` → `to_markdown`), section-based splitting |
 | `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
 | `markdown_file` | Local paths | Reads local .md files, heading-aware chunking |
 | `license_spdx` | SPDX/Fedora/choosealicense | License data from three authoritative sources plus compatibility rules |
