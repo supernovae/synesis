@@ -8,6 +8,7 @@ import {
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
 import { useAuth } from "../../components/auth/AuthProvider";
+import type { ConflictGroup } from "../../types";
 
 const STATUS_BADGES: Record<string, { label: string; className: string }> = {
   pending_review: {
@@ -29,51 +30,54 @@ export default function ConflictGroups() {
   const review = useReviewConflictGroup();
   const remove = useDeleteConflictGroup();
 
-  const columns = [
+  const columns: {
+    key: string;
+    label: string;
+    sortable?: boolean;
+    className?: string;
+    render?: (row: ConflictGroup) => React.ReactNode;
+  }[] = [
     {
-      key: "group_name" as const,
+      key: "group_name",
       label: "Group",
-      render: (row: Record<string, unknown>) => (
-        <span className="font-medium">{String(row.group_name)}</span>
+      render: (row) => (
+        <span className="font-medium">{row.group_name}</span>
       ),
     },
     {
-      key: "members" as const,
+      key: "members",
       label: "Members",
-      render: (row: Record<string, unknown>) => {
-        const members = row.members as string[];
-        return (
-          <div className="flex flex-wrap gap-1">
-            {members.map((m) => (
-              <span
-                key={m}
-                className="inline-block rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
-              >
-                {m}
-              </span>
-            ))}
-          </div>
-        );
-      },
+      render: (row) => (
+        <div className="flex flex-wrap gap-1">
+          {row.members.map((m) => (
+            <span
+              key={m}
+              className="inline-block rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+            >
+              {m}
+            </span>
+          ))}
+        </div>
+      ),
     },
     {
-      key: "default_pick" as const,
+      key: "default_pick",
       label: "Default",
-      render: (row: Record<string, unknown>) =>
+      render: (row) =>
         row.default_pick ? (
           <span className="text-sm font-medium text-emerald-700">
-            {String(row.default_pick)}
+            {row.default_pick}
           </span>
         ) : (
           <span className="text-xs text-gray-400">none</span>
         ),
     },
     {
-      key: "status" as const,
+      key: "status",
       label: "Status",
-      render: (row: Record<string, unknown>) => {
-        const badge = STATUS_BADGES[String(row.status)] ?? {
-          label: String(row.status),
+      render: (row) => {
+        const badge = STATUS_BADGES[row.status] ?? {
+          label: row.status,
           className: "bg-gray-100 text-gray-800",
         };
         return (
@@ -86,20 +90,20 @@ export default function ConflictGroups() {
       },
     },
     {
-      key: "source_query" as const,
+      key: "source_query",
       label: "Source Query",
-      render: (row: Record<string, unknown>) => (
-        <span className="max-w-xs truncate text-xs text-gray-500" title={String(row.source_query)}>
-          {String(row.source_query).slice(0, 80)}
-          {String(row.source_query).length > 80 ? "..." : ""}
+      render: (row) => (
+        <span className="max-w-xs truncate text-xs text-gray-500" title={row.source_query}>
+          {row.source_query.slice(0, 80)}
+          {row.source_query.length > 80 ? "..." : ""}
         </span>
       ),
     },
     {
-      key: "discovered_at" as const,
+      key: "discovered_at",
       label: "Discovered",
-      render: (row: Record<string, unknown>) => {
-        const d = row.discovered_at ? new Date(String(row.discovered_at)) : null;
+      render: (row) => {
+        const d = row.discovered_at ? new Date(row.discovered_at) : null;
         return (
           <span className="text-xs text-gray-500">
             {d ? d.toLocaleDateString() : ""}
@@ -109,60 +113,58 @@ export default function ConflictGroups() {
     },
   ];
 
-  const actionColumn = isAdmin
-    ? {
-        key: "_actions" as const,
-        label: "Actions",
-        render: (row: Record<string, unknown>) => {
-          const id = row.id as number;
-          const st = String(row.status);
-          return (
-            <div className="flex gap-1">
-              {st === "pending_review" && (
-                <>
-                  <button
-                    className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
-                    onClick={() => review.mutate({ id, status: "approved" })}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
-                    onClick={() => review.mutate({ id, status: "rejected" })}
-                  >
-                    Reject
-                  </button>
-                </>
-              )}
-              {st === "rejected" && (
+  if (isAdmin) {
+    columns.push({
+      key: "_actions",
+      label: "Actions",
+      render: (row) => {
+        const id = row.id;
+        const st = row.status;
+        return (
+          <div className="flex gap-1">
+            {st === "pending_review" && (
+              <>
                 <button
                   className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                   onClick={() => review.mutate({ id, status: "approved" })}
                 >
                   Approve
                 </button>
-              )}
-              {st === "approved" && (
                 <button
-                  className="rounded bg-yellow-600 px-2 py-1 text-xs text-white hover:bg-yellow-700"
+                  className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
                   onClick={() => review.mutate({ id, status: "rejected" })}
                 >
-                  Revoke
+                  Reject
                 </button>
-              )}
+              </>
+            )}
+            {st === "rejected" && (
               <button
-                className="rounded bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300"
-                onClick={() => remove.mutate(id)}
+                className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
+                onClick={() => review.mutate({ id, status: "approved" })}
               >
-                Delete
+                Approve
               </button>
-            </div>
-          );
-        },
-      }
-    : null;
-
-  const allColumns = actionColumn ? [...columns, actionColumn] : columns;
+            )}
+            {st === "approved" && (
+              <button
+                className="rounded bg-yellow-600 px-2 py-1 text-xs text-white hover:bg-yellow-700"
+                onClick={() => review.mutate({ id, status: "rejected" })}
+              >
+                Revoke
+              </button>
+            )}
+            <button
+              className="rounded bg-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-300"
+              onClick={() => remove.mutate(id)}
+            >
+              Delete
+            </button>
+          </div>
+        );
+      },
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -231,9 +233,9 @@ export default function ConflictGroups() {
         />
       ) : (
         <DataTable
-          columns={allColumns}
+          columns={columns}
           data={groups}
-          isLoading={isLoading}
+          keyField="id"
         />
       )}
     </div>
