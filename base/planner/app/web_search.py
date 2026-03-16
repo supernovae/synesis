@@ -605,63 +605,38 @@ class WebSearchClient:
     ) -> list[SearchResult]:
         """Shared search execution with circuit breaker and metrics."""
         start = time.monotonic()
+        hard_deadline = self._timeout * 2
         try:
-            _timeout = httpx.Timeout(
-                connect=min(self._timeout, 3.0),
-                read=self._timeout,
-                write=self._timeout,
-                pool=self._timeout,
+            return await asyncio.wait_for(
+                self._execute_search_inner(query, params, limit, profile_label, start),
+                timeout=hard_deadline,
             )
-            async with httpx.AsyncClient(timeout=_timeout) as client:
-                resp = await asyncio.wait_for(
-                    client.get(f"{self._base_url}/search", params=params),
-                    timeout=self._timeout * 2,
-                )
-                resp.raise_for_status()
-
-            data = resp.json()
-            raw_results = data.get("results", [])[:limit]
-
-            results = [
-                SearchResult(
-                    title=r.get("title", ""),
-                    url=r.get("url", ""),
-                    snippet=r.get("content", ""),
-                    engine=r.get("engine", ""),
-                    score=r.get("score", 0.0),
-                )
-                for r in raw_results
-                if r.get("url")
-            ]
-
-            self._breaker.record_success()
-
-            elapsed = time.monotonic() - start
-            if _search_counter:
-                _search_counter.labels(profile=profile_label, outcome="success").inc()
-            if _search_latency:
-                _search_latency.labels(profile=profile_label).observe(elapsed)
-
-            logger.info(
-                "web_search_completed",
-                extra={
-                    "profile": profile_label,
-                    "query": query[:120],
-                    "results_count": len(results),
-                    "latency_s": round(elapsed, 3),
-                },
-            )
-            return results
-
-        except Exception as e:
+        except asyncio.TimeoutError:
             self._breaker.record_failure()
             elapsed = time.monotonic() - start
-
             if _search_counter:
                 _search_counter.labels(profile=profile_label, outcome="error").inc()
             if _search_latency:
                 _search_latency.labels(profile=profile_label).observe(elapsed)
-
+            logger.warning(
+                "web_search_failed",
+                extra={
+                    "error": f"hard deadline {hard_deadline}s exceeded",
+                    "error_type": "TimeoutError",
+                    "latency_s": round(elapsed, 2),
+                    "query": query[:120],
+                    "profile": profile_label,
+                    "breaker_open": self._breaker.is_open,
+                },
+            )
+            return []
+        except Exception as e:
+            self._breaker.record_failure()
+            elapsed = time.monotonic() - start
+            if _search_counter:
+                _search_counter.labels(profile=profile_label, outcome="error").inc()
+            if _search_latency:
+                _search_latency.labels(profile=profile_label).observe(elapsed)
             logger.warning(
                 "web_search_failed",
                 extra={
@@ -674,6 +649,58 @@ class WebSearchClient:
                 },
             )
             return []
+
+    async def _execute_search_inner(
+        self,
+        query: str,
+        params: dict[str, Any],
+        limit: int,
+        profile_label: str,
+        start: float,
+    ) -> list[SearchResult]:
+        _timeout = httpx.Timeout(
+            connect=min(self._timeout, 3.0),
+            read=self._timeout,
+            write=self._timeout,
+            pool=self._timeout,
+        )
+        async with httpx.AsyncClient(timeout=_timeout) as client:
+            resp = await client.get(f"{self._base_url}/search", params=params)
+            resp.raise_for_status()
+
+        data = resp.json()
+        raw_results = data.get("results", [])[:limit]
+
+        results = [
+            SearchResult(
+                title=r.get("title", ""),
+                url=r.get("url", ""),
+                snippet=r.get("content", ""),
+                engine=r.get("engine", ""),
+                score=r.get("score", 0.0),
+            )
+            for r in raw_results
+            if r.get("url")
+        ]
+
+        self._breaker.record_success()
+
+        elapsed = time.monotonic() - start
+        if _search_counter:
+            _search_counter.labels(profile=profile_label, outcome="success").inc()
+        if _search_latency:
+            _search_latency.labels(profile=profile_label).observe(elapsed)
+
+        logger.info(
+            "web_search_completed",
+            extra={
+                "profile": profile_label,
+                "query": query[:120],
+                "results_count": len(results),
+                "latency_s": round(elapsed, 3),
+            },
+        )
+        return results
 
 
 def _sanitize_search_result(result: SearchResult) -> SearchResult:

@@ -722,8 +722,8 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
 
             # Intent anchor compliance — deterministic pre-check before LLM scoring.
-            anchor_exclude = user_task.get("anchor_exclude_signals") or []
-            intent_anchors = user_task.get("intent_anchors") or {}
+            anchor_exclude = user_task_data.get("anchor_exclude_signals") or []
+            intent_anchors = user_task_data.get("intent_anchors") or {}
             if intent_anchors and anchor_exclude:
                 anchor_terms = ", ".join(f"{k}={v}" for k, v in intent_anchors.items())
                 exclude_terms = ", ".join(anchor_exclude[:8])
