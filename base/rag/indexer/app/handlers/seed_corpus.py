@@ -11,7 +11,6 @@ overrides.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -20,39 +19,13 @@ from synesis_telemetry import get_logger
 
 from ..chunking import chunk_text_simple, heading_aware_split
 from ..content_gate import GatePolicy, evaluate_page
+from ..extract import normalize_doc_markdown
 from . import register
 from .base import Chunk, RawDocument
 
 logger = get_logger("synesis.indexer.handler.seed_corpus")
 
 _FETCH_TIMEOUT = 45
-
-# Nav/footer residues that trafilatura sometimes leaves; strip before chunking so gate sees cleaner text.
-_NAV_LINE_PATTERNS = (
-    r"^\s*skip to (?:main )?content\s*$",
-    r"^\s*back to top\s*$",
-    r"^\s*menu\s*$",
-    r"^\s*search\s*$",
-    r"^\s*subscribe\s*$",
-    r"^\s*cookie (?:policy|preferences)\s*$",
-)
-_NAV_LINE_RE = re.compile("|".join(f"({p})" for p in _NAV_LINE_PATTERNS), re.IGNORECASE | re.MULTILINE)
-
-
-def _normalize_doc_markdown(md: str) -> str:
-    """Strip nav-heavy residues and collapse excess newlines for better chunk quality scoring."""
-    if not md or not md.strip():
-        return md
-    lines = md.split("\n")
-    cleaned: list[str] = []
-    for line in lines:
-        if _NAV_LINE_RE.match(line.strip()):
-            continue
-        cleaned.append(line)
-    # Collapse 3+ newlines to 2
-    text = "\n".join(cleaned)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
 
 
 @register
@@ -179,7 +152,7 @@ class SeedCorpusHandler:
             logger.warning("trafilatura returned empty for %s", doc.name)
             return []
 
-        md = _normalize_doc_markdown(md)
+        md = normalize_doc_markdown(md)
         text_chunks = heading_aware_split(md, document_name=doc.name)
 
         meta = {

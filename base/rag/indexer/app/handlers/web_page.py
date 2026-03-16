@@ -108,7 +108,7 @@ async def _crawl_with_gate(
         logger.error("crawl4ai not installed. Run: pip install crawl4ai")
         return []
 
-    from ..extract import html_to_markdown
+    from ..extract import html_to_markdown, normalize_doc_markdown
 
     pages: list[dict[str, str]] = []
     visited: set[str] = set()
@@ -161,6 +161,7 @@ async def _crawl_with_gate(
                 logger.debug("trafilatura returned empty for %s", url)
                 continue
 
+            md = normalize_doc_markdown(md)
             pages.append({"url": url, "markdown": md})
 
             if not follow_links or depth >= max_depth:

@@ -131,6 +131,7 @@ def index_source(
     if not skip_gate and gate_policy is not None:
         gated: list[tuple[RawDocument, Chunk, str]] = []
         reject_reasons: dict[str, int] = {}
+        reject_samples: list[tuple[str, str]] = []
         for doc, chunk, cid in new_chunks:
             verdict = score_chunk(
                 chunk.text,
@@ -143,6 +144,10 @@ def index_source(
             else:
                 tag = verdict.rejection_reason.split("|")[0].strip()
                 reject_reasons[tag] = reject_reasons.get(tag, 0) + 1
+                if len(reject_samples) < 5:
+                    reject_samples.append(
+                        (chunk.text[:120].replace("\n", " "), verdict.rejection_reason)
+                    )
 
         rejected = len(new_chunks) - len(gated)
         if rejected:
@@ -157,6 +162,11 @@ def index_source(
                     "reject_reasons": reason_summary,
                 },
             )
+            for sample_text, sample_reason in reject_samples:
+                logger.debug(
+                    "indexer_rejected_chunk_sample",
+                    extra={"source": name, "text_preview": sample_text, "reason": sample_reason},
+                )
         new_chunks = gated
 
     if not new_chunks:

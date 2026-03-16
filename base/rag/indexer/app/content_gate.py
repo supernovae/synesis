@@ -621,7 +621,8 @@ _FIGURE_REF_RE = re.compile(r"(?:Figure|Table|Equation|Fig\.|Eq\.)\s+\d+", re.IG
 # Structured reference rescue: headings and API/example markers (legitimate short technical chunks)
 _HEADING_LINE_RE = re.compile(r"^(?:#{1,6}\s+.+|\*\*[^*]+\*\*\s*$|__[^_]+__\s*$)", re.MULTILINE)
 _API_EXAMPLE_RE = re.compile(
-    r"\b(?:parameters?|returns?|arguments?|endpoint|method|example|sample|syntax|signature|api\s*reference)\b",
+    r"\b(?:parameters?|returns?|arguments?|endpoint|method|syntax|signature|api\s*reference"
+    r"|(?:example|sample)\s+(?:code|output|request|response|usage|query|config))\b",
     re.IGNORECASE,
 )
 
@@ -776,9 +777,25 @@ def score_chunk(
         score -= 0.12
 
     boilerplate_hits = sum(1 for p in policy.boilerplate_phrases if p in text_lower)
-    if boilerplate_hits >= 3:
+
+    # Structural signal: heading_path, section, strong epistemic content, or
+    # code/table/definition markers.  When present, cap the boilerplate penalty
+    # so incidental "contact us" in an otherwise good doc chunk does not force
+    # rejection.  Truly junk-heavy chunks (boilerplate ratio > 20%) still get
+    # the full penalty.
+    has_structural_signal = bool(
+        section or heading_path or epistemic_hits >= 2
+        or _CODE_FENCE_RE.search(text) or _TABLE_ROW_RE.search(text) or _DEFINITION_RE.search(text)
+    )
+    junk_heavy = word_count > 0 and boilerplate_hits / max(word_count / 30, 1) > 0.2
+    if has_structural_signal and not junk_heavy:
+        effective_bp_hits = min(boilerplate_hits, 1)
+    else:
+        effective_bp_hits = boilerplate_hits
+
+    if effective_bp_hits >= 3:
         score -= 0.20
-    elif boilerplate_hits >= 1:
+    elif effective_bp_hits >= 1:
         score -= 0.08
 
     url_count = len(_URL_RE.findall(text))

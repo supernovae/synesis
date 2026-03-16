@@ -6,13 +6,65 @@ clean Markdown with headings, code blocks, tables, and links preserved.
 
 This replaces the previous split between markdownify (seed_corpus,
 html_document, arxiv_paper) and crawl4ai's built-in converter (web_page).
+
+Post-extraction normalization (normalize_doc_markdown) strips residual
+nav/footer lines that trafilatura sometimes leaves and collapses whitespace
+so the chunk-level quality gate sees cleaner text.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 logger = logging.getLogger("synesis.indexer.extract")
+
+# Lines that are *only* nav/footer/chrome residue left by trafilatura.
+# Each pattern is matched against a stripped line (case-insensitive).
+_NAV_LINE_PATTERNS = (
+    r"^\s*skip to (?:main )?content\s*$",
+    r"^\s*back to top\s*$",
+    r"^\s*menu\s*$",
+    r"^\s*search\s*$",
+    r"^\s*subscribe\s*$",
+    r"^\s*cookie (?:policy|preferences)\s*$",
+    r"^\s*contact\s*us?\s*$",
+    r"^\s*email\s*us?\s*$",
+    r"^\s*newsletter\s*$",
+    r"^\s*follow\s+us\s*$",
+    r"^\s*sign\s*up\s*$",
+    r"^\s*log\s*in\s*$",
+    r"^\s*register\s*$",
+    r"^\s*share\s+(?:this|on)\s*$",
+    r"^\s*tweet\s+this\s*$",
+    r"^\s*all\s+rights\s+reserved\.?\s*$",
+    r"^\s*powered\s+by\s+.*$",
+    r"^\s*toggle\s+(?:navigation|menu|sidebar)\s*$",
+    r"^\s*close\s*$",
+    r"^\s*home\s*$",
+    r"^\s*©.*$",
+)
+_NAV_LINE_RE = re.compile("|".join(f"({p})" for p in _NAV_LINE_PATTERNS), re.IGNORECASE)
+
+
+def normalize_doc_markdown(md: str) -> str:
+    """Strip nav/footer residues and collapse excess whitespace.
+
+    Call after html_to_markdown() and before heading_aware_split() so the
+    chunk-level quality gate sees content without junk lines that would
+    trigger boilerplate penalties or thin+boilerplate rejections.
+    """
+    if not md or not md.strip():
+        return md
+    lines = md.split("\n")
+    cleaned: list[str] = []
+    for line in lines:
+        if _NAV_LINE_RE.match(line.strip()):
+            continue
+        cleaned.append(line)
+    text = "\n".join(cleaned)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def html_to_markdown(

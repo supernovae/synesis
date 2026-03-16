@@ -54,7 +54,7 @@ class HTMLDocumentHandler:
         ]
 
     def parse_and_chunk(self, doc: RawDocument) -> list[Chunk]:
-        from ..extract import html_to_markdown
+        from ..extract import html_to_markdown, normalize_doc_markdown
 
         html = doc.content if isinstance(doc.content, str) else doc.content.decode("utf-8", errors="replace")
         md = html_to_markdown(html)
@@ -62,6 +62,7 @@ class HTMLDocumentHandler:
             logger.warning("trafilatura returned empty for %s", doc.name)
             return []
 
+        md = normalize_doc_markdown(md)
         text_chunks = heading_aware_split(md, document_name=doc.name)
 
         return [
