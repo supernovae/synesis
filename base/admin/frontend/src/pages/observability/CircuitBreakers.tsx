@@ -1,6 +1,7 @@
 import { useCircuitBreakers } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
+import type { CircuitBreakerState } from "../../types";
 
 const CATEGORY_LABELS: Record<string, string> = {
   llm: "LLM Models",
@@ -8,8 +9,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   infrastructure: "Infrastructure",
 };
 
-function groupByCategory(breakers: { name: string; category?: string }[]) {
-  const groups: Record<string, typeof breakers> = {
+function groupByCategory(breakers: CircuitBreakerState[]) {
+  const groups: Record<string, CircuitBreakerState[]> = {
     llm: [],
     web_search: [],
     infrastructure: [],
