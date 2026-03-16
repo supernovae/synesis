@@ -5,9 +5,21 @@ set -euo pipefail
 #
 # Applies Kustomize overlays to the cluster.
 # Auto-generates a LiteLLM API key if one doesn't exist.
+# Prunes stale ReplicaSets and keeps revision history short for idempotent deploys.
 #
-# Usage: ./scripts/deploy.sh <environment>
+# Usage: ./scripts/deploy.sh <environment> [ref]
 #   environment: dev | staging | prod | openrouter
+#   ref:        (optional) Image tag to deploy. Default: latest.
+#               Use "latest", a branch (main, feature/foo), a tag (v1.0.0), or PR (pr-123).
+#               Images must be built and pushed with that tag first, e.g.:
+#                 ./scripts/build-images.sh --push --tag pr-123
+#               Then: ./scripts/deploy.sh dev pr-123
+#
+# Examples:
+#   ./scripts/deploy.sh dev                    # deploy latest
+#   ./scripts/deploy.sh dev main               # deploy images tagged "main"
+#   ./scripts/deploy.sh staging v1.2.0         # deploy release tag
+#   SYNESIS_REF=pr-456 ./scripts/deploy.sh dev # deploy PR branch images
 #
 # The "openrouter" environment routes all LLM traffic through OpenRouter.ai,
 # eliminating the need for GPU hardware.  On first run it prompts for your
@@ -21,11 +33,16 @@ PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
 ENV="${1:-}"
+REF="${2:-${SYNESIS_REF:-latest}}"
 
 if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|staging|prod|openrouter)$ ]]; then
-    echo "Usage: $0 <dev|staging|prod|openrouter>"
+    echo "Usage: $0 <dev|staging|prod|openrouter> [ref]"
+    echo "  ref: optional image tag (default: latest). e.g. main, v1.0.0, pr-123"
     exit 1
 fi
+
+# Normalize ref for image tag (no leading/trailing slash; safe for sed)
+REF_SAFE="${REF//\//-}"
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
@@ -140,6 +157,7 @@ ensure_openrouter_key() {
 }
 
 log "=== Deploying Synesis ($ENV) ==="
+[[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
 log ""
 
 ensure_litellm_key
@@ -165,17 +183,19 @@ log "  $MANIFEST_COUNT resources to apply"
 # Pre-flight: verify custom images are reachable.
 # Spot-check one image from the kustomize output to catch the common
 # mistake of deploying before building/pushing images.
+# When REF is not "latest", we check the same tag we're about to deploy.
 # -----------------------------------------------------------------------
 check_custom_images() {
     log "Checking custom image availability..."
+    local built
+    built=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
+    [[ "$REF_SAFE" != "latest" ]] && built=$(echo "$built" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
     local sample_image
-    sample_image=$(kustomize build "$OVERLAY_DIR" 2>/dev/null \
-        | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
+    sample_image=$(echo "$built" | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
         | sed 's/.*image: *//' | tr -d '"' | tr -d "'" || true)
 
     if [[ -z "$sample_image" ]]; then
-        sample_image=$(kustomize build "$OVERLAY_DIR" 2>/dev/null \
-            | grep 'image:' | grep 'synesis-' | head -1 \
+        sample_image=$(echo "$built" | grep 'image:' | grep 'synesis-' | head -1 \
             | sed 's/.*image: *//' | tr -d '"' | tr -d "'" || true)
         if [[ -n "$sample_image" && "$sample_image" != *"/"* ]]; then
             log "WARNING: Custom images still use bare names (e.g., $sample_image)."
@@ -191,6 +211,7 @@ check_custom_images() {
         if ! skopeo inspect --no-tags "docker://$sample_image" &>/dev/null; then
             log "WARNING: Cannot reach image $sample_image"
             log "  Build and push images first:"
+            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --push --tag $REF_SAFE"
             log "    ./scripts/build-images.sh --push"
             log "  If the repo is private, create a pull secret in each namespace."
             log ""
@@ -290,17 +311,20 @@ build_manifests() {
     local output
     output=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
     if [[ "$ISVC_SKIP" == "true" ]]; then
-        echo "$output" | python3 -c "
+        output=$(echo "$output" | python3 -c "
 import sys
 docs = sys.stdin.read().split('---')
 for doc in docs:
     if 'kind: InferenceService' not in doc and 'kind: ServingRuntime' not in doc:
         print('---')
         print(doc)
-"
-    else
-        echo "$output"
+")
     fi
+    # Deploy a specific ref (branch/tag/PR) instead of latest
+    if [[ "$REF_SAFE" != "latest" ]]; then
+        output=$(echo "$output" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
+    fi
+    echo "$output"
 }
 
 apply_manifests() {
@@ -384,6 +408,46 @@ if [[ "$APPLY_OK" != "true" && "$ISVC_SKIP" != "true" ]]; then
     log "  Once ready, re-run:  ./scripts/deploy.sh $ENV"
 fi
 
+# -----------------------------------------------------------------------
+# Keep Deployments and ReplicaSets under control (idempotent, less cruft).
+# - Set revisionHistoryLimit=2 on Synesis Deployments so new rollouts don't pile up.
+# - Delete old ReplicaSets with 0 replicas so failed or superseded rollouts don't linger.
+# -----------------------------------------------------------------------
+SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-models synesis-lsp synesis-sandbox synesis-search)
+
+set_revision_history_limit() {
+    local ns name
+    for ns in "${SYNESIS_NAMESPACES[@]}"; do
+        if ! oc get namespace "$ns" &>/dev/null; then continue; fi
+        for name in $(oc get deployment -n "$ns" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            oc patch deployment "$name" -n "$ns" -p '{"spec":{"revisionHistoryLimit":2}}' --type=merge 2>/dev/null || true
+        done
+    done
+    log "  Set revisionHistoryLimit=2 on Deployments"
+}
+
+prune_old_replicasets() {
+    local ns name count=0
+    for ns in "${SYNESIS_NAMESPACES[@]}"; do
+        if ! oc get namespace "$ns" &>/dev/null; then continue; fi
+        while read -r name; do
+            [[ -z "$name" ]] && continue
+            if oc delete replicaset "$name" -n "$ns" --ignore-not-found 2>/dev/null; then
+                ((count++)) || true
+            fi
+        done < <(oc get rs -n "$ns" --no-headers -o custom-columns=NAME:.metadata.name,REPLICAS:.status.replicas 2>/dev/null | awk '$2=="" || $2=="0" {print $1}')
+    done
+    if [[ "${count:-0}" -gt 0 ]]; then
+        log "  Pruned $count old ReplicaSet(s) (0 replicas)"
+    fi
+}
+
+if [[ "$APPLY_OK" == "true" ]]; then
+    log ""
+    log "Setting revisionHistoryLimit=2 on Deployments (limits future ReplicaSet growth)..."
+    set_revision_history_limit
+fi
+
 log ""
 log "Waiting for rollouts..."
 
@@ -424,6 +488,13 @@ wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
 wait_for_deployment synesis-webui open-webui
+
+# Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.
+if [[ "$APPLY_OK" == "true" ]]; then
+    log ""
+    log "Pruning stale ReplicaSets (0 replicas)..."
+    prune_old_replicasets
+fi
 
 log ""
 if [[ "$ENV" == "openrouter" ]]; then
