@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Any
 
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import case, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.engine import async_session
@@ -91,7 +91,7 @@ async def get_trace_stats() -> dict[str, Any]:
         try:
             q = select(
                 func.count().label("total"),
-                func.sum(Trace.has_error.cast(int)).label("errors"),
+                func.sum(case((Trace.has_error == True, 1), else_=0)).label("errors"),
                 func.avg(Trace.total_duration_ms).label("avg_duration"),
                 func.avg(Trace.total_tokens).label("avg_tokens"),
                 func.avg(Trace.estimated_cost_usd).label("avg_cost"),
