@@ -382,13 +382,23 @@ def _sse_status_chunk(data: dict) -> str:
     return f"data: {json.dumps({'event': data})}\n\n"
 
 
-def _emit_phase(description: str, done: bool = False, hidden: bool = False) -> str:
+def _emit_phase(
+    description: str,
+    done: bool = False,
+    hidden: bool = False,
+    detail: str | None = None,
+) -> str:
     """Emit a phase/status event to Open WebUI.
 
     Thin wrapper over _sse_status_chunk for the common case of status updates.
     All phase emissions should use this helper for consistency.
+    If detail is set, it is included so clients can show it within the phase block
+    (e.g. subtext under the main description) without stacking separate events.
     """
-    return _sse_status_chunk({"type": "status", "data": {"description": description, "done": done, "hidden": hidden}})
+    data: dict[str, Any] = {"description": description, "done": done, "hidden": hidden}
+    if detail:
+        data["detail"] = detail
+    return _sse_status_chunk({"type": "status", "data": data})
 
 
 class ThinkTagParser:
@@ -513,9 +523,52 @@ _NODE_TO_PHASE: dict[str, str] = {
 _HEARTBEAT_AFTER_S = 5.0
 
 
+def _resolve_node_from_event(event: dict[str, Any]) -> str | None:
+    """Resolve graph node name from astream_events payload.
+
+    LangGraph may put the node in metadata.langgraph_node or in name; name may
+    be wrapped (e.g. with_telemetry_node). Prefer exact match, then substring.
+    """
+    meta = event.get("metadata") or {}
+    lg_node = (meta.get("langgraph_node") or "").strip()
+    if lg_node and lg_node in _NODE_TO_PHASE:
+        return lg_node
+    name = (event.get("name") or "").strip()
+    if name in _NODE_TO_PHASE:
+        return name
+    name_lower = name.lower()
+    for node in _NODE_TO_PHASE:
+        if node in name_lower or node.replace("_", "") in name_lower.replace("_", ""):
+            return node
+    return None
+
+
 def _phase_for_node(node: str) -> str:
     """Return the user-facing phase label for a node."""
     return _NODE_TO_PHASE.get(node, "")
+
+
+def _phase_detail_hint(phase_label: str) -> str:
+    """Short subtext for the current phase (shown as detail in same status event).
+
+    Gives clarification within the phase block without stacking extra events.
+    """
+    p = (phase_label or "").lower()
+    if "analyzing" in p or "request" in p:
+        return "Interpreting intent and constraints"
+    if "gathering" in p or "evidence" in p:
+        return "Searching sources and ranking relevance"
+    if "building" in p or "plan" in p:
+        return "Mapping requirements to sections"
+    if "composing" in p or "response" in p:
+        return "Synthesizing evidence into narrative"
+    if "evaluating" in p or "quality" in p:
+        return "Checking coverage and grounding"
+    if "polishing" in p:
+        return "Final clarity and formatting"
+    if "finalizing" in p:
+        return "Preparing response"
+    return ""
 
 
 def _router_phase(input_data: dict) -> str:
@@ -1132,8 +1185,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         if settings.streaming_events_enabled:
             # ── astream_events(v2): token-level streaming + inline node status ──
 
-            _KNOWN_NODES = frozenset(_NODE_TO_PHASE.keys())
-
             async def sse_generator() -> object:
                 yield _emit_phase("Starting\u2026")
                 await asyncio.sleep(0)
@@ -1142,9 +1193,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 def _flow_phase(desc: str, **kw: Any) -> str:
                     """Emit phase with › flow indicator after the first emission."""
+                    detail = kw.pop("detail", None)
                     if _flow_started and desc and not kw.get("done"):
-                        return _emit_phase(f"\u203a {desc}", **kw)
-                    return _emit_phase(desc, **kw)
+                        return _emit_phase(f"\u203a {desc}", detail=detail, **kw)
+                    return _emit_phase(desc, detail=detail, **kw)
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 # When inline critic is active (critic_background=False), suppress
@@ -1240,13 +1292,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             continue
 
                         kind = event["event"]
-                        name = event.get("name", "")
-                        meta = event.get("metadata", {})
-                        lg_node = meta.get("langgraph_node", "")
+                        node_label = _resolve_node_from_event(event)
 
                         # ── Node started → phase-based status with elapsed heartbeat ──
-                        if kind == "on_chain_start" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
-                            node_label = name if name in _KNOWN_NODES else lg_node
+                        if kind == "on_chain_start" and node_label:
                             phase = _phase_for_node(node_label)
                             now = time.monotonic()
 
@@ -1266,7 +1315,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     _current_phase = effective_phase
                                 thinking_phases.append(effective_phase)
-                                yield _flow_phase(effective_phase)
+                                detail = _phase_detail_hint(effective_phase)
+                                yield _flow_phase(effective_phase, detail=detail if detail else None)
                                 await asyncio.sleep(0)
                             elif phase and _current_phase and (now - _phase_start) >= _HEARTBEAT_AFTER_S:
                                 elapsed = int(now - _phase_start)
@@ -1275,13 +1325,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 await asyncio.sleep(0)
 
                         # ── Node ended → accumulate state + rich status ──
-                        elif kind == "on_chain_end" and (name in _KNOWN_NODES or lg_node in _KNOWN_NODES):
+                        elif kind == "on_chain_end" and node_label:
                             output = event.get("data", {}).get("output")
-                            node_label = name if name in _KNOWN_NODES else lg_node
                             if isinstance(output, dict):
                                 for k, v in output.items():
                                     if k == "messages":
-                                        if name == "respond":
+                                        if node_label == "respond":
                                             accumulated_state["messages"] = v
                                     else:
                                         accumulated_state[k] = v
@@ -1371,7 +1420,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     _stream_closed = True
 
                         # ── Token streaming from executor / writer LLM ──
-                        elif kind == "on_chat_model_stream" and lg_node in ("executor", "writer"):
+                        elif kind == "on_chat_model_stream":
+                            _meta = event.get("metadata") or {}
+                            _lg_node = _meta.get("langgraph_node") or ""
+                            if _lg_node not in ("executor", "writer"):
+                                continue
                             chunk_obj = event.get("data", {}).get("chunk")
                             if not chunk_obj:
                                 continue
@@ -1467,7 +1520,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         "sse_first_reasoning_token",
                                         extra={
                                             "elapsed_ms": elapsed_now,
-                                            "node": lg_node,
+                                            "node": _lg_node,
                                             "sample": rc[:120],
                                         },
                                     )
@@ -1512,7 +1565,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         extra={
                                             "elapsed_ms": elapsed_now,
                                             "reasoning_chunks": _diag_reasoning_chunks,
-                                            "node": lg_node,
+                                            "node": _lg_node,
                                         },
                                     )
                                 fragments = [content_tok]
@@ -1755,9 +1808,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _fb_flow_started = True
 
                 def _fb_flow_phase(desc: str, **kw: Any) -> str:
+                    detail = kw.pop("detail", None)
                     if _fb_flow_started and desc and not kw.get("done"):
-                        return _emit_phase(f"\u203a {desc}", **kw)
-                    return _emit_phase(desc, **kw)
+                        return _emit_phase(f"\u203a {desc}", detail=detail, **kw)
+                    return _emit_phase(desc, detail=detail, **kw)
 
                 result = None
                 heartbeat_task = None
@@ -1809,7 +1863,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         if node:
                             desc = _phase_for_node(node)
                             if desc:
-                                yield _fb_flow_phase(desc)
+                                fb_detail = _phase_detail_hint(desc)
+                                yield _fb_flow_phase(desc, detail=fb_detail or None)
                         if getattr(settings, "stream_debug_chatter", False) and chunk:
                             for n, label, content in _format_debug_chatter(chunk):
                                 if content:

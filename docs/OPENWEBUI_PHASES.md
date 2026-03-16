@@ -116,6 +116,7 @@ Open WebUI expects status events in the stream with:
 - `data.description`: display text
 - `data.done`: `true` at end to clear the indicator
 - `data.hidden`: optional
+- `data.detail`: optional — short subtext for the phase (e.g. "Searching sources and ranking relevance") shown within the same phase block without stacking extra events
 
 ### Visible Plan Steps (Knowledge Deep-Dives)
 
@@ -124,6 +125,8 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 - **Code tasks:** No plan block emitted
 - **Simple text tasks (no planner):** No plan block emitted
 - **Status events** still fire in parallel for real-time UI indicators
+
+**Phase resolution:** The planner resolves the current node from `astream_events` using `_resolve_node_from_event()` (exact match on `metadata.langgraph_node` or `name`, then substring match for wrapped runnables). This ensures phase status events are emitted even when LangGraph event shape varies.
 
 **Why statuses might not appear:**
 - **LiteLLM/proxy**: Some proxies forward only `data:` lines and drop `event: status`. Try calling the Planner directly (no LiteLLM) to verify.

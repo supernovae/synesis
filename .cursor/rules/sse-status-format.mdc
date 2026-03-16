@@ -14,8 +14,9 @@ Open WebUI routes status events via a JSON `"event"` key in `data:` lines.
 The `_sse_status_chunk` function in `main.py` handles this:
 
 ```
-data: {"event": {"type": "status", "data": {"description": "...", "done": false, "hidden": false}}}
+data: {"event": {"type": "status", "data": {"description": "...", "done": false, "hidden": false, "detail": "optional subtext"}}}
 ```
+Optional `data.detail`: short subtext for the phase (e.g. "Searching sources and ranking relevance"). Shown within the same phase block; do not stack as separate events.
 
 ## Forbidden Format
 
@@ -30,7 +31,7 @@ data: {"type": "status", ...}
 
 ## Rules
 
-1. **Always use `_emit_phase(description, done, hidden)`** for status emissions. Never call `_sse_status_chunk` directly from streaming generators.
+1. **Always use `_emit_phase(description, done, hidden, detail=None)`** for status emissions. Never call `_sse_status_chunk` directly from streaming generators.
 2. **Status descriptions must be generic**: phase name + counts/domain label from semantic frame. Never embed domain-specific content, user prompt text, or LLM output in status events.
 3. **Every new LangGraph node must be added to**:
    - `_NODE_TO_PHASE` dict in `main.py`
