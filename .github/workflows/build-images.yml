@@ -9,6 +9,8 @@ on:
       - 'base/**/app/**'
       - 'base/**/frontend/**'
       - 'base/**/plugins/**'
+      - 'base/**/alembic/**'
+      - 'base/**/*.sh'
       - 'base/**/*.yaml'
       - 'base/images/**'
       - 'base/sandbox/image/**'
