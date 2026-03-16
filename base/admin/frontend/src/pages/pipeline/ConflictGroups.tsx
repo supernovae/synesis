@@ -32,14 +32,14 @@ export default function ConflictGroups() {
   const columns = [
     {
       key: "group_name" as const,
-      header: "Group",
+      label: "Group",
       render: (row: Record<string, unknown>) => (
         <span className="font-medium">{String(row.group_name)}</span>
       ),
     },
     {
       key: "members" as const,
-      header: "Members",
+      label: "Members",
       render: (row: Record<string, unknown>) => {
         const members = row.members as string[];
         return (
@@ -58,7 +58,7 @@ export default function ConflictGroups() {
     },
     {
       key: "default_pick" as const,
-      header: "Default",
+      label: "Default",
       render: (row: Record<string, unknown>) =>
         row.default_pick ? (
           <span className="text-sm font-medium text-emerald-700">
@@ -70,7 +70,7 @@ export default function ConflictGroups() {
     },
     {
       key: "status" as const,
-      header: "Status",
+      label: "Status",
       render: (row: Record<string, unknown>) => {
         const badge = STATUS_BADGES[String(row.status)] ?? {
           label: String(row.status),
@@ -87,7 +87,7 @@ export default function ConflictGroups() {
     },
     {
       key: "source_query" as const,
-      header: "Source Query",
+      label: "Source Query",
       render: (row: Record<string, unknown>) => (
         <span className="max-w-xs truncate text-xs text-gray-500" title={String(row.source_query)}>
           {String(row.source_query).slice(0, 80)}
@@ -97,7 +97,7 @@ export default function ConflictGroups() {
     },
     {
       key: "discovered_at" as const,
-      header: "Discovered",
+      label: "Discovered",
       render: (row: Record<string, unknown>) => {
         const d = row.discovered_at ? new Date(String(row.discovered_at)) : null;
         return (
@@ -112,7 +112,7 @@ export default function ConflictGroups() {
   const actionColumn = isAdmin
     ? {
         key: "_actions" as const,
-        header: "Actions",
+        label: "Actions",
         render: (row: Record<string, unknown>) => {
           const id = row.id as number;
           const st = String(row.status);
