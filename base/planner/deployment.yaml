@@ -151,7 +151,9 @@ spec:
             - name: SYNESIS_LSP_TIMEOUT_SECONDS
               value: "30"
             - name: SYNESIS_NODE_TIMEOUT_SECONDS
-              value: "180"
+              value: "300"
+            - name: SYNESIS_HTTP_READ_TIMEOUT_LLM
+              value: "300"
             - name: SYNESIS_CRITIC_BACKGROUND
               value: "false"
             - name: SYNESIS_LOG_LEVEL

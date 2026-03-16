@@ -37,10 +37,12 @@ data:
           max_tokens: 4096
           temperature: 0.1
 
-      # General (executor, writer, synthesis)
+      # General (executor, writer, synthesis) — DeepSeek V3.2:
+      # GPT-5 class reasoning, $0.26/M in / $0.38/M out, 163K context.
+      # Strong first-pass quality reduces critic retries and effective cost.
       - model_name: synesis-general
         litellm_params:
-          model: openrouter/qwen/qwen3-32b
+          model: openrouter/deepseek/deepseek-v3.2:nitro
           api_key: "os.environ/OPENROUTER_API_KEY"
           max_tokens: 32768
           temperature: 0.3

@@ -910,6 +910,14 @@ Reply with JSON:
 
                 # Per-requirement coverage: ensure each explicit_requirement
                 # from the user's task has substantive treatment in the output.
+                # Trust the LLM critic over rigid keyword matching when LLM
+                # scores are high — the LLM understands semantic equivalence
+                # (e.g. "risk" ≈ "failure mode") that keyword matching misses.
+                _llm_coverage_high = (
+                    scores
+                    and scores.coverage >= 8.0
+                    and scores.weighted_overall >= 8.0
+                )
                 if difficulty >= 0.6 and generated_code and user_task_data:
                     _req_failures = _deterministic_requirement_coverage(
                         generated_code,
@@ -919,7 +927,7 @@ Reply with JSON:
                     for rf in _req_failures:
                         if rf not in failure_modes:
                             failure_modes.append(rf)
-                        if difficulty >= 0.7:
+                        if difficulty >= 0.7 and not _llm_coverage_high:
                             critical_failures.add(rf)
 
                     _tech_failures = _deterministic_technology_coverage(

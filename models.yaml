@@ -437,10 +437,10 @@ openrouter_profiles:
           Grok 4 Fast: ultra-fast classification/routing at $0.20/M in, $0.50/M out.
           Non-reasoning mode for speed. 2M context.
       general:
-        openrouter_model: "qwen/qwen3-32b"
+        openrouter_model: "deepseek/deepseek-v3.2"
         notes: >
-          Qwen3-32B: strong general reasoning at $0.08/M in, $0.24/M out.
-          Dual thinking/non-thinking modes. 41K context (131K extended).
+          DeepSeek V3.2: GPT-5 class reasoning at $0.26/M in, $0.38/M out.
+          Strong first-pass quality reduces critic retries. 163K context.
       coder:
         openrouter_model: "qwen/qwen-2.5-coder-32b-instruct"
         notes: >

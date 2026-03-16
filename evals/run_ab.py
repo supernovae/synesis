@@ -47,7 +47,11 @@ def send_prompt(
     inference_mode: str,
     timeout: float = 300.0,
 ) -> dict[str, Any]:
-    """Send a single prompt to the planner and collect response + timing."""
+    """Send a streaming prompt to the planner and reconstruct the response.
+
+    The planner is SSE-streaming-only for proper results (trivial tasks use a
+    direct_stream_request pattern that only fires in streaming mode).
+    """
     headers = {
         "Content-Type": "application/json",
         "X-Synesis-Inference-Mode": inference_mode,
@@ -55,41 +59,59 @@ def send_prompt(
     payload = {
         "model": "synesis-agent",
         "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
+        "stream": True,
     }
 
     t0 = time.monotonic()
+    content_parts: list[str] = []
+    usage: dict[str, int] = {}
+    status_code = 0
     try:
         with httpx.Client(timeout=timeout) as client:
-            resp = client.post(planner_url, json=payload, headers=headers)
-            elapsed_ms = (time.monotonic() - t0) * 1000
-            resp.raise_for_status()
-            data = resp.json()
+            with client.stream("POST", planner_url, json=payload, headers=headers) as resp:
+                status_code = resp.status_code
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
 
-            content = ""
-            usage = data.get("usage", {})
-            choices = data.get("choices", [])
-            if choices:
-                content = choices[0].get("message", {}).get("content", "")
+                    chunk_usage = chunk.get("usage")
+                    if chunk_usage:
+                        usage = chunk_usage
 
-            return {
-                "content": content,
-                "elapsed_ms": round(elapsed_ms, 1),
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "total_tokens": usage.get("total_tokens", 0),
-                "status_code": resp.status_code,
-                "error": None,
-            }
+                    for choice in chunk.get("choices", []):
+                        delta = choice.get("delta", {})
+                        tok = delta.get("content", "")
+                        if tok:
+                            content_parts.append(tok)
+
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        content = "".join(content_parts)
+        return {
+            "content": content,
+            "elapsed_ms": round(elapsed_ms, 1),
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+            "status_code": status_code,
+            "error": None,
+        }
     except Exception as exc:
         elapsed_ms = (time.monotonic() - t0) * 1000
         return {
-            "content": "",
+            "content": "".join(content_parts),
             "elapsed_ms": round(elapsed_ms, 1),
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "total_tokens": 0,
-            "status_code": 0,
+            "status_code": status_code,
             "error": str(exc)[:500],
         }
 
@@ -168,17 +190,20 @@ def judge_pair(
 
     must_pass_section = "\n".join(applicable_checks) if applicable_checks else "None applicable."
 
-    judge_prompt = template.format(
-        prompt=prompt_text,
-        response_a=response_a[:15000],
-        response_b=response_b[:15000],
-        dim_instruction_satisfaction=dims.get("instruction_satisfaction", {}).get("description", ""),
-        dim_factual_grounding=dims.get("factual_grounding", {}).get("description", ""),
-        dim_uncertainty_handling=dims.get("uncertainty_handling", {}).get("description", ""),
-        dim_completeness_vs_concision=dims.get("completeness_vs_concision", {}).get("description", ""),
-        dim_harmful_overconfidence=dims.get("harmful_overconfidence", {}).get("description", ""),
-        must_pass_section=must_pass_section,
-    )
+    replacements = {
+        "prompt": prompt_text,
+        "response_a": response_a[:15000],
+        "response_b": response_b[:15000],
+        "dim_instruction_satisfaction": dims.get("instruction_satisfaction", {}).get("description", ""),
+        "dim_factual_grounding": dims.get("factual_grounding", {}).get("description", ""),
+        "dim_uncertainty_handling": dims.get("uncertainty_handling", {}).get("description", ""),
+        "dim_completeness_vs_concision": dims.get("completeness_vs_concision", {}).get("description", ""),
+        "dim_harmful_overconfidence": dims.get("harmful_overconfidence", {}).get("description", ""),
+        "must_pass_section": must_pass_section,
+    }
+    judge_prompt = template
+    for key, value in replacements.items():
+        judge_prompt = judge_prompt.replace("{" + key + "}", str(value))
 
     try:
         with httpx.Client(timeout=120) as client:
@@ -257,7 +282,8 @@ def main() -> None:
     results: list[dict[str, Any]] = []
     det_checks_config = rubric.get("deterministic_checks", {}) if rubric else {}
     dimensions = rubric.get("dimensions", {}) if rubric else {}
-    judge_model = rubric.get("judge_model", "openrouter/anthropic/claude-sonnet-4") if rubric else ""
+    _raw_judge_model = rubric.get("judge_model", "openrouter/anthropic/claude-sonnet-4") if rubric else ""
+    judge_model = _raw_judge_model.removeprefix("openrouter/")
 
     for i, prompt_meta in enumerate(prompts):
         pid = prompt_meta["id"]
@@ -272,7 +298,8 @@ def main() -> None:
             resp = send_prompt(args.planner_url, prompt_text, mode, timeout=args.timeout)
             modes[mode] = resp
             status = "OK" if not resp["error"] else f"ERR: {resp['error'][:60]}"
-            print(f" {resp['elapsed_ms']:.0f}ms, {resp['total_tokens']}tok [{status}]")
+            chars = len(resp["content"])
+            print(f" {resp['elapsed_ms']:.0f}ms, {chars}ch, {resp['total_tokens']}tok [{status}]")
 
         # Deterministic checks
         det_results = {}
@@ -338,6 +365,7 @@ def main() -> None:
                     "total_tokens": modes[mode]["total_tokens"],
                     "error": modes[mode]["error"],
                     "response_length": len(modes[mode]["content"]),
+                    "content": modes[mode]["content"],
                     "deterministic_checks": det_results[mode],
                 }
                 for mode in ("full", "selective")
@@ -359,10 +387,11 @@ def main() -> None:
         pid = result["id"]
         for mode in ("full", "selective"):
             resp_path = responses_dir / f"{pid}_{mode}.md"
+            content = result["modes"][mode].get("content", "")
             with open(resp_path, "w") as f:
                 f.write(f"# {pid} ({mode})\n\n")
                 f.write(f"Prompt: {prompt_meta['prompt'][:200]}...\n\n---\n\n")
-                f.write(modes[mode]["content"] if modes[mode]["content"] else "[ERROR/EMPTY]")
+                f.write(content if content else "[ERROR/EMPTY]")
 
     # Print summary
     print("\n" + "=" * 70)
