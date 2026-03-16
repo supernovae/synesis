@@ -55,6 +55,8 @@ sources:
           title: "LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models"
         - id: "2310.06839"
           title: "LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression"
+        - id: "2309.15217"
+          title: "RAGAS: Automated Evaluation of Retrieval Augmented Generation"
 
   - name: "Reasoning & Agent Research"
     handler: arxiv_paper
@@ -127,6 +129,10 @@ sources:
           title: "Constitutional AI: Harmlessness from AI Feedback"
         - id: "2403.20042"
           title: "Asking LLMs to Verify First Before Answering: A Simple Way to Improve Reliability"
+        - id: "2305.18153"
+          title: "R-Tuning: Teaching Large Language Models to Refuse When They Don't Know"
+        - id: "2404.10136"
+          title: "Calibration and Correctness of Language Models for Code"
 
   - name: "Software Engineering Agent Research"
     handler: arxiv_paper
@@ -1209,6 +1215,8 @@ sources:
           title: "Cascade Routing: A Unified Approach to Routing and Cascading for LLMs"
         - id: "2311.07911"
           title: "IFEval: Instruction-Following Evaluation for Large Language Models"
+        - id: "2305.05176"
+          title: "FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance"
 
   # ═══════════════════════════════════════════════════════════════════════
   # MoE ROUTING — advanced routing papers

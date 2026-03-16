@@ -26,3 +26,12 @@ sources:
     config:
       path: seed-corpus.json
       tags: [epistemic, foundations, cross-domain, reference]
+
+  - name: "AI Architecture Foundations"
+    handler: seed_corpus
+    origin_type: curated
+    authority: vetted
+    domain: software_architecture
+    config:
+      path: seed-corpus-ai-architecture.json
+      tags: [ai-architecture, rag, production, security, routing, code-assistant]
