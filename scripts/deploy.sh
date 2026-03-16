@@ -156,6 +156,144 @@ ensure_openrouter_key() {
     log "OpenRouter API key stored in $ns/$secret_name"
 }
 
+
+# -----------------------------------------------------------------------
+# Admin Postgres: ensure CloudNativePG Cluster exists, read the operator-
+# generated password, and patch admin + planner deployments with the real
+# DATABASE_URL.  Idempotent — only patches when the password changes.
+# -----------------------------------------------------------------------
+ensure_admin_db() {
+    local ns="synesis-admin"
+    local cluster_name="synesis-admin-db"
+    local secret_name="${cluster_name}-app"
+    local db_name="synesis_admin"
+    local db_user="app"
+    local cluster_manifest="$PROJECT_ROOT/base/postgres/cluster.yaml"
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    # Check that the CloudNativePG CRD is installed
+    if ! oc get crd clusters.postgresql.cnpg.io &>/dev/null; then
+        log "WARNING: CloudNativePG CRD not found — install the operator first."
+        log "  OpenShift: OperatorHub → CloudNativePG (community)"
+        log "  Helm:      helm repo add cnpg https://cloudnative-pg.github.io/charts"
+        log "             helm install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace"
+        log "  Skipping admin DB setup. The admin will use the default (dev) connection string."
+        return
+    fi
+
+    # Apply the Cluster CR (idempotent)
+    if [[ -f "$cluster_manifest" ]]; then
+        oc apply -f "$cluster_manifest"
+        log "  Cluster CR applied: $ns/$cluster_name"
+    else
+        log "WARNING: Cluster manifest not found: $cluster_manifest"
+        return
+    fi
+
+    # Wait for the cluster to become Ready (up to 3 min)
+    log "  Waiting for Postgres cluster to become Ready..."
+    local ready="false"
+    for _ in $(seq 1 36); do
+        local phase
+        phase=$(oc get cluster "$cluster_name" -n "$ns" \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [[ "$phase" == "Cluster in healthy state" ]]; then
+            ready="true"
+            break
+        fi
+        sleep 5
+    done
+
+    if [[ "$ready" != "true" ]]; then
+        log "WARNING: Postgres cluster not ready after 3 min."
+        log "  Check: oc get cluster $cluster_name -n $ns -o yaml"
+        log "  Continuing with placeholder credentials — update manually if needed."
+        return
+    fi
+    log "  Postgres cluster is healthy"
+
+    # Read the operator-generated password
+    local pg_pass=""
+    if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        pg_pass=$(oc get secret "$secret_name" -n "$ns" \
+            -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+
+    if [[ -z "$pg_pass" ]]; then
+        log "WARNING: Could not read password from secret $ns/$secret_name"
+        return
+    fi
+
+    # URL-encode the password (operator may generate special chars)
+    local encoded_pass
+    encoded_pass=$($PYTHON -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$pg_pass")
+
+    local svc_host="${cluster_name}-rw.${ns}.svc"
+    local admin_url="postgresql+asyncpg://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+    local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+
+    # Patch admin deployment (only if value differs)
+    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url"
+
+    # Patch planner deployment
+    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
+
+    log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
+}
+
+# Helper: set a single env var on a deployment, only if it changed.
+_patch_deployment_env() {
+    local ns="$1" deploy="$2" env_name="$3" env_value="$4"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local current
+    current=$(oc get deployment "$deploy" -n "$ns" \
+        -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='$env_name')].value}" 2>/dev/null || true)
+
+    if [[ "$current" == "$env_value" ]]; then
+        return
+    fi
+
+    oc set env deployment/"$deploy" -n "$ns" "${env_name}=${env_value}" 2>/dev/null || true
+    log "  Patched $ns/$deploy $env_name"
+}
+
+# Post-apply version: re-patches deployments that were just created by
+# kustomize apply and still have the placeholder password.
+patch_admin_db_urls() {
+    local ns="synesis-admin"
+    local cluster_name="synesis-admin-db"
+    local secret_name="${cluster_name}-app"
+    local db_name="synesis_admin"
+    local db_user="app"
+
+    if ! oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local pg_pass
+    pg_pass=$(oc get secret "$secret_name" -n "$ns" \
+        -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+
+    if [[ -z "$pg_pass" ]] || [[ "$pg_pass" == "changeme" ]]; then
+        return
+    fi
+
+    local encoded_pass
+    encoded_pass=$($PYTHON -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$pg_pass")
+
+    local svc_host="${cluster_name}-rw.${ns}.svc"
+    local admin_url="postgresql+asyncpg://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+    local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+
+    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url"
+    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
+}
+
 log "=== Deploying Synesis ($ENV) ==="
 [[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
 log ""
@@ -166,6 +304,10 @@ ensure_webui_key
 if [[ "$ENV" == "openrouter" ]]; then
     ensure_openrouter_key
 fi
+
+log ""
+log "Setting up admin Postgres..."
+ensure_admin_db
 
 log ""
 log "Validating kustomize build..."
@@ -312,8 +454,8 @@ build_manifests() {
     output=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
     if [[ "$ISVC_SKIP" == "true" ]]; then
         output=$(echo "$output" | python3 -c "
-import sys
-docs = sys.stdin.read().split('---')
+import sys, re
+docs = re.split(r'^---\s*$', sys.stdin.read(), flags=re.MULTILINE)
 for doc in docs:
     if 'kind: InferenceService' not in doc and 'kind: ServingRuntime' not in doc:
         print('---')
@@ -409,6 +551,28 @@ if [[ "$APPLY_OK" != "true" && "$ISVC_SKIP" != "true" ]]; then
 fi
 
 # -----------------------------------------------------------------------
+# One-time cleanup: admin resources moved from synesis-planner to
+# synesis-admin. Remove the orphaned resources in the old namespace.
+# -----------------------------------------------------------------------
+if oc get deployment synesis-admin -n synesis-planner &>/dev/null; then
+    log ""
+    log "Cleaning up stale admin resources from synesis-planner namespace..."
+    oc delete deployment synesis-admin -n synesis-planner --ignore-not-found 2>/dev/null || true
+    oc delete service synesis-admin -n synesis-planner --ignore-not-found 2>/dev/null || true
+    oc delete route synesis-admin -n synesis-planner --ignore-not-found 2>/dev/null || true
+    log "  Stale admin resources removed from synesis-planner"
+fi
+
+# -----------------------------------------------------------------------
+# Post-apply: re-patch admin/planner DATABASE_URL with the real password.
+# The kustomize-applied deployments have the placeholder "changeme";
+# this overwrites it if the operator secret exists.
+# -----------------------------------------------------------------------
+log ""
+log "Patching admin DB credentials (post-apply)..."
+patch_admin_db_urls
+
+# -----------------------------------------------------------------------
 # Keep Deployments and ReplicaSets under control (idempotent, less cruft).
 # - Set revisionHistoryLimit=2 on Synesis Deployments so new rollouts don't pile up.
 # - Delete old ReplicaSets with 0 replicas so failed or superseded rollouts don't linger.
@@ -487,6 +651,7 @@ fi
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
+wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-webui open-webui
 
 # Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.

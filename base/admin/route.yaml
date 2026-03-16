@@ -4,7 +4,7 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: synesis-admin
-  namespace: synesis-planner
+  namespace: synesis-admin
   labels:
     app.kubernetes.io/name: synesis-admin
     app.kubernetes.io/part-of: synesis

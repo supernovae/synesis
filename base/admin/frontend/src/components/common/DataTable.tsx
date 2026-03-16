@@ -18,7 +18,7 @@ interface Props<T> {
   className?: string;
 }
 
-export default function DataTable<T extends Record<string, unknown>>({
+export default function DataTable<T extends object>({
   columns,
   data,
   keyField,
@@ -40,8 +40,8 @@ export default function DataTable<T extends Record<string, unknown>>({
 
   const sorted = sortKey
     ? [...data].sort((a, b) => {
-        const va = a[sortKey];
-        const vb = b[sortKey];
+        const va = (a as Record<string, unknown>)[sortKey];
+        const vb = (b as Record<string, unknown>)[sortKey];
         const cmp =
           typeof va === "number" && typeof vb === "number"
             ? va - vb
@@ -91,7 +91,7 @@ export default function DataTable<T extends Record<string, unknown>>({
         <tbody className="divide-y divide-gray-200 bg-white">
           {sorted.map((row) => (
             <tr
-              key={String(row[keyField])}
+              key={String((row as Record<string, unknown>)[keyField])}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               className={clsx(
                 onRowClick && "cursor-pointer hover:bg-gray-50",
@@ -107,7 +107,7 @@ export default function DataTable<T extends Record<string, unknown>>({
                 >
                   {col.render
                     ? col.render(row)
-                    : String(row[col.key] ?? "")}
+                    : String((row as Record<string, unknown>)[col.key] ?? "")}
                 </td>
               ))}
             </tr>
