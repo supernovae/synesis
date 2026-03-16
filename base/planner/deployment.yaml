@@ -158,9 +158,11 @@ spec:
               value: "false"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
-            # Worker count — keep low to avoid OOM under 4Gi limit
+            # Worker count: 1 request uses 1 worker; concurrency allows 2 in-flight per pod.
+            # For time-to-first-token, concurrency does not help a single request. For multi-user,
+            # scale via replicas (more pods) rather than workers to avoid OOM per pod.
             - name: WEB_CONCURRENCY
-              value: "2"
+              value: "1"
             # Warm cache disabled — runs 8 full router pipelines at startup per worker
             - name: SYNESIS_RETRIEVAL_CACHE_WARM_ON_STARTUP
               value: "false"
@@ -188,10 +190,10 @@ spec:
           resources:
             requests:
               cpu: "2"
-              memory: 4Gi
+              memory: 6Gi
             limits:
               cpu: "4"
-              memory: 8Gi
+              memory: 12Gi
           livenessProbe:
             httpGet:
               path: /health

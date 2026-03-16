@@ -46,7 +46,7 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 
 | Component | CPU Request | Memory | Notes |
 |-----------|------------|--------|-------|
-| Planner (FastAPI + LangGraph) | 2 cores | 4Gi | Includes ColBERT reranker + KeyBERT/semantic classifier (shared all-MiniLM-L6-v2 encoder, ~110MB + ~80MB) |
+| Planner (FastAPI + LangGraph) | 2 cores | 6Gi req / 12Gi limit | One worker per pod by default; scale via replicas for multi-user. See Scaling Guidance. |
 | LiteLLM Gateway | 500m | 512Mi | Lightweight proxy |
 | Milvus (standalone) | 2 cores | 8Gi | Vector database |
 | Embedder | 1 core | 2Gi | Sentence transformer |
@@ -65,6 +65,7 @@ Non-model services (planner, RAG, gateway, admin, etc.) run on standard worker n
 
 ## Scaling Guidance
 
+- **Planner (multi-user)**: Time-to-first-token for a single request is unchanged by `WEB_CONCURRENCY` (one request uses one worker). For more concurrent users, scale planner **replicas** (more pods); each pod runs one worker by default to avoid OOM. Raising in-pod concurrency (e.g. 2 workers) uses more memory per pod and only helps when multiple requests hit the same pod.
 - **Horizontal**: Add replicas of the Coder model for concurrent IDE users. HPA can scale on vLLM queue depth.
 - **Vertical**: Move from `small` to `medium` or `large` profile for larger models with higher quality.
 - **Cost**: See [COST_ESTIMATE.md](COST_ESTIMATE.md) for cloud cost estimates by profile.
