@@ -19,6 +19,11 @@ data:
       image_proxy: false
       public_instance: false
 
+    outgoing:
+      request_timeout: 5.0
+      max_request_timeout: 8.0
+      useragent_suffix: "synesis-search"
+
     search:
       safe_search: 0
       autocomplete: ""

@@ -702,8 +702,27 @@ async def retrieve_unified(
         if lock is not None:
             cohesion_lock_dict = lock.to_dict()
             pre_filter_count = len(final)
-            final = await cohesion_filter(final, lock, protected_top_n=3)
-            final = await compress_to_cohesion(final, lock)
+            filtered = await cohesion_filter(final, lock, protected_top_n=3)
+            filtered = await compress_to_cohesion(filtered, lock)
+
+            survival_rate = len(filtered) / max(pre_filter_count, 1)
+            if survival_rate < 0.2 and pre_filter_count >= 5:
+                logger.warning(
+                    "cohesion_too_aggressive",
+                    extra={
+                        "lock_entity": lock.entity,
+                        "pre_filter": pre_filter_count,
+                        "post_filter": len(filtered),
+                        "survival_rate": round(survival_rate, 2),
+                        "action": "reverting to pre-cohesion results",
+                    },
+                )
+                _degradation_notes_parts.append(
+                    f"Cohesion lock '{lock.entity}' removed {pre_filter_count - len(filtered)}/{pre_filter_count} results — reverted"
+                )
+            else:
+                final = filtered
+
             logger.info(
                 "cohesion_pipeline_complete",
                 extra={
@@ -711,6 +730,7 @@ async def retrieve_unified(
                     "lock_type": lock.lock_type,
                     "pre_filter": pre_filter_count,
                     "post_filter": len(final),
+                    "survival_rate": round(survival_rate, 2),
                 },
             )
 

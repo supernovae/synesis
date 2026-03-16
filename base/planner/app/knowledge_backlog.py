@@ -158,7 +158,8 @@ def _persist_gap_pg(entity: dict, web_search_fallback: bool = False) -> None:
     try:
         import psycopg2
 
-        conn = psycopg2.connect(db_url)
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(dsn)
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO knowledge_gaps (gap_id, query, task_description, collections_queried, max_score, platform_context, language, status, web_search_fallback, timestamp)

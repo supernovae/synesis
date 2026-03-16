@@ -211,8 +211,8 @@ def score_and_filter(
 # Page content fetcher -- extract readable text from top URLs
 # ---------------------------------------------------------------------------
 
-_FETCH_TIMEOUT = 5.0
-_FETCH_MAX_PAGES = 3
+_FETCH_TIMEOUT = 4.0
+_FETCH_MAX_PAGES = 2
 _FETCH_MAX_CHARS = 4000
 
 _SKIP_DOMAINS = frozenset({"youtube.com", "youtu.be", "twitter.com", "x.com", "reddit.com", "facebook.com"})
@@ -613,7 +613,10 @@ class WebSearchClient:
                 pool=self._timeout,
             )
             async with httpx.AsyncClient(timeout=_timeout) as client:
-                resp = await client.get(f"{self._base_url}/search", params=params)
+                resp = await asyncio.wait_for(
+                    client.get(f"{self._base_url}/search", params=params),
+                    timeout=self._timeout * 2,
+                )
                 resp.raise_for_status()
 
             data = resp.json()

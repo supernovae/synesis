@@ -87,6 +87,28 @@ patches:
                     $patch: delete
 
   # -----------------------------------------------------------------------
+  # OpenWebUI: point directly at the planner so SSE status events
+  # (phase updates, thinking indicators) pass through without being
+  # stripped by LiteLLM's response normalizer.
+  # -----------------------------------------------------------------------
+  - target:
+      kind: Deployment
+      name: open-webui
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: open-webui
+      spec:
+        template:
+          spec:
+            containers:
+              - name: open-webui
+                env:
+                  - name: OPENAI_API_BASE_URL
+                    value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
+
+  # -----------------------------------------------------------------------
   # Planner: point all model URLs through LiteLLM (which proxies to OpenRouter).
   # Model names stay the same (synesis-router, synesis-general, etc.) —
   # LiteLLM resolves them to the correct OpenRouter model paths.

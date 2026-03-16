@@ -247,8 +247,8 @@ class RouterNode:
         self.cache = cache or get_retrieval_cache()
         timeout = float(getattr(settings, "node_timeout_seconds", 180.0))
         self.request_timeout_seconds = max(30.0, timeout * 0.7)
-        self.retrieve_timeout_seconds = max(10.0, min(60.0, timeout * 0.33))
-        self.summarize_timeout_seconds = max(10.0, min(45.0, timeout * 0.25))
+        self.retrieve_timeout_seconds = max(10.0, min(45.0, timeout * 0.25))
+        self.summarize_timeout_seconds = max(10.0, min(60.0, timeout * 0.3))
         self.refine_timeout_seconds = max(8.0, min(30.0, timeout * 0.2))
 
     # ----- LLM sub-tasks -----

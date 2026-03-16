@@ -159,7 +159,7 @@ spec:
             - name: SYNESIS_HTTP_READ_TIMEOUT_LLM
               value: "300"
             - name: SYNESIS_CRITIC_BACKGROUND
-              value: "false"
+              value: "true"
             - name: SYNESIS_LOG_LEVEL
               value: "info"
             # Worker count: 1 request uses 1 worker; concurrency allows 2 in-flight per pod.
