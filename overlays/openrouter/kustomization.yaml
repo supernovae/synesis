@@ -129,6 +129,9 @@ patches:
                     value: "synesis-general"
                   - name: SYNESIS_CRITIC_MODEL_NAME
                     value: "synesis-critic"
+                  # Cap critic output tokens (DeepSeek-R1-Distill-Llama-70B); avoids overthinking and cost
+                  - name: SYNESIS_CRITIC_MAX_TOKENS
+                    value: "2048"
                   - name: SYNESIS_SUMMARIZER_MODEL_NAME
                     value: "synesis-summarizer"
                   # OpenRouter models are hosted — disable guided JSON (not supported by most providers)

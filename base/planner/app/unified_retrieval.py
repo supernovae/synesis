@@ -539,7 +539,8 @@ async def retrieve_unified(
     # Build Milvus domain filter only from canonical catalog domain IDs (lowercase, alphanumeric + underscore).
     # Dropping unknown/free-text tags prevents "domain in [\"some free text\"]" from matching nothing.
     refs = _normalize_domain_hints_for_filter(domain_hints)
-    domain_filter = f'domain in [{",".join(f\'"{r}"\' for r in refs)}]' if refs else ""
+    quoted = ",".join(f'"{r}"' for r in refs)
+    domain_filter = f"domain in [{quoted}]" if refs else ""
 
     web_budget = settings.scaled_web_budget(difficulty)
     web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web) and not skip_web

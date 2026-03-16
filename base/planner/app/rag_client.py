@@ -116,11 +116,28 @@ async def _embed_text(text: str) -> list[float]:
 _MILVUS_TIMEOUT = 10
 
 # ---------------------------------------------------------------------------
-# Shared Milvus client (singleton, thread-safe)
+# Shared Milvus client (singleton, thread-safe) with reconnect on closed channel
 # ---------------------------------------------------------------------------
 
 _milvus_client = None
 _milvus_client_lock = threading.Lock()
+
+# Substrings that indicate the gRPC channel is dead; we should reconnect.
+_CONNECTION_DEAD_MARKERS = ("closed channel", "Cannot invoke RPC", "connection reset", "Connection refused")
+
+
+def _is_connection_dead_error(exc: BaseException) -> bool:
+    """True if the exception indicates the Milvus gRPC channel is no longer usable."""
+    msg = (getattr(exc, "message", None) or str(exc)).lower()
+    return any(marker.lower() in msg for marker in _CONNECTION_DEAD_MARKERS)
+
+
+def _reset_milvus_client() -> None:
+    """Clear the shared Milvus client so the next call creates a fresh connection."""
+    global _milvus_client
+    with _milvus_client_lock:
+        _milvus_client = None
+    logger.debug("milvus_client_reset", extra={"reason": "connection_dead"})
 
 
 def _get_milvus_client():
@@ -431,8 +448,6 @@ async def _hybrid_search(
     from pymilvus import AnnSearchRequest, RRFRanker
 
     query_vector = await _embed_text(query)
-    client = _get_milvus_client()
-
     dense_req = AnnSearchRequest(
         data=[query_vector],
         anns_field="embedding",
@@ -448,15 +463,26 @@ async def _hybrid_search(
         expr=filter_expr or None,
     )
 
-    results = await asyncio.to_thread(
-        client.hybrid_search,
-        collection_name=collection,
-        reqs=[dense_req, sparse_req],
-        ranker=RRFRanker(k=settings.rag_rrf_k),
-        limit=top_k,
-        output_fields=_OUTPUT_FIELDS,
-    )
-
+    last_err: BaseException | None = None
+    for attempt in range(2):
+        try:
+            client = _get_milvus_client()
+            results = await asyncio.to_thread(
+                client.hybrid_search,
+                collection_name=collection,
+                reqs=[dense_req, sparse_req],
+                ranker=RRFRanker(k=settings.rag_rrf_k),
+                limit=top_k,
+                output_fields=_OUTPUT_FIELDS,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if _is_connection_dead_error(e) and attempt == 0:
+                _reset_milvus_client()
+                logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
+                continue
+            raise
     formatted: list[dict[str, Any]] = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
@@ -498,8 +524,6 @@ async def _sparse_search(
     filter_expr: str = "",
 ) -> list[dict[str, Any]]:
     """BM25-only search via Milvus sparse_text field."""
-    client = _get_milvus_client()
-
     search_kwargs: dict[str, Any] = {
         "collection_name": collection,
         "data": [query],
@@ -511,7 +535,19 @@ async def _sparse_search(
     if filter_expr:
         search_kwargs["filter"] = filter_expr
 
-    results = await asyncio.to_thread(client.search, **search_kwargs)
+    last_err: BaseException | None = None
+    for attempt in range(2):
+        try:
+            client = _get_milvus_client()
+            results = await asyncio.to_thread(client.search, **search_kwargs)
+            break
+        except Exception as e:
+            last_err = e
+            if _is_connection_dead_error(e) and attempt == 0:
+                _reset_milvus_client()
+                logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
+                continue
+            raise
 
     formatted: list[dict[str, Any]] = []
     for hits in results:

@@ -62,8 +62,8 @@ The overlay ships with the **budget** tier from `models.yaml`. All models are Op
 | **Router** (classification, planning, advisor) | `qwen/qwen3-14b` | $0.06/M | $0.24/M | 41K |
 | **General** (executor, writer, synthesis) | `deepseek/deepseek-v3.2` | $0.26/M | $0.38/M | 163K |
 | **Coder** (IDE direct, agentic coding) | `qwen/qwen-2.5-coder-32b-instruct` | $0.20/M | $0.20/M | 32K |
-| **Critic** (deep reasoning, R1 thinking) | `deepseek/deepseek-r1-distill-qwen-32b` | $0.29/M | $0.29/M | 32K |
-| **Thinking** (Open WebUI "think out loud") | `deepseek/deepseek-r1-distill-qwen-32b` | $0.29/M | $0.29/M | 32K |
+| **Critic** (quality gate, R1 distill) | `deepseek/deepseek-r1-distill-llama-70b` | $0.70/M | $0.80/M | 131K |
+| **Thinking** (Open WebUI "think out loud") | `deepseek/deepseek-r1-distill-llama-70b` | $0.70/M | $0.80/M | 131K |
 | **Summarizer** (pivot history compression) | `qwen/qwen3-14b` | $0.06/M | $0.24/M | 41K |
 
 ## Quality Tier

@@ -47,12 +47,12 @@ data:
           max_tokens: 32768
           temperature: 0.3
 
-      # Critic (deep reasoning, R1 thinking)
+      # Critic (quality gate, R1 distill — DeepSeek-R1-Distill-Llama-70B: $0.70/M in, $0.80/M out)
       - model_name: synesis-critic
         litellm_params:
-          model: openrouter/deepseek/deepseek-r1-distill-qwen-32b
+          model: openrouter/deepseek/deepseek-r1-distill-llama-70b
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 4096
+          max_tokens: 2048
           temperature: 0.1
 
       # Coder (IDE direct endpoint, agentic coding)
@@ -63,10 +63,10 @@ data:
           max_tokens: 16384
           temperature: 0.2
 
-      # Thinking model (Open WebUI optional "think out loud")
+      # Thinking model (Open WebUI optional "think out loud"; same as critic for consistency)
       - model_name: synesis-thinking
         litellm_params:
-          model: openrouter/deepseek/deepseek-r1-distill-qwen-32b
+          model: openrouter/deepseek/deepseek-r1-distill-llama-70b
           api_key: "os.environ/OPENROUTER_API_KEY"
           max_tokens: 16384
           temperature: 0.2
