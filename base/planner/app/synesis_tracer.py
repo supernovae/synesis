@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -81,6 +82,7 @@ class TraceRecord:
     critic_scores: dict[str, Any] = field(default_factory=dict)
     evidence_summary: dict[str, Any] = field(default_factory=dict)
     taxonomy: dict[str, Any] = field(default_factory=dict)
+    phase_timings: dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +259,18 @@ class SynesisTracer(BaseCallbackHandler):
         self._llm_starts.clear()
 
     def flush(self) -> None:
-        """Persist the current trace and reset state."""
+        """Persist the current trace and reset state.
+
+        The Postgres write runs in a daemon thread so it never blocks the
+        event loop — typical INSERT takes <5ms but we avoid even that stall.
+        """
         if self._current_trace is None:
             return
         record = self._current_trace
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
         record.estimated_cost_usd = _compute_cost(record)
-        _persist_trace(record)
+        threading.Thread(target=_persist_trace, args=(record,), daemon=True).start()
         self._current_trace = None
         self._active_spans.clear()
         self._llm_starts.clear()
@@ -340,6 +346,12 @@ class SynesisTracer(BaseCallbackHandler):
             "persona_instructions": str(taxonomy.get("persona_instructions", ""))[:200],
         }
 
+    def record_phase_timing(self, phase: str, duration_ms: float) -> None:
+        """Record a named sub-phase duration (e.g. 'router.query_gen_ms')."""
+        if self._current_trace is None:
+            return
+        self._current_trace.phase_timings[phase] = round(duration_ms, 1)
+
     # -- LangChain BaseCallbackHandler overrides ---------------------------
 
     def on_chain_start(
@@ -354,20 +366,23 @@ class SynesisTracer(BaseCallbackHandler):
     ) -> None:
         if self._current_trace is None:
             return
-        node_name = ""
-        if tags:
-            for tag in tags:
-                if tag.startswith("graph:step:"):
-                    node_name = tag.split(":", 2)[-1]
-                    break
-        name = node_name if node_name else serialized.get("name", "")
-        if not name or name in ("RunnableSequence", "RunnableLambda", "RunnableParallel"):
-            return
-        span = SpanRecord(
-            node_name=name,
-            start_time=time.time(),
-        )
-        self._active_spans[str(run_id)] = span
+        try:
+            node_name = ""
+            if tags:
+                for tag in tags:
+                    if tag.startswith("graph:step:"):
+                        node_name = tag.split(":", 2)[-1]
+                        break
+            name = node_name if node_name else (serialized or {}).get("name", "")
+            if not name or name in ("RunnableSequence", "RunnableLambda", "RunnableParallel"):
+                return
+            span = SpanRecord(
+                node_name=name,
+                start_time=time.time(),
+            )
+            self._active_spans[str(run_id)] = span
+        except Exception:
+            logger.debug("on_chain_start_callback_error", exc_info=True)
 
     def on_chain_end(
         self,
@@ -376,13 +391,16 @@ class SynesisTracer(BaseCallbackHandler):
         run_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        rid = str(run_id)
-        span = self._active_spans.pop(rid, None)
-        if span is None or self._current_trace is None:
-            return
-        span.end_time = time.time()
-        span.latency_ms = (span.end_time - span.start_time) * 1000
-        self._current_trace.spans.append(span)
+        try:
+            rid = str(run_id)
+            span = self._active_spans.pop(rid, None)
+            if span is None or self._current_trace is None:
+                return
+            span.end_time = time.time()
+            span.latency_ms = (span.end_time - span.start_time) * 1000
+            self._current_trace.spans.append(span)
+        except Exception:
+            logger.debug("on_chain_end_callback_error", exc_info=True)
 
     def on_chain_error(
         self,
@@ -391,15 +409,18 @@ class SynesisTracer(BaseCallbackHandler):
         run_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        rid = str(run_id)
-        span = self._active_spans.pop(rid, None)
-        if span is None or self._current_trace is None:
-            return
-        span.end_time = time.time()
-        span.latency_ms = (span.end_time - span.start_time) * 1000
-        span.outcome = "error"
-        span.reasoning = str(error)[:_MAX_SNIPPET]
-        self._current_trace.spans.append(span)
+        try:
+            rid = str(run_id)
+            span = self._active_spans.pop(rid, None)
+            if span is None or self._current_trace is None:
+                return
+            span.end_time = time.time()
+            span.latency_ms = (span.end_time - span.start_time) * 1000
+            span.outcome = "error"
+            span.reasoning = str(error)[:_MAX_SNIPPET]
+            self._current_trace.spans.append(span)
+        except Exception:
+            logger.debug("on_chain_error_callback_error", exc_info=True)
 
     def on_llm_start(
         self,
@@ -412,16 +433,19 @@ class SynesisTracer(BaseCallbackHandler):
     ) -> None:
         if self._current_trace is None:
             return
-        prompt_text = prompts[0] if prompts else ""
-        node = ""
-        parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
-        if parent_span:
-            node = parent_span.node_name
-        self._llm_starts[str(run_id)] = (
-            time.monotonic(),
-            node,
-            prompt_text[:_MAX_SNIPPET],
-        )
+        try:
+            prompt_text = prompts[0] if prompts else ""
+            node = ""
+            parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
+            if parent_span:
+                node = parent_span.node_name
+            self._llm_starts[str(run_id)] = (
+                time.monotonic(),
+                node,
+                prompt_text[:_MAX_SNIPPET],
+            )
+        except Exception:
+            logger.debug("on_llm_start_callback_error", exc_info=True)
 
     def on_chat_model_start(
         self,
@@ -434,20 +458,23 @@ class SynesisTracer(BaseCallbackHandler):
     ) -> None:
         if self._current_trace is None:
             return
-        prompt_snippet = ""
-        if messages and messages[0]:
-            last_msg = messages[0][-1]
-            content = getattr(last_msg, "content", str(last_msg))
-            prompt_snippet = (content if isinstance(content, str) else str(content))[:_MAX_SNIPPET]
-        node = ""
-        parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
-        if parent_span:
-            node = parent_span.node_name
-        self._llm_starts[str(run_id)] = (
-            time.monotonic(),
-            node,
-            prompt_snippet,
-        )
+        try:
+            prompt_snippet = ""
+            if messages and messages[0]:
+                last_msg = messages[0][-1]
+                content = getattr(last_msg, "content", str(last_msg))
+                prompt_snippet = (content if isinstance(content, str) else str(content))[:_MAX_SNIPPET]
+            node = ""
+            parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
+            if parent_span:
+                node = parent_span.node_name
+            self._llm_starts[str(run_id)] = (
+                time.monotonic(),
+                node,
+                prompt_snippet,
+            )
+        except Exception:
+            logger.debug("on_chat_model_start_callback_error", exc_info=True)
 
     def on_llm_end(
         self,
@@ -459,49 +486,52 @@ class SynesisTracer(BaseCallbackHandler):
     ) -> None:
         if self._current_trace is None:
             return
-        rid = str(run_id)
-        start_info = self._llm_starts.pop(rid, None)
-        start_time, node, prompt_snippet = start_info if start_info else (time.monotonic(), "", "")
+        try:
+            rid = str(run_id)
+            start_info = self._llm_starts.pop(rid, None)
+            start_time, node, prompt_snippet = start_info if start_info else (time.monotonic(), "", "")
 
-        completion_snippet = ""
-        prompt_tokens = 0
-        completion_tokens = 0
-        total_tokens = 0
-        model = ""
+            completion_snippet = ""
+            prompt_tokens = 0
+            completion_tokens = 0
+            total_tokens = 0
+            model = ""
 
-        if response.generations and response.generations[0]:
-            gen = response.generations[0][0]
-            text = gen.text or ""
-            if not text and hasattr(gen, "message"):
-                msg_content = getattr(gen.message, "content", "")
-                text = msg_content if isinstance(msg_content, str) else str(msg_content)
-            completion_snippet = text[:_MAX_SNIPPET]
+            if response.generations and response.generations[0]:
+                gen = response.generations[0][0]
+                text = gen.text or ""
+                if not text and hasattr(gen, "message"):
+                    msg_content = getattr(gen.message, "content", "")
+                    text = msg_content if isinstance(msg_content, str) else str(msg_content)
+                completion_snippet = text[:_MAX_SNIPPET]
 
-        if response.llm_output:
-            usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
-            prompt_tokens = usage.get("prompt_tokens", 0)
-            completion_tokens = usage.get("completion_tokens", 0)
-            total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
-            model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
+            if response.llm_output:
+                usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
+                model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
 
-        call = LLMCallRecord(
-            model=model,
-            node=node,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            latency_ms=(time.monotonic() - start_time) * 1000,
-            prompt_snippet=prompt_snippet,
-            completion_snippet=completion_snippet,
-            timestamp=time.time(),
-        )
+            call = LLMCallRecord(
+                model=model,
+                node=node,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency_ms=(time.monotonic() - start_time) * 1000,
+                prompt_snippet=prompt_snippet,
+                completion_snippet=completion_snippet,
+                timestamp=time.time(),
+            )
 
-        parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
-        if parent_span:
-            parent_span.llm_calls.append(call)
-            parent_span.tokens_used += total_tokens
-        elif self._current_trace.spans:
-            self._current_trace.spans[-1].llm_calls.append(call)
+            parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
+            if parent_span:
+                parent_span.llm_calls.append(call)
+                parent_span.tokens_used += total_tokens
+            elif self._current_trace.spans:
+                self._current_trace.spans[-1].llm_calls.append(call)
+        except Exception:
+            logger.debug("on_llm_end_callback_error", exc_info=True)
 
     def on_llm_error(
         self,

@@ -284,6 +284,7 @@ export interface TraceRecord {
   critic_scores: Record<string, unknown>;
   evidence_summary: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
+  phase_timings?: Record<string, number>;
 }
 
 export interface TraceStats {

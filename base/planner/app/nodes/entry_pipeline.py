@@ -32,6 +32,8 @@ from typing import Any
 import httpx
 
 from ..config import settings
+from ..streaming_events import emit_sub_phase
+from ..synesis_tracer import get_synesis_tracer
 from .entry_classifier import entry_classifier_node
 from .frame_extractor import frame_extractor_node
 from .strategic_advisor import strategic_advisor_node
@@ -54,11 +56,23 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     _t0 = _time.monotonic()
 
     # Phase 1: classifier (fast, deterministic — always runs so difficulty is fresh)
+    emit_sub_phase("Classifying request\u2026")
     classified = entry_classifier_node(state)
     if asyncio.iscoroutine(classified):
         classified = await classified
 
     _classifier_ms = (_time.monotonic() - _t0) * 1000
+
+    _tracer = get_synesis_tracer()
+    if _tracer:
+        _tracer.record_phase_timing("entry.classifier_ms", _classifier_ms)
+        taxonomy_meta = classified.get("taxonomy_metadata") or {}
+        if taxonomy_meta:
+            _tracer.set_taxonomy(taxonomy_meta)
+
+    _difficulty = classified.get("difficulty", 0)
+    _intent = classified.get("intent_class", "")
+    emit_sub_phase(f"Classified: {_intent} (difficulty {_difficulty:.1f})")
 
     # Session resume: if a prior checkpoint already set semantic_frame and
     # style_contract_locked, skip the expensive advisor + frame_extractor.
@@ -68,6 +82,7 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
             "session_resumed",
             extra={"has_frame": True, "has_contract": True},
         )
+        emit_sub_phase("Resuming session context\u2026")
         classified["current_node"] = "entry_pipeline"
         return classified
 
@@ -81,6 +96,8 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
         and not classified.get("plan_required")
     )
     if classified.get("task_is_trivial") or _is_easy_no_retrieval:
+        _reason = "trivial task" if classified.get("task_is_trivial") else "simple task, no retrieval needed"
+        emit_sub_phase(f"Fast-path: {_reason}")
         logger.info(
             "entry_pipeline_fast_path",
             extra={
@@ -97,11 +114,16 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     merged_input = {**state, **classified}
 
     # Phase 2: advisor + frame extractor + predictive warm (all concurrent)
+    emit_sub_phase("Extracting intent & assessing strategy\u2026")
+    _t_parallel = _time.monotonic()
     advisor_result, frame_result, _ = await asyncio.gather(
         _ensure_coro(strategic_advisor_node(merged_input)),
         _ensure_coro(frame_extractor_node(merged_input)),
         _predictive_cache_warm(merged_input),
     )
+    _parallel_ms = (_time.monotonic() - _t_parallel) * 1000
+    if _tracer:
+        _tracer.record_phase_timing("entry.parallel_ms", _parallel_ms)
 
     # Merge all outputs; later keys win (frame > advisor > classifier)
     combined: dict[str, Any] = {}
@@ -118,6 +140,8 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     combined["current_node"] = "entry_pipeline"
 
     _total_ms = (_time.monotonic() - _t0) * 1000
+    if _tracer:
+        _tracer.record_phase_timing("entry.total_ms", _total_ms)
     logger.info(
         "entry_pipeline_complete",
         extra={

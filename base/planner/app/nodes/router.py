@@ -29,6 +29,8 @@ from ..llm_telemetry import get_llm_http_client
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
+from ..streaming_events import emit_sub_phase
+from ..synesis_tracer import get_synesis_tracer
 from ..unified_retrieval import RetrievalBundle, UnifiedResult, retrieve_unified
 
 logger = logging.getLogger("synesis.router")
@@ -526,10 +528,14 @@ class RouterNode:
         Returns (packets, cohesion_lock_dict). The lock is taken from the
         first request that produces one (typically the main_question request).
         """
-        # Batch query generation: generate all base queries in a single LLM
-        # call, then let handle_single_request use them (with optional HyDE
-        # and expansion on top when multi_query is enabled).
+        t_qgen = time.monotonic()
+        emit_sub_phase(f"Generating queries for {len(requests)} topic(s)\u2026")
         queries = await self.batch_generate_queries(requests, task_context)
+        qgen_ms = (time.monotonic() - t_qgen) * 1000
+        logger.info("router_phase_query_gen", extra={"requests": len(requests), "latency_ms": round(qgen_ms, 1)})
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("router.query_gen_ms", qgen_ms)
 
         async def _run_request(req: dict[str, Any], q: str) -> tuple[EvidencePacket, dict[str, Any] | None]:
             query_hint = q or str(req.get("description") or "")[:120]
@@ -555,7 +561,13 @@ class RouterNode:
                 ), None
 
         tasks = [_run_request(req, q) for req, q in zip(requests, queries)]
+        t_fanout = time.monotonic()
+        emit_sub_phase(f"Retrieving & summarizing {len(tasks)} evidence request(s)\u2026")
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        fanout_ms = (time.monotonic() - t_fanout) * 1000
+        logger.info("router_phase_fanout", extra={"tasks": len(tasks), "latency_ms": round(fanout_ms, 1)})
+        if _tracer:
+            _tracer.record_phase_timing("router.fanout_ms", fanout_ms)
         packets: list[EvidencePacket] = []
         cohesion_lock: dict[str, Any] | None = None
         for idx, r in enumerate(results):
@@ -692,6 +704,7 @@ class RouterNode:
             return cached, None
 
         doc_cap_override = 3 if light_mode else None
+        t_retrieve = time.monotonic()
         try:
             bundle = await asyncio.wait_for(
                 self._multi_query_retrieve(
@@ -710,7 +723,10 @@ class RouterNode:
                 extra={"query": query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
             )
             return _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s"), None
+        retrieve_ms = (time.monotonic() - t_retrieve) * 1000
         cohesion_lock = bundle.cohesion_lock
+
+        t_summarize = time.monotonic()
         try:
             packet = await asyncio.wait_for(
                 self.summarize(
@@ -729,6 +745,18 @@ class RouterNode:
             existing_notes = packet.retrieval_notes or ""
             sep = "; " if existing_notes else ""
             packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"})
+        summarize_ms = (time.monotonic() - t_summarize) * 1000
+        logger.info(
+            "router_single_request_timing",
+            extra={
+                "query": query[:80],
+                "retrieve_ms": round(retrieve_ms, 1),
+                "summarize_ms": round(summarize_ms, 1),
+                "results": len(bundle.results),
+                "confidence": round(packet.confidence, 3),
+            },
+        )
+
         update_fields: dict[str, Any] = {"section_id": evidence_request.get("section_id")}
         if bundle.degradation_notes:
             existing_notes = packet.retrieval_notes or ""
@@ -927,11 +955,35 @@ class RouterNode:
             for req in requests:
                 req["_light_mode"] = True
 
+        t_dispatch = time.monotonic()
         packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
+        dispatch_ms = (time.monotonic() - t_dispatch) * 1000
         packets = self.dedupe(packets)
 
         next_node = self._decide_next_node(state)
         latency_ms = (time.monotonic() - start) * 1000
+
+        logger.info(
+            "router_phase_timing",
+            extra={
+                "mode": mode,
+                "dispatch_ms": round(dispatch_ms, 1),
+                "total_ms": round(latency_ms, 1),
+                "requests": len(requests),
+                "packets": len(packets),
+            },
+        )
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("router.dispatch_ms", dispatch_ms)
+            _tracer.record_phase_timing("router.total_ms", latency_ms)
+
+        avg_conf = sum(p.confidence for p in packets) / max(1, len(packets))
+        total_snips = sum(len(p.snippets) for p in packets)
+        emit_sub_phase(
+            f"Evidence gathered: {len(packets)} packet(s), "
+            f"{total_snips} snippet(s), avg confidence {avg_conf:.0%}"
+        )
 
         cs = self.cache.stats
         total_cache_lookups = cs.exact_hits + cs.semantic_hits + cs.misses

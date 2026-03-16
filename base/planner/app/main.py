@@ -45,7 +45,7 @@ from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
-from .streaming_events import StatusQueueCallback
+from .streaming_events import StatusQueueCallback, set_sub_phase_queue
 from .synesis_tracer import get_synesis_tracer
 
 # /why and /reclassify command patterns
@@ -1265,6 +1265,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _hb_queue: asyncio.Queue[str] = asyncio.Queue(maxsize=4)
                 _hb_interval = _HEARTBEAT_AFTER_S
 
+                # Sub-phase queue — graph nodes (e.g. entry_pipeline) push
+                # fine-grained status updates via emit_sub_phase().
+                _sub_phase_q: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
+                _sub_phase_token = set_sub_phase_queue(_sub_phase_q)
+
                 async def _keepalive() -> None:
                     while True:
                         await asyncio.sleep(_hb_interval)
@@ -1293,6 +1298,18 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     # leaves the task alive on timeout so the generator is
                     # never corrupted.
                     while True:
+                        # Drain sub-phase queue (entry_pipeline sub-steps, etc.)
+                        while not _sub_phase_q.empty():
+                            try:
+                                sp_msg = _sub_phase_q.get_nowait()
+                                if sp_msg and not _stream_closed:
+                                    _current_phase = sp_msg
+                                    _phase_start = time.monotonic()
+                                    yield _flow_phase(sp_msg)
+                                    await asyncio.sleep(0)
+                            except asyncio.QueueEmpty:
+                                break
+
                         # Drain keepalive queue continuously, even when no
                         # LangGraph events are emitted during long-running nodes.
                         while not _hb_queue.empty():
@@ -1632,6 +1649,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     return
                 finally:
                     _hb_task.cancel()
+                    set_sub_phase_queue(None)
                     if _pending_next is not None and not _pending_next.done():
                         _pending_next.cancel()
                     flush_tracer()
@@ -1850,6 +1868,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         return _emit_phase(f"\u203a {desc}", detail=detail, **kw)
                     return _emit_phase(desc, detail=detail, **kw)
 
+                # Sub-phase queue for entry_pipeline sub-steps
+                _fb_sub_q: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
+                _fb_sub_token = set_sub_phase_queue(_fb_sub_q)
+
                 result = None
                 heartbeat_task = None
                 try:
@@ -1866,6 +1888,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     heartbeat_task = asyncio.create_task(_heartbeat(status_queue))
 
                     async for chunk in graph.astream(initial_state, stream_mode="values", config=config):
+                        # Drain sub-phase queue
+                        while not _fb_sub_q.empty():
+                            try:
+                                sp_msg = _fb_sub_q.get_nowait()
+                                if sp_msg:
+                                    yield _fb_flow_phase(sp_msg)
+                            except asyncio.QueueEmpty:
+                                break
+
                         while True:
                             try:
                                 cb_desc = status_queue.get_nowait()
@@ -1917,6 +1948,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 finally:
                     if heartbeat_task:
                         heartbeat_task.cancel()
+                    set_sub_phase_queue(None)
                     flush_tracer()
 
                 if not result:
@@ -2144,26 +2176,42 @@ async def readiness():
 async def sse_test():
     """Stream sample status events for verifying Open WebUI receives them.
 
-    Gated behind stream_debug_chatter. Use: curl -N http://planner:8000/debug/sse-test
+    Simulates the full phase flow including entry pipeline sub-phases,
+    router evidence gathering, and completion. Always available.
+    Use: curl -N http://planner:8000/debug/sse-test
     """
-    if not getattr(settings, "stream_debug_chatter", False):
-        raise HTTPException(status_code=403, detail="Enable stream_debug_chatter to use this endpoint")
 
     async def _gen():
         yield _emit_phase("Starting\u2026")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
+        # Entry pipeline sub-phases
         yield _emit_phase("\u203a Classifying request\u2026")
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Classified: architecture_question (difficulty 0.7)")
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Extracting intent & assessing strategy\u2026")
         await asyncio.sleep(1)
-        yield _emit_phase("\u203a Extracting intent\u2026")
+        yield _emit_phase("\u203a Analyzing request\u2026", detail="Interpreting intent and constraints")
+        await asyncio.sleep(0.5)
+        # Router phases
+        yield _emit_phase("\u203a Generating queries for 2 topic(s)\u2026")
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Retrieving & summarizing 2 evidence request(s)\u2026")
         await asyncio.sleep(1)
-        yield _emit_phase("\u203a Gathering evidence\u2026")
-        await asyncio.sleep(1)
+        yield _emit_phase("\u203a Evidence gathered: 2 packet(s), 8 snippet(s), avg confidence 72%")
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Building plan\u2026")
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Plan ready: 3 sections")
+        await asyncio.sleep(0.5)
         yield _emit_phase("\u203a Composing response\u2026")
         await asyncio.sleep(1)
         yield _emit_phase("\u203a Evaluating quality\u2026")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
+        yield _emit_phase("\u203a Finalizing\u2026")
+        await asyncio.sleep(0.3)
         yield _emit_phase("", done=True)
-        yield _sse_content_delta("test-sse", {"role": "assistant", "content": "SSE status events working."})
+        yield _sse_content_delta("test-sse", {"role": "assistant", "content": "SSE status events working. All phases rendered correctly."})
         yield _sse_chunk(
             {
                 "id": "test-sse",

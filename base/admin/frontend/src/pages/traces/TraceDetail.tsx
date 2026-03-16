@@ -401,6 +401,35 @@ export default function TraceDetail() {
         </div>
       </div>
 
+      {/* Phase Timings */}
+      {trace.phase_timings && Object.keys(trace.phase_timings).length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Phase Timings
+          </h3>
+          <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(trace.phase_timings as Record<string, number>)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([phase, ms]) => (
+                <div key={phase} className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs text-gray-500">{phase}</span>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-2 rounded-full bg-indigo-400"
+                      style={{
+                        width: `${Math.min(120, Math.max(4, (ms / Math.max(...Object.values(trace.phase_timings as Record<string, number>))) * 120))}px`,
+                      }}
+                    />
+                    <span className="min-w-[60px] text-right font-mono text-xs font-medium text-gray-900 dark:text-white">
+                      {fmtDuration(ms)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* Evidence + Taxonomy summary */}
       {(Object.keys(trace.evidence_summary || {}).length > 0 ||
         Object.keys(trace.taxonomy || {}).length > 0) && (

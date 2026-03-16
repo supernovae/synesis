@@ -1,6 +1,8 @@
 """Streaming support — Open WebUI status + Planner topic/plan + Executor debug bullets.
 
 - StatusQueueCallback: Custom callback that emits status descriptions as nodes run.
+- emit_sub_phase(): ContextVar-based mechanism for graph nodes to push sub-phase
+  status updates that the SSE generator drains alongside heartbeats.
 - Planner: topic (reasoning) + plan steps yielded as 'status' for sidebar/header.
 - Executor: tool-call/debug bullets via callback (lint, etc.).
 """
@@ -9,12 +11,35 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
 from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
 
 logger = logging.getLogger("synesis.streaming")
+
+# ---------------------------------------------------------------------------
+# Sub-phase status: allows graph nodes (e.g. entry_pipeline) to push
+# fine-grained status updates that the SSE generator drains each poll cycle.
+# ---------------------------------------------------------------------------
+
+_sub_phase_queue: contextvars.ContextVar[asyncio.Queue[str] | None] = contextvars.ContextVar(
+    "_sub_phase_queue", default=None
+)
+
+
+def set_sub_phase_queue(q: asyncio.Queue[str] | None) -> contextvars.Token[asyncio.Queue[str] | None]:
+    """Set the sub-phase queue for the current async context (called by SSE generator)."""
+    return _sub_phase_queue.set(q)
+
+
+def emit_sub_phase(description: str) -> None:
+    """Push a sub-phase status from within a graph node (non-blocking, fire-and-forget)."""
+    q = _sub_phase_queue.get(None)
+    if q is not None and description:
+        with contextlib.suppress(asyncio.QueueFull):
+            q.put_nowait(description)
 
 KNOWN_NODE_NAMES: frozenset[str] = frozenset(
     {
