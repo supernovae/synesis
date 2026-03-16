@@ -19,6 +19,14 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    from sqlalchemy import inspect
+
+    conn = op.get_bind()
+    existing = set(inspect(conn).get_table_names())
+
+    if "traces" in existing:
+        return
+
     op.create_table(
         "traces",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
