@@ -67,16 +67,117 @@ async def get_cache_metrics() -> dict[str, Any]:
     }
 
 
+async def get_extended_cache_metrics() -> dict[str, Any]:
+    """Fetch Prometheus cache counters and planner /debug/cache-stats, merge into one response."""
+    cache_metrics = await get_cache_metrics()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{PLANNER_URL.rstrip('/')}/debug/cache-stats",
+                timeout=5.0,
+            )
+            resp.raise_for_status()
+            extra = resp.json()
+    except Exception as exc:
+        logger.warning("planner_cache_stats_error error=%s", str(exc)[:80])
+        return cache_metrics
+
+    cache_metrics["redis"] = extra.get("redis", {})
+    cache_metrics["session"] = extra.get("session", {})
+    cache_metrics["l2_archive"] = extra.get("l2_archive", {})
+    return cache_metrics
+
+
+def _get_labeled_trips(raw: dict, prefix: str, label_key: str, label_val: str) -> int:
+    """Get trip count for a metric with the given label."""
+    for key, entry in raw.items():
+        if prefix not in key or not isinstance(entry, dict):
+            continue
+        labels = entry.get("labels", {})
+        if labels.get(label_key) == label_val:
+            return int(entry.get("value", 0))
+    return 0
+
+
+def _get_unlabeled_metric(raw: dict, name: str) -> float:
+    """Get value for an unlabeled metric."""
+    if name in raw and isinstance(raw[name], (int, float)):
+        return float(raw[name])
+    for key, entry in raw.items():
+        if name in key:
+            if isinstance(entry, (int, float)):
+                return float(entry)
+            if isinstance(entry, dict):
+                return float(entry.get("value", 0))
+    return 0.0
+
+
 async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
     raw = await fetch_planner_metrics()
-    breakers = []
+    breakers: list[dict[str, Any]] = []
+
+    # 1. Infrastructure (health-monitor sidecar): synesis_circuit_breaker_state{service="..."}
+    # State: 0=closed, 1=half_open, 2=open
     for key, entry in raw.items():
-        if isinstance(entry, dict) and "synesis_circuit_breaker_state" in key:
+        if (
+            isinstance(entry, dict)
+            and "synesis_circuit_breaker_state" in key
+            and "synesis_llm_breaker" not in key
+        ):
             labels = entry.get("labels", {})
-            name = labels.get("service", labels.get("role", key))
-            state_val = entry.get("value", 0)
-            state = "closed" if state_val == 0 else ("open" if state_val == 1 else "half_open")
-            breakers.append({"name": name, "state": state, "trips": 0, "last_trip": None})
+            if "service" not in labels:
+                continue
+            name = labels["service"]
+            state_val = int(entry.get("value", 0))
+            state = "closed" if state_val == 0 else ("half_open" if state_val == 1 else "open")
+            trips = _get_labeled_trips(raw, "synesis_circuit_breaker_trips_total", "service", name)
+            breakers.append(
+                {
+                    "name": name,
+                    "state": state,
+                    "trips": trips,
+                    "last_trip": None,
+                    "category": "infrastructure",
+                }
+            )
+
+    # 2. LLM: synesis_llm_breaker_state{role="..."}
+    # State: 0=closed, 1=open, 2=half_open
+    for key, entry in raw.items():
+        if isinstance(entry, dict) and "synesis_llm_breaker_state" in key:
+            labels = entry.get("labels", {})
+            if "role" not in labels:
+                continue
+            name = labels["role"]
+            state_val = int(entry.get("value", 0))
+            state = "closed" if state_val == 0 else ("half_open" if state_val == 2 else "open")
+            trips = _get_labeled_trips(raw, "synesis_circuit_breaker_open_total", "role", name)
+            breakers.append(
+                {
+                    "name": name,
+                    "state": state,
+                    "trips": trips,
+                    "last_trip": None,
+                    "category": "llm",
+                }
+            )
+
+    # 3. Web search: synesis_web_search_breaker_state (unlabeled)
+    # State: 0=closed, 1=open
+    state_val = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_state"))
+    trips = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_trips_total"))
+    if any("synesis_web_search_breaker" in k for k in raw.keys()):
+        state = "closed" if state_val == 0 else "open"
+        breakers.append(
+            {
+                "name": "web_search",
+                "state": state,
+                "trips": trips,
+                "last_trip": None,
+                "category": "web_search",
+            }
+        )
+
     return breakers
 
 

@@ -154,11 +154,22 @@ export default function KnowledgeGaps() {
                 render: (row) => {
                   const s = (row.status as string) || "open";
                   const badge = STATUS_BADGES[s] || STATUS_BADGES.open;
+                  const webFallback = row.web_search_fallback === true;
                   return (
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
-                    >
-                      {badge.label}
+                    <span className="inline-flex items-center gap-1">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                      {webFallback && (
+                        <span
+                          className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-800"
+                          title="Web search fallback used"
+                        >
+                          Web
+                        </span>
+                      )}
                     </span>
                   );
                 },

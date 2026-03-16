@@ -62,31 +62,60 @@ export default function ServiceHealth() {
             </ResponsiveContainer>
           </ChartCard>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map((s) => (
-              <div
-                key={s.name}
-                className="rounded-lg border border-gray-200 bg-white p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-900">
-                    {s.name}
-                  </span>
-                  <StatusBadge status={s.status as "ok" | "error"} />
+          <div className="space-y-6">
+            {[
+              {
+                category: "infrastructure" as const,
+                title: "Infrastructure",
+                services: services.filter((s) => s.category === "infrastructure" || !s.category),
+              },
+              {
+                category: "model-gateway" as const,
+                title: "Model Gateway",
+                services: services.filter((s) => s.category === "model-gateway"),
+              },
+              {
+                category: "model" as const,
+                title: "Models",
+                services: services.filter((s) => s.category === "model"),
+              },
+            ]
+              .filter((sec) => sec.services.length > 0)
+              .map((section) => (
+                <div key={section.category}>
+                  <h2 className="mb-3 text-sm font-medium text-gray-700">
+                    {section.title}
+                  </h2>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {section.services.map((s, i) => (
+                      <div
+                        key={`${section.category}-${s.name}-${i}`}
+                        className="rounded-lg border border-gray-200 bg-white p-4"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium text-gray-900">
+                            {s.name}
+                          </span>
+                          <StatusBadge status={s.status as "ok" | "error" | "degraded"} />
+                        </div>
+                        <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
+                          {s.latency_ms != null && (
+                            <span>Latency: {s.latency_ms.toFixed(0)}ms</span>
+                          )}
+                          {s.status_code != null && (
+                            <span>HTTP {s.status_code}</span>
+                          )}
+                        </div>
+                        {s.error && (
+                          <p className="mt-1 truncate text-xs text-red-600">
+                            {s.error}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-2 flex items-center gap-3 text-xs text-gray-500">
-                  {s.latency_ms != null && (
-                    <span>Latency: {s.latency_ms.toFixed(0)}ms</span>
-                  )}
-                  {s.status_code != null && <span>HTTP {s.status_code}</span>}
-                </div>
-                {s.error && (
-                  <p className="mt-1 truncate text-xs text-red-600">
-                    {s.error}
-                  </p>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         </>
       )}

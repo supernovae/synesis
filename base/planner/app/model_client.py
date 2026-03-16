@@ -17,17 +17,18 @@ logger = logging.getLogger("synesis.model_client")
 _metrics_registered = False
 _cb_open_counter = None
 _cb_half_open_counter = None
+_cb_state_gauge = None
 _retry_counter = None
 _fallback_counter = None
 
 
 def _ensure_metrics() -> None:
     global _metrics_registered, _cb_open_counter, _cb_half_open_counter
-    global _retry_counter, _fallback_counter
+    global _cb_state_gauge, _retry_counter, _fallback_counter
     if _metrics_registered:
         return
     try:
-        from prometheus_client import Counter
+        from prometheus_client import Counter, Gauge
 
         _cb_open_counter = Counter(
             "synesis_circuit_breaker_open_total",
@@ -37,6 +38,11 @@ def _ensure_metrics() -> None:
         _cb_half_open_counter = Counter(
             "synesis_circuit_breaker_half_open_total",
             "Times circuit breaker transitioned to half-open",
+            ["role"],
+        )
+        _cb_state_gauge = Gauge(
+            "synesis_llm_breaker_state",
+            "Current circuit breaker state (0=closed, 1=open, 2=half_open)",
             ["role"],
         )
         _retry_counter = Counter(
@@ -90,6 +96,10 @@ class CircuitBreaker:
                 if _cb_half_open_counter:
                     _cb_half_open_counter.labels(role=self.role).inc()
                 logger.info("circuit_breaker_half_open", extra={"role": self.role})
+        _ensure_metrics()
+        if _cb_state_gauge:
+            state_val = 0 if self._state == self.CLOSED else (2 if self._state == self.HALF_OPEN else 1)
+            _cb_state_gauge.labels(role=self.role).set(state_val)
         return self._state
 
     def allow_request(self) -> bool:
@@ -108,6 +118,9 @@ class CircuitBreaker:
             logger.info("circuit_breaker_closed", extra={"role": self.role})
         self._state = self.CLOSED
         self._failure_count = 0
+        _ensure_metrics()
+        if _cb_state_gauge:
+            _cb_state_gauge.labels(role=self.role).set(0)
 
     def record_failure(self) -> None:
         self._failure_count += 1
@@ -117,6 +130,8 @@ class CircuitBreaker:
             _ensure_metrics()
             if _cb_open_counter:
                 _cb_open_counter.labels(role=self.role).inc()
+            if _cb_state_gauge:
+                _cb_state_gauge.labels(role=self.role).set(1)
             logger.warning(
                 "circuit_breaker_open",
                 extra={"role": self.role, "failures": self._failure_count},

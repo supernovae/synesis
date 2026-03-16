@@ -51,6 +51,33 @@ except Exception:
     _search_counter = None
     _search_latency = None
 
+# Circuit breaker metrics (lazy registration, like model_client.py)
+_web_search_breaker_metrics_registered = False
+_web_search_breaker_state_gauge = None
+_web_search_breaker_trips_counter = None
+
+
+def _ensure_web_search_breaker_metrics() -> None:
+    global _web_search_breaker_metrics_registered, _web_search_breaker_state_gauge, _web_search_breaker_trips_counter
+    if _web_search_breaker_metrics_registered:
+        return
+    try:
+        from prometheus_client import Counter, Gauge
+
+        _web_search_breaker_state_gauge = Gauge(
+            "synesis_web_search_breaker_state",
+            "Web search circuit breaker state (0=closed, 1=open)",
+        )
+        _web_search_breaker_trips_counter = Counter(
+            "synesis_web_search_breaker_trips_total",
+            "Times web search circuit breaker has tripped (opened)",
+        )
+        globals()["_web_search_breaker_state_gauge"] = _web_search_breaker_state_gauge
+        globals()["_web_search_breaker_trips_counter"] = _web_search_breaker_trips_counter
+    except Exception:
+        pass
+    _web_search_breaker_metrics_registered = True
+
 
 @dataclass
 class SearchResult:
@@ -463,23 +490,42 @@ class _CircuitBreaker:
     def is_open(self) -> bool:
         with self._lock:
             if self._open_since is None:
+                _ensure_web_search_breaker_metrics()
+                if _web_search_breaker_state_gauge is not None:
+                    _web_search_breaker_state_gauge.set(0)
                 return False
             if time.monotonic() - self._open_since >= self._reset_seconds:
                 self._failures = 0
                 self._open_since = None
+                _ensure_web_search_breaker_metrics()
+                if _web_search_breaker_state_gauge is not None:
+                    _web_search_breaker_state_gauge.set(0)
                 return False
+            _ensure_web_search_breaker_metrics()
+            if _web_search_breaker_state_gauge is not None:
+                _web_search_breaker_state_gauge.set(1)
             return True
 
     def record_success(self) -> None:
         with self._lock:
             self._failures = 0
             self._open_since = None
+        _ensure_web_search_breaker_metrics()
+        if _web_search_breaker_state_gauge is not None:
+            _web_search_breaker_state_gauge.set(0)
 
     def record_failure(self) -> None:
         with self._lock:
             self._failures += 1
-            if self._failures >= self._threshold:
+            just_opened = self._failures >= self._threshold
+            if just_opened:
                 self._open_since = time.monotonic()
+        if just_opened:
+            _ensure_web_search_breaker_metrics()
+            if _web_search_breaker_trips_counter is not None:
+                _web_search_breaker_trips_counter.inc()
+            if _web_search_breaker_state_gauge is not None:
+                _web_search_breaker_state_gauge.set(1)
 
 
 class WebSearchClient:

@@ -2187,3 +2187,77 @@ async def metrics():
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,
     )
+
+
+@app.get("/debug/cache-stats")
+async def cache_stats():
+    """Cache statistics for admin observability."""
+    stats: dict[str, Any] = {}
+
+    # Retrieval cache stats
+    try:
+        from .retrieval_cache import get_retrieval_cache
+
+        cache = get_retrieval_cache()
+        size = len(cache._exact) if hasattr(cache, "_exact") else 0
+        stats["retrieval_cache"] = {
+            "backend": settings.retrieval_cache_backend,
+            "size": size,
+        }
+    except Exception:
+        stats["retrieval_cache"] = {
+            "backend": getattr(settings, "retrieval_cache_backend", "unknown"),
+            "size": 0,
+        }
+
+    # Redis info
+    try:
+        import redis.asyncio as aioredis
+
+        redis_url = settings.retrieval_cache_redis_url or settings.session_redis_url
+        if redis_url:
+            r = aioredis.from_url(redis_url, decode_responses=True)
+            info_mem = await r.info("memory")
+            info_stats = await r.info("stats")
+            info_keys = await r.info("keyspace")
+            info_clients = await r.info("clients")
+            await r.aclose()
+            hits = int(info_stats.get("keyspace_hits", 0) or 0)
+            misses = int(info_stats.get("keyspace_misses", 0) or 0)
+            total = hits + misses
+            hit_rate = round(hits / total, 4) if total > 0 else 0.0
+            total_keys = 0
+            for db_name, db_info in (info_keys or {}).items():
+                if isinstance(db_info, str):
+                    for part in db_info.split(","):
+                        if part.strip().startswith("keys="):
+                            total_keys += int(part.split("=")[1].strip())
+                            break
+                elif isinstance(db_info, dict):
+                    total_keys += int(db_info.get("keys", 0) or 0)
+            stats["redis"] = {
+                "status": "connected",
+                "used_memory_human": info_mem.get("used_memory_human", "0B"),
+                "used_memory_bytes": int(info_mem.get("used_memory", 0) or 0),
+                "connected_clients": int(info_clients.get("connected_clients", 0) or 0),
+                "keyspace_hits": hits,
+                "keyspace_misses": misses,
+                "keyspace_hit_rate": round(hit_rate, 4),
+                "total_keys": total_keys,
+            }
+        else:
+            stats["redis"] = {"status": "not_configured"}
+    except Exception as e:
+        stats["redis"] = {"status": "error", "error": str(e)[:200]}
+
+    # Session checkpointer
+    stats["session"] = {
+        "backend": settings.session_checkpointer_backend,
+    }
+
+    # L2 archive
+    stats["l2_archive"] = {
+        "configured": bool(settings.l2_archive_redis_url),
+    }
+
+    return stats

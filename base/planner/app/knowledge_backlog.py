@@ -106,6 +106,7 @@ async def publish_knowledge_gap(
     max_score: float = 0.0,
     platform_context: str = "generic",
     target_language: str = "python",
+    web_search_fallback: bool = False,
 ) -> str | None:
     """Publish a knowledge gap to the backlog. Returns chunk_id or None on error."""
     try:
@@ -135,6 +136,7 @@ async def publish_knowledge_gap(
 
         client = _get_client()
         client.upsert(collection_name=COLLECTION, data=[entity])
+        _persist_gap_pg(entity, web_search_fallback)
         logger.info(
             "knowledge_backlog_published",
             extra={"chunk_id": chunk_id[:12], "platform_context": platform_context, "max_score": max_score},
@@ -144,6 +146,41 @@ async def publish_knowledge_gap(
     except Exception as e:
         logger.warning("publish_knowledge_gap_failed", extra={"error": str(e)[:200]})
         return None
+
+
+def _persist_gap_pg(entity: dict, web_search_fallback: bool = False) -> None:
+    """Write knowledge gap to admin Postgres (best-effort)."""
+    import os
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO knowledge_gaps (gap_id, query, task_description, collections_queried, max_score, platform_context, language, status, web_search_fallback, timestamp)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s, %s)
+               ON CONFLICT (gap_id) DO NOTHING""",
+            (
+                entity["chunk_id"],
+                entity.get("query", ""),
+                entity.get("task_description", ""),
+                entity.get("collections_queried", ""),
+                entity.get("max_score", 0.0),
+                entity.get("platform_context", "generic"),
+                entity.get("language", ""),
+                web_search_fallback,
+                entity.get("timestamp", 0),
+            ),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug("persist_gap_pg_failed", extra={"error": str(e)[:200]})
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +261,8 @@ def update_gap_status(
             "updated_at": now,
         }
         client.upsert(collection_name=STATUS_COLLECTION, data=[entity])
+        resolved_at = float(now) if status == "resolved" else 0.0
+        _update_gap_status_pg(chunk_id, status, resolved_by, resolution_note, resolved_at)
         logger.info(
             "gap_status_updated",
             extra={"chunk_id": chunk_id[:12], "status": status, "by": resolved_by[:30]},
@@ -234,6 +273,58 @@ def update_gap_status(
         return False
 
 
+def _update_gap_status_pg(
+    chunk_id: str,
+    status: GapStatus,
+    resolved_by: str = "",
+    resolution_note: str = "",
+    resolved_at: float = 0.0,
+) -> None:
+    """Update knowledge gap status in Postgres (best-effort)."""
+    import os
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+    try:
+        import psycopg2
+
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor()
+        cur.execute(
+            """UPDATE knowledge_gaps
+               SET status = %s, resolved_at = %s, resolved_by = %s, resolution_note = %s, updated_at = NOW()
+               WHERE gap_id = %s""",
+            (status, resolved_at, (resolved_by or "")[:128], (resolution_note or "")[:8192], chunk_id[:64]),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug("update_gap_status_pg_failed", extra={"error": str(e)[:200]})
+
+
+def _delete_gap_pg(chunk_id: str) -> None:
+    """Delete knowledge gap from Postgres (best-effort)."""
+    import os
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM knowledge_gaps WHERE gap_id = %s", (chunk_id[:64],))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug("delete_gap_pg_failed", extra={"error": str(e)[:200]})
+
+
 def delete_gap(chunk_id: str) -> bool:
     """Purge a knowledge gap and its status record."""
     try:
@@ -242,6 +333,7 @@ def delete_gap(chunk_id: str) -> bool:
         client.delete(collection_name=COLLECTION, filter=f'chunk_id == "{chunk_id}"')
         _ensure_status_collection()
         client.delete(collection_name=STATUS_COLLECTION, filter=f'chunk_id == "{chunk_id}"')
+        _delete_gap_pg(chunk_id)
         logger.info("gap_purged", extra={"chunk_id": chunk_id[:12]})
         return True
     except Exception:

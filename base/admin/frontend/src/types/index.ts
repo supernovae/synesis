@@ -15,6 +15,7 @@ export interface ServiceStatus {
   status_code: number | null;
   error: string | null;
   latency_ms?: number;
+  category?: "infrastructure" | "model" | "model-gateway";
 }
 
 export interface DashboardSummary {
@@ -123,6 +124,23 @@ export interface CriticStats {
   blocking_issues: number;
 }
 
+export interface CriticDetailed {
+  period_days: number;
+  total_evaluated: number;
+  approved: number;
+  rejected: number;
+  approval_rate: number;
+  avg_scores: Record<string, number>;
+  score_distribution: Array<{ bucket: string; count: number }>;
+  top_failure_modes: Array<{ mode: string; count: number }>;
+  rejection_reasons: Array<{
+    trace_id: string;
+    query_snippet: string;
+    failure_modes: string[];
+    score: number;
+  }>;
+}
+
 export interface McpTool {
   [key: string]: unknown;
   name: string;
@@ -157,6 +175,7 @@ export interface KnowledgeGap {
   resolved_by?: string;
   resolution_note?: string;
   resolved_at?: number;
+  web_search_fallback?: boolean;
 }
 
 export interface CuratorProposal {
@@ -191,6 +210,20 @@ export interface CacheMetrics {
   evictions: number;
   entries: number;
   hit_rate: number;
+  redis?: {
+    status: string;
+    used_memory_human?: string;
+    keyspace_hits?: number;
+    keyspace_misses?: number;
+    keyspace_hit_rate?: number;
+    total_keys?: number;
+  };
+  session?: {
+    backend: string;
+  };
+  l2_archive?: {
+    configured: boolean;
+  };
 }
 
 export interface CircuitBreakerState {
@@ -198,6 +231,7 @@ export interface CircuitBreakerState {
   state: "closed" | "open" | "half_open";
   trips: number;
   last_trip: string | null;
+  category?: "llm" | "web_search" | "infrastructure";
 }
 
 export interface BenchmarkResults {

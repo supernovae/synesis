@@ -181,12 +181,61 @@ async def store_failure(
 
         client = _get_client()
         client.upsert(collection_name=COLLECTION, data=[entity])
+        _persist_failure_pg(entity)
         logger.info("failure_stored", extra={"failure_id": fid, "error_type": error_type, "language": language})
         return fid
 
     except Exception as e:
         logger.warning("store_failure_failed", extra={"error": str(e)[:200]})
         return None
+
+
+def _persist_failure_pg(entity: dict) -> None:
+    """Write failure to admin Postgres (best-effort)."""
+    import os
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+    try:
+        import psycopg2
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO failures (failure_id, code, error_output, exit_code, error_type, language, task_description, resolution, timestamp)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (failure_id) DO UPDATE SET resolution = EXCLUDED.resolution""",
+            (entity["failure_id"], entity.get("code", "")[:8192], entity.get("error_output", "")[:4096],
+             entity.get("exit_code", 1), entity.get("error_type", ""), entity.get("language", ""),
+             entity.get("task_description", "")[:2048], entity.get("resolution", "")[:8192], entity.get("timestamp", 0)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug("persist_failure_pg_failed", extra={"error": str(e)[:200]})
+
+
+def _update_resolution_pg(failure_id: str, resolution: str) -> None:
+    """Update resolution in Postgres when Milvus doesn't have the entity."""
+    import os
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+    try:
+        import psycopg2
+
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE failures SET resolution = %s WHERE failure_id = %s",
+            (resolution[:8192], failure_id),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.debug("update_resolution_pg_failed", extra={"error": str(e)[:200]})
 
 
 async def update_resolution(failure_id: str, resolution: str) -> None:
@@ -198,7 +247,10 @@ async def update_resolution(failure_id: str, resolution: str) -> None:
             entity = results[0]
             entity["resolution"] = resolution[:8192]
             client.upsert(collection_name=COLLECTION, data=[entity])
+            _persist_failure_pg(entity)
             logger.info("resolution_updated", extra={"failure_id": failure_id})
+        else:
+            _update_resolution_pg(failure_id, resolution)
     except Exception as e:
         logger.warning("update_resolution_failed", extra={"error": str(e)[:200]})
 

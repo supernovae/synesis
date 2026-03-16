@@ -966,6 +966,7 @@ class RouterNode:
         for pkt in packets:
             if pkt.confidence < _gap_threshold:
                 _is_zero_result = len(pkt.snippets) == 0
+                _web_fallback = any(s.type == "web" for s in pkt.sources)
                 try:
                     from ..knowledge_backlog import publish_knowledge_gap
 
@@ -976,6 +977,7 @@ class RouterNode:
                         max_score=pkt.confidence,
                         platform_context="router",
                         target_language=state.get("target_language", "python"),
+                        web_search_fallback=_web_fallback,
                     )
                     _gaps_published += 1
                     logger.info(

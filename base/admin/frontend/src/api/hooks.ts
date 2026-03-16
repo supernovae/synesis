@@ -10,6 +10,7 @@ import type {
   TaxonomyDomain,
   PipelineMetrics,
   CriticStats,
+  CriticDetailed,
   McpTool,
   FeedbackEntry,
   KnowledgeGap,
@@ -204,6 +205,17 @@ export function useCriticStats() {
     queryKey: ["pipeline", "critic"],
     queryFn: () => client.get("/pipeline/critic").then((r) => r.data),
     refetchInterval: 30_000,
+  });
+}
+
+export function useCriticDetailed(days: number = 7) {
+  return useQuery<CriticDetailed>({
+    queryKey: ["pipeline", "critic", "detailed", days],
+    queryFn: () =>
+      client
+        .get("/pipeline/critic/detailed", { params: { days } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
   });
 }
 

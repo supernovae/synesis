@@ -94,3 +94,58 @@ class CostSnapshot(Base):
     __table_args__ = (
         Index("ix_cost_snapshots_model_date", "model", "date"),
     )
+
+
+class Failure(Base):
+    __tablename__ = "failures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    failure_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    error_output: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    exit_code: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    error_type: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    task_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    resolution: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    timestamp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_failures_error_type", "error_type"),
+        Index("ix_failures_language", "language"),
+        Index("ix_failures_timestamp", timestamp.desc()),
+    )
+
+
+class KnowledgeGap(Base):
+    __tablename__ = "knowledge_gaps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    gap_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    task_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    collections_queried: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    max_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    platform_context: Mapped[str] = mapped_column(String(64), nullable=False, default="generic")
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    resolved_at: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    resolved_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    resolution_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    web_search_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    timestamp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_knowledge_gaps_status", "status"),
+        Index("ix_knowledge_gaps_language", "language"),
+        Index("ix_knowledge_gaps_timestamp", timestamp.desc()),
+    )
