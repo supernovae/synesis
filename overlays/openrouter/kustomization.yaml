@@ -150,6 +150,26 @@ patches:
                     value: ""
 
 
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest
+
 # NOTE: No synesis.io/environment label here. Kustomize global labels
 # stamp every resource — switching overlays (dev → openrouter) changes the
 # label on all 80+ resources, triggering operator reconciles (Milvus,
