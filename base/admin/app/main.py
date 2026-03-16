@@ -26,8 +26,7 @@ logger = logging.getLogger("synesis.admin")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
     yield
     await engine.dispose()
