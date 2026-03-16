@@ -64,9 +64,7 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 
 ## Phase/Status Display
 
-The planner emits SSE status events during graph execution (Thinking, Validating, Testing). See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details and troubleshooting.
-
-If you want GPT-like visible progress inside the chat transcript (not only the status bar), import the Synesis Progress Pipe from `integrations/openwebui-synesis-progress/` and use that model in Open WebUI.
+The planner emits standard SSE status events during graph execution (e.g. Gathering evidence…, Plan ready: N sections). Open WebUI displays these in its native status area; users can expand streaming events to see more detail when needed. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details and troubleshooting.
 
 ## Configuration
 

@@ -569,29 +569,3 @@ class TestRouterDeliverableCap:
         assert "deliverable_11" in requests[3]["description"]
 
 
-class TestEnhancedProgressStatus:
-    """Feature-flagged richer progress status should be present and safe."""
-
-    def test_config_has_enhanced_progress_flag(self):
-        import pathlib
-
-        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "config.py"
-        text = src.read_text()
-        assert "enhanced_progress_ui" in text
-
-    def test_main_has_phase_detail_hints(self):
-        import pathlib
-
-        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "main.py"
-        text = src.read_text()
-        assert "_phase_detail_hint" in text
-        assert "Searching sources and ranking relevance" in text
-        assert "Evidence gathered:" in text
-
-    def test_fallback_callback_supports_enhanced_progress(self):
-        import pathlib
-
-        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "streaming_events.py"
-        text = src.read_text()
-        assert "enhanced_progress" in text
-        assert "Plan ready:" in text

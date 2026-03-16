@@ -451,12 +451,8 @@ class Settings(BaseSettings):
     # Decision Summary ("why this approach")
     decision_summary_enabled: bool = True
 
-    # Streaming: use astream_events(v2) for richer status; Open WebUI status + plan bullets
+    # Streaming: use astream_events(v2) for status; Open WebUI shows standard status events natively.
     streaming_events_enabled: bool = True  # astream_events(version='v2') when True
-    # Enhanced progress UX: richer (but generic/safe) in-stream status descriptions.
-    # Keep enabled by default for better perceived responsiveness. Roll back instantly
-    # by setting SYNESIS_ENHANCED_PROGRESS_UI=false.
-    enhanced_progress_ui: bool = True
 
     # DefaultsPolicy YAML override path (optional; /etc/synesis/defaults.yaml)
     defaults_policy_path: str = ""

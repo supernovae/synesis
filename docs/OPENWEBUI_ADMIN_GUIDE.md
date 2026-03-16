@@ -65,33 +65,6 @@ The response shows a formatted list with message snippet, response snippet, `tas
 
 ---
 
-## 1b. Synesis Progress Pipe (GPT-like phase visibility)
-
-Use this when you want users to see phase/progress updates in the chat transcript itself (not only the status area).
-
-### Import
-
-1. Obtain the export file:
-   - `integrations/openwebui-synesis-progress/synesis_progress_export.json`
-   - or build it: `cd integrations/openwebui-synesis-progress && python build_export.py`
-2. Open WebUI → **Workspace → Functions**
-3. Click **Import Functions** and upload `synesis_progress_export.json`
-4. Start a new chat and select **Synesis Progress Pipe** as the model
-
-### Recommended valves
-
-- `planner_url`: `http://synesis-planner:8000`
-- `planner_model`: `synesis-agent`
-- `mirror_status_to_chat`: `true`
-- `request_timeout_seconds`: `600`
-
-### Rollback
-
-- Switch model back to `synesis-agent`, or
-- set `mirror_status_to_chat=false`.
-
----
-
 ## 2. synesis-admin (Failure Dashboard)
 
 The **synesis-admin** service is a separate web app (not inside Open WebUI) for browsing failure patterns and Knowledge Gaps.
@@ -176,4 +149,3 @@ Use these from scripts, curl, or custom tooling. See [FEEDBACK_API.md](FEEDBACK_
 - [FEEDBACK_API.md](FEEDBACK_API.md) — Feedback API, run context, sync script
 - [USERGUIDE.md](USERGUIDE.md) — User-facing triggers, /why, /reclassify
 - [integrations/openwebui-synesis-feedback/README.md](../integrations/openwebui-synesis-feedback/README.md) — Plugin build and install
-- [integrations/openwebui-synesis-progress/README.md](../integrations/openwebui-synesis-progress/README.md) — Progress pipe import and valves
