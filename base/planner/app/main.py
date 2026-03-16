@@ -30,6 +30,7 @@ from .api_metrics import (
     record_chat_error,
     record_chat_success,
     record_graph_iterations,
+    record_memory_after_request,
     record_node_confidence,
     record_tokens,
 )
@@ -61,26 +62,57 @@ logger = get_logger("synesis.api")
 _background_tasks: set[asyncio.Task] = set()
 
 
-def _log_rss(label: str) -> float:
-    """Log current RSS in MiB and return the value for delta tracking."""
+def _get_rss_mib() -> float:
+    """Return current process RSS in MiB (for metrics and logging)."""
     rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if os.uname().sysname == "Darwin":
-        rss_mib = rss_kb / (1024 * 1024)
-    else:
-        rss_mib = rss_kb / 1024
-    cgroup_mib = 0.0
+        return rss_kb / (1024 * 1024)
+    return rss_kb / 1024
+
+
+def _get_cgroup_mib() -> float:
+    """Return cgroup memory usage in MiB if available, else 0."""
     for path in ("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"):
         try:
             with open(path) as f:
-                cgroup_mib = int(f.read().strip()) / (1024 * 1024)
-            break
+                return int(f.read().strip()) / (1024 * 1024)
         except OSError:
             continue
+    return 0.0
+
+
+def _log_rss(label: str) -> float:
+    """Log current RSS in MiB and return the value for delta tracking."""
+    rss_mib = _get_rss_mib()
+    cgroup_mib = _get_cgroup_mib()
     logger.info(
         "startup_memory_checkpoint",
         extra={"label": label, "rss_mib": round(rss_mib, 1), "cgroup_mib": round(cgroup_mib, 1)},
     )
     return rss_mib
+
+
+def _sample_memory_and_log(
+    label: str,
+    rss_mib: float | None = None,
+    cgroup_mib: float | None = None,
+    state: dict[str, Any] | None = None,
+) -> tuple[float, float]:
+    """Sample RSS/cgroup (or use provided), optionally log state size; return (rss_mib, cgroup_mib)."""
+    if rss_mib is None:
+        rss_mib = _get_rss_mib()
+    if cgroup_mib is None:
+        cgroup_mib = _get_cgroup_mib()
+    extra: dict[str, Any] = {"label": label, "rss_mib": round(rss_mib, 1), "cgroup_mib": round(cgroup_mib, 1)}
+    if state:
+        packets = state.get("evidence_packets") or []
+        traces = state.get("node_traces") or []
+        msgs = state.get("messages") or []
+        extra["state_evidence_packets"] = len(packets)
+        extra["state_node_traces"] = len(traces)
+        extra["state_messages"] = len(msgs)
+    logger.info("request_memory_sample", extra=extra)
+    return (rss_mib, cgroup_mib)
 
 
 @asynccontextmanager
@@ -811,6 +843,7 @@ def _extract_content_and_metrics(
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, http_request: Request):
     start = time.monotonic()
+    _sample_memory_and_log("request_start")
 
     user_id = _resolve_user_id(request, http_request)
     conversation_id = _resolve_conversation_id(request, http_request)
@@ -1589,6 +1622,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 except Exception:
                     logger.exception("graph_execution_error")
                     record_chat_error(time.monotonic() - start)
+                    rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
+                    record_memory_after_request(rss_mib, cgroup_mib)
                     try:
                         yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
                         yield "data: [DONE]\n\n"
@@ -1743,6 +1778,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     model=request.model,
                 )
                 record_chat_success(time.monotonic() - start)
+                rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=accumulated_state)
+                record_memory_after_request(rss_mib, cgroup_mib)
 
                 if content_streamed:
                     pass
@@ -1872,6 +1909,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 except Exception:
                     logger.exception("graph_execution_error")
                     record_chat_error(time.monotonic() - start)
+                    rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
+                    record_memory_after_request(rss_mib, cgroup_mib)
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
@@ -1890,6 +1929,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
                 )
                 record_chat_success(time.monotonic() - start)
+                rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
+                record_memory_after_request(rss_mib, cgroup_mib)
                 yield _sse_content_delta(
                     chat_id,
                     {"role": "assistant", "content": content},
@@ -1925,6 +1966,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     except Exception:
         logger.exception("graph_execution_error")
         record_chat_error(time.monotonic() - start)
+        rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
+        record_memory_after_request(rss_mib, cgroup_mib)
         raise HTTPException(
             status_code=500,
             detail="Graph execution failed. Check planner logs and admin status page for model health.",
@@ -1938,6 +1981,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     latency_ms = (time.monotonic() - start) * 1000
     record_chat_success(latency_ms / 1000)
+    rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
+    record_memory_after_request(rss_mib, cgroup_mib)
     logger.info(
         "request_completed",
         extra={

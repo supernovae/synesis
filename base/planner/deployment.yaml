@@ -23,6 +23,10 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: /metrics
     spec:
+      volumes:
+        - name: search-sources
+          configMap:
+            name: synesis-search-sources
       containers:
         - name: planner
           image: ghcr.io/supernovae/synesis/planner:latest
@@ -187,6 +191,11 @@ spec:
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
             - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
               value: "604800"
+          volumeMounts:
+            - name: search-sources
+              mountPath: /etc/synesis/search_sources.yaml
+              subPath: search_sources.yaml
+              readOnly: true
           resources:
             requests:
               cpu: "2"

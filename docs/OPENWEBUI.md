@@ -64,7 +64,7 @@ Open WebUI renders code blocks with syntax highlighting out of the box. When Syn
 
 ## Phase/Status Display
 
-The planner emits standard SSE status events during graph execution (e.g. Gathering evidence…, Plan ready: N sections). Open WebUI displays these in its native status area; users can expand streaming events to see more detail when needed. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details and troubleshooting.
+The planner emits standard SSE status events during graph execution (e.g. Gathering evidence…, Plan ready: N sections). Open WebUI displays these in its **native** status area; do not use a custom Synesis Progress pipe. See [OPENWEBUI_PHASES.md](OPENWEBUI_PHASES.md) for implementation details, production behavior, and troubleshooting.
 
 ## Configuration
 

@@ -13,3 +13,10 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
+
+configMapGenerator:
+  - name: synesis-search-sources
+    files:
+      - search_sources.yaml=search_sources.yaml
+    options:
+      disableNameSuffixHash: true

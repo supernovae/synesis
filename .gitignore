@@ -94,6 +94,7 @@ docs/*
 !docs/HARDWARE_SIZING.md
 !docs/OPENWEBUI.md
 !docs/OPENWEBUI_PHASES.md
+!docs/PLANNER_MEMORY.md
 !docs/OPENWEBUI_ADMIN_GUIDE.md
 !docs/USERGUIDE.md
 !docs/VLLM_RECIPES.md

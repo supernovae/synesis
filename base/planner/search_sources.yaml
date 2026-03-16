@@ -1,7 +1,7 @@
+# Copied from repo root search_sources.yaml — keep in sync for planner ConfigMap.
 # ============================================================================
 # Synesis Search Source Catalog — Single Source of Truth
 # ============================================================================
-# Keep base/planner/search_sources.yaml in sync for planner ConfigMap (kustomize).
 #
 # Defines all search sources available to the retrieval pipeline. Each source
 # maps to one or more SearXNG engines/categories and carries trust metadata

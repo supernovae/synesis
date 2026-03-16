@@ -12,12 +12,15 @@ _critic_rejections = None
 _graph_iterations = None
 _node_confidence = None
 _tokens_total = None
+_memory_rss_gauge = None
+_memory_cgroup_gauge = None
 
 
 def _ensure_metrics():
     global _metrics_registered
     global _chat_requests, _chat_duration, _critic_rejections
     global _graph_iterations, _node_confidence, _tokens_total
+    global _memory_rss_gauge, _memory_cgroup_gauge
     if _metrics_registered:
         return
     try:
@@ -51,6 +54,14 @@ def _ensure_metrics():
             "synesis_tokens_total",
             "Tokens consumed per request",
             ["model"],
+        )
+        _memory_rss_gauge = Gauge(
+            "synesis_planner_memory_rss_mib",
+            "Process RSS in MiB (sampled at request end); use for OOM debugging.",
+        )
+        _memory_cgroup_gauge = Gauge(
+            "synesis_planner_memory_cgroup_mib",
+            "Cgroup memory usage in MiB if available (sampled at request end).",
         )
     except Exception:  # nosec B110
         pass
@@ -95,3 +106,12 @@ def record_tokens(model: str, tokens: int):
     _ensure_metrics()
     if _tokens_total and tokens > 0:
         _tokens_total.labels(model=model or "unknown").inc(tokens)
+
+
+def record_memory_after_request(rss_mib: float, cgroup_mib: float = 0.0):
+    """Update memory gauges after a request (stream or non-stream) for OOM debugging."""
+    _ensure_metrics()
+    if _memory_rss_gauge is not None:
+        _memory_rss_gauge.set(round(rss_mib, 2))
+    if _memory_cgroup_gauge is not None and cgroup_mib >= 0:
+        _memory_cgroup_gauge.set(round(cgroup_mib, 2))

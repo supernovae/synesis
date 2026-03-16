@@ -128,10 +128,15 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 
 **Phase resolution:** The planner resolves the current node from `astream_events` using `_resolve_node_from_event()` (exact match on `metadata.langgraph_node` or `name`, then substring match for wrapped runnables). This ensures phase status events are emitted even when LangGraph event shape varies.
 
+**Full vs selective (classic vs streamlined) retrieval:** Phases are **node-driven**: each node in `_NODE_TO_PHASE` emits its label when that node runs. The same streaming logic runs for both `inference_mode=full` (evidence up front) and `inference_mode=selective` (RAG only when critic says so). In full mode you typically see "Gathering evidence" → "Building plan" → "Composing response" → "Evaluating quality". In selective mode, the first pass may skip the router and planner, so you see "Analyzing request" → "Composing response"; if the critic later requests more evidence, a second pass runs the router and "Gathering evidence" is emitted then. No separate phase support is needed for the two retrieval approaches — retrieval always goes through the router node, which is already in the phase map.
+
+**Production behavior:** Use Open WebUI's **native** status display only; do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
+
 **Why statuses might not appear:**
 - **LiteLLM/proxy**: Some proxies forward only `data:` lines and drop `event: status`. Try calling the Planner directly (no LiteLLM) to verify.
 - **Open WebUI version**: SSE status routing may require a recent release.
 - **Buffering**: `X-Accel-Buffering: no` is set; upstream proxies (HAProxy, nginx) may still buffer—add `haproxy.router.openshift.io/disable_buffer: "true"` on the route.
+- **Planner restarts**: If the planner pod OOMs or crashes, the stream stops and the UI can sit on "Gathering evidence" or similar. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. Ensure `search_sources.yaml` is mounted (apply planner via kustomize so the `synesis-search-sources` ConfigMap exists); otherwise logs show `search_sources_file_not_found` and the router uses in-memory defaults, but the file mount avoids path confusion and matches production config. For memory debugging and instrumentation, see [PLANNER_MEMORY.md](PLANNER_MEMORY.md).
 
 ---
 
