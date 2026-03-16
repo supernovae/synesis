@@ -16,6 +16,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 COPY app/ ./app/
 COPY --from=frontend /build/dist ./static/
 
