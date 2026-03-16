@@ -1611,10 +1611,19 @@ software_architecture:
     When the architecture involves code generation, code review, or coding
     workflows: treat the code path as a first-class section covering repo/code
     retrieval, generation flow, deterministic validators per language/tool,
-    and how code review differs from doc Q&A. When the architecture includes
+    and how code review differs from doc Q&A.     When the architecture includes
     a confidence or escalation mechanism: decompose the confidence signal into
     named inputs (retrieval similarity, chunk agreement, ambiguity, tool
     validation results, task type) rather than treating it as a single score.
+    When the design includes a router or escalation step: state the decision
+    matrix explicitly — when to answer (e.g. high evidence + any complexity),
+    when to escalate (e.g. low evidence + complex), when to refuse (e.g.
+    out-of-scope, unsupported, or unauthorized); distinguish low-evidence+simple
+    from low-evidence+complex. When the architecture includes retrieval or RAG:
+    in one sentence each, state how metadata and permission filtering are
+    applied (e.g. filter before vector search) and how semantic and lexical
+    search are combined (e.g. hybrid fusion, re-ranking); do not describe the
+    vector store in isolation.
   discovery_prompt: "End with a brief 'Key Risks' section: the top 3-5 ways this design could fail, early warning signs, and mitigations."
   planner_decomposition_rules: |
     For architecture/design tasks:
@@ -1668,11 +1677,16 @@ software_architecture:
     (your professional judgment). When making a recommendation, state the
     key assumption it depends on. If inferring constraints the user did not
     state, mark them as [Assumed Constraint]. Label quantitative estimates
-    with [Estimate] and state the assumption behind them. When proposing
+    with [Estimate] and state the assumption behind them. For any confidence
+    or routing component, state its implementation type: rule-based, heuristic
+    weighted score, classifier-based, or model-based. When proposing
     a confidence or quality gate, decompose the signal: name the concrete
     inputs (e.g. retrieval similarity, chunk agreement, tool validation
     result, task type), how they combine, and the threshold for each
     decision outcome — do not treat confidence as a single opaque score.
+    Label numeric SLOs and cost claims as [Target], [Estimate], or [Measured]
+    where applicable. Avoid malformed numeric expressions (e.g. typos or
+    broken formatting in numbers).
   output_controls:
     precise: true
     show_assumptions: true

@@ -26,6 +26,7 @@ from ..critic_policy import (
 )
 from ..llm_telemetry import get_llm_http_client
 from ..state import NodeOutcome, NodeTrace, WhatIfAnalysis
+from ..taxonomy_prompt_factory import get_intent_critic_block
 from ..validator import validate_critic_with_repair
 
 logger = logging.getLogger("synesis.critic")
@@ -716,7 +717,10 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "- underspecified_control_logic: a decision-making component (router, "
                     "classifier, escalation agent, confidence gate) is described by what "
                     "it does but not HOW — missing the mechanism (rule-based vs model-based), "
-                    "the input signals it uses, or its behavior on ambiguous cases.\n"
+                    "the input signals it uses, or its behavior on ambiguous cases. Treat as "
+                    "critical (approved=false) when a router, confidence gate, or escalation "
+                    "component is described without stating whether it is rule-based, heuristic "
+                    "weighted score, classifier-based, or model-based.\n"
                     "Critical (non_answer, partial_answer with 3+ missed requirements) "
                     "→ approved=false.\n"
                     "Depth (insufficient_depth or evidence_underuse on ANY section for "
@@ -752,7 +756,31 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "assumptions, and recommendations. Key assumptions should be tagged "
                     "with [Assumption] or [Assumed Constraint], and estimates with [Estimate]. "
                     "Flag 'false_certainty' if the response presents assumptions as established "
-                    "facts without qualification.\n"
+                    "facts without qualification. For difficulty >= 0.6, block (approved=false) "
+                    "if the response does not clearly separate or label facts, assumptions, and "
+                    "recommendations (e.g. with tags or dedicated sections).\n"
+                )
+                controls_block += (
+                    "\nNUMERIC LABELING: Flag 'false_precision' if numeric claims (latency, cost, "
+                    "SLOs) are unlabeled or malformed (e.g. '<$0.00 [Estimate]1'). For difficulty >= 0.6, "
+                    "treat repeated malformed numbers as a blocking issue.\n"
+                )
+
+            intent_critic_block = get_intent_critic_block(state.get("intent_class", ""))
+            if intent_critic_block:
+                controls_block += (
+                    f"\nIntent-specific checks (apply when relevant):\n{intent_critic_block}\n"
+                )
+
+            # Architecture/design rubric: when the answer describes routing or control logic
+            deliverables = user_task_data.get("deliverables") or []
+            deliverable_text = " ".join(str(d).lower() for d in deliverables)
+            if difficulty >= 0.6 and ("architecture" in deliverable_text or "design" in deliverable_text):
+                controls_block += (
+                    "\nArchitecture/design: If the response describes routing, escalation, or retrieval, "
+                    "check that it states implementation type and decision matrix (answer/escalate/refuse); "
+                    "that retrieval is described with metadata/permission and hybrid role where applicable; "
+                    "and that facts/assumptions/recommendations are separated.\n"
                 )
 
             doc_system = f"""You are a quality gate. Decide whether the response is good enough to ship.

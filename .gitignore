@@ -117,3 +117,4 @@ docs/*
 !docs/ADMIN_QUALITY_UI.md
 !docs/MILVUS_SCALING.md
 !docs/ARCHITECTURE_AUDIT.md
+!docs/DESIGN_THEORY.md

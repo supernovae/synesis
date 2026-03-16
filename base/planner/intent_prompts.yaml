@@ -27,6 +27,10 @@ intent_classes:
     critic_behavior_block: |
       DECOMPOSITION: Each step must have verification_command. Flag underspecified steps.
       Nonblocking: alternative orderings. Block: unverifiable steps.
+      When the answer describes routing, escalation, or refusal logic: block if it does not
+      state (1) implementation type (rule-based, heuristic, or model-based), (2) decision
+      matrix (when to answer vs escalate vs refuse by evidence and complexity), and (3) how
+      out-of-scope or unauthorized requests are handled.
   data_transform:
     critic_behavior_block: |
       SCHEMA: Validate output shape matches stated schema. Flag type mismatches, extra/missing fields.

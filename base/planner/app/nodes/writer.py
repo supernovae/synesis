@@ -760,7 +760,14 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     # Epistemic structure enforcement for hard tasks: when the prompt
     # explicitly asks for epistemic separation or the task is complex
     # enough to benefit from it, require dedicated structural sections.
-    if difficulty >= 0.7 and sc_show_assumptions:
+    # Architecture/design documents get this at 0.6 to improve quality bar.
+    is_architecture_or_design = (
+        (taxonomy_meta.get("output_style") or "") == "architecture_document"
+        or taxonomy_meta.get("taxonomy_key") in ("software_architecture", "cloud", "system_design")
+    )
+    if (difficulty >= 0.7 and sc_show_assumptions) or (
+        difficulty >= 0.6 and sc_show_assumptions and is_architecture_or_design
+    ):
         system_prompt += (
             "\n\nEPISTEMIC STRUCTURE (required for high-complexity tasks):\n"
             "Your response MUST include these clearly labeled sections or subsections:\n"
