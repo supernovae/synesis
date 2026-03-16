@@ -757,6 +757,34 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "- For complex responses, consider grouping in a dedicated 'Assumptions & Caveats' section."
         )
 
+    # Epistemic structure enforcement for hard tasks: when the prompt
+    # explicitly asks for epistemic separation or the task is complex
+    # enough to benefit from it, require dedicated structural sections.
+    if difficulty >= 0.7 and sc_show_assumptions:
+        system_prompt += (
+            "\n\nEPISTEMIC STRUCTURE (required for high-complexity tasks):\n"
+            "Your response MUST include these clearly labeled sections or subsections:\n"
+            "- **Assumptions** — things you believe are true but cannot verify from evidence.\n"
+            "- **Open Questions / Uncertainties** — things you do not know and cannot resolve.\n"
+            "These may be standalone sections or clearly labeled subsections within "
+            "the main body. Do NOT bury assumptions inside prose without labeling them.\n"
+            "Every recommendation must trace to either a fact or a stated assumption."
+        )
+
+    # Control-component specificity: when describing decision-making
+    # components (agents, routers, classifiers), require mechanism details.
+    if difficulty >= 0.7:
+        system_prompt += (
+            "\n\nCONTROL COMPONENT SPECIFICITY:\n"
+            "When your design includes a component that makes decisions (routes, "
+            "classifies, gates, escalates, or selects), you MUST specify:\n"
+            "1. What signals/inputs it uses (e.g. similarity score, token count).\n"
+            "2. Whether it is rule-based, classifier-based, model-based, or hybrid.\n"
+            "3. How it handles ambiguous cases.\n"
+            "Do NOT describe a decision-making component as simply 'evaluating' or "
+            "'determining' — name the mechanism."
+        )
+
     revision_context = _build_revision_context(state)
 
     user_msg = f"{task_block}\n{outline_block}\nTarget verbosity: {verbosity}\n\n"

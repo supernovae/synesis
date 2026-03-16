@@ -1608,12 +1608,21 @@ software_architecture:
     include a mermaid diagram to visualize the architecture. Name specific
     tools, frameworks, and versions — not abstract categories. Each section
     should contain 2-4 substantive paragraphs with concrete details.
+    When the architecture involves code generation, code review, or coding
+    workflows: treat the code path as a first-class section covering repo/code
+    retrieval, generation flow, deterministic validators per language/tool,
+    and how code review differs from doc Q&A. When the architecture includes
+    a confidence or escalation mechanism: decompose the confidence signal into
+    named inputs (retrieval similarity, chunk agreement, ambiguity, tool
+    validation results, task type) rather than treating it as a single score.
   discovery_prompt: "End with a brief 'Key Risks' section: the top 3-5 ways this design could fail, early warning signs, and mitigations."
   planner_decomposition_rules: |
     For architecture/design tasks:
     - Map each user-requested section to a plan step.
     - If the user listed specific deliverables, each becomes a step.
     - Do NOT invent requirements the user did not ask for.
+    - If the task involves coding workflows, include a dedicated code-path step
+      covering: code retrieval, code generation, code review, and validators.
   required_elements:
     - "Design Goals & Constraints"
     - "Architecture & Components"
@@ -1646,6 +1655,10 @@ software_architecture:
     alternatives were rejected) in a comparison table. Include domain-specific
     sections as demanded by the user's prompt (e.g. model taxonomy for AI
     systems, data model for storage systems, API design for service systems).
+    If the system involves code generation or coding workflows, include a
+    dedicated code-path section covering: how code is retrieved from repos,
+    how generated code is validated before showing to users, deterministic
+    validators per language/domain, and how code review differs from doc Q&A.
     Implementation path with concrete milestones and team-size-aware phasing.
     Key risks with domain-specific failure modes and detection strategies.
     Every recommendation must be concrete and justified.
@@ -1655,7 +1668,11 @@ software_architecture:
     (your professional judgment). When making a recommendation, state the
     key assumption it depends on. If inferring constraints the user did not
     state, mark them as [Assumed Constraint]. Label quantitative estimates
-    with [Estimate] and state the assumption behind them.
+    with [Estimate] and state the assumption behind them. When proposing
+    a confidence or quality gate, decompose the signal: name the concrete
+    inputs (e.g. retrieval similarity, chunk agreement, tool validation
+    result, task type), how they combine, and the threshold for each
+    decision outcome — do not treat confidence as a single opaque score.
   output_controls:
     precise: true
     show_assumptions: true
@@ -1731,7 +1748,9 @@ kubernetes:
     limits, scheduling, networking, and observability. Note upgrade and
     rollback implications. Use mermaid diagrams to illustrate pod topology,
     networking, or deployment pipelines when the architecture spans multiple
-    components.
+    components. When proposing storage solutions (vector DBs, caches,
+    databases), specify the operational story: persistent volume strategy,
+    backup/restore, failover, and what happens when a pod is evicted.
   discovery_prompt: "End with 'Operational Gotchas': 2-3 failure modes that commonly surprise teams and how to detect them early."
   required_elements:
     - "Architecture"
@@ -2220,7 +2239,10 @@ python:
     Write idiomatic Python (PEP 8, PEP 20). Prefer comprehensions over
     manual loops when readable. Use type hints on public APIs. Note
     performance characteristics (list vs generator, dict vs defaultdict).
-    Include error handling patterns and testing approach.
+    Include error handling patterns and testing approach. When building
+    systems that generate or review code, specify validation steps: linting,
+    type checking, sandbox execution, and how unsafe code is caught before
+    it reaches the user.
   discovery_prompt: "End with a 'Pythonic Tip' — an idiomatic alternative or stdlib gem relevant to this task."
   required_elements:
     - "Solution"
@@ -2585,7 +2607,10 @@ terraform:
     Use Terraform best practices: remote state, workspaces, module
     composition. Explain provider-specific behavior. Note state locking
     and drift detection. Include plan/apply workflow considerations.
-    Consider import workflows for existing infrastructure.
+    Consider import workflows for existing infrastructure. When
+    provisioning AI/ML infrastructure, specify GPU resource blocks,
+    model serving endpoint configuration, and autoscaling policies
+    with concrete threshold values.
   discovery_prompt: "End with 'IaC Gotchas': common state, provider, or module pitfalls for this approach."
   required_elements:
     - "Resource Design"
