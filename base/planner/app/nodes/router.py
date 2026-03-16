@@ -484,6 +484,7 @@ class RouterNode:
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
         search_source_ids: list[str] | None = None,
+        preseeded_lock: Any | None = None,
     ) -> RetrievalBundle:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
@@ -499,6 +500,7 @@ class RouterNode:
             skip_web=skip_web,
             search_source_ids=search_source_ids,
             preferred_domains=preferred_web_scopes,
+            preseeded_lock=preseeded_lock,
         )
         bundle.results = bundle.results[:doc_cap]
         return bundle
@@ -596,6 +598,7 @@ class RouterNode:
         skip_web: bool = False,
         preferred_web_scopes: list[str] | None = None,
         search_source_ids: list[str] | None = None,
+        preseeded_lock: Any | None = None,
     ) -> RetrievalBundle:
         """Retrieve using multiple query variants and merge via RRF."""
         if len(variants) <= 1:
@@ -606,6 +609,7 @@ class RouterNode:
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
                 search_source_ids=search_source_ids,
+                preseeded_lock=preseeded_lock,
             )
 
         tasks = [
@@ -616,6 +620,7 @@ class RouterNode:
                 skip_web=skip_web,
                 preferred_web_scopes=preferred_web_scopes,
                 search_source_ids=search_source_ids,
+                preseeded_lock=preseeded_lock,
             )
             for q in variants
         ]
@@ -687,6 +692,7 @@ class RouterNode:
             preferred_web_scopes = get_preferred_web_scopes(taxonomy_metadata)
 
         light_mode = evidence_request.get("_light_mode", False)
+        preseeded_lock = evidence_request.get("_preseeded_lock")
 
         evidence_request.setdefault("_difficulty", difficulty)
 
@@ -714,6 +720,7 @@ class RouterNode:
                     skip_web=skip_web,
                     preferred_web_scopes=preferred_web_scopes,
                     search_source_ids=search_source_ids or None,
+                    preseeded_lock=preseeded_lock,
                 ),
                 timeout=self.retrieve_timeout_seconds,
             )
@@ -955,6 +962,24 @@ class RouterNode:
             for req in requests:
                 req["_light_mode"] = True
 
+        # Pre-seed cohesion lock from intent anchors (skip Phase 5b detection)
+        _preseeded_lock = None
+        intent_anchors = user_task.get("intent_anchors") or {}
+        anchor_exclude = user_task.get("anchor_exclude_signals") or []
+        if intent_anchors and anchor_exclude:
+            from ..cohesion import CohesionLock
+
+            strongest = next(iter(intent_anchors.values()))
+            _preseeded_lock = CohesionLock(
+                entity=strongest,
+                lock_type="specific",
+                exclude_signals=anchor_exclude,
+                confidence=0.95,
+                source="intent_anchor",
+            )
+            for req in requests:
+                req["_preseeded_lock"] = _preseeded_lock
+
         t_dispatch = time.monotonic()
         packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
         dispatch_ms = (time.monotonic() - t_dispatch) * 1000
@@ -1098,11 +1123,15 @@ class RouterNode:
         user_task = state.get("user_task") or {}
         task_desc = state.get("task_description", "")
         domain_hints = self._domain_hints_from_state(state)
-        domain_tags = user_task.get("domain_tags") or []  # still used for search source selection
+        domain_tags = user_task.get("domain_tags") or []
         technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
 
-        # Resolve search source IDs from taxonomy + prompt cues
+        # Intent anchors — scope queries with locked technology choices
+        intent_anchors = user_task.get("intent_anchors") or {}
+        anchor_exclude = user_task.get("anchor_exclude_signals") or []
+        anchor_terms = list(intent_anchors.values()) if intent_anchors else []
+
         search_source_ids = self._resolve_search_sources(state, domain_tags)
 
         base: dict[str, Any] = {
@@ -1112,23 +1141,50 @@ class RouterNode:
         }
         if search_source_ids:
             base["search_source_ids"] = search_source_ids
+        if anchor_exclude:
+            base["anchor_exclude_signals"] = anchor_exclude
 
         requests = []
         main_q = user_task.get("main_question", task_desc)
         if main_q:
-            requests.append({**base, "description": main_q})
+            scoped_q = self._scope_query_with_anchors(main_q, anchor_terms)
+            requests.append({**base, "description": scoped_q})
 
         deliverables = user_task.get("deliverables") or []
         if len(deliverables) > 10:
             for batch_idx in range(0, len(deliverables), 3):
                 batch = deliverables[batch_idx : batch_idx + 3]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
-                requests.append({**base, "section_id": batch_idx, "description": combined})
+                scoped = self._scope_query_with_anchors(combined, anchor_terms)
+                requests.append({**base, "section_id": batch_idx, "description": scoped})
         else:
             for i, d in enumerate(deliverables):
-                requests.append({**base, "section_id": i, "description": d if isinstance(d, str) else str(d)})
+                desc = d if isinstance(d, str) else str(d)
+                scoped = self._scope_query_with_anchors(desc, anchor_terms)
+                requests.append({**base, "section_id": i, "description": scoped})
+
+        if anchor_terms:
+            logger.info(
+                "router_anchor_scoping",
+                extra={
+                    "anchor_terms": anchor_terms[:4],
+                    "exclude_signals": anchor_exclude[:4],
+                    "requests": len(requests),
+                },
+            )
 
         return requests if requests else [{**base, "description": task_desc}]
+
+    @staticmethod
+    def _scope_query_with_anchors(query: str, anchor_terms: list[str]) -> str:
+        """Append anchor terms to a query if not already present."""
+        if not anchor_terms:
+            return query
+        q_lower = query.lower()
+        additions = [t for t in anchor_terms if t.lower() not in q_lower]
+        if additions:
+            return f"{query} ({', '.join(additions)})"
+        return query
 
     def _resolve_search_sources(self, state: dict[str, Any], domain_tags: list[str]) -> list[str]:
         """Determine which search sources to use based on taxonomy metadata and prompt cues.

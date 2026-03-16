@@ -149,3 +149,26 @@ class KnowledgeGap(Base):
         Index("ix_knowledge_gaps_language", "language"),
         Index("ix_knowledge_gaps_timestamp", timestamp.desc()),
     )
+
+
+class DiscoveredConflictGroup(Base):
+    __tablename__ = "discovered_conflict_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_name: Mapped[str] = mapped_column(Text, nullable=False)
+    members: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    default_pick: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    exclusion_map: Mapped[dict] = mapped_column(JSONB, nullable=True, default=dict)
+    source_query: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    source_run_id: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending_review")
+    reviewer_note: Mapped[str] = mapped_column(Text, nullable=True, default="")
+    discovered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_discovered_conflict_groups_status", "status"),
+        Index("ix_discovered_conflict_groups_group_name", "group_name"),
+    )

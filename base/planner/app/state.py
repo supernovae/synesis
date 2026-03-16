@@ -133,6 +133,9 @@ class GraphState(TypedDict, total=False):
     # --- Cohesion Lock (Router-set, consumed by Writer/Critic) ---
     cohesion_lock: Annotated[dict[str, Any], _set_once_dict]
 
+    # --- Intent Anchors (Frame Normalizer-set, consumed by Router/Writer/Critic) ---
+    unresolved_conflicts: list[dict[str, Any]]
+
     # --- Strategic Advisor ---
     platform_context: str
     active_domain_refs: list[str]

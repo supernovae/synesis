@@ -814,6 +814,11 @@ class UserTask(BaseModel):
     persona: str = ""
     output_controls: dict[str, bool] = Field(default_factory=dict)
 
+    # Intent anchors — resolved technology choices (e.g., {"cloud_provider": "aws"})
+    intent_anchors: dict[str, str] = Field(default_factory=dict)
+    anchor_exclude_signals: list[str] = Field(default_factory=list)
+    anchor_assumptions: list[str] = Field(default_factory=list)
+
 
 class OutputControls(BaseModel):
     """Per-request output behavior controls.

@@ -498,6 +498,7 @@ async def retrieve_unified(
     skip_web: bool = False,
     search_source_ids: list[str] | None = None,
     preferred_domains: list[str] | None = None,
+    preseeded_lock: Any = None,
 ) -> RetrievalBundle:
     """Parallel RAG + multi-source web retrieval with authority-weighted RRF fusion.
 
@@ -692,13 +693,24 @@ async def retrieve_unified(
     final = _adaptive_topk(merged, max_k=top_k, gap_multiplier=gap_mult)
 
     # Phase 5b-5d: Cohesion Lock pipeline — inter-document coherence filtering.
-    # Detects the dominant entity/theme, evicts conflicting docs, and compresses
-    # surviving docs to sentences matching the lock.
+    # When a preseeded_lock is provided (from intent anchors), skip Phase 5b
+    # detection and go straight to filtering/compression.
     cohesion_lock_dict: dict[str, Any] | None = None
     if settings.cohesion_lock_enabled and len(final) >= settings.cohesion_lock_min_results:
         from .cohesion import cohesion_filter, compress_to_cohesion, detect_cohesion_lock
 
-        lock = await detect_cohesion_lock(final, top_n=3)
+        if preseeded_lock is not None:
+            lock = preseeded_lock
+            logger.info(
+                "cohesion_lock_preseeded",
+                extra={
+                    "entity": lock.entity,
+                    "source": lock.source,
+                    "exclude_signals": lock.exclude_signals[:5],
+                },
+            )
+        else:
+            lock = await detect_cohesion_lock(final, top_n=3)
         if lock is not None:
             cohesion_lock_dict = lock.to_dict()
             pre_filter_count = len(final)

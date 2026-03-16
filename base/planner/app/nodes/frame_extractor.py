@@ -282,8 +282,8 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        # Stage 2: Deterministic normalization
-        user_task, report = normalize_frame(first_pass, prompt_text)
+        # Stage 2: Deterministic normalization + intent anchor resolution
+        user_task, report, unresolved_conflicts = normalize_frame(first_pass, prompt_text)
 
         stage2_latency = (time.monotonic() - start) * 1000
         logger.info(
@@ -305,7 +305,14 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         _repair_threshold = settings.effective_frame_repair_above
         if report.should_call_second_pass and difficulty >= _repair_threshold:
             extraction_mode = "gliner2_plus_llm_repair"
+            _saved_anchors = user_task.intent_anchors
+            _saved_excl = user_task.anchor_exclude_signals
+            _saved_assumptions = user_task.anchor_assumptions
             user_task = await _llm_repair(prompt_text, first_pass, report)
+            if _saved_anchors:
+                user_task.intent_anchors = _saved_anchors
+                user_task.anchor_exclude_signals = _saved_excl
+                user_task.anchor_assumptions = _saved_assumptions
             tokens_used = 0  # token tracking happens inside ChatOpenAI
         elif report.should_call_second_pass:
             extraction_mode = "gliner2_skip_repair_low_difficulty"
@@ -322,6 +329,31 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             tax_key = taxonomy_metadata.get("taxonomy_key", "")
             if tax_key and tax_key not in ("generic", "general"):
                 user_task.domain_tags = [tax_key]
+
+        # LLM fallback for anchor resolution on high-difficulty tasks with
+        # many unrecognized technologies (only if fast path yielded nothing).
+        if (
+            settings.anchor_resolution_enabled
+            and settings.anchor_llm_fallback_enabled
+            and not user_task.intent_anchors
+            and difficulty >= 0.7
+        ):
+            from .frame_normalizer import resolve_intent_anchors_with_llm_fallback
+
+            try:
+                llm_anchors, llm_excl, llm_assumptions, llm_conflicts = (
+                    await resolve_intent_anchors_with_llm_fallback(
+                        user_task, difficulty, run_id=state.get("run_id", ""),
+                    )
+                )
+                if llm_anchors:
+                    user_task.intent_anchors = llm_anchors
+                    user_task.anchor_exclude_signals = llm_excl
+                    user_task.anchor_assumptions = llm_assumptions
+                if llm_conflicts:
+                    unresolved_conflicts = llm_conflicts
+            except Exception:
+                logger.warning("anchor_llm_fallback_failed", exc_info=True)
 
         user_task_dict = user_task.model_dump()
         latency = (time.monotonic() - start) * 1000
@@ -345,7 +377,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        return {
+        result: dict[str, Any] = {
             "user_task": user_task_dict,
             "current_node": node_name,
             "node_traces": [
@@ -360,6 +392,10 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
             ],
         }
+        if unresolved_conflicts:
+            result["unresolved_conflicts"] = unresolved_conflicts
+
+        return result
 
     except Exception as e:
         logger.warning("frame_extractor_failed error=%s, using deterministic fallback", e)

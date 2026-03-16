@@ -240,6 +240,21 @@ export interface BenchmarkResults {
   timestamp?: string;
 }
 
+export interface ConflictGroup {
+  [key: string]: unknown;
+  id: number;
+  group_name: string;
+  members: string[];
+  default_pick: string;
+  exclusion_map: Record<string, string[]>;
+  source_query: string;
+  source_run_id: string;
+  status: "pending_review" | "approved" | "rejected";
+  reviewer_note: string;
+  discovered_at: string;
+  reviewed_at: string;
+}
+
 // --- Traces ---
 
 export interface LLMCallRecord {

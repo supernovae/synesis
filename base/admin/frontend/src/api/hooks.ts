@@ -479,3 +479,57 @@ export function useSystemConfig() {
     queryFn: () => client.get("/settings/config").then((r) => r.data),
   });
 }
+
+// --- Conflict Groups ---
+
+export function useConflictGroups(params?: Record<string, unknown>) {
+  const search = new URLSearchParams();
+  if (params?.status) search.set("status", String(params.status));
+  const qs = search.toString();
+  return useQuery<{ groups: import("../types").ConflictGroup[]; total: number }>({
+    queryKey: ["conflict-groups", qs],
+    queryFn: () =>
+      client.get(`/pipeline/conflict-groups${qs ? `?${qs}` : ""}`).then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useConflictGroupStats() {
+  return useQuery<{
+    total: number;
+    pending_review: number;
+    approved: number;
+    rejected: number;
+  }>({
+    queryKey: ["conflict-groups", "stats"],
+    queryFn: () => client.get("/pipeline/conflict-groups/stats").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useReviewConflictGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: number; status: string; reviewer_note?: string }) =>
+      client
+        .post(`/pipeline/conflict-groups/${data.id}/review`, {
+          status: data.status,
+          reviewer_note: data.reviewer_note || "",
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conflict-groups"] });
+    },
+  });
+}
+
+export function useDeleteConflictGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.delete(`/pipeline/conflict-groups/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conflict-groups"] });
+    },
+  });
+}

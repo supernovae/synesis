@@ -115,6 +115,39 @@ def _sample_memory_and_log(
     return (rss_mib, cgroup_mib)
 
 
+def _load_approved_conflict_groups() -> None:
+    """Load admin-approved conflict groups from Postgres into the cohesion fast-path map."""
+    import os
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", settings.trace_database_url)
+    if not db_url:
+        return
+    try:
+        import psycopg2
+
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(dsn, connect_timeout=5)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT group_name, members, exclusion_map FROM discovered_conflict_groups WHERE status = 'approved'"
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if rows:
+            from .cohesion import _merge_db_conflict_groups
+
+            db_groups = [
+                {"group_name": r[0], "members": r[1], "exclusion_map": r[2] or {}}
+                for r in rows
+            ]
+            _merge_db_conflict_groups(db_groups)
+            logger.info("conflict_groups_loaded_from_db", extra={"count": len(rows)})
+    except Exception:
+        logger.debug("conflict_groups_db_load_failed", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .entry_classifier_engine import get_scoring_engine
@@ -152,6 +185,13 @@ async def lifespan(app: FastAPI):
             extra={"lexicon_size": len(normalizer._lexicon)},
         )
     _log_rss("after_normalizer")
+
+    # Load admin-approved conflict groups into the fast-path map
+    if settings.anchor_resolution_enabled and settings.trace_database_url:
+        try:
+            _load_approved_conflict_groups()
+        except Exception:
+            logger.debug("conflict_groups_db_load_skipped", exc_info=True)
 
     logger.info(
         "sse_status_format",

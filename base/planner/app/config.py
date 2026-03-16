@@ -121,6 +121,15 @@ class Settings(BaseSettings):
     cohesion_compression_threshold: float = 0.20  # sentence-level similarity to lock
     long_context_reorder_enabled: bool = True
 
+    # Intent anchors — pre-retrieval technology ambiguity resolution.
+    # Scans frame-extracted technologies against conflict groups derived
+    # from _ENTITY_EXCLUSION_MAP, resolving gaps/conflicts before retrieval.
+    anchor_resolution_enabled: bool = True
+    anchor_strategy: Literal["pick_default", "ask_on_conflict", "always_ask"] = "ask_on_conflict"
+    anchor_ask_min_difficulty: float = 0.5
+    anchor_show_assumptions: bool = True
+    anchor_llm_fallback_enabled: bool = True
+
     # Retrieval strategy: "hybrid" (BM25 + vector), "vector", or "bm25"
     rag_retrieval_strategy: Literal["hybrid", "vector", "bm25"] = "hybrid"
 

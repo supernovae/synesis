@@ -47,6 +47,7 @@ app.add_middleware(
 
 from app.routers.assistant import router as assistant_router
 from app.routers.auth_router import router as auth_router
+from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
 from app.routers.integrations import router as integrations_router
@@ -60,6 +61,7 @@ from app.routers.traces import router as traces_router
 
 app.include_router(assistant_router)
 app.include_router(auth_router)
+app.include_router(conflict_groups_router)
 app.include_router(dashboard_router)
 app.include_router(models_router)
 app.include_router(rag_router)

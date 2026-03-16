@@ -21,6 +21,7 @@ const CoverageMap = lazy(() => import("./pages/taxonomy/CoverageMap"));
 const GraphVisualization = lazy(() => import("./pages/pipeline/GraphVisualization"));
 const NodePerformance = lazy(() => import("./pages/pipeline/NodePerformance"));
 const CriticAnalytics = lazy(() => import("./pages/pipeline/CriticAnalytics"));
+const ConflictGroups = lazy(() => import("./pages/pipeline/ConflictGroups"));
 
 const TraceList = lazy(() => import("./pages/traces/TraceList"));
 const TraceDetail = lazy(() => import("./pages/traces/TraceDetail"));
@@ -70,6 +71,7 @@ export const router = createBrowserRouter([
       { path: "pipeline/graph", element: <GraphVisualization /> },
       { path: "pipeline/nodes", element: <NodePerformance /> },
       { path: "pipeline/critic", element: <CriticAnalytics /> },
+      { path: "pipeline/conflict-groups", element: <ConflictGroups /> },
 
       { path: "traces", element: <TraceList /> },
       { path: "traces/:traceId", element: <TraceDetail /> },

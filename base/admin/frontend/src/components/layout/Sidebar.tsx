@@ -68,6 +68,7 @@ const navigation: NavItem[] = [
       { label: "Graph", path: "/pipeline/graph" },
       { label: "Nodes", path: "/pipeline/nodes" },
       { label: "Critic", path: "/pipeline/critic" },
+      { label: "Conflict Groups", path: "/pipeline/conflict-groups" },
     ],
   },
   {

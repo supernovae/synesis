@@ -600,6 +600,56 @@ Validators are wired as pre/post checks via the `validated_node()` wrapper in
 Pre-violations are injected into the node's context as warnings. Post-violations
 are written to `critique_register` as open items for the next iteration.
 
+## Intent Anchors (Pre-Retrieval Ambiguity Resolution)
+
+Resolves technology ambiguity **before** retrieval to prevent cohesion
+oscillation. When a vague prompt mentions "Kubernetes" but not a cloud
+provider, the anchor resolver detects the gap and either picks a default
+(Tier 1) or asks the user (Tier 2) — before spending tokens on conflicting
+evidence.
+
+### Two-Tier Strategy
+
+| Tier | Trigger | Behavior |
+|------|---------|----------|
+| **Tier 1 (Gap)** | One side of a conflict group present (e.g., "Kubernetes" but no cloud provider) | Pick strongest default, record as assumption |
+| **Tier 2 (Conflict)** | Both sides present (e.g., "AWS vs GCP") | Circuit-break, ask clarification (if `anchor_strategy` permits) |
+
+Strategy is A/B testable via `SYNESIS_ANCHOR_STRATEGY`:
+`pick_default` (always pick), `ask_on_conflict` (recommended), `always_ask`.
+
+### Conflict Groups
+
+Derived automatically from `_ENTITY_EXCLUSION_MAP` in `cohesion.py` via
+connected-component analysis. No per-category logic. For unknown domains,
+a lightweight LLM fallback (~200ms) detects mutually exclusive technologies.
+Discoveries are persisted to admin Postgres for HITL review; approved groups
+are loaded at startup and merged into the fast path.
+
+### Pipeline Flow
+
+```
+Frame Extractor → Anchor Resolver (deterministic map + LLM fallback)
+  → Tier 1: lock anchors + assumptions
+  → Tier 2: clarification question → user responds → lock anchors
+  → Router: scoped queries with anchor terms + negative filters
+    → Retrieval: pre-seeded CohesionLock (skips Phase 5b detection)
+  → Writer: assumption header ("Assuming AWS/EKS...")
+  → Critic: deterministic anchor compliance pre-check
+```
+
+### State Fields
+
+| Field | Type | Set By | Consumed By |
+|-------|------|--------|-------------|
+| `intent_anchors` | `dict[str, str]` | Frame Normalizer | Router, Writer, Critic |
+| `anchor_exclude_signals` | `list[str]` | Frame Normalizer | Router, Cohesion Filter, Critic |
+| `anchor_assumptions` | `list[str]` | Frame Normalizer | Writer |
+| `unresolved_conflicts` | `list[dict]` | Frame Normalizer | Planner (clarify gate) |
+
+See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for full research basis, configuration,
+and HITL feedback loop details.
+
 ## Cohesion Lock Engine
 
 Prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure guidance
@@ -607,13 +657,20 @@ in a single architecture response). The Cohesion Lock operates between retrieval
 and generation to ensure all evidence and output stay grounded to one coherent
 topic.
 
+When **intent anchors** are present, the Cohesion Lock is pre-seeded from
+the anchor resolver — Phase 5b detection is skipped entirely since the
+dominant entity was determined pre-retrieval. This eliminates the latency
+of post-retrieval lock detection and prevents the "random first winner"
+problem on vague prompts.
+
 ### How It Works
 
-1. **Frame extraction** identifies the dominant entity or theory from the
-   user query and retrieved evidence (e.g., "AWS" for a cloud architecture
-   question).
-2. **Cohesion Lock** is set based on the dominant entity — either a
-   specific entity lock ("AWS") or a generic theory lock.
+1. **(Pre-retrieval) Intent anchor resolution** identifies technology
+   choices from the user's prompt and resolves conflicts before retrieval.
+   When anchors are present, they pre-seed the Cohesion Lock.
+2. **(Post-retrieval) Cohesion Lock detection** (Phase 5b) — runs only
+   when no pre-seeded lock is available. Detects the dominant entity
+   from top retrieved documents via metadata or LLM fallback.
 3. **Micro-critique** evaluates each retrieved document against the lock.
    Documents that don't match the cohesion lock are filtered out.
 4. **Contextual compression** strips off-topic sentences from surviving
@@ -634,6 +691,8 @@ topic.
 The cohesion lock ensures that when a user asks about "LLM architecture on AWS,"
 the system doesn't mix in GCP VPC peering docs or Azure service mesh guidance.
 Evidence stays grounded; the writer receives only coherent, on-topic material.
+With intent anchors, the lock is determined before retrieval — eliminating
+the 2-4 minute latency penalty from conflicting evidence and re-retrieval cycles.
 
 ## Query Normalization Pipeline
 

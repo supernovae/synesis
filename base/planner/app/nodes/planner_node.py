@@ -663,7 +663,42 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Phase 2: clarify-first gate — deterministic, uses existing plumbing
         clarify_question = ""
         clarify_options: list[str] = []
-        if style_locked.get("clarify_first"):
+
+        # Phase 2a: Intent anchor conflicts — Tier 2 circuit-break
+        unresolved_conflicts = state.get("unresolved_conflicts") or []
+        if (
+            settings.anchor_resolution_enabled
+            and unresolved_conflicts
+            and settings.anchor_strategy in ("ask_on_conflict", "always_ask")
+            and difficulty >= settings.anchor_ask_min_difficulty
+            and not bool(state.get("iteration_count", 0) > 0)
+        ):
+            conflict_qs = []
+            for conflict in unresolved_conflicts[:3]:
+                group = conflict.get("group", "unknown")
+                members = conflict.get("members", [])
+                conflict_qs.append(
+                    f"**{group.replace('_', ' ').title()}**: {' vs '.join(members)} — which should I focus on?"
+                )
+            clarify_question = (
+                "I noticed your request involves competing technology choices "
+                "that would significantly change my answer:\n\n"
+                + "\n".join(f"- {q}" for q in conflict_qs)
+                + "\n\nPick one for each, or say 'proceed' and I'll choose "
+                "the most common default for each."
+            )
+            clarify_options = conflict_qs
+            logger.info(
+                "anchor_conflict_clarify_triggered",
+                extra={
+                    "conflicts": len(unresolved_conflicts),
+                    "difficulty": difficulty,
+                    "strategy": settings.anchor_strategy,
+                },
+            )
+
+        # Phase 2b: General clarify-first gate (existing behavior)
+        if not clarify_question and style_locked.get("clarify_first"):
             ambiguities = user_task.get("ambiguities") or []
             open_qs = plan.get("open_questions") or []
             combined_qs = [q for q in (ambiguities + open_qs) if q and str(q).strip()]

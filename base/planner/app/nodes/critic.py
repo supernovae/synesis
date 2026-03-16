@@ -542,6 +542,46 @@ def _budget_guided_critic(difficulty: float) -> ChatOpenAI:
     return critic_llm.bind(max_completion_tokens=min(total_budget, settings.critic_max_tokens))
 
 
+def _deterministic_anchor_compliance(
+    response: str,
+    anchor_exclude_signals: list[str],
+) -> list[str]:
+    """Check that the response doesn't prominently feature excluded technologies.
+
+    Fires only when intent anchors provided exclude signals. Looks for
+    substantive usage (60+ word paragraphs mentioning excluded terms),
+    not incidental mentions in comparison tables or "instead of X" notes.
+    """
+    if not anchor_exclude_signals:
+        return []
+
+    response_lower = response.lower()
+    paragraphs = [p for p in response_lower.split("\n\n") if len(p.split()) >= 60]
+
+    violations: list[str] = []
+    for signal in anchor_exclude_signals[:10]:
+        sl = signal.lower()
+        for para in paragraphs:
+            if sl in para:
+                context_start = max(0, para.index(sl) - 30)
+                context_end = min(len(para), para.index(sl) + len(sl) + 30)
+                context = para[context_start:context_end].strip()
+                if not any(neg in context for neg in ("instead of", "rather than", "not ", "unlike")):
+                    violations.append(signal)
+                    break
+
+    if violations:
+        logger.info(
+            "anchor_compliance_violation",
+            extra={
+                "violations": violations[:5],
+                "total_excluded": len(anchor_exclude_signals),
+            },
+        )
+        return ["instruction_drift"]
+    return []
+
+
 async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "critic"
@@ -679,6 +719,21 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     f"{exclude_line}"
                     f"- If the response mentions excluded topics, flag as 'instruction_drift'.\n"
                     f"- If the response stays within the frame, this is correct — not a gap.\n"
+                )
+
+            # Intent anchor compliance — deterministic pre-check before LLM scoring.
+            anchor_exclude = user_task.get("anchor_exclude_signals") or []
+            intent_anchors = user_task.get("intent_anchors") or {}
+            if intent_anchors and anchor_exclude:
+                anchor_terms = ", ".join(f"{k}={v}" for k, v in intent_anchors.items())
+                exclude_terms = ", ".join(anchor_exclude[:8])
+                cohesion_section += (
+                    f"\nINTENT ANCHOR COMPLIANCE:\n"
+                    f"The user's intent was locked to: {anchor_terms}.\n"
+                    f"Content about [{exclude_terms}] should NOT appear.\n"
+                    f"- If the response correctly focuses on the anchored technologies, "
+                    f"this is correct — do NOT flag as a gap or inconsistency.\n"
+                    f"- If the response introduces excluded technologies, flag as 'instruction_drift'.\n"
                 )
 
             # Lenient mode: strip verbose instruction blocks to save ~500 tokens
@@ -970,6 +1025,16 @@ Reply with JSON:
                     for tf in _tech_failures:
                         if tf not in failure_modes:
                             failure_modes.append(tf)
+
+                # Deterministic anchor compliance: scan draft for excluded terms
+                _anchor_exclude = user_task_data.get("anchor_exclude_signals") or []
+                if _anchor_exclude and generated_code:
+                    _anchor_failures = _deterministic_anchor_compliance(
+                        generated_code, _anchor_exclude
+                    )
+                    for af in _anchor_failures:
+                        if af not in failure_modes:
+                            failure_modes.append(af)
 
                 _approval_threshold = settings.critic_approval_threshold
                 _retry_threshold = settings.critic_retry_threshold

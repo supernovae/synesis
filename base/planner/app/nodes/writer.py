@@ -379,6 +379,12 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if output_format and output_format != "prose":
         parts.append(f"Output format: {output_format}")
 
+    # Intent anchors — locked technology choices
+    intent_anchors = frame.get("intent_anchors") or {}
+    if intent_anchors:
+        anchor_lines = ", ".join(f"{k}: {v}" for k, v in intent_anchors.items())
+        parts.append(f"Locked technology choices: {anchor_lines}")
+
     if not parts:
         return ""
 
@@ -875,6 +881,22 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if not compiled or len(compiled) < 50:
             logger.warning("writer_output_too_short")
             compiled = "*Response generation produced insufficient output.*"
+
+        # Prepend assumptions header when intent anchors made choices
+        user_task_data = state.get("user_task") or {}
+        anchor_assumptions = user_task_data.get("anchor_assumptions") or []
+        if anchor_assumptions and settings.anchor_show_assumptions:
+            assumption_bullets = "\n".join(f"- {a}" for a in anchor_assumptions[:6])
+            assumptions_block = (
+                f"> **Assumptions**\n"
+                f"> The prompt didn't specify certain technology choices, "
+                f"so this response assumes:\n"
+                f">\n"
+                + "\n".join(f"> {line}" for line in assumption_bullets.splitlines())
+                + "\n>\n"
+                + "> *Ask again with specific technologies to get a different focus.*\n"
+            )
+            compiled = assumptions_block + "\n" + compiled
 
         # Replace any LLM-generated Sources section with the controlled
         # provenance-based one (capped, confidence-sorted, collapsible).

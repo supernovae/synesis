@@ -2,13 +2,18 @@
 
 Pure Python, no ML, no LLM. Takes a FirstPassFrame (raw GLiNER2 output) and
 produces a normalized UserTask + MissingFieldReport for gating Stage 3.
+
+Includes the intent anchor resolver that scans extracted technologies
+against conflict groups to resolve ambiguity pre-retrieval.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
+from ..config import settings
 from ..schemas import (
     FirstPassFrame,
     MissingFieldReport,
@@ -154,10 +159,12 @@ def _extract_texts(candidates: list[RawExtractionCandidate]) -> list[str]:
     return [c.text for c in candidates]
 
 
-def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, MissingFieldReport]:
+def normalize_frame(
+    frame: FirstPassFrame, raw_text: str,
+) -> tuple[UserTask, MissingFieldReport, list[dict[str, Any]]]:
     """Stage 2: deterministic normalization of GLiNER2 raw extraction.
 
-    Returns (UserTask, MissingFieldReport).
+    Returns (UserTask, MissingFieldReport, unresolved_conflicts).
     """
     # Dedup within each field
     requirements = _dedup_candidates(frame.requirements)
@@ -286,6 +293,13 @@ def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, Mis
         persona=persona,
     )
 
+    # Intent anchor resolution — scan technologies against conflict groups
+    anchors, excl, anchor_assumptions, unresolved_conflicts = _resolve_intent_anchors(user_task)
+    if anchors:
+        user_task.intent_anchors = anchors
+        user_task.anchor_exclude_signals = excl
+        user_task.anchor_assumptions = anchor_assumptions
+
     logger.info(
         "normalize_frame reqs=%d constraints=%d deliverables=%d second_pass=%s",
         len(user_task.explicit_requirements),
@@ -294,7 +308,257 @@ def normalize_frame(frame: FirstPassFrame, raw_text: str) -> tuple[UserTask, Mis
         report.should_call_second_pass,
     )
 
-    return user_task, report
+    return user_task, report, unresolved_conflicts
+
+
+# ---------------------------------------------------------------------------
+# Intent Anchor Resolution
+# ---------------------------------------------------------------------------
+
+_CONFLICT_GROUP_DEFAULTS: dict[str, str] = {
+    # When a conflict group is implied but no member is explicit, pick this.
+    # Values are the most common industry default per group.
+}
+
+
+def _resolve_intent_anchors(
+    user_task: UserTask,
+) -> tuple[dict[str, str], list[str], list[str], list[dict[str, Any]]]:
+    """Resolve technology ambiguity from extracted technologies against conflict groups.
+
+    Returns:
+        (anchors, exclude_signals, assumptions, unresolved_conflicts)
+    """
+    if not settings.anchor_resolution_enabled:
+        return {}, [], [], []
+
+    from ..cohesion import get_conflict_groups, _ENTITY_EXCLUSION_MAP
+
+    conflict_groups = get_conflict_groups()
+    tech_lower = {t.lower() for t in user_task.technologies}
+    constraint_lower = {c.lower() for c in user_task.constraints}
+    all_signals = tech_lower | constraint_lower
+
+    anchors: dict[str, str] = {}
+    exclude_signals: list[str] = []
+    assumptions: list[str] = []
+    unresolved: list[dict[str, Any]] = []
+
+    for group_name, members in conflict_groups.items():
+        hits = all_signals & members
+        if len(hits) == 0:
+            default = _CONFLICT_GROUP_DEFAULTS.get(group_name)
+            if default:
+                anchors[group_name] = default
+                excl = _ENTITY_EXCLUSION_MAP.get(default, [])
+                exclude_signals.extend(excl)
+                assumptions.append(
+                    f"Assuming {default} (no {group_name.replace('_', ' ')} specified)"
+                )
+            continue
+
+        if len(hits) == 1:
+            winner = next(iter(hits))
+            anchors[group_name] = winner
+            excl = _ENTITY_EXCLUSION_MAP.get(winner, [])
+            exclude_signals.extend(excl)
+        else:
+            # Multiple members from the same group → conflict
+            unresolved.append({
+                "group": group_name,
+                "members": sorted(hits),
+                "all_members": sorted(members),
+            })
+
+    exclude_signals = list(dict.fromkeys(exclude_signals))
+
+    if anchors or unresolved:
+        logger.info(
+            "intent_anchors_resolved",
+            extra={
+                "anchors": anchors,
+                "exclude_signals": exclude_signals[:8],
+                "assumptions": assumptions[:4],
+                "unresolved_count": len(unresolved),
+            },
+        )
+
+    return anchors, exclude_signals, assumptions, unresolved
+
+
+async def resolve_intent_anchors_with_llm_fallback(
+    user_task: UserTask,
+    difficulty: float,
+    run_id: str = "",
+) -> tuple[dict[str, str], list[str], list[str], list[dict[str, Any]]]:
+    """Full anchor resolution: fast map + LLM fallback for unknown domains.
+
+    Called from the entry_pipeline or frame_extractor node (async context).
+    The LLM fallback fires only when the fast path found zero conflict groups,
+    the task is hard enough, and there are 3+ unrecognized technologies.
+    """
+    anchors, exclude_signals, assumptions, unresolved = _resolve_intent_anchors(user_task)
+
+    if anchors or unresolved or not settings.anchor_llm_fallback_enabled:
+        return anchors, exclude_signals, assumptions, unresolved
+
+    if difficulty < settings.anchor_ask_min_difficulty:
+        return anchors, exclude_signals, assumptions, unresolved
+
+    from ..cohesion import get_conflict_groups, _ENTITY_EXCLUSION_MAP
+
+    conflict_groups = get_conflict_groups()
+    all_known = set()
+    for members in conflict_groups.values():
+        all_known |= members
+
+    tech_lower = [t.lower() for t in user_task.technologies]
+    unrecognized = [t for t in tech_lower if t not in all_known]
+
+    if len(unrecognized) < 3:
+        return anchors, exclude_signals, assumptions, unresolved
+
+    # LLM fallback: ask the router model to detect mutually exclusive choices
+    try:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_openai import ChatOpenAI
+
+        from ..llm_telemetry import get_llm_http_client
+        from ..schemas import safe_parse_json
+
+        _kw: dict[str, Any] = {}
+        if settings.guided_json_enabled:
+            _kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        else:
+            _kw["response_format"] = {"type": "json_object"}
+
+        llm = ChatOpenAI(
+            base_url=settings.router_model_url,
+            api_key="not-needed",
+            model=settings.router_model_name,
+            temperature=0.0,
+            max_completion_tokens=256 if not settings.guided_json_enabled else 128,
+            streaming=False,
+            use_responses_api=False,
+            model_kwargs=_kw,
+            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
+        )
+
+        prompt = (
+            f"These technologies were extracted from a user prompt: {unrecognized}\n"
+            "Are any of these mutually exclusive choices in the same decision category?\n"
+            'Output JSON array: [{"group": "<category>", "members": ["a","b"], "default": "<most common>"}]\n'
+            "If none are mutually exclusive, output: []"
+        )
+
+        resp = await llm.ainvoke([
+            SystemMessage(content="You classify technology relationships. Output only JSON."),
+            HumanMessage(content=prompt),
+        ])
+
+        raw = safe_parse_json(resp.content or "")
+        discovered_groups = raw if isinstance(raw, list) else []
+
+        for grp in discovered_groups:
+            group_name = grp.get("group", "")
+            members = grp.get("members", [])
+            default = grp.get("default", "")
+            if not group_name or len(members) < 2:
+                continue
+
+            members_lower = [m.lower() for m in members]
+            hits = set(members_lower) & set(tech_lower)
+
+            if len(hits) == 1:
+                winner = next(iter(hits))
+                anchors[group_name] = winner
+                excl_for_winner = [m for m in members_lower if m != winner]
+                exclude_signals.extend(excl_for_winner)
+                assumptions.append(
+                    f"Assuming {winner} (detected as {group_name.replace('_', ' ')} choice)"
+                )
+            elif len(hits) >= 2:
+                unresolved.append({
+                    "group": group_name,
+                    "members": sorted(hits),
+                    "all_members": sorted(members_lower),
+                })
+
+            # Persist discovery to admin DB (best-effort, fire-and-forget)
+            _persist_discovered_group(
+                group_name=group_name,
+                members=members_lower,
+                default_pick=default,
+                source_query=(user_task.main_question or "")[:200],
+                source_run_id=run_id,
+            )
+
+        exclude_signals = list(dict.fromkeys(exclude_signals))
+
+        if discovered_groups:
+            logger.info(
+                "anchor_llm_fallback_discovered",
+                extra={
+                    "groups": len(discovered_groups),
+                    "anchors": anchors,
+                    "unresolved": len(unresolved),
+                },
+            )
+
+    except Exception:
+        logger.warning("anchor_llm_fallback_failed", exc_info=True)
+
+    return anchors, exclude_signals, assumptions, unresolved
+
+
+def _persist_discovered_group(
+    group_name: str,
+    members: list[str],
+    default_pick: str,
+    source_query: str,
+    source_run_id: str,
+) -> None:
+    """Write a discovered conflict group to admin Postgres (best-effort)."""
+    import json
+    import os
+    import threading
+
+    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return
+
+    exclusion_map: dict[str, list[str]] = {}
+    for m in members:
+        exclusion_map[m] = [other for other in members if other != m]
+
+    def _write() -> None:
+        try:
+            import psycopg2
+
+            dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+            conn = psycopg2.connect(dsn)
+            cur = conn.cursor()
+            cur.execute(
+                """INSERT INTO discovered_conflict_groups
+                   (group_name, members, default_pick, exclusion_map, source_query, source_run_id)
+                   VALUES (%s, %s, %s, %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                (
+                    group_name,
+                    json.dumps(members),
+                    default_pick,
+                    json.dumps(exclusion_map),
+                    source_query,
+                    source_run_id,
+                ),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            logger.debug("persist_discovered_group_failed", extra={"error": str(e)[:200]})
+
+    threading.Thread(target=_write, daemon=True).start()
 
 
 def needs_second_pass(frame: FirstPassFrame, report: MissingFieldReport) -> bool:

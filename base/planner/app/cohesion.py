@@ -136,6 +136,70 @@ def _build_exclusion_signals(entity: str) -> list[str]:
     return _ENTITY_EXCLUSION_MAP.get(entity.lower(), [])
 
 
+# ---------------------------------------------------------------------------
+# Conflict Groups — connected-component inversion of _ENTITY_EXCLUSION_MAP
+# ---------------------------------------------------------------------------
+
+def _derive_conflict_groups() -> dict[str, set[str]]:
+    """Build conflict groups by finding connected components in the exclusion graph.
+
+    Each group is a set of mutually exclusive entities (e.g., cloud providers).
+    Group names are auto-generated from the first member alphabetically.
+    """
+    visited: set[str] = set()
+    groups: dict[str, set[str]] = {}
+
+    def _flood(start: str) -> set[str]:
+        component: set[str] = set()
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+            component.add(node)
+            for neighbor in _ENTITY_EXCLUSION_MAP.get(node, []):
+                nl = neighbor.lower()
+                if nl not in visited:
+                    stack.append(nl)
+        return component
+
+    for entity in _ENTITY_EXCLUSION_MAP:
+        el = entity.lower()
+        if el not in visited:
+            component = _flood(el)
+            if len(component) >= 2:
+                group_name = "_".join(sorted(component)[:2])
+                groups[group_name] = component
+
+    return groups
+
+
+_CONFLICT_GROUPS: dict[str, set[str]] = _derive_conflict_groups()
+
+
+def _merge_db_conflict_groups(db_groups: list[dict]) -> None:
+    """Merge admin-approved conflict groups into _CONFLICT_GROUPS at startup."""
+    for entry in db_groups:
+        name = entry.get("group_name", "")
+        members = entry.get("members", [])
+        exclusion_map = entry.get("exclusion_map", {})
+        if name and members and len(members) >= 2:
+            _CONFLICT_GROUPS[name] = set(m.lower() for m in members)
+            for entity, excludes in exclusion_map.items():
+                el = entity.lower()
+                _ENTITY_EXCLUSION_MAP[el] = [e.lower() for e in excludes]
+            logger.info(
+                "conflict_group_loaded_from_db",
+                extra={"group": name, "members": members[:6]},
+            )
+
+
+def get_conflict_groups() -> dict[str, set[str]]:
+    """Public accessor for conflict groups (used by anchor resolver)."""
+    return _CONFLICT_GROUPS
+
+
 _LOCK_DETECT_PROMPT = """\
 Analyze these {n} document summaries and identify the dominant conceptual frame.
 
