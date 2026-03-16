@@ -8,9 +8,9 @@ if [ -f alembic.ini ]; then
     echo "[entrypoint] Running database migrations..."
 
     # If tables already exist (from a prior create_all) but alembic_version
-    # doesn't, stamp the baseline so Alembic doesn't try to re-create them.
+    # doesn't, stamp to head so Alembic doesn't try to re-create them.
     python -c "
-import asyncio, os, sys
+import asyncio, os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -21,25 +21,33 @@ async def check():
     eng = create_async_engine(url)
     try:
         async with eng.connect() as conn:
-            # Check if alembic_version table exists
             r = await conn.execute(text(
                 \"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')\"
             ))
             has_alembic = r.scalar()
             if has_alembic:
-                return  # Alembic is tracking — normal upgrade will work
+                # Check if it has any rows (table might exist but be empty)
+                r2 = await conn.execute(text('SELECT count(*) FROM alembic_version'))
+                if r2.scalar() > 0:
+                    return  # Alembic is tracking — normal upgrade path
 
-            # Check if our tables already exist (created by old create_all)
+            # Tables were created by create_all — stamp to head
             r = await conn.execute(text(
                 \"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='traces')\"
             ))
-            has_tables = r.scalar()
-            if has_tables:
-                print('[entrypoint] Tables exist but alembic_version missing — stamping baseline')
-                # Create alembic_version and stamp to 001 so only 002+ run
+            if r.scalar():
+                print('[entrypoint] Tables exist without alembic tracking — stamping to head')
                 await conn.execute(text('CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)'))
-                await conn.execute(text(\"INSERT INTO alembic_version (version_num) VALUES ('001')\"))
+                await conn.execute(text('DELETE FROM alembic_version'))
+                # Get the latest revision from the alembic script directory
+                from alembic.config import Config
+                from alembic.script import ScriptDirectory
+                cfg = Config('alembic.ini')
+                script = ScriptDirectory.from_config(cfg)
+                head = script.get_current_head()
+                await conn.execute(text(f\"INSERT INTO alembic_version (version_num) VALUES ('{head}')\"))
                 await conn.commit()
+                print(f'[entrypoint] Stamped to {head}')
     finally:
         await eng.dispose()
 
