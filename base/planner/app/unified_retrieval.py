@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -54,6 +55,26 @@ AUTHORITY_BOOST: dict[str, float] = {
 }
 
 _MIN_RAG_FOR_GATING = 3
+
+# Catalog domain IDs are lowercase alphanumeric + underscore (e.g. kubernetes, software_architecture).
+# Free-text tags (spaces, punctuation) must not be used in Milvus domain filter or retrieval returns 0.
+_CATALOG_DOMAIN_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+
+
+def _normalize_domain_hints_for_filter(domain_hints: list[str] | None) -> list[str]:
+    """Keep only hints that look like catalog domain IDs; drop free-text to avoid 0-result filters."""
+    if not domain_hints:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for h in domain_hints:
+        s = str(h).strip().lower() if h else ""
+        if not s or s in seen:
+            continue
+        if _CATALOG_DOMAIN_RE.match(s):
+            out.append(s)
+            seen.add(s)
+    return out[:10]
 
 
 @dataclass
@@ -515,13 +536,10 @@ async def retrieve_unified(
     if collections is None:
         collections = ["synesis_catalog"]
 
-    # Build Milvus domain filter from taxonomy hints
-    domain_filter = ""
-    if domain_hints:
-        refs = [str(r).strip() for r in domain_hints if r and str(r).strip()]
-        if refs:
-            escaped = [f'"{r}"' for r in refs[:10]]
-            domain_filter = f"domain in [{','.join(escaped)}]"
+    # Build Milvus domain filter only from canonical catalog domain IDs (lowercase, alphanumeric + underscore).
+    # Dropping unknown/free-text tags prevents "domain in [\"some free text\"]" from matching nothing.
+    refs = _normalize_domain_hints_for_filter(domain_hints)
+    domain_filter = f'domain in [{",".join(f\'"{r}"\' for r in refs)}]' if refs else ""
 
     web_budget = settings.scaled_web_budget(difficulty)
     web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web) and not skip_web

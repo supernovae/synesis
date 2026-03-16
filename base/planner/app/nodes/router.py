@@ -906,7 +906,12 @@ class RouterNode:
             requests = []
 
         if not requests:
-            requests = [{"description": task_desc, "domain_hints": user_task.get("domain_tags", [])}]
+            requests = [
+                {
+                    "description": task_desc,
+                    "domain_hints": self._domain_hints_from_state(state),
+                }
+            ]
 
         # Retrieval-aware validation: when query normalization corrected the
         # input, inject the original query so RRF can compare retrieval quality.
@@ -1022,11 +1027,24 @@ class RouterNode:
             result["cohesion_lock"] = cohesion_lock
         return result
 
+    def _domain_hints_from_state(self, state: dict[str, Any]) -> list[str]:
+        """Prefer taxonomy_key and active_domain_refs over free-form domain_tags for retrieval filters."""
+        taxonomy_metadata = state.get("taxonomy_metadata") or {}
+        active_refs = list(state.get("active_domain_refs") or [])
+        taxonomy_key = (taxonomy_metadata.get("taxonomy_key") or "").strip()
+        if taxonomy_key and taxonomy_key not in active_refs:
+            active_refs.append(taxonomy_key)
+        if active_refs:
+            return active_refs
+        user_task = state.get("user_task") or {}
+        return user_task.get("domain_tags") or []
+
     def _build_initial_requests(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Build evidence requests from the frame/task for initial retrieval."""
         user_task = state.get("user_task") or {}
         task_desc = state.get("task_description", "")
-        domain_tags = user_task.get("domain_tags") or []
+        domain_hints = self._domain_hints_from_state(state)
+        domain_tags = user_task.get("domain_tags") or []  # still used for search source selection
         technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
 
@@ -1034,7 +1052,7 @@ class RouterNode:
         search_source_ids = self._resolve_search_sources(state, domain_tags)
 
         base: dict[str, Any] = {
-            "domain_hints": domain_tags,
+            "domain_hints": domain_hints,
             "technologies": technologies,
             "skip_web": skip_web,
         }
@@ -1107,7 +1125,7 @@ class RouterNode:
         main_q = user_task.get("main_question", task_desc)
         return {
             "description": main_q or task_desc,
-            "domain_hints": user_task.get("domain_tags") or [],
+            "domain_hints": self._domain_hints_from_state(state),
             "technologies": user_task.get("technologies") or [],
             "skip_web": not user_task.get("needs_web", True),
             "_light_mode": True,

@@ -618,6 +618,12 @@ _TABLE_ROW_RE = re.compile(r"^\|.+\|$", re.MULTILINE)
 _DEFINITION_RE = re.compile(r"(?:^|\n)\s*(?:\*\*[^*]+\*\*|__[^_]+__)\s*[:\u2014\u2013\-]", re.MULTILINE)
 _CLI_FLAG_RE = re.compile(r"(?:^|\s)--?\w[\w-]*(?:=\S+)?")
 _FIGURE_REF_RE = re.compile(r"(?:Figure|Table|Equation|Fig\.|Eq\.)\s+\d+", re.IGNORECASE)
+# Structured reference rescue: headings and API/example markers (legitimate short technical chunks)
+_HEADING_LINE_RE = re.compile(r"^(?:#{1,6}\s+.+|\*\*[^*]+\*\*\s*$|__[^_]+__\s*$)", re.MULTILINE)
+_API_EXAMPLE_RE = re.compile(
+    r"\b(?:parameters?|returns?|arguments?|endpoint|method|example|sample|syntax|signature|api\s*reference)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -666,6 +672,14 @@ def _detect_rescue_signals(text: str) -> RescueResult:
     if _FIGURE_REF_RE.search(text):
         signals.append("figure_ref")
         bonus += 0.05
+
+    if _HEADING_LINE_RE.search(text):
+        signals.append("heading")
+        bonus += 0.06
+
+    if _API_EXAMPLE_RE.search(text):
+        signals.append("api_example")
+        bonus += 0.08
 
     has_code = "code_block" in signals or "inline_code" in signals
     has_formula = "formula" in signals
