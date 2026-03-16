@@ -1,4 +1,4 @@
-"""Shared dependencies: Milvus client, httpx pool, Redis, config constants."""
+"""Shared dependencies: Milvus client, httpx pool, Postgres, config constants."""
 
 from __future__ import annotations
 
@@ -24,7 +24,10 @@ MCP_URL = os.getenv(
     "SYNESIS_MCP_URL",
     "http://synesis-mcp.synesis-planner.svc.cluster.local:8080",
 )
-REDIS_URL = os.getenv("SYNESIS_REDIS_URL", "")
+DATABASE_URL = os.getenv(
+    "SYNESIS_ADMIN_DATABASE_URL",
+    "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin",
+)
 QUALITY_REPORT_PATH = os.getenv("SYNESIS_QUALITY_REPORT_PATH", "")
 CURATOR_PROPOSALS_PATH = os.getenv("SYNESIS_CURATOR_PROPOSALS_PATH", "")
 MODELS_YAML_PATH = os.getenv(

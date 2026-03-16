@@ -25,6 +25,8 @@ export interface DashboardSummary {
     avg_latency_ms: number;
     cache_hit_rate: number;
     active_models: number;
+    traces_24h: number;
+    total_cost_24h: number;
   };
   cost_estimate: {
     period: string;
@@ -47,9 +49,22 @@ export interface ModelCost {
   [key: string]: unknown;
   role: string;
   model: string;
+  profile: string;
+  source: "local" | "openrouter";
   input_per_million: number;
   output_per_million: number;
-  estimated_monthly: number;
+  monthly_fixed_cost: number;
+  cost_formula: string;
+  notes: string;
+}
+
+export interface ModelCostByModel {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  requests: number;
+  cost_usd: number;
 }
 
 export interface CorpusStats {

@@ -49,6 +49,8 @@ spec:
               value: "/etc/synesis/models.yaml"
             - name: SYNESIS_TAXONOMY_YAML_PATH
               value: "/etc/synesis/taxonomy_prompt_config.yaml"
+            - name: SYNESIS_ADMIN_DATABASE_URL
+              value: "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
             - name: SYNESIS_JWT_SECRET
               value: "synesis-dev-secret-change-me"
           volumeMounts:

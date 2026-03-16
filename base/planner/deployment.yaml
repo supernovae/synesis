@@ -191,6 +191,9 @@ spec:
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
             - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
               value: "604800"
+            # Trace persistence — writes directly to admin Postgres
+            - name: SYNESIS_TRACE_DATABASE_URL
+              value: "postgresql://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
           volumeMounts:
             - name: search-sources
               mountPath: /etc/synesis/search_sources.yaml

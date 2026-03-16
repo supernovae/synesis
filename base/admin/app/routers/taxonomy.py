@@ -1,59 +1,188 @@
-"""Taxonomy domain browser."""
+"""Taxonomy domain browser — Postgres-backed with YAML import/export."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import delete, select
 
 from ..auth import UserInfo, get_current_user
+from ..db.engine import async_session
+from ..db.models import TaxonomyDomain
 from ..deps import TAXONOMY_YAML_PATH
 
 logger = logging.getLogger("synesis.admin.taxonomy")
 
 router = APIRouter(prefix="/api/v1/taxonomy", tags=["taxonomy"])
 
-_taxonomy_cache: list[dict] | None = None
 
+async def _ensure_loaded() -> None:
+    """If the taxonomy_domains table is empty, seed it from the YAML file."""
+    async with async_session() as session:
+        count = (await session.execute(select(TaxonomyDomain.id).limit(1))).scalar_one_or_none()
+        if count is not None:
+            return
 
-def _load_taxonomy() -> list[dict]:
-    global _taxonomy_cache
-    if _taxonomy_cache is not None:
-        return _taxonomy_cache
     p = Path(TAXONOMY_YAML_PATH)
     if not p.exists():
-        return []
+        return
+
     try:
         raw = yaml.safe_load(p.read_text()) or {}
-        domains = []
+    except Exception as exc:
+        logger.warning("taxonomy_yaml_parse_error error=%s", str(exc)[:80])
+        return
+
+    async with async_session() as session:
         for key, cfg in raw.items():
             if not isinstance(cfg, dict):
                 continue
-            domains.append(
-                {
-                    "key": key,
-                    "path": cfg.get("path", ""),
-                    "complexity": cfg.get("complexity", 0),
-                    "persona": cfg.get("persona", ""),
-                }
+            domain = TaxonomyDomain(
+                key=key,
+                path=cfg.get("path", ""),
+                complexity=cfg.get("complexity", 0),
+                persona=cfg.get("persona", ""),
+                raw_config=cfg,
             )
-        _taxonomy_cache = sorted(domains, key=lambda d: d["path"])
-        return _taxonomy_cache
-    except Exception as exc:
-        logger.warning("taxonomy_load_error error=%s", str(exc)[:80])
-        return []
+            session.add(domain)
+        await session.commit()
+    logger.info("taxonomy_seeded_from_yaml count=%d", len(raw))
 
 
 @router.get("/")
 async def list_domains(_user: UserInfo = Depends(get_current_user)):
-    return {"domains": _load_taxonomy()}
+    await _ensure_loaded()
+    async with async_session() as session:
+        result = await session.execute(
+            select(TaxonomyDomain).order_by(TaxonomyDomain.path)
+        )
+        rows = result.scalars().all()
+        domains = [
+            {
+                "key": r.key,
+                "path": r.path,
+                "complexity": r.complexity,
+                "persona": r.persona,
+            }
+            for r in rows
+        ]
+    return {"domains": domains}
 
 
 @router.get("/{key}")
 async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
-    for d in _load_taxonomy():
-        if d["key"] == key:
-            return d
-    return {"key": key, "path": "", "complexity": 0, "persona": ""}
+    await _ensure_loaded()
+    async with async_session() as session:
+        result = await session.execute(
+            select(TaxonomyDomain).where(TaxonomyDomain.key == key)
+        )
+        row = result.scalar_one_or_none()
+    if row is None:
+        return {"key": key, "path": "", "complexity": 0, "persona": ""}
+    return {
+        "key": row.key,
+        "path": row.path,
+        "complexity": row.complexity,
+        "persona": row.persona,
+        "raw_config": row.raw_config,
+    }
+
+
+@router.put("/{key}")
+async def update_domain(
+    key: str,
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    async with async_session() as session:
+        result = await session.execute(
+            select(TaxonomyDomain).where(TaxonomyDomain.key == key)
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            row = TaxonomyDomain(key=key)
+            session.add(row)
+
+        row.path = data.get("path", row.path)
+        row.complexity = data.get("complexity", row.complexity)
+        row.persona = data.get("persona", row.persona)
+        if "raw_config" in data:
+            row.raw_config = data["raw_config"]
+
+        await session.commit()
+        await session.refresh(row)
+    return {
+        "key": row.key,
+        "path": row.path,
+        "complexity": row.complexity,
+        "persona": row.persona,
+    }
+
+
+@router.post("/sync-from-yaml")
+async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
+    """Re-import taxonomy from the mounted YAML file, overwriting DB entries."""
+    p = Path(TAXONOMY_YAML_PATH)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Taxonomy YAML not found")
+
+    raw = yaml.safe_load(p.read_text()) or {}
+    count = 0
+
+    async with async_session() as session:
+        await session.execute(delete(TaxonomyDomain))
+
+        for key, cfg in raw.items():
+            if not isinstance(cfg, dict):
+                continue
+            domain = TaxonomyDomain(
+                key=key,
+                path=cfg.get("path", ""),
+                complexity=cfg.get("complexity", 0),
+                persona=cfg.get("persona", ""),
+                raw_config=cfg,
+            )
+            session.add(domain)
+            count += 1
+        await session.commit()
+
+    return {"synced": count}
+
+
+@router.post("/export-yaml")
+async def export_yaml(_user: UserInfo = Depends(get_current_user)):
+    """Export current taxonomy DB state as YAML (for planner reload).
+
+    Writes to the taxonomy YAML path so a planner restart picks up changes.
+    """
+    async with async_session() as session:
+        result = await session.execute(
+            select(TaxonomyDomain).order_by(TaxonomyDomain.path)
+        )
+        rows = result.scalars().all()
+
+    output: dict[str, Any] = {}
+    for row in rows:
+        if row.raw_config:
+            entry = dict(row.raw_config)
+        else:
+            entry = {}
+        entry["path"] = row.path
+        entry["complexity"] = row.complexity
+        entry["persona"] = row.persona
+        output[row.key] = entry
+
+    p = Path(TAXONOMY_YAML_PATH)
+    try:
+        p.write_text(yaml.dump(output, default_flow_style=False, allow_unicode=True))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to write YAML: {exc}",
+        )
+
+    return {"exported": len(output), "path": str(p)}

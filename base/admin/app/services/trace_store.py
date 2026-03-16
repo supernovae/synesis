@@ -1,51 +1,22 @@
-"""Read-only client for SynesisTracer trace records stored in Redis.
+"""Trace store backed by Postgres.
 
-Mirrors the storage schema from base/planner/app/synesis_tracer.py:
-  - synesis:traces:{trace_id}  → JSON blob (TraceRecord)
-  - synesis:traces:index       → ZSET scored by timestamp
+Reads trace records from the admin Postgres database.  The planner writes
+traces via a direct Postgres insert (see base/planner/app/synesis_tracer.py).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from typing import Any
 
-from ..deps import REDIS_URL
+from sqlalchemy import desc, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..db.engine import async_session
+from ..db.models import Trace
 
 logger = logging.getLogger("synesis.admin.trace_store")
-
-_TRACE_KEY_PREFIX = "synesis:traces:"
-_TRACE_INDEX_KEY = "synesis:traces:index"
-
-_redis_client: Any = None
-
-
-def _get_redis() -> Any:
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-    if not REDIS_URL:
-        return None
-    try:
-        import redis as redis_lib
-
-        _redis_client = redis_lib.Redis.from_url(REDIS_URL, decode_responses=True)
-        _redis_client.ping()
-        return _redis_client
-    except Exception:
-        logger.warning("trace_store_redis_failed", exc_info=True)
-        return None
-
-
-def _parse_trace(raw: str | None) -> dict[str, Any] | None:
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
 
 
 async def list_traces(
@@ -61,124 +32,139 @@ async def list_traces(
     since: float = 0,
     until: float = 0,
 ) -> dict[str, Any]:
-    """Return paginated trace list from Redis, newest first."""
-    r = _get_redis()
-    if r is None:
-        return {"traces": [], "total": 0}
+    """Return paginated trace list from Postgres, newest first."""
+    async with async_session() as session:
+        try:
+            q = select(Trace).order_by(desc(Trace.timestamp))
 
-    max_score = until if until > 0 else "+inf"
-    min_score = since if since > 0 else "-inf"
+            if has_error is not None:
+                q = q.where(Trace.has_error == has_error)
+            if user_id:
+                q = q.where(Trace.user_id == user_id)
+            if task_type:
+                q = q.where(Trace.task_type == task_type)
+            if min_difficulty is not None:
+                q = q.where(Trace.difficulty >= min_difficulty)
+            if max_difficulty is not None:
+                q = q.where(Trace.difficulty <= max_difficulty)
+            if since > 0:
+                q = q.where(Trace.timestamp >= since)
+            if until > 0:
+                q = q.where(Trace.timestamp <= until)
+            if domain_tag:
+                q = q.where(
+                    Trace.full_record["domain_tags"].astext.contains(domain_tag)
+                )
 
-    try:
-        trace_ids = r.zrevrangebyscore(
-            _TRACE_INDEX_KEY,
-            max_score,
-            min_score,
-            start=0,
-            num=offset + limit + 200,
-        )
-    except Exception:
-        logger.debug("trace_store_list_failed", exc_info=True)
-        return {"traces": [], "total": 0}
+            count_q = select(func.count()).select_from(q.subquery())
+            total = (await session.execute(count_q)).scalar_one()
 
-    if not trace_ids:
-        return {"traces": [], "total": 0}
+            q = q.offset(offset).limit(limit)
+            result = await session.execute(q)
+            rows = result.scalars().all()
 
-    keys = [f"{_TRACE_KEY_PREFIX}{tid}" for tid in trace_ids]
-    try:
-        raw_values = r.mget(keys)
-    except Exception:
-        logger.debug("trace_store_mget_failed", exc_info=True)
-        return {"traces": [], "total": 0}
-
-    traces: list[dict[str, Any]] = []
-    for raw in raw_values:
-        rec = _parse_trace(raw)
-        if rec is None:
-            continue
-        if has_error is not None and rec.get("has_error") != has_error:
-            continue
-        if user_id and rec.get("user_id") != user_id:
-            continue
-        if task_type and rec.get("task_type") != task_type:
-            continue
-        if min_difficulty is not None and rec.get("difficulty", 0) < min_difficulty:
-            continue
-        if max_difficulty is not None and rec.get("difficulty", 0) > max_difficulty:
-            continue
-        if domain_tag and domain_tag not in (rec.get("domain_tags") or []):
-            continue
-        traces.append(rec)
-
-    filtered_total = len(traces)
-    page = traces[offset : offset + limit]
-
-    return {"traces": page, "total": filtered_total}
+            traces = [_row_to_dict(row) for row in rows]
+            return {"traces": traces, "total": total}
+        except Exception:
+            logger.warning("trace_store_list_failed", exc_info=True)
+            return {"traces": [], "total": 0}
 
 
 async def get_trace(trace_id: str) -> dict[str, Any] | None:
-    r = _get_redis()
-    if r is None:
-        return None
-    try:
-        raw = r.get(f"{_TRACE_KEY_PREFIX}{trace_id}")
-        return _parse_trace(raw)
-    except Exception:
-        logger.debug("trace_store_get_failed", exc_info=True)
-        return None
+    async with async_session() as session:
+        try:
+            q = select(Trace).where(Trace.trace_id == trace_id)
+            result = await session.execute(q)
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            return _row_to_dict(row)
+        except Exception:
+            logger.warning("trace_store_get_failed", exc_info=True)
+            return None
 
 
 async def get_trace_stats() -> dict[str, Any]:
     """Aggregate statistics from recent traces (last 24h)."""
-    r = _get_redis()
-    if r is None:
-        return _empty_stats()
-
     cutoff = time.time() - 86400
-    try:
-        trace_ids = r.zrevrangebyscore(_TRACE_INDEX_KEY, "+inf", cutoff, start=0, num=1000)
-    except Exception:
-        return _empty_stats()
+    async with async_session() as session:
+        try:
+            q = select(
+                func.count().label("total"),
+                func.sum(Trace.has_error.cast(int)).label("errors"),
+                func.avg(Trace.total_duration_ms).label("avg_duration"),
+                func.avg(Trace.total_tokens).label("avg_tokens"),
+                func.avg(Trace.estimated_cost_usd).label("avg_cost"),
+                func.sum(Trace.estimated_cost_usd).label("total_cost"),
+            ).where(Trace.timestamp >= cutoff)
 
-    if not trace_ids:
-        return _empty_stats()
+            result = await session.execute(q)
+            row = result.one()
 
-    keys = [f"{_TRACE_KEY_PREFIX}{tid}" for tid in trace_ids]
-    try:
-        raw_values = r.mget(keys)
-    except Exception:
-        return _empty_stats()
+            total = row.total or 0
+            errors = row.errors or 0
 
-    durations: list[float] = []
-    costs: list[float] = []
-    tokens: list[int] = []
-    errors = 0
-    total = 0
+            if total == 0:
+                return _empty_stats()
 
-    for raw in raw_values:
-        rec = _parse_trace(raw)
-        if rec is None:
-            continue
-        total += 1
-        durations.append(rec.get("total_duration_ms", 0))
-        costs.append(rec.get("estimated_cost_usd", 0))
-        tokens.append(rec.get("total_tokens", 0))
-        if rec.get("has_error"):
-            errors += 1
+            return {
+                "total_traces_24h": total,
+                "error_count_24h": errors,
+                "error_rate": round(errors / total, 4),
+                "avg_duration_ms": round(float(row.avg_duration or 0), 1),
+                "avg_tokens": round(float(row.avg_tokens or 0)),
+                "avg_cost_usd": round(float(row.avg_cost or 0), 6),
+                "total_cost_usd": round(float(row.total_cost or 0), 4),
+                "traces_per_hour": round(total / 24, 1),
+            }
+        except Exception:
+            logger.warning("trace_store_stats_failed", exc_info=True)
+            return _empty_stats()
 
-    if total == 0:
-        return _empty_stats()
 
-    return {
-        "total_traces_24h": total,
-        "error_count_24h": errors,
-        "error_rate": round(errors / total, 4) if total else 0,
-        "avg_duration_ms": round(sum(durations) / total, 1),
-        "avg_tokens": round(sum(tokens) / total),
-        "avg_cost_usd": round(sum(costs) / total, 6),
-        "total_cost_usd": round(sum(costs), 4),
-        "traces_per_hour": round(total / 24, 1),
-    }
+async def insert_trace(record: dict[str, Any]) -> None:
+    """Insert a trace record (called by the planner trace writer)."""
+    async with async_session() as session:
+        try:
+            trace = Trace(
+                trace_id=record["trace_id"],
+                user_id=record.get("user_id", ""),
+                query_snippet=record.get("query_snippet", ""),
+                timestamp=record["timestamp"],
+                total_duration_ms=record.get("total_duration_ms", 0),
+                total_tokens=record.get("total_tokens", 0),
+                estimated_cost_usd=record.get("estimated_cost_usd", 0),
+                difficulty=record.get("difficulty", 0),
+                task_type=record.get("task_type", ""),
+                is_code_task=record.get("is_code_task", False),
+                has_error=record.get("has_error", False),
+                iteration_count=record.get("iteration_count", 0),
+                full_record=record,
+            )
+            session.add(trace)
+            await session.commit()
+        except Exception:
+            logger.warning("trace_store_insert_failed", exc_info=True)
+            await session.rollback()
+
+
+def _row_to_dict(row: Trace) -> dict[str, Any]:
+    """Convert a Trace ORM row to the dict format expected by the frontend."""
+    rec = dict(row.full_record) if row.full_record else {}
+    rec.update(
+        {
+            "trace_id": row.trace_id,
+            "user_id": row.user_id,
+            "timestamp": row.timestamp,
+            "total_duration_ms": row.total_duration_ms,
+            "total_tokens": row.total_tokens,
+            "estimated_cost_usd": row.estimated_cost_usd,
+            "has_error": row.has_error,
+            "task_type": row.task_type,
+            "difficulty": row.difficulty,
+        }
+    )
+    return rec
 
 
 def _empty_stats() -> dict[str, Any]:

@@ -38,6 +38,7 @@ const CircuitBreakers = lazy(() => import("./pages/observability/CircuitBreakers
 const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
 const RetrievalGaps = lazy(() => import("./pages/observability/KnowledgeGaps"));
 
+const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 
 export const router = createBrowserRouter([
@@ -86,6 +87,7 @@ export const router = createBrowserRouter([
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
 
+      { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },
     ],
   },

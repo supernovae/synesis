@@ -6,6 +6,8 @@ Serves the React SPA for all non-API routes and provides
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,9 +16,24 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_latest
 
+from app.db.engine import engine
+from app.db.models import Base
+
 configure_logging(service="synesis-admin")
 
-app = FastAPI(title="Synesis Admin", version="1.0.0")
+logger = logging.getLogger("synesis.admin")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("admin_db_ready")
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(title="Synesis Admin", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +46,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routers.assistant import router as assistant_router
 from app.routers.auth_router import router as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
@@ -41,6 +59,7 @@ from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
 from app.routers.traces import router as traces_router
 
+app.include_router(assistant_router)
 app.include_router(auth_router)
 app.include_router(dashboard_router)
 app.include_router(models_router)

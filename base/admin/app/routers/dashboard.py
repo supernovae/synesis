@@ -23,6 +23,7 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
     total_requests = prom._find_metric(raw, "synesis_chat_requests_total")
 
     ts = await trace_store.get_trace_stats()
+    cost_estimate = await get_cost_summary()
 
     return {
         "services": services,
@@ -33,7 +34,8 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             "cache_hit_rate": cache.get("hit_rate", 0),
             "active_models": len(models),
             "traces_24h": ts.get("total_traces_24h", 0),
+            "total_cost_24h": ts.get("total_cost_usd", 0),
         },
-        "cost_estimate": get_cost_summary(),
+        "cost_estimate": cost_estimate,
         "healthy_count": healthy,
     }

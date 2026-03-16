@@ -54,7 +54,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <MetricCard
           label="Services"
           value={`${healthy}/${services.length}`}
@@ -81,10 +81,15 @@ export default function Dashboard() {
           icon={Database}
         />
         <MetricCard
-          label="Est. Monthly Cost"
+          label="Traces (24h)"
+          value={m?.traces_24h ?? "---"}
+          icon={Activity}
+        />
+        <MetricCard
+          label="Cost (24h)"
           value={
-            data?.cost_estimate?.total_usd != null
-              ? `$${data.cost_estimate.total_usd.toFixed(2)}`
+            m?.total_cost_24h != null
+              ? `$${Number(m.total_cost_24h).toFixed(4)}`
               : "---"
           }
           icon={DollarSign}
@@ -191,8 +196,8 @@ function DashboardSkeleton() {
           System overview and key metrics
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[1, 2, 3, 4, 5].map((i) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
           <div
             key={i}
             className="h-28 animate-pulse rounded-lg border border-gray-200 bg-gray-100"

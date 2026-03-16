@@ -17,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   ScanSearch,
+  Bot,
   type LucideIcon,
 } from "lucide-react";
 
@@ -104,6 +105,7 @@ const navigation: NavItem[] = [
       { label: "Retrieval Gaps", path: "/observability/retrieval-gaps" },
     ],
   },
+  { label: "Assistant", icon: Bot, path: "/assistant" },
   { label: "Settings", icon: Settings, path: "/settings" },
 ];
 

@@ -1,17 +1,16 @@
-"""SynesisTracer — lightweight LangChain callback that persists trace records to Redis.
+"""SynesisTracer — lightweight LangChain callback that persists trace records to Postgres.
 
 Replaces the heavy Opik stack (ClickHouse, MySQL, ZooKeeper, Java backend)
-with a zero-infrastructure alternative that reuses the existing Redis instance.
+with a zero-infrastructure alternative using the operator-managed Postgres DB.
 
 Trace lifecycle:
   1. Instantiated once at module level (like OpikTracer was).
   2. Attached as a LangChain callback via get_graph_config().
   3. Captures per-node spans and per-LLM-call detail from callback events.
-  4. On flush(), persists the completed TraceRecord to Redis with TTL.
+  4. On flush(), computes estimated_cost_usd and persists the completed
+     TraceRecord to Postgres.
 
-Storage schema:
-  - synesis:traces:{trace_id}   → JSON blob (TraceRecord)
-  - synesis:traces:index        → ZSET scored by timestamp for range queries
+Storage: synesis_admin.traces table (see base/admin/app/db/models.py).
 """
 
 from __future__ import annotations
@@ -29,14 +28,11 @@ from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("synesis.tracer")
 
-_TRACE_KEY_PREFIX = "synesis:traces:"
-_TRACE_INDEX_KEY = "synesis:traces:index"
 _MAX_SNIPPET = int(os.environ.get("SYNESIS_TRACE_SNIPPET_MAX_CHARS", "500"))
-_TTL_SECONDS = int(os.environ.get("SYNESIS_TRACE_TTL_HOURS", "168")) * 3600
 
 
 # ---------------------------------------------------------------------------
-# Data model — serialized as JSON into Redis
+# Data model — serialized as JSON into Postgres JSONB
 # ---------------------------------------------------------------------------
 
 
@@ -88,46 +84,139 @@ class TraceRecord:
 
 
 # ---------------------------------------------------------------------------
-# Redis persistence helpers
+# Pricing lookup — compute estimated_cost_usd from token counts
 # ---------------------------------------------------------------------------
 
-_redis_client: Any = None
+_pricing_table: dict[str, tuple[float, float]] | None = None
 
 
-def _get_redis() -> Any:
-    """Lazy-init Redis connection reusing the planner's SYNESIS_REDIS_URL."""
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-    redis_url = os.environ.get("SYNESIS_REDIS_URL", "")
-    if not redis_url:
+def _load_pricing() -> dict[str, tuple[float, float]]:
+    """Build a model→(input_per_million, output_per_million) lookup table.
+
+    Reads from SYNESIS_MODEL_PRICING_PATH (a small JSON file) if available,
+    otherwise falls back to known defaults from models.yaml openrouter_profiles.
+    """
+    global _pricing_table
+    if _pricing_table is not None:
+        return _pricing_table
+
+    pricing_path = os.environ.get("SYNESIS_MODEL_PRICING_PATH", "")
+    if pricing_path:
+        try:
+            with open(pricing_path) as f:
+                raw = json.load(f)
+            _pricing_table = {k: (v.get("input", 0), v.get("output", 0)) for k, v in raw.items()}
+            logger.info("pricing_table_loaded path=%s models=%d", pricing_path, len(_pricing_table))
+            return _pricing_table
+        except Exception:
+            logger.warning("pricing_table_load_failed", exc_info=True)
+
+    _pricing_table = {
+        "synesis-router": (0.20, 0.50),
+        "synesis-general": (0.26, 0.38),
+        "synesis-coder": (0.20, 0.20),
+        "synesis-critic": (0.29, 0.29),
+        "synesis-summarizer": (0.20, 0.50),
+    }
+    return _pricing_table
+
+
+def _compute_cost(record: TraceRecord) -> float:
+    """Sum cost across all LLM calls in the trace using the pricing table."""
+    pricing = _load_pricing()
+    total_cost = 0.0
+    for span in record.spans:
+        for call in span.llm_calls:
+            model = call.model or ""
+            rates = pricing.get(model, (0, 0))
+            if rates == (0, 0):
+                for key in pricing:
+                    if key in model or model in key:
+                        rates = pricing[key]
+                        break
+            input_cost = (call.prompt_tokens / 1_000_000) * rates[0]
+            output_cost = (call.completion_tokens / 1_000_000) * rates[1]
+            total_cost += input_cost + output_cost
+    return round(total_cost, 8)
+
+
+# ---------------------------------------------------------------------------
+# Postgres persistence helpers
+# ---------------------------------------------------------------------------
+
+_pg_conn = None
+
+
+def _get_pg():
+    """Lazy-init synchronous Postgres connection for trace writes."""
+    global _pg_conn
+    if _pg_conn is not None:
+        try:
+            _pg_conn.cursor().execute("SELECT 1")
+            return _pg_conn
+        except Exception:
+            _pg_conn = None
+
+    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
         return None
     try:
-        import redis as redis_lib
+        import psycopg2
 
-        _redis_client = redis_lib.Redis.from_url(redis_url, decode_responses=True)
-        _redis_client.ping()
-        logger.info("synesis_tracer_redis_ready", extra={"url": redis_url[:40]})
-        return _redis_client
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        _pg_conn = psycopg2.connect(dsn)
+        _pg_conn.autocommit = True
+        logger.info("synesis_tracer_pg_ready")
+        return _pg_conn
     except Exception:
-        logger.warning("synesis_tracer_redis_failed", exc_info=True)
+        logger.warning("synesis_tracer_pg_failed", exc_info=True)
         return None
+
+
+_INSERT_SQL = """
+INSERT INTO traces (
+    trace_id, user_id, query_snippet, timestamp, total_duration_ms,
+    total_tokens, estimated_cost_usd, difficulty, task_type,
+    is_code_task, has_error, iteration_count, full_record
+) VALUES (
+    %(trace_id)s, %(user_id)s, %(query_snippet)s, %(timestamp)s, %(total_duration_ms)s,
+    %(total_tokens)s, %(estimated_cost_usd)s, %(difficulty)s, %(task_type)s,
+    %(is_code_task)s, %(has_error)s, %(iteration_count)s, %(full_record)s
+) ON CONFLICT (trace_id) DO UPDATE SET
+    total_duration_ms = EXCLUDED.total_duration_ms,
+    total_tokens = EXCLUDED.total_tokens,
+    estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+    has_error = EXCLUDED.has_error,
+    full_record = EXCLUDED.full_record
+"""
 
 
 def _persist_trace(record: TraceRecord) -> None:
-    """Write a completed trace record to Redis."""
-    r = _get_redis()
-    if r is None:
+    """Write a completed trace record to Postgres."""
+    conn = _get_pg()
+    if conn is None:
         return
     try:
-        key = f"{_TRACE_KEY_PREFIX}{record.trace_id}"
-        payload = json.dumps(asdict(record), default=str)
-        pipe = r.pipeline(transaction=False)
-        pipe.set(key, payload, ex=_TTL_SECONDS)
-        pipe.zadd(_TRACE_INDEX_KEY, {record.trace_id: record.timestamp})
-        cutoff = time.time() - _TTL_SECONDS
-        pipe.zremrangebyscore(_TRACE_INDEX_KEY, "-inf", cutoff)
-        pipe.execute()
+        full = json.dumps(asdict(record), default=str)
+        with conn.cursor() as cur:
+            cur.execute(
+                _INSERT_SQL,
+                {
+                    "trace_id": record.trace_id,
+                    "user_id": record.user_id,
+                    "query_snippet": record.query_snippet,
+                    "timestamp": record.timestamp,
+                    "total_duration_ms": record.total_duration_ms,
+                    "total_tokens": record.total_tokens,
+                    "estimated_cost_usd": record.estimated_cost_usd,
+                    "difficulty": record.difficulty,
+                    "task_type": record.task_type,
+                    "is_code_task": record.is_code_task,
+                    "has_error": record.has_error,
+                    "iteration_count": record.iteration_count,
+                    "full_record": full,
+                },
+            )
     except Exception:
         logger.debug("synesis_tracer_persist_failed", exc_info=True)
 
@@ -150,7 +239,7 @@ class SynesisTracer(BaseCallbackHandler):
         super().__init__()
         self._current_trace: TraceRecord | None = None
         self._active_spans: dict[str, SpanRecord] = {}
-        self._llm_starts: dict[str, tuple[float, str, str]] = {}  # run_id → (start_time, node, prompt_snippet)
+        self._llm_starts: dict[str, tuple[float, str, str]] = {}  # run_id -> (start_time, node, prompt_snippet)
         self._trace_start: float = 0.0
 
     # -- Trace lifecycle ---------------------------------------------------
@@ -174,6 +263,7 @@ class SynesisTracer(BaseCallbackHandler):
         record = self._current_trace
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
+        record.estimated_cost_usd = _compute_cost(record)
         _persist_trace(record)
         self._current_trace = None
         self._active_spans.clear()
@@ -432,13 +522,13 @@ _synesis_tracer: SynesisTracer | None = None
 
 
 def get_synesis_tracer() -> SynesisTracer | None:
-    """Return the module-level tracer singleton (None when Redis is unavailable)."""
+    """Return the module-level tracer singleton (None when Postgres is unavailable)."""
     global _synesis_tracer
     if _synesis_tracer is not None:
         return _synesis_tracer
-    redis_url = os.environ.get("SYNESIS_REDIS_URL", "")
-    if not redis_url:
-        logger.info("synesis_tracer_disabled reason=no_redis_url")
+    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        logger.info("synesis_tracer_disabled reason=no_database_url")
         return None
     _synesis_tracer = SynesisTracer()
     logger.info("synesis_tracer_ready")
@@ -446,7 +536,7 @@ def get_synesis_tracer() -> SynesisTracer | None:
 
 
 def flush_synesis_tracer() -> None:
-    """Flush the current trace to Redis. Safe to call when tracer is None."""
+    """Flush the current trace to Postgres. Safe to call when tracer is None."""
     if _synesis_tracer is not None:
         try:
             _synesis_tracer.flush()

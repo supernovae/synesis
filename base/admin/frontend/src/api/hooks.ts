@@ -47,6 +47,29 @@ export function useModelCosts() {
   });
 }
 
+export function useModelCostsByModel() {
+  return useQuery<{
+    models: import("../types").ModelCostByModel[];
+    period: string;
+  }>({
+    queryKey: ["models", "costs", "by-model"],
+    queryFn: () => client.get("/models/costs/by-model").then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useUpdateModelCost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ModelCost> & { role: string }) =>
+      client.put("/models/costs", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "costs"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs", "by-model"] });
+    },
+  });
+}
+
 interface ModelPerformanceEntry {
   [key: string]: unknown;
   model: string;
@@ -116,6 +139,29 @@ export function useTaxonomyDomain(key: string) {
     queryKey: ["taxonomy", key],
     queryFn: () => client.get(`/taxonomy/${key}`).then((r) => r.data),
     enabled: !!key,
+  });
+}
+
+export function useUpdateTaxonomyDomain() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { key: string; path?: string; complexity?: number; persona?: string }) =>
+      client.put(`/taxonomy/${data.key}`, data).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["taxonomy"] }),
+  });
+}
+
+export function useSyncTaxonomyFromYaml() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/taxonomy/sync-from-yaml").then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["taxonomy"] }),
+  });
+}
+
+export function useExportTaxonomyYaml() {
+  return useMutation({
+    mutationFn: () => client.post("/taxonomy/export-yaml").then((r) => r.data),
   });
 }
 
@@ -393,6 +439,19 @@ export function useTraceStats() {
     queryKey: ["traces", "stats"],
     queryFn: () => client.get("/traces/stats").then((r) => r.data),
     refetchInterval: 30_000,
+  });
+}
+
+// --- Assistant ---
+
+export function useAssistantChat() {
+  return useMutation<
+    { response: string; tokens: number; model: string },
+    Error,
+    { message: string; context?: string }
+  >({
+    mutationFn: (data) =>
+      client.post("/assistant/chat", data).then((r) => r.data),
   });
 }
 

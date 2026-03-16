@@ -1,0 +1,52 @@
+# CloudNativePG Cluster — admin database
+#
+# Managed by the CloudNativePG operator. Install the operator first:
+#   - OpenShift: OperatorHub → CloudNativePG (community)
+#   - Helm: helm repo add cnpg https://cloudnative-pg.github.io/charts
+#           helm install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
+#
+# The operator creates:
+#   - Service: synesis-admin-db-rw  (read-write, primary)
+#   - Service: synesis-admin-db-ro  (read-only replicas)
+#   - Service: synesis-admin-db-r   (any replica)
+#   - Secret:  synesis-admin-db-app (app user credentials)
+#
+# Admin connects via:
+#   postgresql://app:${password}@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: synesis-admin-db
+  namespace: synesis-admin
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: database
+spec:
+  instances: 1
+
+  bootstrap:
+    initdb:
+      database: synesis_admin
+      owner: app
+
+  storage:
+    size: 5Gi
+    storageClass: gp3-csi
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  postgresql:
+    parameters:
+      shared_buffers: "128MB"
+      max_connections: "100"
+      log_statement: "ddl"
+
+  monitoring:
+    enablePodMonitor: false

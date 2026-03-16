@@ -1,0 +1,4 @@
+apiVersion: kustomize.v1beta1
+kind: Kustomization
+resources:
+  - cluster.yaml

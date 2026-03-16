@@ -310,8 +310,8 @@ class Settings(BaseSettings):
     router_hyde_enabled: bool = True  # HyDE variant (hypothetical document embedding)
     taxonomy_query_expansion_enabled: bool = True  # expand queries with taxonomy hints
 
-    # SynesisTracer — lightweight built-in LLM tracing (Redis-backed)
-    trace_store_ttl_hours: int = 168  # 7 days
+    # SynesisTracer — lightweight built-in LLM tracing (Postgres-backed)
+    trace_database_url: str = ""  # set via SYNESIS_TRACE_DATABASE_URL
     trace_snippet_max_chars: int = 500
 
     # Query normalizer — deterministic typo correction before classification
