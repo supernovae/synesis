@@ -327,7 +327,7 @@ class RetrievalResult(BaseModel):
     text: str
     source: str = "unknown"
     collection: str = ""
-    retrieval_source: Literal["vector", "bm25", "both"] = "vector"
+    retrieval_source: Literal["vector", "bm25", "both", "hybrid"] = "vector"
     vector_score: float = 0.0
     bm25_score: float = 0.0
     rrf_score: float = 0.0
