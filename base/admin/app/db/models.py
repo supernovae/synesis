@@ -31,9 +31,7 @@ class Trace(Base):
     iteration_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     full_record: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_traces_user_id", "user_id"),
@@ -60,9 +58,7 @@ class ModelCost(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_model_costs_role_profile", "role", "profile"),
-    )
+    __table_args__ = (Index("ix_model_costs_role_profile", "role", "profile"),)
 
 
 class TaxonomyDomain(Base):
@@ -91,9 +87,7 @@ class CostSnapshot(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
-    __table_args__ = (
-        Index("ix_cost_snapshots_model_date", "model", "date"),
-    )
+    __table_args__ = (Index("ix_cost_snapshots_model_date", "model", "date"),)
 
 
 class Failure(Base):
@@ -109,9 +103,7 @@ class Failure(Base):
     task_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     resolution: Mapped[str] = mapped_column(Text, nullable=False, default="")
     timestamp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_failures_error_type", "error_type"),
@@ -137,9 +129,7 @@ class KnowledgeGap(Base):
     resolution_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
     web_search_fallback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     timestamp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -168,9 +158,7 @@ class WebSearchLog(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
     engine: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_web_search_log_run_id", "run_id"),
@@ -191,16 +179,12 @@ class WebUrlPolicy(Base):
     reviewed_at: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     boost_factor: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     auto_ingest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    __table_args__ = (
-        Index("ix_web_url_policy_policy", "policy"),
-    )
+    __table_args__ = (Index("ix_web_url_policy_policy", "policy"),)
 
 
 class DiscoveredConflictGroup(Base):
@@ -215,9 +199,7 @@ class DiscoveredConflictGroup(Base):
     source_run_id: Mapped[str] = mapped_column(Text, nullable=True, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending_review")
     reviewer_note: Mapped[str] = mapped_column(Text, nullable=True, default="")
-    discovered_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     reviewed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (

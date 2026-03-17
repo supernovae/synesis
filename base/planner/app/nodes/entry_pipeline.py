@@ -91,10 +91,7 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     #   2. Easy no-retrieval tasks (rag_mode=disabled, no plan required)
     # In "selective" mode, the rag_mode=disabled threshold is higher (0.5
     # vs 0.3), so more prompts hit this fast path.
-    _is_easy_no_retrieval = (
-        classified.get("rag_mode") == "disabled"
-        and not classified.get("plan_required")
-    )
+    _is_easy_no_retrieval = classified.get("rag_mode") == "disabled" and not classified.get("plan_required")
     if classified.get("task_is_trivial") or _is_easy_no_retrieval:
         _reason = "trivial task" if classified.get("task_is_trivial") else "simple task, no retrieval needed"
         emit_sub_phase(f"Fast-path: {_reason}")

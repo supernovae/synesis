@@ -60,12 +60,10 @@ async def web_search_log(
         total = (await session.execute(count_stmt)).scalar() or 0
 
         rows = (
-            await session.execute(
-                base.order_by(WebSearchLog.timestamp.desc())
-                .offset(offset)
-                .limit(page_size)
-            )
-        ).scalars().all()
+            (await session.execute(base.order_by(WebSearchLog.timestamp.desc()).offset(offset).limit(page_size)))
+            .scalars()
+            .all()
+        )
 
         items = [
             {
@@ -104,9 +102,7 @@ async def web_search_domain_summary(
                 func.count().label("count"),
                 func.avg(WebSearchLog.latency_ms).label("avg_latency_ms"),
                 func.max(WebSearchLog.timestamp).label("last_seen"),
-                func.sum(
-                    case((WebSearchLog.outcome == "error", 1), else_=0)
-                ).label("error_count"),
+                func.sum(case((WebSearchLog.outcome == "error", 1), else_=0)).label("error_count"),
             )
             .where(WebSearchLog.domain != "")
             .group_by(WebSearchLog.domain)
@@ -141,11 +137,7 @@ class PolicyCreate(BaseModel):
 @router.get("/web-search/policies")
 async def list_policies(_user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
-        rows = (
-            await session.execute(
-                select(WebUrlPolicy).order_by(WebUrlPolicy.id.desc())
-            )
-        ).scalars().all()
+        rows = (await session.execute(select(WebUrlPolicy).order_by(WebUrlPolicy.id.desc()))).scalars().all()
         items = [
             {
                 "id": r.id,
@@ -169,10 +161,10 @@ async def create_or_update_policy(
 ):
     async with async_session() as session:
         existing = (
-            await session.execute(
-                select(WebUrlPolicy).where(WebUrlPolicy.url_pattern == body.url_pattern)
-            )
-        ).scalars().first()
+            (await session.execute(select(WebUrlPolicy).where(WebUrlPolicy.url_pattern == body.url_pattern)))
+            .scalars()
+            .first()
+        )
 
         if existing:
             existing.policy = body.policy
@@ -231,11 +223,7 @@ async def ingest_url(
 
     gap_id = "web-ingest-" + hashlib.sha256(body.url.encode()).hexdigest()[:12]
     async with async_session() as session:
-        existing = (
-            await session.execute(
-                select(KnowledgeGap).where(KnowledgeGap.gap_id == gap_id)
-            )
-        ).scalars().first()
+        existing = (await session.execute(select(KnowledgeGap).where(KnowledgeGap.gap_id == gap_id))).scalars().first()
         if not existing:
             session.add(
                 KnowledgeGap(

@@ -57,9 +57,7 @@ async def _ensure_loaded() -> None:
 async def list_domains(_user: UserInfo = Depends(get_current_user)):
     await _ensure_loaded()
     async with async_session() as session:
-        result = await session.execute(
-            select(TaxonomyDomain).order_by(TaxonomyDomain.path)
-        )
+        result = await session.execute(select(TaxonomyDomain).order_by(TaxonomyDomain.path))
         rows = result.scalars().all()
         domains = [
             {
@@ -77,9 +75,7 @@ async def list_domains(_user: UserInfo = Depends(get_current_user)):
 async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
     await _ensure_loaded()
     async with async_session() as session:
-        result = await session.execute(
-            select(TaxonomyDomain).where(TaxonomyDomain.key == key)
-        )
+        result = await session.execute(select(TaxonomyDomain).where(TaxonomyDomain.key == key))
         row = result.scalar_one_or_none()
     if row is None:
         return {"key": key, "path": "", "complexity": 0, "persona": ""}
@@ -99,9 +95,7 @@ async def update_domain(
     _user: UserInfo = Depends(get_current_user),
 ):
     async with async_session() as session:
-        result = await session.execute(
-            select(TaxonomyDomain).where(TaxonomyDomain.key == key)
-        )
+        result = await session.execute(select(TaxonomyDomain).where(TaxonomyDomain.key == key))
         row = result.scalar_one_or_none()
         if row is None:
             row = TaxonomyDomain(key=key)
@@ -160,9 +154,7 @@ async def export_yaml(_user: UserInfo = Depends(get_current_user)):
     Writes to the taxonomy YAML path so a planner restart picks up changes.
     """
     async with async_session() as session:
-        result = await session.execute(
-            select(TaxonomyDomain).order_by(TaxonomyDomain.path)
-        )
+        result = await session.execute(select(TaxonomyDomain).order_by(TaxonomyDomain.path))
         rows = result.scalars().all()
 
     output: dict[str, Any] = {}
@@ -183,6 +175,6 @@ async def export_yaml(_user: UserInfo = Depends(get_current_user)):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to write YAML: {exc}",
-        )
+        ) from exc
 
     return {"exported": len(output), "path": str(p)}

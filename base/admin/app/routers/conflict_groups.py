@@ -1,6 +1,6 @@
 """Discovered Conflict Groups — HITL review for intent anchor resolution."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -29,9 +29,7 @@ async def list_conflict_groups(
     _user: UserInfo = Depends(get_current_user),
 ):
     async with async_session() as session:
-        q = select(DiscoveredConflictGroup).order_by(
-            DiscoveredConflictGroup.discovered_at.desc()
-        )
+        q = select(DiscoveredConflictGroup).order_by(DiscoveredConflictGroup.discovered_at.desc())
         if status:
             q = q.where(DiscoveredConflictGroup.status == status)
         q = q.offset(offset).limit(limit)
@@ -66,28 +64,20 @@ async def list_conflict_groups(
 @router.get("/stats")
 async def conflict_group_stats(_user: UserInfo = Depends(get_current_user)):
     async with async_session() as session:
-        total = (
-            await session.execute(select(func.count(DiscoveredConflictGroup.id)))
-        ).scalar() or 0
+        total = (await session.execute(select(func.count(DiscoveredConflictGroup.id)))).scalar() or 0
         pending = (
             await session.execute(
-                select(func.count(DiscoveredConflictGroup.id)).where(
-                    DiscoveredConflictGroup.status == "pending_review"
-                )
+                select(func.count(DiscoveredConflictGroup.id)).where(DiscoveredConflictGroup.status == "pending_review")
             )
         ).scalar() or 0
         approved = (
             await session.execute(
-                select(func.count(DiscoveredConflictGroup.id)).where(
-                    DiscoveredConflictGroup.status == "approved"
-                )
+                select(func.count(DiscoveredConflictGroup.id)).where(DiscoveredConflictGroup.status == "approved")
             )
         ).scalar() or 0
         rejected = (
             await session.execute(
-                select(func.count(DiscoveredConflictGroup.id)).where(
-                    DiscoveredConflictGroup.status == "rejected"
-                )
+                select(func.count(DiscoveredConflictGroup.id)).where(DiscoveredConflictGroup.status == "rejected")
             )
         ).scalar() or 0
 
@@ -116,7 +106,7 @@ async def review_conflict_group(
         values: dict = {
             "status": body.status,
             "reviewer_note": body.reviewer_note,
-            "reviewed_at": datetime.now(timezone.utc),
+            "reviewed_at": datetime.now(UTC),
         }
         if body.group_name is not None:
             values["group_name"] = body.group_name
@@ -124,17 +114,13 @@ async def review_conflict_group(
             values["members"] = body.members
             exclusion_map = {}
             for m in body.members:
-                exclusion_map[m.lower()] = [
-                    o.lower() for o in body.members if o.lower() != m.lower()
-                ]
+                exclusion_map[m.lower()] = [o.lower() for o in body.members if o.lower() != m.lower()]
             values["exclusion_map"] = exclusion_map
         if body.default_pick is not None:
             values["default_pick"] = body.default_pick
 
         await session.execute(
-            update(DiscoveredConflictGroup)
-            .where(DiscoveredConflictGroup.id == group_id)
-            .values(**values)
+            update(DiscoveredConflictGroup).where(DiscoveredConflictGroup.id == group_id).values(**values)
         )
         await session.commit()
 

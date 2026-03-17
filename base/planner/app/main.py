@@ -172,10 +172,7 @@ def _load_approved_conflict_groups() -> None:
         if rows:
             from .cohesion import _merge_db_conflict_groups
 
-            db_groups = [
-                {"group_name": r[0], "members": r[1], "exclusion_map": r[2] or {}}
-                for r in rows
-            ]
+            db_groups = [{"group_name": r[0], "members": r[1], "exclusion_map": r[2] or {}} for r in rows]
             _merge_db_conflict_groups(db_groups)
             logger.info("conflict_groups_loaded_from_db", extra={"count": len(rows)})
     except Exception:
@@ -1215,11 +1212,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if request.output_controls:
         oc = request.output_controls
         initial_state["output_controls"] = {
-            k: v for k, v in {
+            k: v
+            for k, v in {
                 "precise": oc.precise,
                 "show_assumptions": oc.show_assumptions,
                 "clarify_first": oc.clarify_first,
-            }.items() if v is not None
+            }.items()
+            if v is not None
         }
 
     # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
@@ -2369,7 +2368,9 @@ async def sse_test():
         yield _emit_phase("\u203a Finalizing\u2026")
         await asyncio.sleep(0.3)
         yield _emit_phase("", done=True)
-        yield _sse_content_delta("test-sse", {"role": "assistant", "content": "SSE status events working. All phases rendered correctly."})
+        yield _sse_content_delta(
+            "test-sse", {"role": "assistant", "content": "SSE status events working. All phases rendered correctly."}
+        )
         yield _sse_chunk(
             {
                 "id": "test-sse",

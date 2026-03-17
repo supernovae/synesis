@@ -8,7 +8,6 @@ import time
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
@@ -85,21 +84,13 @@ async def failure_stats(_user: UserInfo = Depends(get_current_user)):
         total_stmt = select(func.count()).select_from(Failure)
         total = (await session.execute(total_stmt)).scalar() or 0
 
-        by_lang = (
-            await session.execute(
-                select(Failure.language, func.count())
-                .where(Failure.language != "")
-                .group_by(Failure.language)
-            )
+        by_lang = await session.execute(
+            select(Failure.language, func.count()).where(Failure.language != "").group_by(Failure.language)
         )
         by_language = {r[0]: r[1] for r in by_lang}
 
-        by_etype = (
-            await session.execute(
-                select(Failure.error_type, func.count())
-                .where(Failure.error_type != "")
-                .group_by(Failure.error_type)
-            )
+        by_etype = await session.execute(
+            select(Failure.error_type, func.count()).where(Failure.error_type != "").group_by(Failure.error_type)
         )
         by_error_type = {r[0]: r[1] for r in by_etype}
 
@@ -202,29 +193,21 @@ async def knowledge_gap_stats(_user: UserInfo = Depends(get_current_user)):
         avg_stmt = select(func.avg(KnowledgeGap.max_score)).select_from(KnowledgeGap)
         avg_score = (await session.execute(avg_stmt)).scalar() or 0.0
 
-        by_ctx = (
-            await session.execute(
-                select(KnowledgeGap.platform_context, func.count())
-                .where(KnowledgeGap.platform_context != "")
-                .group_by(KnowledgeGap.platform_context)
-            )
+        by_ctx = await session.execute(
+            select(KnowledgeGap.platform_context, func.count())
+            .where(KnowledgeGap.platform_context != "")
+            .group_by(KnowledgeGap.platform_context)
         )
         by_context = {r[0]: r[1] for r in by_ctx}
 
-        by_lang = (
-            await session.execute(
-                select(KnowledgeGap.language, func.count())
-                .where(KnowledgeGap.language != "")
-                .group_by(KnowledgeGap.language)
-            )
+        by_lang = await session.execute(
+            select(KnowledgeGap.language, func.count())
+            .where(KnowledgeGap.language != "")
+            .group_by(KnowledgeGap.language)
         )
         by_language = {r[0]: r[1] for r in by_lang}
 
-        by_st = (
-            await session.execute(
-                select(KnowledgeGap.status, func.count()).group_by(KnowledgeGap.status)
-            )
-        )
+        by_st = await session.execute(select(KnowledgeGap.status, func.count()).group_by(KnowledgeGap.status))
         by_status = {r[0]: r[1] for r in by_st}
 
     return {
@@ -342,7 +325,9 @@ async def validate_knowledge_gaps(
     except ImportError:
         return GapValidateResponse(
             errors=1,
-            details=[{"status": "error", "reason": "Milvus client not available; vector search required for validation."}],
+            details=[
+                {"status": "error", "reason": "Milvus client not available; vector search required for validation."}
+            ],
         )
 
     # Get open gaps from Postgres
@@ -364,7 +349,12 @@ async def validate_knowledge_gaps(
     if "synesis_knowledge_backlog" not in client.list_collections():
         return GapValidateResponse(
             errors=1,
-            details=[{"status": "error", "reason": "synesis_knowledge_backlog collection not found; vector search required for validation."}],
+            details=[
+                {
+                    "status": "error",
+                    "reason": "synesis_knowledge_backlog collection not found; vector search required for validation.",
+                }
+            ],
         )
 
     validated = 0

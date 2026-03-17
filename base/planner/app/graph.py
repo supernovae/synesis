@@ -236,17 +236,14 @@ def _evidence_sufficient(state: dict[str, Any]) -> bool:
     if not packets:
         return False
 
-    steps = ((state.get("execution_plan") or {}).get("steps") or [])
+    steps = (state.get("execution_plan") or {}).get("steps") or []
     num_steps = max(1, len(steps))
     min_packets = int(num_steps * settings.evidence_sufficiency_min_packets_ratio)
 
     if len(packets) < min_packets:
         return False
 
-    confidences = [
-        p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
-        for p in packets
-    ]
+    confidences = [p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0) for p in packets]
     mean_conf = sum(confidences) / max(1, len(confidences))
     sufficient = mean_conf >= settings.evidence_sufficiency_confidence_min
 

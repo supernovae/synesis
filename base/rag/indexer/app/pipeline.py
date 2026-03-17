@@ -19,9 +19,9 @@ from synesis_telemetry import get_logger
 from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
 from .enrichment import enrich_chunks_bulk
-from .injection_scan import scan_chunk_text
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
+from .injection_scan import scan_chunk_text
 from .milvus_writer import MilvusWriter, ProgressTracker, chunk_id_hash
 from .schema import catalog_entity, ensure_synesis_catalog
 
@@ -146,9 +146,7 @@ def index_source(
                 tag = verdict.rejection_reason.split("|")[0].strip()
                 reject_reasons[tag] = reject_reasons.get(tag, 0) + 1
                 if len(reject_samples) < 5:
-                    reject_samples.append(
-                        (chunk.text[:120].replace("\n", " "), verdict.rejection_reason)
-                    )
+                    reject_samples.append((chunk.text[:120].replace("\n", " "), verdict.rejection_reason))
 
         rejected = len(new_chunks) - len(gated)
         if rejected:

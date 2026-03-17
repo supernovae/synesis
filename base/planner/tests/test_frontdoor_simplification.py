@@ -11,18 +11,10 @@ import pytest
 # ---------------------------------------------------------------------------
 # Integrity core (no LangGraph deps)
 # ---------------------------------------------------------------------------
-
 from app.integrity_core import (
     IntegrityReport,
     IntegrityResult,
-    check_dangerous_commands,
-    check_max_size,
-    check_network,
-    check_path_denylist,
     check_python_syntax,
-    check_secrets,
-    check_utf8,
-    check_workspace_boundary,
     run_all_checks,
 )
 
@@ -84,6 +76,7 @@ class TestIntegrityCore:
 # Code fence rendering
 # ---------------------------------------------------------------------------
 
+
 class TestCodeFenceRendering:
     """Verify that code snippets survive the text pipeline with fences intact."""
 
@@ -126,12 +119,7 @@ class TestCodeFenceRendering:
 
         import asyncio
 
-        content = (
-            "# Architecture\n\n"
-            "```mermaid\n"
-            'graph TD\n    A["User Request"] --> B["Router"]\n'
-            "```\n"
-        )
+        content = '# Architecture\n\n```mermaid\ngraph TD\n    A["User Request"] --> B["Router"]\n```\n'
         state = {"compiled_answer": content}
         result = asyncio.get_event_loop().run_until_complete(final_scrubber_node(state))
         scrubbed = result.get("scrubbed_answer", "")
@@ -201,6 +189,7 @@ class TestTextOnlyRouting:
 # Config validation
 # ---------------------------------------------------------------------------
 
+
 class TestFrontdoorConfig:
     def test_default_is_text_only(self):
         from app.config import Settings
@@ -219,6 +208,7 @@ class TestFrontdoorConfig:
 # MCP integrity tool contract
 # ---------------------------------------------------------------------------
 
+
 class TestMcpIntegrityContract:
     """Verify the MCP tool module can be imported and produces correct output."""
 
@@ -232,8 +222,7 @@ class TestMcpIntegrityContract:
         result = {
             "passed": report.passed,
             "failures": [
-                {"category": f.category, "evidence": f.evidence, "remediation": f.remediation}
-                for f in report.failures
+                {"category": f.category, "evidence": f.evidence, "remediation": f.remediation} for f in report.failures
             ],
         }
         assert result["passed"] is True

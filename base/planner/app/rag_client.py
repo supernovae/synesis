@@ -16,6 +16,7 @@ All retrieval goes through Milvus — no external BM25 microservice needed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -191,7 +192,7 @@ async def _acquire_milvus_client():
     pool = _get_milvus_pool()
     try:
         return await asyncio.wait_for(pool.get(), timeout=5.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("milvus_pool_exhausted")
         return _create_milvus_client()
 
@@ -199,10 +200,8 @@ async def _acquire_milvus_client():
 async def _release_milvus_client(client) -> None:
     """Return a client to the pool. If pool is full, discard it."""
     pool = _get_milvus_pool()
-    try:
+    with contextlib.suppress(asyncio.QueueFull):
         pool.put_nowait(client)
-    except asyncio.QueueFull:
-        pass
 
 
 _keepalive_task: asyncio.Task | None = None
@@ -230,10 +229,8 @@ async def _keepalive_loop() -> None:
                     c = _create_milvus_client()
                 except Exception:
                     continue
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 pool.put_nowait(c)
-            except asyncio.QueueFull:
-                pass
 
 
 def ensure_milvus_keepalive() -> None:
@@ -271,10 +268,8 @@ async def warm_milvus_pool() -> None:
                 replaced += 1
             except Exception:
                 continue
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             pool.put_nowait(c)
-        except asyncio.QueueFull:
-            pass
     if replaced:
         logger.info("milvus_pool_warmed", extra={"replaced": replaced, "total": len(clients)})
 
@@ -741,7 +736,7 @@ async def _sparse_search(
             await _release_milvus_client(client)
 
     formatted: list[dict[str, Any]] = []
-    for hits in (results or []):
+    for hits in results or []:
         for hit in hits:
             entity = hit.get("entity", {})
             formatted.append(
@@ -978,10 +973,7 @@ async def retrieve_context(
     score_min = getattr(settings, "rag_rerank_score_min", 0.0)
     if score_min > 0 and reranker != "none":
         pre_floor = len(all_merged)
-        all_merged = [
-            d for d in all_merged
-            if (d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0)) >= score_min
-        ]
+        all_merged = [d for d in all_merged if (d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0)) >= score_min]
         dropped = pre_floor - len(all_merged)
         if dropped:
             logger.info(

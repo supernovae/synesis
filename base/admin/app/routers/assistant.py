@@ -88,9 +88,7 @@ async def assistant_chat(
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if context:
-        messages.append(
-            {"role": "user", "content": f"Context:\n{context}\n\n---\n\n{user_message}"}
-        )
+        messages.append({"role": "user", "content": f"Context:\n{context}\n\n---\n\n{user_message}"})
     else:
         messages.append({"role": "user", "content": user_message})
 

@@ -97,37 +97,41 @@ def log_web_search_results(
     rows: list[dict[str, Any]] = []
     for r in results[:_MAX_ROWS_PER_SEARCH]:
         url = getattr(r, "url", "") or ""
-        rows.append({
-            "timestamp": now,
-            "run_id": run_id or "",
-            "query": query[:500],
-            "source_id": source_id or "",
-            "profile": profile or "",
-            "url": url,
-            "domain": _extract_domain(url),
-            "title": (getattr(r, "title", "") or "")[:500],
-            "snippet": (getattr(r, "snippet", "") or "")[:_MAX_SNIPPET_LEN],
-            "score": float(getattr(r, "score", 0.0) or 0.0),
-            "latency_ms": round(latency_ms, 1),
-            "outcome": outcome,
-            "engine": (getattr(r, "engine", "") or "")[:64],
-        })
+        rows.append(
+            {
+                "timestamp": now,
+                "run_id": run_id or "",
+                "query": query[:500],
+                "source_id": source_id or "",
+                "profile": profile or "",
+                "url": url,
+                "domain": _extract_domain(url),
+                "title": (getattr(r, "title", "") or "")[:500],
+                "snippet": (getattr(r, "snippet", "") or "")[:_MAX_SNIPPET_LEN],
+                "score": float(getattr(r, "score", 0.0) or 0.0),
+                "latency_ms": round(latency_ms, 1),
+                "outcome": outcome,
+                "engine": (getattr(r, "engine", "") or "")[:64],
+            }
+        )
 
     if not rows:
-        rows.append({
-            "timestamp": now,
-            "run_id": run_id or "",
-            "query": query[:500],
-            "source_id": source_id or "",
-            "profile": profile or "",
-            "url": "",
-            "domain": "",
-            "title": "",
-            "snippet": "",
-            "score": 0.0,
-            "latency_ms": round(latency_ms, 1),
-            "outcome": outcome,
-            "engine": "",
-        })
+        rows.append(
+            {
+                "timestamp": now,
+                "run_id": run_id or "",
+                "query": query[:500],
+                "source_id": source_id or "",
+                "profile": profile or "",
+                "url": "",
+                "domain": "",
+                "title": "",
+                "snippet": "",
+                "score": 0.0,
+                "latency_ms": round(latency_ms, 1),
+                "outcome": outcome,
+                "engine": "",
+            }
+        )
 
     threading.Thread(target=_persist_rows, args=(rows,), daemon=True).start()

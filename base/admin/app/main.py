@@ -10,14 +10,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from app.db.engine import engine
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_latest
-
-from app.db.engine import engine
-from app.db.models import Base
 
 configure_logging(service="synesis-admin")
 

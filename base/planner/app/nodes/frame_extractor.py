@@ -59,6 +59,7 @@ def _frame_cache_put(task_description: str, result: dict[str, Any]) -> None:
         _frame_cache.popitem(last=False)
     _frame_cache[key] = (0.0, result)  # no TTL expiry (0 = never)
 
+
 # --------------------------------------------------------------------------- #
 # Stage 3: LLM repair prompt (compact — NOT full re-extraction)
 # --------------------------------------------------------------------------- #
@@ -392,10 +393,10 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             from .frame_normalizer import resolve_intent_anchors_with_llm_fallback
 
             try:
-                llm_anchors, llm_excl, llm_assumptions, llm_conflicts = (
-                    await resolve_intent_anchors_with_llm_fallback(
-                        user_task, difficulty, run_id=state.get("run_id", ""),
-                    )
+                llm_anchors, llm_excl, llm_assumptions, llm_conflicts = await resolve_intent_anchors_with_llm_fallback(
+                    user_task,
+                    difficulty,
+                    run_id=state.get("run_id", ""),
                 )
                 if llm_anchors:
                     user_task.intent_anchors = llm_anchors

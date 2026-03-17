@@ -198,7 +198,12 @@ class TestCriticControlAlignment:
     def test_frame_rubric_includes_precision_flag(self):
         from app.nodes.critic import _build_frame_rubric
 
-        frame = {"deliverables": ["Architecture"], "constraints": [], "negative_constraints": [], "success_criteria": []}
+        frame = {
+            "deliverables": ["Architecture"],
+            "constraints": [],
+            "negative_constraints": [],
+            "success_criteria": [],
+        }
         state = {
             "style_contract_locked": {"precise": True, "show_assumptions": False, "verbosity_target": "moderate"},
             "decision_ledger": [],

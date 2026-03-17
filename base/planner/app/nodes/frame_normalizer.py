@@ -175,7 +175,8 @@ def _extract_texts(candidates: list[RawExtractionCandidate]) -> list[str]:
 
 
 def normalize_frame(
-    frame: FirstPassFrame, raw_text: str,
+    frame: FirstPassFrame,
+    raw_text: str,
 ) -> tuple[UserTask, MissingFieldReport, list[dict[str, Any]]]:
     """Stage 2: deterministic normalization of GLiNER2 raw extraction.
 
@@ -390,7 +391,7 @@ def _resolve_intent_anchors(
     if not settings.anchor_resolution_enabled:
         return {}, [], [], []
 
-    from ..cohesion import get_conflict_groups, _ENTITY_EXCLUSION_MAP
+    from ..cohesion import _ENTITY_EXCLUSION_MAP, get_conflict_groups
 
     conflict_groups = get_conflict_groups()
     tech_lower = {t.lower() for t in user_task.technologies}
@@ -410,9 +411,7 @@ def _resolve_intent_anchors(
                 anchors[group_name] = default
                 excl = _ENTITY_EXCLUSION_MAP.get(default, [])
                 exclude_signals.extend(excl)
-                assumptions.append(
-                    f"Assuming {default} (no {group_name.replace('_', ' ')} specified)"
-                )
+                assumptions.append(f"Assuming {default} (no {group_name.replace('_', ' ')} specified)")
             continue
 
         if len(hits) == 1:
@@ -422,11 +421,13 @@ def _resolve_intent_anchors(
             exclude_signals.extend(excl)
         else:
             # Multiple members from the same group → conflict
-            unresolved.append({
-                "group": group_name,
-                "members": sorted(hits),
-                "all_members": sorted(members),
-            })
+            unresolved.append(
+                {
+                    "group": group_name,
+                    "members": sorted(hits),
+                    "all_members": sorted(members),
+                }
+            )
 
     exclude_signals = list(dict.fromkeys(exclude_signals))
 
@@ -463,7 +464,7 @@ async def resolve_intent_anchors_with_llm_fallback(
     if difficulty < settings.anchor_ask_min_difficulty:
         return anchors, exclude_signals, assumptions, unresolved
 
-    from ..cohesion import get_conflict_groups, _ENTITY_EXCLUSION_MAP
+    from ..cohesion import get_conflict_groups
 
     conflict_groups = get_conflict_groups()
     all_known = set()
@@ -509,10 +510,12 @@ async def resolve_intent_anchors_with_llm_fallback(
             "If none are mutually exclusive, output: []"
         )
 
-        resp = await llm.ainvoke([
-            SystemMessage(content="You classify technology relationships. Output only JSON."),
-            HumanMessage(content=prompt),
-        ])
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content="You classify technology relationships. Output only JSON."),
+                HumanMessage(content=prompt),
+            ]
+        )
 
         raw = safe_parse_json(resp.content or "")
         discovered_groups = raw if isinstance(raw, list) else []
@@ -532,15 +535,15 @@ async def resolve_intent_anchors_with_llm_fallback(
                 anchors[group_name] = winner
                 excl_for_winner = [m for m in members_lower if m != winner]
                 exclude_signals.extend(excl_for_winner)
-                assumptions.append(
-                    f"Assuming {winner} (detected as {group_name.replace('_', ' ')} choice)"
-                )
+                assumptions.append(f"Assuming {winner} (detected as {group_name.replace('_', ' ')} choice)")
             elif len(hits) >= 2:
-                unresolved.append({
-                    "group": group_name,
-                    "members": sorted(hits),
-                    "all_members": sorted(members_lower),
-                })
+                unresolved.append(
+                    {
+                        "group": group_name,
+                        "members": sorted(hits),
+                        "all_members": sorted(members_lower),
+                    }
+                )
 
             # Persist discovery to admin DB (best-effort, fire-and-forget)
             _persist_discovered_group(

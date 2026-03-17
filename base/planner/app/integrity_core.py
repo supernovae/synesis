@@ -26,6 +26,7 @@ from typing import Any
 # Result type (framework-agnostic; mirrors schemas.IntegrityFailure)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class IntegrityResult:
     """Single integrity check failure. None means passed."""
@@ -79,9 +80,17 @@ def check_secrets(code: str) -> IntegrityResult | None:
 # Network egress
 # ---------------------------------------------------------------------------
 
-_NETWORK_MODULES = frozenset({
-    "requests", "urllib", "urllib3", "urllib.request", "socket", "httpx", "http.client",
-})
+_NETWORK_MODULES = frozenset(
+    {
+        "requests",
+        "urllib",
+        "urllib3",
+        "urllib.request",
+        "socket",
+        "httpx",
+        "http.client",
+    }
+)
 _NETWORK_CALLS = [
     ("requests", ["get", "post", "put", "delete", "request", "head", "patch"]),
     ("urllib.request", ["urlopen", "Request"]),
@@ -245,6 +254,7 @@ def check_dangerous_commands(code: str, language: str) -> IntegrityResult | None
 # Size limits
 # ---------------------------------------------------------------------------
 
+
 def check_max_size(code: str, limit: int = 100_000) -> IntegrityResult | None:
     if len(code) > limit:
         return IntegrityResult(
@@ -361,7 +371,10 @@ def check_workspace_boundary(
 # Import integrity (Python)
 # ---------------------------------------------------------------------------
 
-def check_import_integrity(code: str, language: str, trusted_packages: set[str] | None = None) -> IntegrityResult | None:
+
+def check_import_integrity(
+    code: str, language: str, trusted_packages: set[str] | None = None
+) -> IntegrityResult | None:
     if (language or "").lower() not in ("python", "py"):
         return None
     if not trusted_packages:
@@ -395,6 +408,7 @@ def check_import_integrity(code: str, language: str, trusted_packages: set[str] 
 # UTF-8 validation
 # ---------------------------------------------------------------------------
 
+
 def check_utf8(code: str) -> IntegrityResult | None:
     try:
         code.encode("utf-8").decode("utf-8")
@@ -410,6 +424,7 @@ def check_utf8(code: str) -> IntegrityResult | None:
 # ---------------------------------------------------------------------------
 # Syntax check (Python only)
 # ---------------------------------------------------------------------------
+
 
 def check_python_syntax(code: str, language: str) -> IntegrityResult | None:
     if (language or "").lower() not in ("python", "py") or not code.strip():

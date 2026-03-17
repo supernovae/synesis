@@ -22,7 +22,7 @@ _PLANNER_APP = str(Path(__file__).resolve().parents[3] / "planner")
 if _PLANNER_APP not in sys.path:
     sys.path.insert(0, _PLANNER_APP)
 
-from app.integrity_core import IntegrityReport, run_all_checks  # noqa: E402
+from app.integrity_core import IntegrityReport, run_all_checks
 
 TOOL_DEFINITION: dict[str, Any] = {
     "name": "synesis_patch_integrity",

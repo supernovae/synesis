@@ -567,5 +567,3 @@ class TestRouterDeliverableCap:
         assert len(requests) == 4
         assert "deliverable_0" in requests[0]["description"]
         assert "deliverable_11" in requests[3]["description"]
-
-

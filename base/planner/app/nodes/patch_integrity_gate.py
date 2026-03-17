@@ -308,7 +308,9 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     if fail:
         return fail
 
-    fail = _check_and_fail(_check_scope_violation(files_touched, patch_ops, touched_files, target_workspace), node_name, state)
+    fail = _check_and_fail(
+        _check_scope_violation(files_touched, patch_ops, touched_files, target_workspace), node_name, state
+    )
     if fail:
         return fail
 
@@ -322,7 +324,9 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     revision_strategy = state.get("revision_strategy", "")
     diff_failure = validate_diff_shape(files_touched, patch_ops, revision_constraints, revision_strategy)
     if diff_failure:
-        logger.warning("patch_integrity_failed", extra={"category": diff_failure.category, "evidence": diff_failure.evidence[:80]})
+        logger.warning(
+            "patch_integrity_failed", extra={"category": diff_failure.category, "evidence": diff_failure.evidence[:80]}
+        )
         return _gate_fail(node_name, diff_failure, state)
 
     all_paths = set(files_touched or [])
@@ -374,12 +378,12 @@ async def patch_integrity_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         lambda c: check_max_size(c, limit=limit),
         lambda c: check_path_denylist(c),
         lambda c: check_import_integrity(
-            c, language,
+            c,
+            language,
             trusted_packages=set(
-                p.strip().lower()
-                for p in (getattr(settings, "integrity_trusted_packages", None) or [])
-                if p
-            ) or None,
+                p.strip().lower() for p in (getattr(settings, "integrity_trusted_packages", None) or []) if p
+            )
+            or None,
         ),
         lambda c: check_utf8(c),
         lambda c: check_secrets(c),

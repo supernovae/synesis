@@ -10,8 +10,7 @@ import logging
 import time
 from typing import Any
 
-from sqlalchemy import case, desc, func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import case, desc, func, select
 
 from ..db.engine import async_session
 from ..db.models import Trace
@@ -52,9 +51,7 @@ async def list_traces(
             if until > 0:
                 q = q.where(Trace.timestamp <= until)
             if domain_tag:
-                q = q.where(
-                    Trace.full_record["domain_tags"].astext.contains(domain_tag)
-                )
+                q = q.where(Trace.full_record["domain_tags"].astext.contains(domain_tag))
 
             count_q = select(func.count()).select_from(q.subquery())
             total = (await session.execute(count_q)).scalar_one()
@@ -91,7 +88,7 @@ async def get_trace_stats() -> dict[str, Any]:
         try:
             q = select(
                 func.count().label("total"),
-                func.sum(case((Trace.has_error == True, 1), else_=0)).label("errors"),
+                func.sum(case((Trace.has_error == True, 1), else_=0)).label("errors"),  # noqa: E712
                 func.avg(Trace.total_duration_ms).label("avg_duration"),
                 func.avg(Trace.total_tokens).label("avg_tokens"),
                 func.avg(Trace.estimated_cost_usd).label("avg_cost"),

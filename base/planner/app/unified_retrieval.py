@@ -530,10 +530,8 @@ async def retrieve_unified(
                 web_multi_raw = web_exc
         else:
             try:
-                web_multi_raw = await asyncio.wait_for(
-                    asyncio.shield(web_task), timeout=_WEB_GRACE_MS / 1000
-                )
-            except (TimeoutError, asyncio.TimeoutError):
+                web_multi_raw = await asyncio.wait_for(asyncio.shield(web_task), timeout=_WEB_GRACE_MS / 1000)
+            except TimeoutError:
                 logger.info(
                     "web_search_still_running",
                     extra={"query": query[:60], "grace_ms": _WEB_GRACE_MS},

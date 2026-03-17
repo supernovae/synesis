@@ -119,11 +119,7 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
     # 1. Infrastructure (health-monitor sidecar): synesis_circuit_breaker_state{service="..."}
     # State: 0=closed, 1=half_open, 2=open
     for key, entry in raw.items():
-        if (
-            isinstance(entry, dict)
-            and "synesis_circuit_breaker_state" in key
-            and "synesis_llm_breaker" not in key
-        ):
+        if isinstance(entry, dict) and "synesis_circuit_breaker_state" in key and "synesis_llm_breaker" not in key:
             labels = entry.get("labels", {})
             if "service" not in labels:
                 continue
@@ -166,7 +162,7 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
     # State: 0=closed, 1=open
     state_val = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_state"))
     trips = int(_get_unlabeled_metric(raw, "synesis_web_search_breaker_trips_total"))
-    if any("synesis_web_search_breaker" in k for k in raw.keys()):
+    if any("synesis_web_search_breaker" in k for k in raw):
         state = "closed" if state_val == 0 else "open"
         breakers.append(
             {

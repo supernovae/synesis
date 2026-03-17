@@ -784,8 +784,12 @@ def score_chunk(
     # rejection.  Truly junk-heavy chunks (boilerplate ratio > 20%) still get
     # the full penalty.
     has_structural_signal = bool(
-        section or heading_path or epistemic_hits >= 2
-        or _CODE_FENCE_RE.search(text) or _TABLE_ROW_RE.search(text) or _DEFINITION_RE.search(text)
+        section
+        or heading_path
+        or epistemic_hits >= 2
+        or _CODE_FENCE_RE.search(text)
+        or _TABLE_ROW_RE.search(text)
+        or _DEFINITION_RE.search(text)
     )
     junk_heavy = word_count > 0 and boilerplate_hits / max(word_count / 30, 1) > 0.2
     if has_structural_signal and not junk_heavy:

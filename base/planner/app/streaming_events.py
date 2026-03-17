@@ -41,6 +41,7 @@ def emit_sub_phase(description: str) -> None:
         with contextlib.suppress(asyncio.QueueFull):
             q.put_nowait(description)
 
+
 KNOWN_NODE_NAMES: frozenset[str] = frozenset(
     {
         "entry_classifier",

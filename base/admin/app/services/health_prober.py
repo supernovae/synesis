@@ -74,35 +74,36 @@ async def probe_litellm_models(client: httpx.AsyncClient) -> list[dict] | None:
     results: list[dict] = []
     for ep in healthy:
         model = ep.get("model", "unknown")
-        results.append({
-            "name": model,
-            "status": "ok",
-            "status_code": 200,
-            "latency_ms": None,
-            "error": None,
-            "category": "model-gateway",
-        })
+        results.append(
+            {
+                "name": model,
+                "status": "ok",
+                "status_code": 200,
+                "latency_ms": None,
+                "error": None,
+                "category": "model-gateway",
+            }
+        )
     for ep in unhealthy:
         model = ep.get("model", "unknown")
         error_msg = ep.get("error", "unhealthy")
-        results.append({
-            "name": model,
-            "status": "error",
-            "status_code": None,
-            "latency_ms": None,
-            "error": str(error_msg)[:80],
-            "category": "model-gateway",
-        })
+        results.append(
+            {
+                "name": model,
+                "status": "error",
+                "status_code": None,
+                "latency_ms": None,
+                "error": str(error_msg)[:80],
+                "category": "model-gateway",
+            }
+        )
     return results
 
 
 async def probe_all() -> list[dict]:
     async with httpx.AsyncClient() as client:
         # Always probe CORE_SERVICES concurrently
-        core_tasks = [
-            probe_service(client, svc, category="infrastructure")
-            for svc in CORE_SERVICES
-        ]
+        core_tasks = [probe_service(client, svc, category="infrastructure") for svc in CORE_SERVICES]
         core_results = await asyncio.gather(*core_tasks)
 
         # Try LiteLLM model health first (OpenRouter mode)
@@ -112,10 +113,7 @@ async def probe_all() -> list[dict]:
             model_results = litellm_models
         else:
             # Fall back to direct vLLM probes (local mode)
-            model_tasks = [
-                probe_service(client, svc, category="model")
-                for svc in MODEL_SERVICES
-            ]
+            model_tasks = [probe_service(client, svc, category="model") for svc in MODEL_SERVICES]
             model_results = await asyncio.gather(*model_tasks)
 
         return list(core_results) + list(model_results)

@@ -882,9 +882,11 @@ class RouterNode:
         t_summarize = time.monotonic()
         if use_fast_path:
             packet = _fallback_packet(query, bundle.results)
-            packet = packet.model_copy(update={
-                "retrieval_notes": f"Fast-path: {len(high_scoring)} results above {_fast_threshold} — skipped LLM summarization.",
-            })
+            packet = packet.model_copy(
+                update={
+                    "retrieval_notes": f"Fast-path: {len(high_scoring)} results above {_fast_threshold} — skipped LLM summarization.",
+                }
+            )
             logger.info(
                 "router_fast_path_summary",
                 extra={"query": query[:80], "high_scoring": len(high_scoring), "threshold": _fast_threshold},
@@ -1195,8 +1197,7 @@ class RouterNode:
         avg_conf = sum(p.confidence for p in packets) / max(1, len(packets))
         total_snips = sum(len(p.snippets) for p in packets)
         emit_sub_phase(
-            f"Evidence gathered: {len(packets)} packet(s), "
-            f"{total_snips} snippet(s), avg confidence {avg_conf:.0%}"
+            f"Evidence gathered: {len(packets)} packet(s), {total_snips} snippet(s), avg confidence {avg_conf:.0%}"
         )
 
         cs = self.cache.stats

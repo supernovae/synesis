@@ -172,14 +172,12 @@ def _load_cohesion_groups_yaml() -> None:
         aliases = cfg.get("aliases") or {}
         for canonical, alias_list in aliases.items():
             canonical_l = canonical.lower()
-            for alias in (alias_list or []):
+            for alias in alias_list or []:
                 _ALIAS_MAP[alias.lower()] = canonical_l
                 members.add(alias.lower())
 
         for member in members:
-            _ENTITY_EXCLUSION_MAP[member] = [
-                m for m in members if m != member
-            ]
+            _ENTITY_EXCLUSION_MAP[member] = [m for m in members if m != member]
 
     logger.info(
         "cohesion_groups_loaded",

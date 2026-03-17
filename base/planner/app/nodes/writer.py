@@ -557,11 +557,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     rag_mode = state.get("rag_mode", "normal")
     no_retrieval_easy = rag_mode == "disabled" and difficulty < 0.3
     if task_is_trivial or difficulty < trivial_threshold or no_retrieval_easy:
-        raw_question = (
-            state.get("last_user_content")
-            or state.get("task_description")
-            or ""
-        ).strip()
+        raw_question = (state.get("last_user_content") or state.get("task_description") or "").strip()
         if raw_question:
             writer_url = settings.writer_model_url or settings.general_model_url
             writer_name = settings.writer_model_name or settings.general_model_name
@@ -785,8 +781,11 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     # enough to benefit from it, require dedicated structural sections.
     # Architecture/design documents get this at 0.6 to improve quality bar.
     is_architecture_or_design = (
-        (taxonomy_meta.get("output_style") or "") == "architecture_document"
-        or taxonomy_meta.get("taxonomy_key") in ("software_architecture", "cloud", "system_design")
+        taxonomy_meta.get("output_style") or ""
+    ) == "architecture_document" or taxonomy_meta.get("taxonomy_key") in (
+        "software_architecture",
+        "cloud",
+        "system_design",
     )
     if (difficulty >= 0.7 and sc_show_assumptions) or (
         difficulty >= 0.6 and sc_show_assumptions and is_architecture_or_design
@@ -910,10 +909,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if anchor_assumptions and settings.anchor_show_assumptions:
             assumption_bullets = "\n".join(f"- {a}" for a in anchor_assumptions[:6])
             assumptions_block = (
-                f"> **Assumptions**\n"
-                f"> The prompt didn't specify certain technology choices, "
-                f"so this response assumes:\n"
-                f">\n"
+                "> **Assumptions**\n"
+                "> The prompt didn't specify certain technology choices, "
+                "so this response assumes:\n"
+                ">\n"
                 + "\n".join(f"> {line}" for line in assumption_bullets.splitlines())
                 + "\n>\n"
                 + "> *Ask again with specific technologies to get a different focus.*\n"

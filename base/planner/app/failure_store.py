@@ -193,20 +193,30 @@ async def store_failure(
 def _persist_failure_pg(entity: dict) -> None:
     """Write failure to admin Postgres (best-effort)."""
     import os
+
     db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
     if not db_url:
         return
     try:
         import psycopg2
+
         conn = psycopg2.connect(db_url)
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO failures (failure_id, code, error_output, exit_code, error_type, language, task_description, resolution, timestamp)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (failure_id) DO UPDATE SET resolution = EXCLUDED.resolution""",
-            (entity["failure_id"], entity.get("code", "")[:8192], entity.get("error_output", "")[:4096],
-             entity.get("exit_code", 1), entity.get("error_type", ""), entity.get("language", ""),
-             entity.get("task_description", "")[:2048], entity.get("resolution", "")[:8192], entity.get("timestamp", 0)),
+            (
+                entity["failure_id"],
+                entity.get("code", "")[:8192],
+                entity.get("error_output", "")[:4096],
+                entity.get("exit_code", 1),
+                entity.get("error_type", ""),
+                entity.get("language", ""),
+                entity.get("task_description", "")[:2048],
+                entity.get("resolution", "")[:8192],
+                entity.get("timestamp", 0),
+            ),
         )
         conn.commit()
         cur.close()

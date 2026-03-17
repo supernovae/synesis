@@ -195,7 +195,7 @@ def _build_evidence_context(state: dict[str, Any]) -> str:
     if len(parts) >= 3 and mean_conf >= 0.4:
         ctx += (
             "\nNote: Strong evidence already gathered above. "
-            "Prefer 3–5 cohesive sections unless the user explicitly "
+            "Prefer 3-5 cohesive sections unless the user explicitly "
             "requested more distinct deliverables.\n"
         )
     return ctx
@@ -758,12 +758,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             combined_qs = [q for q in (ambiguities + open_qs) if q and str(q).strip()]
             trivial = state.get("task_is_trivial", False) or difficulty < settings.clarify_first_min_difficulty
             already_clarified = bool(state.get("iteration_count", 0) > 0)
-            if (
-                not trivial
-                and not already_clarified
-                and len(combined_qs) >= settings.clarify_first_min_ambiguities
-            ):
-                top_qs = combined_qs[: 4]
+            if not trivial and not already_clarified and len(combined_qs) >= settings.clarify_first_min_ambiguities:
+                top_qs = combined_qs[:4]
                 clarify_question = (
                     "Before I dive in, I want to make sure I get this right. "
                     "A few things would materially change my answer:\n\n"

@@ -21,6 +21,102 @@ SCORE_KEYS = [
     "judgment_quality",
 ]
 
+# Static JSONB path fragments — NOT user input.  Semgrep flags text() with
+# f-strings as potential SQL injection, but these are compile-time constants.
+_CS = "full_record -> 'critic_scores'"
+_APPROVED = f"(({_CS} ->> 'approved')::text = 'true')"
+
+# All queries are pre-built at module load with fixed JSONB path expressions.
+# Bind parameters (:cutoff) handle the only runtime input.
+_Q_MAIN = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+    f"""
+    SELECT
+        COUNT(*)::int AS total_evaluated,
+        COUNT(*) FILTER (WHERE {_APPROVED})::int AS approved,
+        COUNT(*) FILTER (WHERE NOT {_APPROVED})::int AS rejected,
+        AVG(({_CS} ->> 'weighted_overall')::float) AS avg_weighted_overall,
+        AVG(({_CS} ->> 'task_faithfulness')::float) AS avg_task_faithfulness,
+        AVG(({_CS} ->> 'constraint_compliance')::float) AS avg_constraint_compliance,
+        AVG(({_CS} ->> 'coverage')::float) AS avg_coverage,
+        AVG(({_CS} ->> 'judgment_quality')::float) AS avg_judgment_quality
+    FROM traces
+    WHERE timestamp >= :cutoff
+      AND full_record ? 'critic_scores'
+      AND {_CS} IS NOT NULL
+      AND jsonb_typeof({_CS}) = 'object'
+    """  # noqa: S608
+)
+
+_Q_BUCKETS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+    f"""
+    WITH scored AS (
+        SELECT (({_CS} ->> 'weighted_overall')::float) AS score
+        FROM traces
+        WHERE timestamp >= :cutoff
+          AND full_record ? 'critic_scores'
+          AND {_CS} IS NOT NULL
+          AND jsonb_typeof({_CS}) = 'object'
+          AND ({_CS} ->> 'weighted_overall') IS NOT NULL
+    )
+    SELECT
+        COALESCE(SUM(CASE WHEN score >= 0 AND score < 3 THEN 1 ELSE 0 END), 0)::int AS b03,
+        COALESCE(SUM(CASE WHEN score >= 3 AND score < 5 THEN 1 ELSE 0 END), 0)::int AS b35,
+        COALESCE(SUM(CASE WHEN score >= 5 AND score < 7 THEN 1 ELSE 0 END), 0)::int AS b57,
+        COALESCE(SUM(CASE WHEN score >= 7 AND score < 8 THEN 1 ELSE 0 END), 0)::int AS b78,
+        COALESCE(SUM(CASE WHEN score >= 8 AND score <= 10 THEN 1 ELSE 0 END), 0)::int AS b810
+    FROM scored
+    """  # noqa: S608
+)
+
+_Q_MODES = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+    f"""
+    WITH modes AS (
+        SELECT trim(both '"' FROM elem::text) AS mode
+        FROM traces,
+             jsonb_array_elements_text(
+                 COALESCE(({_CS} -> 'failure_modes'), '[]'::jsonb)
+             ) AS elem
+        WHERE timestamp >= :cutoff
+          AND full_record ? 'critic_scores'
+          AND {_CS} IS NOT NULL
+          AND jsonb_typeof({_CS}) = 'object'
+          AND jsonb_typeof(COALESCE({_CS} -> 'failure_modes', '[]'::jsonb)) = 'array'
+    )
+    SELECT mode, COUNT(*)::int AS cnt
+    FROM modes
+    WHERE mode != ''
+    GROUP BY mode
+    ORDER BY cnt DESC
+    LIMIT 10
+    """  # noqa: S608
+)
+
+_Q_REJECTIONS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+    f"""
+    SELECT
+        trace_id,
+        COALESCE(query_snippet, '') AS query_snippet,
+        COALESCE(
+            (
+                SELECT array_agg(trim(both '"' FROM elem::text))
+                FROM jsonb_array_elements_text(
+                    COALESCE(({_CS} -> 'failure_modes'), '[]'::jsonb)
+                ) AS elem
+            ),
+            '{{}}'
+        )::text[] AS failure_modes,
+        (({_CS} ->> 'weighted_overall')::float) AS score
+    FROM traces
+    WHERE timestamp >= :cutoff
+      AND full_record ? 'critic_scores'
+      AND {_CS} IS NOT NULL
+      AND jsonb_typeof({_CS}) = 'object'
+      AND NOT {_APPROVED}
+    ORDER BY timestamp DESC
+    LIMIT 20
+    """  # noqa: S608
+)
+
 
 async def get_critic_detailed(days: int = 7) -> dict[str, Any] | None:
     """Query traces table for critic_scores in full_record. Returns None on error."""
@@ -33,31 +129,10 @@ async def get_critic_detailed(days: int = 7) -> dict[str, Any] | None:
         return None
 
 
-async def _query_detailed(
-    session: AsyncSession, cutoff: float, days: int
-) -> dict[str, Any]:
-    # Base filter: traces with critic_scores in the time window
-    cs = "full_record -> 'critic_scores'"
-    approved_expr = f"(({cs} ->> 'approved')::text = 'true')"
+async def _query_detailed(session: AsyncSession, cutoff: float, days: int) -> dict[str, Any]:
+    params = {"cutoff": cutoff}
 
-    # 1. Main aggregates
-    q_main = text(f"""
-        SELECT
-            COUNT(*)::int AS total_evaluated,
-            COUNT(*) FILTER (WHERE {approved_expr})::int AS approved,
-            COUNT(*) FILTER (WHERE NOT {approved_expr})::int AS rejected,
-            AVG(({cs} ->> 'weighted_overall')::float) AS avg_weighted_overall,
-            AVG(({cs} ->> 'task_faithfulness')::float) AS avg_task_faithfulness,
-            AVG(({cs} ->> 'constraint_compliance')::float) AS avg_constraint_compliance,
-            AVG(({cs} ->> 'coverage')::float) AS avg_coverage,
-            AVG(({cs} ->> 'judgment_quality')::float) AS avg_judgment_quality
-        FROM traces
-        WHERE timestamp >= :cutoff
-          AND full_record ? 'critic_scores'
-          AND {cs} IS NOT NULL
-          AND jsonb_typeof({cs}) = 'object'
-    """)
-    r_main = (await session.execute(q_main, {"cutoff": cutoff})).one()
+    r_main = (await session.execute(_Q_MAIN, params)).one()
 
     total = r_main.total_evaluated or 0
     approved = r_main.approved or 0
@@ -88,27 +163,7 @@ async def _query_detailed(
             "rejection_reasons": [],
         }
 
-    # 2. Score distribution buckets
-    q_buckets = text(f"""
-        WITH scored AS (
-            SELECT (({cs} ->> 'weighted_overall')::float) AS score
-            FROM traces
-            WHERE timestamp >= :cutoff
-              AND full_record ? 'critic_scores'
-              AND {cs} IS NOT NULL
-              AND jsonb_typeof({cs}) = 'object'
-              AND ({cs} ->> 'weighted_overall') IS NOT NULL
-        )
-        SELECT
-            COALESCE(SUM(CASE WHEN score >= 0 AND score < 3 THEN 1 ELSE 0 END), 0)::int AS b03,
-            COALESCE(SUM(CASE WHEN score >= 3 AND score < 5 THEN 1 ELSE 0 END), 0)::int AS b35,
-            COALESCE(SUM(CASE WHEN score >= 5 AND score < 7 THEN 1 ELSE 0 END), 0)::int AS b57,
-            COALESCE(SUM(CASE WHEN score >= 7 AND score < 8 THEN 1 ELSE 0 END), 0)::int AS b78,
-            COALESCE(SUM(CASE WHEN score >= 8 AND score <= 10 THEN 1 ELSE 0 END), 0)::int AS b810
-        FROM scored
-    """)
-    r_buckets = (await session.execute(q_buckets, {"cutoff": cutoff})).one()
-
+    r_buckets = (await session.execute(_Q_BUCKETS, params)).one()
     score_distribution = [
         {"bucket": "0-3", "count": r_buckets.b03 or 0},
         {"bucket": "3-5", "count": r_buckets.b35 or 0},
@@ -117,56 +172,10 @@ async def _query_detailed(
         {"bucket": "8-10", "count": r_buckets.b810 or 0},
     ]
 
-    # 3. Top failure modes (unnest array)
-    q_modes = text(f"""
-        WITH modes AS (
-            SELECT trim(both '"' FROM elem::text) AS mode
-            FROM traces,
-                 jsonb_array_elements_text(
-                     COALESCE(({cs} -> 'failure_modes'), '[]'::jsonb)
-                 ) AS elem
-            WHERE timestamp >= :cutoff
-              AND full_record ? 'critic_scores'
-              AND {cs} IS NOT NULL
-              AND jsonb_typeof({cs}) = 'object'
-              AND jsonb_typeof(COALESCE({cs} -> 'failure_modes', '[]'::jsonb)) = 'array'
-        )
-        SELECT mode, COUNT(*)::int AS cnt
-        FROM modes
-        WHERE mode != ''
-        GROUP BY mode
-        ORDER BY cnt DESC
-        LIMIT 10
-    """)
-    rows_modes = (await session.execute(q_modes, {"cutoff": cutoff})).all()
+    rows_modes = (await session.execute(_Q_MODES, params)).all()
     top_failure_modes = [{"mode": r.mode, "count": r.cnt} for r in rows_modes]
 
-    # 4. Rejection reasons (rejected traces with trace_id, query_snippet, failure_modes, score)
-    q_rejections = text(f"""
-        SELECT
-            trace_id,
-            COALESCE(query_snippet, '') AS query_snippet,
-            COALESCE(
-                (
-                    SELECT array_agg(trim(both '"' FROM elem::text))
-                    FROM jsonb_array_elements_text(
-                        COALESCE(({cs} -> 'failure_modes'), '[]'::jsonb)
-                    ) AS elem
-                ),
-                '{{}}'
-            )::text[] AS failure_modes,
-            (({cs} ->> 'weighted_overall')::float) AS score
-        FROM traces
-        WHERE timestamp >= :cutoff
-          AND full_record ? 'critic_scores'
-          AND {cs} IS NOT NULL
-          AND jsonb_typeof({cs}) = 'object'
-          AND NOT {approved_expr}
-        ORDER BY timestamp DESC
-        LIMIT 20
-    """)
-    rows_rej = (await session.execute(q_rejections, {"cutoff": cutoff})).all()
-
+    rows_rej = (await session.execute(_Q_REJECTIONS, params)).all()
     rejection_reasons = []
     for r in rows_rej:
         if r.failure_modes is None:

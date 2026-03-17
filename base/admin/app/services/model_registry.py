@@ -9,7 +9,6 @@ from typing import Any
 
 import yaml
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.engine import async_session
 from ..db.models import ModelCost as ModelCostRow
@@ -230,8 +229,6 @@ async def get_cost_by_model() -> list[dict]:
 
     async with async_session() as session:
         try:
-            from sqlalchemy import func
-
             cutoff_7d = __import__("time").time() - 7 * 86400
 
             q = select(Trace).where(Trace.timestamp >= cutoff_7d)
@@ -278,8 +275,7 @@ async def get_cost_by_model() -> list[dict]:
                             rates = pricing[key]
                             break
                 agg["cost_usd"] = round(
-                    (agg["prompt_tokens"] / 1_000_000) * rates[0]
-                    + (agg["completion_tokens"] / 1_000_000) * rates[1],
+                    (agg["prompt_tokens"] / 1_000_000) * rates[0] + (agg["completion_tokens"] / 1_000_000) * rates[1],
                     6,
                 )
 

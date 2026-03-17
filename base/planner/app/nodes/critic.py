@@ -826,9 +826,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
             intent_critic_block = get_intent_critic_block(state.get("intent_class", ""))
             if intent_critic_block:
-                controls_block += (
-                    f"\nIntent-specific checks (apply when relevant):\n{intent_critic_block}\n"
-                )
+                controls_block += f"\nIntent-specific checks (apply when relevant):\n{intent_critic_block}\n"
 
             # Architecture/design rubric: when the answer describes routing or control logic
             deliverables = user_task_data.get("deliverables") or []
@@ -1009,11 +1007,7 @@ Reply with JSON:
                 # Trust the LLM critic over rigid keyword matching when LLM
                 # scores are high — the LLM understands semantic equivalence
                 # (e.g. "risk" ≈ "failure mode") that keyword matching misses.
-                _llm_coverage_high = (
-                    scores
-                    and scores.coverage >= 8.0
-                    and scores.weighted_overall >= 8.0
-                )
+                _llm_coverage_high = scores and scores.coverage >= 8.0 and scores.weighted_overall >= 8.0
                 if difficulty >= 0.6 and generated_code and user_task_data:
                     _req_failures = _deterministic_requirement_coverage(
                         generated_code,
@@ -1038,9 +1032,7 @@ Reply with JSON:
                 # Deterministic anchor compliance: scan draft for excluded terms
                 _anchor_exclude = user_task_data.get("anchor_exclude_signals") or []
                 if _anchor_exclude and generated_code:
-                    _anchor_failures = _deterministic_anchor_compliance(
-                        generated_code, _anchor_exclude
-                    )
+                    _anchor_failures = _deterministic_anchor_compliance(generated_code, _anchor_exclude)
                     for af in _anchor_failures:
                         if af not in failure_modes:
                             failure_modes.append(af)

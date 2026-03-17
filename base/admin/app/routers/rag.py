@@ -104,16 +104,28 @@ async def benchmarks(_user: UserInfo = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 _REVIEW_FIELDS = [
-    "chunk_id", "doc_id", "text", "document_name", "source_url",
-    "authority", "origin_type", "domain", "scan_status", "heading_path",
+    "chunk_id",
+    "doc_id",
+    "text",
+    "document_name",
+    "source_url",
+    "authority",
+    "origin_type",
+    "domain",
+    "scan_status",
+    "heading_path",
 ]
 
 
 @router.get("/review/stats")
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
     """Counts by scan_status for the review queue badge."""
-    flagged = safe_query(CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000)
-    unscanned = safe_query(CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000)
+    flagged = safe_query(
+        CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000
+    )
+    unscanned = safe_query(
+        CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000
+    )
     return {"flagged": len(flagged), "unscanned": len(unscanned)}
 
 
@@ -166,6 +178,7 @@ async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user
 def _get_milvus():
     """Shortcut for direct client access."""
     from ..deps import get_milvus as _gm
+
     return _gm()
 
 
