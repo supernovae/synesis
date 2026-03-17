@@ -7,6 +7,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.retrieval_cache import HybridRetrievalCache
 from app.semantic_index import NumpySemanticIndex
 from app.state import EvidencePacket, EvidenceSnippet, EvidenceSource

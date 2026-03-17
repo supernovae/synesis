@@ -13,6 +13,10 @@ from __future__ import annotations
 from typing import ClassVar
 from urllib.parse import urlparse
 
+import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.web_search import SearchResult, classify_results_by_trust
 
 from .fixtures.sample_rag_chunks import (

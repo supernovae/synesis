@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 # Minimal valid env vars so Settings() never blows up during import.
 # Tests that need specific values should monkeypatch or set env themselves.
 _TEST_ENV = {
@@ -29,3 +31,30 @@ _TEST_ENV = {
 
 for k, v in _TEST_ENV.items():
     os.environ.setdefault(k, v)
+
+
+# ---------------------------------------------------------------------------
+# Shared skip helpers — importable by any test module
+# ---------------------------------------------------------------------------
+
+
+def _can_import(module: str) -> bool:
+    """Return True if *module* is importable without side effects."""
+    try:
+        __import__(module)
+        return True
+    except Exception:
+        return False
+
+
+HAS_LANGGRAPH = _can_import("langgraph")
+HAS_FASTAPI = _can_import("fastapi")
+
+skip_no_langgraph = pytest.mark.skipif(
+    not HAS_LANGGRAPH,
+    reason="langgraph not installed (container-only dependency)",
+)
+skip_no_fastapi = pytest.mark.skipif(
+    not HAS_FASTAPI,
+    reason="fastapi not installed (container-only dependency)",
+)

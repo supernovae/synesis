@@ -8,6 +8,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.graph import (
     respond_node,
     route_after_critic,

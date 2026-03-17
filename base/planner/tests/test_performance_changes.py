@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from app.llm_telemetry import get_llm_http_client
 
+from .conftest import skip_no_langgraph
+
 
 class TestLLMHttpClient:
     """Persistent HTTP client — always returns shared instance to reduce connection churn."""
@@ -28,6 +30,7 @@ class TestLLMHttpClient:
             assert len(client.event_hooks["response"]) >= 1
 
 
+@skip_no_langgraph
 class TestTelemetryNodeWrapper:
     """with_telemetry_node emits structured node_complete events."""
 
@@ -117,6 +120,7 @@ class TestContextRefsResolver:
         assert result == ["", "ok"]
 
 
+@skip_no_langgraph
 class TestFreeGenerationParsing:
     """Router and critic use free generation + parse_and_validate (no guided decoding)."""
 

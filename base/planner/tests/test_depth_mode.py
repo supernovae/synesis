@@ -8,6 +8,10 @@ Validates:
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.context_formatter import format_context_block
 from app.nodes.planner_node import _should_activate_depth_mode
 from app.query_distiller import distill_from_frame, distill_query, distill_web_from_frame

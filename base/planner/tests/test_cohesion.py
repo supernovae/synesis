@@ -11,10 +11,11 @@ Validates:
 
 from __future__ import annotations
 
-import importlib
 from dataclasses import dataclass
 
 import pytest
+
+from .conftest import HAS_LANGGRAPH, skip_no_langgraph
 
 # ---------------------------------------------------------------------------
 # Fixtures: minimal mock for UnifiedResult-like objects
@@ -38,6 +39,7 @@ class FakeResult:
 # ---------------------------------------------------------------------------
 
 
+@skip_no_langgraph
 class TestCohesionLockDetection:
     """Test deterministic metadata-based lock detection."""
 
@@ -100,6 +102,7 @@ class TestCohesionLockDetection:
         assert "chevy" in lock.exclude_signals
 
 
+@skip_no_langgraph
 class TestExclusionSignals:
     """Test exclusion signal generation for known entity pairs."""
 
@@ -131,6 +134,7 @@ class TestExclusionSignals:
         assert "gcp" in signals
 
 
+@skip_no_langgraph
 class TestCohesionLockDataclass:
     """Test CohesionLock serialization."""
 
@@ -170,7 +174,7 @@ class TestCohesionLockDataclass:
 # LongContextReorder (standalone function, no heavy deps)
 # ---------------------------------------------------------------------------
 
-_has_langgraph = importlib.util.find_spec("langgraph") is not None
+_has_langgraph = HAS_LANGGRAPH
 
 
 @pytest.mark.skipif(not _has_langgraph, reason="langgraph not installed (container-only dep)")

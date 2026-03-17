@@ -13,6 +13,9 @@ import ast
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.state import EvidencePacket, EvidenceSnippet, EvidenceSource
 from pydantic import ValidationError
 

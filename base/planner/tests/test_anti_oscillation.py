@@ -10,6 +10,8 @@ Validates:
 
 from __future__ import annotations
 
+from .conftest import skip_no_langgraph
+
 # ---------------------------------------------------------------------------
 # 1. Writer style drift → validate_style_compliance catches it
 # ---------------------------------------------------------------------------
@@ -324,6 +326,7 @@ class TestOscillationDetectorDecisionFlip:
 # ---------------------------------------------------------------------------
 
 
+@skip_no_langgraph
 class TestOverrideFlow:
     def test_narrow_scope_with_reason_auto_approves(self):
         from app.schemas import OverrideRequest

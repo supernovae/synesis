@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.state import (
     Confidence,
     NodeOutcome,

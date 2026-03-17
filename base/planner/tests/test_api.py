@@ -10,6 +10,10 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+pytest.importorskip("fastapi", reason="fastapi not installed (container-only)")
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.main import app
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage

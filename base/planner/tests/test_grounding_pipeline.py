@@ -103,4 +103,4 @@ class TestSchemaVersion:
         assert "intended_roles" not in entity
 
     def test_schema_version_is_current(self):
-        assert self.schema_mod.SCHEMA_VERSION == 5
+        assert self.schema_mod.SCHEMA_VERSION == 6

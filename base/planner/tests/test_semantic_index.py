@@ -5,6 +5,10 @@ from __future__ import annotations
 import time
 
 import numpy as np
+import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.semantic_index import IndexEntry, NumpySemanticIndex
 from app.state import EvidencePacket
 

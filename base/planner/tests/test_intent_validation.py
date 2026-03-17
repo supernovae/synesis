@@ -20,6 +20,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 from app.nodes.entry_classifier import entry_classifier_node
 
 TRIVIAL_CEILING = 0.15

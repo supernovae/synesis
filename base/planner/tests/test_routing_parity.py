@@ -10,6 +10,8 @@ import inspect
 
 import pytest
 
+pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
+
 NEXT_NODE_PRODUCERS_AND_ROUTERS = [
     ("planner_node", "planner_node", "route_after_planner"),
     ("patch_integrity_gate", "patch_integrity_gate_node", "route_after_patch_integrity_gate"),

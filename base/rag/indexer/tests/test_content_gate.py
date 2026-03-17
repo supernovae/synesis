@@ -3,7 +3,12 @@ doc-type classification, and child-follow decisions."""
 
 from __future__ import annotations
 
+import importlib
+
 import pytest
+
+_has_bs4 = importlib.util.find_spec("bs4") is not None
+
 from app.content_gate import (
     GatePolicy,
     PageFeatures,
@@ -333,6 +338,7 @@ class TestDocTypeClassification:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+@pytest.mark.skipif(not _has_bs4, reason="beautifulsoup4 not installed")
 class TestPageEvaluation:
     def test_marketing_page_rejected(self):
         html = """<html><head><title>Pricing Plans</title></head><body>
