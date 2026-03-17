@@ -42,12 +42,16 @@ spec:
             resources:
               requests:
                 storage: 32Gi
+      # Request enough CPU for concurrent fan-out: planner runs N evidence
+      # requests in parallel (pool of 4 clients per planner pod). Multiple
+      # users = multiple planner pods × pool size. 2 request avoids
+      # throttling under load; 4–6 limit allows bursts.
       resources:
         requests:
-          cpu: "1"
+          cpu: "2"
           memory: 4Gi
         limits:
-          cpu: "4"
+          cpu: "6"
           memory: 8Gi
   dependencies:
     etcd:

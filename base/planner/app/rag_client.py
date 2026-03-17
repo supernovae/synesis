@@ -119,11 +119,19 @@ _MILVUS_TIMEOUT = 10
 # Milvus client pool — enables truly parallel hybrid_search via asyncio.to_thread
 # ---------------------------------------------------------------------------
 
-_MILVUS_POOL_SIZE = 4
 _milvus_pool: asyncio.Queue | None = None
 _milvus_pool_init_lock = threading.Lock()
 
-_CONNECTION_DEAD_MARKERS = ("closed channel", "Cannot invoke RPC", "connection reset", "Connection refused")
+_CONNECTION_DEAD_MARKERS = (
+    "closed channel",
+    "Cannot invoke RPC",
+    "connection reset",
+    "Connection refused",
+    "rpc error",
+    "unavailable",
+    "connection reset by peer",
+    "failed to connect to all addresses",
+)
 
 
 def _is_connection_dead_error(exc: BaseException) -> bool:
@@ -142,17 +150,18 @@ def _create_milvus_client():
 
 
 def _get_milvus_pool() -> asyncio.Queue:
-    """Return the shared pool, lazily creating it with _MILVUS_POOL_SIZE clients."""
+    """Return the shared pool, lazily creating it with settings.milvus_pool_size clients."""
     global _milvus_pool
     if _milvus_pool is not None:
         return _milvus_pool
     with _milvus_pool_init_lock:
         if _milvus_pool is None:
-            pool = asyncio.Queue(maxsize=_MILVUS_POOL_SIZE)
-            for _ in range(_MILVUS_POOL_SIZE):
+            size = getattr(settings, "milvus_pool_size", 4)
+            pool = asyncio.Queue(maxsize=size)
+            for _ in range(size):
                 pool.put_nowait(_create_milvus_client())
             _milvus_pool = pool
-            logger.info("milvus_pool_created", extra={"size": _MILVUS_POOL_SIZE})
+            logger.info("milvus_pool_created", extra={"size": size})
     return _milvus_pool
 
 
@@ -166,7 +175,14 @@ async def _acquire_milvus_client():
     except Exception as e:
         if _is_connection_dead_error(e):
             logger.info("milvus_pool_replace_dead", extra={"error": str(e)[:120]})
-            return _create_milvus_client()
+            try:
+                return _create_milvus_client()
+            except Exception as create_e:
+                logger.warning(
+                    "milvus_pool_recreate_failed",
+                    extra={"error": str(create_e)[:120]},
+                )
+                raise
         return client
 
 
@@ -495,7 +511,15 @@ async def _hybrid_search(
         expr=filter_expr or None,
     )
 
-    client = await _acquire_milvus_client()
+    try:
+        client = await _acquire_milvus_client()
+    except Exception as e:
+        logger.warning(
+            "milvus_acquire_failed",
+            extra={"collection": collection, "error": str(e)[:200]},
+        )
+        return []
+
     last_err: BaseException | None = None
     try:
         for attempt in range(2):
@@ -512,12 +536,27 @@ async def _hybrid_search(
             except Exception as e:
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
-                    client = _create_milvus_client()
+                    try:
+                        client = _create_milvus_client()
+                    except Exception:
+                        pass
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
                     continue
-                raise
+                logger.warning(
+                    "milvus_hybrid_search_failed",
+                    extra={"collection": collection, "error": str(e)[:200]},
+                )
+                return []
+        else:
+            if last_err is not None:
+                logger.warning(
+                    "milvus_hybrid_search_failed_after_retry",
+                    extra={"collection": collection, "error": str(last_err)[:200]},
+                )
+            return []
     finally:
         await _release_milvus_client(client)
+
     formatted: list[dict[str, Any]] = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
@@ -570,8 +609,17 @@ async def _sparse_search(
     if filter_expr:
         search_kwargs["filter"] = filter_expr
 
-    client = await _acquire_milvus_client()
+    try:
+        client = await _acquire_milvus_client()
+    except Exception as e:
+        logger.warning(
+            "milvus_acquire_failed",
+            extra={"collection": collection, "error": str(e)[:200]},
+        )
+        return []
+
     last_err: BaseException | None = None
+    results = None
     try:
         for attempt in range(2):
             try:
@@ -580,15 +628,28 @@ async def _sparse_search(
             except Exception as e:
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
-                    client = _create_milvus_client()
+                    try:
+                        client = _create_milvus_client()
+                    except Exception:
+                        pass
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
                     continue
-            raise
+                logger.warning(
+                    "milvus_sparse_search_failed",
+                    extra={"collection": collection, "error": str(e)[:200]},
+                )
+                return []
+        if results is None and last_err is not None:
+            logger.warning(
+                "milvus_sparse_search_failed_after_retry",
+                extra={"collection": collection, "error": str(last_err)[:200]},
+            )
+            return []
     finally:
         await _release_milvus_client(client)
 
     formatted: list[dict[str, Any]] = []
-    for hits in results:
+    for hits in (results or []):
         for hit in hits:
             entity = hit.get("entity", {})
             formatted.append(

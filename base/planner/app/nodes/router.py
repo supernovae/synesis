@@ -583,11 +583,35 @@ class RouterNode:
                 ), None
 
         tasks = [_run_request(req, q) for req, q in zip(requests, queries)]
+        n_tasks = len(tasks)
+
+        async def _run_with_progress(idx: int, coro) -> tuple[int, Any]:
+            result = await coro
+            emit_sub_phase(f"Evidence request {idx + 1}/{n_tasks} done")
+            logger.info(
+                "router_evidence_request_done",
+                extra={"index": idx + 1, "total": n_tasks},
+            )
+            return (idx, result)
+
         t_fanout = time.monotonic()
-        emit_sub_phase(f"Retrieving & summarizing {len(tasks)} evidence request(s)\u2026")
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        emit_sub_phase(f"Retrieving & summarizing {n_tasks} evidence request(s)\u2026")
+        logger.info("router_phase_fanout_start", extra={"tasks": n_tasks})
+        gathered = await asyncio.gather(
+            *[_run_with_progress(i, t) for i, t in enumerate(tasks)],
+            return_exceptions=True,
+        )
+        # Preserve order: gathered[i] is (idx, result) or Exception
+        results = []
+        for i in range(n_tasks):
+            g = gathered[i]
+            if isinstance(g, Exception):
+                results.append(g)
+            else:
+                _, r = g
+                results.append(r)
         fanout_ms = (time.monotonic() - t_fanout) * 1000
-        logger.info("router_phase_fanout", extra={"tasks": len(tasks), "latency_ms": round(fanout_ms, 1)})
+        logger.info("router_phase_fanout", extra={"tasks": n_tasks, "latency_ms": round(fanout_ms, 1)})
         if _tracer:
             _tracer.record_phase_timing("router.fanout_ms", fanout_ms)
         packets: list[EvidencePacket] = []
@@ -758,9 +782,9 @@ class RouterNode:
         # Fast-path: skip LLM summarization when we have enough high-scoring results.
         # Scores at this point are RRF-merged (rrf_position * 0.7 + rerank * 0.3),
         # so a FlashRank 0.36 at rank 1 yields ~0.12. Threshold must reflect this.
-        _fast_threshold = 0.08
+        _fast_threshold = 0.06
         high_scoring = [r for r in bundle.results[:8] if r.score >= _fast_threshold]
-        use_fast_path = len(high_scoring) >= 2
+        use_fast_path = len(high_scoring) >= 1 and len(bundle.results) >= 2
 
         t_summarize = time.monotonic()
         if use_fast_path:

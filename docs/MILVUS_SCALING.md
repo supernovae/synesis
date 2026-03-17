@@ -7,10 +7,34 @@ Synesis uses the **Milvus Operator** (Helm-installed) to manage Milvus as a `kin
 ```
 base/rag/milvus-operator.yaml  →  Milvus CR (spec.mode: standalone)
                                     ├── etcd (PVC on efs-sc, 2Gi)
-                                    ├── Milvus standalone pod (4 CPU / 8Gi)
+                                    ├── Milvus standalone pod (2 req / 6 limit CPU, 8Gi)
                                     ├── S3: byron-ai-d8a35264-rhoai-data/milvus/
                                     └── Service: synesis-milvus:19530
 ```
+
+## Concurrency and Fan-Out (Planner → Milvus)
+
+The planner **fans out** evidence retrieval: for each turn it may run **N evidence requests in parallel** (e.g. 2–10), each doing a Milvus hybrid search. Each planner pod has a **client pool** of size `SYNESIS_MILVUS_POOL_SIZE` (default 4), so at most that many concurrent gRPC requests to Milvus per pod.
+
+| Scenario | Planner pods | Pool size | Max concurrent Milvus requests |
+|----------|--------------|-----------|-------------------------------|
+| 1 user   | 1            | 4         | 4                             |
+| 2 users  | 2            | 4         | 8                             |
+| N users  | N            | 4         | 4N                            |
+
+**Sizing for standalone:**
+
+- **CPU**: Request ≥ 2, limit 4–6 so the single Milvus process isn’t throttled when 4–8 concurrent searches hit. If you increase pool size or planner replicas, consider raising the limit (or moving to cluster mode).
+- **Memory**: 4Gi request / 8Gi limit is enough for HNSW + BM25 and typical corpus size.
+- **Pool size**: Default 4 is a good balance. Increase (e.g. 6–8) only if Milvus has spare CPU and you want lower queueing; don’t exceed what Milvus can handle without RPC errors (see below).
+
+**If you see RPC/connection errors under load:** Standalone has one query node; it can be overwhelmed by too many concurrent gRPC requests. Options:
+
+1. **Keep pool size at 4** and give Milvus more CPU (already 2 req / 6 limit) so each request finishes faster.
+2. **Avoid raising pool size** until Milvus is clearly underutilized (monitor CPU and `MilvusHighQueryLatency`).
+3. **Scale out**: Move to **cluster mode** and scale `queryNode` replicas so multiple nodes serve searches in parallel (see “Upgrade Path: Distributed Mode” below).
+
+**Tuning from the planner:** Set `SYNESIS_MILVUS_POOL_SIZE` (default 4) in the planner deployment to control how many concurrent Milvus clients each planner pod uses. Only increase if Milvus has headroom (check CPU and query latency).
 
 The operator handles:
 - etcd provisioning and lifecycle
@@ -219,4 +243,4 @@ For production deployments requiring high availability:
 - Standalone on spot instances with EFS etcd is the most cost-effective option
 - Distributed mode adds 5-8 pods minimum (proxy, queryNode, dataNode, indexNode, mixCoord, etcd x3, message queue)
 - S3 storage cost is negligible for vector data (<$1/month for typical RAG corpora)
-- Consider distributed mode when: query latency SLOs require it, data volume exceeds single-node memory, or write throughput from concurrent indexers causes contention
+- Consider distributed mode when: query latency SLOs require it, data volume exceeds single-node memory, write throughput from concurrent indexers causes contention, or **multiple users cause RPC/connection errors** because standalone’s single query node can’t keep up (scale `queryNode` replicas for read throughput).

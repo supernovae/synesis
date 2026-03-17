@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     # RAG / Milvus (operator-managed, service: synesis-milvus)
     milvus_host: str = "synesis-milvus.synesis-rag.svc.cluster.local"
     milvus_port: int = 19530
+    milvus_pool_size: int = 4  # concurrent Milvus clients per planner pod; scale with Milvus CPU
     embedder_url: str = "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
     keyword_service_url: str = "http://keyword-service.synesis-rag.svc.cluster.local:8080/v1"
     gliner_service_url: str = "http://gliner-service.synesis-rag.svc.cluster.local:8080/v1"

@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -551,7 +552,10 @@ async def retrieve_unified(
     overfetch_max = getattr(settings, "rag_overfetch_max", 50)
     overfetch = int(overfetch_min + difficulty * (overfetch_max - overfetch_min))
 
+    t_total = time.monotonic()
+
     # Phase 1: parallel retrieval (RAG + multi-source web fan-out)
+    t_phase1 = time.monotonic()
     rag_coro = retrieve_context(query=query, collections=collections, top_k=overfetch, domain_filter=domain_filter)
 
     if web_enabled:
@@ -565,6 +569,7 @@ async def retrieve_unified(
     else:
         rag_raw = await rag_coro
         web_multi_raw: dict[str, list[SearchResult]] = {}
+    phase1_ms = (time.monotonic() - t_phase1) * 1000
 
     _rag_degraded = False
     _web_degraded = False
@@ -697,7 +702,9 @@ async def retrieve_unified(
     # When a preseeded_lock is provided (from intent anchors), skip Phase 5b
     # detection and go straight to filtering/compression.
     cohesion_lock_dict: dict[str, Any] | None = None
+    phase5b_ms = 0.0
     if settings.cohesion_lock_enabled and len(final) >= settings.cohesion_lock_min_results:
+        _t_phase5b = time.monotonic()
         from .cohesion import cohesion_filter, compress_to_cohesion, detect_cohesion_lock
 
         if preseeded_lock is not None:
@@ -746,8 +753,10 @@ async def retrieve_unified(
                     "survival_rate": round(survival_rate, 2),
                 },
             )
+        phase5b_ms = (time.monotonic() - _t_phase5b) * 1000
 
     # Phase 6: coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern).
+    t_phase6 = time.monotonic()
     base_thresh = getattr(settings, "coherence_gate_threshold", 0.25)
     if difficulty >= 0.7:
         coherence_thresh = max(base_thresh - 0.05, 0.15)
@@ -756,7 +765,9 @@ async def retrieve_unified(
     else:
         coherence_thresh = base_thresh
     final = await _coherence_gate(query, final, coherence_thresh)
+    phase6_ms = (time.monotonic() - t_phase6) * 1000
 
+    total_retrieval_ms = (time.monotonic() - t_total) * 1000
     urls_in_final = sum(1 for r in final if r.source_url)
     logger.info(
         "unified_retrieval",
@@ -773,6 +784,16 @@ async def retrieve_unified(
             "coherence_threshold": round(coherence_thresh, 3),
             "domain_filter": domain_filter or "(none)",
             "cohesion_lock": (cohesion_lock_dict or {}).get("entity", "(none)"),
+        },
+    )
+    logger.info(
+        "unified_retrieval_phase_timing",
+        extra={
+            "query": query[:80],
+            "phase1_rag_web_ms": round(phase1_ms, 1),
+            "phase5b_cohesion_ms": round(phase5b_ms, 1),
+            "phase6_coherence_ms": round(phase6_ms, 1),
+            "total_ms": round(total_retrieval_ms, 1),
         },
     )
     if urls_in_final == 0 and len(final) > 0:

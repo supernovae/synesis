@@ -74,6 +74,8 @@ spec:
               value: "synesis-milvus.synesis-rag.svc.cluster.local"
             - name: SYNESIS_MILVUS_PORT
               value: "19530"
+            - name: SYNESIS_MILVUS_POOL_SIZE
+              value: "4"
             - name: SYNESIS_EMBEDDER_URL
               value: "http://embedder.synesis-rag.svc.cluster.local:8080/v1"
             - name: SYNESIS_KEYWORD_SERVICE_URL
