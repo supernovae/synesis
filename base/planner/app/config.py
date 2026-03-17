@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     rag_overfetch_max: int = 50  # candidates at difficulty=1
     # CAR-style similarity-gap cliff detection (arXiv:2511.14769)
     rag_adaptive_gap_multiplier: float = 1.5  # gap > mean_gap * this triggers cliff cutoff
-    rag_score_threshold: float = 0.55
+    rag_score_threshold: float = 0.25
 
     # Post-retrieval coherence gate (CRAG/Self-RAG pattern, arXiv 2401.15884 / 2310.11511).
     # Drops chunks whose cosine similarity to the query embedding falls below
@@ -290,7 +290,7 @@ class Settings(BaseSettings):
     retrieval_cache_max_entries: int = 512
     retrieval_cache_similarity_threshold: float = 0.85
     retrieval_cache_tool_similarity_threshold: float = 0.95  # stricter threshold for pre-retrieval cache check
-    retrieval_cache_confidence_threshold: float = 0.6
+    retrieval_cache_confidence_threshold: float = 0.15
     retrieval_cache_backend: str = "numpy"  # "numpy" | "redis" (shared, for horizontal scaling)
     retrieval_cache_warm_on_startup: bool = (
         False  # disabled by default; heavy startup cost (8 router pipelines × workers)

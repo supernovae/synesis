@@ -41,7 +41,7 @@ logger = logging.getLogger("synesis.router")
 _MAX_DOCS_BASE = 5
 _MAX_DOCS_HARD = 8
 MAX_SNIPPETS_PER_PACKET = 20
-MAX_REFINEMENT_ROUNDS = 2
+MAX_REFINEMENT_ROUNDS = 1
 LOW_CONFIDENCE_THRESHOLD = 0.4
 
 
@@ -733,25 +733,42 @@ class RouterNode:
         retrieve_ms = (time.monotonic() - t_retrieve) * 1000
         cohesion_lock = bundle.cohesion_lock
 
+        # Fast-path: skip LLM summarization when we have enough high-scoring results.
+        # The reranker already scored relevance; assembling snippets directly saves
+        # 15-30s of LLM latency per evidence request.
+        _fast_threshold = 0.5
+        high_scoring = [r for r in bundle.results[:8] if r.score >= _fast_threshold]
+        use_fast_path = len(high_scoring) >= 3
+
         t_summarize = time.monotonic()
-        try:
-            packet = await asyncio.wait_for(
-                self.summarize(
-                    query,
-                    bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
-                    cohesion_lock=cohesion_lock,
-                ),
-                timeout=self.summarize_timeout_seconds,
-            )
-        except TimeoutError:
-            logger.warning(
-                "router_summarize_timeout",
-                extra={"query": query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
-            )
+        if use_fast_path:
             packet = _fallback_packet(query, bundle.results)
-            existing_notes = packet.retrieval_notes or ""
-            sep = "; " if existing_notes else ""
-            packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"})
+            packet = packet.model_copy(update={
+                "retrieval_notes": f"Fast-path: {len(high_scoring)} results above {_fast_threshold} — skipped LLM summarization.",
+            })
+            logger.info(
+                "router_fast_path_summary",
+                extra={"query": query[:80], "high_scoring": len(high_scoring), "threshold": _fast_threshold},
+            )
+        else:
+            try:
+                packet = await asyncio.wait_for(
+                    self.summarize(
+                        query,
+                        bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
+                        cohesion_lock=cohesion_lock,
+                    ),
+                    timeout=self.summarize_timeout_seconds,
+                )
+            except TimeoutError:
+                logger.warning(
+                    "router_summarize_timeout",
+                    extra={"query": query[:80], "timeout_seconds": round(self.summarize_timeout_seconds, 1)},
+                )
+                packet = _fallback_packet(query, bundle.results)
+                existing_notes = packet.retrieval_notes or ""
+                sep = "; " if existing_notes else ""
+                packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"})
         summarize_ms = (time.monotonic() - t_summarize) * 1000
         logger.info(
             "router_single_request_timing",
@@ -771,8 +788,8 @@ class RouterNode:
             update_fields["retrieval_notes"] = f"{existing_notes}{sep}{bundle.degradation_notes}"
         packet = packet.model_copy(update=update_fields)
 
-        # Skip refinement rounds for light mode
-        max_refine = 0 if light_mode else MAX_REFINEMENT_ROUNDS
+        # Skip refinement for light mode or very hard tasks (corpus gaps, not query quality)
+        max_refine = 0 if (light_mode or difficulty >= 0.8) else MAX_REFINEMENT_ROUNDS
         rounds = 0
         while packet.confidence < LOW_CONFIDENCE_THRESHOLD and rounds < max_refine:
             try:
@@ -1151,17 +1168,19 @@ class RouterNode:
             requests.append({**base, "description": scoped_q})
 
         deliverables = user_task.get("deliverables") or []
+        # Per-deliverable requests use single-query retrieval (no HyDE / expansion).
+        # Multi-query is reserved for the main question where breadth matters most.
         if len(deliverables) > 10:
             for batch_idx in range(0, len(deliverables), 3):
                 batch = deliverables[batch_idx : batch_idx + 3]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
                 scoped = self._scope_query_with_anchors(combined, anchor_terms)
-                requests.append({**base, "section_id": batch_idx, "description": scoped})
+                requests.append({**base, "section_id": batch_idx, "description": scoped, "_light_mode": True})
         else:
             for i, d in enumerate(deliverables):
                 desc = d if isinstance(d, str) else str(d)
                 scoped = self._scope_query_with_anchors(desc, anchor_terms)
-                requests.append({**base, "section_id": i, "description": scoped})
+                requests.append({**base, "section_id": i, "description": scoped, "_light_mode": True})
 
         if anchor_terms:
             logger.info(

@@ -507,8 +507,9 @@ async def retrieve_unified(
       web_query: Separate concise web search query. If empty, falls back
                  to query[:120].  Frame-driven callers should always provide
                  a dedicated web_query for search-engine-friendly results.
-      domain_hints: Taxonomy domain tags from frame extraction. When present,
-                    narrows Milvus vector search to matching domains.
+      domain_hints: Taxonomy domain tags from frame extraction. Used as a
+                    post-retrieval score boost (Phase 4b), NOT as a Milvus
+                    filter.  The user's query drives retrieval breadth.
       skip_web: When True (e.g. needs_web=false in frame), web search is
                 disabled regardless of other settings.
       search_source_ids: Explicit list of search source IDs to query. When
@@ -537,11 +538,11 @@ async def retrieve_unified(
     if collections is None:
         collections = ["synesis_catalog"]
 
-    # Build Milvus domain filter only from canonical catalog domain IDs (lowercase, alphanumeric + underscore).
-    # Dropping unknown/free-text tags prevents "domain in [\"some free text\"]" from matching nothing.
-    refs = _normalize_domain_hints_for_filter(domain_hints)
-    quoted = ",".join(f'"{r}"' for r in refs)
-    domain_filter = f"domain in [{quoted}]" if refs else ""
+    # Taxonomy domain hints are used ONLY as a post-retrieval boost (Phase 4b),
+    # never as a Milvus WHERE-clause filter.  The user's query drives retrieval;
+    # taxonomy lifts domain-matching results higher in the ranking but never
+    # hides cross-domain content that the reranker/coherence gate would keep.
+    domain_filter = ""
 
     web_budget = settings.scaled_web_budget(difficulty)
     web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web) and not skip_web

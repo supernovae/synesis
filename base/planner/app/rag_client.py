@@ -738,6 +738,16 @@ async def retrieve_context(
 
     _ensure_metrics()
 
+    # Proactive connection validation: a lightweight list_collections() call
+    # detects stale gRPC channels before we hit the heavier hybrid_search.
+    try:
+        client = _get_milvus_client()
+        await asyncio.to_thread(client.list_collections)
+    except Exception as e:
+        if _is_connection_dead_error(e):
+            _reset_milvus_client()
+            logger.info("milvus_warmup_reconnect", extra={"error": str(e)[:120]})
+
     all_merged: list[dict[str, Any]] = []
     fallback_to_bm25 = False
 
