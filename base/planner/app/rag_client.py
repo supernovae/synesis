@@ -116,13 +116,13 @@ async def _embed_text(text: str) -> list[float]:
 _MILVUS_TIMEOUT = 10
 
 # ---------------------------------------------------------------------------
-# Shared Milvus client (singleton, thread-safe) with reconnect on closed channel
+# Milvus client pool — enables truly parallel hybrid_search via asyncio.to_thread
 # ---------------------------------------------------------------------------
 
-_milvus_client = None
-_milvus_client_lock = threading.Lock()
+_MILVUS_POOL_SIZE = 4
+_milvus_pool: asyncio.Queue | None = None
+_milvus_pool_init_lock = threading.Lock()
 
-# Substrings that indicate the gRPC channel is dead; we should reconnect.
 _CONNECTION_DEAD_MARKERS = ("closed channel", "Cannot invoke RPC", "connection reset", "Connection refused")
 
 
@@ -132,28 +132,60 @@ def _is_connection_dead_error(exc: BaseException) -> bool:
     return any(marker.lower() in msg for marker in _CONNECTION_DEAD_MARKERS)
 
 
-def _reset_milvus_client() -> None:
-    """Clear the shared Milvus client so the next call creates a fresh connection."""
-    global _milvus_client
-    with _milvus_client_lock:
-        _milvus_client = None
-    logger.debug("milvus_client_reset", extra={"reason": "connection_dead"})
+def _create_milvus_client():
+    from pymilvus import MilvusClient
+
+    return MilvusClient(
+        uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
+        timeout=_MILVUS_TIMEOUT,
+    )
+
+
+def _get_milvus_pool() -> asyncio.Queue:
+    """Return the shared pool, lazily creating it with _MILVUS_POOL_SIZE clients."""
+    global _milvus_pool
+    if _milvus_pool is not None:
+        return _milvus_pool
+    with _milvus_pool_init_lock:
+        if _milvus_pool is None:
+            pool = asyncio.Queue(maxsize=_MILVUS_POOL_SIZE)
+            for _ in range(_MILVUS_POOL_SIZE):
+                pool.put_nowait(_create_milvus_client())
+            _milvus_pool = pool
+            logger.info("milvus_pool_created", extra={"size": _MILVUS_POOL_SIZE})
+    return _milvus_pool
+
+
+async def _acquire_milvus_client():
+    """Acquire a client from the pool, validating the connection."""
+    pool = _get_milvus_pool()
+    client = await pool.get()
+    try:
+        await asyncio.to_thread(client.list_collections)
+        return client
+    except Exception as e:
+        if _is_connection_dead_error(e):
+            logger.info("milvus_pool_replace_dead", extra={"error": str(e)[:120]})
+            return _create_milvus_client()
+        return client
+
+
+async def _release_milvus_client(client) -> None:
+    """Return a client to the pool. If pool is full, discard it."""
+    pool = _get_milvus_pool()
+    try:
+        pool.put_nowait(client)
+    except asyncio.QueueFull:
+        pass
 
 
 def _get_milvus_client():
-    """Return a shared MilvusClient singleton for hybrid/sparse search."""
-    global _milvus_client
-    if _milvus_client is not None:
-        return _milvus_client
-    with _milvus_client_lock:
-        if _milvus_client is None:
-            from pymilvus import MilvusClient
+    """Synchronous accessor for non-hot-path callers (e.g. submit_user_knowledge).
 
-            _milvus_client = MilvusClient(
-                uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
-                timeout=_MILVUS_TIMEOUT,
-            )
-    return _milvus_client
+    Creates a one-off client; callers that need pool parallelism should use
+    _acquire/_release instead.
+    """
+    return _create_milvus_client()
 
 
 # ---------------------------------------------------------------------------
@@ -463,26 +495,29 @@ async def _hybrid_search(
         expr=filter_expr or None,
     )
 
+    client = await _acquire_milvus_client()
     last_err: BaseException | None = None
-    for attempt in range(2):
-        try:
-            client = _get_milvus_client()
-            results = await asyncio.to_thread(
-                client.hybrid_search,
-                collection_name=collection,
-                reqs=[dense_req, sparse_req],
-                ranker=RRFRanker(k=settings.rag_rrf_k),
-                limit=top_k,
-                output_fields=_OUTPUT_FIELDS,
-            )
-            break
-        except Exception as e:
-            last_err = e
-            if _is_connection_dead_error(e) and attempt == 0:
-                _reset_milvus_client()
-                logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
-                continue
-            raise
+    try:
+        for attempt in range(2):
+            try:
+                results = await asyncio.to_thread(
+                    client.hybrid_search,
+                    collection_name=collection,
+                    reqs=[dense_req, sparse_req],
+                    ranker=RRFRanker(k=settings.rag_rrf_k),
+                    limit=top_k,
+                    output_fields=_OUTPUT_FIELDS,
+                )
+                break
+            except Exception as e:
+                last_err = e
+                if _is_connection_dead_error(e) and attempt == 0:
+                    client = _create_milvus_client()
+                    logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
+                    continue
+                raise
+    finally:
+        await _release_milvus_client(client)
     formatted: list[dict[str, Any]] = []
     for hit in results[0] if results else []:
         entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
@@ -535,19 +570,22 @@ async def _sparse_search(
     if filter_expr:
         search_kwargs["filter"] = filter_expr
 
+    client = await _acquire_milvus_client()
     last_err: BaseException | None = None
-    for attempt in range(2):
-        try:
-            client = _get_milvus_client()
-            results = await asyncio.to_thread(client.search, **search_kwargs)
-            break
-        except Exception as e:
-            last_err = e
-            if _is_connection_dead_error(e) and attempt == 0:
-                _reset_milvus_client()
-                logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
-                continue
+    try:
+        for attempt in range(2):
+            try:
+                results = await asyncio.to_thread(client.search, **search_kwargs)
+                break
+            except Exception as e:
+                last_err = e
+                if _is_connection_dead_error(e) and attempt == 0:
+                    client = _create_milvus_client()
+                    logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
+                    continue
             raise
+    finally:
+        await _release_milvus_client(client)
 
     formatted: list[dict[str, Any]] = []
     for hits in results:
@@ -737,16 +775,6 @@ async def retrieve_context(
     target_collections = collections if collections else [collection]
 
     _ensure_metrics()
-
-    # Proactive connection validation: a lightweight list_collections() call
-    # detects stale gRPC channels before we hit the heavier hybrid_search.
-    try:
-        client = _get_milvus_client()
-        await asyncio.to_thread(client.list_collections)
-    except Exception as e:
-        if _is_connection_dead_error(e):
-            _reset_milvus_client()
-            logger.info("milvus_warmup_reconnect", extra={"error": str(e)[:120]})
 
     all_merged: list[dict[str, Any]] = []
     fallback_to_bm25 = False

@@ -749,16 +749,18 @@ class RouterNode:
                 "router_retrieve_timeout",
                 extra={"query": query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
             )
-            return _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s"), None
+            packet = _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")
+            await self.cache.aput(query, packet)
+            return packet, None
         retrieve_ms = (time.monotonic() - t_retrieve) * 1000
         cohesion_lock = bundle.cohesion_lock
 
         # Fast-path: skip LLM summarization when we have enough high-scoring results.
-        # The reranker already scored relevance; assembling snippets directly saves
-        # 15-30s of LLM latency per evidence request.
-        _fast_threshold = 0.5
+        # Scores at this point are RRF-merged (rrf_position * 0.7 + rerank * 0.3),
+        # so a FlashRank 0.36 at rank 1 yields ~0.12. Threshold must reflect this.
+        _fast_threshold = 0.08
         high_scoring = [r for r in bundle.results[:8] if r.score >= _fast_threshold]
-        use_fast_path = len(high_scoring) >= 3
+        use_fast_path = len(high_scoring) >= 2
 
         t_summarize = time.monotonic()
         if use_fast_path:

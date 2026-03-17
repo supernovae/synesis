@@ -612,6 +612,31 @@ if [[ "$APPLY_OK" == "true" ]]; then
     set_revision_history_limit
 fi
 
+# -----------------------------------------------------------------------
+# Configmap-hash annotations — triggers pod restart when configmap changes.
+# Kubernetes does not restart pods on configmap updates; this annotation
+# approach is the standard workaround.  Idempotent: no restart if hash
+# hasn't changed.
+# -----------------------------------------------------------------------
+if [[ "$APPLY_OK" == "true" ]]; then
+    log ""
+    log "Patching configmap-hash annotations (triggers restart on config change)..."
+
+    _patch_configmap_hash() {
+        local ns="$1" deploy="$2" cm_name="$3"
+        local hash
+        hash=$(oc get configmap "$cm_name" -n "$ns" -o jsonpath='{.data}' 2>/dev/null | (md5sum 2>/dev/null || md5) | cut -c1-8)
+        if [[ -n "$hash" && "$hash" != "d41d8cd9" ]]; then
+            oc patch deployment "$deploy" -n "$ns" \
+                -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"synesis/configmap-hash\":\"$hash\"}}}}}" \
+                2>/dev/null && log "  $ns/$deploy configmap-hash=$hash" || true
+        fi
+    }
+
+    _patch_configmap_hash synesis-search   searxng       searxng-settings
+    _patch_configmap_hash synesis-gateway  litellm-proxy litellm-config
+fi
+
 log ""
 log "Waiting for rollouts..."
 
@@ -651,6 +676,7 @@ fi
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
+wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-webui open-webui
 
