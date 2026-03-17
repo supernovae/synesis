@@ -111,7 +111,7 @@ async def _llm_repair(
     report: MissingFieldReport,
 ) -> UserTask:
     """Stage 3: LLM second-pass to repair missing/conflicting fields."""
-    _repair_kw: dict[str, Any] = {"stop": ["\n\n"]}
+    _repair_kw: dict[str, Any] = {}
     if settings.guided_json_enabled:
         _repair_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
     else:
@@ -125,7 +125,8 @@ async def _llm_repair(
         max_completion_tokens=768 if not settings.guided_json_enabled else 1024,
         streaming=True,
         use_responses_api=False,
-        model_kwargs=_repair_kw,
+        stop=["\n\n"],
+        model_kwargs=_repair_kw if _repair_kw else None,
         http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
     )
 

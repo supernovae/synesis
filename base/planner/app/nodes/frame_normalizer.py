@@ -143,6 +143,61 @@ def _detect_persona(raw_text: str) -> str:
     return ""
 
 
+_TASK_PREFIX_RE = re.compile(
+    r"^(?:task|question|goal|objective|request|challenge)\s*:\s*",
+    re.IGNORECASE | re.MULTILINE,
+)
+_IMPERATIVE_RE = re.compile(
+    r"^(propose|design|explain|build|create|describe|compare|analyze|write|implement|develop|outline|plan|evaluate|summarize|list|identify|discuss|assess|review|provide|recommend|suggest|define|generate|draft)\b",
+    re.IGNORECASE,
+)
+_PREAMBLE_RE = re.compile(
+    r"^(you are|i am|i'm|imagine you|act as|pretend|assume you|context:|background:)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_main_question_heuristic(raw_text: str) -> str:
+    """Derive main_question from prompt structure when GLiNER found no requirements.
+
+    Handles structured prompts like "Task: Propose an architecture..." or prompts
+    starting with imperative verbs.  Returns "" only when nothing useful is found.
+    """
+    if not raw_text or not raw_text.strip():
+        return ""
+
+    # Try: "Task:" / "Question:" / "Goal:" prefix — extract text after it
+    m = _TASK_PREFIX_RE.search(raw_text)
+    if m:
+        after = raw_text[m.end():].strip()
+        first_block = after.split("\n\n")[0].strip()
+        first_line = first_block.split("\n")[0].strip()
+        if len(first_line) > 20:
+            return first_line[:300]
+        if len(first_block) > 20:
+            return first_block[:300]
+
+    lines = [ln.strip() for ln in raw_text.strip().split("\n") if ln.strip()]
+    for line in lines:
+        if _PREAMBLE_RE.match(line):
+            continue
+        if _IMPERATIVE_RE.match(line):
+            return line[:300]
+
+    # Fall back to first non-trivial, non-preamble line
+    for line in lines:
+        if _PREAMBLE_RE.match(line):
+            continue
+        if len(line) > 20:
+            return line[:300]
+
+    # Last resort: first line if anything is there
+    if lines and len(lines[0]) > 10:
+        return lines[0][:300]
+
+    return ""
+
+
 def _text_similarity(a: str, b: str) -> float:
     """Jaccard word-overlap similarity between two strings."""
     wa = set(a.lower().split())
@@ -221,15 +276,14 @@ def normalize_frame(
                 requested_format = fmt
                 break
 
-    # Pick main_question — prefer extracted candidates, fall back to raw text
-    # for short single-sentence prompts where GLiNER missed the question.
+    # Pick main_question — prefer extracted candidates, fall back to heuristic
     main_question = ""
     if main_q_candidates:
         main_question = main_q_candidates[0].text
     elif requirements:
         main_question = requirements[0].text
-    elif raw_text and len(raw_text) < 300 and raw_text.count("\n") <= 1:
-        main_question = raw_text.strip()
+    else:
+        main_question = _extract_main_question_heuristic(raw_text)
 
     # Build success_criteria from quality_instructions
     success_criteria = _extract_texts(quality_instructions)

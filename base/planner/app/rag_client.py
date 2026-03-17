@@ -110,6 +110,28 @@ async def _embed_text(text: str) -> list[float]:
         raise ValueError(f"Embedder returned malformed response: {exc}") from exc
 
 
+async def _batch_embed_texts(texts: list[str]) -> list[list[float]]:
+    """Batch-embed multiple texts in a single TEI call."""
+    if not texts:
+        return []
+    if len(texts) == 1:
+        return [await _embed_text(texts[0])]
+    base = ensure_url_protocol(settings.embedder_url)
+    client = await _get_client()
+    response = await client.post(
+        f"{base.rstrip('/')}/embeddings",
+        json={"input": texts, "model": settings.embedder_model},
+    )
+    response.raise_for_status()
+    data = response.json()
+    try:
+        items = sorted(data["data"], key=lambda d: d["index"])
+        return [item["embedding"] for item in items]
+    except (KeyError, IndexError, TypeError) as exc:
+        logger.error("batch_embed_malformed_response", exc_info=True)
+        raise ValueError(f"Embedder batch response malformed: {exc}") from exc
+
+
 # ---------------------------------------------------------------------------
 # Milvus timeout for direct connections (catalog bootstrap, vector search)
 # ---------------------------------------------------------------------------
@@ -272,6 +294,13 @@ async def warm_milvus_pool() -> None:
             pool.put_nowait(c)
     if replaced:
         logger.info("milvus_pool_warmed", extra={"replaced": replaced, "total": len(clients)})
+
+
+async def init_milvus_pool() -> None:
+    """Eagerly create the pool and start keepalive at service startup."""
+    _get_milvus_pool()
+    ensure_milvus_keepalive()
+    logger.info("milvus_pool_init_eager")
 
 
 def _get_milvus_client():
@@ -674,6 +703,242 @@ async def _hybrid_search(
     return formatted
 
 
+def _format_hybrid_hits(results) -> list[dict[str, Any]]:
+    """Shared hit formatter for hybrid search results."""
+    formatted: list[dict[str, Any]] = []
+    for hit in results[0] if results else []:
+        entity = hit.entity if hasattr(hit, "entity") else hit.get("entity", {})
+        if isinstance(entity, dict):
+            _get = entity.get
+        else:
+
+            def _get(k: str, d: str = "", _e: Any = entity) -> Any:
+                return getattr(_e, k, d)
+
+        formatted.append(
+            {
+                "text": _get("text", ""),
+                "source": _get("document_name", "") or _get("source_url", "unknown"),
+                "vector_score": 0.0,
+                "bm25_score": 0.0,
+                "rrf_score": float(hit.distance) if hasattr(hit, "distance") else float(hit.get("distance", 0.0)),
+                "retrieval_source": "hybrid",
+                "origin_type": _get("origin_type", ""),
+                "authority": _get("authority", ""),
+                "domain": _get("domain", ""),
+                "source_url": _get("source_url", ""),
+                "heading_path": _get("heading_path", ""),
+                "context_prefix": _get("context_prefix", ""),
+                "chunk_summary": _get("chunk_summary", ""),
+                "document_name": _get("document_name", ""),
+                "handler": _get("handler", ""),
+                "source_type": _get("source_type", ""),
+            }
+        )
+    return formatted
+
+
+async def _hybrid_search_with_vector(
+    query_vector: list[float],
+    query_text: str,
+    collection: str,
+    top_k: int,
+    filter_expr: str = "",
+) -> list[dict[str, Any]]:
+    """Hybrid search using a pre-computed dense vector (avoids redundant embed call)."""
+    from pymilvus import AnnSearchRequest, RRFRanker
+
+    dense_req = AnnSearchRequest(
+        data=[query_vector],
+        anns_field="embedding",
+        param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
+        limit=top_k,
+        expr=filter_expr or None,
+    )
+    sparse_req = AnnSearchRequest(
+        data=[query_text],
+        anns_field="sparse_text",
+        param={"metric_type": "BM25"},
+        limit=top_k,
+        expr=filter_expr or None,
+    )
+
+    try:
+        client = await _acquire_milvus_client()
+    except Exception as e:
+        logger.warning("milvus_acquire_failed", extra={"collection": collection, "error": str(e)[:200]})
+        return []
+
+    last_err: BaseException | None = None
+    discard = False
+    try:
+        for attempt in range(2):
+            try:
+                results = await asyncio.to_thread(
+                    client.hybrid_search,
+                    collection_name=collection,
+                    reqs=[dense_req, sparse_req],
+                    ranker=RRFRanker(k=settings.rag_rrf_k),
+                    limit=top_k,
+                    output_fields=_OUTPUT_FIELDS,
+                )
+                break
+            except Exception as e:
+                last_err = e
+                if _is_connection_dead_error(e) and attempt == 0:
+                    _evict_dead_alias(client)
+                    try:
+                        client = _create_milvus_client()
+                    except Exception:
+                        discard = True
+                        break
+                    logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
+                    continue
+                logger.warning("milvus_hybrid_search_failed", extra={"collection": collection, "error": str(e)[:200]})
+                return []
+        else:
+            if last_err is not None:
+                logger.warning(
+                    "milvus_hybrid_search_failed_after_retry",
+                    extra={"collection": collection, "error": str(last_err)[:200]},
+                )
+            return []
+    finally:
+        if not discard:
+            await _release_milvus_client(client)
+
+    return _format_hybrid_hits(results)
+
+
+def _rrf_merge_dicts(
+    per_query_results: list[list[dict[str, Any]]],
+    k: int = 60,
+) -> list[dict[str, Any]]:
+    """RRF merge across multiple raw dict result lists."""
+    scores: dict[str, float] = {}
+    best: dict[str, dict[str, Any]] = {}
+    for results in per_query_results:
+        if not isinstance(results, list):
+            continue
+        for rank, r in enumerate(results):
+            key = r.get("source_url") or r.get("document_name") or f"text:{r.get('text', '')[:80]}"
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank + 1)
+            if key not in best or r.get("rrf_score", 0.0) > best[key].get("rrf_score", 0.0):
+                best[key] = r
+    sorted_keys = sorted(scores, key=lambda x: scores[x], reverse=True)
+    merged: list[dict[str, Any]] = []
+    for key in sorted_keys:
+        doc = best[key].copy()
+        doc["rrf_score"] = scores[key]
+        merged.append(doc)
+    return merged
+
+
+async def retrieve_multi_query_fused(
+    queries: list[str],
+    collection: str = SYNESIS_CATALOG,
+    per_query_limit: int = 25,
+    final_top_k: int = 50,
+    reranker: str | None = None,
+    domain_filter: str = "",
+) -> list[RetrievalResult]:
+    """Consolidated multi-query retrieval: batch embed, parallel search, RRF merge, single rerank.
+
+    Designed for the consolidated router -- replaces N independent retrieve_context
+    calls with one fast fused pass.
+    """
+    if reranker is None:
+        reranker = settings.rag_reranker
+
+    _ensure_synesis_catalog()
+    _ensure_metrics()
+
+    vectors = await _batch_embed_texts(queries)
+
+    search_tasks = [
+        _hybrid_search_with_vector(vec, q, collection, per_query_limit, filter_expr=domain_filter)
+        for vec, q in zip(vectors, queries)
+    ]
+    raw_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+    valid_results = [r for r in raw_results if isinstance(r, list)]
+
+    if not valid_results:
+        logger.warning("fused_retrieval_all_failed", extra={"queries": len(queries)})
+        return []
+
+    merged = _rrf_merge_dicts(valid_results)
+
+    if reranker != "none" and merged:
+        primary_query = " ".join(q[:100] for q in queries[:2])
+        merged = await _rerank(primary_query, merged, reranker, final_top_k)
+    else:
+        merged.sort(key=lambda d: d.get("rrf_score", 0.0), reverse=True)
+        merged = merged[:final_top_k]
+
+    _AUTHORITY_BOOST = {
+        "canonical": 1.5,
+        "vetted": 1.3,
+        "community": 1.0,
+        "external": 0.7,
+        "": 1.0,
+    }
+    for doc in merged:
+        boost = _AUTHORITY_BOOST.get(doc.get("authority", ""), 1.0)
+        score_key = "rerank_score" if doc.get("rerank_score", 0.0) > 0 else "rrf_score"
+        doc[score_key] = doc.get(score_key, 0.0) * boost
+    merged.sort(key=lambda d: d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0), reverse=True)
+
+    score_min = getattr(settings, "rag_rerank_score_min", 0.0)
+    if score_min > 0 and reranker != "none":
+        pre_floor = len(merged)
+        merged = [d for d in merged if (d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0)) >= score_min]
+        dropped = pre_floor - len(merged)
+        if dropped:
+            logger.info("fused_rerank_score_floor", extra={"threshold": score_min, "dropped": dropped, "kept": len(merged)})
+
+    results = [
+        RetrievalResult(
+            text=doc["text"],
+            source=doc.get("source", "unknown"),
+            collection=collection,
+            retrieval_source=doc.get("retrieval_source", "hybrid"),
+            vector_score=doc.get("vector_score", 0.0),
+            bm25_score=doc.get("bm25_score", 0.0),
+            rrf_score=doc.get("rrf_score", 0.0),
+            rerank_score=doc.get("rerank_score", 0.0),
+            origin_type=doc.get("origin_type", ""),
+            authority=doc.get("authority", ""),
+            domain=doc.get("domain", ""),
+            source_url=doc.get("source_url", ""),
+            heading_path=doc.get("heading_path", ""),
+            context_prefix=doc.get("context_prefix", ""),
+            chunk_summary=doc.get("chunk_summary", ""),
+            document_name=doc.get("document_name", ""),
+            handler=doc.get("handler", ""),
+            source_type=doc.get("source_type", ""),
+        )
+        for doc in merged
+    ]
+
+    authority_dist: dict[str, int] = {}
+    for r in results:
+        authority_dist[r.authority or "unknown"] = authority_dist.get(r.authority or "unknown", 0) + 1
+
+    logger.info(
+        "fused_retrieval",
+        extra={
+            "queries": len(queries),
+            "per_query_limit": per_query_limit,
+            "reranker": reranker,
+            "results_returned": len(results),
+            "top_score": results[0].rerank_score or results[0].rrf_score if results else 0.0,
+            "authority_distribution": authority_dist,
+        },
+    )
+
+    return results
+
+
 async def _sparse_search(
     query: str,
     collection: str,
@@ -812,7 +1077,7 @@ async def _rerank_flashrank(
         request = RerankRequest(query=query, passages=passages)
 
         start = time.monotonic()
-        reranked = ranker.rerank(request)
+        reranked = await asyncio.to_thread(ranker.rerank, request)
         elapsed = time.monotonic() - start
 
         _ensure_metrics()

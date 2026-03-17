@@ -236,6 +236,11 @@ async def lifespan(app: FastAPI):
     await upgrade_checkpointer_to_redis()
     _log_rss("after_checkpointer_upgrade")
 
+    from .rag_client import init_milvus_pool
+
+    await init_milvus_pool()
+    _log_rss("after_milvus_pool_init")
+
     if settings.retrieval_cache_warm_on_startup:
         from .retrieval_cache import warm_cache
 

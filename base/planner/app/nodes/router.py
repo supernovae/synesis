@@ -26,13 +26,13 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
-from ..rag_client import ensure_milvus_keepalive, warm_milvus_pool
+from ..rag_client import ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
 from ..streaming_events import emit_sub_phase
 from ..synesis_tracer import get_synesis_tracer
-from ..unified_retrieval import RetrievalBundle, UnifiedResult, retrieve_unified
+from ..unified_retrieval import RetrievalBundle, UnifiedResult, _rag_to_unified, retrieve_unified
 
 logger = logging.getLogger("synesis.router")
 
@@ -709,6 +709,106 @@ class RouterNode:
                 )
         return packets, cohesion_lock
 
+    async def consolidated_retrieve(
+        self,
+        requests: list[dict[str, Any]],
+        task_context: str = "",
+        difficulty: float = 0.5,
+        taxonomy_metadata: dict[str, Any] | None = None,
+    ) -> tuple[list[EvidencePacket], dict[str, Any] | None]:
+        """Single-pass multi-query-fusion retrieval.
+
+        Replaces parallel_dispatch: batch-embeds all queries, runs lightweight
+        parallel Milvus searches, RRF-merges, single FlashRank rerank, builds
+        one EvidencePacket directly (no LLM summarization).
+        """
+        t_qgen = time.monotonic()
+        emit_sub_phase(f"Generating queries for {len(requests)} topic(s)\u2026")
+        queries = await self.batch_generate_queries(requests, task_context)
+        qgen_ms = (time.monotonic() - t_qgen) * 1000
+        logger.info("router_phase_query_gen", extra={"requests": len(requests), "latency_ms": round(qgen_ms, 1)})
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("router.query_gen_ms", qgen_ms)
+
+        domain_filter = ""
+        domain_hints = requests[0].get("domain_hints") if requests else []
+        if domain_hints:
+            from ..unified_retrieval import _normalize_domain_hints_for_filter
+
+            safe_hints = _normalize_domain_hints_for_filter(domain_hints)
+            if safe_hints:
+                escaped = [f'"{h}"' for h in safe_hints[:10]]
+                domain_filter = f"domain in [{','.join(escaped)}]"
+
+        per_query_limit = 25
+        final_top_k = max_docs_for_difficulty(difficulty) * 6
+
+        t_retrieve = time.monotonic()
+        emit_sub_phase(f"Retrieving evidence ({len(queries)} queries, fused)\u2026")
+        try:
+            rag_results = await asyncio.wait_for(
+                retrieve_multi_query_fused(
+                    queries,
+                    per_query_limit=per_query_limit,
+                    final_top_k=final_top_k,
+                    domain_filter=domain_filter,
+                ),
+                timeout=self.retrieve_timeout_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "consolidated_retrieve_timeout",
+                extra={"queries": len(queries), "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
+            )
+            combined_query = " | ".join(q[:80] for q in queries[:4])
+            return [_timeout_packet(combined_query, f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")], None
+        retrieve_ms = (time.monotonic() - t_retrieve) * 1000
+
+        unified = _rag_to_unified(rag_results)
+
+        cohesion_lock: dict[str, Any] | None = None
+        preseeded_lock = None
+        for req in requests:
+            if req.get("_preseeded_lock"):
+                preseeded_lock = req["_preseeded_lock"]
+                break
+
+        if preseeded_lock and unified and settings.cohesion_lock_enabled:
+            from ..cohesion import cohesion_filter
+
+            pre_len = len(unified)
+            unified = await cohesion_filter(unified, preseeded_lock)
+            if len(unified) < pre_len:
+                logger.info(
+                    "consolidated_cohesion_filtered",
+                    extra={"before": pre_len, "after": len(unified), "entity": preseeded_lock.entity},
+                )
+            cohesion_lock = {
+                "entity": preseeded_lock.entity,
+                "lock_type": preseeded_lock.lock_type,
+                "source": preseeded_lock.source,
+            }
+
+        combined_query = " | ".join(q[:80] for q in queries[:4])
+        packet = _fallback_packet(combined_query, unified)
+        packet = packet.model_copy(
+            update={
+                "retrieval_notes": f"Consolidated fused retrieval: {len(queries)} queries, {len(unified)} results, {round(retrieve_ms)}ms.",
+            }
+        )
+
+        emit_sub_phase(f"Evidence gathered: {len(packet.snippets)} snippet(s), confidence {packet.confidence:.0%}")
+
+        logger.info(
+            "router_phase_fanout",
+            extra={"tasks": len(queries), "latency_ms": round(retrieve_ms, 1)},
+        )
+        if _tracer:
+            _tracer.record_phase_timing("router.retrieve_ms", retrieve_ms)
+
+        return [packet], cohesion_lock
+
     async def _multi_query_retrieve(
         self,
         variants: list[str],
@@ -1158,7 +1258,7 @@ class RouterNode:
 
         t_dispatch = time.monotonic()
         if requests:
-            dispatched_packets, cohesion_lock = await self.parallel_dispatch(
+            dispatched_packets, cohesion_lock = await self.consolidated_retrieve(
                 requests, task_context, difficulty, taxonomy_metadata
             )
         else:
