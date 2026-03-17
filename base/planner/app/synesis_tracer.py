@@ -259,7 +259,8 @@ class SynesisTracer(BaseCallbackHandler):
         super().__init__()
         self._current_trace: TraceRecord | None = None
         self._active_spans: dict[str, SpanRecord] = {}
-        self._llm_starts: dict[str, tuple[float, str, str, str]] = {}  # run_id -> (start_time, node, snippet, full)
+        # run_id -> (start_time, node, snippet, full, model_name)
+        self._llm_starts: dict[str, tuple[float, str, str, str, str]] = {}
         self._trace_start: float = 0.0
 
     # -- Trace lifecycle ---------------------------------------------------
@@ -386,7 +387,12 @@ class SynesisTracer(BaseCallbackHandler):
             return
         try:
             node_name = ""
-            if tags:
+            # LangGraph 1.x passes node identity via metadata.langgraph_node
+            metadata = kwargs.get("metadata") or {}
+            lg_node = (metadata.get("langgraph_node") or "").strip()
+            if lg_node:
+                node_name = lg_node
+            if not node_name and tags:
                 for tag in tags:
                     if tag.startswith("graph:step:"):
                         node_name = tag.split(":", 2)[-1]
@@ -456,6 +462,16 @@ class SynesisTracer(BaseCallbackHandler):
         except Exception:
             logger.debug("on_chain_error_callback_error", exc_info=True)
 
+    @staticmethod
+    def _extract_model_name(serialized: dict[str, Any], kwargs: dict[str, Any]) -> str:
+        """Best-effort model name extraction from callback args."""
+        inv = kwargs.get("invocation_params") or {}
+        model = inv.get("model_name") or inv.get("model") or ""
+        if not model:
+            kw = (serialized or {}).get("kwargs") or {}
+            model = kw.get("model_name") or kw.get("model") or ""
+        return model
+
     def on_llm_start(
         self,
         serialized: dict[str, Any],
@@ -473,11 +489,13 @@ class SynesisTracer(BaseCallbackHandler):
             parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
             if parent_span:
                 node = parent_span.node_name
+            model = self._extract_model_name(serialized, kwargs)
             self._llm_starts[str(run_id)] = (
                 time.monotonic(),
                 node,
                 prompt_text[:_MAX_SNIPPET],
                 prompt_text[:_MAX_FULL_CHARS],
+                model,
             )
         except Exception:
             logger.debug("on_llm_start_callback_error", exc_info=True)
@@ -506,14 +524,68 @@ class SynesisTracer(BaseCallbackHandler):
             parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
             if parent_span:
                 node = parent_span.node_name
+            model = self._extract_model_name(serialized, kwargs)
             self._llm_starts[str(run_id)] = (
                 time.monotonic(),
                 node,
                 prompt_snippet,
                 prompt_full,
+                model,
             )
         except Exception:
             logger.debug("on_chat_model_start_callback_error", exc_info=True)
+
+    def _unpack_llm_start(self, run_id: str) -> tuple[float, str, str, str, str]:
+        """Pop and normalize the start-info tuple (handles legacy 3/4 element tuples)."""
+        info = self._llm_starts.pop(run_id, None)
+        if info is None:
+            return time.monotonic(), "", "", "", ""
+        if len(info) == 5:
+            return info  # type: ignore[return-value]
+        if len(info) == 4:
+            return (*info, "")  # type: ignore[return-value]
+        # 3-element legacy
+        return (info[0], info[1], info[2], info[2], "")  # type: ignore[index]
+
+    def _build_llm_call(
+        self,
+        *,
+        run_id: uuid.UUID,
+        parent_run_id: uuid.UUID | None,
+        response_model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        completion_text: str,
+    ) -> None:
+        """Shared logic for on_llm_end / on_chat_model_end."""
+        rid = str(run_id)
+        start_time, node, prompt_snippet, prompt_full, stored_model = self._unpack_llm_start(rid)
+
+        model = response_model or stored_model
+        completion_full = completion_text[:_MAX_FULL_CHARS]
+        completion_snippet = completion_full[:_MAX_SNIPPET]
+
+        call = LLMCallRecord(
+            model=model,
+            node=node,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            latency_ms=(time.monotonic() - start_time) * 1000,
+            prompt_snippet=prompt_snippet,
+            completion_snippet=completion_snippet,
+            prompt_full=prompt_full,
+            completion_full=completion_full,
+            timestamp=time.time(),
+        )
+
+        parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
+        if parent_span:
+            parent_span.llm_calls.append(call)
+            parent_span.tokens_used += total_tokens
+        elif self._current_trace.spans:
+            self._current_trace.spans[-1].llm_calls.append(call)
 
     def on_llm_end(
         self,
@@ -526,16 +598,7 @@ class SynesisTracer(BaseCallbackHandler):
         if self._current_trace is None:
             return
         try:
-            rid = str(run_id)
-            start_info = self._llm_starts.pop(rid, None)
-            start_time, node, prompt_snippet, prompt_full = (
-                start_info if start_info else (time.monotonic(), "", "", "")
-            )
-            if len(start_info or ()) == 3:
-                prompt_full = prompt_snippet
-
-            completion_snippet = ""
-            completion_full = ""
+            completion_text = ""
             prompt_tokens = 0
             completion_tokens = 0
             total_tokens = 0
@@ -547,8 +610,7 @@ class SynesisTracer(BaseCallbackHandler):
                 if not text and hasattr(gen, "message"):
                     msg_content = getattr(gen.message, "content", "")
                     text = msg_content if isinstance(msg_content, str) else str(msg_content)
-                completion_full = text[:_MAX_FULL_CHARS]
-                completion_snippet = completion_full[:_MAX_SNIPPET]
+                completion_text = text
 
             if response.llm_output:
                 usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
@@ -557,26 +619,29 @@ class SynesisTracer(BaseCallbackHandler):
                 total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
                 model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
 
-            call = LLMCallRecord(
-                model=model,
-                node=node,
+            # ChatOpenAI streaming often puts usage on the AIMessage instead of llm_output
+            if total_tokens == 0 and response.generations and response.generations[0]:
+                gen = response.generations[0][0]
+                msg = getattr(gen, "message", None)
+                if msg:
+                    usage_meta = getattr(msg, "usage_metadata", None) or {}
+                    if isinstance(usage_meta, dict) and usage_meta:
+                        prompt_tokens = usage_meta.get("input_tokens", 0)
+                        completion_tokens = usage_meta.get("output_tokens", 0)
+                        total_tokens = prompt_tokens + completion_tokens
+                    resp_meta = getattr(msg, "response_metadata", None) or {}
+                    if not model:
+                        model = resp_meta.get("model_name", "") or resp_meta.get("model", "")
+
+            self._build_llm_call(
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+                response_model=model,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
-                latency_ms=(time.monotonic() - start_time) * 1000,
-                prompt_snippet=prompt_snippet,
-                completion_snippet=completion_snippet,
-                prompt_full=prompt_full,
-                completion_full=completion_full,
-                timestamp=time.time(),
+                completion_text=completion_text,
             )
-
-            parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
-            if parent_span:
-                parent_span.llm_calls.append(call)
-                parent_span.tokens_used += total_tokens
-            elif self._current_trace.spans:
-                self._current_trace.spans[-1].llm_calls.append(call)
         except Exception:
             logger.debug("on_llm_end_callback_error", exc_info=True)
 

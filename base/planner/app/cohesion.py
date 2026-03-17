@@ -9,6 +9,9 @@ Three-phase pipeline inserted into retrieve_unified() after adaptive top-K:
   Phase 5c: _cohesion_filter()       — embedding tier + parallel LLM micro-critic
   Phase 5d: _compress_to_cohesion()  — sentence-level extraction
 
+Conflict groups are loaded from cohesion_groups.yaml (data-driven, domain-agnostic)
+and supplemented by LLM-discovered groups from the admin DB.
+
 All embedding calls use the async TEI embedder (no new ML deps in-process).
 LLM calls use the router model for lightweight JSON classification.
 """
@@ -17,9 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -54,24 +59,39 @@ class CohesionLock:
 # Phase 5b: Cohesion Lock Detection
 # ---------------------------------------------------------------------------
 
-_DOMAIN_BRAND_PATTERNS = re.compile(
-    r"\b(aws|amazon|gcp|google cloud|azure|microsoft azure|"
-    r"ford|chevy|chevrolet|toyota|"
-    r"kubernetes|openshift|docker swarm|"
-    r"pytorch|tensorflow|jax|"
-    r"react|angular|vue|svelte)\b",
-    re.IGNORECASE,
-)
+_domain_brand_pattern: re.Pattern[str] | None = None
+
+
+def _get_domain_brand_pattern() -> re.Pattern[str]:
+    """Build regex pattern from all loaded conflict group members.
+
+    Lazy-init so pattern reflects YAML + DB groups.
+    """
+    global _domain_brand_pattern
+    if _domain_brand_pattern is not None:
+        return _domain_brand_pattern
+    _ensure_loaded()
+    all_entities = sorted(_ENTITY_EXCLUSION_MAP.keys(), key=len, reverse=True)
+    if not all_entities:
+        _domain_brand_pattern = re.compile(r"(?!)")  # never-match
+        return _domain_brand_pattern
+    escaped = [re.escape(e) for e in all_entities]
+    _domain_brand_pattern = re.compile(
+        r"\b(" + "|".join(escaped) + r")\b",
+        re.IGNORECASE,
+    )
+    return _domain_brand_pattern
 
 
 def _extract_metadata_entities(results: list[Any]) -> Counter[str]:
     """Extract entity signals from result metadata (document_name, heading_path, authority)."""
+    pattern = _get_domain_brand_pattern()
     entities: Counter[str] = Counter()
     for r in results:
         for field in ("document_name", "heading_path", "title"):
             text = getattr(r, field, "") or ""
             if text:
-                for match in _DOMAIN_BRAND_PATTERNS.finditer(text):
+                for match in pattern.finditer(text):
                     entities[match.group(0).lower()] += 1
     return entities
 
@@ -108,78 +128,81 @@ def _detect_cohesion_lock_deterministic(
     return None
 
 
-_ENTITY_EXCLUSION_MAP: dict[str, list[str]] = {
-    "aws": ["gcp", "google cloud", "azure", "microsoft azure"],
-    "amazon": ["gcp", "google cloud", "azure", "microsoft azure"],
-    "gcp": ["aws", "amazon", "azure", "microsoft azure"],
-    "google cloud": ["aws", "amazon", "azure", "microsoft azure"],
-    "azure": ["aws", "amazon", "gcp", "google cloud"],
-    "microsoft azure": ["aws", "amazon", "gcp", "google cloud"],
-    "kubernetes": ["docker swarm"],
-    "openshift": ["docker swarm"],
-    "pytorch": ["tensorflow", "jax"],
-    "tensorflow": ["pytorch", "jax"],
-    "jax": ["pytorch", "tensorflow"],
-    "react": ["angular", "vue", "svelte"],
-    "angular": ["react", "vue", "svelte"],
-    "vue": ["react", "angular", "svelte"],
-    "svelte": ["react", "angular", "vue"],
-    "ford": ["chevy", "chevrolet", "toyota"],
-    "chevy": ["ford", "toyota"],
-    "chevrolet": ["ford", "toyota"],
-    "toyota": ["ford", "chevy", "chevrolet"],
-}
+# ---------------------------------------------------------------------------
+# YAML-driven conflict groups + exclusion map
+# ---------------------------------------------------------------------------
+
+_COHESION_GROUPS_PATH = os.environ.get(
+    "SYNESIS_COHESION_GROUPS_PATH",
+    str(Path(__file__).parent / "cohesion_groups.yaml"),
+)
+
+_ENTITY_EXCLUSION_MAP: dict[str, list[str]] = {}
+_CONFLICT_GROUPS: dict[str, set[str]] = {}
+_ALIAS_MAP: dict[str, str] = {}  # alias -> canonical member
+_YAML_LOADED = False
+
+
+def _load_cohesion_groups_yaml() -> None:
+    """Load conflict groups from cohesion_groups.yaml and derive exclusion map.
+
+    Called once at first access.  Falls back to empty if file is missing.
+    """
+    global _YAML_LOADED
+    if _YAML_LOADED:
+        return
+    _YAML_LOADED = True
+
+    try:
+        import yaml
+
+        with open(_COHESION_GROUPS_PATH) as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception:
+        logger.warning("cohesion_groups_yaml_load_failed path=%s", _COHESION_GROUPS_PATH, exc_info=True)
+        return
+
+    for group_name, cfg in raw.items():
+        members_raw = cfg.get("members") or []
+        members = {m.lower() for m in members_raw if m}
+        if len(members) < 2:
+            continue
+        _CONFLICT_GROUPS[group_name] = members
+
+        aliases = cfg.get("aliases") or {}
+        for canonical, alias_list in aliases.items():
+            canonical_l = canonical.lower()
+            for alias in (alias_list or []):
+                _ALIAS_MAP[alias.lower()] = canonical_l
+                members.add(alias.lower())
+
+        for member in members:
+            _ENTITY_EXCLUSION_MAP[member] = [
+                m for m in members if m != member
+            ]
+
+    logger.info(
+        "cohesion_groups_loaded",
+        extra={"groups": len(_CONFLICT_GROUPS), "entities": len(_ENTITY_EXCLUSION_MAP), "path": _COHESION_GROUPS_PATH},
+    )
+
+
+def _ensure_loaded() -> None:
+    if not _YAML_LOADED:
+        _load_cohesion_groups_yaml()
 
 
 def _build_exclusion_signals(entity: str) -> list[str]:
     """Build a list of entities to exclude based on the locked entity."""
-    return _ENTITY_EXCLUSION_MAP.get(entity.lower(), [])
-
-
-# ---------------------------------------------------------------------------
-# Conflict Groups — connected-component inversion of _ENTITY_EXCLUSION_MAP
-# ---------------------------------------------------------------------------
-
-def _derive_conflict_groups() -> dict[str, set[str]]:
-    """Build conflict groups by finding connected components in the exclusion graph.
-
-    Each group is a set of mutually exclusive entities (e.g., cloud providers).
-    Group names are auto-generated from the first member alphabetically.
-    """
-    visited: set[str] = set()
-    groups: dict[str, set[str]] = {}
-
-    def _flood(start: str) -> set[str]:
-        component: set[str] = set()
-        stack = [start]
-        while stack:
-            node = stack.pop()
-            if node in visited:
-                continue
-            visited.add(node)
-            component.add(node)
-            for neighbor in _ENTITY_EXCLUSION_MAP.get(node, []):
-                nl = neighbor.lower()
-                if nl not in visited:
-                    stack.append(nl)
-        return component
-
-    for entity in _ENTITY_EXCLUSION_MAP:
-        el = entity.lower()
-        if el not in visited:
-            component = _flood(el)
-            if len(component) >= 2:
-                group_name = "_".join(sorted(component)[:2])
-                groups[group_name] = component
-
-    return groups
-
-
-_CONFLICT_GROUPS: dict[str, set[str]] = _derive_conflict_groups()
+    _ensure_loaded()
+    canonical = _ALIAS_MAP.get(entity.lower(), entity.lower())
+    return _ENTITY_EXCLUSION_MAP.get(canonical, [])
 
 
 def _merge_db_conflict_groups(db_groups: list[dict]) -> None:
     """Merge admin-approved conflict groups into _CONFLICT_GROUPS at startup."""
+    global _domain_brand_pattern
+    _ensure_loaded()
     for entry in db_groups:
         name = entry.get("group_name", "")
         members = entry.get("members", [])
@@ -193,10 +216,13 @@ def _merge_db_conflict_groups(db_groups: list[dict]) -> None:
                 "conflict_group_loaded_from_db",
                 extra={"group": name, "members": members[:6]},
             )
+    if db_groups:
+        _domain_brand_pattern = None  # invalidate cached regex
 
 
 def get_conflict_groups() -> dict[str, set[str]]:
     """Public accessor for conflict groups (used by anchor resolver)."""
+    _ensure_loaded()
     return _CONFLICT_GROUPS
 
 
@@ -210,9 +236,9 @@ Output ONLY valid JSON:
 {{"entity": "<dominant topic/brand/concept>", "type": "generic|specific", "exclude_signals": ["<conflicting topics to filter out>"]}}
 
 Rules:
-- "specific" when docs converge on a single brand/tool/framework (e.g. "AWS", "Ford")
-- "generic" when docs converge on a theoretical/conceptual topic (e.g. "transformer architecture", "RAG pipeline design")
-- exclude_signals: topics that would conflict with the dominant frame
+- "specific" when docs converge on a single brand/tool/framework/methodology (e.g. "AWS", "Ford", "FDM 3D printing", "SLA criteria")
+- "generic" when docs converge on a theoretical/conceptual topic (e.g. "transformer architecture", "RAG pipeline design", "additive manufacturing")
+- exclude_signals: topics that would conflict with the dominant frame (any domain, not just tech)
 - If docs are too diverse to lock, use: {{"entity": "", "type": "generic", "exclude_signals": []}}"""
 
 

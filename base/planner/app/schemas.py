@@ -819,6 +819,11 @@ class UserTask(BaseModel):
     anchor_exclude_signals: list[str] = Field(default_factory=list)
     anchor_assumptions: list[str] = Field(default_factory=list)
 
+    # Topic frame — the conceptual entity driving RAG search queries.
+    # Derived from main_question + deliverables + domain_tags (NOT technologies).
+    # Technologies feed OutputCohesion instead; they constrain the *output*, not the search.
+    topic_frame: str = ""
+
 
 class OutputControls(BaseModel):
     """Per-request output behavior controls.

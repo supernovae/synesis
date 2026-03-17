@@ -308,6 +308,10 @@ def normalize_frame(
         persona=persona,
     )
 
+    # Build the topic frame — the conceptual search entity, deliberately
+    # excluding technologies (those feed OutputCohesion, not search).
+    user_task.topic_frame = _build_topic_frame(user_task)
+
     # Intent anchor resolution — scan technologies against conflict groups
     anchors, excl, anchor_assumptions, unresolved_conflicts = _resolve_intent_anchors(user_task)
     if anchors:
@@ -324,6 +328,45 @@ def normalize_frame(
     )
 
     return user_task, report, unresolved_conflicts
+
+
+# ---------------------------------------------------------------------------
+# Topic Frame Builder
+# ---------------------------------------------------------------------------
+
+
+def _build_topic_frame(user_task: UserTask) -> str:
+    """Synthesize a conceptual search frame from question + deliverables + domain tags.
+
+    The topic frame is what RAG queries should target.  It deliberately
+    omits technologies — those are *constraints* on the output, not the
+    search topic itself.
+
+    Example:
+      main_question: "Propose a practical architecture for an internal coding assistant"
+      deliverables:  ["concrete architecture", "model choices", "failure modes"]
+      domain_tags:   ["software architecture", "AI assistant"]
+      => "Propose a practical architecture for an internal coding assistant;
+          concrete architecture; model choices; failure modes [software architecture, AI assistant]"
+    """
+    parts: list[str] = []
+
+    mq = (user_task.main_question or "").strip()
+    if mq:
+        parts.append(mq)
+
+    for d in (user_task.deliverables or [])[:6]:
+        d_str = (d if isinstance(d, str) else str(d)).strip()
+        if d_str and d_str.lower() != mq.lower():
+            parts.append(d_str)
+
+    frame = "; ".join(parts)
+
+    domain = [t.strip() for t in (user_task.domain_tags or [])[:4] if t.strip()]
+    if domain:
+        frame += f" [{', '.join(domain)}]"
+
+    return frame[:1000]
 
 
 # ---------------------------------------------------------------------------

@@ -67,16 +67,22 @@ Generate a retrieval query that balances recall and precision for the evidence r
 EVIDENCE REQUEST:
 {request}
 
+TOPIC FRAME (the conceptual entity — search for THIS):
+{topic_frame}
+
+TECHNOLOGY CONSTRAINTS (mentioned but do NOT make them the search focus):
+{technologies}
+
 TASK CONTEXT:
 {task_context}
 
 RULES:
-- Include the task, domain, and specific entities.
-- Include related concepts and synonyms that relevant documents might use.
-- Include file types, repo paths, or keywords when known.
-- Include both the specific topic AND broader related terms.
+- Focus the query on the TOPIC FRAME (the conceptual entity), not the technology constraints.
+- Include related concepts, synonyms, and broader terms that relevant documents might use.
+- Technologies are context — include them only when they meaningfully narrow results.
   Good: "internal coding assistant architecture RAG retrieval design"
-  Bad: "Kubernetes" (too vague), "Kubernetes pod networking DNS resolution CoreDNS troubleshooting" (too narrow)
+  Bad: "Kubernetes" (too vague — this is a constraint, not the topic)
+  Bad: "Kubernetes pod networking DNS resolution CoreDNS troubleshooting" (too narrow)
 - Maximum 30 words.
 - Output ONLY the query string, nothing else. No explanations, no reasoning.
 """
@@ -285,8 +291,13 @@ class RouterNode:
     async def generate_query(self, evidence_request: dict[str, Any], task_context: str = "") -> str:
         """Use LLM to produce a retrieval query from an evidence request."""
         llm = _get_router_query_llm()
+        topic_frame = evidence_request.get("_topic_frame", "")
+        technologies = evidence_request.get("technologies") or []
+        tech_str = ", ".join(technologies[:6]) if technologies else "(none)"
         prompt = QUERY_GENERATOR_PROMPT.format(
             request=json.dumps(evidence_request, default=str),
+            topic_frame=topic_frame or "(not provided — infer from the evidence request)",
+            technologies=tech_str,
             task_context=task_context[:500],
         )
         resp = await llm.ainvoke(
@@ -426,14 +437,27 @@ class RouterNode:
         if len(requests) <= 1:
             return [await self.generate_query(requests[0], task_context)] if requests else []
 
+        topic_frame = ""
+        technologies: list[str] = []
+        for req in requests:
+            if not topic_frame:
+                topic_frame = req.get("_topic_frame", "")
+            if not technologies:
+                technologies = req.get("technologies") or []
+
         numbered = "\n".join(f"[{i + 1}] {json.dumps(req, default=str)}" for i, req in enumerate(requests))
+        tech_str = ", ".join(technologies[:6]) if technologies else "(none)"
+        topic_block = f"\nTOPIC FRAME (search for THIS conceptual entity):\n{topic_frame}\n" if topic_frame else ""
         prompt = (
             f"Generate one balanced retrieval query for EACH evidence request below.\n\n"
-            f"TASK CONTEXT:\n{task_context[:500]}\n\n"
+            f"TASK CONTEXT:\n{task_context[:500]}\n"
+            f"{topic_block}"
+            f"\nTECHNOLOGY CONSTRAINTS (context only, NOT the search focus): {tech_str}\n\n"
             f"EVIDENCE REQUESTS:\n{numbered}\n\n"
             f"RULES:\n"
-            f"- Include the task, domain, specific entities, AND related concepts.\n"
-            f"- Balance recall and precision — include synonyms and broader terms.\n"
+            f"- Focus each query on the TOPIC FRAME, not the technology constraints.\n"
+            f"- Include related concepts, synonyms, and broader terms.\n"
+            f"- Technologies narrow results only when they meaningfully help.\n"
             f"- Output EXACTLY {len(requests)} lines, one query per line.\n"
             f"- Line N corresponds to request [N].\n"
             f"- No numbering, no explanations — just the query strings."
@@ -1111,7 +1135,9 @@ class RouterNode:
             for req in requests:
                 req["_light_mode"] = True
 
-        # Pre-seed cohesion lock from intent anchors (skip Phase 5b detection)
+        # Pre-seed cohesion lock from intent anchors for post-retrieval
+        # filtering only.  The lock is NOT injected into evidence requests
+        # for query shaping — topic_frame drives search breadth instead.
         _preseeded_lock = None
         intent_anchors = user_task.get("intent_anchors") or {}
         anchor_exclude = user_task.get("anchor_exclude_signals") or []
@@ -1126,8 +1152,15 @@ class RouterNode:
                 confidence=0.95,
                 source="intent_anchor",
             )
+            # Pass the lock for post-retrieval filtering, NOT query shaping
             for req in requests:
                 req["_preseeded_lock"] = _preseeded_lock
+
+        # Inject topic_frame into requests so query generation uses it
+        topic_frame = user_task.get("topic_frame", "")
+        if topic_frame:
+            for req in requests:
+                req["_topic_frame"] = topic_frame
 
         t_dispatch = time.monotonic()
         if requests:
@@ -1344,7 +1377,14 @@ class RouterNode:
         return user_task.get("domain_tags") or []
 
     def _build_initial_requests(self, state: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build evidence requests from the frame/task for initial retrieval."""
+        """Build evidence requests from the frame/task for initial retrieval.
+
+        Queries are NOT scoped with intent-anchor technology terms — that was
+        the root cause of over-specified searches (e.g., every query forced
+        to include "kubernetes").  Instead, topic_frame provides conceptual
+        context and technologies are listed as metadata for the query generator
+        to use as *optional* constraints.
+        """
         user_task = state.get("user_task") or {}
         task_desc = state.get("task_description", "")
         domain_hints = self._domain_hints_from_state(state)
@@ -1352,10 +1392,7 @@ class RouterNode:
         technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
 
-        # Intent anchors — scope queries with locked technology choices
-        intent_anchors = user_task.get("intent_anchors") or {}
         anchor_exclude = user_task.get("anchor_exclude_signals") or []
-        anchor_terms = list(intent_anchors.values()) if intent_anchors else []
 
         search_source_ids = self._resolve_search_sources(state, domain_tags)
 
@@ -1372,49 +1409,22 @@ class RouterNode:
         requests = []
         main_q = user_task.get("main_question", task_desc)
         if main_q:
-            scoped_q = self._scope_query_with_anchors(main_q, anchor_terms)
-            requests.append({**base, "description": scoped_q})
+            requests.append({**base, "description": main_q})
 
         deliverables = user_task.get("deliverables") or []
         max_del_reqs = settings.max_initial_deliverable_requests
-        # Per-deliverable requests use single-query retrieval (no HyDE / expansion).
-        # Multi-query is reserved for the main question where breadth matters most.
-        # When deliverables exceed the cap, batch them to stay within bounds.
         if len(deliverables) > max_del_reqs:
             batch_size = max(1, len(deliverables) // max_del_reqs)
             for batch_idx in range(0, len(deliverables), batch_size):
                 batch = deliverables[batch_idx : batch_idx + batch_size]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
-                scoped = self._scope_query_with_anchors(combined, anchor_terms)
-                requests.append({**base, "section_id": batch_idx, "description": scoped, "_light_mode": True})
+                requests.append({**base, "section_id": batch_idx, "description": combined, "_light_mode": True})
         else:
             for i, d in enumerate(deliverables):
                 desc = d if isinstance(d, str) else str(d)
-                scoped = self._scope_query_with_anchors(desc, anchor_terms)
-                requests.append({**base, "section_id": i, "description": scoped, "_light_mode": True})
-
-        if anchor_terms:
-            logger.info(
-                "router_anchor_scoping",
-                extra={
-                    "anchor_terms": anchor_terms[:4],
-                    "exclude_signals": anchor_exclude[:4],
-                    "requests": len(requests),
-                },
-            )
+                requests.append({**base, "section_id": i, "description": desc, "_light_mode": True})
 
         return requests if requests else [{**base, "description": task_desc}]
-
-    @staticmethod
-    def _scope_query_with_anchors(query: str, anchor_terms: list[str]) -> str:
-        """Append anchor terms to a query if not already present."""
-        if not anchor_terms:
-            return query
-        q_lower = query.lower()
-        additions = [t for t in anchor_terms if t.lower() not in q_lower]
-        if additions:
-            return f"{query} ({', '.join(additions)})"
-        return query
 
     def _resolve_search_sources(self, state: dict[str, Any], domain_tags: list[str]) -> list[str]:
         """Determine which search sources to use based on taxonomy metadata and prompt cues.

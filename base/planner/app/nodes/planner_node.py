@@ -731,6 +731,26 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
             )
 
+        # Phase 2a.5: Topic frame ambiguity — if we couldn't derive a clear
+        # conceptual entity from the prompt, ask before proceeding with blind search.
+        if not clarify_question and not state.get("iteration_count", 0):
+            topic_frame = user_task.get("topic_frame", "")
+            main_q = user_task.get("main_question", "")
+            _has_deliverables = bool(user_task.get("deliverables"))
+            _non_trivial = not state.get("task_is_trivial", False) and difficulty >= 0.4
+            if not topic_frame and not main_q and _has_deliverables and _non_trivial:
+                clarify_question = (
+                    "Your request has several deliverables but I'm not sure what "
+                    "the core topic is. Could you tell me in one sentence what "
+                    "the main subject or system is?\n\n"
+                    "For example: 'An internal AI coding assistant for our engineering team' "
+                    "or 'A 3D printing workflow for dental prosthetics.'"
+                )
+                logger.info(
+                    "topic_frame_ambiguity_clarify",
+                    extra={"deliverables": len(user_task.get("deliverables") or []), "difficulty": difficulty},
+                )
+
         # Phase 2b: General clarify-first gate (existing behavior)
         if not clarify_question and style_locked.get("clarify_first"):
             ambiguities = user_task.get("ambiguities") or []
