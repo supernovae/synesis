@@ -1070,28 +1070,42 @@ automatically available in `state["taxonomy_metadata"]` without code changes.
 ## Security: Untrusted Data Sandboxing
 
 Synesis treats all external data as **untrusted** and applies a defense-in-depth
-strategy. The goal: external data informs responses but can never hijack model behavior.
+strategy across 8 layers. The goal: external data informs responses but can never
+hijack model behavior. Even human-vetted documents remain wrapped as untrusted in
+prompts — vetting boosts ranking, not trust.
+
+Full details: [docs/SECURITY.md](SECURITY.md)
 
 ### Defense Layers
 
-**Layer 1 — Pattern Scanning** (`injection_scanner.py`): Tier 1 (core) + Tier 2 (web-extended) regex patterns covering instruction override, role hijacking, chat-template injection, and output control. Applied at every untrusted data entry point.
+**Layer 1 — Pattern Scanning** (`injection_scanner.py`): Tier 1 (core) + Tier 2 (web-extended) regex patterns covering instruction override, role hijacking, chat-template injection, and output control. Applied at every untrusted data entry point: user input, web results (production path in `unified_retrieval.py`), knowledge submission, and RAG chunks at index time.
 
-**Layer 2 — Trust Boundary Delimiters** (Spotlighting + Prompt Fencing): All content injected into prompts is wrapped in XML-style trust boundary tags with provenance metadata (`<context source="..." trust="untrusted">`).
+**Layer 2 — Trust Boundary Delimiters** (Spotlighting + Prompt Fencing): All content injected into prompts is wrapped in XML-style trust boundary tags with provenance metadata (`<context source="..." trust="untrusted">`). Applied consistently in planner, writer, executor, critic, and router summarizer.
 
 **Layer 3 — Datamarking** (Spotlighting): Per-token provenance prefixes: `[W]` for web, `[R:canonical]` / `[R:vetted]` / `[R:community]` / `[R:external]` for RAG with authority tiers.
 
-**Layer 4 — Instruction Hierarchy** (CaMeL-inspired): Every system prompt (Router, Executor, Planner, Critic, Writer) includes a mandatory TRUST POLICY section.
+**Layer 4 — Instruction Hierarchy** (CaMeL-inspired): Every system prompt (Router summarizer, Executor, Planner, Critic, Writer) includes a mandatory TRUST POLICY section that instructs the model to treat delimited content as data only.
 
-**Layer 5 — Output Guardrail**: Post-generation check (`scan_model_output()`) detects signs of injection compliance.
+**Layer 5 — Sandwich Defense**: After each untrusted content block, a trusted reminder reinforces the trust boundary. This "trusted-untrusted-trusted" pattern re-anchors model attention on system instructions after processing external data.
+
+**Layer 6 — State Sanitization**: User-influenced state values (persona labels, plan step actions) are length-capped, injection-scanned, and sanitized before inclusion in downstream prompts.
+
+**Layer 7 — Index-Time RAG Scanning**: Chunks are scanned during indexing (not at query time) and assigned a `scan_status` field (`clean`/`flagged`/`unscanned`). The Admin UI review queue surfaces flagged chunks for human vetting or rejection.
+
+**Layer 8 — Output Guardrail**: Post-generation check (`scan_model_output()`) detects signs of injection compliance.
 
 ### Data Flow
 
 ```
-User Input ──[scan]──> API Entry Gate
-Web/RAG ──[scan + delimit + datamark]──> Prompt Assembly
-System Prompt + Trust Policy ──────────> Prompt Assembly
-                                         │
-                                         ▼
+User Input ──[scan_user_input()]──> API Entry Gate
+RAG Chunks ──[scan_chunk_text() at index time]──> Milvus (scan_status field)
+Web Results ──[scan_web_content() + reduce]──> unified_retrieval
+                                                  │
+System Prompt + Trust Policy ─────────────────────┤
+Trust Delimiters (<context trust="untrusted">) ───┤──> Prompt Assembly
+Sandwich Reminder ────────────────────────────────┤
+                                                  │
+                                                  ▼
                                     LLM (vLLM) ──[scan_model_output()]──> Client
 ```
 
@@ -1176,6 +1190,7 @@ Collected trace data can be used for offline prompt tuning (critic, query genera
 
 ## See Also
 
+- [SECURITY.md](SECURITY.md) — Prompt injection hardening, trust model, authority hierarchy, admin review workflow
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, output path, critic policy
 - [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) — Taxonomy metadata, Planner deep-dive, depth block injection
 - [critic_policy_spec.json](../base/planner/critic_policy_spec.json) — Critic policy engine spec

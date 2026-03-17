@@ -104,6 +104,7 @@ flowchart LR
 - **Taxonomy-driven prompt shaping** — 173 domain entries across 27 categories. Domain behavior, critic depth, writer persona, epistemic guidance, and planner decomposition rules are all YAML-configurable. Taxonomy config is compiled at startup with Pydantic schema validation and orphan detection. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
 - **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing, reducing cost and avoiding retry loops. See [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md).
 - **Design theory (Cynefin, sensemaking, joint cognitive systems)** — we frame complexity in Cynefin terms: clear → direct answer; complicated → plan + evidence + critic; complex → probe (retrieval, CRAG) then respond or escalate; chaotic → clarify first (ask the user), don’t run full writer/critic until the frame is stable. That keeps the system a joint cognitive system (human + AI), reduces oscillation on ambiguous prompts, and supports consistent quality across architecture, scientific, and other complex domains. See [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md).
+- **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. See [docs/SECURITY.md](docs/SECURITY.md).
 - **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
 ## Model Roles
@@ -276,6 +277,7 @@ synesis/
 | [docs/MODEL_EXERCISE.md](docs/MODEL_EXERCISE.md) | Observed model limitations, benchmark history |
 | [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric, scoring dimensions, calibration path |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
+| [docs/SECURITY.md](docs/SECURITY.md) | Prompt injection hardening, trust model, authority hierarchy, admin review workflow |
 
 ## Changing Models
 

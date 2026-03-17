@@ -113,18 +113,33 @@ _PERSONA_STOPWORDS = frozenset(
 )
 
 
+_PERSONA_MAX_LEN = 40
+_PERSONA_BLOCKLIST_PATTERNS = [
+    re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)", re.IGNORECASE),
+    re.compile(r"system\s*:", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now", re.IGNORECASE),
+    re.compile(r"new\s+instructions?\s*:", re.IGNORECASE),
+    re.compile(r"override\s+(?:your\s+)?(?:instructions?|prompt)", re.IGNORECASE),
+]
+
+
 def _detect_persona(raw_text: str) -> str:
     """Extract persona cue from the raw user message.
 
     Returns the persona label (e.g. "pirate", "professor", "ELI5") or ""
-    if no persona cue is detected.
+    if no persona cue is detected. Capped at _PERSONA_MAX_LEN chars and
+    rejected if it matches known injection patterns.
     """
     for pattern, template, skip_check in _PERSONA_PATTERNS:
         match = pattern.search(raw_text)
         if match:
             captured = match.group(1).strip().lower()
             if skip_check or (captured not in _PERSONA_STOPWORDS and len(captured) > 1):
-                return template.format(captured)
+                persona = template.format(captured)[:_PERSONA_MAX_LEN]
+                for bp in _PERSONA_BLOCKLIST_PATTERNS:
+                    if bp.search(persona):
+                        return ""
+                return persona
     return ""
 
 

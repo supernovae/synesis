@@ -51,6 +51,7 @@ const navigation: NavItem[] = [
       { label: "Corpus", path: "/rag/corpus" },
       { label: "Quality", path: "/rag/quality" },
       { label: "Benchmarks", path: "/rag/benchmarks" },
+      { label: "Review Queue", path: "/rag/review" },
     ],
   },
   {

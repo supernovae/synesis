@@ -19,6 +19,7 @@ from synesis_telemetry import get_logger
 from .content_gate import GatePolicy, score_chunk
 from .embed_client import EmbedClient
 from .enrichment import enrich_chunks_bulk
+from .injection_scan import scan_chunk_text
 from .handlers import get_handler
 from .handlers.base import Chunk, RawDocument
 from .milvus_writer import MilvusWriter, ProgressTracker, chunk_id_hash
@@ -210,9 +211,23 @@ def index_source(
     )
     embeddings = embedder.embed_texts(embed_inputs)
 
+    # 5.5. Injection scan (index-time; results stored for admin review queue)
+    scan_statuses: list[str] = []
+    flagged_count = 0
+    for doc, chunk, cid in new_chunks:
+        status = scan_chunk_text(chunk.text)
+        scan_statuses.append(status)
+        if status == "flagged":
+            flagged_count += 1
+    if flagged_count:
+        logger.info(
+            "indexer_injection_scan",
+            extra={"flagged": flagged_count, "total": len(new_chunks), "source": name},
+        )
+
     # 6. Build catalog entities (per-chunk metadata overrides source-level defaults)
     entities = []
-    for (doc, chunk, cid), enrichment, emb in zip(new_chunks, enrichments, embeddings):
+    for (doc, chunk, cid), enrichment, emb, chunk_scan in zip(new_chunks, enrichments, embeddings, scan_statuses):
         chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
         chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
         chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain
@@ -239,6 +254,7 @@ def index_source(
                 origin_type=origin_type,
                 authority=chunk_authority,
                 source_url=chunk_source_url,
+                scan_status=chunk_scan,
             )
         )
 

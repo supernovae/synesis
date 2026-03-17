@@ -2307,7 +2307,7 @@ async def knowledge_submit(req: KnowledgeSubmitRequest):
         if result.detected:
             logger.warning(
                 "knowledge_submit_injection_blocked",
-                extra={"patterns": [p.pattern_name for p in result.matches[:5]]},
+                extra={"patterns": result.patterns_found[:5]},
             )
             raise HTTPException(status_code=422, detail="Content rejected: potential prompt injection detected")
     chunk_id = await submit_user_knowledge(

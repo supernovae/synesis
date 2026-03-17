@@ -93,6 +93,21 @@ Three Prometheus metrics and Perses panels track retrieval health:
 - **Re-ranker Latency (p50/p95)**: Time series of reranking latency by reranker type (FlashRank, BGE).
 - **BM25 Fallback Rate**: Tracks how often the pipeline falls back to BM25-only due to vector service failures. A sustained non-zero rate indicates Milvus/embedder health issues.
 
+## Content Integrity
+
+RAG chunks are scanned for prompt injection patterns at index time.
+Each chunk receives a `scan_status` field in the Milvus schema (`clean`,
+`flagged`, or `unscanned`). Flagged chunks appear in the Admin UI review
+queue (`/rag/review`) where operators can vet (upgrade authority) or
+reject (delete) them.
+
+All RAG content — including vetted documents — is wrapped as
+`<context trust="untrusted">` in LLM prompts. Vetting boosts
+ranking via the authority hierarchy (`canonical` > `vetted` >
+`community` > `external`) but does not bypass trust boundaries.
+
+See [SECURITY.md](SECURITY.md) for the full defense-in-depth model.
+
 ## Deploying BGE Reranker
 
 The BGE reranker service runs as a separate deployment in the planner namespace:

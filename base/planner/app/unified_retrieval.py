@@ -150,11 +150,17 @@ def _web_to_unified(web_results: list[SearchResult], source_weight: float = 1.0)
     alongside canonical RAG hits, while [W] external results rank lower.
     source_weight is an additional multiplier from the search source catalog.
     """
+    from .injection_scanner import reduce_context_on_injection, scan_web_content
+
     out: list[UnifiedResult] = []
     for r in web_results:
         body = r.fetched_content.strip() if r.fetched_content else ""
         if not body:
             body = r.snippet[:300].replace("\n", " ").strip()
+        if body:
+            scan = scan_web_content(body, source=f"web:{r.url[:80]}")
+            if scan.detected:
+                body = reduce_context_on_injection(body, "")
         if not body:
             continue
         boost = AUTHORITY_BOOST.get(r.authority, AUTHORITY_BOOST["external"])

@@ -13,6 +13,9 @@ Version history:
   v4 → v5: Added native Milvus BM25 (english analyzer on text field,
             sparse_text SPARSE_FLOAT_VECTOR auto-populated by BM25
             Function). Replaces the external bm25-service microservice.
+  v5 → v6: Added scan_status for index-time injection scanning
+            (clean/flagged/unscanned). Admin review queue uses this to
+            surface suspicious documents for human vetting.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -41,7 +44,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -63,6 +66,7 @@ EXPECTED_FIELDS = frozenset(
         "origin_type",
         "authority",
         "source_url",
+        "scan_status",
         "embedding",
         "sparse_text",
     }
@@ -93,6 +97,8 @@ CATALOG_FIELDS = [
     FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
     FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
     FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
+    # Injection scan status (index-time scanning; admin review queue)
+    FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
     # Vector
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     # Sparse BM25 vector (auto-populated by BM25 Function from text field)
@@ -241,6 +247,7 @@ def catalog_entity(
     origin_type: str = "",
     authority: str = "community",
     source_url: str = "",
+    scan_status: str = "unscanned",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. Truncates fields to schema byte limits."""
     return {
@@ -261,5 +268,6 @@ def catalog_entity(
         "origin_type": (origin_type or "")[:32],
         "authority": (authority or "community")[:32],
         "source_url": _trunc_bytes(source_url or "", 512),
+        "scan_status": (scan_status or "unscanned")[:16],
         "embedding": embedding,
     }
