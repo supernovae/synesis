@@ -1676,13 +1676,31 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         )
                                     yield _sse_content_delta(chat_id, delta, run_id=run_id)
 
-                except Exception:
-                    logger.exception("graph_execution_error")
+                except Exception as _graph_exc:
+                    _cur_node = accumulated_state.get("current_node", "unknown") if accumulated_state else "unknown"
+                    _nxt_node = accumulated_state.get("next_node", "unknown") if accumulated_state else "unknown"
+                    _err_state = accumulated_state.get("error", "") if accumulated_state else ""
+                    _is_timeout = "timed out" in str(_err_state).lower() or "timeout" in str(_graph_exc).lower()
+                    _error_code = "timeout" if _is_timeout else "graph_error"
+                    logger.exception(
+                        "graph_execution_error",
+                        extra={
+                            "current_node": _cur_node,
+                            "next_node": _nxt_node,
+                            "error_code": _error_code,
+                            "state_error": str(_err_state)[:200] if _err_state else "",
+                        },
+                    )
                     record_chat_error(time.monotonic() - start)
                     rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
                     record_memory_after_request(rss_mib, cgroup_mib)
                     try:
-                        yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
+                        _err_payload = {
+                            "error": "Graph execution failed. Check server logs for details.",
+                            "error_code": _error_code,
+                            "node": _cur_node,
+                        }
+                        yield f"event: error\ndata: {json.dumps(_err_payload)}\n\n"
                         yield "data: [DONE]\n\n"
                     except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError):
                         pass
@@ -1977,12 +1995,30 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             for n, label, content in _format_debug_chatter(chunk):
                                 if content:
                                     yield _sse_debug_chatter_event(n, label, content)
-                except Exception:
-                    logger.exception("graph_execution_error")
+                except Exception as _graph_exc:
+                    _cur_node = result.get("current_node", "unknown") if result else "unknown"
+                    _nxt_node = result.get("next_node", "unknown") if result else "unknown"
+                    _err_state = result.get("error", "") if result else ""
+                    _is_timeout = "timed out" in str(_err_state).lower() or "timeout" in str(_graph_exc).lower()
+                    _error_code = "timeout" if _is_timeout else "graph_error"
+                    logger.exception(
+                        "graph_execution_error",
+                        extra={
+                            "current_node": _cur_node,
+                            "next_node": _nxt_node,
+                            "error_code": _error_code,
+                            "state_error": str(_err_state)[:200] if _err_state else "",
+                        },
+                    )
                     record_chat_error(time.monotonic() - start)
                     rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
                     record_memory_after_request(rss_mib, cgroup_mib)
-                    yield f"event: error\ndata: {json.dumps({'error': 'Graph execution failed. Check server logs for details.'})}\n\n"
+                    _err_payload = {
+                        "error": "Graph execution failed. Check server logs for details.",
+                        "error_code": _error_code,
+                        "node": _cur_node,
+                    }
+                    yield f"event: error\ndata: {json.dumps(_err_payload)}\n\n"
                     yield "data: [DONE]\n\n"
                     return
                 finally:
@@ -2035,14 +2071,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     try:
         config = get_graph_config(thread_id=run_id)
         result = await graph.ainvoke(initial_state, config=config)
-    except Exception:
-        logger.exception("graph_execution_error")
+    except Exception as _graph_exc:
+        _is_timeout = "timeout" in str(_graph_exc).lower()
+        _error_code = "timeout" if _is_timeout else "graph_error"
+        logger.exception(
+            "graph_execution_error",
+            extra={"error_code": _error_code},
+        )
         record_chat_error(time.monotonic() - start)
         rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
         record_memory_after_request(rss_mib, cgroup_mib)
         raise HTTPException(
             status_code=500,
-            detail="Graph execution failed. Check planner logs and admin status page for model health.",
+            detail=f"Graph execution failed ({_error_code}). Check planner logs and admin status page for model health.",
         ) from None
     finally:
         flush_tracer()

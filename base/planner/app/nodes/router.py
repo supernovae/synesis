@@ -1066,17 +1066,21 @@ class RouterNode:
 
         evidence_requests = state.get("evidence_requests") or []
 
+        reused_packets: list[EvidencePacket] = []
+
         if mode == "initial":
             if rag_mode == "light":
                 requests = [self._build_light_request(state)]
             else:
                 requests = self._build_initial_requests(state)
         elif mode in ("section_evidence", "refinement"):
-            requests = evidence_requests
+            requests, reused_packets = self._filter_covered_requests(
+                evidence_requests, state.get("evidence_packets") or []
+            )
         else:
             requests = []
 
-        if not requests:
+        if not requests and not reused_packets:
             requests = [
                 {
                     "description": task_desc,
@@ -1117,9 +1121,24 @@ class RouterNode:
                 req["_preseeded_lock"] = _preseeded_lock
 
         t_dispatch = time.monotonic()
-        packets, cohesion_lock = await self.parallel_dispatch(requests, task_context, difficulty, taxonomy_metadata)
+        if requests:
+            dispatched_packets, cohesion_lock = await self.parallel_dispatch(
+                requests, task_context, difficulty, taxonomy_metadata
+            )
+        else:
+            dispatched_packets, cohesion_lock = [], None
         dispatch_ms = (time.monotonic() - t_dispatch) * 1000
-        packets = self.dedupe(packets)
+
+        packets = self.dedupe(list(reused_packets) + dispatched_packets)
+        if reused_packets:
+            logger.info(
+                "router_reused_evidence",
+                extra={
+                    "reused": len(reused_packets),
+                    "dispatched": len(dispatched_packets),
+                    "total": len(packets),
+                },
+            )
 
         next_node = self._decide_next_node(state)
         latency_ms = (time.monotonic() - start) * 1000
@@ -1231,7 +1250,11 @@ class RouterNode:
             "node_traces": [
                 NodeTrace(
                     node_name="router",
-                    reasoning=f"mode={mode}, dispatched {len(requests)} requests, produced {len(packets)} packets",
+                    reasoning=(
+                        f"mode={mode}, dispatched {len(requests)} requests"
+                        + (f", reused {len(reused_packets)}" if reused_packets else "")
+                        + f", produced {len(packets)} packets"
+                    ),
                     confidence=min((p.confidence for p in packets), default=0.0),
                     outcome=NodeOutcome.SUCCESS,
                     latency_ms=latency_ms,
@@ -1241,6 +1264,63 @@ class RouterNode:
         if cohesion_lock:
             result["cohesion_lock"] = cohesion_lock
         return result
+
+    @staticmethod
+    def _filter_covered_requests(
+        requests: list[dict[str, Any]],
+        existing_packets: list[dict[str, Any] | EvidencePacket],
+    ) -> tuple[list[dict[str, Any]], list[EvidencePacket]]:
+        """Split section_evidence requests into to-fetch vs reused.
+
+        For each request, check if an existing packet covers it (same
+        section_id with adequate confidence).  Covered requests are
+        skipped; their packets are returned directly so the router
+        doesn't re-retrieve identical evidence.
+        """
+        if not existing_packets or not requests:
+            return list(requests), []
+
+        packet_by_sid: dict[int | None, list] = {}
+        all_packets: list[EvidencePacket] = []
+        for p in existing_packets:
+            if isinstance(p, dict):
+                sid = p.get("section_id")
+                conf = p.get("confidence", 0)
+                try:
+                    pkt = EvidencePacket(**p) if not isinstance(p, EvidencePacket) else p
+                except Exception:
+                    continue
+            else:
+                pkt = p
+                sid = getattr(p, "section_id", None)
+                conf = getattr(p, "confidence", 0)
+            all_packets.append(pkt)
+            packet_by_sid.setdefault(sid, []).append((pkt, conf))
+
+        to_fetch: list[dict[str, Any]] = []
+        reused: list[EvidencePacket] = []
+
+        for req in requests:
+            req_sid = req.get("section_id")
+            matched = False
+            if req_sid is not None and req_sid in packet_by_sid:
+                best = max(packet_by_sid[req_sid], key=lambda x: x[1])
+                if best[1] >= LOW_CONFIDENCE_THRESHOLD:
+                    reused.append(best[0])
+                    matched = True
+            if not matched:
+                to_fetch.append(req)
+
+        if reused:
+            logger.info(
+                "router_evidence_reuse",
+                extra={
+                    "total_requests": len(requests),
+                    "reused": len(reused),
+                    "to_fetch": len(to_fetch),
+                },
+            )
+        return to_fetch, reused
 
     def _domain_hints_from_state(self, state: dict[str, Any]) -> list[str]:
         """Prefer taxonomy_key and active_domain_refs over free-form domain_tags for retrieval filters."""
@@ -1287,11 +1367,14 @@ class RouterNode:
             requests.append({**base, "description": scoped_q})
 
         deliverables = user_task.get("deliverables") or []
+        max_del_reqs = settings.max_initial_deliverable_requests
         # Per-deliverable requests use single-query retrieval (no HyDE / expansion).
         # Multi-query is reserved for the main question where breadth matters most.
-        if len(deliverables) > 10:
-            for batch_idx in range(0, len(deliverables), 3):
-                batch = deliverables[batch_idx : batch_idx + 3]
+        # When deliverables exceed the cap, batch them to stay within bounds.
+        if len(deliverables) > max_del_reqs:
+            batch_size = max(1, len(deliverables) // max_del_reqs)
+            for batch_idx in range(0, len(deliverables), batch_size):
+                batch = deliverables[batch_idx : batch_idx + batch_size]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
                 scoped = self._scope_query_with_anchors(combined, anchor_terms)
                 requests.append({**base, "section_id": batch_idx, "description": scoped, "_light_mode": True})

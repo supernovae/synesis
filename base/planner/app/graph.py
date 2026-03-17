@@ -223,8 +223,61 @@ def route_after_router(state: dict[str, Any]) -> str:
     return "planner"
 
 
+def _evidence_sufficient(state: dict[str, Any]) -> bool:
+    """Check whether existing evidence_packets are sufficient to skip section_evidence.
+
+    Sufficient when packet count is high enough relative to plan steps and
+    mean confidence exceeds the configured threshold.
+    """
+    if not settings.skip_section_evidence_when_sufficient:
+        return False
+
+    packets = state.get("evidence_packets") or []
+    if not packets:
+        return False
+
+    steps = ((state.get("execution_plan") or {}).get("steps") or [])
+    num_steps = max(1, len(steps))
+    min_packets = int(num_steps * settings.evidence_sufficiency_min_packets_ratio)
+
+    if len(packets) < min_packets:
+        return False
+
+    confidences = [
+        p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)
+        for p in packets
+    ]
+    mean_conf = sum(confidences) / max(1, len(confidences))
+    sufficient = mean_conf >= settings.evidence_sufficiency_confidence_min
+
+    logger.info(
+        "evidence_sufficiency_check",
+        extra={
+            "packets": len(packets),
+            "num_steps": num_steps,
+            "min_packets": min_packets,
+            "mean_confidence": round(mean_conf, 3),
+            "threshold": settings.evidence_sufficiency_confidence_min,
+            "sufficient": sufficient,
+        },
+    )
+    return sufficient
+
+
+def _next_after_planner(state: dict[str, Any]) -> str:
+    """Determine the right target node when planner routes forward (not to router)."""
+    text_only = settings.frontdoor_mode == "text_only"
+    is_code_task = state.get("is_code_task", False) and not text_only
+    return "executor" if is_code_task else "writer"
+
+
 def route_after_planner(state: dict[str, Any]) -> str:
-    """After planner: clarification, approval, evidence requests, or proceed to router for section evidence."""
+    """After planner: clarification, approval, evidence requests, or proceed.
+
+    When initial evidence is sufficient, skip the second router pass
+    (section_evidence) and go directly to writer/executor. Only the
+    critic can trigger a refetch later via need_more_evidence.
+    """
     if state.get("clarification_question"):
         return "respond"
     if state.get("plan_pending_approval"):
@@ -238,7 +291,7 @@ def route_after_planner(state: dict[str, Any]) -> str:
             "planner_fallback_routing_to_writer",
             extra={"planner_errors": planner_errors},
         )
-        return "router"
+        return _next_after_planner(state)
 
     if planner_errors >= 2 and not has_plan:
         logger.error(
@@ -247,9 +300,13 @@ def route_after_planner(state: dict[str, Any]) -> str:
         )
         return "respond"
 
-    evidence_requests = state.get("evidence_requests") or []
-    if evidence_requests:
-        return "router"
+    if _evidence_sufficient(state):
+        target = _next_after_planner(state)
+        logger.info(
+            "planner_skip_section_evidence",
+            extra={"target": target},
+        )
+        return target
 
     return "router"
 
@@ -967,11 +1024,11 @@ graph_builder.add_conditional_edges(
     {"planner": "planner", "executor": "executor", "writer": "writer", "respond": "respond"},
 )
 
-# Planner -> router (always — router decides next step)
+# Planner -> router (section evidence) | writer/executor (evidence sufficient) | respond
 graph_builder.add_conditional_edges(
     "planner",
     route_after_planner,
-    {"router": "router", "respond": "respond"},
+    {"router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
 )
 
 # Executor -> patch_integrity_gate | respond

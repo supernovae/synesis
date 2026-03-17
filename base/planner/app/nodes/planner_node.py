@@ -162,11 +162,17 @@ planner_llm = ChatOpenAI(
 
 
 def _build_evidence_context(state: dict[str, Any]) -> str:
-    """Format evidence packets from the Router for the planner prompt."""
+    """Format evidence packets from the Router for the planner prompt.
+
+    When we already have strong evidence (high packet count and confidence),
+    append a hint telling the planner to prefer fewer, combined sections
+    so we avoid unnecessary section_evidence re-retrieval.
+    """
     packets = state.get("evidence_packets") or []
     if not packets:
         return ""
     parts: list[str] = []
+    confidences: list[float] = []
     for p in packets:
         if isinstance(p, dict):
             summary = p.get("summary", "")
@@ -178,10 +184,20 @@ def _build_evidence_context(state: dict[str, Any]) -> str:
             query = getattr(p, "query", "")
         if summary:
             parts.append(f'[query="{query}", confidence={confidence:.2f}]\n{summary}')
+            confidences.append(float(confidence))
     if not parts:
         return ""
     body = "\n---\n".join(parts)
-    return f'\n<context source="evidence" trust="untrusted">\n{body}\n</context>\n'
+    ctx = f'\n<context source="evidence" trust="untrusted">\n{body}\n</context>\n'
+
+    mean_conf = sum(confidences) / len(confidences) if confidences else 0
+    if len(parts) >= 3 and mean_conf >= 0.4:
+        ctx += (
+            "\nNote: Strong evidence already gathered above. "
+            "Prefer 3–5 cohesive sections unless the user explicitly "
+            "requested more distinct deliverables.\n"
+        )
+    return ctx
 
 
 def _extract_decisions(
@@ -646,11 +662,14 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             taxonomy_metadata=state.get("taxonomy_metadata"),
         )
 
-        # Evidence requests for sections that may need more retrieval
+        # Evidence requests for sections that may need more retrieval.
+        # Capped by max_evidence_requests_per_round so the second router pass
+        # stays bounded; the writer can use initial packets for uncapped sections.
         domain_tags = list(state.get("active_domain_refs") or [])
         if active_vertical:
             domain_tags.append(active_vertical)
         evidence_requests = []
+        cap = settings.max_evidence_requests_per_round
         for step in steps:
             if isinstance(step, dict):
                 evidence_requests.append(
@@ -660,6 +679,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                         "domain_hints": domain_tags,
                     }
                 )
+        if len(evidence_requests) > cap:
+            logger.info(
+                "planner_evidence_requests_capped",
+                extra={"original": len(evidence_requests), "cap": cap},
+            )
+            evidence_requests = evidence_requests[:cap]
 
         # Phase 2: clarify-first gate — deterministic, uses existing plumbing
         clarify_question = ""

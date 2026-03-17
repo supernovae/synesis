@@ -337,6 +337,15 @@ class Settings(BaseSettings):
     # Guided JSON decoding — constrains vLLM output to match JSON schema
     guided_json_enabled: bool = True
 
+    # Evidence sufficiency gate — skip section_evidence when initial evidence is good enough.
+    skip_section_evidence_when_sufficient: bool = True
+    evidence_sufficiency_confidence_min: float = 0.4  # mean confidence threshold to consider evidence sufficient
+    evidence_sufficiency_min_packets_ratio: float = 0.75  # packets >= ratio * num_plan_steps to be sufficient
+
+    # Evidence fan-out caps — bound the number of parallel requests per router pass
+    max_evidence_requests_per_round: int = 4  # planner caps evidence_requests to this many
+    max_initial_deliverable_requests: int = 3  # router caps per-deliverable requests in initial mode
+
     # Graph behavior
     max_iterations: int = 3
     oscillation_threshold: float = 0.7  # force-terminate retry loop when oscillation score exceeds this
