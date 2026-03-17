@@ -61,6 +61,40 @@ logger = get_logger("synesis.api")
 
 _background_tasks: set[asyncio.Task] = set()
 
+# ---------------------------------------------------------------------------
+# Prompt-level response cache (identical user+prompt+model → cached response)
+# ---------------------------------------------------------------------------
+_prompt_cache: dict[str, tuple[float, str]] = {}  # key → (expires_at, response_text)
+
+
+def _prompt_cache_key(user_id: str, prompt: str, model: str) -> str:
+    raw = f"{user_id}\x00{prompt}\x00{model}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
+    if not settings.prompt_cache_enabled:
+        return None
+    key = _prompt_cache_key(user_id, prompt, model)
+    entry = _prompt_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, text = entry
+    if time.monotonic() > expires_at:
+        _prompt_cache.pop(key, None)
+        return None
+    return text
+
+
+def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> None:
+    if not settings.prompt_cache_enabled or not response:
+        return
+    if len(_prompt_cache) >= settings.prompt_cache_max_entries:
+        oldest_key = next(iter(_prompt_cache))
+        _prompt_cache.pop(oldest_key, None)
+    key = _prompt_cache_key(user_id, prompt, model)
+    _prompt_cache[key] = (time.monotonic() + settings.prompt_cache_ttl_seconds, response)
+
 
 def _get_rss_mib() -> float:
     """Return current process RSS in MiB (for metrics and logging)."""
@@ -1252,6 +1286,45 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             initial_state["pending_question_continue"] = True
             initial_state["pending_question_source"] = source_node if source_node != "planner" else "executor"
 
+    # Prompt-level cache: return cached response for identical (user + prompt + model)
+    cached_response = _prompt_cache_get(user_id, last_user_content or "", request.model)
+    if cached_response is not None:
+        logger.info(
+            "prompt_cache_hit",
+            extra={"user_id": user_id, "run_id": run_id, "model": request.model},
+        )
+        record_chat_success(time.monotonic() - start)
+        if request.stream:
+            _cache_chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
+
+            async def _cached_sse() -> Any:
+                yield _sse_content_delta(
+                    _cache_chat_id,
+                    {"role": "assistant", "content": cached_response},
+                    run_id=run_id,
+                )
+                yield _sse_chunk(
+                    {
+                        "id": _cache_chat_id,
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "run_id": run_id,
+                    }
+                )
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                _cached_sse(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+            )
+        return ChatCompletionResponse(
+            choices=[Choice(message=ChatMessage(role="assistant", content=cached_response), finish_reason="stop")],
+            usage=Usage(),
+            run_id=run_id,
+        )
+
     if request.stream:
         chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
@@ -1480,6 +1553,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         memory_scope=memory_scope,
                                         model=request.model,
                                     )
+                                    _prompt_cache_put(user_id, last_user_content or "", request.model, content)
                                     record_chat_success(time.monotonic() - start)
                                     total_elapsed_ms = int((time.monotonic() - t_start) * 1000)
                                     logger.info(
@@ -1853,6 +1927,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     memory_scope=memory_scope,
                     model=request.model,
                 )
+                _prompt_cache_put(user_id, last_user_content or "", request.model, content)
                 record_chat_success(time.monotonic() - start)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=accumulated_state)
                 record_memory_after_request(rss_mib, cgroup_mib)
@@ -2036,6 +2111,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 content, _ = _extract_content_and_metrics(
                     result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
                 )
+                _prompt_cache_put(user_id, last_user_content or "", request.model, content)
                 record_chat_success(time.monotonic() - start)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
                 record_memory_after_request(rss_mib, cgroup_mib)
@@ -2091,6 +2167,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     content, total_tokens = _extract_content_and_metrics(
         result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
     )
+    _prompt_cache_put(user_id, last_user_content or "", request.model, content)
 
     latency_ms = (time.monotonic() - start) * 1000
     record_chat_success(latency_ms / 1000)

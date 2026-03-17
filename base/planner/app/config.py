@@ -346,6 +346,15 @@ class Settings(BaseSettings):
     max_evidence_requests_per_round: int = 4  # planner caps evidence_requests to this many
     max_initial_deliverable_requests: int = 3  # router caps per-deliverable requests in initial mode
 
+    # Prompt-level response cache — identical (user + prompt + model) returns cached response
+    prompt_cache_enabled: bool = False  # opt-in; useful for testing/CI
+    prompt_cache_ttl_seconds: int = 3600
+    prompt_cache_max_entries: int = 256
+
+    # Frame extraction cache — cache full UserTask dict by task_description hash
+    frame_cache_enabled: bool = True
+    frame_cache_max_entries: int = 128
+
     # Graph behavior
     max_iterations: int = 3
     oscillation_threshold: float = 0.7  # force-terminate retry loop when oscillation score exceeds this

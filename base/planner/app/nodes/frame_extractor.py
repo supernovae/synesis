@@ -10,6 +10,8 @@ Output: UserTask dict written to state["user_task"], consumed by all downstream 
 from __future__ import annotations
 
 import asyncio
+import collections
+import hashlib
 import json
 import logging
 import re
@@ -27,6 +29,35 @@ from ..state import NodeOutcome, NodeTrace
 from .frame_normalizer import normalize_frame
 
 logger = logging.getLogger("synesis.frame_extractor")
+
+# ---------------------------------------------------------------------------
+# Frame extraction cache — caches full UserTask dict by task_description hash
+# ---------------------------------------------------------------------------
+_frame_cache: collections.OrderedDict[str, tuple[float, dict[str, Any]]] = collections.OrderedDict()
+
+
+def _frame_cache_get(task_description: str) -> dict[str, Any] | None:
+    if not settings.frame_cache_enabled:
+        return None
+    key = hashlib.sha256(task_description.encode()).hexdigest()
+    entry = _frame_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, result = entry
+    if expires_at and time.monotonic() > expires_at:
+        _frame_cache.pop(key, None)
+        return None
+    _frame_cache.move_to_end(key)
+    return result
+
+
+def _frame_cache_put(task_description: str, result: dict[str, Any]) -> None:
+    if not settings.frame_cache_enabled:
+        return
+    key = hashlib.sha256(task_description.encode()).hexdigest()
+    while len(_frame_cache) >= settings.frame_cache_max_entries:
+        _frame_cache.popitem(last=False)
+    _frame_cache[key] = (0.0, result)  # no TTL expiry (0 = never)
 
 # --------------------------------------------------------------------------- #
 # Stage 3: LLM repair prompt (compact — NOT full re-extraction)
@@ -262,6 +293,25 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             ],
         }
 
+    # Frame cache: return cached result for identical task descriptions
+    cached_frame = _frame_cache_get(task_description)
+    if cached_frame is not None:
+        latency = (time.monotonic() - start) * 1000
+        logger.info("frame_cache_hit", extra={"latency_ms": round(latency)})
+        return {
+            "user_task": cached_frame,
+            "current_node": node_name,
+            "node_traces": [
+                NodeTrace(
+                    node_name=node_name,
+                    reasoning="frame_cache_hit",
+                    confidence=0.9,
+                    outcome=NodeOutcome.SUCCESS,
+                    latency_ms=latency,
+                )
+            ],
+        }
+
     try:
         # Stage 1: GLiNER2 extraction (offloaded to thread to avoid blocking event loop)
         prompt_text = task_description[:3000]
@@ -377,6 +427,8 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "latency_ms": round(latency),
             },
         )
+
+        _frame_cache_put(task_description, user_task_dict)
 
         result: dict[str, Any] = {
             "user_task": user_task_dict,

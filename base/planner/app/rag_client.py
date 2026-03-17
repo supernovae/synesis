@@ -140,13 +140,32 @@ def _is_connection_dead_error(exc: BaseException) -> bool:
     return any(marker.lower() in msg for marker in _CONNECTION_DEAD_MARKERS)
 
 
+def _evict_dead_alias(client) -> None:
+    """Remove a dead client's connection alias from pymilvus's internal registry.
+
+    Without this, pymilvus reuses the dead gRPC channel when a new
+    MilvusClient is created, causing cascading pool failures.
+    """
+    try:
+        from pymilvus.orm.connections import connections
+
+        alias = getattr(client, "_using", None)
+        if alias and connections.has_connection(alias):
+            connections.remove_connection(alias)
+            logger.debug("milvus_alias_evicted", extra={"alias": alias})
+    except Exception:
+        pass
+
+
 def _create_milvus_client():
     from pymilvus import MilvusClient
 
-    return MilvusClient(
+    client = MilvusClient(
         uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
         timeout=_MILVUS_TIMEOUT,
     )
+    client.list_collections()
+    return client
 
 
 def _get_milvus_pool() -> asyncio.Queue:
@@ -168,13 +187,18 @@ def _get_milvus_pool() -> asyncio.Queue:
 async def _acquire_milvus_client():
     """Acquire a client from the pool, validating the connection."""
     pool = _get_milvus_pool()
-    client = await pool.get()
+    try:
+        client = await asyncio.wait_for(pool.get(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("milvus_pool_exhausted")
+        return _create_milvus_client()
     try:
         await asyncio.to_thread(client.list_collections)
         return client
     except Exception as e:
         if _is_connection_dead_error(e):
             logger.info("milvus_pool_replace_dead", extra={"error": str(e)[:120]})
+            _evict_dead_alias(client)
             try:
                 return _create_milvus_client()
             except Exception as create_e:
@@ -521,6 +545,7 @@ async def _hybrid_search(
         return []
 
     last_err: BaseException | None = None
+    discard = False
     try:
         for attempt in range(2):
             try:
@@ -536,10 +561,12 @@ async def _hybrid_search(
             except Exception as e:
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
+                    _evict_dead_alias(client)
                     try:
                         client = _create_milvus_client()
                     except Exception:
-                        pass
+                        discard = True
+                        break
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
                     continue
                 logger.warning(
@@ -555,7 +582,8 @@ async def _hybrid_search(
                 )
             return []
     finally:
-        await _release_milvus_client(client)
+        if not discard:
+            await _release_milvus_client(client)
 
     formatted: list[dict[str, Any]] = []
     for hit in results[0] if results else []:
@@ -620,6 +648,7 @@ async def _sparse_search(
 
     last_err: BaseException | None = None
     results = None
+    discard = False
     try:
         for attempt in range(2):
             try:
@@ -628,10 +657,12 @@ async def _sparse_search(
             except Exception as e:
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
+                    _evict_dead_alias(client)
                     try:
                         client = _create_milvus_client()
                     except Exception:
-                        pass
+                        discard = True
+                        break
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
                     continue
                 logger.warning(
@@ -646,7 +677,8 @@ async def _sparse_search(
             )
             return []
     finally:
-        await _release_milvus_client(client)
+        if not discard:
+            await _release_milvus_client(client)
 
     formatted: list[dict[str, Any]] = []
     for hits in (results or []):
