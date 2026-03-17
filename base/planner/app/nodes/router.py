@@ -77,19 +77,20 @@ RULES:
 - Include both the specific topic AND broader related terms.
   Good: "internal coding assistant architecture RAG retrieval design"
   Bad: "Kubernetes" (too vague), "Kubernetes pod networking DNS resolution CoreDNS troubleshooting" (too narrow)
+- Maximum 30 words.
 - Output ONLY the query string, nothing else. No explanations, no reasoning.
 """
 
 HYDE_PROMPT = """\
 Write a 2-3 sentence summary that would appear in a document answering this question. \
-Write as if it already exists. Output ONLY the summary, no explanation.
+Write as if it already exists. Maximum 3 sentences. Output ONLY the summary, no explanation.
 
 QUESTION: {question}
 """
 
 CONCEPTUAL_EXPANSION_PROMPT = """\
 Given this retrieval need, list 5-8 related terms, synonyms, or concepts \
-that relevant documents might use instead. Output terms separated by spaces, nothing else.
+that relevant documents might use instead. Maximum 10 terms. Output terms separated by spaces, nothing else.
 
 NEED: {need}
 DOMAIN: {domain}
@@ -123,6 +124,7 @@ RULES:
    - Copy each raw result's "url" VERBATIM into snippets[].source_uri for every snippet from that result
    - Do NOT omit, shorten, or fabricate URLs
    - Include "authority" and "document" in sources[].metadata when available
+10. Keep the summary under {max_summary_tokens} tokens. Do not pad with filler. Omit obvious qualifiers.
 
 Output ONLY valid JSON matching this schema (no markdown fences, no prose):
 {{
@@ -175,7 +177,7 @@ REFINEMENT RULES:
    "<repo path> + <file type> + <concept>"
    "<component> + <error> + <context>"
 
-Output ONLY the refined query string, nothing else.
+Maximum 30 words. Output ONLY the refined query string, nothing else.
 """
 
 
@@ -184,11 +186,29 @@ Output ONLY the refined query string, nothing else.
 # ---------------------------------------------------------------------------
 
 _router_llm: ChatOpenAI | None = None
+_router_query_llm: ChatOpenAI | None = None
 _summarizer_llm: ChatOpenAI | None = None
 
 
+def _get_router_query_llm() -> ChatOpenAI:
+    """Tight LLM for short-form outputs: query gen, HyDE, expansion, refine."""
+    global _router_query_llm
+    if _router_query_llm is None:
+        _router_query_llm = ChatOpenAI(
+            base_url=settings.router_model_url,
+            api_key="not-needed",
+            model=settings.router_model_name,
+            temperature=0.0,
+            max_completion_tokens=settings.router_query_max_tokens,
+            use_responses_api=False,
+            model_kwargs={"stop": ["\n"]},
+            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
+        )
+    return _router_query_llm
+
+
 def _get_router_llm() -> ChatOpenAI:
-    """Plain router LLM for generate_query / refine_query (free-form text)."""
+    """Router LLM for summarization (larger output budget)."""
     global _router_llm
     if _router_llm is None:
         _router_llm = ChatOpenAI(
@@ -255,7 +275,7 @@ class RouterNode:
 
     async def generate_query(self, evidence_request: dict[str, Any], task_context: str = "") -> str:
         """Use LLM to produce a retrieval query from an evidence request."""
-        llm = _get_router_llm()
+        llm = _get_router_query_llm()
         prompt = QUERY_GENERATOR_PROMPT.format(
             request=json.dumps(evidence_request, default=str),
             task_context=task_context[:500],
@@ -272,7 +292,7 @@ class RouterNode:
         """Generate a hypothetical document snippet for HyDE vector search."""
         if not settings.router_hyde_enabled:
             return ""
-        llm = _get_router_llm()
+        llm = _get_router_query_llm()
         prompt = HYDE_PROMPT.format(question=question[:300])
         resp = await llm.ainvoke(
             [
@@ -298,7 +318,7 @@ class RouterNode:
             hints_block = f"RELATED CONCEPTS: {', '.join(expansion_hints[:6])}"
         tech_terms = " ".join(technologies[:4]) if technologies else ""
 
-        llm = _get_router_llm()
+        llm = _get_router_query_llm()
         prompt = CONCEPTUAL_EXPANSION_PROMPT.format(
             need=need[:300],
             domain=domain,
@@ -458,7 +478,7 @@ class RouterNode:
 
     async def refine_query(self, query: str, packet: EvidencePacket) -> str:
         """Use LLM to produce a more specific query when evidence is insufficient."""
-        llm = _get_router_llm()
+        llm = _get_router_query_llm()
         prompt = REFINER_PROMPT.format(
             query=query,
             summary=packet.summary[:300],

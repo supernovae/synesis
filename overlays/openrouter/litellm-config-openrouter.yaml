@@ -27,14 +27,15 @@ data:
           max_tokens: 32768
           temperature: 0.2
 
-      # Router (classification, planning, advisor) — Grok 4 Fast:
-      # non-reasoning mode, $0.20/M in / $0.50/M out, 2M context
+      # Router (classification, planning, advisor) — Grok 4 Fast Non-Reasoning:
+      # Skips thinking-token phase for structured JSON tasks.
+      # $0.20/M in / $0.50/M out, 2M context
       # Temperature 0.1: classification/routing needs deterministic consistency
       - model_name: synesis-router
         litellm_params:
-          model: openrouter/x-ai/grok-4-fast
+          model: openrouter/x-ai/grok-4-fast-non-reasoning
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 4096
+          max_tokens: 1500
           temperature: 0.1
 
       # General (executor, writer, synthesis) — DeepSeek V3.2:
@@ -74,9 +75,9 @@ data:
       # Summarizer (pivot history compression)
       - model_name: synesis-summarizer
         litellm_params:
-          model: openrouter/x-ai/grok-4-fast
+          model: openrouter/x-ai/grok-4-fast-non-reasoning
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 2048
+          max_tokens: 1500
           temperature: 0.1
 
     litellm_settings:

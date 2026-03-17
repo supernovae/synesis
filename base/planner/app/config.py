@@ -312,7 +312,9 @@ class Settings(BaseSettings):
     l2_archive_ttl_seconds: int = 604_800  # 7 days
 
     # Router summarizer: max tokens for evidence packet summaries
-    router_max_summary_tokens: int = 2000
+    router_max_summary_tokens: int = 1200
+    # Router query generation: max tokens for short-form outputs (queries, HyDE, expansion)
+    router_query_max_tokens: int = 128
 
     # Router multi-query expansion (Retrieval Enrichment Pipeline)
     router_multi_query_enabled: bool = True  # 3 variants per evidence request

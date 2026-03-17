@@ -133,13 +133,14 @@ NOT echoes of the user's imperative phrasing. "Explain how retrieval should work
 - Do NOT use generic labels like "Deep Dive", "Overview", or "Introduction".
 - Constraints and context facts are cross-cutting — do NOT create separate sections \
 for them. Instead, each section should weave relevant constraints into its analysis.
+- Keep action descriptions to one sentence. Do not elaborate in reasoning — 1-2 sentences max.
 """
         + _PLANNER_TRUST_POLICY
     )
 
 
 _planner_extra_body: dict[str, Any] = {}
-_planner_model_kw: dict[str, Any] = {}
+_planner_model_kw: dict[str, Any] = {"stop": ["\n\n"]}
 if settings.guided_json_enabled:
     _planner_extra_body["guided_json"] = PlannerOut.model_json_schema()
 else:
@@ -152,7 +153,7 @@ planner_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.planner_model_name,
     temperature=0.1,
-    max_completion_tokens=2048,
+    max_completion_tokens=1024,
     streaming=False,
     use_responses_api=False,
     model_kwargs=_planner_model_kw,

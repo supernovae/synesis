@@ -53,6 +53,7 @@ Rules:
 changes, latest versions, news, or anything time-sensitive.
 
 Output valid JSON matching this schema. No prose outside the JSON object.
+Be terse. Every value should use the minimum words needed. Do not elaborate inside JSON string values.
 
 {
   "main_question": "one-sentence core request",
@@ -78,7 +79,7 @@ async def _llm_repair(
     report: MissingFieldReport,
 ) -> UserTask:
     """Stage 3: LLM second-pass to repair missing/conflicting fields."""
-    _repair_kw: dict[str, Any] = {}
+    _repair_kw: dict[str, Any] = {"stop": ["\n\n"]}
     if settings.guided_json_enabled:
         _repair_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
     else:
@@ -89,7 +90,7 @@ async def _llm_repair(
         api_key="not-needed",
         model=settings.planner_model_name,
         temperature=0.1,
-        max_completion_tokens=2048 if not settings.guided_json_enabled else 1024,
+        max_completion_tokens=768 if not settings.guided_json_enabled else 1024,
         streaming=True,
         use_responses_api=False,
         model_kwargs=_repair_kw,
