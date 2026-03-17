@@ -29,7 +29,22 @@ from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("synesis.tracer")
 
-_MAX_SNIPPET = int(os.environ.get("SYNESIS_TRACE_SNIPPET_MAX_CHARS", "500"))
+# Snippet length for list/compact views; full content for debug (stored in prompt_full/completion_full).
+_MAX_SNIPPET = 500
+_MAX_FULL_CHARS = int(os.environ.get("SYNESIS_TRACE_FULL_CONTENT_MAX_CHARS", "50000"))
+
+# Human-readable labels for graph node names in traces.
+_NODE_DISPLAY_NAMES: dict[str, str] = {
+    "entry_pipeline": "Frame extraction",
+    "router": "Router",
+    "planner": "Planner",
+    "executor": "Executor",
+    "writer": "Writer",
+    "critic": "Critic",
+    "patch_integrity_gate": "Patch gate",
+    "final_scrubber": "Final scrubber",
+    "respond": "Respond",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -47,12 +62,15 @@ class LLMCallRecord:
     latency_ms: float = 0.0
     prompt_snippet: str = ""
     completion_snippet: str = ""
+    prompt_full: str = ""
+    completion_full: str = ""
     timestamp: float = 0.0
 
 
 @dataclass
 class SpanRecord:
     node_name: str = ""
+    intent: str = ""
     start_time: float = 0.0
     end_time: float = 0.0
     latency_ms: float = 0.0
@@ -241,7 +259,7 @@ class SynesisTracer(BaseCallbackHandler):
         super().__init__()
         self._current_trace: TraceRecord | None = None
         self._active_spans: dict[str, SpanRecord] = {}
-        self._llm_starts: dict[str, tuple[float, str, str]] = {}  # run_id -> (start_time, node, prompt_snippet)
+        self._llm_starts: dict[str, tuple[float, str, str, str]] = {}  # run_id -> (start_time, node, snippet, full)
         self._trace_start: float = 0.0
 
     # -- Trace lifecycle ---------------------------------------------------
@@ -398,6 +416,16 @@ class SynesisTracer(BaseCallbackHandler):
                 return
             span.end_time = time.time()
             span.latency_ms = (span.end_time - span.start_time) * 1000
+            # Intent label: human-readable node + primary model (e.g. "Router (synesis-router)")
+            display = _NODE_DISPLAY_NAMES.get(span.node_name, span.node_name.replace("_", " ").title())
+            if span.llm_calls:
+                primary_model = span.llm_calls[0].model or ""
+                if primary_model:
+                    span.intent = f"{display} ({primary_model})"
+                else:
+                    span.intent = display
+            else:
+                span.intent = display
             self._current_trace.spans.append(span)
         except Exception:
             logger.debug("on_chain_end_callback_error", exc_info=True)
@@ -417,7 +445,13 @@ class SynesisTracer(BaseCallbackHandler):
             span.end_time = time.time()
             span.latency_ms = (span.end_time - span.start_time) * 1000
             span.outcome = "error"
-            span.reasoning = str(error)[:_MAX_SNIPPET]
+            span.reasoning = str(error)[:_MAX_FULL_CHARS]
+            display = _NODE_DISPLAY_NAMES.get(span.node_name, span.node_name.replace("_", " ").title())
+            if span.llm_calls:
+                primary = span.llm_calls[0].model or ""
+                span.intent = f"{display} ({primary})" if primary else display
+            else:
+                span.intent = display
             self._current_trace.spans.append(span)
         except Exception:
             logger.debug("on_chain_error_callback_error", exc_info=True)
@@ -443,6 +477,7 @@ class SynesisTracer(BaseCallbackHandler):
                 time.monotonic(),
                 node,
                 prompt_text[:_MAX_SNIPPET],
+                prompt_text[:_MAX_FULL_CHARS],
             )
         except Exception:
             logger.debug("on_llm_start_callback_error", exc_info=True)
@@ -460,10 +495,13 @@ class SynesisTracer(BaseCallbackHandler):
             return
         try:
             prompt_snippet = ""
+            prompt_full = ""
             if messages and messages[0]:
                 last_msg = messages[0][-1]
                 content = getattr(last_msg, "content", str(last_msg))
-                prompt_snippet = (content if isinstance(content, str) else str(content))[:_MAX_SNIPPET]
+                prompt_full = content if isinstance(content, str) else str(content)
+                prompt_snippet = prompt_full[:_MAX_SNIPPET]
+                prompt_full = prompt_full[:_MAX_FULL_CHARS]
             node = ""
             parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
             if parent_span:
@@ -472,6 +510,7 @@ class SynesisTracer(BaseCallbackHandler):
                 time.monotonic(),
                 node,
                 prompt_snippet,
+                prompt_full,
             )
         except Exception:
             logger.debug("on_chat_model_start_callback_error", exc_info=True)
@@ -489,9 +528,14 @@ class SynesisTracer(BaseCallbackHandler):
         try:
             rid = str(run_id)
             start_info = self._llm_starts.pop(rid, None)
-            start_time, node, prompt_snippet = start_info if start_info else (time.monotonic(), "", "")
+            start_time, node, prompt_snippet, prompt_full = (
+                start_info if start_info else (time.monotonic(), "", "", "")
+            )
+            if len(start_info or ()) == 3:
+                prompt_full = prompt_snippet
 
             completion_snippet = ""
+            completion_full = ""
             prompt_tokens = 0
             completion_tokens = 0
             total_tokens = 0
@@ -503,7 +547,8 @@ class SynesisTracer(BaseCallbackHandler):
                 if not text and hasattr(gen, "message"):
                     msg_content = getattr(gen.message, "content", "")
                     text = msg_content if isinstance(msg_content, str) else str(msg_content)
-                completion_snippet = text[:_MAX_SNIPPET]
+                completion_full = text[:_MAX_FULL_CHARS]
+                completion_snippet = completion_full[:_MAX_SNIPPET]
 
             if response.llm_output:
                 usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
@@ -521,6 +566,8 @@ class SynesisTracer(BaseCallbackHandler):
                 latency_ms=(time.monotonic() - start_time) * 1000,
                 prompt_snippet=prompt_snippet,
                 completion_snippet=completion_snippet,
+                prompt_full=prompt_full,
+                completion_full=completion_full,
                 timestamp=time.time(),
             )
 

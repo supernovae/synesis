@@ -32,7 +32,7 @@ import asyncio
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
@@ -100,13 +100,14 @@ class UnifiedResult:
 
 @dataclass
 class RetrievalBundle:
-    """Results from retrieve_unified() with optional cohesion lock metadata."""
+    """Results from retrieve_unified() with optional cohesion lock and phase timings."""
 
     results: list[UnifiedResult]
     cohesion_lock: dict[str, Any] | None = None
     rag_degraded: bool = False
     web_degraded: bool = False
     degradation_notes: str = ""
+    phase_timings: dict[str, float] = field(default_factory=dict)
 
 
 def _rag_to_unified(rag_results: list) -> list[UnifiedResult]:
@@ -812,6 +813,12 @@ async def retrieve_unified(
         rag_degraded=_rag_degraded,
         web_degraded=_web_degraded,
         degradation_notes="; ".join(_degradation_notes_parts) if _degradation_notes_parts else "",
+        phase_timings={
+            "phase1_rag_web_ms": round(phase1_ms, 1),
+            "phase5b_cohesion_ms": round(phase5b_ms, 1),
+            "phase6_coherence_ms": round(phase6_ms, 1),
+            "total_ms": round(total_retrieval_ms, 1),
+        },
     )
 
 

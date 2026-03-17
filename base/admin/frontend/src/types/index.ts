@@ -266,11 +266,14 @@ export interface LLMCallRecord {
   latency_ms: number;
   prompt_snippet: string;
   completion_snippet: string;
+  prompt_full?: string;
+  completion_full?: string;
   timestamp: number;
 }
 
 export interface SpanRecord {
   node_name: string;
+  intent?: string;
   start_time: number;
   end_time: number;
   latency_ms: number;

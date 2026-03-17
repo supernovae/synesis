@@ -559,7 +559,9 @@ class RouterNode:
         if _tracer:
             _tracer.record_phase_timing("router.query_gen_ms", qgen_ms)
 
-        async def _run_request(req: dict[str, Any], q: str) -> tuple[EvidencePacket, dict[str, Any] | None]:
+        async def _run_request(
+            req: dict[str, Any], q: str
+        ) -> tuple[EvidencePacket, dict[str, Any] | None, dict[str, Any]]:
             query_hint = q or str(req.get("description") or "")[:120]
             try:
                 return await asyncio.wait_for(
@@ -577,16 +579,20 @@ class RouterNode:
                     "router_request_timeout",
                     extra={"query": query_hint[:80], "timeout_seconds": round(self.request_timeout_seconds, 1)},
                 )
-                return _timeout_packet(
-                    query_hint or "evidence request",
-                    f"Evidence request timed out after {self.request_timeout_seconds:.1f}s",
-                ), None
+                return (
+                    _timeout_packet(
+                        query_hint or "evidence request",
+                        f"Evidence request timed out after {self.request_timeout_seconds:.1f}s",
+                    ),
+                    None,
+                    {},
+                )
 
         tasks = [_run_request(req, q) for req, q in zip(requests, queries)]
         n_tasks = len(tasks)
 
         async def _run_with_progress(idx: int, coro) -> tuple[int, Any]:
-            result = await coro
+            result = await coro  # (packet, lock, timings) or Exception
             emit_sub_phase(f"Evidence request {idx + 1}/{n_tasks} done")
             logger.info(
                 "router_evidence_request_done",
@@ -616,6 +622,11 @@ class RouterNode:
             _tracer.record_phase_timing("router.fanout_ms", fanout_ms)
         packets: list[EvidencePacket] = []
         cohesion_lock: dict[str, Any] | None = None
+        retrieve_ms_list: list[float] = []
+        summarize_ms_list: list[float] = []
+        retrieval_phase1: list[float] = []
+        retrieval_phase5b: list[float] = []
+        retrieval_phase6: list[float] = []
         for idx, r in enumerate(results):
             req = requests[idx] if idx < len(requests) else {}
             query_hint = ""
@@ -623,15 +634,53 @@ class RouterNode:
                 query_hint = queries[idx]
             if not query_hint:
                 query_hint = str(req.get("description") or req.get("query") or "evidence request")[:120]
-            if isinstance(r, tuple) and len(r) == 2:
-                packet, lock = r
+            if isinstance(r, tuple) and len(r) >= 3:
+                packet, lock, timings = r[0], r[1], r[2]
                 if isinstance(packet, EvidencePacket):
                     packets.append(packet)
                 if cohesion_lock is None and lock:
                     cohesion_lock = lock
+                if isinstance(timings, dict):
+                    if "retrieve_ms" in timings:
+                        retrieve_ms_list.append(float(timings["retrieve_ms"]))
+                    if "summarize_ms" in timings:
+                        summarize_ms_list.append(float(timings["summarize_ms"]))
+                    rpt = timings.get("retrieval_phase_timings") or {}
+                    if rpt.get("phase1_rag_web_ms") is not None:
+                        retrieval_phase1.append(float(rpt["phase1_rag_web_ms"]))
+                    if rpt.get("phase5b_cohesion_ms") is not None:
+                        retrieval_phase5b.append(float(rpt["phase5b_cohesion_ms"]))
+                    if rpt.get("phase6_coherence_ms") is not None:
+                        retrieval_phase6.append(float(rpt["phase6_coherence_ms"]))
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
                 packets.append(_timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})"))
+        if _tracer and (retrieve_ms_list or summarize_ms_list or retrieval_phase1):
+            if retrieve_ms_list:
+                _tracer.record_phase_timing(
+                    "router.retrieve_avg_ms",
+                    sum(retrieve_ms_list) / len(retrieve_ms_list),
+                )
+            if summarize_ms_list:
+                _tracer.record_phase_timing(
+                    "router.summarize_avg_ms",
+                    sum(summarize_ms_list) / len(summarize_ms_list),
+                )
+            if retrieval_phase1:
+                _tracer.record_phase_timing(
+                    "retrieval.phase1_rag_web_avg_ms",
+                    sum(retrieval_phase1) / len(retrieval_phase1),
+                )
+            if retrieval_phase5b:
+                _tracer.record_phase_timing(
+                    "retrieval.phase5b_cohesion_avg_ms",
+                    sum(retrieval_phase5b) / len(retrieval_phase5b),
+                )
+            if retrieval_phase6:
+                _tracer.record_phase_timing(
+                    "retrieval.phase6_coherence_avg_ms",
+                    sum(retrieval_phase6) / len(retrieval_phase6),
+                )
         return packets, cohesion_lock
 
     async def _multi_query_retrieve(
@@ -675,6 +724,9 @@ class RouterNode:
         _any_rag_degraded = False
         _any_web_degraded = False
         _deg_notes: list[str] = []
+        phase1_list: list[float] = []
+        phase5b_list: list[float] = []
+        phase6_list: list[float] = []
         for r in all_results:
             if isinstance(r, RetrievalBundle):
                 per_query_results.append(r.results)
@@ -686,6 +738,13 @@ class RouterNode:
                     _any_web_degraded = True
                 if r.degradation_notes:
                     _deg_notes.append(r.degradation_notes)
+                pt = getattr(r, "phase_timings", None) or {}
+                if pt.get("phase1_rag_web_ms") is not None:
+                    phase1_list.append(float(pt["phase1_rag_web_ms"]))
+                if pt.get("phase5b_cohesion_ms") is not None:
+                    phase5b_list.append(float(pt["phase5b_cohesion_ms"]))
+                if pt.get("phase6_coherence_ms") is not None:
+                    phase6_list.append(float(pt["phase6_coherence_ms"]))
             elif isinstance(r, Exception):
                 logger.debug("multi_query_retrieve_error", extra={"error": str(r)[:100]})
 
@@ -705,12 +764,20 @@ class RouterNode:
             )
 
         merged = _rrf_merge(per_query_results, k=60)
+        avg_phase_timings: dict[str, float] = {}
+        if phase1_list:
+            avg_phase_timings["phase1_rag_web_ms"] = sum(phase1_list) / len(phase1_list)
+        if phase5b_list:
+            avg_phase_timings["phase5b_cohesion_ms"] = sum(phase5b_list) / len(phase5b_list)
+        if phase6_list:
+            avg_phase_timings["phase6_coherence_ms"] = sum(phase6_list) / len(phase6_list)
         return RetrievalBundle(
             results=merged,
             cohesion_lock=first_lock,
             rag_degraded=_any_rag_degraded,
             web_degraded=_any_web_degraded,
             degradation_notes=_deg,
+            phase_timings=avg_phase_timings,
         )
 
     async def handle_single_request(
@@ -720,10 +787,10 @@ class RouterNode:
         difficulty: float = 0.5,
         precomputed_query: str | None = None,
         taxonomy_metadata: dict[str, Any] | None = None,
-    ) -> tuple[EvidencePacket, dict[str, Any] | None]:
+    ) -> tuple[EvidencePacket, dict[str, Any] | None, dict[str, Any]]:
         """Full pipeline for one evidence request: query -> cache -> retrieve -> summarize -> refine.
 
-        Returns (packet, cohesion_lock_dict) — lock may be None.
+        Returns (packet, cohesion_lock_dict, timings_dict). Lock may be None; timings has retrieve_ms, summarize_ms, retrieval_phase_timings.
         """
         domain_hints = evidence_request.get("domain_hints") or []
         skip_web = evidence_request.get("skip_web", False)
@@ -751,7 +818,7 @@ class RouterNode:
         if cached is not None:
             if evidence_request.get("section_id") is not None:
                 cached = cached.model_copy(update={"section_id": evidence_request["section_id"]})
-            return cached, None
+            return cached, None, {}
 
         doc_cap_override = 3 if light_mode else None
         t_retrieve = time.monotonic()
@@ -775,9 +842,14 @@ class RouterNode:
             )
             packet = _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")
             await self.cache.aput(query, packet)
-            return packet, None
+            return packet, None, {}
         retrieve_ms = (time.monotonic() - t_retrieve) * 1000
         cohesion_lock = bundle.cohesion_lock
+        request_timings: dict[str, Any] = {
+            "retrieve_ms": retrieve_ms,
+            "summarize_ms": 0.0,
+            "retrieval_phase_timings": getattr(bundle, "phase_timings", None) or {},
+        }
 
         # Fast-path: skip LLM summarization when we have enough high-scoring results.
         # Scores at this point are RRF-merged (rrf_position * 0.7 + rerank * 0.3),
@@ -816,6 +888,7 @@ class RouterNode:
                 sep = "; " if existing_notes else ""
                 packet = packet.model_copy(update={"retrieval_notes": f"{existing_notes}{sep}summarization timed out"})
         summarize_ms = (time.monotonic() - t_summarize) * 1000
+        request_timings["summarize_ms"] = summarize_ms
         logger.info(
             "router_single_request_timing",
             extra={
@@ -906,7 +979,7 @@ class RouterNode:
             rounds += 1
 
         await self.cache.aput(query, packet)
-        return packet, cohesion_lock
+        return packet, cohesion_lock, request_timings
 
     # ----- Mode detection + main entry point -----
 

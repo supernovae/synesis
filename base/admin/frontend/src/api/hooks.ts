@@ -460,7 +460,7 @@ export function useAssistantChat() {
   return useMutation<
     { response: string; tokens: number; model: string },
     Error,
-    { message: string; context?: string }
+    { message: string; context?: string; trace_id?: string; span_index?: number }
   >({
     mutationFn: (data) =>
       client.post("/assistant/chat", data).then((r) => r.data),

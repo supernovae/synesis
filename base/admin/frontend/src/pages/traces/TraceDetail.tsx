@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useTrace } from "../../api/hooks";
+import { useTrace, useAssistantChat } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import {
@@ -9,8 +9,12 @@ import {
   Clock,
   Cpu,
   Zap,
+  Send,
+  Loader2,
+  Bot,
+  User,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -51,10 +55,30 @@ const NODE_COLORS: Record<string, string> = {
   patch_integrity_gate: "#8b5cf6",
 };
 
-function SpanRow({ span, traceStart }: { span: SpanRecord; traceStart: number }) {
+function spanIntent(span: SpanRecord): string {
+  if (span.intent) return span.intent;
+  const node = span.node_name.replace(/_/g, " ");
+  const model = span.llm_calls?.[0]?.model;
+  return model ? `${node} (${model})` : node;
+}
+
+function SpanRow({
+  span,
+  index,
+  traceStart,
+  traceId,
+  onSpanAssistant,
+}: {
+  span: SpanRecord;
+  index: number;
+  traceStart: number;
+  traceId: string;
+  onSpanAssistant: (spanIndex: number) => void;
+}) {
   const [open, setOpen] = useState(false);
   const offset = span.start_time ? (span.start_time - traceStart) * 1000 : 0;
   const color = NODE_COLORS[span.node_name] || "#6b7280";
+  const label = spanIntent(span);
 
   return (
     <div className="border-b border-gray-100 dark:border-gray-700">
@@ -75,8 +99,11 @@ function SpanRow({ span, traceStart }: { span: SpanRecord; traceStart: number })
           className="inline-block h-3 w-3 flex-shrink-0 rounded-full"
           style={{ backgroundColor: color }}
         />
-        <span className="min-w-[140px] font-mono text-sm font-medium text-gray-900 dark:text-white">
-          {span.node_name}
+        <span className="min-w-[48px] font-mono text-xs text-gray-500 dark:text-gray-400">
+          #{index + 1}
+        </span>
+        <span className="min-w-[200px] text-sm font-medium text-gray-900 dark:text-white">
+          {label}
         </span>
         <span className="text-xs text-gray-400">
           +{fmtDuration(offset)}
@@ -98,6 +125,16 @@ function SpanRow({ span, traceStart }: { span: SpanRecord; traceStart: number })
         {span.outcome && span.outcome !== "success" && (
           <StatusBadge status={span.outcome === "error" ? "error" : "warning"} label={span.outcome} />
         )}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSpanAssistant(index);
+          }}
+          className="rounded bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
+        >
+          Summarize with AI
+        </button>
       </button>
 
       {open && span.llm_calls && span.llm_calls.length > 0 && (
@@ -113,6 +150,9 @@ function SpanRow({ span, traceStart }: { span: SpanRecord; traceStart: number })
 
 function LLMCallRow({ call }: { call: LLMCallRecord }) {
   const [open, setOpen] = useState(false);
+  const promptText = call.prompt_full || call.prompt_snippet || "";
+  const completionText = call.completion_full || call.completion_snippet || "";
+  const hasContent = !!promptText || !!completionText;
 
   return (
     <div className="mb-1 rounded-md border border-gray-100 bg-gray-50/50 dark:border-gray-700 dark:bg-gray-800/50">
@@ -131,33 +171,42 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
         <span className="text-xs text-gray-400">
           {fmtDuration(call.latency_ms)}
         </span>
-        {(call.prompt_snippet || call.completion_snippet) && (
-          open ? (
+        {hasContent &&
+          (open ? (
             <ChevronDown className="h-3 w-3 text-gray-400" />
           ) : (
             <ChevronRight className="h-3 w-3 text-gray-400" />
-          )
-        )}
+          ))}
       </button>
       {open && (
         <div className="space-y-2 px-3 pb-3">
-          {call.prompt_snippet && (
+          {promptText && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                 Prompt
+                {(call.prompt_full?.length ?? 0) > 500 && (
+                  <span className="ml-2 text-gray-400">
+                    (scrollable, {call.prompt_full?.length.toLocaleString()} chars)
+                  </span>
+                )}
               </p>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
-                {call.prompt_snippet}
+              <pre className="mt-1 max-h-80 overflow-y-auto overflow-x-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                {promptText}
               </pre>
             </div>
           )}
-          {call.completion_snippet && (
+          {completionText && (
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                 Completion
+                {(call.completion_full?.length ?? 0) > 500 && (
+                  <span className="ml-2 text-gray-400">
+                    (scrollable, {call.completion_full?.length.toLocaleString()} chars)
+                  </span>
+                )}
               </p>
-              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white p-2 text-xs text-gray-700 dark:bg-gray-900 dark:text-gray-300">
-                {call.completion_snippet}
+              <pre className="mt-1 max-h-80 overflow-y-auto overflow-x-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
+                {completionText}
               </pre>
             </div>
           )}
@@ -283,10 +332,198 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
   );
 }
 
+function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
+  const byModel: Record<string, { tokens: number; prompt: number; completion: number }> = {};
+  for (const span of spans || []) {
+    for (const call of span.llm_calls || []) {
+      const model = call.model || "unknown";
+      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0 };
+      byModel[model].tokens += call.total_tokens || 0;
+      byModel[model].prompt += call.prompt_tokens || 0;
+      byModel[model].completion += call.completion_tokens || 0;
+    }
+  }
+  const entries = Object.entries(byModel);
+  if (entries.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+        Token cost by role
+      </h3>
+      <div className="space-y-1.5 text-sm">
+        {entries.map(([model, v]) => (
+          <div key={model} className="flex items-center justify-between gap-4">
+            <span className="font-mono text-gray-700 dark:text-gray-300">{model}</span>
+            <span className="text-gray-500 dark:text-gray-400">
+              {v.tokens.toLocaleString()} tok
+              <span className="ml-2 text-xs">
+                ({v.prompt.toLocaleString()} in / {v.completion.toLocaleString()} out)
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RolePhaseSummary({ spans }: { spans: SpanRecord[] }) {
+  const byNode: Record<string, number> = {};
+  for (const s of spans || []) {
+    const n = s.node_name || "unknown";
+    byNode[n] = (byNode[n] || 0) + s.latency_ms;
+  }
+  const entries = Object.entries(byNode).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
+        Role phase summary
+      </h3>
+      <div className="space-y-1.5 text-sm">
+        {entries.map(([node, ms]) => (
+          <div key={node} className="flex items-center justify-between gap-4">
+            <span className="font-mono text-gray-700 dark:text-gray-300">{node}</span>
+            <span className="text-gray-500 dark:text-gray-400">{fmtDuration(ms)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const QUICK_PROMPTS = [
+  "Summarize this trace.",
+  "Where did it fail or underperform?",
+  "Where did the critic reject or flag issues?",
+  "Where was evidence insufficient or missing?",
+];
+
+function TraceAssistantPanel({
+  traceId,
+  spanIndex,
+  onClose,
+}: {
+  traceId: string;
+  spanIndex: number | null;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = useState("");
+  const [replies, setReplies] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const chatMutation = useAssistantChat();
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [replies]);
+
+  const send = (msg: string) => {
+    if (!msg.trim()) return;
+    setReplies((r) => [...r, { role: "user", content: msg }]);
+    setMessage("");
+    chatMutation.mutate(
+      {
+        message: msg,
+        trace_id: traceId,
+        ...(spanIndex !== null ? { span_index: spanIndex } : {}),
+      },
+      {
+        onSuccess: (data) => {
+          setReplies((r) => [...r, { role: "assistant", content: data.response }]);
+        },
+        onError: () => {
+          setReplies((r) => [...r, { role: "assistant", content: "Failed to get response." }]);
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Trace assistant
+          {spanIndex !== null && (
+            <span className="ml-2 font-normal text-gray-500">(span #{spanIndex + 1})</span>
+          )}
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400"
+        >
+          Close
+        </button>
+      </div>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {QUICK_PROMPTS.map((q, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => send(q)}
+            disabled={chatMutation.isPending}
+            className="rounded bg-indigo-100 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60 disabled:opacity-50"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <div className="max-h-64 space-y-2 overflow-y-auto rounded border border-gray-100 p-2 dark:border-gray-700">
+        {replies.map((m, i) => (
+          <div
+            key={i}
+            className={`flex gap-2 ${m.role === "user" ? "justify-end" : ""}`}
+          >
+            {m.role === "assistant" && <Bot className="h-4 w-4 flex-shrink-0 text-gray-400" />}
+            <div
+              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                m.role === "user"
+                  ? "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-200"
+                  : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
+              }`}
+            >
+              {m.content}
+            </div>
+            {m.role === "user" && <User className="h-4 w-4 flex-shrink-0 text-gray-400" />}
+          </div>
+        ))}
+        {chatMutation.isPending && (
+          <div className="flex gap-2">
+            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+            <span className="text-sm text-gray-500">Thinking…</span>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+      <div className="mt-2 flex gap-2">
+        <input
+          type="text"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send(message)}
+          placeholder="Ask about this trace…"
+          className="flex-1 rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+        />
+        <button
+          type="button"
+          onClick={() => send(message)}
+          disabled={chatMutation.isPending || !message.trim()}
+          className="flex items-center gap-1 rounded bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          <Send className="h-4 w-4" />
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function TraceDetail() {
   const { traceId } = useParams<{ traceId: string }>();
   const navigate = useNavigate();
   const { data: trace, isLoading } = useTrace(traceId || "");
+  const [assistantSpanIndex, setAssistantSpanIndex] = useState<number | null>(null);
+  const [showTraceAssistant, setShowTraceAssistant] = useState(false);
 
   if (isLoading) {
     return <div className="h-96 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />;
@@ -391,6 +628,12 @@ export default function TraceDetail() {
         </div>
       )}
 
+      {/* Token by role + Role phase summary */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <TokenCostByRole spans={trace.spans || []} />
+        <RolePhaseSummary spans={trace.spans || []} />
+      </div>
+
       {/* Waterfall + Critic side by side */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
@@ -400,6 +643,30 @@ export default function TraceDetail() {
           <CriticScoresPanel scores={trace.critic_scores || {}} />
         </div>
       </div>
+
+      {/* Trace assistant */}
+      {traceId && (
+        <div>
+          {showTraceAssistant ? (
+            <TraceAssistantPanel
+              traceId={traceId}
+              spanIndex={assistantSpanIndex}
+              onClose={() => {
+                setShowTraceAssistant(false);
+                setAssistantSpanIndex(null);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowTraceAssistant(true)}
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Open trace assistant — summarize or review this trace with AI
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Phase Timings */}
       {trace.phase_timings && Object.keys(trace.phase_timings).length > 0 && (
@@ -480,7 +747,17 @@ export default function TraceDetail() {
         </div>
         {trace.spans && trace.spans.length > 0 ? (
           trace.spans.map((span, i) => (
-            <SpanRow key={i} span={span} traceStart={traceStart} />
+            <SpanRow
+              key={i}
+              span={span}
+              index={i}
+              traceStart={traceStart}
+              traceId={traceId || ""}
+              onSpanAssistant={(spanIndex) => {
+                setAssistantSpanIndex(spanIndex);
+                setShowTraceAssistant(true);
+              }}
+            />
           ))
         ) : (
           <div className="px-4 py-6 text-center text-sm text-gray-400">
