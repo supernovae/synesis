@@ -32,19 +32,23 @@ def _load_quality_report() -> dict:
 
 @router.get("/corpus")
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
-    stats = collection_stats(CATALOG_COLLECTION)
-    domains = safe_query(
-        CATALOG_COLLECTION,
-        output_fields=["domain"],
-        limit=10000,
-    )
-    unique_domains = len({d.get("domain", "") for d in domains if d.get("domain")})
-    return {
-        "collection": CATALOG_COLLECTION,
-        "total_chunks": stats.get("row_count", 0),
-        "total_documents": 0,
-        "domains_covered": unique_domains,
-    }
+    try:
+        stats = collection_stats(CATALOG_COLLECTION)
+        domains = safe_query(
+            CATALOG_COLLECTION,
+            output_fields=["domain"],
+            limit=10000,
+        )
+        unique_domains = len({d.get("domain", "") for d in domains if d.get("domain")})
+        return {
+            "collection": CATALOG_COLLECTION,
+            "total_chunks": stats.get("row_count", 0),
+            "total_documents": 0,
+            "domains_covered": unique_domains,
+        }
+    except Exception:
+        logger.warning("corpus_overview_failed", exc_info=True)
+        return {"collection": CATALOG_COLLECTION, "total_chunks": 0, "total_documents": 0, "domains_covered": 0}
 
 
 @router.get("/quality")

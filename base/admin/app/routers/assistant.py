@@ -113,9 +113,9 @@ async def assistant_chat(
                 "model": result.get("model", ASSISTANT_MODEL),
             }
     except Exception as exc:
-        logger.warning("assistant_chat_failed error=%s", str(exc)[:200])
+        logger.warning("assistant_chat_failed", exc_info=True)
         return {
-            "response": f"Failed to reach LLM: {str(exc)[:200]}",
+            "response": f"Failed to reach LLM ({type(exc).__name__}). Check admin service logs for details.",
             "tokens": 0,
             "model": "",
         }

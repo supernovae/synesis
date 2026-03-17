@@ -70,10 +70,11 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_admin)):
             planner_status = resp.status_code
             planner_ok = planner_status < 500
     except Exception as exc:
+        logger.warning("trace_test_planner_request_failed", exc_info=True)
         return {
             "status": "fail",
             "stage": "planner_request",
-            "error": str(exc)[:200],
+            "error": type(exc).__name__,
             "elapsed_ms": round((time.time() - t0) * 1000),
         }
 

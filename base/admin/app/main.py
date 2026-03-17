@@ -89,13 +89,17 @@ if STATIC_DIR.is_dir():
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static-assets")
 
+    def _mount_static_file(filename: str, resolved_path: Path) -> None:
+        """Register a GET route that serves a single known static file."""
+
+        @app.get(f"/{filename}")
+        async def serve_static_file() -> FileResponse:
+            return FileResponse(resolved_path)
+
     for name in ("vite.svg", "favicon.ico"):
         static_file = STATIC_DIR / name
         if static_file.exists():
-
-            @app.get(f"/{name}")
-            async def serve_static_file(file_path: str = str(static_file)):
-                return FileResponse(file_path)
+            _mount_static_file(name, static_file)
 
 
 @app.get("/")
