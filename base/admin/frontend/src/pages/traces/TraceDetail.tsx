@@ -13,8 +13,13 @@ import {
   Loader2,
   Bot,
   User,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+  X,
 } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import MarkdownContent from "../../components/common/MarkdownContent";
 import {
   BarChart,
   Bar,
@@ -403,58 +408,115 @@ function TraceAssistantPanel({
   traceId,
   spanIndex,
   onClose,
+  traceJson,
 }: {
   traceId: string;
   spanIndex: number | null;
   onClose: () => void;
+  traceJson?: string;
 }) {
   const [message, setMessage] = useState("");
   const [replies, setReplies] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const chatMutation = useAssistantChat();
   const endRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [replies]);
 
-  const send = (msg: string) => {
-    if (!msg.trim()) return;
-    setReplies((r) => [...r, { role: "user", content: msg }]);
-    setMessage("");
-    chatMutation.mutate(
-      {
-        message: msg,
-        trace_id: traceId,
-        ...(spanIndex !== null ? { span_index: spanIndex } : {}),
-      },
-      {
-        onSuccess: (data) => {
-          setReplies((r) => [...r, { role: "assistant", content: data.response }]);
+  const send = useCallback(
+    (msg: string) => {
+      if (!msg.trim()) return;
+      setReplies((r) => [...r, { role: "user", content: msg }]);
+      setMessage("");
+      chatMutation.mutate(
+        {
+          message: msg,
+          trace_id: traceId,
+          ...(spanIndex !== null ? { span_index: spanIndex } : {}),
         },
-        onError: () => {
-          setReplies((r) => [...r, { role: "assistant", content: "Failed to get response." }]);
+        {
+          onSuccess: (data) => {
+            setReplies((r) => [...r, { role: "assistant", content: data.response }]);
+          },
+          onError: () => {
+            setReplies((r) => [...r, { role: "assistant", content: "Failed to get response." }]);
+          },
         },
-      }
-    );
+      );
+    },
+    [chatMutation, traceId, spanIndex],
+  );
+
+  const sendToAdminAssistant = () => {
+    const conversationText = replies
+      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n\n");
+    const contextPayload = [
+      `Trace ID: ${traceId}`,
+      spanIndex !== null ? `Span: #${spanIndex + 1}` : "",
+      "--- Conversation ---",
+      conversationText,
+      traceJson ? "\n--- Trace Data ---\n" + traceJson.slice(0, 8000) : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    navigate("/assistant", { state: { context: contextPayload } });
   };
 
+  // Fullscreen overlay vs inline panel
+  const panelClasses = expanded
+    ? "fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900 p-6"
+    : "rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900";
+
+  const chatAreaClasses = expanded
+    ? "flex-1 min-h-0 space-y-3 overflow-y-auto rounded border border-gray-100 p-3 dark:border-gray-700"
+    : "max-h-96 space-y-3 overflow-y-auto rounded border border-gray-100 p-2 dark:border-gray-700";
+
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-3 flex items-center justify-between">
+    <div className={panelClasses}>
+      {/* Header */}
+      <div className="mb-3 flex items-center gap-2">
+        <Bot className="h-5 w-5 text-indigo-500" />
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Trace assistant
+          Trace Assistant
           {spanIndex !== null && (
             <span className="ml-2 font-normal text-gray-500">(span #{spanIndex + 1})</span>
           )}
         </h3>
+        <span className="flex-1" />
+        {replies.length > 0 && (
+          <button
+            type="button"
+            onClick={sendToAdminAssistant}
+            title="Continue in Admin Assistant with full context"
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Open in Assistant
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? "Shrink" : "Expand"}
+          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+        >
+          {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </button>
         <button
           type="button"
           onClick={onClose}
-          className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-400"
+          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
         >
-          Close
+          <X className="h-4 w-4" />
         </button>
       </div>
+
+      {/* Quick prompts */}
       <div className="mb-2 flex flex-wrap gap-1">
         {QUICK_PROMPTS.map((q, i) => (
           <button
@@ -468,33 +530,52 @@ function TraceAssistantPanel({
           </button>
         ))}
       </div>
-      <div className="max-h-64 space-y-2 overflow-y-auto rounded border border-gray-100 p-2 dark:border-gray-700">
+
+      {/* Chat messages */}
+      <div className={chatAreaClasses}>
+        {replies.length === 0 && (
+          <p className="py-4 text-center text-xs text-gray-400">
+            Ask a question or pick a quick prompt above.
+          </p>
+        )}
         {replies.map((m, i) => (
           <div
             key={i}
             className={`flex gap-2 ${m.role === "user" ? "justify-end" : ""}`}
           >
-            {m.role === "assistant" && <Bot className="h-4 w-4 flex-shrink-0 text-gray-400" />}
+            {m.role === "assistant" && (
+              <Bot className="mt-1 h-4 w-4 flex-shrink-0 text-indigo-400" />
+            )}
             <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+              className={`rounded-lg px-3 py-2 ${
+                expanded ? "max-w-[90%]" : "max-w-[85%]"
+              } ${
                 m.role === "user"
-                  ? "bg-indigo-100 text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-200"
-                  : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
+                  ? "bg-indigo-100 text-sm text-indigo-900 dark:bg-indigo-900/40 dark:text-indigo-200"
+                  : "bg-gray-50 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
               }`}
             >
-              {m.content}
+              {m.role === "assistant" ? (
+                <MarkdownContent content={m.content} />
+              ) : (
+                <span className="text-sm">{m.content}</span>
+              )}
             </div>
-            {m.role === "user" && <User className="h-4 w-4 flex-shrink-0 text-gray-400" />}
+            {m.role === "user" && (
+              <User className="mt-1 h-4 w-4 flex-shrink-0 text-gray-400" />
+            )}
           </div>
         ))}
         {chatMutation.isPending && (
           <div className="flex gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+            <Loader2 className="h-4 w-4 animate-spin text-indigo-400" />
             <span className="text-sm text-gray-500">Thinking…</span>
           </div>
         )}
         <div ref={endRef} />
       </div>
+
+      {/* Input */}
       <div className="mt-2 flex gap-2">
         <input
           type="text"
@@ -651,6 +732,7 @@ export default function TraceDetail() {
             <TraceAssistantPanel
               traceId={traceId}
               spanIndex={assistantSpanIndex}
+              traceJson={JSON.stringify(trace, null, 2)}
               onClose={() => {
                 setShowTraceAssistant(false);
                 setAssistantSpanIndex(null);

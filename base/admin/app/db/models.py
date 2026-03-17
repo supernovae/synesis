@@ -151,6 +151,58 @@ class KnowledgeGap(Base):
     )
 
 
+class WebSearchLog(Base):
+    __tablename__ = "web_search_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    timestamp: Mapped[float] = mapped_column(Float, nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    query: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    profile: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    domain: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="success")
+    engine: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_web_search_log_run_id", "run_id"),
+        Index("ix_web_search_log_domain", "domain"),
+        Index("ix_web_search_log_timestamp", timestamp.desc()),
+        Index("ix_web_search_log_outcome", "outcome"),
+    )
+
+
+class WebUrlPolicy(Base):
+    __tablename__ = "web_url_policy"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url_pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    policy: Mapped[str] = mapped_column(String(16), nullable=False, default="allow")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reviewed_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    reviewed_at: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    boost_factor: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    auto_ingest: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_web_url_policy_policy", "policy"),
+    )
+
+
 class DiscoveredConflictGroup(Base):
     __tablename__ = "discovered_conflict_groups"
 

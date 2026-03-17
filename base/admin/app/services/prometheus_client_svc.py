@@ -237,3 +237,41 @@ def _find_metric(raw: dict, prefix: str) -> float:
             if isinstance(entry, dict):
                 return float(entry.get("value", 0))
     return 0.0
+
+
+def _sum_labeled_metric(
+    raw: dict,
+    prefix: str,
+    label_filter: dict[str, str] | None = None,
+) -> float:
+    """Sum all entries matching a metric name prefix, optionally filtered by labels."""
+    total = 0.0
+    for key, entry in raw.items():
+        if prefix not in key:
+            continue
+        if isinstance(entry, (int, float)):
+            if label_filter is None:
+                total += float(entry)
+        elif isinstance(entry, dict):
+            labels = entry.get("labels", {})
+            if label_filter is None or all(labels.get(k) == v for k, v in label_filter.items()):
+                total += float(entry.get("value", 0))
+    return total
+
+
+async def get_web_search_stats() -> dict[str, Any]:
+    """Compute web search stats from Prometheus labeled counters and histograms."""
+    raw = await fetch_planner_metrics()
+    total = _sum_labeled_metric(raw, "synesis_web_search_total")
+    errors = _sum_labeled_metric(raw, "synesis_web_search_total", {"outcome": "error"})
+    error_rate = errors / total if total > 0 else 0.0
+
+    duration_sum = _sum_labeled_metric(raw, "synesis_web_search_duration_seconds_sum")
+    duration_count = _sum_labeled_metric(raw, "synesis_web_search_duration_seconds_count")
+    avg_latency_ms = (duration_sum / duration_count * 1000) if duration_count > 0 else None
+
+    return {
+        "total": int(total),
+        "avg_latency_ms": round(avg_latency_ms, 1) if avg_latency_ms is not None else None,
+        "error_rate": round(error_rate, 4) if total > 0 else None,
+    }

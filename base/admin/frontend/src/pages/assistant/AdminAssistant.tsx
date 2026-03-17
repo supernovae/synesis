@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useAssistantChat } from "../../api/hooks";
 import { Send, Bot, User, Loader2 } from "lucide-react";
+import MarkdownContent from "../../components/common/MarkdownContent";
 
 interface Message {
   role: "user" | "assistant";
@@ -9,11 +11,22 @@ interface Message {
 }
 
 export default function AdminAssistant() {
+  const location = useLocation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [context, setContext] = useState("");
   const chatMutation = useAssistantChat();
   const endRef = useRef<HTMLDivElement>(null);
+
+  // Accept context passed from trace assistant via navigation state
+  useEffect(() => {
+    const navState = location.state as { context?: string } | null;
+    if (navState?.context) {
+      setContext(navState.context);
+      // Clear navigation state so refresh doesn't re-apply
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,13 +94,17 @@ export default function AdminAssistant() {
               <Bot className="mt-1 h-5 w-5 flex-shrink-0 text-indigo-500" />
             )}
             <div
-              className={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${
+              className={`max-w-[75%] rounded-lg px-4 py-2 ${
                 msg.role === "user"
-                  ? "bg-indigo-600 text-white"
+                  ? "text-sm bg-indigo-600 text-white"
                   : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"
               }`}
             >
-              <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+              {msg.role === "assistant" ? (
+                <MarkdownContent content={msg.content} />
+              ) : (
+                <pre className="whitespace-pre-wrap font-sans text-sm">{msg.content}</pre>
+              )}
               {msg.tokens != null && msg.tokens > 0 && (
                 <span className="mt-1 block text-xs opacity-60">
                   {msg.tokens} tokens
@@ -108,16 +125,22 @@ export default function AdminAssistant() {
         <div ref={endRef} />
       </div>
 
-      <details className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+      <details
+        className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+        open={!!context}
+      >
         <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400">
-          Context (optional - paste trace, config, or error data)
+          Context
+          {context
+            ? ` (${context.length.toLocaleString()} chars loaded)`
+            : " (optional — paste trace, config, or error data)"}
         </summary>
         <textarea
-          rows={4}
+          rows={context ? 8 : 4}
           value={context}
           onChange={(e) => setContext(e.target.value)}
           placeholder="Paste JSON trace, config snippet, error log..."
-          className="w-full border-t border-gray-200 px-4 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+          className="w-full border-t border-gray-200 px-4 py-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-800 dark:text-white"
         />
       </details>
 

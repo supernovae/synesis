@@ -25,6 +25,7 @@ import httpx
 
 from .config import settings
 from .injection_scanner import reduce_context_on_injection, scan_web_content
+from .web_search_log import log_web_search_results
 
 logger = logging.getLogger("synesis.web_search")
 
@@ -648,6 +649,15 @@ class WebSearchClient:
                     "latency_s": round(elapsed, 3),
                 },
             )
+            log_web_search_results(
+                run_id=getattr(self, "_current_run_id", ""),
+                query=query,
+                source_id=profile_label,
+                profile=profile_label,
+                results=results,
+                latency_ms=elapsed * 1000,
+                outcome="success",
+            )
             return results
         except Exception as e:
             self._breaker.record_failure()
@@ -666,6 +676,15 @@ class WebSearchClient:
                     "profile": profile_label,
                     "breaker_open": self._breaker.is_open,
                 },
+            )
+            log_web_search_results(
+                run_id=getattr(self, "_current_run_id", ""),
+                query=query,
+                source_id=profile_label,
+                profile=profile_label,
+                results=[],
+                latency_ms=elapsed * 1000,
+                outcome="error",
             )
             return []
 

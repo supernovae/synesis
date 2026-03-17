@@ -242,6 +242,108 @@ export function useWebSearchStats() {
   });
 }
 
+interface WebSearchLogEntry {
+  id: number;
+  timestamp: number;
+  run_id: string;
+  query: string;
+  source_id: string;
+  profile: string;
+  url: string;
+  domain: string;
+  title: string;
+  snippet: string;
+  score: number;
+  latency_ms: number;
+  outcome: string;
+  engine: string;
+}
+
+export function useWebSearchLog(params?: {
+  domain?: string;
+  outcome?: string;
+  q?: string;
+  page?: number;
+  page_size?: number;
+}) {
+  return useQuery<{ items: WebSearchLogEntry[]; total: number; page: number; page_size: number }>({
+    queryKey: ["integrations", "web-search", "log", params],
+    queryFn: () =>
+      client.get("/integrations/web-search/log", { params }).then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+interface DomainSummary {
+  domain: string;
+  count: number;
+  avg_latency_ms: number;
+  last_seen: number;
+  error_count: number;
+}
+
+export function useWebSearchDomains() {
+  return useQuery<{ domains: DomainSummary[] }>({
+    queryKey: ["integrations", "web-search", "domains"],
+    queryFn: () =>
+      client.get("/integrations/web-search/log/domains").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+interface WebUrlPolicyEntry {
+  id: number;
+  url_pattern: string;
+  policy: string;
+  reason: string;
+  reviewed_by: string;
+  reviewed_at: number;
+  boost_factor: number;
+  auto_ingest: boolean;
+}
+
+export function useWebSearchPolicies() {
+  return useQuery<{ policies: WebUrlPolicyEntry[] }>({
+    queryKey: ["integrations", "web-search", "policies"],
+    queryFn: () =>
+      client.get("/integrations/web-search/policies").then((r) => r.data),
+  });
+}
+
+export function useCreateWebSearchPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      url_pattern: string;
+      policy: string;
+      reason?: string;
+      boost_factor?: number;
+      auto_ingest?: boolean;
+    }) => client.post("/integrations/web-search/policies", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["integrations", "web-search", "policies"] });
+    },
+  });
+}
+
+export function useDeleteWebSearchPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.delete(`/integrations/web-search/policies/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["integrations", "web-search", "policies"] });
+    },
+  });
+}
+
+export function useIngestWebUrl() {
+  return useMutation({
+    mutationFn: (data: { url: string; title?: string; reason?: string }) =>
+      client.post("/integrations/web-search/ingest", data).then((r) => r.data),
+  });
+}
+
 // --- Feedback ---
 
 export function useFeedback(params?: { vote?: string; limit?: number }) {
