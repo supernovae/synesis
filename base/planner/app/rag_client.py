@@ -160,12 +160,10 @@ def _evict_dead_alias(client) -> None:
 def _create_milvus_client():
     from pymilvus import MilvusClient
 
-    client = MilvusClient(
+    return MilvusClient(
         uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
         timeout=_MILVUS_TIMEOUT,
     )
-    client.list_collections()
-    return client
 
 
 def _get_milvus_pool() -> asyncio.Queue:
@@ -185,29 +183,17 @@ def _get_milvus_pool() -> asyncio.Queue:
 
 
 async def _acquire_milvus_client():
-    """Acquire a client from the pool, validating the connection."""
+    """Acquire a client from the pool without pre-flight validation.
+
+    Skips the expensive list_collections() round-trip.  Dead connections are
+    detected and replaced inside _hybrid_search / _sparse_search retry loops.
+    """
     pool = _get_milvus_pool()
     try:
-        client = await asyncio.wait_for(pool.get(), timeout=5.0)
+        return await asyncio.wait_for(pool.get(), timeout=5.0)
     except asyncio.TimeoutError:
         logger.warning("milvus_pool_exhausted")
         return _create_milvus_client()
-    try:
-        await asyncio.to_thread(client.list_collections)
-        return client
-    except Exception as e:
-        if _is_connection_dead_error(e):
-            logger.info("milvus_pool_replace_dead", extra={"error": str(e)[:120]})
-            _evict_dead_alias(client)
-            try:
-                return _create_milvus_client()
-            except Exception as create_e:
-                logger.warning(
-                    "milvus_pool_recreate_failed",
-                    extra={"error": str(create_e)[:120]},
-                )
-                raise
-        return client
 
 
 async def _release_milvus_client(client) -> None:
@@ -217,6 +203,80 @@ async def _release_milvus_client(client) -> None:
         pool.put_nowait(client)
     except asyncio.QueueFull:
         pass
+
+
+_keepalive_task: asyncio.Task | None = None
+_KEEPALIVE_INTERVAL_S = 30  # ping pool connections every 30s
+
+
+async def _keepalive_loop() -> None:
+    """Background task: periodically ping all pool connections to prevent idle gRPC timeout."""
+    while True:
+        await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
+        pool = _get_milvus_pool()
+        clients: list = []
+        try:
+            while not pool.empty():
+                clients.append(pool.get_nowait())
+        except asyncio.QueueEmpty:
+            pass
+        for c in clients:
+            try:
+                await asyncio.to_thread(c.list_collections)
+            except Exception:
+                logger.debug("keepalive_replace_dead")
+                _evict_dead_alias(c)
+                try:
+                    c = _create_milvus_client()
+                except Exception:
+                    continue
+            try:
+                pool.put_nowait(c)
+            except asyncio.QueueFull:
+                pass
+
+
+def ensure_milvus_keepalive() -> None:
+    """Start the background keepalive task if not already running."""
+    global _keepalive_task
+    if _keepalive_task is None or _keepalive_task.done():
+        try:
+            loop = asyncio.get_running_loop()
+            _keepalive_task = loop.create_task(_keepalive_loop(), name="milvus_keepalive")
+        except RuntimeError:
+            pass
+
+
+async def warm_milvus_pool() -> None:
+    """Proactive pool health check — call between router passes.
+
+    Drains the pool, validates each client, replaces dead ones, and puts
+    them all back. Much cheaper than discovering stale connections mid-search.
+    """
+    pool = _get_milvus_pool()
+    clients: list = []
+    try:
+        while not pool.empty():
+            clients.append(pool.get_nowait())
+    except asyncio.QueueEmpty:
+        pass
+    replaced = 0
+    for c in clients:
+        try:
+            await asyncio.to_thread(c.list_collections)
+        except Exception:
+            _evict_dead_alias(c)
+            try:
+                c = _create_milvus_client()
+                replaced += 1
+            except Exception:
+                continue
+        try:
+            pool.put_nowait(c)
+        except asyncio.QueueFull:
+            pass
+    if replaced:
+        logger.info("milvus_pool_warmed", extra={"replaced": replaced, "total": len(clients)})
 
 
 def _get_milvus_client():
@@ -915,6 +975,20 @@ async def retrieve_context(
         reverse=True,
     )
 
+    score_min = getattr(settings, "rag_rerank_score_min", 0.0)
+    if score_min > 0 and reranker != "none":
+        pre_floor = len(all_merged)
+        all_merged = [
+            d for d in all_merged
+            if (d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0)) >= score_min
+        ]
+        dropped = pre_floor - len(all_merged)
+        if dropped:
+            logger.info(
+                "rerank_score_floor",
+                extra={"threshold": score_min, "dropped": dropped, "kept": len(all_merged)},
+            )
+
     if _retrieval_source_counter:
         for doc in all_merged:
             _retrieval_source_counter.labels(source=doc.get("retrieval_source", "unknown")).inc()
@@ -999,7 +1073,7 @@ async def _retrieve_single_collection(
 
     On hybrid failure, falls back to sparse BM25-only.
     """
-    fetch_k = top_k * 4
+    fetch_k = top_k * 2
     fallback_to_bm25 = False
 
     if strategy == "hybrid":

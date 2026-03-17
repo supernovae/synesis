@@ -290,6 +290,7 @@ synesis/
 | [docs/IDE_CLIENT_COORDINATION.md](docs/IDE_CLIENT_COORDINATION.md) | IDE/agent client trust model, prompt injection defense |
 | [docs/UV_TOOLING.md](docs/UV_TOOLING.md) | UV for Python dependency management (local, CI, containers) |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Design experiments: parallel critic, adaptive depth mode |
+| [docs/COHERENCE_GATE_ARCHIVE.md](docs/COHERENCE_GATE_ARCHIVE.md) | Removed coherence gate: rationale, original implementation, restoration guide |
 | [docs/ARCHITECTURE_AUDIT.md](docs/ARCHITECTURE_AUDIT.md) | Historical architecture audit and remediation log |
 
 ## Changing Models

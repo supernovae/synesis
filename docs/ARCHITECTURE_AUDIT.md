@@ -102,13 +102,13 @@ Full end-to-end review covering LLM orchestration, RAG/retrieval, infrastructure
 
 ### B. Retrieval/RAG
 
-**Architecture**: Milvus hybrid search (HNSW dense + native BM25 sparse) → FlashRank/BGE cross-encoder reranking → authority-weighted scoring → adaptive top-K (CAR-style cliff detection) → cohesion lock → coherence gate → context assembly.
+**Architecture**: Milvus hybrid search (HNSW dense + native BM25 sparse) → FlashRank/BGE cross-encoder reranking → rerank-score floor → authority-weighted scoring → adaptive top-K (CAR-style cliff detection) → cohesion lock → context assembly.
 
 **Strengths:**
 - Native Milvus BM25 eliminates custom microservice complexity
 - Authority-tiered trust system (canonical > vetted > community > external > web)
 - Cohesion lock prevents topic drift across retrieval rounds
-- Coherence gate filters off-topic chunks using difficulty-adjusted threshold
+- Rerank score floor drops low-relevance chunks (replaced coherence gate; see docs/COHERENCE_GATE_ARCHIVE.md)
 - Context prefix enrichment improves dense retrieval recall
 
 **Bugs (must-fix):**
@@ -124,7 +124,7 @@ Full end-to-end review covering LLM orchestration, RAG/retrieval, infrastructure
 **Tuning Opportunities:**
 - Run `bench_chunking.py` sweep to validate 600-word default (research suggests 200-500 tokens)
 - Use FlashRank for `difficulty < 0.3`, BGE only for complex queries
-- Expose coherence gate threshold per-domain via taxonomy config
+- Consider per-domain rerank score floor via taxonomy config
 
 ### C. Infrastructure and Caching
 

@@ -26,6 +26,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
+from ..rag_client import ensure_milvus_keepalive, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
@@ -282,7 +283,7 @@ class RouterNode:
         self.cache = cache or get_retrieval_cache()
         timeout = float(getattr(settings, "node_timeout_seconds", 180.0))
         self.request_timeout_seconds = max(30.0, timeout * 0.7)
-        self.retrieve_timeout_seconds = max(10.0, min(45.0, timeout * 0.25))
+        self.retrieve_timeout_seconds = max(15.0, min(90.0, timeout * 0.4))
         self.summarize_timeout_seconds = max(10.0, min(60.0, timeout * 0.3))
         self.refine_timeout_seconds = max(8.0, min(30.0, timeout * 0.2))
 
@@ -659,7 +660,6 @@ class RouterNode:
         summarize_ms_list: list[float] = []
         retrieval_phase1: list[float] = []
         retrieval_phase5b: list[float] = []
-        retrieval_phase6: list[float] = []
         for idx, r in enumerate(results):
             req = requests[idx] if idx < len(requests) else {}
             query_hint = ""
@@ -683,8 +683,6 @@ class RouterNode:
                         retrieval_phase1.append(float(rpt["phase1_rag_web_ms"]))
                     if rpt.get("phase5b_cohesion_ms") is not None:
                         retrieval_phase5b.append(float(rpt["phase5b_cohesion_ms"]))
-                    if rpt.get("phase6_coherence_ms") is not None:
-                        retrieval_phase6.append(float(rpt["phase6_coherence_ms"]))
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
                 packets.append(_timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})"))
@@ -708,11 +706,6 @@ class RouterNode:
                 _tracer.record_phase_timing(
                     "retrieval.phase5b_cohesion_avg_ms",
                     sum(retrieval_phase5b) / len(retrieval_phase5b),
-                )
-            if retrieval_phase6:
-                _tracer.record_phase_timing(
-                    "retrieval.phase6_coherence_avg_ms",
-                    sum(retrieval_phase6) / len(retrieval_phase6),
                 )
         return packets, cohesion_lock
 
@@ -759,7 +752,6 @@ class RouterNode:
         _deg_notes: list[str] = []
         phase1_list: list[float] = []
         phase5b_list: list[float] = []
-        phase6_list: list[float] = []
         for r in all_results:
             if isinstance(r, RetrievalBundle):
                 per_query_results.append(r.results)
@@ -776,8 +768,6 @@ class RouterNode:
                     phase1_list.append(float(pt["phase1_rag_web_ms"]))
                 if pt.get("phase5b_cohesion_ms") is not None:
                     phase5b_list.append(float(pt["phase5b_cohesion_ms"]))
-                if pt.get("phase6_coherence_ms") is not None:
-                    phase6_list.append(float(pt["phase6_coherence_ms"]))
             elif isinstance(r, Exception):
                 logger.debug("multi_query_retrieve_error", extra={"error": str(r)[:100]})
 
@@ -802,8 +792,6 @@ class RouterNode:
             avg_phase_timings["phase1_rag_web_ms"] = sum(phase1_list) / len(phase1_list)
         if phase5b_list:
             avg_phase_timings["phase5b_cohesion_ms"] = sum(phase5b_list) / len(phase5b_list)
-        if phase6_list:
-            avg_phase_timings["phase6_coherence_ms"] = sum(phase6_list) / len(phase6_list)
         return RetrievalBundle(
             results=merged,
             cohesion_lock=first_lock,
@@ -1057,7 +1045,11 @@ class RouterNode:
     async def run(self, state: dict[str, Any]) -> dict[str, Any]:
         """LangGraph entry point."""
         start = time.monotonic()
+        ensure_milvus_keepalive()
         mode = self._detect_mode(state)
+
+        if mode != "initial":
+            await warm_milvus_pool()
 
         task_desc = state.get("task_description", "")
         user_task = state.get("user_task") or {}

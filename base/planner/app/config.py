@@ -101,12 +101,11 @@ class Settings(BaseSettings):
     rag_adaptive_gap_multiplier: float = 1.5  # gap > mean_gap * this triggers cliff cutoff
     rag_score_threshold: float = 0.25
 
-    # Post-retrieval coherence gate (CRAG/Self-RAG pattern, arXiv 2401.15884 / 2310.11511).
-    # Drops chunks whose cosine similarity to the query embedding falls below
-    # this threshold.  Catches polysemous-term false positives (e.g. "architecture"
-    # in consensus algorithms vs AI system design).  0.25 is conservative; raise
-    # to 0.3-0.35 if off-topic chunks persist.
-    coherence_gate_threshold: float = 0.25
+    # Minimum rerank score floor — drops results below this after FlashRank
+    # cross-encoder reranking.  Replaces the removed coherence gate (see
+    # docs/COHERENCE_GATE_ARCHIVE.md).  0.05 is permissive; raise to 0.1+
+    # if off-topic chunks persist.
+    rag_rerank_score_min: float = 0.05
 
     # Cohesion Lock: post-retrieval inter-document coherence filtering.
     # Detects the dominant entity/theme from top results and evicts

@@ -1,15 +1,18 @@
 """Unified parallel retrieval — RAG + web search in a single async step.
 
-Runs internal RAG and web search concurrently via asyncio.gather, merges
-results via authority-weighted Reciprocal Rank Fusion, and adaptively gates
-web results based on RAG quality.
+Runs internal RAG retrieval immediately and fires web search in background;
+web results merge in only if they arrive within the RAG budget.  Results are
+fused via authority-weighted Reciprocal Rank Fusion.
 
 Post-retrieval pipeline:
   Phase 5:  adaptive top-K via cliff detection
   Phase 5b: cohesion lock detection (dominant entity from top 3)
   Phase 5c: cohesion micro-critic filtering (embedding + parallel LLM)
   Phase 5d: contextual compression (sentence-level extraction)
-  Phase 6:  coherence gate (query-document cosine similarity)
+
+Coherence gate (Phase 6) was removed — Milvus hybrid search + FlashRank
+cross-encoder reranking + rerank-score floor handle relevance filtering.
+See docs/COHERENCE_GATE_ARCHIVE.md for rationale and restoration guide.
 
 Authority system preserved end-to-end:
   - RAG: authority boost applied in rag_client.py (canonical=1.5, vetted=1.3, etc.)
@@ -21,9 +24,6 @@ Research basis:
   Higress-RAG (arxiv 2602.23374): full-link RRF fusion across retrieval sources
   L-RAG (arxiv 2601.06551): entropy-based gating, skip retrieval when not needed
   AMSRAG (MDPI 2025): confidence-aware fusion, dynamic source weighting
-  CRAG (arxiv 2401.15884): grade retrieved docs as Correct/Incorrect/Ambiguous
-  Self-RAG (arxiv 2310.11511): IsRel reflection — skip irrelevant retrieval
-  NQ-RAG (arxiv 2411.19483): query-document coherence scoring
 """
 
 from __future__ import annotations
@@ -35,8 +35,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
-
-import numpy as np
 
 from .config import settings
 from .rag_client import retrieve_context
@@ -379,69 +377,6 @@ def _adaptive_topk(
     return results[:max_k]
 
 
-async def _coherence_gate(
-    query: str,
-    results: list[UnifiedResult],
-    threshold: float = 0.25,
-) -> list[UnifiedResult]:
-    """Drop chunks whose embedding similarity to the query falls below threshold.
-
-    Uses the async TEI embedder client for non-blocking embedding calls.
-    This catches polysemous-term matches where "architecture" in a consensus
-    algorithm paper scores high on vector search but is semantically distant
-    from "AI assistant architecture" when compared at the full-text level.
-
-    Research basis:
-      CRAG (arXiv 2401.15884) — grade docs as Correct/Incorrect/Ambiguous
-      Self-RAG (arXiv 2310.11511) — IsRel reflection: skip irrelevant retrieval
-      NQ-RAG (arXiv 2411.19483) — query-document coherence scoring
-      ARES (arXiv 2311.09476) — automated RAG evaluation via NLI
-    """
-    if not results:
-        return results
-
-    try:
-        from .embed_client import get_async_embed_client
-
-        client = get_async_embed_client()
-        chunk_texts = [r.text[:500] for r in results]
-        all_texts = [query, *chunk_texts]
-        embeddings = await client.embed(all_texts, normalize=True)
-        query_emb = embeddings[0]
-        chunk_embs = embeddings[1:]
-
-        kept: list[UnifiedResult] = []
-        dropped = 0
-        for r, chunk_emb in zip(results, chunk_embs):
-            sim = float(np.dot(query_emb, chunk_emb))
-            if sim >= threshold:
-                kept.append(r)
-            else:
-                dropped += 1
-                logger.debug(
-                    "coherence_gate_dropped",
-                    extra={
-                        "text_preview": r.text[:80].replace("\n", " "),
-                        "similarity": round(sim, 3),
-                        "source": r.retrieval_source,
-                        "has_url": bool(r.source_url),
-                        "url_preview": r.source_url[:80] if r.source_url else "",
-                        "authority": r.authority,
-                    },
-                )
-
-        if dropped:
-            logger.info(
-                "coherence_gate_summary",
-                extra={"input": len(results), "kept": len(kept), "dropped": dropped},
-            )
-
-        return kept
-    except Exception:
-        logger.warning("coherence_gate_failed", exc_info=True)
-        return results
-
-
 async def _multi_source_web_search(
     query: str,
     domain_hints: list[str] | None = None,
@@ -541,7 +476,6 @@ async def retrieve_unified(
       5b. Cohesion lock detection (dominant entity from top 3)
       5c. Cohesion micro-critic filtering (embedding + parallel LLM)
       5d. Contextual compression (sentence-level extraction)
-      6. Coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern)
     """
     if collections is None:
         collections = ["synesis_catalog"]
@@ -549,7 +483,7 @@ async def retrieve_unified(
     # Taxonomy domain hints are used ONLY as a post-retrieval boost (Phase 4b),
     # never as a Milvus WHERE-clause filter.  The user's query drives retrieval;
     # taxonomy lifts domain-matching results higher in the ranking but never
-    # hides cross-domain content that the reranker/coherence gate would keep.
+    # hides cross-domain content that the reranker would keep.
     domain_filter = ""
 
     web_budget = settings.scaled_web_budget(difficulty)
@@ -561,21 +495,53 @@ async def retrieve_unified(
 
     t_total = time.monotonic()
 
-    # Phase 1: parallel retrieval (RAG + multi-source web fan-out)
+    # Phase 1: RAG-first retrieval — web search fires in background.
+    # RAG results flow immediately; web merges in only if it finishes
+    # within the RAG budget (no extra waiting).
+    _WEB_GRACE_MS = 500  # max ms to wait for web AFTER RAG completes
     t_phase1 = time.monotonic()
     rag_coro = retrieve_context(query=query, collections=collections, top_k=overfetch, domain_filter=domain_filter)
 
+    web_task: asyncio.Task | None = None
     if web_enabled:
         effective_web_query = web_query if web_query else query[:120]
-        web_coro = _multi_source_web_search(
-            effective_web_query,
-            domain_hints=domain_hints,
-            search_source_ids=search_source_ids,
+        web_task = asyncio.create_task(
+            _multi_source_web_search(
+                effective_web_query,
+                domain_hints=domain_hints,
+                search_source_ids=search_source_ids,
+            ),
+            name="web_search",
         )
-        rag_raw, web_multi_raw = await asyncio.gather(rag_coro, web_coro, return_exceptions=True)
-    else:
+
+    # Await RAG — this is the critical path.
+    try:
         rag_raw = await rag_coro
-        web_multi_raw: dict[str, list[SearchResult]] = {}
+    except Exception as rag_exc:
+        rag_raw = rag_exc
+
+    # If web task is running, give it a short grace period after RAG completes.
+    web_multi_raw: dict[str, list[SearchResult]] = {}
+    if web_task is not None:
+        if web_task.done():
+            try:
+                web_multi_raw = web_task.result()
+            except Exception as web_exc:
+                web_multi_raw = web_exc
+        else:
+            try:
+                web_multi_raw = await asyncio.wait_for(
+                    asyncio.shield(web_task), timeout=_WEB_GRACE_MS / 1000
+                )
+            except (TimeoutError, asyncio.TimeoutError):
+                logger.info(
+                    "web_search_still_running",
+                    extra={"query": query[:60], "grace_ms": _WEB_GRACE_MS},
+                )
+                web_multi_raw = {}
+            except Exception as web_exc:
+                web_multi_raw = web_exc
+
     phase1_ms = (time.monotonic() - t_phase1) * 1000
 
     _rag_degraded = False
@@ -762,18 +728,6 @@ async def retrieve_unified(
             )
         phase5b_ms = (time.monotonic() - _t_phase5b) * 1000
 
-    # Phase 6: coherence gate — drop off-topic chunks (CRAG/Self-RAG pattern).
-    t_phase6 = time.monotonic()
-    base_thresh = getattr(settings, "coherence_gate_threshold", 0.25)
-    if difficulty >= 0.7:
-        coherence_thresh = max(base_thresh - 0.05, 0.15)
-    elif difficulty <= 0.3:
-        coherence_thresh = min(base_thresh + 0.05, 0.35)
-    else:
-        coherence_thresh = base_thresh
-    final = await _coherence_gate(query, final, coherence_thresh)
-    phase6_ms = (time.monotonic() - t_phase6) * 1000
-
     total_retrieval_ms = (time.monotonic() - t_total) * 1000
     urls_in_final = sum(1 for r in final if r.source_url)
     logger.info(
@@ -788,7 +742,6 @@ async def retrieve_unified(
             "difficulty": round(difficulty, 2),
             "web_enabled": web_enabled,
             "skip_web": skip_web,
-            "coherence_threshold": round(coherence_thresh, 3),
             "domain_filter": domain_filter or "(none)",
             "cohesion_lock": (cohesion_lock_dict or {}).get("entity", "(none)"),
         },
@@ -799,7 +752,6 @@ async def retrieve_unified(
             "query": query[:80],
             "phase1_rag_web_ms": round(phase1_ms, 1),
             "phase5b_cohesion_ms": round(phase5b_ms, 1),
-            "phase6_coherence_ms": round(phase6_ms, 1),
             "total_ms": round(total_retrieval_ms, 1),
         },
     )
@@ -822,7 +774,6 @@ async def retrieve_unified(
         phase_timings={
             "phase1_rag_web_ms": round(phase1_ms, 1),
             "phase5b_cohesion_ms": round(phase5b_ms, 1),
-            "phase6_coherence_ms": round(phase6_ms, 1),
             "total_ms": round(total_retrieval_ms, 1),
         },
     )
