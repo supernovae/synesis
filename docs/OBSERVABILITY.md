@@ -48,7 +48,7 @@ running the Grafana Operator.
 | Panel | PromQL | Description |
 |-------|--------|-------------|
 | Retrieval Source Distribution | `sum(synesis_retrieval_source_total) by (source)` | Milvus vs BM25 vs hybrid hits |
-| Re-ranker Latency | `histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))` | ColBERT/FlashRank/BGE re-ranking time |
+| Re-ranker Latency | `histogram_quantile(0.95, rate(synesis_reranker_duration_seconds_bucket[5m]))` | FlashRank/BGE re-ranking time |
 | BM25 Fallback Rate | `rate(synesis_bm25_fallback_total[5m])` | Fallback when vector search fails |
 
 ### Sandbox

@@ -53,10 +53,10 @@ flowchart LR
     end
 
     subgraph models [Model Serving — EFS-backed]
-        RouterLLM["Router · Qwen3-8B"]
+        RouterLLM["Router · Qwen2.5-14B"]
         GeneralLLM["General · Qwen3-32B FP8"]
         CoderLLM["Coder · Qwen3-Coder-30B-A3B"]
-        CriticLLM["Critic · R1-32B FP8"]
+        CriticLLM["Critic · R1-Distill-32B FP8"]
     end
 
     subgraph support [Supporting Services]
@@ -97,13 +97,13 @@ flowchart LR
 - **Router-governed evidence architecture** — the Router is the single retrieval orchestrator (RAG + web search). Evidence flows as structured "Evidence Packets" between nodes. A Hybrid Retrieval Cache prevents redundant retrieval. See [docs/WORKFLOW.md](docs/WORKFLOW.md).
 - **Multi-query retrieval enrichment** — each evidence request produces 3 query variants (direct, HyDE hypothetical document, conceptual expansion with taxonomy hints) retrieved in parallel and merged via Reciprocal Rank Fusion. BM25 corpus includes all indexed metadata (keywords, tags, document_name) with lightweight stemming.
 - **Taxonomy-driven output style** — 173 domain entries define persona, depth, `output_style_guidance`, `epistemic_guidance`, and `required_elements` injected into the Writer. High-complexity domains (>= 0.8) promote required elements to soft mandates in the Critic. All raw YAML fields pass through automatically — no plumbing changes needed when adding new fields.
-- **Cohesion Lock engine** — Frame extraction identifies the dominant entity/theory; a micro-critique filters retrieved documents for topic coherence; contextual compression strips off-topic sentences; LongContextReorder optimizes LLM attention placement. This prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure in a single architecture response).
+- **Cohesion Lock engine** — Frame extraction builds a **TopicFrame** (conceptual entity guiding retrieval) separate from **OutputCohesion** (technology/methodology constraints for consistent output). Retrieval queries focus on the TopicFrame; post-retrieval filtering enforces OutputCohesion via YAML-driven conflict groups (`cohesion_groups.yaml`). A micro-critique filters retrieved documents for topic coherence; contextual compression strips off-topic sentences; LongContextReorder optimizes LLM attention placement. When the TopicFrame is ambiguous, the planner asks the user for clarification rather than guessing. This prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure in a single architecture response).
 - **Evidence-aware critic** — 6-axis scoring with `evidence_utilization` (0.10 weight), deterministic citation rate check, and a strict depth gate that blocks shallow responses at high difficulty. Evidence is budget-trimmed (default 24k chars) to prevent token-budget fading. See [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md).
 - **IDEs connect directly to Coder** — a separate vLLM endpoint with tool-calling support, no LangGraph overhead. The MCP server lets the Coder reach Synesis capabilities (RAG, taxonomy, architecture knowledge) as tool calls when needed.
 - **Sandbox and LSP are exception-flow tools** — they fire on code validation failures, not on every request. This keeps the happy path fast. See [docs/SANDBOX.md](docs/SANDBOX.md) and [docs/LSP.md](docs/LSP.md).
 - **Taxonomy-driven prompt shaping** — 173 domain entries across 27 categories. Domain behavior, critic depth, writer persona, epistemic guidance, and planner decomposition rules are all YAML-configurable. Taxonomy config is compiled at startup with Pydantic schema validation and orphan detection. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
-- **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing, reducing cost and avoiding retry loops. See [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md).
-- **Design theory (Cynefin, sensemaking, joint cognitive systems)** — we frame complexity in Cynefin terms: clear → direct answer; complicated → plan + evidence + critic; complex → probe (retrieval, CRAG) then respond or escalate; chaotic → clarify first (ask the user), don’t run full writer/critic until the frame is stable. That keeps the system a joint cognitive system (human + AI), reduces oscillation on ambiguous prompts, and supports consistent quality across architecture, scientific, and other complex domains. See [docs/DESIGN_THEORY.md](docs/DESIGN_THEORY.md).
+- **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing, reducing cost and avoiding retry loops.
+- **Design theory (Cynefin, sensemaking, joint cognitive systems)** — we frame complexity in Cynefin terms: clear → direct answer; complicated → plan + evidence + critic; complex → probe (retrieval, CRAG) then respond or escalate; chaotic → clarify first (ask the user), don’t run full writer/critic until the frame is stable. That keeps the system a joint cognitive system (human + AI), reduces oscillation on ambiguous prompts, and supports consistent quality across architecture, scientific, and other complex domains.
 - **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. See [docs/SECURITY.md](docs/SECURITY.md).
 - **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
@@ -113,17 +113,17 @@ All model definitions live in [`models.yaml`](models.yaml) — the single source
 
 | Role | Default Model | Purpose |
 |------|--------------|---------|
-| **Router** | Qwen3-8B FP8 | Fast routing, query generation, evidence summarization, planner |
+| **Router** | Qwen2.5-14B-Instruct | Fast routing, query generation, evidence summarization, planner |
 | **General** | Qwen3-32B FP8 | Executor (code), Writer (knowledge synthesis), Open WebUI default |
 | **Coder** | Qwen3-Coder-30B-A3B FP8 | Agentic coding for IDE clients (direct vLLM endpoint) |
-| **Critic** | DeepSeek R1-Distill-32B FP8 | Toulmin-based quality review with configurable thinking budget |
+| **Critic** | DeepSeek R1-Distill-Qwen-32B FP8 | Toulmin-based quality review with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
 
 Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML). See [`base/model-serving/README.md`](base/model-serving/README.md) for deployment examples.
 
 ## Composable Deployment Profiles
 
-Synesis scales from a 2-GPU proof of concept to a production cluster. Each profile defines model assignments, quantization, tensor parallelism, and GPU mapping.
+Synesis scales from a 3-GPU small deployment to a production cluster. Each profile defines model assignments, quantization, tensor parallelism, and GPU mapping.
 
 | Profile | Hardware | Use Case | Models |
 |---------|----------|----------|--------|
@@ -166,7 +166,7 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 ### 3. Build and push images
 
 ```bash
-./scripts/build-images.sh --push              # All 10 images to GHCR
+./scripts/build-images.sh --push              # All 12 images to GHCR
 ./scripts/build-images.sh --push --tag v1.0   # With version tag
 ./scripts/build-images.sh --only planner,admin --push  # Subset
 ```
@@ -196,7 +196,7 @@ Run after `deploy.sh` so Milvus and embedder are healthy first:
 | **synesis-api** | `https://synesis-api.<cluster>/v1` | Full pipeline via LiteLLM (Open WebUI, API clients) |
 | **synesis-coder** | `https://synesis-coder.<cluster>/v1` | Direct vLLM coder for Cursor / Claude Code |
 | **synesis-planner** | `https://synesis-planner.<cluster>/v1` | LangGraph pipeline without LiteLLM |
-| **synesis-admin** | `https://synesis-admin.<cluster>/` | Failure dashboard, knowledge gap review |
+| **synesis-admin** | `https://synesis-admin.<cluster>/` | Traces, web search log, RAG review, knowledge gaps, AI assistant |
 
 See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
 
@@ -213,8 +213,10 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | **Conversation Memory** | Per-user L1 memory with plan approval and needs_input resume | [docs/CONVERSATION_MEMORY.md](docs/CONVERSATION_MEMORY.md) |
 | **Failure Knowledge** | Vector store of past mistakes; fail-fast cache for instant pattern matching | [docs/FAILURE_KB.md](docs/FAILURE_KB.md) |
 | **Observability** | Perses dashboards (COO), Prometheus metrics, per-profile model panels | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
-| **LLM Tracing** | Built-in per-node LangGraph tracing with LLM call detail, critic score correlation, waterfall timeline in admin UI — zero additional infrastructure (Redis-backed) | [docs/WORKFLOW.md](docs/WORKFLOW.md#observability-synesistracer) |
+| **LLM Tracing** | Built-in per-node LangGraph tracing with LLM call detail, critic score correlation, waterfall timeline in admin UI — zero additional infrastructure (Postgres-backed) | [docs/WORKFLOW.md](docs/WORKFLOW.md#observability-synesistracer) |
+| **Web Search HITL** | Search event log, domain breakdown, per-URL vet/block/ingest actions, URL policy management — admin UI for human-in-the-loop web search review | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Open WebUI** | Pre-configured chat interface with zero-setup LiteLLM integration | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
+| **Prompt Injection Hardening** | 8-layer defense-in-depth: pattern scanning, trust delimiters, instruction hierarchy, sandwich defense, datamarking, state sanitization, index-time RAG scanning, output guardrails | [docs/SECURITY.md](docs/SECURITY.md) |
 | **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection, retrieval churn detection | [docs/WORKFLOW.md](docs/WORKFLOW.md#anti-oscillation-framework) |
 
 ## Project Structure
@@ -240,7 +242,9 @@ synesis/
 │   ├── lsp/                    # LSP Intelligence Gateway (6 languages)
 │   ├── search/                 # SearXNG meta-search engine
 │   ├── webui/                  # Open WebUI chat frontend
-│   ├── admin/                  # Failure pattern dashboard
+│   ├── admin/                  # Admin UI — traces, web search log, RAG review, AI assistant
+│   ├── postgres/               # CloudNativePG cluster (admin + trace DB)
+│   ├── quality-runner/         # Corpus quality CronJob (curator agent)
 │   ├── supervisor/             # Health monitoring
 │   └── observability/          # Prometheus ServiceMonitors + Perses dashboards
 ├── overlays/
@@ -278,6 +282,15 @@ synesis/
 | [docs/CRITIC_RESEARCH.md](docs/CRITIC_RESEARCH.md) | Research basis for critic evaluation rubric, scoring dimensions, calibration path |
 | [docs/LORA_TRAINING_GUIDE.md](docs/LORA_TRAINING_GUIDE.md) | LoRA adapter training strategy per model role |
 | [docs/SECURITY.md](docs/SECURITY.md) | Prompt injection hardening, trust model, authority hierarchy, admin review workflow |
+| [docs/OPENROUTER.md](docs/OPENROUTER.md) | OpenRouter deployment overlay, budget/quality tiers |
+| [docs/OPENWEBUI_PHASES.md](docs/OPENWEBUI_PHASES.md) | SSE phase streaming, status events, background critic |
+| [docs/OPENWEBUI_ADMIN_GUIDE.md](docs/OPENWEBUI_ADMIN_GUIDE.md) | Open WebUI admin configuration, feedback pipe |
+| [docs/FEEDBACK_API.md](docs/FEEDBACK_API.md) | Thumbs up/down feedback API, Open WebUI plugin |
+| [docs/STREAMING_BUFFERING.md](docs/STREAMING_BUFFERING.md) | HAProxy buffering, SSE streaming, critic modes |
+| [docs/IDE_CLIENT_COORDINATION.md](docs/IDE_CLIENT_COORDINATION.md) | IDE/agent client trust model, prompt injection defense |
+| [docs/UV_TOOLING.md](docs/UV_TOOLING.md) | UV for Python dependency management (local, CI, containers) |
+| [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Design experiments: parallel critic, adaptive depth mode |
+| [docs/ARCHITECTURE_AUDIT.md](docs/ARCHITECTURE_AUDIT.md) | Historical architecture audit and remediation log |
 
 ## Changing Models
 

@@ -8,22 +8,22 @@ for config generation.
 
 ---
 
-## Small Profile (2x L40S)
+## Small Profile (3x L40S)
 
-**Use case**: Solo developer, proof of concept, evaluation.
+**Use case**: Multi-user small team, evaluation.
 
 | Resource | Type | Specification |
 |----------|------|---------------|
-| Instance | g6e.4xlarge | 2x NVIDIA L40S (48 GB each) |
-| vCPU / RAM | 16 vCPU | 128 GB |
+| Instance | 3x g6e.2xlarge | 3x NVIDIA L40S (48 GB each) |
+| vCPU / RAM | 24 vCPU | 192 GB |
 | Storage | 200 GB gp3 | Model weights + PVC |
 
 **Model Placement**:
 
-- GPU 0: Router (Qwen3-8B FP8, ~10 GB) + Critic (R1-Distill-32B FP8, ~33 GB, time-shared)
-- GPU 1: Coder (Qwen3-Coder-Next Q3, ~40 GB)
+- GPU 0: Router (Qwen2.5-14B, ~14 GB) + Critic (R1-Distill-Qwen-32B FP8, ~33 GB, time-shared)
+- GPU 1: General (Qwen3-32B FP8, ~33 GB)
+- GPU 2: Coder (Qwen3-Coder-30B-A3B FP8, ~40 GB)
 - CPU: Summarizer (Qwen2.5-0.5B)
-- No dedicated general model (R1/router handle general queries)
 
 **Cost**:
 
@@ -49,9 +49,9 @@ for config generation.
 
 **Model Placement**:
 
-- GPU 0: General/Writer (Qwen3.5-35B-A3B BF16, ~35 GB)
-- GPU 1-2: Coder (Qwen3-Coder-Next FP8, ~85 GB, TP=2)
-- GPU 3: Router (Qwen3-8B FP8, ~10 GB) + Critic (R1-Distill-32B FP8, ~33 GB)
+- GPU 0: General/Writer (Qwen3-32B FP8, ~33 GB)
+- GPU 1-2: Coder (Qwen3-Coder-30B-A3B FP8, TP=2)
+- GPU 3: Router (Qwen2.5-14B, ~14 GB) + Critic (R1-Distill-Qwen-32B FP8, ~33 GB)
 - CPU: Summarizer (Qwen2.5-0.5B)
 
 **Cost**:
@@ -84,7 +84,7 @@ On-demand: ~$7.00/hr combined. Advantages: independent scaling, fault isolation.
 - Node 1 (2 GPU): General (Qwen3-235B-A22B FP8, ~120 GB, TP=2)
 - Node 2 (2 GPU): Coder replica 1 (Qwen3-Coder-Next FP8, TP=2)
 - Node 3 (2 GPU): Coder replica 2 (Qwen3-Coder-Next FP8, TP=2) + HPA
-- Node 4 (2 GPU): Critic (R1-Distill-70B FP8, TP=2) + Router (Qwen3-8B FP8)
+- Node 4 (2 GPU): Critic (R1-Distill-70B FP8, TP=2) + Router (Qwen2.5-14B)
 
 **Cost**:
 
@@ -142,3 +142,80 @@ Scale replicas for throughput without changing models:
 
 *Generated from models.yaml profiles. Update profiles and re-run
 `scripts/generate-model-configs.sh --profile=<name>` to regenerate.*
+
+---
+
+## ROSA HCP Deployment Costs
+
+The following section provides detailed cost breakdowns for running Synesis on
+**Red Hat OpenShift Service on AWS with Hosted Control Planes (ROSA HCP)**.
+All prices are on-demand in **us-east-1** as of February 2026. Reserved
+instances and Spot pricing can reduce costs significantly.
+
+### ROSA HCP Service Fees
+
+ROSA HCP billing has two components billed through AWS Marketplace:
+
+| Component | Rate | Notes |
+|-----------|------|-------|
+| **Cluster control plane** | $0.25/hr | Managed by Red Hat. No EC2 instances to manage. |
+| **Worker node service fee** | $0.171/hr per 4 vCPU | Metered per worker node based on vCPU count. |
+
+The control plane fee is fixed regardless of cluster size. Worker fees scale
+with the number and size of nodes.
+
+**Commitment discounts** are available:
+
+| Term | Discount |
+|------|----------|
+| On-demand | Full price |
+| 1-year commitment | ~33% off worker fees |
+| 3-year commitment | ~55% off worker fees |
+
+### GPU Tier Comparison
+
+| GPU Instance | GPU | VRAM | Inference Speed | EC2 $/hr | Effective $/mo | Recommendation |
+|-------------|-----|------|-----------------|----------|----------------|----------------|
+| **g6e.4xlarge** | 1x L40S | 48 GB | ~15-25 tok/s | $3.00 | $2,193 | **Best value for Synesis.** Fits the 48GB budget perfectly. |
+| g6e.12xlarge | 4x L40S | 192 GB | ~15-25 tok/s | $10.49 | $7,660 | Overkill unless running multiple models. |
+| g5.12xlarge | 4x A10G | 96 GB | ~10-18 tok/s | $5.67 | $4,139 | Cheaper multi-GPU but A10G is slower than L40S. |
+| p4d.24xlarge | 8x A100 40GB | 320 GB | ~30-40 tok/s | $32.77 | $23,922 | Fast but massively over-provisioned for 1 model. |
+| p5.48xlarge | 8x H100 80GB | 640 GB | ~50-60 tok/s | $98.32 | $71,774 | Fastest. Only for large-scale production. |
+
+### Cost by Usage Pattern
+
+| Pattern | Hours/Month | GPU $/mo | Total $/mo (On-Demand) |
+|---------|------------|----------|------------------------|
+| **Always-on** (24/7) | 730 | $2,193 | ~$4,822 |
+| **Business hours** (10hr x 22 days) | 220 | $661 | ~$2,449 |
+| **Dev/testing** (8hr x 5 days) | 160 | $481 | ~$2,123 |
+
+### Purchasing Red Hat OpenShift AI
+
+Red Hat OpenShift AI (RHOAI) provides the model serving infrastructure
+(KServe, vLLM runtimes, model registry) that Synesis relies on.
+
+- **AWS Marketplace** (recommended for ROSA): Search for "Red Hat OpenShift AI"
+  in the AWS Marketplace console. Pay-as-you-go billing appears on your
+  consolidated AWS bill.
+- **Red Hat Hybrid Cloud Console**: Enable the OpenShift AI add-on for your
+  ROSA cluster at [console.redhat.com](https://console.redhat.com).
+- **Red Hat Sales / Partner**: Contact your Red Hat account manager for
+  enterprise agreements and volume discounts.
+
+OpenShift AI is included in **OpenShift Platform Plus** subscriptions at no
+additional cost.
+
+### Cost Optimization Tips
+
+1. **Start with g6e instances**: The L40S provides the best $/VRAM ratio for Synesis.
+2. **Use cluster autoscaler**: Scale GPU nodes to zero when not in use.
+3. **Reserved Instances**: Commit to 1-year pricing for ~34% savings on EC2.
+4. **Spot Instances**: Use for non-GPU workloads (~75% savings).
+5. **Right-size the default pool**: 3 nodes suffice for dev/test.
+6. **Disable optional components**: SearXNG, LSP Gateway, Admin, Warm Pool can
+   be disabled to reduce CPU requirements.
+
+*Prices are on-demand in us-east-1 as of February 2026. Verify current rates at
+[aws.amazon.com/rosa/pricing](https://aws.amazon.com/rosa/pricing/) and
+[aws.amazon.com/ec2/pricing](https://aws.amazon.com/ec2/pricing/on-demand/).*

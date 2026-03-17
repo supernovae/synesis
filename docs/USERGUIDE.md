@@ -160,7 +160,7 @@ Admins can view, filter by status, resolve, reopen, or purge gaps from the **Kno
 | Reopen | `POST /admin/observability/knowledge-gaps/{chunk_id}/reopen` | Returns a resolved gap to `open` status |
 | Purge | `DELETE /admin/observability/knowledge-gaps/{chunk_id}` | Permanently deletes the gap record |
 
-Gaps can also be submitted via the planner API or admin form. See [PLAN-domain-aligner-universal-expertise.md](PLAN-domain-aligner-universal-expertise.md).
+Gaps can also be submitted via the planner API or admin form.
 
 ### Post-RAG-Load Validation
 

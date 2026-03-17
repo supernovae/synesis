@@ -58,5 +58,4 @@ To disable UDS (e.g. for CPU-only dev), remove or empty the `*_MODEL_UDS` env va
 
 ## Related
 
-- [BLACKWELL_ARCHITECTURE.md](BLACKWELL_ARCHITECTURE.md) — Planner–vLLM co-location rationale
 - [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md) — GPU node layout

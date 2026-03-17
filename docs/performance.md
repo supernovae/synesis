@@ -17,7 +17,7 @@ Living document for performance work: latency reduction, prefill optimization, a
 
 | Item | Description |
 |------|-------------|
-| **Prefix caching** | Router-critic runtime with `--enable-prefix-caching` for Qwen3-8B FP8-dynamic. Executor uses FP8 KV cache instead (mutually exclusive with prefix caching). |
+| **Prefix caching** | Router-critic runtime with `--enable-prefix-caching` for Qwen2.5-14B. Executor uses FP8 KV cache instead (mutually exclusive with prefix caching). |
 | **FP8 quantization (executor)** | DeepSeek R1-Distill-Qwen-32B FP8-dynamic with `--kv-cache-dtype=fp8_e5m2`. Native tensor core ops on L40S. |
 | **Guided JSON decoding** | Router and Critic use `with_structured_output(RouterOut|CriticOut, method="json_schema")`; fallback to raw parse on failure. |
 | **Persistent HTTP client** | `get_llm_http_client()` returns shared `httpx.Client`; reduces connection churn across graph run. |
@@ -78,7 +78,7 @@ If Tier 1 and 2 are unchanged across requests, vLLM caches their KV states. Subs
 | Model | Quantization | GPU | Instance | VRAM |
 |-------|-------------|-----|----------|------|
 | DeepSeek R1-Distill-Qwen-32B FP8-dynamic | FP8 | 1x L40S | g6e.4xlarge | ~33 GB |
-| Qwen3-8B FP8-dynamic | FP8 | 1x L40S | g6e.4xlarge (shared) | ~8 GB |
+| Qwen2.5-14B-Instruct | — | 1x L40S | g6e.4xlarge (shared) | ~14 GB |
 | Qwen2.5-0.5B-Instruct | none | CPU | Any node | 0 |
 
 ### Key Features

@@ -1,5 +1,19 @@
 # Synesis Architecture Audit
 
+> **Historical document.** This audit was conducted against an earlier codebase
+> state. Many P0/P1 findings have since been resolved:
+>
+> - **#1 (Milvus client)** — replaced by pool-based `rag_client.py` with alias eviction
+> - **#2 (import time)** — fixed
+> - **#5 (no circuit breaker)** — `model_client.py` now wraps all LLM calls with per-role circuit breakers
+> - **#6 (no model fallback)** — fallback model chains implemented
+> - **#9 (RedisSaver)** — fixed; checkpointer API updated for langgraph-checkpoint-redis
+> - **#11 (no adversarial tests)** — prompt injection hardening implemented with 8 defense layers
+>
+> For the current security posture, see [SECURITY.md](SECURITY.md). For the
+> current architecture and graph flow, see [WORKFLOW.md](WORKFLOW.md). This
+> document is preserved as a reference for the remediation journey.
+
 Full end-to-end review covering LLM orchestration, RAG/retrieval, infrastructure/caching, and evaluation/governance. Findings are severity-ranked with evidence and concrete remediation.
 
 ---

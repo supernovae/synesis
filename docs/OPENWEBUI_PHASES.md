@@ -136,7 +136,7 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 - **LiteLLM/proxy**: Some proxies forward only `data:` lines and drop `event: status`. Try calling the Planner directly (no LiteLLM) to verify.
 - **Open WebUI version**: SSE status routing may require a recent release.
 - **Buffering**: `X-Accel-Buffering: no` is set; upstream proxies (HAProxy, nginx) may still buffer—add `haproxy.router.openshift.io/disable_buffer: "true"` on the route.
-- **Planner restarts**: If the planner pod OOMs or crashes, the stream stops and the UI can sit on "Gathering evidence" or similar. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. Ensure `search_sources.yaml` is mounted (apply planner via kustomize so the `synesis-search-sources` ConfigMap exists); otherwise logs show `search_sources_file_not_found` and the router uses in-memory defaults, but the file mount avoids path confusion and matches production config. For memory debugging and instrumentation, see [PLANNER_MEMORY.md](PLANNER_MEMORY.md).
+- **Planner restarts**: If the planner pod OOMs or crashes, the stream stops and the UI can sit on "Gathering evidence" or similar. Check `kubectl describe pod -n synesis-planner` for `Last State: Terminated, Reason: OOMKilled`. Ensure `search_sources.yaml` is mounted (apply planner via kustomize so the `synesis-search-sources` ConfigMap exists); otherwise logs show `search_sources_file_not_found` and the router uses in-memory defaults, but the file mount avoids path confusion and matches production config. For memory debugging and instrumentation, see [OBSERVABILITY.md](OBSERVABILITY.md).
 
 ---
 
