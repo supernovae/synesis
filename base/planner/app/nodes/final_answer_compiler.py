@@ -29,10 +29,9 @@ from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.final_answer_compiler")
 
-_COMPILER_SYSTEM = """\
+_COMPILER_SYSTEM_TEMPLATE = """\
 You are the Final Answer Writer. You receive approved section text and a \
-structured task specification, and produce a well-formatted markdown \
-response for the user.
+structured task specification, and produce a well-formatted response for the user.
 
 CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
@@ -80,8 +79,31 @@ HEADING STYLE:
   Good: "Retrieval Architecture", "System Architecture".
 - Headings should read as a table of contents for an expert document, not a checklist of user demands.
 
-OUTPUT: Markdown with section headings. No JSON wrapper.
+{output_directive}
 """
+
+
+def _build_compiler_system(state: dict[str, Any]) -> str:
+    """Build the compiler system prompt with format-aware output directive."""
+    from .frame_normalizer import STRUCTURED_FORMATS
+
+    frame = state.get("user_task") or {}
+    fmt = frame.get("requested_format", "prose")
+    schema_fields = frame.get("output_schema") or []
+
+    if fmt in STRUCTURED_FORMATS:
+        schema_hint = ""
+        if schema_fields:
+            schema_hint = f"\nRequired top-level keys/fields: {', '.join(schema_fields)}"
+        directive = (
+            f"OUTPUT: Valid {fmt.upper()} document. Do NOT wrap in markdown or add "
+            f"markdown headings. The entire response must be parseable as {fmt}."
+            f"{schema_hint}"
+        )
+    else:
+        directive = "OUTPUT: Markdown with section headings. No JSON wrapper."
+
+    return _COMPILER_SYSTEM_TEMPLATE.format(output_directive=directive)
 
 _LIGHT_COMPILER_SYSTEM = """\
 You are the Final Answer Writer. A team of specialist writers has already \
@@ -267,9 +289,10 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if success:
         parts.append("Success criteria: " + "; ".join(success[:6]))
 
-    output_format = frame.get("requested_format", "")
-    if output_format and output_format != "prose":
-        parts.append(f"Output format: {output_format}")
+    # Output format is handled by the OUTPUT directive in the compiler system prompt.
+    output_schema = frame.get("output_schema") or []
+    if output_schema:
+        parts.append(f"Required output schema fields: {', '.join(output_schema)}")
 
     if not parts:
         return ""
@@ -325,8 +348,10 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
 
     from ..token_utils import estimate_tokens
 
+    compiler_system = _build_compiler_system(state)
+
     model_context = settings.compiler_model_context
-    full_input = f"{_COMPILER_SYSTEM}\n{task_block}\n{section_text}{source_inventory}"
+    full_input = f"{compiler_system}\n{task_block}\n{section_text}{source_inventory}"
     estimated_input_tokens = estimate_tokens(full_input, writer_name)
     available_output = model_context - estimated_input_tokens - 256
 
@@ -349,7 +374,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
     # Full rewrite mode — sections fit in context
     user_msg = f"{task_block}\nTarget verbosity: {verbosity}\n\n## Approved Sections\n{section_text}{source_inventory}"
 
-    estimated_input_tokens = estimate_tokens(_COMPILER_SYSTEM + user_msg, writer_name)
+    estimated_input_tokens = estimate_tokens(compiler_system + user_msg, writer_name)
     available_output = model_context - estimated_input_tokens - 256
     if writer_budget > available_output:
         writer_budget = max(2048, available_output)
@@ -383,7 +408,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
 
         result = await llm.ainvoke(
             [
-                SystemMessage(content=_COMPILER_SYSTEM),
+                SystemMessage(content=compiler_system),
                 HumanMessage(content=user_msg),
             ]
         )

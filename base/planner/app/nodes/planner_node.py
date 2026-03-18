@@ -505,6 +505,25 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "named tools, quantified estimates, committed choices."
             )
 
+        # Output format: when the user requests a structured format (json, yaml, etc.),
+        # instruct the planner to organize steps around the output structure.
+        from ..nodes.frame_normalizer import STRUCTURED_FORMATS
+
+        _req_format = user_task.get("requested_format", "prose")
+        _output_schema = user_task.get("output_schema") or []
+        if _req_format in STRUCTURED_FORMATS:
+            schema_line = ""
+            if _output_schema:
+                schema_line = f"\nRequired top-level keys/fields: {', '.join(_output_schema)}"
+            system_prompt += (
+                f"\n\nOUTPUT FORMAT REQUIREMENT: The final response MUST be valid {_req_format.upper()}."
+                f"{schema_line}"
+                f"\nStructure your plan steps so each step maps to a key or section in the "
+                f"{_req_format} output. The writer will produce {_req_format}, not markdown."
+            )
+        elif _req_format != "prose":
+            system_prompt += f"\n\nExpected output format: {_req_format}."
+
         # DEPRECATION(is_code_task): code-task prompt branch is dead in text_only mode.
         # Remove when legacy_hybrid is retired.
         if is_code_task:

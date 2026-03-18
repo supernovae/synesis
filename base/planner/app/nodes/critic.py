@@ -147,8 +147,20 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
         parts.extend(f"  - {s}" for s in success_criteria)
 
     output_format = frame.get("requested_format", "")
+    output_schema = frame.get("output_schema") or []
     if output_format and output_format != "prose":
-        parts.append(f"Expected output format: {output_format}")
+        from .frame_normalizer import STRUCTURED_FORMATS
+
+        if output_format in STRUCTURED_FORMATS:
+            schema_line = ""
+            if output_schema:
+                schema_line = f"\n  Required fields: {', '.join(output_schema)}"
+            parts.append(
+                f"CRITICAL FORMAT REQUIREMENT: Response MUST be valid {output_format.upper()}.{schema_line}\n"
+                f"  Any response not parseable as {output_format} is a format_miss failure."
+            )
+        else:
+            parts.append(f"Expected output format: {output_format}")
 
     # Merge decision ledger and style contract into the same rubric block
     if state:
@@ -309,10 +321,87 @@ _MERMAID_BLOCK_RE = re.compile(r"```mermaid\b", re.IGNORECASE)
 _SECTION_HEADING_RE = re.compile(r"^#{1,3}\s+.+", re.MULTILINE)
 
 
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences from a response that should be raw structured output.
+
+    Models sometimes wrap JSON/YAML/etc. in triple-backtick fences even when told not to.
+    """
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_nl = stripped.find("\n")
+        if first_nl != -1:
+            stripped = stripped[first_nl + 1:]
+        if stripped.endswith("```"):
+            stripped = stripped[:-3].rstrip()
+    return stripped
+
+
+def _check_format_compliance(
+    response: str,
+    requested_format: str,
+    output_schema: list[str],
+) -> list[str]:
+    """Deterministic format validation for structured output formats.
+
+    Returns failure mode strings when the response doesn't match the requested format.
+    """
+    import json as _json
+
+    from .frame_normalizer import STRUCTURED_FORMATS
+
+    if requested_format not in STRUCTURED_FORMATS:
+        return []
+
+    failures: list[str] = []
+    clean = _strip_code_fences(response)
+
+    if requested_format == "json":
+        try:
+            parsed = _json.loads(clean)
+            if output_schema and isinstance(parsed, dict):
+                missing = [f for f in output_schema if f not in parsed]
+                if missing:
+                    failures.append("format_miss")
+        except (ValueError, _json.JSONDecodeError):
+            failures.append("format_miss")
+
+    elif requested_format == "yaml":
+        try:
+            import yaml
+
+            yaml.safe_load(clean)
+        except Exception:
+            failures.append("format_miss")
+
+    elif requested_format == "xml":
+        try:
+            import xml.etree.ElementTree as ET
+
+            ET.fromstring(clean)
+        except ET.ParseError:
+            failures.append("format_miss")
+
+    elif requested_format == "csv":
+        lines = [ln for ln in clean.strip().splitlines() if ln.strip()]
+        if len(lines) < 2:
+            failures.append("format_miss")
+
+    elif requested_format == "toml":
+        try:
+            import tomllib
+
+            tomllib.loads(clean)
+        except Exception:
+            failures.append("format_miss")
+
+    return failures
+
+
 def _deterministic_depth_checks(
     response: str,
     difficulty: float,
     taxonomy_meta: dict[str, Any],
+    user_task: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run deterministic quality checks that fire before LLM critic scoring.
 
@@ -320,6 +409,13 @@ def _deterministic_depth_checks(
     that should be merged into the LLM-produced failure_modes.
     """
     failures: list[str] = []
+
+    # Format compliance: always check for structured formats regardless of difficulty.
+    frame = user_task or {}
+    requested_format = frame.get("requested_format", "prose")
+    output_schema = frame.get("output_schema") or []
+    failures.extend(_check_format_compliance(response, requested_format, output_schema))
+
     if difficulty < 0.7:
         return failures
 
@@ -1023,9 +1119,10 @@ Reply with JSON:
 
                 # Deterministic depth checks for hard tasks: catch shallow
                 # sections that LLM-based critic might score as nominally covered.
-                if difficulty >= 0.7 and generated_code:
+                if generated_code:
                     _det_failures = _deterministic_depth_checks(
-                        generated_code, difficulty, state.get("taxonomy_metadata") or {}
+                        generated_code, difficulty, state.get("taxonomy_metadata") or {},
+                        user_task=user_task_data,
                     )
                     for df in _det_failures:
                         if df not in failure_modes:

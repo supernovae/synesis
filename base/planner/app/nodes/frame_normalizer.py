@@ -53,16 +53,32 @@ _NEGATIVE_RE = re.compile(
 )
 
 # --------------------------------------------------------------------------- #
-# Format detection patterns
+# Format detection patterns — ordered by specificity (structured first)
 # --------------------------------------------------------------------------- #
 
 _FORMAT_PATTERNS = {
-    "table": re.compile(r"\b(table|matrix|grid|spreadsheet)\b", re.IGNORECASE),
-    "code": re.compile(r"\b(code|snippet|script|implementation|function|class)\b", re.IGNORECASE),
-    "diagram": re.compile(r"\b(diagram|chart|graph|flowchart|mermaid|uml)\b", re.IGNORECASE),
-    "bullet_list": re.compile(r"\b(bullet|list|numbered|enumerat)\b", re.IGNORECASE),
-    "email": re.compile(r"\b(email|letter|memo)\b", re.IGNORECASE),
+    # Structured (machine-parseable) — higher priority, checked first
+    "json": re.compile(r"\bjson\b", re.IGNORECASE),
+    "yaml": re.compile(r"\b(?:yaml|yml)\b", re.IGNORECASE),
+    "xml": re.compile(r"\b(?:xml|xhtml)\b", re.IGNORECASE),
+    "csv": re.compile(r"\b(?:csv|tsv|comma[\s-]?separated|tab[\s-]?separated)\b", re.IGNORECASE),
+    "toml": re.compile(r"\btoml\b", re.IGNORECASE),
+    "ascii": re.compile(r"\b(?:ascii\s*(?:art|table|diagram)|plaintext|plain[\s-]?text)\b", re.IGNORECASE),
+    # Presentation (within markdown)
+    "table": re.compile(r"\b(?:table|matrix|grid|spreadsheet)\b", re.IGNORECASE),
+    "code": re.compile(r"\b(?:code|snippet|script|implementation|function|class)\b", re.IGNORECASE),
+    "diagram": re.compile(r"\b(?:diagram|chart|graph|flowchart|mermaid|uml)\b", re.IGNORECASE),
+    "bullet_list": re.compile(r"\b(?:bullet|list|numbered|enumerat)\b", re.IGNORECASE),
+    "email": re.compile(r"\b(?:email|letter|memo)\b", re.IGNORECASE),
 }
+
+# Structured formats override the writer's markdown directive entirely.
+# The response must be valid in this format — not markdown with hints.
+STRUCTURED_FORMATS = frozenset({"json", "yaml", "xml", "csv", "toml"})
+
+# Regex to extract field/key names from JSON-like schema blocks in prompts.
+# Matches "field_name": or "field_name" inside { ... } blocks.
+_SCHEMA_FIELD_RE = re.compile(r'"(\w+)"\s*:', re.MULTILINE)
 
 # --------------------------------------------------------------------------- #
 # Persona detection — extract delivery style cues from the user message
@@ -266,15 +282,30 @@ def normalize_frame(
     # Detect decision_required from decision_signals + raw text
     decision_required = bool(decision_signals) or bool(_DECISION_RE.search(raw_text))
 
-    # Determine requested_format
+    # Determine requested_format + output_schema
     requested_format = "prose"
     if formats:
-        requested_format = formats[0].text.lower()
+        fmt_text = formats[0].text.lower().strip()
+        # Normalize GLiNER-extracted format text to canonical name
+        for fmt, pattern in _FORMAT_PATTERNS.items():
+            if pattern.search(fmt_text):
+                requested_format = fmt
+                break
+        else:
+            requested_format = fmt_text
     else:
         for fmt, pattern in _FORMAT_PATTERNS.items():
             if pattern.search(raw_text):
                 requested_format = fmt
                 break
+
+    # Extract output_schema: field/key names when user specifies a structured schema.
+    # Scans for JSON-like { "field": ... } blocks in the prompt.
+    output_schema: list[str] = []
+    if requested_format in STRUCTURED_FORMATS:
+        for brace_block in re.findall(r"\{[^{}]{10,}\}", raw_text):
+            fields = _SCHEMA_FIELD_RE.findall(brace_block)
+            output_schema.extend(f for f in fields if f not in output_schema)
 
     # Pick main_question — prefer extracted candidates, fall back to heuristic
     main_question = ""
@@ -351,6 +382,7 @@ def normalize_frame(
         constraints=_extract_texts(real_constraints),
         negative_constraints=_extract_texts(_dedup_candidates(neg_constraints)),
         requested_format=requested_format,
+        output_schema=output_schema,
         deliverables=_extract_texts(deliverables),
         success_criteria=success_criteria,
         ambiguities=ambiguities,

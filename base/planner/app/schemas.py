@@ -802,6 +802,7 @@ class UserTask(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     negative_constraints: list[str] = Field(default_factory=list)
     requested_format: str = "prose"
+    output_schema: list[str] = Field(default_factory=list)  # field/key names for structured formats
     deliverables: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     ambiguities: list[str] = Field(default_factory=list)

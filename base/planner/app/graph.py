@@ -534,9 +534,12 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             http_client=get_llm_http_client(),
         )
 
+        from .nodes.frame_normalizer import STRUCTURED_FORMATS
+
         frame = state.get("user_task") or {}
         frame_deliverables = frame.get("deliverables") or []
         frame_output_format = frame.get("requested_format", "")
+        is_structured = frame_output_format in STRUCTURED_FORMATS
 
         preserve_hints = ""
         if frame_deliverables:
@@ -545,8 +548,6 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
                 + "; ".join(frame_deliverables[:8])
                 + "."
             )
-        if frame_output_format and frame_output_format != "prose":
-            preserve_hints += f" Expected output format: {frame_output_format}."
 
         cohesion_lock = state.get("cohesion_lock") or {}
         cohesion_entity = cohesion_lock.get("entity", "")
@@ -556,15 +557,26 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             exclude_part = f" Do not introduce content about: {', '.join(exclude[:6])}." if exclude else ""
             cohesion_hint = f" Stay within the conceptual frame: {cohesion_entity}.{exclude_part}"
 
-        instruction = (
-            "Synthesize these independently-generated sections into a single coherent document. "
-            "Improve flow and transitions between sections. Remove exact duplicate sentences only. "
-            "PRESERVE the following verbatim: all code blocks, markdown formatting, "
-            "and any structured headings the user explicitly requested. "
-            "Do NOT add generic compliance scaffolding or enterprise boilerplate "
-            "that was not present in the source sections. "
-            "Match your depth to the source material — do not compress or inflate." + preserve_hints + cohesion_hint
-        )
+        if is_structured:
+            schema_fields = frame.get("output_schema") or []
+            schema_hint = f" Required fields: {', '.join(schema_fields)}." if schema_fields else ""
+            instruction = (
+                f"Combine these sections into a single valid {frame_output_format.upper()} document. "
+                f"Do NOT wrap in markdown, do NOT add headings or prose outside the {frame_output_format} structure. "
+                f"The entire output must be parseable as {frame_output_format}.{schema_hint}"
+                + preserve_hints + cohesion_hint
+            )
+        else:
+            instruction = (
+                "Synthesize these independently-generated sections into a single coherent document. "
+                "Improve flow and transitions between sections. Remove exact duplicate sentences only. "
+                "PRESERVE the following verbatim: all code blocks, markdown formatting, "
+                "and any structured headings the user explicitly requested. "
+                "Do NOT add generic compliance scaffolding or enterprise boilerplate "
+                "that was not present in the source sections. "
+                "Match your depth to the source material — do not compress or inflate."
+                + preserve_hints + cohesion_hint
+            )
 
         result = await writer_llm.ainvoke(
             [
