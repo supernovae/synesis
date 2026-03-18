@@ -253,6 +253,73 @@ export function useCriticEvaluations(params?: {
   });
 }
 
+export interface CriticModel {
+  id: string;
+  label: string;
+  provider: string;
+}
+
+export function useCriticModels() {
+  return useQuery<{ models: CriticModel[] }>({
+    queryKey: ["pipeline", "critic", "models"],
+    queryFn: () => client.get("/pipeline/critic/models").then((r) => r.data),
+  });
+}
+
+export interface CriticRunResult {
+  trace_id: string;
+  model: string;
+  model_label: string;
+  scores: Record<string, number>;
+  approved: boolean;
+  failure_modes: string[];
+  repair_instructions: Array<{
+    priority: number;
+    target: string;
+    action: string;
+    reason: string;
+  }>;
+  overall_assessment: string;
+  latency_ms: number;
+}
+
+export function useRunCritic() {
+  const qc = useQueryClient();
+  return useMutation<CriticRunResult, Error, { trace_id: string; model: string }>({
+    mutationFn: (data) => client.post("/pipeline/critic/run", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
+export function usePurgeTrivialTraces() {
+  const qc = useQueryClient();
+  return useMutation<
+    { deleted?: number; would_delete?: number; dry_run: boolean },
+    Error,
+    { min_tokens?: number; dry_run?: boolean }
+  >({
+    mutationFn: (params) =>
+      client.post("/traces/purge-trivial", null, { params }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["traces"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
+export function useDeleteTrace() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: string }, Error, string>({
+    mutationFn: (traceId) => client.delete(`/traces/${traceId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["traces"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
 // --- Integrations ---
 
 export function useMcpTools() {

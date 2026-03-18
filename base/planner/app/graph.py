@@ -965,7 +965,7 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
             result = await critic_node(state_snapshot)
             scores = result.get("critic_scores") or {}
             approved = result.get("critic_approved", False)
-            failure_modes = result.get("failure_modes") or []
+            failure_modes = result.get("failure_modes_detected") or result.get("failure_modes") or []
             repair_instructions = result.get("repair_instructions") or []
             blocking_issues = result.get("blocking_issues") or []
 

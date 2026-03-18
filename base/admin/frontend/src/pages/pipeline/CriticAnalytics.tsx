@@ -12,12 +12,29 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { useCriticDetailed, useCriticEvaluations } from "../../api/hooks";
-import type { CriticEvaluation } from "../../api/hooks";
+import {
+  useCriticDetailed,
+  useCriticEvaluations,
+  useCriticModels,
+  useRunCritic,
+  usePurgeTrivialTraces,
+  useDeleteTrace,
+} from "../../api/hooks";
+import type { CriticEvaluation, CriticRunResult } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
-import { CheckCircle, XCircle, BarChart3, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  CheckCircle,
+  XCircle,
+  BarChart3,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  Play,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 
 const COLORS = ["#22c55e", "#ef4444"];
 
@@ -30,78 +47,84 @@ const TIME_RANGES = [
 export default function CriticAnalytics() {
   const [days, setDays] = useState(7);
   const { data, isLoading } = useCriticDetailed(days);
+  const purgeMutation = usePurgeTrivialTraces();
+
+  const handlePurge = (dryRun: boolean) => {
+    purgeMutation.mutate({ min_tokens: 100, dry_run: dryRun });
+  };
+
+  const timeRangeButtons = (
+    <div className="flex flex-wrap gap-2">
+      {TIME_RANGES.map(({ label, days: d }) => (
+        <button
+          key={d}
+          type="button"
+          onClick={() => setDays(d)}
+          className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            days === d
+              ? "bg-indigo-100 text-indigo-700"
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+      <button
+        type="button"
+        onClick={() => handlePurge(true)}
+        disabled={purgeMutation.isPending}
+        className="inline-flex items-center gap-1 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+        title="Preview trivial traces (< 100 tokens) that would be removed"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+        {purgeMutation.isPending ? "Checking..." : "Purge Trivial"}
+      </button>
+    </div>
+  );
+
+  const purgeResult = purgeMutation.data ? (
+    <div className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+      {purgeMutation.data.dry_run ? (
+        <>
+          Found <strong>{purgeMutation.data.would_delete}</strong> trivial traces
+          (&lt;{100} tokens).{" "}
+          {(purgeMutation.data.would_delete ?? 0) > 0 && (
+            <button
+              onClick={() => handlePurge(false)}
+              className="ml-2 rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
+            >
+              Delete them
+            </button>
+          )}
+        </>
+      ) : (
+        <>Deleted <strong>{purgeMutation.data.deleted}</strong> trivial traces.</>
+      )}
+    </div>
+  ) : null;
 
   if (isLoading) {
     return <div className="h-64 animate-pulse rounded-lg bg-gray-100" />;
   }
 
-  if (!data) {
+  if (!data || data.total_evaluated === 0) {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
               Critic Analytics
             </h1>
             <p className="mt-1 text-sm text-gray-500">
               Approval rates, rejection reasons, and scoring
             </p>
           </div>
-          <div className="flex gap-2">
-            {TIME_RANGES.map(({ label, days: d }) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setDays(d)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                  days === d
-                    ? "bg-indigo-100 text-indigo-700"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {timeRangeButtons}
         </div>
+        {purgeResult}
         <EmptyState
           title="No critic data"
-          description="Critic metrics will appear after evaluations run"
-        />
-      </div>
-    );
-  }
-
-  if (data.total_evaluated === 0) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Critic Analytics
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Approval rates, rejection reasons, and scoring
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {TIME_RANGES.map(({ label, days: d }) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDays(d)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                days === d
-                  ? "bg-indigo-100 text-indigo-700"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <EmptyState
-          title="No critic data"
-          description={`No evaluations in the last ${days} day(s)`}
+          description={data ? `No evaluations in the last ${days} day(s)` : "Critic metrics will appear after evaluations run"}
         />
       </div>
     );
@@ -118,30 +141,17 @@ export default function CriticAnalytics() {
     <div className="space-y-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
             Critic Analytics
           </h1>
           <p className="mt-1 text-sm text-gray-500">
             Approval rates, rejection reasons, and scoring
           </p>
         </div>
-        <div className="flex gap-2">
-          {TIME_RANGES.map(({ label, days: d }) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDays(d)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                days === d
-                  ? "bg-indigo-100 text-indigo-700"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {timeRangeButtons}
       </div>
+
+      {purgeResult}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
@@ -274,6 +284,28 @@ export default function CriticAnalytics() {
       )}
 
       <EvaluationsTable days={days} />
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Critic Configuration
+        </h3>
+        <ul className="mt-2 space-y-1 text-xs text-gray-500">
+          <li>
+            <strong>Async critic:</strong> Enabled by default (runs after response delivery).
+            Toggle via <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">SYNESIS_CRITIC_BACKGROUND=false</code> in planner deployment.
+          </li>
+          <li>
+            <strong>Manual critic:</strong> Use the <Play className="inline h-3 w-3" /> button on any evaluation to re-run the critic with a different model.
+          </li>
+          <li>
+            <strong>Difficulty threshold:</strong> Critic is skipped for trivial prompts (difficulty &lt; 0.15).
+            Lenient mode applies below 0.4.
+          </li>
+          <li>
+            <strong>External models:</strong> Available when <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">OPENROUTER_API_KEY</code> is set on the admin service.
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }
@@ -281,22 +313,101 @@ export default function CriticAnalytics() {
 function EvaluationsTable({ days }: { days: number }) {
   const [page, setPage] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState("synesis-critic");
+  const [runResult, setRunResult] = useState<CriticRunResult | null>(null);
   const pageSize = 25;
   const { data, isLoading } = useCriticEvaluations({
     days,
     limit: pageSize,
     offset: page * pageSize,
   });
+  const { data: modelData } = useCriticModels();
+  const runCritic = useRunCritic();
+  const deleteTrace = useDeleteTrace();
 
   const evaluations = data?.evaluations ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
+  const models = modelData?.models ?? [];
+
+  const handleRunCritic = (traceId: string) => {
+    runCritic.mutate(
+      { trace_id: traceId, model: selectedModel },
+      { onSuccess: (result) => setRunResult(result) },
+    );
+  };
 
   return (
     <div>
-      <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
-        Individual Evaluations ({total})
-      </h2>
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+          Individual Evaluations ({total})
+        </h2>
+        {models.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Critic model:</span>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {runResult && (
+        <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+              Critic Result — {runResult.model_label}
+            </span>
+            <button
+              onClick={() => setRunResult(null)}
+              className="text-xs text-indigo-500 hover:text-indigo-700"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
+            <div>
+              <span className="font-medium">Score:</span>{" "}
+              <span className={runResult.scores?.weighted_overall >= 7 ? "text-green-600" : "text-red-600"}>
+                {runResult.scores?.weighted_overall?.toFixed(1) ?? "N/A"}
+              </span>
+            </div>
+            <div>
+              <span className="font-medium">Status:</span>{" "}
+              {runResult.approved ? (
+                <span className="text-green-600">Approved</span>
+              ) : (
+                <span className="text-red-600">Rejected</span>
+              )}
+            </div>
+            <div>
+              <span className="font-medium">Latency:</span>{" "}
+              {runResult.latency_ms}ms
+            </div>
+          </div>
+          {runResult.failure_modes.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {runResult.failure_modes.map((m) => (
+                <span key={m} className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{m}</span>
+              ))}
+            </div>
+          )}
+          {runResult.overall_assessment && (
+            <p className="mt-2 whitespace-pre-wrap text-xs text-gray-600 dark:text-gray-400">
+              {runResult.overall_assessment}
+            </p>
+          )}
+        </div>
+      )}
       {isLoading ? (
         <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : evaluations.length === 0 ? (
@@ -334,6 +445,13 @@ function EvaluationsTable({ days }: { days: number }) {
                     onToggle={() =>
                       setExpanded(expanded === ev.trace_id ? null : ev.trace_id)
                     }
+                    onRunCritic={() => handleRunCritic(ev.trace_id)}
+                    onDelete={() => {
+                      if (confirm(`Delete trace ${ev.trace_id.slice(0, 12)}...?`)) {
+                        deleteTrace.mutate(ev.trace_id);
+                      }
+                    }}
+                    isRunning={runCritic.isPending}
                   />
                 ))}
               </tbody>
@@ -372,10 +490,16 @@ function EvalRow({
   ev,
   expanded,
   onToggle,
+  onRunCritic,
+  onDelete,
+  isRunning,
 }: {
   ev: CriticEvaluation;
   expanded: boolean;
   onToggle: () => void;
+  onRunCritic: () => void;
+  onDelete: () => void;
+  isRunning: boolean;
 }) {
   const scoreColor =
     ev.weighted_overall >= 7
@@ -430,16 +554,37 @@ function EvalRow({
           </div>
         </td>
         <td className="px-2 py-2">
-          <button
-            onClick={onToggle}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            {expanded ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onRunCritic}
+              disabled={isRunning}
+              className="rounded p-1 text-indigo-400 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-40 dark:hover:bg-indigo-900/30"
+              title="Run critic on this trace"
+            >
+              {isRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              onClick={onDelete}
+              className="rounded p-1 text-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30"
+              title="Delete trace"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={onToggle}
+              className="rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              {expanded ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
+          </div>
         </td>
       </tr>
       {expanded && (

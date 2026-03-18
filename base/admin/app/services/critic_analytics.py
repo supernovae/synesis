@@ -25,25 +25,33 @@ SCORE_KEYS = [
 # f-strings as potential SQL injection, but these are compile-time constants.
 _CS = "full_record -> 'critic_scores'"
 _BG = "full_record -> 'background_critic' -> 'scores'"
+_MC = "full_record -> 'manual_critic' -> 'scores'"
 _APPROVED = f"(({_CS} ->> 'approved')::text = 'true')"
 _BG_APPROVED = "(full_record -> 'background_critic' ->> 'approved')::text = 'true'"
+_MC_APPROVED = "(full_record -> 'manual_critic' ->> 'approved')::text = 'true'"
 
-# Unified view: inline critic OR background critic (prefer background if present)
+# Unified view: manual > background > inline critic.  Exclude trivial traces (< 100 tokens).
 _HAS_CRITIC = f"""(
-    (full_record ? 'critic_scores' AND {_CS} IS NOT NULL AND jsonb_typeof({_CS}) = 'object')
-    OR (full_record ? 'background_critic' AND {_BG} IS NOT NULL AND jsonb_typeof({_BG}) = 'object')
+    (
+        (full_record ? 'manual_critic' AND {_MC} IS NOT NULL AND jsonb_typeof({_MC}) = 'object')
+        OR (full_record ? 'background_critic' AND {_BG} IS NOT NULL AND jsonb_typeof({_BG}) = 'object')
+        OR (full_record ? 'critic_scores' AND {_CS} IS NOT NULL AND jsonb_typeof({_CS}) = 'object')
+    )
+    AND total_tokens >= 100
 )"""
 
-_SCORE_EXPR = f"COALESCE(({_BG} ->> 'weighted_overall')::float, ({_CS} ->> 'weighted_overall')::float)"
+_SCORE_EXPR = f"COALESCE(({_MC} ->> 'weighted_overall')::float, ({_BG} ->> 'weighted_overall')::float, ({_CS} ->> 'weighted_overall')::float)"
 _APPROVED_EXPR = f"""(
-    CASE WHEN full_record ? 'background_critic' AND {_BG} IS NOT NULL
+    CASE WHEN full_record ? 'manual_critic' AND {_MC} IS NOT NULL
+         THEN ({_MC_APPROVED})
+         WHEN full_record ? 'background_critic' AND {_BG} IS NOT NULL
          THEN ({_BG_APPROVED})
          ELSE {_APPROVED}
     END
 )"""
 
 def _score_col(key: str) -> str:
-    return f"COALESCE(({_BG} ->> '{key}')::float, ({_CS} ->> '{key}')::float)"
+    return f"COALESCE(({_MC} ->> '{key}')::float, ({_BG} ->> '{key}')::float, ({_CS} ->> '{key}')::float)"
 
 # All queries are pre-built at module load with fixed JSONB path expressions.
 # Bind parameters (:cutoff) handle the only runtime input.
@@ -84,6 +92,7 @@ _Q_BUCKETS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalche
 )
 
 _FAILURE_MODES_EXPR = f"""COALESCE(
+    full_record -> 'manual_critic' -> 'failure_modes',
     full_record -> 'background_critic' -> 'failure_modes',
     {_CS} -> 'failure_modes',
     '[]'::jsonb
@@ -147,6 +156,7 @@ _Q_EVALUATIONS = text(  # nosemgrep
             '{{}}'
         )::text[] AS failure_modes,
         COALESCE(
+            full_record -> 'manual_critic' ->> 'repair_instructions',
             full_record -> 'background_critic' ->> 'repair_instructions',
             full_record -> 'critic_scores' ->> 'repair_instructions',
             ''

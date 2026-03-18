@@ -120,6 +120,56 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_admin)):
     }
 
 
+@router.delete("/{trace_id}")
+async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_admin)):
+    """Delete a single trace by ID."""
+    from sqlalchemy import text as sa_text
+
+    from ..db.engine import async_session as db_session
+
+    async with db_session() as session:
+        result = await session.execute(
+            sa_text("DELETE FROM traces WHERE trace_id = :tid"), {"tid": trace_id}
+        )
+        await session.commit()
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Trace not found")
+    return {"deleted": trace_id}
+
+
+@router.post("/purge-trivial")
+async def purge_trivial_traces(
+    min_tokens: int = Query(50, ge=1),
+    dry_run: bool = Query(True),
+    _user: UserInfo = Depends(require_admin),
+):
+    """Purge traces with very low token counts (test/trivial prompts).
+
+    Default dry_run=True only counts; set dry_run=False to actually delete.
+    """
+    from sqlalchemy import text as sa_text
+
+    from ..db.engine import async_session as db_session
+
+    async with db_session() as session:
+        count_row = (
+            await session.execute(
+                sa_text("SELECT COUNT(*)::int AS cnt FROM traces WHERE total_tokens < :min"),
+                {"min": min_tokens},
+            )
+        ).one()
+        count = count_row.cnt
+
+        if dry_run or count == 0:
+            return {"would_delete": count, "dry_run": True, "min_tokens": min_tokens}
+
+        await session.execute(
+            sa_text("DELETE FROM traces WHERE total_tokens < :min"), {"min": min_tokens}
+        )
+        await session.commit()
+    return {"deleted": count, "dry_run": False, "min_tokens": min_tokens}
+
+
 @router.get("/{trace_id}")
 async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
     record = await trace_store.get_trace(trace_id)
