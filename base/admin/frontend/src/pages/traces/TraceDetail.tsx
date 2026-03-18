@@ -816,16 +816,16 @@ export default function TraceDetail() {
             <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
               <h3 className="mb-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300">
                 Manual Critic
-                {trace.manual_critic.model && (
+                {typeof trace.manual_critic.model === "string" && (
                   <span className="ml-2 font-mono text-xs font-normal text-indigo-500">
-                    {String(trace.manual_critic.model)}
+                    {trace.manual_critic.model}
                   </span>
                 )}
               </h3>
               <CriticScoresPanel scores={trace.manual_critic as Record<string, unknown>} />
-              {trace.manual_critic.overall_assessment && (
+              {typeof trace.manual_critic.overall_assessment === "string" && (
                 <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                  {String(trace.manual_critic.overall_assessment)}
+                  {trace.manual_critic.overall_assessment}
                 </p>
               )}
             </div>
