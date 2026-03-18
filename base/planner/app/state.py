@@ -131,10 +131,11 @@ class GraphState(TypedDict, total=False):
     # --- Cohesion Lock (Router-set, consumed by Writer/Critic) ---
     cohesion_lock: Annotated[dict[str, Any], _set_once_dict]
 
-    # --- Intent Anchors (Frame Normalizer-set, consumed by Router/Writer/Critic) ---
-    unresolved_conflicts: list[dict[str, Any]]
+    # --- Domain Profiling (Frame Normalizer-set via UserTask.domain_profile) ---
+    # DomainProfile is embedded in user_task; no separate state key needed.
 
-    # --- Strategic Advisor ---
+    # --- Domain Context (Entry Classifier + Strategic Advisor) ---
+    domain_ref_counts: dict[str, int]
     platform_context: str
     active_domain_refs: list[str]
     advisory_message: str
@@ -423,7 +424,8 @@ class SynesisState(BaseModel):
     # Cohesion Lock (Router-set, consumed by Writer/Critic)
     cohesion_lock: dict[str, Any] = Field(default_factory=dict)
 
-    # Strategic Advisor
+    # Domain Context + Strategic Advisor
+    domain_ref_counts: dict[str, int] = Field(default_factory=dict)
     platform_context: str = ""
     active_domain_refs: list[str] = Field(default_factory=list)
     advisory_message: str = ""

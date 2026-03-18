@@ -121,14 +121,15 @@ class Settings(BaseSettings):
     cohesion_compression_threshold: float = 0.20  # sentence-level similarity to lock
     long_context_reorder_enabled: bool = True
 
-    # Intent anchors — pre-retrieval technology ambiguity resolution.
-    # Scans frame-extracted technologies against conflict groups derived
-    # from _ENTITY_EXCLUSION_MAP, resolving gaps/conflicts before retrieval.
-    anchor_resolution_enabled: bool = True
-    anchor_strategy: Literal["pick_default", "ask_on_conflict", "always_ask"] = "ask_on_conflict"
-    anchor_ask_min_difficulty: float = 0.5
-    anchor_show_assumptions: bool = True
-    anchor_llm_fallback_enabled: bool = True
+    # Domain profiling — sensemaking-driven weighted domain understanding.
+    # Replaces hard intent-anchor / exclude-signal locking with a weighted
+    # DomainProfile that classifies frame coherence as focused / composite / diffuse.
+    # Ref: Klein et al. (2007) Data-Frame theory; Snowden & Boone (2007) Cynefin.
+    domain_profiling_enabled: bool = True
+    focused_threshold: float = 0.6      # domain weight at/above → dominant (focused frame)
+    composite_threshold: float = 0.25   # 2+ domains at/above → composite frame
+    diffuse_max_weight: float = 0.25    # no domain above → diffuse (probe/clarify)
+    domain_profile_min_technologies: int = 3  # need this many extracted techs to profile
 
     # Plan Gate: fast deterministic validation after planner, before evidence retrieval.
     plan_gate_coherence_enabled: bool = False  # optional shallow LLM coherence check (off by default)

@@ -3,8 +3,12 @@
 Pure Python, no ML, no LLM. Takes a FirstPassFrame (raw GLiNER2 output) and
 produces a normalized UserTask + MissingFieldReport for gating Stage 3.
 
-Includes the intent anchor resolver that scans extracted technologies
-against conflict groups to resolve ambiguity pre-retrieval.
+Includes the domain profiler (sensemaking-driven weighted multi-domain
+understanding) which replaces the old intent-anchor hard-lock system.
+
+Ref: Klein et al. (2007) Data-Frame theory of sensemaking.
+Ref: Snowden & Boone (2007) Cynefin framework for frame coherence.
+Ref: Blei, Ng & Jordan (2003) LDA — prompts are topic mixtures.
 """
 
 from __future__ import annotations
@@ -13,8 +17,10 @@ import logging
 import re
 from typing import Any
 
-from ..config import reasoning_body, settings
+from ..config import settings
 from ..schemas import (
+    DomainProfile,
+    DomainWeight,
     FirstPassFrame,
     MissingFieldReport,
     RawExtractionCandidate,
@@ -248,10 +254,13 @@ def _extract_texts(candidates: list[RawExtractionCandidate]) -> list[str]:
 def normalize_frame(
     frame: FirstPassFrame,
     raw_text: str,
-) -> tuple[UserTask, MissingFieldReport, list[dict[str, Any]]]:
+    *,
+    domain_ref_counts: dict[str, int] | None = None,
+    active_domain_refs: list[str] | None = None,
+) -> tuple[UserTask, MissingFieldReport]:
     """Stage 2: deterministic normalization of GLiNER2 raw extraction.
 
-    Returns (UserTask, MissingFieldReport, unresolved_conflicts).
+    Returns (UserTask, MissingFieldReport).
     """
     # Dedup within each field
     requirements = _dedup_candidates(frame.requirements)
@@ -399,12 +408,15 @@ def normalize_frame(
     # excluding technologies (those feed OutputCohesion, not search).
     user_task.topic_frame = _build_topic_frame(user_task)
 
-    # Intent anchor resolution — scan technologies against conflict groups
-    anchors, excl, anchor_assumptions, unresolved_conflicts = _resolve_intent_anchors(user_task)
-    if anchors:
-        user_task.intent_anchors = anchors
-        user_task.anchor_exclude_signals = excl
-        user_task.anchor_assumptions = anchor_assumptions
+    # Domain profiling — sensemaking-driven weighted domain understanding.
+    # Replaces old intent-anchor hard-lock with a DomainProfile that
+    # classifies frame coherence as focused / composite / diffuse.
+    profile = _build_domain_profile(
+        user_task,
+        domain_ref_counts=domain_ref_counts,
+        active_domain_refs=active_domain_refs,
+    )
+    user_task.domain_profile = profile
 
     logger.info(
         "normalize_frame reqs=%d constraints=%d deliverables=%d second_pass=%s",
@@ -414,7 +426,7 @@ def normalize_frame(
         report.should_call_second_pass,
     )
 
-    return user_task, report, unresolved_conflicts
+    return user_task, report
 
 
 # ---------------------------------------------------------------------------
@@ -457,259 +469,170 @@ def _build_topic_frame(user_task: UserTask) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Intent Anchor Resolution
+# Domain Profiling — Sensemaking-Driven Weighted Domain Understanding
+# ---------------------------------------------------------------------------
+#
+# Replaces the old intent-anchor / exclude-signal hard-lock system.
+#
+# Theory:
+#   Pirolli & Card (1999) — build a holistic frame BEFORE gathering evidence.
+#   Klein et al. (2007) — Data-Frame sensemaking: fit data into frames
+#       iteratively, don't lock on first signal.
+#   Blei, Ng & Jordan (2003) — prompts are topic mixtures with weights.
+#   Snowden & Boone (2007) — Cynefin: focused = obvious/complicated,
+#       composite = complicated (multi-expert), diffuse = complex (probe).
 # ---------------------------------------------------------------------------
 
-_CONFLICT_GROUP_DEFAULTS: dict[str, str] = {
-    # When a conflict group is implied but no member is explicit, pick this.
-    # Values are the most common industry default per group.
-}
 
-
-def _resolve_intent_anchors(
+def _build_domain_profile(
     user_task: UserTask,
-) -> tuple[dict[str, str], list[str], list[str], list[dict[str, Any]]]:
-    """Resolve technology ambiguity from extracted technologies against conflict groups.
+    *,
+    domain_ref_counts: dict[str, int] | None = None,
+    active_domain_refs: list[str] | None = None,
+) -> DomainProfile:
+    """Build a weighted domain profile from the full extracted frame.
 
-    Returns:
-        (anchors, exclude_signals, assumptions, unresolved_conflicts)
+    Algorithm:
+      1. Seed weights from scoring engine domain_ref_counts.
+      2. Boost domains whose technologies appear in deliverable text ("subject").
+      3. Classify technologies that only appear in constraints as "tool".
+      4. Normalize weights to 0-1.
+      5. Classify frame coherence (focused / composite / diffuse).
+      6. Annotate conflict-group relationships for downstream awareness.
     """
-    if not settings.anchor_resolution_enabled:
-        return {}, [], [], []
+    if not settings.domain_profiling_enabled:
+        return DomainProfile()
 
-    from ..cohesion import _ENTITY_EXCLUSION_MAP, get_conflict_groups
+    counts = dict(domain_ref_counts or {})
+    refs = list(active_domain_refs or [])
 
-    conflict_groups = get_conflict_groups()
-    tech_lower = {t.lower() for t in user_task.technologies}
-    constraint_lower = {c.lower() for c in user_task.constraints}
-    all_signals = tech_lower | constraint_lower
+    # If no scoring-engine signal at all, build a minimal profile from GLiNER
+    # domain_tags (the model's own domain-hint extraction).
+    if not counts and not refs:
+        for tag in user_task.domain_tags:
+            tag_l = tag.lower().strip()
+            if tag_l:
+                counts[tag_l] = counts.get(tag_l, 0) + 1
+                if tag_l not in refs:
+                    refs.append(tag_l)
 
-    anchors: dict[str, str] = {}
-    exclude_signals: list[str] = []
-    assumptions: list[str] = []
-    unresolved: list[dict[str, Any]] = []
+    if not counts:
+        return DomainProfile(frame_coherence="diffuse", confidence=0.2)
 
-    for group_name, members in conflict_groups.items():
-        hits = all_signals & members
-        if len(hits) == 0:
-            default = _CONFLICT_GROUP_DEFAULTS.get(group_name)
-            if default:
-                anchors[group_name] = default
-                excl = _ENTITY_EXCLUSION_MAP.get(default, [])
-                exclude_signals.extend(excl)
-                assumptions.append(f"Assuming {default} (no {group_name.replace('_', ' ')} specified)")
-            continue
+    # --- Step 1: Seed raw weights from ref counts ---
+    raw_weights: dict[str, float] = {}
+    for domain, cnt in counts.items():
+        raw_weights[domain] = float(cnt)
 
-        if len(hits) == 1:
-            winner = next(iter(hits))
-            anchors[group_name] = winner
-            excl = _ENTITY_EXCLUSION_MAP.get(winner, [])
-            exclude_signals.extend(excl)
-        else:
-            # Multiple members from the same group → conflict
-            unresolved.append(
-                {
-                    "group": group_name,
-                    "members": sorted(hits),
-                    "all_members": sorted(members),
-                }
-            )
-
-    exclude_signals = list(dict.fromkeys(exclude_signals))
-
-    if anchors or unresolved:
-        logger.info(
-            "intent_anchors_resolved",
-            extra={
-                "anchors": anchors,
-                "exclude_signals": exclude_signals[:8],
-                "assumptions": assumptions[:4],
-                "unresolved_count": len(unresolved),
-            },
-        )
-
-    return anchors, exclude_signals, assumptions, unresolved
-
-
-async def resolve_intent_anchors_with_llm_fallback(
-    user_task: UserTask,
-    difficulty: float,
-    run_id: str = "",
-) -> tuple[dict[str, str], list[str], list[str], list[dict[str, Any]]]:
-    """Full anchor resolution: fast map + LLM fallback for unknown domains.
-
-    Called from the entry_pipeline or frame_extractor node (async context).
-    The LLM fallback fires only when the fast path found zero conflict groups,
-    the task is hard enough, and there are 3+ unrecognized technologies.
-    """
-    anchors, exclude_signals, assumptions, unresolved = _resolve_intent_anchors(user_task)
-
-    if anchors or unresolved or not settings.anchor_llm_fallback_enabled:
-        return anchors, exclude_signals, assumptions, unresolved
-
-    if difficulty < settings.anchor_ask_min_difficulty:
-        return anchors, exclude_signals, assumptions, unresolved
+    # --- Step 2: Role classification via deliverable/constraint analysis ---
+    deliverable_text = " ".join(user_task.deliverables).lower()
+    constraint_text = " ".join(user_task.constraints).lower()
+    tech_lower = [t.lower() for t in user_task.technologies]
+    roles: dict[str, str] = {}
 
     from ..cohesion import get_conflict_groups
 
     conflict_groups = get_conflict_groups()
-    all_known = set()
-    for members in conflict_groups.values():
-        all_known |= members
 
-    tech_lower = [t.lower() for t in user_task.technologies]
-    unrecognized = [t for t in tech_lower if t not in all_known]
+    # Map technologies to their domains via conflict groups
+    tech_to_domain: dict[str, str] = {}
+    for group_name, members in conflict_groups.items():
+        for t in tech_lower:
+            if t in members:
+                tech_to_domain[t] = group_name
 
-    if len(unrecognized) < 3:
-        return anchors, exclude_signals, assumptions, unresolved
+    # Classify: technologies in deliverables = "subject", in constraints = "tool"
+    for t in tech_lower:
+        if t in deliverable_text:
+            domain = tech_to_domain.get(t, "")
+            if domain and domain in raw_weights:
+                raw_weights[domain] *= 1.5  # boost subject domains
+                roles.setdefault(domain, "subject")
+        elif t in constraint_text:
+            domain = tech_to_domain.get(t, "")
+            if domain:
+                roles.setdefault(domain, "tool")
 
-    # LLM fallback: ask the router model to detect mutually exclusive choices
-    try:
-        from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
+    # Any domain not classified via tech analysis gets "context"
+    for domain in raw_weights:
+        roles.setdefault(domain, "context")
 
-        from ..llm_telemetry import get_llm_http_client
-        from ..schemas import safe_parse_json
+    # --- Step 3: Normalize weights to 0-1 ---
+    max_w = max(raw_weights.values()) if raw_weights else 1.0
+    if max_w <= 0:
+        max_w = 1.0
+    normalized: dict[str, float] = {d: w / max_w for d, w in raw_weights.items()}
 
-        _kw: dict[str, Any] = {}
-        _fn_eb: dict[str, Any] = {}
-        if settings.guided_json_enabled:
-            _fn_eb["chat_template_kwargs"] = {"enable_thinking": False}
-        else:
-            _kw["response_format"] = {"type": "json_object"}
-        _fn_eb.update(reasoning_body(settings.router_reasoning_effort))
-        if _fn_eb:
-            _kw["extra_body"] = _fn_eb
+    # --- Step 4: Build DomainWeight list, sorted by weight descending ---
+    domain_weights: list[DomainWeight] = []
+    sources_map: dict[str, list[str]] = {}
+    for domain in normalized:
+        src: list[str] = []
+        if domain in (domain_ref_counts or {}):
+            src.append("scoring_engine")
+        if domain in [t.lower().strip() for t in user_task.domain_tags]:
+            src.append("gliner_domain_hint")
+        for t in tech_lower:
+            if tech_to_domain.get(t) == domain:
+                src.append(f"technology:{t}")
+                break
+        sources_map[domain] = src
 
-        llm = ChatOpenAI(
-            base_url=settings.router_model_url,
-            api_key="not-needed",
-            model=settings.router_model_name,
-            temperature=0.0,
-            max_completion_tokens=1024,
-            streaming=False,
-            use_responses_api=False,
-            model_kwargs=_kw,
-            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
+    for domain, weight in sorted(normalized.items(), key=lambda x: -x[1]):
+        domain_weights.append(
+            DomainWeight(
+                domain=domain,
+                weight=round(weight, 3),
+                role=roles.get(domain, "context"),
+                sources=sources_map.get(domain, []),
+            )
         )
 
-        prompt = (
-            f"These technologies were extracted from a user prompt: {unrecognized}\n"
-            "Are any of these mutually exclusive choices in the same decision category?\n"
-            'Output JSON array: [{"group": "<category>", "members": ["a","b"], "default": "<most common>"}]\n'
-            "If none are mutually exclusive, output: []"
-        )
+    # --- Step 5: Classify frame coherence ---
+    weights_above_focused = [d for d in domain_weights if d.weight >= settings.focused_threshold]
+    weights_above_composite = [d for d in domain_weights if d.weight >= settings.composite_threshold]
+    all_below_diffuse = all(d.weight < settings.diffuse_max_weight for d in domain_weights)
 
-        resp = await llm.ainvoke(
-            [
-                SystemMessage(content="You classify technology relationships. Output only JSON."),
-                HumanMessage(content=prompt),
-            ]
-        )
+    if len(weights_above_focused) == 1 and len(weights_above_composite) <= 2:
+        coherence = "focused"
+    elif len(weights_above_composite) >= 2:
+        coherence = "composite"
+    elif all_below_diffuse or not domain_weights:
+        coherence = "diffuse"
+    else:
+        coherence = "focused"
 
-        raw = safe_parse_json(resp.content or "")
-        discovered_groups = raw if isinstance(raw, list) else []
+    cross_domain = len(weights_above_composite) >= 2
 
-        for grp in discovered_groups:
-            group_name = grp.get("group", "")
-            members = grp.get("members", [])
-            default = grp.get("default", "")
-            if not group_name or len(members) < 2:
-                continue
+    # Confidence: higher when one domain clearly dominates or the frame is clearly multi-domain
+    if coherence == "focused" and weights_above_focused:
+        confidence = min(0.95, weights_above_focused[0].weight)
+    elif coherence == "composite":
+        spread = max(d.weight for d in domain_weights) - min(d.weight for d in domain_weights if d.weight > 0.1)
+        confidence = min(0.85, 0.7 + spread * 0.3)
+    else:
+        confidence = 0.3
 
-            members_lower = [m.lower() for m in members]
-            hits = set(members_lower) & set(tech_lower)
+    profile = DomainProfile(
+        domains=domain_weights[:10],
+        frame_coherence=coherence,
+        cross_domain=cross_domain,
+        confidence=round(confidence, 3),
+    )
 
-            if len(hits) == 1:
-                winner = next(iter(hits))
-                anchors[group_name] = winner
-                excl_for_winner = [m for m in members_lower if m != winner]
-                exclude_signals.extend(excl_for_winner)
-                assumptions.append(f"Assuming {winner} (detected as {group_name.replace('_', ' ')} choice)")
-            elif len(hits) >= 2:
-                unresolved.append(
-                    {
-                        "group": group_name,
-                        "members": sorted(hits),
-                        "all_members": sorted(members_lower),
-                    }
-                )
+    logger.info(
+        "domain_profile_built",
+        extra={
+            "domains": {d.domain: d.weight for d in profile.domains[:6]},
+            "frame_coherence": profile.frame_coherence,
+            "cross_domain": profile.cross_domain,
+            "confidence": profile.confidence,
+            "total_technologies": len(tech_lower),
+            "total_domains": len(domain_weights),
+        },
+    )
 
-            # Persist discovery to admin DB (best-effort, fire-and-forget)
-            _persist_discovered_group(
-                group_name=group_name,
-                members=members_lower,
-                default_pick=default,
-                source_query=(user_task.main_question or "")[:200],
-                source_run_id=run_id,
-            )
-
-        exclude_signals = list(dict.fromkeys(exclude_signals))
-
-        if discovered_groups:
-            logger.info(
-                "anchor_llm_fallback_discovered",
-                extra={
-                    "groups": len(discovered_groups),
-                    "anchors": anchors,
-                    "unresolved": len(unresolved),
-                },
-            )
-
-    except Exception:
-        logger.warning("anchor_llm_fallback_failed", exc_info=True)
-
-    return anchors, exclude_signals, assumptions, unresolved
-
-
-def _persist_discovered_group(
-    group_name: str,
-    members: list[str],
-    default_pick: str,
-    source_query: str,
-    source_run_id: str,
-) -> None:
-    """Write a discovered conflict group to admin Postgres (best-effort)."""
-    import json
-    import os
-    import threading
-
-    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return
-
-    exclusion_map: dict[str, list[str]] = {}
-    for m in members:
-        exclusion_map[m] = [other for other in members if other != m]
-
-    def _write() -> None:
-        try:
-            import psycopg2
-
-            dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-            conn = psycopg2.connect(dsn)
-            cur = conn.cursor()
-            cur.execute(
-                """INSERT INTO discovered_conflict_groups
-                   (group_name, members, default_pick, exclusion_map, source_query, source_run_id)
-                   VALUES (%s, %s, %s, %s, %s, %s)
-                   ON CONFLICT DO NOTHING""",
-                (
-                    group_name,
-                    json.dumps(members),
-                    default_pick,
-                    json.dumps(exclusion_map),
-                    source_query,
-                    source_run_id,
-                ),
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception as e:
-            logger.debug("persist_discovered_group_failed", extra={"error": str(e)[:200]})
-
-    threading.Thread(target=_write, daemon=True).start()
+    return profile
 
 
 def needs_second_pass(frame: FirstPassFrame, report: MissingFieldReport) -> bool:

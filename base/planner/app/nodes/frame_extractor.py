@@ -380,8 +380,15 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        # Stage 2: Deterministic normalization + intent anchor resolution
-        user_task, report, unresolved_conflicts = normalize_frame(first_pass, prompt_text)
+        # Stage 2: Deterministic normalization + domain profiling
+        # Pass domain_ref_counts and active_domain_refs from the entry
+        # classifier so the profiler can compute weighted domain understanding.
+        user_task, report = normalize_frame(
+            first_pass,
+            prompt_text,
+            domain_ref_counts=state.get("domain_ref_counts"),
+            active_domain_refs=state.get("active_domain_refs"),
+        )
 
         stage2_latency = (time.monotonic() - start) * 1000
         logger.info(
@@ -399,16 +406,12 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         tokens_used = 0
         extraction_mode = "gliner2_only"
         _repair_threshold = settings.frame_repair_above
+        _saved_profile = user_task.domain_profile
         if report.should_call_second_pass and difficulty >= _repair_threshold:
             extraction_mode = "gliner2_plus_llm_repair"
-            _saved_anchors = user_task.intent_anchors
-            _saved_excl = user_task.anchor_exclude_signals
-            _saved_assumptions = user_task.anchor_assumptions
             user_task, tokens_used = await _llm_repair(prompt_text, first_pass, report)
-            if _saved_anchors:
-                user_task.intent_anchors = _saved_anchors
-                user_task.anchor_exclude_signals = _saved_excl
-                user_task.anchor_assumptions = _saved_assumptions
+            if _saved_profile:
+                user_task.domain_profile = _saved_profile
         elif report.should_call_second_pass:
             extraction_mode = "gliner2_skip_repair_low_difficulty"
             logger.info(
@@ -424,31 +427,6 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             tax_key = taxonomy_metadata.get("taxonomy_key", "")
             if tax_key and tax_key not in ("generic", "general"):
                 user_task.domain_tags = [tax_key]
-
-        # LLM fallback for anchor resolution on high-difficulty tasks with
-        # many unrecognized technologies (only if fast path yielded nothing).
-        if (
-            settings.anchor_resolution_enabled
-            and settings.anchor_llm_fallback_enabled
-            and not user_task.intent_anchors
-            and difficulty >= 0.7
-        ):
-            from .frame_normalizer import resolve_intent_anchors_with_llm_fallback
-
-            try:
-                llm_anchors, llm_excl, llm_assumptions, llm_conflicts = await resolve_intent_anchors_with_llm_fallback(
-                    user_task,
-                    difficulty,
-                    run_id=state.get("run_id", ""),
-                )
-                if llm_anchors:
-                    user_task.intent_anchors = llm_anchors
-                    user_task.anchor_exclude_signals = llm_excl
-                    user_task.anchor_assumptions = llm_assumptions
-                if llm_conflicts:
-                    unresolved_conflicts = llm_conflicts
-            except Exception:
-                logger.warning("anchor_llm_fallback_failed", exc_info=True)
 
         user_task_dict = user_task.model_dump()
         latency = (time.monotonic() - start) * 1000
@@ -510,8 +488,6 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
             ],
         }
-        if unresolved_conflicts:
-            result["unresolved_conflicts"] = unresolved_conflicts
 
         return result
 

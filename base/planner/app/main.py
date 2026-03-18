@@ -227,7 +227,7 @@ async def lifespan(app: FastAPI):
     _log_rss("after_normalizer")
 
     # Load admin-approved conflict groups into the fast-path map
-    if settings.anchor_resolution_enabled and settings.trace_database_url:
+    if settings.domain_profiling_enabled and settings.trace_database_url:
         try:
             _load_approved_conflict_groups()
         except Exception:

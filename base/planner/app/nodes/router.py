@@ -155,21 +155,40 @@ Output ONLY valid JSON matching this schema (no markdown fences, no prose):
 """
 
 
-def _build_cohesion_constraint(cohesion_lock: dict[str, Any] | None) -> str:
-    """Build a COHESION CONSTRAINT block for the summarizer prompt."""
+def _build_cohesion_constraint(
+    cohesion_lock: dict[str, Any] | None,
+    domain_profile: dict[str, Any] | None = None,
+) -> str:
+    """Build a domain-aware constraint block for the summarizer prompt.
+
+    For focused frames: gentle frame constraint (stay within entity).
+    For composite frames: multi-domain guidance (address all proportionally).
+    For diffuse/no-profile: no constraint (let evidence speak).
+    """
+    profile = domain_profile or {}
+    coherence = profile.get("frame_coherence", "")
+
+    if coherence == "composite":
+        domains = profile.get("domains") or []
+        if domains:
+            lines = [f"- {d['domain']} ({d.get('role', 'context')})" for d in domains if d.get("weight", 0) > 0.1]
+            return (
+                "\nDOMAIN CONTEXT:\n"
+                "This request spans multiple domains. Retain content from all of them:\n"
+                + "\n".join(lines)
+                + "\nDo NOT exclude content from any active domain.\n"
+            )
+        return ""
+
     if not cohesion_lock:
         return ""
     entity = cohesion_lock.get("entity", "")
     if not entity:
         return ""
-    exclude = cohesion_lock.get("exclude_signals") or []
-    exclude_line = f"Exclude content about: {', '.join(exclude[:8])}.\n" if exclude else ""
     return (
         f"\nCOHESION CONSTRAINT:\n"
-        f"All content MUST stay within the conceptual frame: {entity}.\n"
-        f"{exclude_line}"
-        f"Do NOT introduce information from outside this frame.\n"
-        f"If a snippet touches an excluded topic, omit it entirely.\n"
+        f"All content should stay within the conceptual frame: {entity}.\n"
+        f"Minor cross-references to other technologies are fine.\n"
     )
 
 
@@ -502,6 +521,7 @@ class RouterNode:
         query: str,
         results: list[UnifiedResult],
         cohesion_lock: dict[str, Any] | None = None,
+        domain_profile: dict[str, Any] | None = None,
     ) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
@@ -511,7 +531,7 @@ class RouterNode:
             raw_results=results_text,
             max_snippets=MAX_SNIPPETS_PER_PACKET,
             max_summary_tokens=settings.router_max_summary_tokens,
-            cohesion_constraint=_build_cohesion_constraint(cohesion_lock),
+            cohesion_constraint=_build_cohesion_constraint(cohesion_lock, domain_profile),
         )
         resp = await llm.ainvoke(
             [
@@ -1263,26 +1283,35 @@ class RouterNode:
             for req in requests:
                 req["_light_mode"] = True
 
-        # Pre-seed cohesion lock from intent anchors for post-retrieval
-        # filtering only.  The lock is NOT injected into evidence requests
-        # for query shaping — topic_frame drives search breadth instead.
+        # Domain-profile-aware cohesion preseeding.
+        # Only preseed a CohesionLock for focused frames where one domain
+        # clearly dominates. Composite/diffuse frames get broad retrieval.
         _preseeded_lock = None
-        intent_anchors = user_task.get("intent_anchors") or {}
-        anchor_exclude = user_task.get("anchor_exclude_signals") or []
-        if intent_anchors and anchor_exclude:
-            from ..cohesion import CohesionLock
+        _domain_profile = user_task.get("domain_profile") or {}
+        _frame_coherence = _domain_profile.get("frame_coherence", "")
+        _profile_domains = _domain_profile.get("domains") or []
 
-            strongest = next(iter(intent_anchors.values()))
-            _preseeded_lock = CohesionLock(
-                entity=strongest,
-                lock_type="specific",
-                exclude_signals=anchor_exclude,
-                confidence=0.95,
-                source="intent_anchor",
-            )
-            # Pass the lock for post-retrieval filtering, NOT query shaping
-            for req in requests:
-                req["_preseeded_lock"] = _preseeded_lock
+        if _frame_coherence == "focused" and _profile_domains and settings.cohesion_lock_enabled:
+            _dominant = max(_profile_domains, key=lambda d: d.get("weight", 0), default={})
+            _dom_name = _dominant.get("domain", "")
+            _dom_weight = _dominant.get("weight", 0)
+            if _dom_name and _dom_weight >= settings.focused_threshold:
+                from ..cohesion import CohesionLock, _ENTITY_EXCLUSION_MAP, get_conflict_groups
+
+                for _gname, _gmembers in get_conflict_groups().items():
+                    if _dom_name.lower() in _gmembers:
+                        _preseeded_lock = CohesionLock(
+                            entity=_dom_name,
+                            lock_type="specific",
+                            exclude_signals=_ENTITY_EXCLUSION_MAP.get(_dom_name.lower(), []),
+                            confidence=_dom_weight,
+                            source="domain_profile",
+                        )
+                        break
+
+            if _preseeded_lock:
+                for req in requests:
+                    req["_preseeded_lock"] = _preseeded_lock
 
         # Inject topic_frame into requests so query generation uses it
         topic_frame = user_task.get("topic_frame", "")
@@ -1515,7 +1544,18 @@ class RouterNode:
         return to_fetch, reused
 
     def _domain_hints_from_state(self, state: dict[str, Any]) -> list[str]:
-        """Prefer taxonomy_key and active_domain_refs over free-form domain_tags for retrieval filters."""
+        """Build domain hints from DomainProfile for retrieval filters.
+
+        For composite frames: return ALL weighted domains (broad retrieval).
+        Otherwise: prefer taxonomy_key + active_domain_refs.
+        """
+        user_task = state.get("user_task") or {}
+        profile = user_task.get("domain_profile") or {}
+        profile_domains = profile.get("domains") or []
+
+        if profile.get("frame_coherence") == "composite" and profile_domains:
+            return [d["domain"] for d in profile_domains if d.get("weight", 0) > 0.1]
+
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         active_refs = list(state.get("active_domain_refs") or [])
         taxonomy_key = (taxonomy_metadata.get("taxonomy_key") or "").strip()
@@ -1523,7 +1563,6 @@ class RouterNode:
             active_refs.append(taxonomy_key)
         if active_refs:
             return active_refs
-        user_task = state.get("user_task") or {}
         return user_task.get("domain_tags") or []
 
     def _build_initial_requests(self, state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1542,8 +1581,6 @@ class RouterNode:
         technologies = user_task.get("technologies") or []
         skip_web = not user_task.get("needs_web", True)
 
-        anchor_exclude = user_task.get("anchor_exclude_signals") or []
-
         search_source_ids = self._resolve_search_sources(state, domain_tags)
 
         base: dict[str, Any] = {
@@ -1553,8 +1590,6 @@ class RouterNode:
         }
         if search_source_ids:
             base["search_source_ids"] = search_source_ids
-        if anchor_exclude:
-            base["anchor_exclude_signals"] = anchor_exclude
 
         requests = []
         main_q = user_task.get("main_question", task_desc)

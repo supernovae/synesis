@@ -790,6 +790,37 @@ class MissingFieldReport(BaseModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class DomainWeight(BaseModel):
+    """A single domain's relevance to the prompt.
+
+    Ref: Blei, Ng & Jordan (2003) — prompts are topic *mixtures* with
+    weights, not single-label classifications.
+    """
+
+    domain: str
+    weight: float = 0.0
+    role: str = "context"  # "subject" | "tool" | "context"
+    sources: list[str] = Field(default_factory=list)
+
+
+class DomainProfile(BaseModel):
+    """Sensemaking output: weighted multi-domain understanding of the prompt.
+
+    Ref: Klein et al. (2007) Data-Frame theory — fit data into a coherent
+    frame before acting, rather than locking on the first signal.
+
+    frame_coherence values map to Cynefin domains (Snowden & Boone, 2007):
+      - "focused"   → Obvious/Complicated: one dominant domain, safe to constrain
+      - "composite" → Complicated: multiple clear domains, address all proportionally
+      - "diffuse"   → Complex: no clear frame, probe first (ask clarifying questions)
+    """
+
+    domains: list[DomainWeight] = Field(default_factory=list)
+    frame_coherence: str = "focused"
+    cross_domain: bool = False
+    confidence: float = 0.5
+
+
 class UserTask(BaseModel):
     """Structured task frame extracted once, consumed by all downstream nodes.
 
@@ -815,10 +846,9 @@ class UserTask(BaseModel):
     persona: str = ""
     output_controls: dict[str, bool] = Field(default_factory=dict)
 
-    # Intent anchors — resolved technology choices (e.g., {"cloud_provider": "aws"})
-    intent_anchors: dict[str, str] = Field(default_factory=dict)
-    anchor_exclude_signals: list[str] = Field(default_factory=list)
-    anchor_assumptions: list[str] = Field(default_factory=list)
+    # Domain profile — sensemaking-driven weighted domain understanding.
+    # Replaces the old intent_anchors / anchor_exclude_signals hard-lock system.
+    domain_profile: DomainProfile | None = None
 
     # Topic frame — the conceptual entity driving RAG search queries.
     # Derived from main_question + deliverables + domain_tags (NOT technologies).

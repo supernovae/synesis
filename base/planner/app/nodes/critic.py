@@ -638,43 +638,46 @@ def _budget_guided_critic(difficulty: float) -> ChatOpenAI:
     return critic_llm.bind(max_completion_tokens=min(total_budget, settings.critic_max_tokens))
 
 
-def _deterministic_anchor_compliance(
+def _domain_coverage_check(
     response: str,
-    anchor_exclude_signals: list[str],
+    domain_profile: dict[str, Any],
 ) -> list[str]:
-    """Check that the response doesn't prominently feature excluded technologies.
+    """Check that the response covers active domains proportionally.
 
-    Fires only when intent anchors provided exclude signals. Looks for
-    substantive usage (60+ word paragraphs mentioning excluded terms),
-    not incidental mentions in comparison tables or "instead of X" notes.
+    For focused frames: check the response stays on-topic.
+    For composite frames: check all weighted domains are mentioned.
+    For diffuse frames: no check (lenient — we had low confidence).
+
+    Ref: Agrawal et al. (2009) — multi-facet queries need diverse coverage.
     """
-    if not anchor_exclude_signals:
+    coherence = domain_profile.get("frame_coherence", "")
+    domains = domain_profile.get("domains") or []
+
+    if coherence == "diffuse" or not domains:
         return []
 
     response_lower = response.lower()
-    paragraphs = [p for p in response_lower.split("\n\n") if len(p.split()) >= 60]
 
-    violations: list[str] = []
-    for signal in anchor_exclude_signals[:10]:
-        sl = signal.lower()
-        for para in paragraphs:
-            if sl in para:
-                context_start = max(0, para.index(sl) - 30)
-                context_end = min(len(para), para.index(sl) + len(sl) + 30)
-                context = para[context_start:context_end].strip()
-                if not any(neg in context for neg in ("instead of", "rather than", "not ", "unlike")):
-                    violations.append(signal)
-                    break
+    if coherence == "focused":
+        dominant = max(domains, key=lambda d: d.get("weight", 0), default={})
+        if dominant and dominant.get("weight", 0) >= 0.5:
+            if dominant["domain"].lower() not in response_lower:
+                return ["domain_gap"]
+        return []
 
-    if violations:
+    # Composite: check that weighted domains appear somewhere in the response
+    missing = []
+    for d in domains:
+        if d.get("weight", 0) >= 0.3:
+            if d["domain"].lower() not in response_lower:
+                missing.append(d["domain"])
+
+    if missing and len(missing) > len([d for d in domains if d.get("weight", 0) >= 0.3]) // 2:
         logger.info(
-            "anchor_compliance_violation",
-            extra={
-                "violations": violations[:5],
-                "total_excluded": len(anchor_exclude_signals),
-            },
+            "domain_coverage_gap",
+            extra={"missing": missing[:5], "coherence": coherence},
         )
-        return ["instruction_drift"]
+        return ["domain_gap"]
     return []
 
 
@@ -820,35 +823,38 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "reference evidence.\n"
                 )
 
+            # Domain-profile-aware compliance section for LLM rubric.
             cohesion_section = ""
+            _profile = user_task_data.get("domain_profile") or {}
+            _coherence = _profile.get("frame_coherence", "")
+            _profile_domains = _profile.get("domains") or []
+
+            if _coherence == "composite" and _profile_domains:
+                domain_names = [d["domain"] for d in _profile_domains if d.get("weight", 0) > 0.2]
+                cohesion_section = (
+                    f"\nMULTI-DOMAIN COVERAGE:\n"
+                    f"This is a composite request spanning: {', '.join(domain_names)}.\n"
+                    f"Check that the response addresses each domain proportionally.\n"
+                    f"Cross-domain content is EXPECTED and correct.\n"
+                    f"Do NOT flag cross-domain references as 'instruction_drift'.\n"
+                )
+            elif _coherence == "focused" and _profile_domains:
+                _dominant = max(_profile_domains, key=lambda d: d.get("weight", 0), default={})
+                _entity = _dominant.get("domain", "")
+                if _entity:
+                    cohesion_section = (
+                        f"\nDOMAIN FOCUS:\n"
+                        f"The response should stay within: {_entity}.\n"
+                        f"Minor cross-references are fine; only flag major topic drift.\n"
+                    )
+
+            # Also check post-retrieval cohesion lock if present
             cohesion_lock = state.get("cohesion_lock") or {}
             cohesion_entity = cohesion_lock.get("entity", "")
-            if cohesion_entity:
-                exclude_signals = cohesion_lock.get("exclude_signals") or []
-                exclude_line = (
-                    f"Content about [{', '.join(exclude_signals[:8])}] should NOT appear.\n" if exclude_signals else ""
-                )
+            if cohesion_entity and not cohesion_section:
                 cohesion_section = (
-                    f"\nCOHESION COMPLIANCE:\n"
-                    f"The response MUST stay within the conceptual frame: {cohesion_entity}.\n"
-                    f"{exclude_line}"
-                    f"- If the response mentions excluded topics, flag as 'instruction_drift'.\n"
-                    f"- If the response stays within the frame, this is correct — not a gap.\n"
-                )
-
-            # Intent anchor compliance — deterministic pre-check before LLM scoring.
-            anchor_exclude = user_task_data.get("anchor_exclude_signals") or []
-            intent_anchors = user_task_data.get("intent_anchors") or {}
-            if intent_anchors and anchor_exclude:
-                anchor_terms = ", ".join(f"{k}={v}" for k, v in intent_anchors.items())
-                exclude_terms = ", ".join(anchor_exclude[:8])
-                cohesion_section += (
-                    f"\nINTENT ANCHOR COMPLIANCE:\n"
-                    f"The user's intent was locked to: {anchor_terms}.\n"
-                    f"Content about [{exclude_terms}] should NOT appear.\n"
-                    f"- If the response correctly focuses on the anchored technologies, "
-                    f"this is correct — do NOT flag as a gap or inconsistency.\n"
-                    f"- If the response introduces excluded technologies, flag as 'instruction_drift'.\n"
+                    f"\nCOHESION:\n"
+                    f"The response should stay within the conceptual frame: {cohesion_entity}.\n"
                 )
 
             # Lenient mode: strip verbose instruction blocks to save ~500 tokens
@@ -1162,13 +1168,13 @@ Reply with JSON:
                         if tf not in failure_modes:
                             failure_modes.append(tf)
 
-                # Deterministic anchor compliance: scan draft for excluded terms
-                _anchor_exclude = user_task_data.get("anchor_exclude_signals") or []
-                if _anchor_exclude and generated_code:
-                    _anchor_failures = _deterministic_anchor_compliance(generated_code, _anchor_exclude)
-                    for af in _anchor_failures:
-                        if af not in failure_modes:
-                            failure_modes.append(af)
+                # Domain coverage check: verify response addresses active domains
+                _profile = user_task_data.get("domain_profile") or {}
+                if _profile and generated_code:
+                    _coverage_failures = _domain_coverage_check(generated_code, _profile)
+                    for cf in _coverage_failures:
+                        if cf not in failure_modes:
+                            failure_modes.append(cf)
 
                 _approval_threshold = settings.critic_approval_threshold
                 _retry_threshold = settings.critic_retry_threshold

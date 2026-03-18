@@ -215,6 +215,9 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     active_domains = analysis.get("active_domains") or []
     if active_domains:
         out["active_domain_refs"] = active_domains
+    _ref_counts = analysis.get("domain_ref_counts") or {}
+    if _ref_counts:
+        out["domain_ref_counts"] = _ref_counts
 
     out["intent_class"] = analysis.get("intent_class", "general")
 

@@ -679,36 +679,42 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         clarify_question = ""
         clarify_options: list[str] = []
 
-        # Phase 2a: Intent anchor conflicts — Tier 2 circuit-break
-        unresolved_conflicts = state.get("unresolved_conflicts") or []
+        # Phase 2a: Diffuse frame probe (Cynefin: complex domain -> probe first).
+        # When the domain profile shows no clear frame, ask the user to
+        # narrow their focus before we retrieve blindly.
+        # Ref: Snowden & Boone (2007) — in complexity, probe-sense-respond.
+        _profile = user_task.get("domain_profile") or {}
         if (
-            settings.anchor_resolution_enabled
-            and unresolved_conflicts
-            and settings.anchor_strategy in ("ask_on_conflict", "always_ask")
-            and difficulty >= settings.anchor_ask_min_difficulty
-            and not bool(state.get("iteration_count", 0) > 0)
+            _profile.get("frame_coherence") == "diffuse"
+            and difficulty >= 0.4
+            and not state.get("iteration_count", 0)
         ):
-            conflict_qs = []
-            for conflict in unresolved_conflicts[:3]:
-                group = conflict.get("group", "unknown")
-                members = conflict.get("members", [])
-                conflict_qs.append(
-                    f"**{group.replace('_', ' ').title()}**: {' vs '.join(members)} — which should I focus on?"
+            _domain_names = [
+                d["domain"]
+                for d in (_profile.get("domains") or [])
+                if d.get("weight", 0) > 0.1
+            ]
+            if _domain_names:
+                clarify_question = (
+                    "Your request touches several areas but I want to make sure "
+                    "I focus my depth correctly. I'm seeing signals across: "
+                    + ", ".join(_domain_names[:6])
+                    + ".\n\nWhich is your primary concern, or should I address "
+                    "all of them at a high level? A sentence about your main goal "
+                    "would help me give you the best answer."
                 )
-            clarify_question = (
-                "I noticed your request involves competing technology choices "
-                "that would significantly change my answer:\n\n"
-                + "\n".join(f"- {q}" for q in conflict_qs)
-                + "\n\nPick one for each, or say 'proceed' and I'll choose "
-                "the most common default for each."
-            )
-            clarify_options = conflict_qs
+            else:
+                clarify_question = (
+                    "I want to make sure I get this right. Could you tell me "
+                    "in one sentence what the main subject or goal is?"
+                )
             logger.info(
-                "anchor_conflict_clarify_triggered",
+                "diffuse_frame_probe",
                 extra={
-                    "conflicts": len(unresolved_conflicts),
+                    "frame_coherence": "diffuse",
+                    "candidate_domains": _domain_names[:6],
+                    "max_weight": max((d.get("weight", 0) for d in (_profile.get("domains") or [])), default=0),
                     "difficulty": difficulty,
-                    "strategy": settings.anchor_strategy,
                 },
             )
 
