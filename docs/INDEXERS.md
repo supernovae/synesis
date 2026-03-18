@@ -4,51 +4,56 @@ Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQ
 
 ## Architecture
 
-```
-                     ┌──────────────────────────────┐
-                     │      Admin Service (DB)       │
-                     │    ingestion_items table       │
-                     │  ┌──────────────────────────┐ │
-                     │  │ pending ──→ running ──→   │ │
- Admin UI / CLI ────▶│  │   ↑          │  indexed   │ │◀──── bootstrap/corpus/*.yaml
-                     │  │   │          ↓            │ │
-                     │  │   ├── failed (auto-retry) │ │
-                     │  │   │          ↓            │ │
-                     │  │   └── dead_letter (parked)│ │
-                     │  └──────────────────────────┘ │
-                     │  milvus_schema_sync table      │
-                     └────────────┬─────────────────┘
-                                  │ POST /claim
-                                  │ PATCH /status
-                                  │ POST /schema-sync
-                                  ▼
-                     ┌──────────────────────────────┐
-                     │     Indexer (CronJob)         │
-                     │     --mode queue              │
-                     │                               │
-                     │  ensure_catalog → schema-sync │
-                     │  claim → fetch → chunk →      │
-                     │  enrich → embed → upsert →    │
-                     │  report status                 │
-                     └────────────┬─────────────────┘
-                                  │
-                                  ▼
-                     ┌──────────────────────────────┐
-                     │   Milvus (synesis_catalog)    │
-                     └──────────────────────────────┘
+```mermaid
+flowchart TD
+    UI["Admin UI / CLI"] -->|add items| DB
+    Bootstrap["bootstrap/corpus/*.yaml"] -->|import| DB
+
+    subgraph DB["Admin Service (PostgreSQL)"]
+        Items["ingestion_items table"]
+        Sync["milvus_schema_sync table"]
+    end
+
+    DB -->|"POST /claim\nPATCH /status\nPOST /schema-sync"| Indexer
+
+    subgraph Indexer["Indexer CronJob (--mode queue)"]
+        direction LR
+        EnsureCatalog["ensure_catalog\n+ schema-sync"] --> Claim["claim"]
+        Claim --> Fetch["fetch"] --> Chunk["chunk"]
+        Chunk --> Enrich["enrich"] --> Embed["embed"]
+        Embed --> Upsert["upsert"] --> Report["report status"]
+    end
+
+    Indexer --> Milvus["Milvus (synesis_catalog)"]
 ```
 
 One container image (`base/rag/indexer/`) with handler plugins for each document type. The queue runner (`queue_runner.py`) claims items one at a time via `SELECT ... FOR UPDATE SKIP LOCKED`, processes them through the existing pipeline, and reports status back to the admin API.
 
 ## Item Lifecycle
 
-```
-pending ──→ running ──→ indexed           (success)
-              │
-              └──→ failed                  (retry_count < max_retries)
-                     │                       ↳ auto-retried with exponential backoff
-                     │                         (2^retry_count minutes between attempts)
-                     └──→ dead_letter        (retry_count >= max_retries — permanently parked)
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> running : indexer claims item
+    running --> indexed : success
+    running --> failed : error (retries left)
+    failed --> running : auto-retry after 2^n min backoff
+    failed --> dead_letter : retry_count >= max_retries
+    dead_letter --> pending : manual retry (reset_retries=true)
+    indexed --> [*]
+
+    note right of failed
+        Exponential backoff:
+        1st retry → 2 min
+        2nd retry → 4 min
+        3rd retry → 8 min
+    end note
+
+    note right of dead_letter
+        Permanently parked.
+        Schema version bump
+        resets all items to pending.
+    end note
 ```
 
 | Status | Meaning | What happens next |
