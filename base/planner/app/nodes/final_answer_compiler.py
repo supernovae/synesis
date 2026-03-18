@@ -90,6 +90,7 @@ def _build_compiler_system(state: dict[str, Any]) -> str:
     frame = state.get("user_task") or {}
     fmt = frame.get("requested_format", "prose")
     schema_fields = frame.get("output_schema") or []
+    embedded = frame.get("embedded_formats") or []
 
     if fmt in STRUCTURED_FORMATS:
         schema_hint = ""
@@ -102,6 +103,15 @@ def _build_compiler_system(state: dict[str, Any]) -> str:
         )
     else:
         directive = "OUTPUT: Markdown with section headings. No JSON wrapper."
+        if embedded:
+            fmt_tags = ", ".join(f"`{e}`" for e in embedded)
+            directive += (
+                f"\nThe user expects {fmt_tags} examples. Use triple-backtick fenced "
+                f"code blocks with the appropriate language tag. The overall response "
+                f"MUST remain well-formatted markdown."
+            )
+            if schema_fields:
+                directive += f"\nRequired schema fields: {', '.join(schema_fields)}"
 
     return _COMPILER_SYSTEM_TEMPLATE.format(output_directive=directive)
 

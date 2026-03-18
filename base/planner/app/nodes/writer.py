@@ -174,25 +174,47 @@ def _build_domain_context_block(state: dict[str, Any]) -> str:
 
 
 def _build_output_directive(state: dict[str, Any]) -> str:
-    """Build the OUTPUT directive based on the user's requested format."""
+    """Build the OUTPUT directive based on the user's requested format.
+
+    Three modes:
+      1. Pure structured (requested_format in STRUCTURED_FORMATS): entire response
+         must be valid in that format — no markdown wrapper.
+      2. Embedded formats (requested_format is prose, embedded_formats populated):
+         response is markdown, but must include fenced code blocks in those formats.
+      3. Default prose: standard markdown with section headings.
+    """
     from .frame_normalizer import STRUCTURED_FORMATS
 
     frame = state.get("user_task") or {}
     fmt = frame.get("requested_format", "prose")
     schema_fields = frame.get("output_schema") or []
+    embedded = frame.get("embedded_formats") or []
 
-    if fmt not in STRUCTURED_FORMATS:
-        return "OUTPUT: Markdown with section headings. No JSON wrapper."
+    if fmt in STRUCTURED_FORMATS:
+        schema_hint = ""
+        if schema_fields:
+            schema_hint = f"\nRequired top-level keys/fields: {', '.join(schema_fields)}"
+        return (
+            f"OUTPUT: Valid {fmt.upper()} document. Do NOT wrap in markdown or add "
+            f"markdown headings. The entire response must be parseable as {fmt}."
+            f"{schema_hint}"
+        )
 
-    schema_hint = ""
-    if schema_fields:
-        schema_hint = f"\nRequired top-level keys/fields: {', '.join(schema_fields)}"
+    base = "OUTPUT: Markdown with section headings. No JSON wrapper."
 
-    return (
-        f"OUTPUT: Valid {fmt.upper()} document. Do NOT wrap in markdown or add "
-        f"markdown headings. The entire response must be parseable as {fmt}."
-        f"{schema_hint}"
-    )
+    if embedded:
+        fmt_tags = ", ".join(f"`{e}`" for e in embedded)
+        base += (
+            f"\nThe user expects {fmt_tags} examples embedded in the response. "
+            f"Use triple-backtick fenced code blocks with the appropriate language "
+            f"tag (e.g. ```yaml, ```json) for all structured examples. "
+            f"The overall response MUST remain well-formatted markdown with "
+            f"headings, prose, tables, and diagrams — NOT raw structured data."
+        )
+        if schema_fields:
+            base += f"\nRequired schema fields in examples: {', '.join(schema_fields)}"
+
+    return base
 
 
 def _build_system_prompt(state: dict[str, Any]) -> str:

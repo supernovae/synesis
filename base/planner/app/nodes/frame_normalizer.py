@@ -59,28 +59,59 @@ _NEGATIVE_RE = re.compile(
 )
 
 # --------------------------------------------------------------------------- #
-# Format detection patterns — ordered by specificity (structured first)
+# Format detection patterns
+#
+# Two tiers:
+#   1. Presentation formats (table, diagram, code, etc.) — always markdown
+#   2. Structured formats (json, yaml, xml, csv, toml) — checked second,
+#      and only treated as "pure structured output" when the user's phrasing
+#      explicitly asks for the entire response in that format.
+#
+# When a structured keyword appears in a complex prompt (e.g. "provide a
+# YAML example"), it is classified as an *embedded* format: the writer
+# stays in markdown mode and includes fenced code blocks in that format.
 # --------------------------------------------------------------------------- #
 
 _FORMAT_PATTERNS = {
-    # Structured (machine-parseable) — higher priority, checked first
-    "json": re.compile(r"\bjson\b", re.IGNORECASE),
-    "yaml": re.compile(r"\b(?:yaml|yml)\b", re.IGNORECASE),
-    "xml": re.compile(r"\b(?:xml|xhtml)\b", re.IGNORECASE),
-    "csv": re.compile(r"\b(?:csv|tsv|comma[\s-]?separated|tab[\s-]?separated)\b", re.IGNORECASE),
-    "toml": re.compile(r"\btoml\b", re.IGNORECASE),
-    "ascii": re.compile(r"\b(?:ascii\s*(?:art|table|diagram)|plaintext|plain[\s-]?text)\b", re.IGNORECASE),
-    # Presentation (within markdown)
+    # Presentation (within markdown) — checked first in fallback scan
     "table": re.compile(r"\b(?:table|matrix|grid|spreadsheet)\b", re.IGNORECASE),
     "code": re.compile(r"\b(?:code|snippet|script|implementation|function|class)\b", re.IGNORECASE),
     "diagram": re.compile(r"\b(?:diagram|chart|graph|flowchart|mermaid|uml)\b", re.IGNORECASE),
     "bullet_list": re.compile(r"\b(?:bullet|list|numbered|enumerat)\b", re.IGNORECASE),
     "email": re.compile(r"\b(?:email|letter|memo)\b", re.IGNORECASE),
+    "ascii": re.compile(r"\b(?:ascii\s*(?:art|table|diagram)|plaintext|plain[\s-]?text)\b", re.IGNORECASE),
+    # Structured (machine-parseable) — checked second in fallback scan
+    "json": re.compile(r"\bjson\b", re.IGNORECASE),
+    "yaml": re.compile(r"\b(?:yaml|yml)\b", re.IGNORECASE),
+    "xml": re.compile(r"\b(?:xml|xhtml)\b", re.IGNORECASE),
+    "csv": re.compile(r"\b(?:csv|tsv|comma[\s-]?separated|tab[\s-]?separated)\b", re.IGNORECASE),
+    "toml": re.compile(r"\btoml\b", re.IGNORECASE),
 }
 
-# Structured formats override the writer's markdown directive entirely.
-# The response must be valid in this format — not markdown with hints.
+# Structured formats override the writer's markdown directive entirely —
+# BUT only when the user explicitly wants the *whole response* in that format.
 STRUCTURED_FORMATS = frozenset({"json", "yaml", "xml", "csv", "toml"})
+
+# Gate: does the user want the *entire response* as a structured document?
+# Matches phrasing like "output as yaml", "respond in json only",
+# "return valid json", "format: yaml", "give me only yaml".
+_PURE_STRUCTURED_RE = re.compile(
+    r"(?:^|\b)(?:"
+    r"(?:output|respond|return|reply|format|write)\s+"
+    r"(?:(?:it|this|that|the response|everything)\s+)?"
+    r"(?:only\s+|exclusively\s+|purely\s+|strictly\s+|as\s+|in\s+)?"
+    r"(?:valid\s+|pure\s+)?"
+    r"(?:json|yaml|yml|xml|csv|toml)"
+    r"|"
+    r"(?:json|yaml|yml|xml|csv|toml)\s+only"
+    r"|"
+    r"(?:give\s+me|i\s+(?:want|need))\s+(?:only\s+)?(?:(?:the|a)\s+)?"
+    r"(?:raw\s+|valid\s+|pure\s+)?"
+    r"(?:json|yaml|yml|xml|csv|toml)(?:\s+output|\s+response|\s+document)?"
+    r"(?:\s+only)?"
+    r")",
+    re.IGNORECASE,
+)
 
 # Regex to extract field/key names from JSON-like schema blocks in prompts.
 # Matches "field_name": or "field_name" inside { ... } blocks.
@@ -291,11 +322,18 @@ def normalize_frame(
     # Detect decision_required from decision_signals + raw text
     decision_required = bool(decision_signals) or bool(_DECISION_RE.search(raw_text))
 
-    # Determine requested_format + output_schema
+    # Determine requested_format + embedded_formats + output_schema.
+    #
+    # Three outcomes for structured keywords (json/yaml/xml/csv/toml):
+    #   1. GLiNER explicitly extracted a format → trust it as-is
+    #   2. Raw text fallback + _PURE_STRUCTURED_RE matches → pure structured
+    #   3. Raw text fallback + keyword found but NOT pure → embedded example
+    #      (stays markdown, writer adds fenced code blocks in that format)
     requested_format = "prose"
+    embedded_formats: list[str] = []
+
     if formats:
         fmt_text = formats[0].text.lower().strip()
-        # Normalize GLiNER-extracted format text to canonical name
         for fmt, pattern in _FORMAT_PATTERNS.items():
             if pattern.search(fmt_text):
                 requested_format = fmt
@@ -305,13 +343,27 @@ def normalize_frame(
     else:
         for fmt, pattern in _FORMAT_PATTERNS.items():
             if pattern.search(raw_text):
-                requested_format = fmt
+                if fmt in STRUCTURED_FORMATS:
+                    if _PURE_STRUCTURED_RE.search(raw_text):
+                        requested_format = fmt
+                    else:
+                        embedded_formats.append(fmt)
+                else:
+                    requested_format = fmt
                 break
+
+    # Collect any additional structured format mentions as embedded
+    if requested_format not in STRUCTURED_FORMATS:
+        for fmt in STRUCTURED_FORMATS:
+            if fmt not in embedded_formats and _FORMAT_PATTERNS[fmt].search(raw_text):
+                if not _PURE_STRUCTURED_RE.search(raw_text):
+                    embedded_formats.append(fmt)
+    embedded_formats = list(dict.fromkeys(embedded_formats))
 
     # Extract output_schema: field/key names when user specifies a structured schema.
     # Scans for JSON-like { "field": ... } blocks in the prompt.
     output_schema: list[str] = []
-    if requested_format in STRUCTURED_FORMATS:
+    if requested_format in STRUCTURED_FORMATS or embedded_formats:
         for brace_block in re.findall(r"\{[^{}]{10,}\}", raw_text):
             fields = _SCHEMA_FIELD_RE.findall(brace_block)
             output_schema.extend(f for f in fields if f not in output_schema)
@@ -392,6 +444,7 @@ def normalize_frame(
         negative_constraints=_extract_texts(_dedup_candidates(neg_constraints)),
         requested_format=requested_format,
         output_schema=output_schema,
+        embedded_formats=embedded_formats,
         deliverables=_extract_texts(deliverables),
         success_criteria=success_criteria,
         ambiguities=ambiguities,
@@ -417,6 +470,15 @@ def normalize_frame(
         active_domain_refs=active_domain_refs,
     )
     user_task.domain_profile = profile
+
+    if embedded_formats:
+        logger.info(
+            "format_classified_as_embedded",
+            extra={
+                "requested_format": requested_format,
+                "embedded_formats": embedded_formats,
+            },
+        )
 
     logger.info(
         "normalize_frame reqs=%d constraints=%d deliverables=%d second_pass=%s",
