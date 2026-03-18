@@ -9,6 +9,7 @@ import {
 } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
+import RichContent from "../../components/common/RichContent";
 import {
   ArrowLeft,
   ChevronDown,
@@ -224,13 +225,11 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
                 Prompt
                 {(call.prompt_full?.length ?? 0) > 500 && (
                   <span className="ml-2 text-gray-400">
-                    (scrollable, {call.prompt_full?.length.toLocaleString()} chars)
+                    ({call.prompt_full?.length.toLocaleString()} chars)
                   </span>
                 )}
               </p>
-              <pre className="mt-1 max-h-80 overflow-y-auto overflow-x-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
-                {promptText}
-              </pre>
+              <RichContent content={promptText} maxHeight="max-h-80" />
             </div>
           )}
           {completionText && (
@@ -239,13 +238,11 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
                 Completion
                 {(call.completion_full?.length ?? 0) > 500 && (
                   <span className="ml-2 text-gray-400">
-                    (scrollable, {call.completion_full?.length.toLocaleString()} chars)
+                    ({call.completion_full?.length.toLocaleString()} chars)
                   </span>
                 )}
               </p>
-              <pre className="mt-1 max-h-80 overflow-y-auto overflow-x-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-2 text-xs text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
-                {completionText}
-              </pre>
+              <RichContent content={completionText} maxHeight="max-h-80" />
             </div>
           )}
         </div>

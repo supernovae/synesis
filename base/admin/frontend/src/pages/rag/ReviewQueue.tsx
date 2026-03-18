@@ -10,6 +10,7 @@ import {
   MinusSquare,
 } from "lucide-react";
 import client from "../../api/client";
+import RichContent from "../../components/common/RichContent";
 
 interface FlagReason {
   id: string;
@@ -390,9 +391,7 @@ export default function ReviewQueue() {
                   )}
 
                   {/* Content preview */}
-                  <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap rounded border border-gray-100 bg-gray-50 p-2 text-sm text-gray-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-400">
-                    {chunk.text_preview}
-                  </pre>
+                  <RichContent content={chunk.text_preview} maxHeight="max-h-48" className="mt-2" />
 
                   {chunk.source_url && (
                     <a

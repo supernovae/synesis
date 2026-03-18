@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { useAssistantChat } from "../../api/hooks";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import MarkdownContent from "../../components/common/MarkdownContent";
+import RichContent from "../../components/common/RichContent";
 
 interface Message {
   role: "user" | "assistant";
@@ -103,7 +104,7 @@ export default function AdminAssistant() {
               {msg.role === "assistant" ? (
                 <MarkdownContent content={msg.content} />
               ) : (
-                <pre className="whitespace-pre-wrap font-sans text-sm">{msg.content}</pre>
+                <RichContent content={msg.content} maxHeight="max-h-96" />
               )}
               {msg.tokens != null && msg.tokens > 0 && (
                 <span className="mt-1 block text-xs opacity-60">

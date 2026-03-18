@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useFailureDetail } from "../../api/hooks";
+import RichContent from "../../components/common/RichContent";
 
 export default function ErrorDetail() {
   const { failureId } = useParams<{ failureId: string }>();
@@ -71,9 +72,7 @@ export default function ErrorDetail() {
         {failure.error_output && (
           <div className="p-4">
             <Field label="Error Output">
-              <pre className="mt-1 max-h-80 overflow-auto rounded bg-gray-50 p-3 text-xs text-red-700 whitespace-pre-wrap">
-                {failure.error_output}
-              </pre>
+              <RichContent content={failure.error_output} maxHeight="max-h-80" />
             </Field>
           </div>
         )}
@@ -81,9 +80,7 @@ export default function ErrorDetail() {
         {failure.code && (
           <div className="p-4">
             <Field label="Code">
-              <pre className="mt-1 max-h-80 overflow-auto rounded bg-gray-50 p-3 text-xs text-gray-800 whitespace-pre-wrap">
-                {failure.code}
-              </pre>
+              <RichContent content={failure.code} maxHeight="max-h-80" />
             </Field>
           </div>
         )}
@@ -91,9 +88,7 @@ export default function ErrorDetail() {
         {failure.resolution && (
           <div className="p-4">
             <Field label="Resolution">
-              <pre className="mt-1 max-h-80 overflow-auto rounded bg-gray-50 p-3 text-xs text-green-700 whitespace-pre-wrap">
-                {failure.resolution}
-              </pre>
+              <RichContent content={failure.resolution} maxHeight="max-h-80" />
             </Field>
           </div>
         )}
