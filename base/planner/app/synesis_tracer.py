@@ -38,6 +38,7 @@ _NODE_DISPLAY_NAMES: dict[str, str] = {
     "entry_pipeline": "Frame extraction",
     "router": "Router",
     "planner": "Planner",
+    "plan_gate": "Plan gate",
     "executor": "Executor",
     "writer": "Writer",
     "critic": "Critic",

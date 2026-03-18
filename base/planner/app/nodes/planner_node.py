@@ -540,6 +540,19 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 f"Produce a structured outline of sections for the response."
             )
 
+        # Plan gate feedback: on retry, inject specific repair instructions from
+        # the fast plan gate so the LLM knows exactly what to fix.
+        gate_feedback = state.get("plan_gate_feedback") or ""
+        if gate_feedback:
+            system_prompt += (
+                "\n\nPREVIOUS ATTEMPT FEEDBACK — your last plan was rejected by validation. "
+                "You MUST address every issue below:\n" + gate_feedback
+            )
+            logger.info(
+                "planner_gate_feedback_injected",
+                extra={"feedback_length": len(gate_feedback)},
+            )
+
         messages = [
             SystemMessage(content=system_prompt),
             HumanMessage(content=prompt),
@@ -622,64 +635,24 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         steps = plan.get("steps", [])
 
-        # Coverage guard: check each deliverable ID appears in at least one
-        # step's deliverable_ids. Fall back to keyword overlap if no IDs present.
-        from ..contract_validator import _extract_keywords
-
+        # Deliverable coverage enforcement is handled by the plan_gate node
+        # downstream. Log a warning here for observability but do NOT silently
+        # patch the plan — the gate will fail-fast and retry with feedback.
         frame_deliverables = (state.get("user_task") or {}).get("deliverables") or []
         if frame_deliverables:
-            all_ids = set(range(len(frame_deliverables)))
             covered_ids: set[int] = set()
-            has_id_mapping = False
             for s in steps:
-                d_ids = s.get("deliverable_ids") or []
-                if d_ids:
-                    has_id_mapping = True
-                    covered_ids.update(int(x) for x in d_ids if isinstance(x, (int, float)))
-
-            if has_id_mapping:
-                uncovered_ids = all_ids - covered_ids
-                uncovered = [frame_deliverables[i] for i in sorted(uncovered_ids) if i < len(frame_deliverables)]
-            else:
-                # Fallback: keyword overlap for models that omit deliverable_ids
-                all_actions_text = " ".join(s.get("action", "").lower() for s in steps)
-                uncovered = []
-                for deliverable in frame_deliverables:
-                    kw = _extract_keywords(deliverable)
-                    if not kw:
-                        continue
-                    hits = sum(1 for w in kw if w in all_actions_text)
-                    if hits / len(kw) < 0.6:
-                        uncovered.append(deliverable)
-
-            if uncovered:
-                logger.warning(
-                    "planner_under_coverage",
+                for x in s.get("deliverable_ids") or []:
+                    if isinstance(x, (int, float)):
+                        covered_ids.add(int(x))
+            missing_count = len(set(range(len(frame_deliverables))) - covered_ids)
+            if missing_count:
+                logger.info(
+                    "planner_coverage_gap_detected",
                     extra={
                         "deliverables_requested": len(frame_deliverables),
+                        "missing_count": missing_count,
                         "steps_produced": len(steps),
-                        "uncovered": uncovered[:10],
-                        "id_based": has_id_mapping,
-                    },
-                )
-                next_id = max((s.get("id", 0) for s in steps), default=0) + 1
-                for deliverable in uncovered:
-                    d_idx = frame_deliverables.index(deliverable) if deliverable in frame_deliverables else -1
-                    steps.append(
-                        {
-                            "id": next_id,
-                            "action": f"Section: {deliverable}",
-                            "dependencies": [],
-                            "deliverable_ids": [d_idx] if d_idx >= 0 else [],
-                        }
-                    )
-                    next_id += 1
-                plan["steps"] = steps
-                logger.info(
-                    "planner_coverage_guard_applied",
-                    extra={
-                        "final_steps": len(steps),
-                        "injected": len(uncovered),
                     },
                 )
 
@@ -820,6 +793,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     extra={"ambiguities": len(combined_qs), "difficulty": difficulty},
                 )
 
+        # Preserve planner_error_count during gate-retry cycles so the gate
+        # can track cumulative retries. Only reset when no gate feedback exists
+        # (i.e., this is a fresh planner run, not a gate-driven retry).
+        error_count = state.get("planner_error_count", 0) if gate_feedback else 0
+
         out: dict[str, Any] = {
             "execution_plan": plan,
             "touched_files": touched_files,
@@ -828,7 +806,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "decision_ledger": ledger,
             "style_contract_locked": style_locked,
             "evidence_requests": evidence_requests,
-            "planner_error_count": 0,
+            "planner_error_count": error_count,
+            "plan_gate_feedback": "",
             "error": None,
             "current_node": node_name,
             "next_node": next_node,

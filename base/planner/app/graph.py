@@ -2,7 +2,10 @@
 
 All paths:
   [User] -> EntryPipeline (Classifier + Advisor || FrameExtractor) -> Router
-  -> Planner -> Router -> Executor/Writer -> FinalScrubber -> Respond
+  -> Planner -> PlanGate -> Router -> Executor/Writer -> FinalScrubber -> Respond
+
+PlanGate runs deterministic validation on the plan before evidence retrieval.
+On failure it routes back to Planner with specific repair feedback.
 
 The Router is the single retrieval orchestrator. No other node touches
 retrieval backends (rag_client, web_search, unified_retrieval).
@@ -42,6 +45,7 @@ from .nodes import (
     router_node,
     writer_node,
 )
+from .nodes.plan_gate import plan_gate_node
 from .oscillation_detector import detect_oscillation
 from .state import GraphState, NodeOutcome, NodeTrace
 
@@ -164,7 +168,7 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
 
     When retrieval_mode="planner", the initial router pass is skipped so the
     planner runs first without evidence and explicitly requests what it needs.
-    The router runs *after* the planner (via route_after_planner → router)
+    The router runs *after* the planner (via plan_gate → route_after_plan_gate → router)
     to fulfill those evidence requests.
 
     In text_only front door mode, code tasks are never routed to executor;
@@ -286,41 +290,53 @@ def _next_after_planner(state: dict[str, Any]) -> str:
     return "executor" if is_code_task else "writer"
 
 
-def route_after_planner(state: dict[str, Any]) -> str:
-    """After planner: clarification, approval, evidence requests, or proceed.
+def route_after_plan_gate(state: dict[str, Any]) -> str:
+    """After plan_gate: retry planner on failure, or continue to evidence/writing.
 
-    When initial evidence is sufficient, skip the second router pass
-    (section_evidence) and go directly to writer/executor. Only the
-    critic can trigger a refetch later via need_more_evidence.
-
-    In planner-driven retrieval mode, the planner always routes to router
-    next (for section_evidence) since it had no initial evidence.
+    Combines the fast plan gate result with the original planner routing logic.
+    When the gate fails and retries remain, routes back to planner with feedback.
+    When the gate passes (or retries are exhausted), applies the standard
+    post-planner routing: clarification, approval, evidence, or proceed.
     """
+    # Gate failure with retries remaining → send back to planner
+    gate_passed = state.get("plan_gate_passed", True)
+    planner_errors = state.get("planner_error_count", 0)
+    max_gate_retries = settings.plan_gate_max_retries
+
+    if not gate_passed and planner_errors <= max_gate_retries:
+        logger.info(
+            "plan_gate_retry_planner",
+            extra={
+                "planner_error_count": planner_errors,
+                "max_gate_retries": max_gate_retries,
+                "errors": (state.get("plan_gate_errors") or [])[:5],
+            },
+        )
+        return "planner"
+
+    # Standard post-planner routing (gate passed or retries exhausted)
     if state.get("clarification_question"):
         return "respond"
     if state.get("plan_pending_approval"):
         return "respond"
 
     retrieval_mode = state.get("retrieval_mode", "router")
-    planner_errors = state.get("planner_error_count", 0)
     has_plan = bool((state.get("execution_plan") or {}).get("steps"))
 
-    if planner_errors >= 2 and has_plan:
+    if planner_errors > max_gate_retries and has_plan:
         logger.warning(
-            "planner_fallback_routing_to_writer",
+            "plan_gate_exhausted_fallthrough",
             extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
         )
         return _next_after_planner(state)
 
-    if planner_errors >= 2 and not has_plan:
+    if planner_errors > max_gate_retries and not has_plan:
         logger.error(
-            "planner_exhausted_no_plan",
+            "plan_gate_exhausted_no_plan",
             extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
         )
         return "respond"
 
-    # Planner-driven mode: always go to router for evidence gathering since
-    # the planner ran without initial evidence and has now produced evidence_requests.
     if retrieval_mode == "planner":
         logger.info(
             "planner_mode_always_route_to_router",
@@ -1141,6 +1157,7 @@ graph_builder = StateGraph(GraphState)
 graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeout)(entry_pipeline_node)))
 graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
 graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
+graph_builder.add_node("plan_gate", with_telemetry_node(with_timeout(timeout)(plan_gate_node)))
 graph_builder.add_node(
     "executor",
     with_telemetry_node(
@@ -1184,11 +1201,14 @@ graph_builder.add_conditional_edges(
     {"planner": "planner", "executor": "executor", "writer": "writer", "respond": "respond"},
 )
 
-# Planner -> router (section evidence) | writer/executor (evidence sufficient) | respond
+# Planner -> plan_gate (unconditional fast validation)
+graph_builder.add_edge("planner", "plan_gate")
+
+# Plan gate -> planner (retry) | router | writer/executor | respond
 graph_builder.add_conditional_edges(
-    "planner",
-    route_after_planner,
-    {"router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
+    "plan_gate",
+    route_after_plan_gate,
+    {"planner": "planner", "router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
 )
 
 # Executor -> patch_integrity_gate | respond

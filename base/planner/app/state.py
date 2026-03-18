@@ -185,6 +185,11 @@ class GraphState(TypedDict, total=False):
     critic_nonblocking: list[dict[str, Any]]
     need_more_evidence: bool
 
+    # --- Plan Gate (fast deterministic validation after planner) ---
+    plan_gate_passed: bool
+    plan_gate_errors: list[str]
+    plan_gate_feedback: str
+
     # --- Iteration / budget ---
     iteration_count: int
     planner_error_count: int
@@ -455,6 +460,10 @@ class SynesisState(BaseModel):
     critic_feedback: str = ""
     critic_approved: bool = False
     residual_risks: list[dict[str, Any]] = Field(default_factory=list)
+
+    plan_gate_passed: bool = True
+    plan_gate_errors: list[str] = Field(default_factory=list)
+    plan_gate_feedback: str = ""
 
     iteration_count: int = 0
     planner_error_count: int = 0

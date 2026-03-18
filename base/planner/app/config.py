@@ -139,6 +139,11 @@ class Settings(BaseSettings):
     retrieval_mode_planner_threshold: float = 0.7  # difficulty >= this → planner mode in auto
     retrieval_mode_hybrid_threshold: float = 0.3   # difficulty >= this → hybrid mode in auto (below → router)
 
+    # Plan Gate: fast deterministic validation after planner, before evidence retrieval.
+    plan_gate_coherence_enabled: bool = False   # optional shallow LLM coherence check (off by default)
+    plan_gate_coherence_threshold: float = 0.6  # only run LLM check when difficulty >= this
+    plan_gate_max_retries: int = 1              # gate-driven planner retries before falling through
+
     # Retrieval strategy: "hybrid" (BM25 + vector), "vector", or "bm25"
     rag_retrieval_strategy: Literal["hybrid", "vector", "bm25"] = "hybrid"
 
