@@ -669,7 +669,7 @@ export default function TraceDetail() {
             <option value="">Critic model…</option>
             {(modelData?.models ?? []).map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name}
+                {m.label}
               </option>
             ))}
           </select>
@@ -818,14 +818,14 @@ export default function TraceDetail() {
                 Manual Critic
                 {trace.manual_critic.model && (
                   <span className="ml-2 font-mono text-xs font-normal text-indigo-500">
-                    {trace.manual_critic.model as string}
+                    {String(trace.manual_critic.model)}
                   </span>
                 )}
               </h3>
               <CriticScoresPanel scores={trace.manual_critic as Record<string, unknown>} />
               {trace.manual_critic.overall_assessment && (
                 <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-                  {trace.manual_critic.overall_assessment as string}
+                  {String(trace.manual_critic.overall_assessment)}
                 </p>
               )}
             </div>
