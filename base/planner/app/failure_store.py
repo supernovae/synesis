@@ -21,6 +21,7 @@ from typing import Any
 from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 
 from .config import settings
+from .milvus_utils import ResilientMilvusClient, with_retry
 
 logger = logging.getLogger("synesis.failure_store")
 
@@ -128,16 +129,20 @@ def record_error(
 COLLECTION = "failures_v1"
 EMBEDDING_DIM = 384
 
-_client: MilvusClient | None = None
+_resilient: ResilientMilvusClient | None = None
 _initialized = False
 
 
-def _get_client() -> MilvusClient:
-    global _client
-    if _client is None:
+def _get_resilient() -> ResilientMilvusClient:
+    global _resilient
+    if _resilient is None:
         uri = f"http://{settings.milvus_host}:{settings.milvus_port}"
-        _client = MilvusClient(uri=uri)
-    return _client
+        _resilient = ResilientMilvusClient(uri=uri)
+    return _resilient
+
+
+def _get_client() -> MilvusClient:
+    return _get_resilient().get()
 
 
 def _ensure_collection() -> None:
@@ -145,45 +150,47 @@ def _ensure_collection() -> None:
     if _initialized:
         return
 
-    client = _get_client()
-    if COLLECTION in client.list_collections():
+    def _init(client):
+        if COLLECTION in client.list_collections():
+            try:
+                client.load_collection(collection_name=COLLECTION)
+            except Exception as e:
+                logger.debug("collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
+            return True
+
+        schema = CollectionSchema(
+            fields=[
+                FieldSchema(name="failure_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+                FieldSchema(name="code", dtype=DataType.VARCHAR, max_length=8192),
+                FieldSchema(name="error_output", dtype=DataType.VARCHAR, max_length=4096),
+                FieldSchema(name="exit_code", dtype=DataType.INT64),
+                FieldSchema(name="error_type", dtype=DataType.VARCHAR, max_length=128),
+                FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
+                FieldSchema(name="task_description", dtype=DataType.VARCHAR, max_length=2048),
+                FieldSchema(name="resolution", dtype=DataType.VARCHAR, max_length=8192),
+                FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
+                FieldSchema(name="timestamp", dtype=DataType.INT64),
+            ],
+            description="Synesis failure knowledge base",
+        )
+
+        client.create_collection(collection_name=COLLECTION, schema=schema)
+        index_params = MilvusClient.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
+        client.create_index(collection_name=COLLECTION, index_params=index_params)
+        logger.info("milvus_collection_created", extra={"collection": COLLECTION})
         try:
             client.load_collection(collection_name=COLLECTION)
         except Exception as e:
-            logger.debug("collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
-        _initialized = True
-        return
+            logger.debug("initial_collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
+        return True
 
-    schema = CollectionSchema(
-        fields=[
-            FieldSchema(name="failure_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
-            FieldSchema(name="code", dtype=DataType.VARCHAR, max_length=8192),
-            FieldSchema(name="error_output", dtype=DataType.VARCHAR, max_length=4096),
-            FieldSchema(name="exit_code", dtype=DataType.INT64),
-            FieldSchema(name="error_type", dtype=DataType.VARCHAR, max_length=128),
-            FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
-            FieldSchema(name="task_description", dtype=DataType.VARCHAR, max_length=2048),
-            FieldSchema(name="resolution", dtype=DataType.VARCHAR, max_length=8192),
-            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
-            FieldSchema(name="timestamp", dtype=DataType.INT64),
-        ],
-        description="Synesis failure knowledge base",
-    )
-
-    client.create_collection(collection_name=COLLECTION, schema=schema)
-    index_params = MilvusClient.prepare_index_params()
-    index_params.add_index(
-        field_name="embedding",
-        index_type="IVF_FLAT",
-        metric_type="COSINE",
-        params={"nlist": 128},
-    )
-    client.create_index(collection_name=COLLECTION, index_params=index_params)
-    logger.info("milvus_collection_created", extra={"collection": COLLECTION})
-    try:
-        client.load_collection(collection_name=COLLECTION)
-    except Exception as e:
-        logger.debug("initial_collection_load_deferred", extra={"collection": COLLECTION, "error": str(e)[:200]})
+    with_retry(_get_resilient(), _init)
     _initialized = True
 
 
@@ -285,8 +292,7 @@ async def store_failure(
             "timestamp": int(time.time()),
         }
 
-        client = _get_client()
-        client.upsert(collection_name=COLLECTION, data=[entity])
+        with_retry(_get_resilient(), lambda c: c.upsert(collection_name=COLLECTION, data=[entity]))
         _persist_failure_pg(entity)
         logger.info("failure_stored", extra={"failure_id": fid, "error_type": error_type, "language": language})
         return fid
@@ -357,16 +363,18 @@ def _update_resolution_pg(failure_id: str, resolution: str) -> None:
 async def update_resolution(failure_id: str, resolution: str) -> None:
     """Update a failure entry with the code that eventually passed."""
     try:
-        client = _get_client()
-        results = client.get(collection_name=COLLECTION, ids=[failure_id])
-        if results:
-            entity = results[0]
-            entity["resolution"] = resolution[:8192]
-            client.upsert(collection_name=COLLECTION, data=[entity])
-            _persist_failure_pg(entity)
-            logger.info("resolution_updated", extra={"failure_id": failure_id})
-        else:
-            _update_resolution_pg(failure_id, resolution)
+        def _do_update(client):
+            results = client.get(collection_name=COLLECTION, ids=[failure_id])
+            if results:
+                entity = results[0]
+                entity["resolution"] = resolution[:8192]
+                client.upsert(collection_name=COLLECTION, data=[entity])
+                _persist_failure_pg(entity)
+                logger.info("resolution_updated", extra={"failure_id": failure_id})
+            else:
+                _update_resolution_pg(failure_id, resolution)
+
+        with_retry(_get_resilient(), _do_update)
     except Exception as e:
         logger.warning("update_resolution_failed", extra={"error": str(e)[:200]})
 
@@ -385,27 +393,28 @@ async def query_similar_failures(
         if embedding is None:
             return []
 
-        client = _get_client()
-
         filter_expr = ""
         if language:
             filter_expr = f'language == "{language}"'
 
-        results = client.search(
-            collection_name=COLLECTION,
-            data=[embedding],
-            limit=top_k,
-            output_fields=[
-                "failure_id",
-                "code",
-                "error_output",
-                "exit_code",
-                "error_type",
-                "language",
-                "task_description",
-                "resolution",
-            ],
-            filter=filter_expr if filter_expr else None,
+        results = with_retry(
+            _get_resilient(),
+            lambda c: c.search(
+                collection_name=COLLECTION,
+                data=[embedding],
+                limit=top_k,
+                output_fields=[
+                    "failure_id",
+                    "code",
+                    "error_output",
+                    "exit_code",
+                    "error_type",
+                    "language",
+                    "task_description",
+                    "resolution",
+                ],
+                filter=filter_expr if filter_expr else None,
+            ),
         )
 
         failures = []
@@ -436,15 +445,20 @@ async def get_failure_stats() -> dict[str, Any]:
     """Get aggregate statistics for the admin dashboard."""
     try:
         _ensure_collection()
-        client = _get_client()
-        stats = client.get_collection_stats(collection_name=COLLECTION)
+        stats = with_retry(
+            _get_resilient(),
+            lambda c: c.get_collection_stats(collection_name=COLLECTION),
+        )
         row_count = stats.get("row_count", 0)
 
-        all_failures = client.query(
-            collection_name=COLLECTION,
-            filter="",
-            output_fields=["error_type", "language", "resolution", "timestamp"],
-            limit=10000,
+        all_failures = with_retry(
+            _get_resilient(),
+            lambda c: c.query(
+                collection_name=COLLECTION,
+                filter="",
+                output_fields=["error_type", "language", "resolution", "timestamp"],
+                limit=10000,
+            ),
         )
 
         by_language: dict[str, int] = {}
@@ -481,7 +495,6 @@ async def get_failures_paginated(
     """Get paginated list of failures for the admin service."""
     try:
         _ensure_collection()
-        client = _get_client()
 
         filter_parts = []
         if language:
@@ -490,22 +503,25 @@ async def get_failures_paginated(
             filter_parts.append(f'error_type == "{error_type}"')
         filter_expr = " and ".join(filter_parts) if filter_parts else ""
 
-        results = client.query(
-            collection_name=COLLECTION,
-            filter=filter_expr if filter_expr else "",
-            output_fields=[
-                "failure_id",
-                "code",
-                "error_output",
-                "exit_code",
-                "error_type",
-                "language",
-                "task_description",
-                "resolution",
-                "timestamp",
-            ],
-            limit=limit,
-            offset=offset,
+        results = with_retry(
+            _get_resilient(),
+            lambda c: c.query(
+                collection_name=COLLECTION,
+                filter=filter_expr if filter_expr else "",
+                output_fields=[
+                    "failure_id",
+                    "code",
+                    "error_output",
+                    "exit_code",
+                    "error_type",
+                    "language",
+                    "task_description",
+                    "resolution",
+                    "timestamp",
+                ],
+                limit=limit,
+                offset=offset,
+            ),
         )
 
         return results

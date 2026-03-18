@@ -346,6 +346,12 @@ class RetrievalResult(BaseModel):
     document_name: str = ""
     handler: str = ""
     source_type: str = ""
+    # v8 metadata
+    language: str = ""
+    artifact_kind: str = ""
+    repo_path: str = ""
+    module_path: str = ""
+    symbol_name: str = ""
 
 
 class RetrievalParams(BaseModel):

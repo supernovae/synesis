@@ -338,9 +338,78 @@ Approval status flows:
 
 ### Schema version
 
-Current Milvus schema: **v7** (defined in `base/rag/indexer/app/schema.py`)
+Current Milvus schema: **v8** (defined in `base/rag/indexer/app/schema.py`)
 
 To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, add/remove fields in `CATALOG_FIELDS` and `catalog_entity()`. On next indexer run, the collection is automatically dropped, recreated, and all ingestion items are reset for re-indexing.
+
+#### v8 fields (added over v7)
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `language` | VARCHAR(32) | Programming or content language (python, go, english) |
+| `repo_path` | VARCHAR(256) | Repository identifier (owner/repo) |
+| `module_path` | VARCHAR(256) | File path within the repository |
+| `symbol_name` | VARCHAR(128) | Function/class/resource name |
+| `artifact_kind` | VARCHAR(32) | High-level kind: code, docs, config, api_spec, architecture |
+
+These enable MCP agents and LLM retrieval to target specific languages, repositories, or artifact types via Milvus filter expressions.
+
+### Verification runbook (post schema bump / reset)
+
+After a schema version bump or forced corpus reset, follow these steps to confirm the system is healthy.
+
+#### 1. Confirm schema-sync state
+
+```bash
+# Via admin API
+curl -s $ADMIN_URL/api/v1/ingestion/schema-sync | jq
+# Expected: schema_version=8, last_reset_at is recent
+```
+
+#### 2. Verify ingestion items were reset
+
+```bash
+curl -s "$ADMIN_URL/api/v1/ingestion/stats" | jq
+# Expected: pending > 0, indexed = 0 (immediately after reset)
+# After reindex completes: pending ≈ 0, indexed = previous total
+```
+
+#### 3. Watch indexer progress
+
+```bash
+# In synesis-rag namespace logs
+oc logs -f deployment/synesis-indexer -n synesis-rag | grep -E 'schema|indexer_'
+# Expected: "indexer_collection_created" with version=8, then "indexer_fetch_start" messages
+```
+
+#### 4. Verify Milvus corpus
+
+```bash
+curl -s "$ADMIN_URL/api/v1/rag/corpus" | jq '.row_count'
+# Expected: 0 immediately after reset, grows as indexer runs
+# After full reindex: approximately equal to previous corpus size
+```
+
+#### 5. Check planner Milvus connectivity
+
+```bash
+# In synesis-planner namespace logs
+oc logs deployment/synesis-planner -n synesis-planner | grep -E 'milvus_reconnect|closed.channel'
+# Expected: no recurring closed-channel errors
+# If reconnect events appear, they should be single-line warnings (not full tracebacks)
+```
+
+#### 6. Confirm review queue consistency
+
+The review queue should only show chunks from the current collection. After a schema bump, old scan/approval statuses are purged with the collection. New chunks enter as `unscanned` / `auto_approved` and flow through the injection scanner on reindex.
+
+#### 7. Validate v8 metadata in corpus
+
+```bash
+# Query a few chunks to confirm new fields are populated
+curl -s "$ADMIN_URL/api/v1/rag/corpus/sample?fields=language,artifact_kind,repo_path,module_path,symbol_name" | jq
+# Expected: code chunks show language=python, artifact_kind=code, repo_path=owner/repo, etc.
+```
 
 ---
 

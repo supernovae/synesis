@@ -44,16 +44,27 @@ FAILURES_COLLECTION = "failures_v1"
 KNOWLEDGE_BACKLOG_COLLECTION = "synesis_knowledge_backlog"
 CATALOG_COLLECTION = "synesis_catalog"
 
-_milvus_client = None
+_resilient_milvus = None
+
+
+def _get_resilient():
+    global _resilient_milvus
+    if _resilient_milvus is None:
+        from .milvus_utils import ResilientMilvusClient
+
+        _resilient_milvus = ResilientMilvusClient(
+            uri=f"http://{MILVUS_HOST}:{MILVUS_PORT}",
+        )
+    return _resilient_milvus
 
 
 def get_milvus():
-    global _milvus_client
-    if _milvus_client is None:
-        from pymilvus import MilvusClient
+    return _get_resilient().get()
 
-        _milvus_client = MilvusClient(uri=f"http://{MILVUS_HOST}:{MILVUS_PORT}")
-    return _milvus_client
+
+def get_resilient_milvus():
+    """Return the ResilientMilvusClient for callers that need retry semantics."""
+    return _get_resilient()
 
 
 @lru_cache

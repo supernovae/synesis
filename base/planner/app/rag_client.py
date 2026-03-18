@@ -318,7 +318,7 @@ def _get_milvus_client():
 
 _catalog_ensured = False
 
-# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=2).
+# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=8).
 _EXPECTED_FIELDS = frozenset(
     {
         "chunk_id",
@@ -338,6 +338,15 @@ _EXPECTED_FIELDS = frozenset(
         "origin_type",
         "authority",
         "source_url",
+        "scan_status",
+        "content_format",
+        "symbol_type",
+        "approval_status",
+        "language",
+        "repo_path",
+        "module_path",
+        "symbol_name",
+        "artifact_kind",
         "embedding",
     }
 )
@@ -424,6 +433,15 @@ async def submit_user_knowledge(
         "origin_type": "internal",
         "authority": "vetted",
         "source_url": "",
+        "scan_status": "unscanned",
+        "content_format": "",
+        "symbol_type": "",
+        "approval_status": "auto_approved",
+        "language": "",
+        "repo_path": "",
+        "module_path": "",
+        "symbol_name": "",
+        "artifact_kind": "docs",
         "embedding": embedding,
     }
 
@@ -448,6 +466,33 @@ def discover_collections() -> list[str]:
     return [SYNESIS_CATALOG]
 
 
+def build_metadata_filter(
+    *,
+    language: str = "",
+    artifact_kind: str = "",
+    repo_path: str = "",
+    domain_filter: str = "",
+) -> str:
+    """Build a Milvus filter expression from v8 metadata signals.
+
+    Combines optional language, artifact_kind, and repo_path filters with an
+    existing domain filter using AND. Returns empty string if no filters apply.
+    """
+    parts: list[str] = []
+    if domain_filter:
+        parts.append(f"({domain_filter})")
+    if language:
+        safe = language.replace('"', "")[:32]
+        parts.append(f'language == "{safe}"')
+    if artifact_kind:
+        safe = artifact_kind.replace('"', "")[:32]
+        parts.append(f'artifact_kind == "{safe}"')
+    if repo_path:
+        safe = repo_path.replace('"', "")[:256]
+        parts.append(f'repo_path == "{safe}"')
+    return " and ".join(parts)
+
+
 def select_collections_for_task(
     task_type: str,
     target_language: str,
@@ -465,8 +510,7 @@ def select_collections_for_task(
     if active_domain_refs:
         refs = [str(r).strip() for r in active_domain_refs if r and str(r).strip()]
         if refs:
-            # Milvus expr: domain in ["a","b"] — taxonomy IDs must match catalog domain field
-            escaped = [f'"{r}"' for r in refs[:10]]  # cap to avoid expr length limits
+            escaped = [f'"{r}"' for r in refs[:10]]
             domain_filter = f"domain in [{','.join(escaped)}]"
     return [SYNESIS_CATALOG], domain_filter
 
@@ -510,20 +554,7 @@ async def _vector_search(
         "collection_name": collection,
         "data": [query_vector],
         "limit": top_k,
-        "output_fields": [
-            "text",
-            "chunk_id",
-            "document_name",
-            "origin_type",
-            "authority",
-            "domain",
-            "source_url",
-            "heading_path",
-            "context_prefix",
-            "chunk_summary",
-            "handler",
-            "source_type",
-        ],
+        "output_fields": _OUTPUT_FIELDS,
         "search_params": {"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
     }
     if filter_expr:
@@ -568,6 +599,11 @@ async def _vector_search(
                     "document_name": entity.get("document_name", ""),
                     "handler": entity.get("handler", ""),
                     "source_type": entity.get("source_type", ""),
+                    "language": entity.get("language", ""),
+                    "artifact_kind": entity.get("artifact_kind", ""),
+                    "repo_path": entity.get("repo_path", ""),
+                    "module_path": entity.get("module_path", ""),
+                    "symbol_name": entity.get("symbol_name", ""),
                 }
             )
 
@@ -591,6 +627,11 @@ _OUTPUT_FIELDS = [
     "chunk_summary",
     "handler",
     "source_type",
+    "language",
+    "artifact_kind",
+    "repo_path",
+    "module_path",
+    "symbol_name",
 ]
 
 
@@ -916,6 +957,11 @@ async def retrieve_multi_query_fused(
             document_name=doc.get("document_name", ""),
             handler=doc.get("handler", ""),
             source_type=doc.get("source_type", ""),
+            language=doc.get("language", ""),
+            artifact_kind=doc.get("artifact_kind", ""),
+            repo_path=doc.get("repo_path", ""),
+            module_path=doc.get("module_path", ""),
+            symbol_name=doc.get("symbol_name", ""),
         )
         for doc in merged
     ]

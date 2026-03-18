@@ -27,7 +27,7 @@ from langchain_openai import ChatOpenAI
 from ..config import settings
 from ..failure_store import record_error
 from ..llm_telemetry import get_llm_http_client
-from ..rag_client import ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
+from ..rag_client import build_metadata_filter, ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
 from ..state import EvidencePacket, EvidenceSnippet, EvidenceSource, NodeOutcome, NodeTrace
@@ -752,6 +752,21 @@ class RouterNode:
                 escaped = [f'"{h}"' for h in safe_hints[:10]]
                 domain_filter = f"domain in [{','.join(escaped)}]"
 
+        # v8 metadata-targeted filtering (language, artifact_kind, repo_path)
+        req_language = ""
+        req_artifact_kind = ""
+        req_repo_path = ""
+        for req in requests:
+            req_language = req_language or req.get("language_filter", "")
+            req_artifact_kind = req_artifact_kind or req.get("artifact_kind_filter", "")
+            req_repo_path = req_repo_path or req.get("repo_path_filter", "")
+        combined_filter = build_metadata_filter(
+            language=req_language,
+            artifact_kind=req_artifact_kind,
+            repo_path=req_repo_path,
+            domain_filter=domain_filter,
+        )
+
         per_query_limit = 25
         final_top_k = max_docs_for_difficulty(difficulty) * 6
 
@@ -763,7 +778,7 @@ class RouterNode:
                     queries,
                     per_query_limit=per_query_limit,
                     final_top_k=final_top_k,
-                    domain_filter=domain_filter,
+                    domain_filter=combined_filter,
                 ),
                 timeout=self.retrieve_timeout_seconds,
             )

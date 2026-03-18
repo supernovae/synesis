@@ -21,6 +21,12 @@ Version history:
             for code/structured data semantic context; approval_status
             (auto_approved/pending/approved/rejected) for HITL review
             workflow — rejected chunks excluded from RAG retrieval.
+  v7 → v8: Added language (python/go/english/...) for language-targeted
+            retrieval; repo_path (owner/repo) for project scoping;
+            module_path (path within repo/project) for file-level
+            navigation; symbol_name (function/class/resource name) for
+            direct symbol lookup; artifact_kind (code/docs/config/
+            api_spec/architecture) for MCP/agent domain-targeted queries.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -49,7 +55,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -75,6 +81,13 @@ EXPECTED_FIELDS = frozenset(
         "content_format",
         "symbol_type",
         "approval_status",
+        # v8 fields
+        "language",
+        "repo_path",
+        "module_path",
+        "symbol_name",
+        "artifact_kind",
+        # vectors
         "embedding",
         "sparse_text",
     }
@@ -112,6 +125,12 @@ CATALOG_FIELDS = [
     FieldSchema(name="symbol_type", dtype=DataType.VARCHAR, max_length=64),
     # HITL approval status (v7): auto_approved, pending, approved, rejected
     FieldSchema(name="approval_status", dtype=DataType.VARCHAR, max_length=16),
+    # v8 — language/project/symbol metadata for MCP and agent-targeted retrieval
+    FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
+    FieldSchema(name="repo_path", dtype=DataType.VARCHAR, max_length=256),
+    FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
+    FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
     # Vector
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     # Sparse BM25 vector (auto-populated by BM25 Function from text field)
@@ -264,6 +283,11 @@ def catalog_entity(
     content_format: str = "",
     symbol_type: str = "",
     approval_status: str = "auto_approved",
+    language: str = "",
+    repo_path: str = "",
+    module_path: str = "",
+    symbol_name: str = "",
+    artifact_kind: str = "",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. Truncates fields to schema byte limits."""
     return {
@@ -288,5 +312,10 @@ def catalog_entity(
         "content_format": (content_format or "")[:32],
         "symbol_type": (symbol_type or "")[:64],
         "approval_status": (approval_status or "auto_approved")[:16],
+        "language": (language or "")[:32],
+        "repo_path": _trunc_bytes(repo_path or "", 256),
+        "module_path": _trunc_bytes(module_path or "", 256),
+        "symbol_name": _trunc_bytes(symbol_name or "", 128),
+        "artifact_kind": (artifact_kind or "")[:32],
         "embedding": embedding,
     }

@@ -27,6 +27,42 @@ from .schema import catalog_entity, ensure_synesis_catalog
 
 logger = get_logger("synesis.indexer.pipeline")
 
+_CODE_FORMATS = frozenset({
+    "python", "go", "rust", "javascript", "typescript", "java", "c", "cpp",
+    "c_sharp", "ruby", "php", "bash", "lua", "kotlin", "scala", "swift",
+    "sql", "r", "elixir", "haskell", "perl",
+})
+
+_CONFIG_FORMATS = frozenset({"yaml", "json", "toml", "xml", "hcl", "dockerfile", "make", "protobuf"})
+
+
+def _infer_artifact_kind(handler: str, content_format: str, language: str) -> str:
+    """Infer high-level artifact kind from handler, format, and language."""
+    fmt = (content_format or "").lower()
+    h = (handler or "").lower()
+
+    if h == "openapi_spec":
+        return "api_spec"
+    if h in ("arxiv_paper", "pdf_document"):
+        return "docs"
+    if h in ("html_document", "web_page", "markdown_file", "github_markdown"):
+        return "docs"
+    if h == "license_spdx":
+        return "docs"
+    if h == "structured_data":
+        return "config"
+    if h == "github_code":
+        if fmt in _CODE_FORMATS or language in _CODE_FORMATS:
+            return "code"
+        if fmt in _CONFIG_FORMATS:
+            return "config"
+        return "code"
+    if fmt in _CODE_FORMATS or language in _CODE_FORMATS:
+        return "code"
+    if fmt in _CONFIG_FORMATS:
+        return "config"
+    return "docs"
+
 
 def index_source(
     source_config: dict[str, Any],
@@ -235,6 +271,13 @@ def index_source(
         content_format = chunk.metadata.get("content_format", "")
         symbol_type = chunk.metadata.get("symbol_type", "")
 
+        # v8 metadata
+        language = chunk.metadata.get("language", "") or doc.metadata.get("language", "")
+        repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
+        module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
+        symbol_name = chunk.metadata.get("symbol_name", "")
+        artifact_kind = _infer_artifact_kind(handler_type, content_format, language)
+
         if chunk_scan == "flagged":
             approval = "pending"
         elif chunk_authority in ("canonical", "vetted"):
@@ -266,6 +309,11 @@ def index_source(
                 content_format=content_format,
                 symbol_type=symbol_type,
                 approval_status=approval,
+                language=language,
+                repo_path=repo_path,
+                module_path=module_path,
+                symbol_name=symbol_name,
+                artifact_kind=artifact_kind,
             )
         )
 

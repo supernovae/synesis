@@ -10,7 +10,9 @@ import {
   useRetryIngestionItem,
   useBootstrapIngestion,
   useCreateIngestionSource,
+  useIngestionHandlers,
 } from "../../api/hooks";
+import type { HandlerMetadata } from "../../api/hooks";
 import type { IngestionItem, IngestionRun } from "../../types";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -57,6 +59,7 @@ function AddItemForm() {
   const addItem = useAddIngestionItem();
   const addBulk = useAddIngestionItemsBulk();
   const bootstrap = useBootstrapIngestion();
+  const { data: handlersData } = useIngestionHandlers();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uri, setUri] = useState("");
   const [handler, setHandler] = useState("html_document");
@@ -64,10 +67,9 @@ function AddItemForm() {
   const [bulkText, setBulkText] = useState("");
   const [tab, setTab] = useState<"single" | "bulk" | "file">("single");
 
-  const handlers = [
-    "html_document", "web_page", "pdf_document", "github_code",
-    "github_markdown", "arxiv_paper", "openapi_spec", "license_spdx",
-  ];
+  const handlers: HandlerMetadata[] = handlersData?.handlers ?? [];
+  const selectedHandler = handlers.find((h) => h.handler_type === handler);
+  const uriHint = selectedHandler?.uri_hint ?? "Enter a URI";
 
   const handleSingle = () => {
     if (!uri.trim()) return;
@@ -104,15 +106,21 @@ function AddItemForm() {
         ))}
       </div>
 
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-2">
         <select
           value={handler}
           onChange={(e) => setHandler(e.target.value)}
           className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-2 py-1 text-sm"
         >
-          {handlers.map((h) => (
-            <option key={h} value={h}>{h}</option>
-          ))}
+          {handlers.length > 0
+            ? handlers.map((h) => (
+                <option key={h.handler_type} value={h.handler_type}>
+                  {h.label}
+                </option>
+              ))
+            : (
+                <option value="html_document">HTML Document</option>
+              )}
         </select>
         <input
           value={domain}
@@ -122,13 +130,25 @@ function AddItemForm() {
         />
       </div>
 
+      {selectedHandler && (
+        <div className="flex items-center gap-3 mb-3 text-xs text-gray-500 dark:text-gray-400">
+          <span className="inline-flex items-center rounded bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 font-mono">
+            {selectedHandler.artifact_kind}
+          </span>
+          <span>URI pattern: <code className="text-gray-600 dark:text-gray-300">{selectedHandler.uri_pattern}</code></span>
+          {Object.keys(selectedHandler.config_hints).length > 0 && (
+            <span>Config: <code className="text-gray-600 dark:text-gray-300">{JSON.stringify(selectedHandler.config_hints)}</code></span>
+          )}
+        </div>
+      )}
+
       {tab === "single" && (
         <div className="flex gap-2">
           <input
             value={uri}
             onChange={(e) => setUri(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSingle()}
-            placeholder="https://... or gs://... or gdrive://..."
+            placeholder={uriHint}
             className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-1.5 text-sm"
           />
           <button
@@ -146,7 +166,7 @@ function AddItemForm() {
           <textarea
             value={bulkText}
             onChange={(e) => setBulkText(e.target.value)}
-            placeholder="Paste one URI per line..."
+            placeholder={`Paste one URI per line (${uriHint})`}
             rows={5}
             className="w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-2 text-sm font-mono mb-2"
           />

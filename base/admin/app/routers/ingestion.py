@@ -659,6 +659,7 @@ async def report_schema_version(body: SchemaReport):
                 "old_version": old_version,
                 "new_version": body.schema_version,
                 "items_reset": items_reset,
+                "reset_at": now.isoformat(),
             },
         )
         return {
@@ -667,6 +668,7 @@ async def report_schema_version(body: SchemaReport):
             "old_version": old_version,
             "new_version": body.schema_version,
             "items_reset": items_reset,
+            "reset_at": now.isoformat(),
         }
 
 
@@ -689,6 +691,128 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
                 for r in rows
             ]
         }
+
+
+# ---------------------------------------------------------------------------
+# Handlers — available handler types with metadata for the UI
+# ---------------------------------------------------------------------------
+
+HANDLER_METADATA = [
+    {
+        "handler_type": "github_code",
+        "label": "GitHub Code Repository",
+        "source_type": "code",
+        "uri_pattern": "owner/repo",
+        "uri_hint": "GitHub owner/repo (e.g. kubernetes/kubernetes)",
+        "config_hints": {"branch": "main", "paths": ["src/"]},
+        "artifact_kind": "code",
+    },
+    {
+        "handler_type": "github_markdown",
+        "label": "GitHub Markdown Docs",
+        "source_type": "markdown",
+        "uri_pattern": "owner/repo",
+        "uri_hint": "GitHub owner/repo with markdown docs (e.g. langchain-ai/langchain)",
+        "config_hints": {"branch": "main", "paths": ["docs/"]},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "html_document",
+        "label": "HTML Document",
+        "source_type": "html",
+        "uri_pattern": "https://...",
+        "uri_hint": "Full URL to an HTML page",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "web_page",
+        "label": "Web Page (auto-crawl)",
+        "source_type": "web_page",
+        "uri_pattern": "https://...",
+        "uri_hint": "URL to crawl (follows links within same domain)",
+        "config_hints": {"max_depth": 2, "max_pages": 50},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "pdf_document",
+        "label": "PDF Document",
+        "source_type": "pdf",
+        "uri_pattern": "https://.../*.pdf",
+        "uri_hint": "Direct URL to a PDF file",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "arxiv_paper",
+        "label": "arXiv Paper",
+        "source_type": "paper",
+        "uri_pattern": "2401.12345",
+        "uri_hint": "arXiv paper ID (e.g. 2401.12345)",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "openapi_spec",
+        "label": "OpenAPI Specification",
+        "source_type": "openapi",
+        "uri_pattern": "https://.../*.yaml",
+        "uri_hint": "URL to an OpenAPI/Swagger spec (YAML or JSON)",
+        "config_hints": {},
+        "artifact_kind": "api_spec",
+    },
+    {
+        "handler_type": "markdown_file",
+        "label": "Markdown File",
+        "source_type": "markdown",
+        "uri_pattern": "https://.../*.md",
+        "uri_hint": "Direct URL to a Markdown file",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "structured_data",
+        "label": "Structured Data (YAML/JSON/TOML/XML)",
+        "source_type": "structured",
+        "uri_pattern": "https://.../*.(yaml|json|toml|xml)",
+        "uri_hint": "URL to a structured data file",
+        "config_hints": {"format": "yaml"},
+        "artifact_kind": "config",
+    },
+    {
+        "handler_type": "generic_text",
+        "label": "Generic Text",
+        "source_type": "text",
+        "uri_pattern": "https://.../*.txt",
+        "uri_hint": "URL to a plain-text file",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "license_spdx",
+        "label": "SPDX License",
+        "source_type": "license",
+        "uri_pattern": "MIT | Apache-2.0 | ...",
+        "uri_hint": "SPDX license identifier",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+    {
+        "handler_type": "seed_corpus",
+        "label": "Seed Corpus (bootstrap YAML)",
+        "source_type": "seed_corpus",
+        "uri_pattern": "file:///path/to/corpus.yaml",
+        "uri_hint": "Path to a seed corpus YAML file",
+        "config_hints": {},
+        "artifact_kind": "docs",
+    },
+]
+
+
+@router.get("/handlers")
+async def list_handler_types():
+    """Return supported handler types with metadata for the UI."""
+    return {"handlers": HANDLER_METADATA}
 
 
 # ---------------------------------------------------------------------------

@@ -780,6 +780,24 @@ export function useIngestionStats() {
   });
 }
 
+export interface HandlerMetadata {
+  handler_type: string;
+  label: string;
+  source_type: string;
+  uri_pattern: string;
+  uri_hint: string;
+  config_hints: Record<string, unknown>;
+  artifact_kind: string;
+}
+
+export function useIngestionHandlers() {
+  return useQuery<{ handlers: HandlerMetadata[] }>({
+    queryKey: ["ingestion", "handlers"],
+    queryFn: () => client.get("/ingestion/handlers").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useIngestionSources() {
   return useQuery<{ sources: IngestionSource[] }>({
     queryKey: ["ingestion", "sources"],

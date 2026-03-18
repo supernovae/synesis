@@ -6,7 +6,8 @@ import contextlib
 import logging
 from typing import Any
 
-from ..deps import get_milvus
+from ..deps import get_milvus, get_resilient_milvus
+from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
 
@@ -18,8 +19,7 @@ def safe_query(
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
             return []
         try:
@@ -41,6 +41,9 @@ def safe_query(
                     offset=offset,
                 )
             raise
+
+    try:
+        return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_query_error collection=%s error=%s", collection, str(exc)[:120])
         return []
@@ -48,8 +51,7 @@ def safe_query(
 
 def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
     """Upsert a single entity into a Milvus collection. Returns True on success."""
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
             _ensure_status_collection(client, collection)
         try:
@@ -60,6 +62,9 @@ def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
                 client.upsert(collection_name=collection, data=[data])
             else:
                 raise
+
+    try:
+        with_retry(get_resilient_milvus(), _do)
         return True
     except Exception as exc:
         logger.warning("milvus_upsert_error collection=%s error=%s", collection, str(exc)[:120])
@@ -68,10 +73,9 @@ def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
 
 def safe_delete(collection: str, chunk_id: str) -> bool:
     """Delete a single entity by chunk_id from a Milvus collection."""
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
-            return True
+            return
         try:
             client.delete(collection_name=collection, filter=f'chunk_id == "{chunk_id}"')
         except Exception as exc:
@@ -80,6 +84,9 @@ def safe_delete(collection: str, chunk_id: str) -> bool:
                 client.delete(collection_name=collection, filter=f'chunk_id == "{chunk_id}"')
             else:
                 raise
+
+    try:
+        with_retry(get_resilient_milvus(), _do)
         return True
     except Exception as exc:
         logger.warning("milvus_delete_error collection=%s error=%s", collection, str(exc)[:120])
@@ -125,8 +132,7 @@ def safe_vector_search(
 
     Returns list of dicts with requested output_fields plus 'distance'.
     """
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
             return []
         try:
@@ -164,6 +170,9 @@ def safe_vector_search(
             )
             out.append(entry)
         return out
+
+    try:
+        return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_vector_search_error collection=%s error=%s", collection, str(exc)[:120])
         return []
@@ -171,8 +180,7 @@ def safe_vector_search(
 
 def collection_schema_info(collection: str) -> dict[str, Any]:
     """Return field definitions, index info, and domain->source hierarchy."""
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
             return {"exists": False}
 
@@ -202,6 +210,9 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
             pass
 
         return {"exists": True, "fields": fields, "indexes": indexes}
+
+    try:
+        return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_schema_info_error collection=%s error=%s", collection, str(exc)[:80])
         return {"exists": False, "error": str(exc)[:80]}
@@ -210,15 +221,17 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
 def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
     """Return domain -> source_name -> chunk count hierarchy."""
     try:
-        client = get_milvus()
-        if collection not in client.list_collections():
-            return []
-        rows = client.query(
-            collection_name=collection,
-            filter="",
-            output_fields=["domain", "source_name"],
-            limit=16384,
+        rows = with_retry(
+            get_resilient_milvus(),
+            lambda c: [] if collection not in c.list_collections() else c.query(
+                collection_name=collection,
+                filter="",
+                output_fields=["domain", "source_name"],
+                limit=16384,
+            ),
         )
+        if not rows:
+            return []
         from collections import Counter
 
         pair_counts: Counter[tuple[str, str]] = Counter()
@@ -247,13 +260,15 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
 
 
 def collection_stats(collection: str) -> dict[str, Any]:
-    try:
-        client = get_milvus()
+    def _do(client):
         if collection not in client.list_collections():
             return {"exists": False, "row_count": 0}
         stats = client.get_collection_stats(collection_name=collection)
         row_count = int(stats.get("row_count", 0))
         return {"exists": True, "row_count": row_count}
+
+    try:
+        return with_retry(get_resilient_milvus(), _do)
     except Exception as exc:
         logger.warning("milvus_stats_error collection=%s error=%s", collection, str(exc)[:80])
         return {"exists": False, "row_count": 0, "error": str(exc)[:80]}
