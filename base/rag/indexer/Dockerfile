@@ -48,6 +48,7 @@ COPY rag/indexer/seed-corpus.json /app/seed-corpus.json
 COPY rag/indexer/seed-corpus-band2.json /app/seed-corpus-band2.json
 COPY rag/indexer/seed-corpus-developer.json /app/seed-corpus-developer.json
 COPY rag/indexer/seed-corpus-ai-architecture.json /app/seed-corpus-ai-architecture.json
+COPY rag/indexer/seed-corpus-retrieval-depth.json /app/seed-corpus-retrieval-depth.json
 
 # Writable dirs for OpenShift (runs as arbitrary non-root UID).
 # HOME must point somewhere writable so Path.home() / ~ expansion works.
