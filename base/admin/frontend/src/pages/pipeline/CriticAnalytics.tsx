@@ -12,11 +12,12 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { useCriticDetailed } from "../../api/hooks";
+import { useCriticDetailed, useCriticEvaluations } from "../../api/hooks";
+import type { CriticEvaluation } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
-import { CheckCircle, XCircle, BarChart3, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, BarChart3, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 
 const COLORS = ["#22c55e", "#ef4444"];
 
@@ -243,12 +244,12 @@ export default function CriticAnalytics() {
             {data.rejection_reasons.map((r) => (
               <div
                 key={r.trace_id}
-                className="rounded-md border border-gray-200 bg-gray-50/50 p-3"
+                className="rounded-md border border-gray-200 bg-gray-50/50 p-3 dark:border-gray-700 dark:bg-gray-800/50"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <Link
                     to={`/traces/${r.trace_id}`}
-                    className="font-mono text-sm font-medium text-indigo-600 hover:underline"
+                    className="font-mono text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
                   >
                     {r.trace_id}
                   </Link>
@@ -262,7 +263,7 @@ export default function CriticAnalytics() {
                   )}
                 </div>
                 {r.query_snippet && (
-                  <p className="mt-1 truncate text-sm text-gray-600">
+                  <p className="mt-1 truncate text-sm text-gray-600 dark:text-gray-400">
                     {r.query_snippet}
                   </p>
                 )}
@@ -271,6 +272,212 @@ export default function CriticAnalytics() {
           </div>
         </ChartCard>
       )}
+
+      <EvaluationsTable days={days} />
     </div>
+  );
+}
+
+function EvaluationsTable({ days }: { days: number }) {
+  const [page, setPage] = useState(0);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const pageSize = 25;
+  const { data, isLoading } = useCriticEvaluations({
+    days,
+    limit: pageSize,
+    offset: page * pageSize,
+  });
+
+  const evaluations = data?.evaluations ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.ceil(total / pageSize);
+
+  return (
+    <div>
+      <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
+        Individual Evaluations ({total})
+      </h2>
+      {isLoading ? (
+        <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+      ) : evaluations.length === 0 ? (
+        <p className="text-sm text-gray-500">No evaluations found.</p>
+      ) : (
+        <>
+          <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Trace
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Query
+                  </th>
+                  <th className="px-4 py-2 text-center text-xs font-medium uppercase text-gray-500">
+                    Score
+                  </th>
+                  <th className="px-4 py-2 text-center text-xs font-medium uppercase text-gray-500">
+                    Status
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">
+                    Failure Modes
+                  </th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {evaluations.map((ev: CriticEvaluation) => (
+                  <EvalRow
+                    key={ev.trace_id}
+                    ev={ev}
+                    expanded={expanded === ev.trace_id}
+                    onToggle={() =>
+                      setExpanded(expanded === ev.trace_id ? null : ev.trace_id)
+                    }
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {totalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between">
+              <span className="text-sm text-gray-500">
+                Page {page + 1} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage(Math.max(0, page - 1))}
+                  disabled={page === 0}
+                  className="rounded px-3 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+                >
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="rounded px-3 py-1 text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 dark:text-gray-400 dark:hover:bg-gray-800"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function EvalRow({
+  ev,
+  expanded,
+  onToggle,
+}: {
+  ev: CriticEvaluation;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const scoreColor =
+    ev.weighted_overall >= 7
+      ? "text-green-600 dark:text-green-400"
+      : ev.weighted_overall >= 5
+        ? "text-yellow-600 dark:text-yellow-400"
+        : "text-red-600 dark:text-red-400";
+
+  return (
+    <>
+      <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+        <td className="px-4 py-2">
+          <Link
+            to={`/traces/${ev.trace_id}`}
+            className="font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            {ev.trace_id.slice(0, 12)}...
+          </Link>
+        </td>
+        <td className="max-w-xs truncate px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+          {ev.query_snippet || "—"}
+        </td>
+        <td className={`px-4 py-2 text-center text-sm font-semibold ${scoreColor}`}>
+          {ev.weighted_overall.toFixed(1)}
+        </td>
+        <td className="px-4 py-2 text-center">
+          {ev.approved ? (
+            <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+              Approved
+            </span>
+          ) : (
+            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400">
+              Rejected
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-2">
+          <div className="flex flex-wrap gap-1">
+            {ev.failure_modes.slice(0, 3).map((m) => (
+              <span
+                key={m}
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+              >
+                {m}
+              </span>
+            ))}
+            {ev.failure_modes.length > 3 && (
+              <span className="text-xs text-gray-400">
+                +{ev.failure_modes.length - 3}
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-2 py-2">
+          <button
+            onClick={onToggle}
+            className="rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {expanded ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} className="bg-gray-50 px-4 py-3 dark:bg-gray-800/80">
+            <div className="space-y-2 text-sm">
+              {ev.failure_modes.length > 0 && (
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    All failure modes:{" "}
+                  </span>
+                  <span className="text-gray-600 dark:text-gray-400">
+                    {ev.failure_modes.join(", ")}
+                  </span>
+                </div>
+              )}
+              {ev.repair_instructions && (
+                <div>
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    Repair instructions:{" "}
+                  </span>
+                  <span className="whitespace-pre-wrap text-gray-600 dark:text-gray-400">
+                    {ev.repair_instructions}
+                  </span>
+                </div>
+              )}
+              <div>
+                <span className="font-medium text-gray-700 dark:text-gray-300">
+                  Time:{" "}
+                </span>
+                <span className="text-gray-600 dark:text-gray-400">
+                  {new Date(ev.timestamp * 1000).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

@@ -55,6 +55,7 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.rag import router as rag_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
+from app.routers.ingestion import router as ingestion_router
 from app.routers.traces import router as traces_router
 
 app.include_router(assistant_router)
@@ -70,11 +71,54 @@ app.include_router(feedback_router)
 app.include_router(observability_router)
 app.include_router(traces_router)
 app.include_router(settings_router)
+app.include_router(ingestion_router)
 
 
 @app.get("/api/v1/health")
 async def health():
     return {"status": "ok", "service": "synesis-admin"}
+
+
+@app.get("/api/v1/events")
+async def sse_events():
+    """SSE endpoint for real-time admin dashboard notifications.
+
+    Polls the traces table for new arrivals and emits events. Clients
+    use this to invalidate TanStack Query caches without polling.
+    """
+    import asyncio
+    import json
+    import time
+
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        last_check = time.time()
+        while True:
+            await asyncio.sleep(5)
+            try:
+                from app.db.engine import async_session
+                from sqlalchemy import func, select, text
+
+                async with async_session() as session:
+                    row = (
+                        await session.execute(
+                            text("SELECT COUNT(*)::int AS cnt FROM traces WHERE timestamp >= :ts"),
+                            {"ts": last_check},
+                        )
+                    ).one()
+                    new_count = row.cnt or 0
+                    if new_count > 0:
+                        yield f"data: {json.dumps({'type': 'new_traces', 'count': new_count})}\n\n"
+                last_check = time.time()
+            except Exception:
+                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/metrics")

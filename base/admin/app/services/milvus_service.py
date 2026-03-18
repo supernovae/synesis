@@ -169,6 +169,83 @@ def safe_vector_search(
         return []
 
 
+def collection_schema_info(collection: str) -> dict[str, Any]:
+    """Return field definitions, index info, and domain->source hierarchy."""
+    try:
+        client = get_milvus()
+        if collection not in client.list_collections():
+            return {"exists": False}
+
+        desc = client.describe_collection(collection_name=collection)
+        fields = []
+        for f in desc.get("fields", []):
+            fields.append({
+                "name": f.get("name", ""),
+                "type": str(f.get("type", "")),
+                "is_primary": f.get("is_primary", False),
+                "max_length": f.get("params", {}).get("max_length"),
+                "dim": f.get("params", {}).get("dim"),
+            })
+
+        indexes = []
+        try:
+            idx_list = client.list_indexes(collection_name=collection)
+            for idx_name in idx_list:
+                idx_desc = client.describe_index(collection_name=collection, index_name=idx_name)
+                indexes.append({
+                    "name": idx_name,
+                    "field": idx_desc.get("field_name", ""),
+                    "type": idx_desc.get("index_type", ""),
+                    "metric": idx_desc.get("metric_type", ""),
+                })
+        except Exception:
+            pass
+
+        return {"exists": True, "fields": fields, "indexes": indexes}
+    except Exception as exc:
+        logger.warning("milvus_schema_info_error collection=%s error=%s", collection, str(exc)[:80])
+        return {"exists": False, "error": str(exc)[:80]}
+
+
+def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
+    """Return domain -> source_name -> chunk count hierarchy."""
+    try:
+        client = get_milvus()
+        if collection not in client.list_collections():
+            return []
+        rows = client.query(
+            collection_name=collection,
+            filter="",
+            output_fields=["domain", "source_name"],
+            limit=16384,
+        )
+        from collections import Counter
+
+        pair_counts: Counter[tuple[str, str]] = Counter()
+        for r in rows:
+            d = r.get("domain", "") or "unknown"
+            s = r.get("source_name", "") or "unknown"
+            pair_counts[(d, s)] += 1
+
+        domain_map: dict[str, list[dict]] = {}
+        for (d, s), cnt in pair_counts.items():
+            if d not in domain_map:
+                domain_map[d] = []
+            domain_map[d].append({"source": s, "chunks": cnt})
+
+        return [
+            {
+                "domain": d,
+                "total_chunks": sum(s["chunks"] for s in sources),
+                "sources": sorted(sources, key=lambda x: x["chunks"], reverse=True),
+            }
+            for d, sources in sorted(domain_map.items())
+        ]
+    except Exception as exc:
+        logger.warning("milvus_hierarchy_error error=%s", str(exc)[:80])
+        return []
+
+
 def collection_stats(collection: str) -> dict[str, Any]:
     try:
         client = get_milvus()

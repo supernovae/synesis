@@ -6,33 +6,56 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useBenchmarks } from "../../api/hooks";
+import client from "../../api/client";
 import EmptyState from "../../components/common/EmptyState";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
-import { Target, Timer, TrendingUp } from "lucide-react";
+import { Target, Timer, TrendingUp, Play } from "lucide-react";
+
+function useRunBenchmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/rag/benchmarks/run").then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rag", "benchmarks"] });
+    },
+  });
+}
 
 export default function Benchmarks() {
   const { data, isLoading } = useBenchmarks();
+  const runMutation = useRunBenchmark();
 
   if (isLoading) {
-    return <div className="h-64 animate-pulse rounded-lg bg-gray-100" />;
+    return <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />;
   }
 
   if (!data?.aggregate || Object.keys(data.aggregate).length === 0) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Retrieval Benchmarks
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Hybrid retrieval benchmark results
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
+              Retrieval Benchmarks
+            </h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Hybrid retrieval benchmark results
+            </p>
+          </div>
+          <button
+            onClick={() => runMutation.mutate()}
+            disabled={runMutation.isPending}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            <Play className={`h-4 w-4 ${runMutation.isPending ? "animate-pulse" : ""}`} />
+            {runMutation.isPending ? "Running..." : "Run Benchmark"}
+          </button>
         </div>
         <EmptyState
           title="No benchmark data"
-          description="Run bench_hybrid.py to generate results"
+          description="Click 'Run Benchmark' to execute a retrieval quality test"
         />
       </div>
     );
@@ -50,13 +73,23 @@ export default function Benchmarks() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900">
-          Retrieval Benchmarks
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Hybrid retrieval benchmark results
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
+            Retrieval Benchmarks
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            {data.run_id ? `Run: ${data.run_id}` : "Hybrid retrieval benchmark results"}
+          </p>
+        </div>
+        <button
+          onClick={() => runMutation.mutate()}
+          disabled={runMutation.isPending}
+          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          <Play className={`h-4 w-4 ${runMutation.isPending ? "animate-pulse" : ""}`} />
+          {runMutation.isPending ? "Running..." : "Run Benchmark"}
+        </button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-4">

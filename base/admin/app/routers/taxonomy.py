@@ -79,12 +79,17 @@ async def domain_detail(key: str, _user: UserInfo = Depends(get_current_user)):
         row = result.scalar_one_or_none()
     if row is None:
         return {"key": key, "path": "", "complexity": 0, "persona": ""}
+    cfg = row.raw_config or {}
     return {
         "key": row.key,
         "path": row.path,
         "complexity": row.complexity,
         "persona": row.persona,
-        "raw_config": row.raw_config,
+        "required_elements": cfg.get("required_elements", []),
+        "depth_instructions": cfg.get("depth_instructions", ""),
+        "output_style_guidance": cfg.get("output_style_guidance", ""),
+        "epistemic_guidance": cfg.get("epistemic_guidance", ""),
+        "raw_config": cfg,
     }
 
 
@@ -104,8 +109,19 @@ async def update_domain(
         row.path = data.get("path", row.path)
         row.complexity = data.get("complexity", row.complexity)
         row.persona = data.get("persona", row.persona)
+
+        cfg = dict(row.raw_config or {})
+        if "required_elements" in data:
+            cfg["required_elements"] = data["required_elements"]
+        if "depth_instructions" in data:
+            cfg["depth_instructions"] = data["depth_instructions"]
+        if "output_style_guidance" in data:
+            cfg["output_style_guidance"] = data["output_style_guidance"]
+        if "epistemic_guidance" in data:
+            cfg["epistemic_guidance"] = data["epistemic_guidance"]
         if "raw_config" in data:
-            row.raw_config = data["raw_config"]
+            cfg = data["raw_config"]
+        row.raw_config = cfg
 
         await session.commit()
         await session.refresh(row)

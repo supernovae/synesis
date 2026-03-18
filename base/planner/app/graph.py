@@ -929,12 +929,35 @@ def _ensure_bg_critic_metrics() -> None:
     _bg_critic_metrics_init = True
 
 
+def _persist_background_critic(run_id: str, critic_data: dict[str, Any]) -> None:
+    """Append background critic results to the trace row in Postgres."""
+    from .synesis_tracer import _get_pg
+
+    conn = _get_pg()
+    if conn is None:
+        return
+    try:
+        import json
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE traces
+                   SET full_record = jsonb_set(
+                       COALESCE(full_record, '{}'::jsonb),
+                       '{background_critic}',
+                       %s::jsonb
+                   )
+                   WHERE trace_id = %s""",
+                (json.dumps(critic_data, default=str), run_id),
+            )
+    except Exception:
+        logger.debug("background_critic_persist_failed", exc_info=True)
+
+
 def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
     """Schedule the critic to run as a background task outside the graph.
 
-    The task logs results via structured logging but never feeds back into
-    the current response.  Anti-oscillation and feedback loop data is still
-    captured for downstream analysis.
+    Results are persisted to the trace row for admin dashboard analytics.
     """
 
     async def _run() -> None:
@@ -942,12 +965,16 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
             result = await critic_node(state_snapshot)
             scores = result.get("critic_scores") or {}
             approved = result.get("critic_approved", False)
+            failure_modes = result.get("failure_modes") or []
+            repair_instructions = result.get("repair_instructions") or []
+            blocking_issues = result.get("blocking_issues") or []
+
             logger.info(
                 "background_critic_complete",
                 extra={
                     "run_id": state_snapshot.get("run_id", ""),
                     "weighted_overall": scores.get("weighted_overall", 0.0),
-                    "blocking_issues": len(result.get("blocking_issues") or []),
+                    "blocking_issues": len(blocking_issues),
                     "approved": approved,
                 },
             )
@@ -956,6 +983,24 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
                 _bg_critic_approved_counter.inc()
             elif not approved and _bg_critic_rejected_counter:
                 _bg_critic_rejected_counter.inc()
+
+            run_id = state_snapshot.get("run_id", "")
+            if run_id:
+                import threading
+
+                critic_data = {
+                    "scores": scores,
+                    "approved": approved,
+                    "failure_modes": failure_modes,
+                    "repair_instructions": repair_instructions,
+                    "blocking_issues": blocking_issues,
+                    "requirement_coverage": result.get("requirement_coverage") or [],
+                }
+                threading.Thread(
+                    target=_persist_background_critic,
+                    args=(run_id, critic_data),
+                    daemon=True,
+                ).start()
         except Exception:
             logger.warning("background_critic_failed", exc_info=True)
 

@@ -10,20 +10,40 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
 GRAPH_DEFINITION = {
     "nodes": [
-        {"id": "router", "label": "Router"},
-        {"id": "planner", "label": "Planner"},
-        {"id": "executor", "label": "Executor"},
-        {"id": "writer", "label": "Writer"},
-        {"id": "critic", "label": "Critic"},
-        {"id": "final_answer", "label": "Final Answer"},
+        {"id": "entry_pipeline", "label": "Entry Pipeline", "type": "entry"},
+        {"id": "router", "label": "Router", "type": "retrieval"},
+        {"id": "planner", "label": "Planner", "type": "planning"},
+        {"id": "executor", "label": "Executor", "type": "execution"},
+        {"id": "writer", "label": "Writer", "type": "generation"},
+        {"id": "patch_integrity_gate", "label": "Patch Integrity", "type": "validation"},
+        {"id": "critic", "label": "Critic", "type": "evaluation"},
+        {"id": "final_scrubber", "label": "Final Scrubber", "type": "post"},
+        {"id": "respond", "label": "Respond", "type": "terminal"},
     ],
     "edges": [
-        {"from": "router", "to": "planner"},
-        {"from": "planner", "to": "executor"},
-        {"from": "executor", "to": "writer"},
-        {"from": "writer", "to": "critic"},
-        {"from": "critic", "to": "writer", "label": "reject"},
-        {"from": "critic", "to": "final_answer", "label": "approve"},
+        {"from": "entry_pipeline", "to": "router", "label": "route"},
+        {"from": "entry_pipeline", "to": "writer", "label": "direct write"},
+        {"from": "entry_pipeline", "to": "executor", "label": "direct exec"},
+        {"from": "entry_pipeline", "to": "respond", "label": "trivial"},
+        {"from": "router", "to": "planner", "label": "plan"},
+        {"from": "router", "to": "executor", "label": "execute"},
+        {"from": "router", "to": "writer", "label": "write"},
+        {"from": "router", "to": "respond", "label": "done"},
+        {"from": "planner", "to": "router", "label": "evidence gap"},
+        {"from": "planner", "to": "writer", "label": "write"},
+        {"from": "planner", "to": "executor", "label": "execute"},
+        {"from": "planner", "to": "respond", "label": "done"},
+        {"from": "executor", "to": "patch_integrity_gate", "label": "verify"},
+        {"from": "executor", "to": "respond", "label": "done"},
+        {"from": "writer", "to": "critic", "label": "evaluate"},
+        {"from": "writer", "to": "final_scrubber", "label": "skip critic"},
+        {"from": "patch_integrity_gate", "to": "router", "label": "retry"},
+        {"from": "patch_integrity_gate", "to": "critic", "label": "evaluate"},
+        {"from": "critic", "to": "writer", "label": "revise"},
+        {"from": "critic", "to": "router", "label": "evidence gap"},
+        {"from": "critic", "to": "final_scrubber", "label": "approve"},
+        {"from": "critic", "to": "respond", "label": "done"},
+        {"from": "final_scrubber", "to": "respond"},
     ],
 }
 
@@ -65,6 +85,20 @@ async def critic_detailed(
         "top_failure_modes": [],
         "rejection_reasons": [],
     }
+
+
+@router.get("/critic/evaluations")
+async def critic_evaluations(
+    days: int = Query(7, ge=1, le=90),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Paginated list of individual critic evaluations."""
+    data = await critic_svc.get_critic_evaluations(days, limit, offset)
+    if data is not None:
+        return data
+    return {"evaluations": [], "total": 0, "limit": limit, "offset": offset}
 
 
 @router.get("/critic")

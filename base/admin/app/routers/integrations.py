@@ -31,7 +31,31 @@ async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/web-search")
 async def web_search_stats(_user: UserInfo = Depends(get_current_user)):
-    return await prom.get_web_search_stats()
+    """Web search aggregate stats — try Prometheus first, fall back to Postgres."""
+    stats = await prom.get_web_search_stats()
+    if stats and stats.get("total", 0) > 0:
+        return stats
+    try:
+        async with async_session() as session:
+            row = (
+                await session.execute(
+                    select(
+                        func.count().label("total"),
+                        func.avg(WebSearchLog.latency_ms).label("avg_latency_ms"),
+                        func.sum(case((WebSearchLog.outcome == "error", 1), else_=0)).label("errors"),
+                    )
+                )
+            ).one()
+            total = int(row.total or 0)
+            errors = int(row.errors or 0)
+            return {
+                "total": total,
+                "avg_latency_ms": round(float(row.avg_latency_ms or 0), 1) if total else None,
+                "error_rate": round(errors / total, 4) if total else None,
+                "source": "postgres",
+            }
+    except Exception:
+        return stats or {"total": 0, "avg_latency_ms": None, "error_rate": None}
 
 
 # ── Web search: event log (Postgres) ──

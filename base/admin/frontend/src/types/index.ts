@@ -72,7 +72,9 @@ export interface CorpusStats {
   collection: string;
   total_chunks: number;
   total_documents: number;
+  total_sources: number;
   domains_covered: number;
+  schema_version: number;
 }
 
 export interface DomainScorecard {

@@ -223,6 +223,85 @@ async def upsert_model_cost(data: dict) -> dict:
         }
 
 
+async def get_model_topology() -> dict:
+    """Build a topology view: per-environment x role with model, endpoint, status."""
+    data = _load_models_yaml()
+    roles = data.get("roles", {})
+    profiles = data.get("profiles", {})
+    openrouter_profiles = data.get("openrouter_profiles", {})
+
+    environments: dict[str, list[dict]] = {}
+
+    for profile_name, profile_cfg in profiles.items():
+        env_name = f"local-{profile_name}"
+        env_entries = []
+        assignments = profile_cfg.get("assignments", {})
+        for role_name in roles:
+            assignment = assignments.get(role_name, {})
+            model = assignment.get("model_override", roles[role_name].get("default_model", ""))
+            service_name = roles[role_name].get("service_name", role_name)
+            namespace = roles[role_name].get("namespace", "synesis-models")
+            endpoint = f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1"
+            env_entries.append({
+                "role": role_name,
+                "model": model,
+                "served_name": assignment.get("served_model_name", roles[role_name].get("served_model_name", role_name)),
+                "endpoint": endpoint,
+                "status": "configured",
+                "gpu": assignment.get("gpu", ""),
+                "notes": assignment.get("notes", ""),
+            })
+        environments[env_name] = env_entries
+
+    for profile_name, profile_cfg in openrouter_profiles.items():
+        env_name = f"openrouter-{profile_name}"
+        env_entries = []
+        assignments = profile_cfg.get("assignments", {})
+        for role_name, assignment in assignments.items():
+            env_entries.append({
+                "role": role_name,
+                "model": assignment.get("openrouter_model", ""),
+                "served_name": role_name,
+                "endpoint": "https://openrouter.ai/api/v1",
+                "status": "configured",
+                "gpu": "",
+                "notes": assignment.get("notes", ""),
+            })
+        environments[env_name] = env_entries
+
+    try:
+        async with async_session() as session:
+            from ..db.models import ModelDeployment
+
+            result = await session.execute(select(ModelDeployment))
+            db_rows = result.scalars().all()
+            for row in db_rows:
+                env = row.environment
+                if env not in environments:
+                    environments[env] = []
+                existing = next(
+                    (e for e in environments[env] if e["role"] == row.role), None
+                )
+                if existing:
+                    existing["status"] = row.status
+                    existing["model"] = row.model or existing["model"]
+                    existing["endpoint"] = row.endpoint or existing["endpoint"]
+                else:
+                    environments[env].append({
+                        "role": row.role,
+                        "model": row.model,
+                        "served_name": row.served_name,
+                        "endpoint": row.endpoint,
+                        "status": row.status,
+                        "gpu": "",
+                        "notes": "",
+                    })
+    except Exception:
+        logger.debug("model_topology_db_merge_failed", exc_info=True)
+
+    return {"environments": environments, "roles": list(roles.keys())}
+
+
 async def get_cost_by_model() -> list[dict]:
     """Compute total cost per model from traces in Postgres."""
     from ..db.models import Trace

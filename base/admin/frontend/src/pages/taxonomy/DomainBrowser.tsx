@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   useTaxonomy,
+  useTaxonomyDomain,
   useUpdateTaxonomyDomain,
   useSyncTaxonomyFromYaml,
   useExportTaxonomyYaml,
@@ -92,16 +93,45 @@ function DomainRow({
   const [editing, setEditing] = useState(false);
   const [complexity, setComplexity] = useState(domain.complexity);
   const [persona, setPersona] = useState(domain.persona);
+  const [depthInstructions, setDepthInstructions] = useState("");
+  const [outputStyleGuidance, setOutputStyleGuidance] = useState("");
+  const [requiredElements, setRequiredElements] = useState("");
   const mutation = useUpdateTaxonomyDomain();
+  const { data: detail } = useTaxonomyDomain(open ? domain.key : "");
+
+  const startEditing = () => {
+    if (detail) {
+      setDepthInstructions((detail as Record<string, unknown>).depth_instructions as string ?? "");
+      setOutputStyleGuidance((detail as Record<string, unknown>).output_style_guidance as string ?? "");
+      setRequiredElements(
+        Array.isArray((detail as Record<string, unknown>).required_elements)
+          ? ((detail as Record<string, unknown>).required_elements as string[]).join("\n")
+          : ""
+      );
+    }
+    setEditing(true);
+  };
 
   const handleSave = () => {
+    const elements = requiredElements
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
     mutation.mutate(
-      { key: domain.key, complexity, persona },
       {
-        onSuccess: () => setEditing(false),
-      },
+        key: domain.key,
+        complexity,
+        persona,
+        ...(depthInstructions ? { depth_instructions: depthInstructions } : {}),
+        ...(outputStyleGuidance ? { output_style_guidance: outputStyleGuidance } : {}),
+        ...(elements.length > 0 ? { required_elements: elements } : {}),
+      } as Parameters<typeof mutation.mutate>[0],
+      { onSuccess: () => setEditing(false) },
     );
   };
+
+  const inputCls =
+    "mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white";
 
   return (
     <div>
@@ -128,31 +158,65 @@ function DomainRow({
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 pl-11 dark:border-gray-800 dark:bg-gray-900">
           {editing ? (
             <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Complexity
+                  </span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={complexity}
+                    onChange={(e) => setComplexity(parseFloat(e.target.value) || 0)}
+                    className={inputCls}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                    Persona
+                  </span>
+                  <input
+                    type="text"
+                    value={persona}
+                    onChange={(e) => setPersona(e.target.value)}
+                    className={inputCls}
+                  />
+                </label>
+              </div>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Complexity
+                  Required Elements (one per line)
                 </span>
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="1"
-                  value={complexity}
-                  onChange={(e) =>
-                    setComplexity(parseFloat(e.target.value) || 0)
-                  }
-                  className="mt-1 block w-32 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                <textarea
+                  rows={4}
+                  value={requiredElements}
+                  onChange={(e) => setRequiredElements(e.target.value)}
+                  className={inputCls}
+                  placeholder="Design Goals & Constraints&#10;Architecture & Components&#10;..."
                 />
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                  Persona
+                  Depth Instructions
                 </span>
                 <textarea
-                  rows={3}
-                  value={persona}
-                  onChange={(e) => setPersona(e.target.value)}
-                  className="mt-1 block w-full rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  rows={4}
+                  value={depthInstructions}
+                  onChange={(e) => setDepthInstructions(e.target.value)}
+                  className={inputCls}
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                  Output Style Guidance
+                </span>
+                <textarea
+                  rows={4}
+                  value={outputStyleGuidance}
+                  onChange={(e) => setOutputStyleGuidance(e.target.value)}
+                  className={inputCls}
                 />
               </label>
               <div className="flex gap-2">
@@ -174,22 +238,43 @@ function DomainRow({
               </div>
             </div>
           ) : (
-            <div className="flex items-start justify-between">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                <p>
-                  <strong>Persona:</strong> {domain.persona || "---"}
-                </p>
+            <div className="space-y-2">
+              <div className="flex items-start justify-between">
+                <div className="space-y-1 text-sm text-gray-600 dark:text-gray-400">
+                  <p><strong>Persona:</strong> {domain.persona || "---"}</p>
+                  {detail && (
+                    <>
+                      {Array.isArray((detail as Record<string, unknown>).required_elements) &&
+                        ((detail as Record<string, unknown>).required_elements as string[]).length > 0 && (
+                        <div>
+                          <strong>Required Elements:</strong>
+                          <ul className="ml-4 list-disc text-xs">
+                            {((detail as Record<string, unknown>).required_elements as string[]).map((el) => (
+                              <li key={el}>{el}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(detail as Record<string, unknown>).depth_instructions && (
+                        <p className="text-xs">
+                          <strong>Depth:</strong>{" "}
+                          {((detail as Record<string, unknown>).depth_instructions as string).slice(0, 200)}...
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEditing();
+                  }}
+                  className="ml-2 rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700"
+                  title="Edit domain"
+                >
+                  <PenLine className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setEditing(true);
-                }}
-                className="ml-2 rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700"
-                title="Edit domain"
-              >
-                <PenLine className="h-4 w-4" />
-              </button>
             </div>
           )}
         </div>

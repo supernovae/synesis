@@ -7,17 +7,50 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useQuery } from "@tanstack/react-query";
 import {
   useModelCosts,
   useModelCostsByModel,
   useUpdateModelCost,
 } from "../../api/hooks";
+import client from "../../api/client";
 import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
 import { DollarSign, Cloud, Server, PenLine } from "lucide-react";
 import type { ModelCost } from "../../types";
+
+interface RoleCost {
+  role: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  requests: number;
+  cost_usd: number;
+}
+
+function useRoleCosts(days: number = 7) {
+  return useQuery<{ roles: RoleCost[]; period_days: number }>({
+    queryKey: ["models", "costs", "by-role", days],
+    queryFn: () => client.get("/models/costs/by-role", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+interface DailyCost {
+  date: string;
+  tokens: number;
+  requests: number;
+  cost_usd: number;
+}
+
+function useDailyCosts(days: number = 7) {
+  return useQuery<{ daily: DailyCost[]; period_days: number }>({
+    queryKey: ["models", "costs", "daily", days],
+    queryFn: () => client.get("/models/costs/daily", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
 
 function SourceBadge({ source }: { source: string }) {
   const isCloud = source === "openrouter";
@@ -144,10 +177,14 @@ function EditCostModal({
 export default function CostTracker() {
   const { data, isLoading } = useModelCosts();
   const { data: byModelData } = useModelCostsByModel();
+  const { data: roleData } = useRoleCosts(7);
+  const { data: dailyData } = useDailyCosts(7);
   const [editing, setEditing] = useState<ModelCost | null>(null);
 
   const roles = data?.roles ?? [];
   const byModel = byModelData?.models ?? [];
+  const byRole = roleData?.roles ?? [];
+  const daily = dailyData?.daily ?? [];
 
   const chartData = roles.map((r) => ({
     role: r.role,
@@ -273,6 +310,33 @@ export default function CostTracker() {
             data={roles}
             keyField="role"
           />
+
+          {byRole.length > 0 && (
+            <ChartCard title="Cost by Role (7d)" subtitle="Prompt vs completion token cost per pipeline role">
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={byRole}>
+                  <XAxis dataKey="role" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
+                  <Legend />
+                  <Bar dataKey="cost_usd" name="Total Cost" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+
+          {daily.length > 0 && (
+            <ChartCard title="Daily Cost Trend (7d)" subtitle="Total estimated cost per day">
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={daily}>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
+                  <Bar dataKey="cost_usd" name="Cost" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
 
           {byModel.length > 0 && (
             <>

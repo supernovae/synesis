@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -187,6 +187,56 @@ class WebUrlPolicy(Base):
     __table_args__ = (Index("ix_web_url_policy_policy", "policy"),)
 
 
+class ModelDeployment(Base):
+    __tablename__ = "model_deployments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    environment: Mapped[str] = mapped_column(String(32), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    served_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    profile: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    gpu_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_model_deployments_env_role", "environment", "role", unique=True),)
+
+
+class QualitySnapshot(Base):
+    __tablename__ = "quality_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    domain: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    health: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    doc_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    freshness_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    authority_mix: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    dead_weight_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scored_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class BenchmarkResult(Base):
+    __tablename__ = "benchmark_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    benchmark_type: Mapped[str] = mapped_column(String(64), nullable=False, default="hybrid")
+    metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    per_query: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    triggered_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class DiscoveredConflictGroup(Base):
     __tablename__ = "discovered_conflict_groups"
 
@@ -205,4 +255,78 @@ class DiscoveredConflictGroup(Base):
     __table_args__ = (
         Index("ix_discovered_conflict_groups_status", "status"),
         Index("ix_discovered_conflict_groups_group_name", "group_name"),
+    )
+
+
+class IngestionSource(Base):
+    __tablename__ = "ingestion_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    handler: Mapped[str] = mapped_column(String(64), nullable=False, default="seed_corpus")
+    origin_type: Mapped[str] = mapped_column(String(32), nullable=False, default="curated")
+    authority: Mapped[str] = mapped_column(String(32), nullable=False, default="vetted")
+    domain: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ingestion_sources_status", "status"),
+        Index("ix_ingestion_sources_domain", "domain"),
+    )
+
+
+class IngestionItem(Base):
+    __tablename__ = "ingestion_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("ingestion_sources.id"), nullable=True)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    domain: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    milvus_doc_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ingestion_items_status", "status"),
+        Index("ix_ingestion_items_source_id", "source_id"),
+        Index("ix_ingestion_items_domain", "domain"),
+    )
+
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("ingestion_sources.id"), nullable=True)
+    trigger: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    items_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    items_indexed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    items_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_ingestion_runs_source_id", "source_id"),
+        Index("ix_ingestion_runs_status", "status"),
     )

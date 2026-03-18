@@ -38,6 +38,7 @@ export function useModels() {
   return useQuery<{ models: ModelEntry[] }>({
     queryKey: ["models"],
     queryFn: () => client.get("/models").then((r) => r.data),
+    staleTime: 60_000,
   });
 }
 
@@ -92,6 +93,8 @@ export function useCorpusStats() {
   return useQuery<CorpusStats>({
     queryKey: ["rag", "corpus"],
     queryFn: () => client.get("/rag/corpus").then((r) => r.data),
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
   });
 }
 
@@ -120,9 +123,10 @@ export function useQualityDomain(key: string) {
 }
 
 export function useBenchmarks() {
-  return useQuery<BenchmarkResults>({
+  return useQuery<BenchmarkResults & { run_id?: string; triggered_by?: string; started_at?: string }>({
     queryKey: ["rag", "benchmarks"],
     queryFn: () => client.get("/rag/benchmarks").then((r) => r.data),
+    staleTime: 5 * 60_000,
   });
 }
 
@@ -214,6 +218,36 @@ export function useCriticDetailed(days: number = 7) {
     queryFn: () =>
       client
         .get("/pipeline/critic/detailed", { params: { days } })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface CriticEvaluation {
+  trace_id: string;
+  timestamp: number;
+  query_snippet: string;
+  weighted_overall: number;
+  approved: boolean;
+  failure_modes: string[];
+  repair_instructions: string;
+}
+
+export function useCriticEvaluations(params?: {
+  days?: number;
+  limit?: number;
+  offset?: number;
+}) {
+  return useQuery<{
+    evaluations: CriticEvaluation[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>({
+    queryKey: ["pipeline", "critic", "evaluations", params],
+    queryFn: () =>
+      client
+        .get("/pipeline/critic/evaluations", { params })
         .then((r) => r.data),
     refetchInterval: 60_000,
   });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ShieldAlert, ShieldCheck, Trash2, Loader2 } from "lucide-react";
+import client from "../../api/client";
 
 interface ReviewChunk {
   chunk_id: string;
@@ -22,6 +23,7 @@ interface ReviewStats {
 const STATUS_BADGE: Record<string, string> = {
   flagged: "bg-red-500/20 text-red-400 border border-red-500/30",
   unscanned: "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
+  vetted: "bg-green-500/20 text-green-400 border border-green-500/30",
   clean: "bg-green-500/20 text-green-400 border border-green-500/30",
 };
 
@@ -31,13 +33,14 @@ export default function ReviewQueue() {
   const [filter, setFilter] = useState<"flagged" | "unscanned" | "all">("flagged");
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [confirmReject, setConfirmReject] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [statsRes, chunkRes] = await Promise.all([
-        fetch("/api/v1/rag/review/stats").then((r) => r.json()),
-        fetch(`/api/v1/rag/review?status=${filter}&limit=100`).then((r) => r.json()),
+        client.get("/rag/review/stats").then((r) => r.data),
+        client.get("/rag/review", { params: { status: filter, limit: 100 } }).then((r) => r.data),
       ]);
       setStats(statsRes);
       setChunks(chunkRes.chunks || []);
@@ -52,8 +55,9 @@ export default function ReviewQueue() {
 
   async function handleAction(chunkId: string, action: "vet" | "reject") {
     setActing(chunkId);
+    setConfirmReject(null);
     try {
-      await fetch(`/api/v1/rag/review/${chunkId}/${action}`, { method: "POST" });
+      await client.post(`/rag/review/${chunkId}/${action}`);
       setChunks((prev) => prev.filter((c) => c.chunk_id !== chunkId));
       if (stats) {
         const key = chunks.find((c) => c.chunk_id === chunkId)?.scan_status as keyof ReviewStats;
@@ -120,21 +124,31 @@ export default function ReviewQueue() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[chunk.scan_status] || STATUS_BADGE.unscanned}`}>
                       {chunk.scan_status}
                     </span>
                     <span className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300">
                       {chunk.authority}
                     </span>
-                    <span className="truncate text-sm font-medium text-slate-200">
-                      {chunk.document_name || chunk.doc_id}
-                    </span>
+                    {chunk.domain && (
+                      <span className="rounded bg-indigo-900/30 px-2 py-0.5 text-xs text-indigo-300">
+                        {chunk.domain}
+                      </span>
+                    )}
+                    {chunk.origin_type && (
+                      <span className="rounded bg-slate-700/50 px-2 py-0.5 text-xs text-slate-400">
+                        {chunk.origin_type}
+                      </span>
+                    )}
                   </div>
+                  <p className="mt-1.5 text-sm font-medium text-slate-200">
+                    {chunk.document_name || chunk.doc_id}
+                  </p>
                   {chunk.heading_path && (
-                    <p className="mt-1 text-xs text-slate-500">{chunk.heading_path}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{chunk.heading_path}</p>
                   )}
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-slate-400">
+                  <p className="mt-2 whitespace-pre-wrap rounded bg-slate-900/50 p-2 text-sm text-slate-400">
                     {chunk.text_preview}
                   </p>
                   {chunk.source_url && (
@@ -142,13 +156,13 @@ export default function ReviewQueue() {
                       href={chunk.source_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 text-xs text-blue-400 hover:underline"
+                      className="mt-1 inline-block text-xs text-blue-400 hover:underline"
                     >
                       {chunk.source_url}
                     </a>
                   )}
                 </div>
-                <div className="flex flex-shrink-0 gap-2">
+                <div className="flex flex-shrink-0 flex-col gap-2">
                   <button
                     disabled={acting === chunk.chunk_id}
                     onClick={() => handleAction(chunk.chunk_id, "vet")}
@@ -156,13 +170,31 @@ export default function ReviewQueue() {
                   >
                     <ShieldCheck className="h-3.5 w-3.5" /> Vet
                   </button>
-                  <button
-                    disabled={acting === chunk.chunk_id}
-                    onClick={() => handleAction(chunk.chunk_id, "reject")}
-                    className="flex items-center gap-1 rounded-md bg-red-600/20 px-3 py-1.5 text-sm text-red-400 hover:bg-red-600/30 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" /> Reject
-                  </button>
+                  {confirmReject === chunk.chunk_id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        disabled={acting === chunk.chunk_id}
+                        onClick={() => handleAction(chunk.chunk_id, "reject")}
+                        className="flex items-center gap-1 rounded-md bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmReject(null)}
+                        className="rounded-md px-2 py-1 text-xs text-slate-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      disabled={acting === chunk.chunk_id}
+                      onClick={() => setConfirmReject(chunk.chunk_id)}
+                      className="flex items-center gap-1 rounded-md bg-red-600/20 px-3 py-1.5 text-sm text-red-400 hover:bg-red-600/30 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Reject
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
