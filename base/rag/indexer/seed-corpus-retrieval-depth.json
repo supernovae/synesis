@@ -1,0 +1,322 @@
+{
+  "version": 2,
+  "description": "Targeted corpus for retrieval architecture depth, current LangChain/LangGraph patterns, FAISS limitations, hybrid search, vector DB comparisons, self-hosted LLM operations, and code-aware retrieval. Fills gaps identified by external critic: retrieval topology precision, current framework versions, operational realism, and code-context architecture.",
+  "_mapping_notes": {
+    "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
+    "category": "Human-readable grouping for corpus organization. Not stored in Milvus."
+  },
+  "sources": [
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangChain v0.3: What's New and Migration Guide",
+      "url": "https://python.langchain.com/docs/versions/v0_3",
+      "tags": ["langchain", "v0.3", "migration", "current", "breaking-changes"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangChain Concepts: Retrievers",
+      "url": "https://python.langchain.com/docs/concepts/retrievers",
+      "tags": ["langchain", "retrievers", "concepts", "rag", "current"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangChain How-To: Ensemble Retriever (Hybrid Search)",
+      "url": "https://python.langchain.com/docs/how_to/ensemble_retriever",
+      "tags": ["langchain", "ensemble-retriever", "hybrid-search", "bm25", "vector"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangChain: FAISS Vector Store Integration",
+      "url": "https://python.langchain.com/docs/integrations/vectorstores/faiss/",
+      "tags": ["langchain", "faiss", "vector-store", "integration", "limitations"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangChain: Vector Stores Overview and Comparison",
+      "url": "https://python.langchain.com/docs/integrations/vectorstores",
+      "tags": ["langchain", "vector-stores", "comparison", "integrations", "current"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "LangChain: Elasticsearch Retriever (Hybrid Search Example)",
+      "url": "https://python.langchain.com/docs/integrations/retrievers/elasticsearch_retriever",
+      "tags": ["langchain", "elasticsearch", "hybrid-search", "bm25", "vector-search"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "LangChain v0.2 Deprecations (What to Avoid)",
+      "url": "https://python.langchain.com/docs/versions/v0_2/deprecations",
+      "tags": ["langchain", "deprecations", "migration", "v0.2", "legacy"]
+    },
+    {
+      "category": "langchain_current",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "LangChain: Migrating from Legacy Chains",
+      "url": "https://python.langchain.com/docs/versions/migrating_chains/map_rerank_docs_chain",
+      "tags": ["langchain", "migration", "chains", "legacy", "lcel"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangGraph: Framework Overview and Architecture",
+      "url": "https://langchain-ai.github.io/langgraph",
+      "tags": ["langgraph", "agents", "orchestration", "stateful", "architecture"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangGraph: Conceptual Guide (State, Nodes, Edges, Persistence)",
+      "url": "https://langchain-ai.github.io/langgraph/concepts/",
+      "tags": ["langgraph", "concepts", "state-management", "persistence", "checkpointing"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangGraph Patterns and Best Practices Guide (2025)",
+      "url": "https://sumanta9090.medium.com/langgraph-patterns-best-practices-guide-2025-38cc2abb8763",
+      "tags": ["langgraph", "patterns", "best-practices", "react", "tool-calling"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "LangGraph Multi-Agent Supervisor Pattern Guide (2026)",
+      "url": "https://myengineeringpath.dev/genai-engineer/langgraph-multi-agent/",
+      "tags": ["langgraph", "multi-agent", "supervisor", "orchestration", "command-api"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "LangGraph: Build Stateful Multi-Agent Systems (Deep Dive)",
+      "url": "https://www.mager.co/blog/2026-03-12-langgraph-deep-dive/",
+      "tags": ["langgraph", "multi-agent", "stateful", "production", "deep-dive"]
+    },
+    {
+      "category": "langgraph_agents",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "Multi-Agent AI Systems with LangGraph (Comprehensive Guide)",
+      "url": "https://blogs.pavanrangani.com/multi-agent-ai-systems-langgraph-guide/",
+      "tags": ["langgraph", "multi-agent", "supervisor", "swarm", "architecture"]
+    },
+    {
+      "category": "faiss_architecture",
+      "domain": "databases",
+      "priority": 1,
+      "title": "FAISS Wiki: Guidelines to Choose an Index",
+      "url": "https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index",
+      "tags": ["faiss", "index-selection", "ivf", "hnsw", "flat", "guidelines"]
+    },
+    {
+      "category": "faiss_architecture",
+      "domain": "databases",
+      "priority": 1,
+      "title": "FAISS Wiki: Index Types and Capabilities",
+      "url": "https://github.com/facebookresearch/faiss/wiki/Faiss-indexes",
+      "tags": ["faiss", "indexes", "ivf", "pq", "hnsw", "flat", "capabilities"]
+    },
+    {
+      "category": "faiss_architecture",
+      "domain": "databases",
+      "priority": 1,
+      "title": "FAISS Wiki: FAQ (Limitations, Accuracy, Operations)",
+      "url": "https://github.com/facebookresearch/faiss/wiki/FAQ",
+      "tags": ["faiss", "faq", "limitations", "accuracy", "operations", "troubleshooting"]
+    },
+    {
+      "category": "faiss_architecture",
+      "domain": "databases",
+      "priority": 2,
+      "title": "FAISS Wiki: The Index Factory (Composite Index Strings)",
+      "url": "https://github.com/facebookresearch/faiss/wiki/The-index-factory",
+      "tags": ["faiss", "index-factory", "composite", "configuration", "encoding"]
+    },
+    {
+      "category": "hybrid_search",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Hybrid Search Done Right: BM25 + HNSW + RRF in Elasticsearch",
+      "url": "https://medium.com/@ashutoshkumars1ngh/hybrid-search-done-right-fixing-rag-retrieval-failures-using-bm25-hnsw-reciprocal-rank-fusion-a73596652d22",
+      "tags": ["hybrid-search", "bm25", "hnsw", "rrf", "elasticsearch", "production"]
+    },
+    {
+      "category": "hybrid_search",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Building a Production-Ready RAG System: From Simple to Hybrid Search",
+      "url": "https://fmorenovr.medium.com/building-a-production-ready-rag-system-from-simple-retrieval-to-advanced-hybrid-search-498a50f9a04f",
+      "tags": ["hybrid-search", "rag", "production", "architecture", "reranking"]
+    },
+    {
+      "category": "hybrid_search",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Hybrid Search + Reranking Playbook: When Vectors Fail and BM25 Saves Recall",
+      "url": "https://optyxstack.com/rag-reliability/hybrid-search-reranking-playbook",
+      "tags": ["hybrid-search", "reranking", "bm25", "production", "reliability"]
+    },
+    {
+      "category": "hybrid_search",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Production RAG Pipeline: Start With Hybrid Retrieval (Dense + BM25 + RRF)",
+      "url": "https://medium.com/@kumaran.isk/building-a-production-rag-pipeline-start-with-hybrid-retrieval-dense-bm25-rrf-e901aba17cae",
+      "tags": ["hybrid-search", "rag", "rrf", "dense-retrieval", "bm25", "production"]
+    },
+    {
+      "category": "hybrid_search",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Hybrid Search in 2025: Combining Semantic + BM25 for Production",
+      "url": "https://thread-transfer.com/blog/2025-03-22-hybrid-search-production/",
+      "tags": ["hybrid-search", "semantic", "bm25", "production", "2025", "patterns"]
+    },
+    {
+      "category": "vector_db_comparison",
+      "domain": "databases",
+      "priority": 1,
+      "title": "Milvus vs FAISS vs Qdrant vs Chroma: A Deep Comparison",
+      "url": "https://medium.com/@sepehrnorouzi7/milvus-vs-faiss-vs-qdrant-vs-chroma-a-deep-take-on-four-vector-databases-c2b8c67e9fad",
+      "tags": ["vector-db", "milvus", "faiss", "qdrant", "chroma", "comparison"]
+    },
+    {
+      "category": "vector_db_comparison",
+      "domain": "databases",
+      "priority": 1,
+      "title": "Vector Database Comparison 2026: Pinecone vs Weaviate vs Qdrant vs Milvus",
+      "url": "https://jishulabs.com/blog/vector-database-comparison-2026",
+      "tags": ["vector-db", "comparison", "2026", "pinecone", "weaviate", "qdrant", "milvus"]
+    },
+    {
+      "category": "vector_db_comparison",
+      "domain": "databases",
+      "priority": 1,
+      "title": "Best Vector Databases in 2026: A Complete Comparison Guide",
+      "url": "https://www.firecrawl.dev/blog/best-vector-databases",
+      "tags": ["vector-db", "comparison", "2026", "production", "metadata-filtering"]
+    },
+    {
+      "category": "vector_db_comparison",
+      "domain": "databases",
+      "priority": 2,
+      "title": "Vector Databases in 2026: A Practical Comparison for Production Teams",
+      "url": "https://viqus.ai/blog/vector-databases-compared",
+      "tags": ["vector-db", "comparison", "production", "2026", "operational"]
+    },
+    {
+      "category": "vector_db_comparison",
+      "domain": "databases",
+      "priority": 2,
+      "title": "Qdrant vs Milvus: Which Vector Database Should You Choose?",
+      "url": "https://www.f22labs.com/blogs/qdrant-vs-milvus-which-vector-database-should-you-choose/",
+      "tags": ["vector-db", "qdrant", "milvus", "comparison", "filtering", "hybrid-search"]
+    },
+    {
+      "category": "self_hosted_llm_ops",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Ollama vs vLLM: Which Local LLM Backend Pays Off on Single GPUs?",
+      "url": "https://like2byte.com/ollama-vs-vllm-local-benchmarks-2026/",
+      "tags": ["vllm", "ollama", "benchmark", "gpu", "latency", "throughput"]
+    },
+    {
+      "category": "self_hosted_llm_ops",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Complete Guide to vLLM Production Serving Optimization: PagedAttention to Kubernetes",
+      "url": "https://www.youngju.dev/blog/llm/2026-03-07-llm-vllm-serving-optimization-production.en",
+      "tags": ["vllm", "production", "optimization", "kubernetes", "paged-attention", "latency"]
+    },
+    {
+      "category": "self_hosted_llm_ops",
+      "domain": "kubernetes",
+      "priority": 1,
+      "title": "vLLM Production Stack: High Performance Deployment in Kubernetes",
+      "url": "https://vllm.ai/blog/stack-release",
+      "tags": ["vllm", "kubernetes", "production", "helm", "autoscaling", "kv-cache"]
+    },
+    {
+      "category": "self_hosted_llm_ops",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Red Hat: Ollama vs vLLM Deep Dive Performance Benchmarking",
+      "url": "https://developers.redhat.com/articles/2025/08/08/ollama-vs-vllm-deep-dive-performance-benchmarking",
+      "tags": ["vllm", "ollama", "benchmark", "red-hat", "a100", "throughput", "latency"]
+    },
+    {
+      "category": "self_hosted_llm_ops",
+      "domain": "kubernetes",
+      "priority": 1,
+      "title": "Red Hat: Deploy and Benchmark vLLM with GuideLLM on Kubernetes",
+      "url": "https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes",
+      "tags": ["vllm", "kubernetes", "benchmark", "red-hat", "openshift", "guidellm"]
+    },
+    {
+      "category": "code_context_retrieval",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "CodeRAG with Dependency Graph Using Tree-Sitter",
+      "url": "https://medium.com/@shsax/how-i-built-coderag-with-dependency-graph-using-tree-sitter-0a71867059ae",
+      "tags": ["code-rag", "tree-sitter", "dependency-graph", "ast", "import-graph"]
+    },
+    {
+      "category": "code_context_retrieval",
+      "domain": "software_architecture",
+      "priority": 1,
+      "title": "Navigation Paradox: Graph-Structured Dependency Navigation vs Retrieval",
+      "url": "https://arxiv.org/html/2602.20048v1",
+      "tags": ["code-navigation", "dependency-graph", "retrieval", "research", "architecture-tasks"]
+    },
+    {
+      "category": "code_context_retrieval",
+      "domain": "software_architecture",
+      "priority": 2,
+      "title": "Aider: Repository Map and Code Context",
+      "url": "https://aider.chat/docs/repomap.html",
+      "tags": ["code-assistant", "aider", "repo-map", "tree-sitter", "context"]
+    },
+    {
+      "category": "milvus_hybrid_search",
+      "domain": "databases",
+      "priority": 1,
+      "title": "Milvus: Hybrid Search (Dense + Sparse Vectors)",
+      "url": "https://milvus.io/docs/multi-vector-search.md",
+      "tags": ["milvus", "hybrid-search", "dense", "sparse", "rrf", "weighted"]
+    },
+    {
+      "category": "milvus_hybrid_search",
+      "domain": "databases",
+      "priority": 1,
+      "title": "Milvus: Full-Text Search (BM25)",
+      "url": "https://milvus.io/docs/full-text-search.md",
+      "tags": ["milvus", "full-text-search", "bm25", "sparse", "tokenization"]
+    },
+    {
+      "category": "milvus_hybrid_search",
+      "domain": "databases",
+      "priority": 2,
+      "title": "Milvus: Metadata Filtering and Scalar Indexing",
+      "url": "https://milvus.io/docs/boolean.md",
+      "tags": ["milvus", "metadata-filtering", "scalar-index", "boolean", "expressions"]
+    }
+  ]
+}

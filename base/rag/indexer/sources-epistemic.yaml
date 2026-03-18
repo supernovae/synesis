@@ -35,3 +35,13 @@ sources:
     config:
       path: seed-corpus-ai-architecture.json
       tags: [ai-architecture, rag, production, security, routing, code-assistant]
+
+  - name: "Retrieval Architecture Depth"
+    handler: seed_corpus
+    origin_type: curated
+    authority: vetted
+    domain: software_architecture
+    config:
+      path: seed-corpus-retrieval-depth.json
+      doc_id_prefix: retrieval-depth
+      tags: [retrieval, hybrid-search, langchain, langgraph, faiss, vector-db, self-hosted-llm, code-context]

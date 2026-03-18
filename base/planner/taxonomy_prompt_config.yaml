@@ -1601,29 +1601,39 @@ software_architecture:
   worker_explain_tone: "You are a principal engineer who has shipped production systems. Make concrete choices and justify them. Scope to the user's stated constraints."
   depth_instructions: >-
     Reason from first principles. Justify key choices with a rejected
-    alternative. Separate what you know from what you assume. Quantify where
-    you can — rough ranges with stated assumptions beat precise-sounding
-    fabrications. Scope ruthlessly to the user's constraints; defer the rest
-    to future work. When describing component relationships or data flow,
-    include a mermaid diagram to visualize the architecture. Name specific
-    tools, frameworks, and versions — not abstract categories. Each section
-    should contain 2-4 substantive paragraphs with concrete details.
+    alternative. Separate what you know from what you assume — present
+    assumptions in a dedicated section or clearly labeled inline, never
+    blended silently into recommendations. Quantify where you can — rough
+    ranges with stated assumptions beat precise-sounding fabrications. Frame
+    cost and latency claims as [Target] or [Estimate], never as guaranteed
+    facts unless measured. Scope ruthlessly to the user's constraints; defer
+    the rest to future work. When describing component relationships or data
+    flow, include a mermaid diagram to visualize the architecture. Name
+    specific tools, frameworks, and versions — not abstract categories. Each
+    section should contain 2-4 substantive paragraphs with concrete details.
     When the architecture involves code generation, code review, or coding
-    workflows: treat the code path as a first-class section covering repo/code
-    retrieval, generation flow, deterministic validators per language/tool,
-    and how code review differs from doc Q&A.     When the architecture includes
-    a confidence or escalation mechanism: decompose the confidence signal into
-    named inputs (retrieval similarity, chunk agreement, ambiguity, tool
-    validation results, task type) rather than treating it as a single score.
-    When the design includes a router or escalation step: state the decision
-    matrix explicitly — when to answer (e.g. high evidence + any complexity),
-    when to escalate (e.g. low evidence + complex), when to refuse (e.g.
-    out-of-scope, unsupported, or unauthorized); distinguish low-evidence+simple
-    from low-evidence+complex. When the architecture includes retrieval or RAG:
-    in one sentence each, state how metadata and permission filtering are
-    applied (e.g. filter before vector search) and how semantic and lexical
-    search are combined (e.g. hybrid fusion, re-ranking); do not describe the
-    vector store in isolation.
+    workflows: treat the code path as a first-class section covering
+    repo/code retrieval (AST-aware context, import graphs, dependency
+    resolution — not just keyword search), generation flow, deterministic
+    validators per language/tool, how code review differs from doc Q&A,
+    and when the system should escalate directly to a human reviewer rather
+    than a larger model. When the architecture includes a confidence or
+    escalation mechanism: decompose the confidence signal into named inputs
+    (retrieval similarity, chunk agreement, ambiguity, tool validation
+    results, task type) rather than treating it as a single score. When the
+    design includes a router or escalation step: state the decision matrix
+    explicitly — when to answer (e.g. high evidence + any complexity), when
+    to escalate (e.g. low evidence + complex), when to refuse (e.g.
+    out-of-scope, unsupported, or unauthorized); distinguish
+    low-evidence+simple from low-evidence+complex; justify model size for
+    the hot path (prefer rules-first or lightweight classifiers over full
+    LLMs for simple routing unless load or accuracy data justifies otherwise).
+    When the architecture includes retrieval or RAG: decompose the retrieval
+    service into distinct components — vector store (what it handles),
+    metadata/permission pre-filter, lexical/BM25 index, fusion strategy
+    (RRF, weighted linear), reranker, and update/indexing pipeline. Do not
+    conflate these under a single technology name. State what each technology
+    can and cannot do natively.
   discovery_prompt: "End with a brief 'Key Risks' section: the top 3-5 ways this design could fail, early warning signs, and mitigations."
   planner_decomposition_rules: |
     For architecture/design tasks:
@@ -1634,6 +1644,7 @@ software_architecture:
       covering: code retrieval, code generation, code review, and validators.
   required_elements:
     - "Design Goals & Constraints"
+    - "Assumptions & Open Questions"
     - "Architecture & Components"
     - "Technology Choices & Rationale"
     - "Tradeoffs & Alternatives"
@@ -1658,16 +1669,36 @@ software_architecture:
   output_style_guidance: >-
     Structure like a technical architecture document. Design goals and
     constraints first — restate the user's constraints and add any inferred
-    ones marked as [Assumed Constraint]. Then an Architecture & Components
-    section with a mermaid diagram showing component relationships and data
-    flow. Then technology choices with rationale (chosen approach + why
-    alternatives were rejected) in a comparison table. Include domain-specific
-    sections as demanded by the user's prompt (e.g. model taxonomy for AI
-    systems, data model for storage systems, API design for service systems).
+    ones marked as [Assumed Constraint]. Then an Assumptions & Open Questions
+    section: separate facts (evidence-backed), assumptions (reasonable but
+    unverified), and recommendations (professional judgment) into clearly
+    labeled groups — do NOT blend assumptions into prose without calling them
+    out. Then an Architecture & Components section with a mermaid diagram
+    showing component relationships and data flow. Then technology choices
+    with rationale (chosen approach + why alternatives were rejected) in a
+    comparison table. Include domain-specific sections as demanded by the
+    user's prompt (e.g. model taxonomy for AI systems, data model for
+    storage systems, API design for service systems).
+    When proposing a retrieval or RAG system, explicitly decompose the
+    retrieval service topology: what the vector store handles (similarity
+    search), what handles metadata/permission filtering (pre-filter vs
+    post-filter), what handles lexical/BM25 search, how hybrid results are
+    fused (e.g. RRF, weighted linear), how the index is updated, and how
+    access control is enforced. Do not attribute capabilities to a single
+    technology (e.g. "FAISS") that it does not natively provide — name each
+    component separately.
     If the system involves code generation or coding workflows, include a
-    dedicated code-path section covering: how code is retrieved from repos,
-    how generated code is validated before showing to users, deterministic
-    validators per language/domain, and how code review differs from doc Q&A.
+    dedicated code-path section covering: how code is retrieved from repos
+    (import-graph / AST-based context, not just keyword search), how related
+    files and dependencies are identified, how generated code is validated
+    before showing to users, deterministic validators per language/domain,
+    how code review differs from doc Q&A, and when code-related requests
+    should escalate to human review rather than a larger model.
+    For any system with a routing, escalation, or confidence mechanism,
+    define explicit escalation boundaries: when the system handles
+    autonomously, when it escalates to a more capable model (and justify the
+    model size — challenge use of 7B+ models for simple classification),
+    when it requires human review, and when it must refuse entirely.
     Implementation path with concrete milestones and team-size-aware phasing.
     Key risks with domain-specific failure modes and detection strategies.
     Every recommendation must be concrete and justified.
