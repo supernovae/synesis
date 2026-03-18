@@ -46,6 +46,7 @@ def _discover() -> None:
     _discovered = True
     from . import (  # noqa: F401
         arxiv_paper,
+        generic_text,
         github_code,
         github_markdown,
         html_document,
@@ -54,5 +55,6 @@ def _discover() -> None:
         openapi_spec,
         pdf_document,
         seed_corpus,
+        structured_data,
         web_page,
     )

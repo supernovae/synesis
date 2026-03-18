@@ -53,7 +53,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_documents": unique_docs,
             "total_sources": unique_sources,
             "domains_covered": unique_domains,
-            "schema_version": 6,
+            "schema_version": 7,
         }
     except Exception:
         logger.warning("corpus_overview_failed", exc_info=True)
@@ -63,7 +63,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_documents": 0,
             "total_sources": 0,
             "domains_covered": 0,
-            "schema_version": 6,
+            "schema_version": 7,
         }
 
 
@@ -385,6 +385,9 @@ _REVIEW_FIELDS = [
     "domain",
     "scan_status",
     "heading_path",
+    "content_format",
+    "symbol_type",
+    "approval_status",
 ]
 
 # Lightweight copy of the indexer's named patterns for on-the-fly reason extraction.
@@ -425,14 +428,17 @@ def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
 
 @router.get("/review/stats")
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
-    """Counts by scan_status for the review queue badge."""
+    """Counts by scan_status and approval_status for the review queue badge."""
     flagged = safe_query(
         CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000
     )
     unscanned = safe_query(
         CATALOG_COLLECTION, filter_expr='scan_status == "unscanned"', output_fields=["chunk_id"], limit=10000
     )
-    return {"flagged": len(flagged), "unscanned": len(unscanned)}
+    pending = safe_query(
+        CATALOG_COLLECTION, filter_expr='approval_status == "pending"', output_fields=["chunk_id"], limit=10000
+    )
+    return {"flagged": len(flagged), "unscanned": len(unscanned), "pending_approval": len(pending)}
 
 
 @router.get("/review")
@@ -460,7 +466,7 @@ async def review_queue(
 
 @router.post("/review/{chunk_id}/vet")
 async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
-    """Mark a chunk as vetted: set scan_status to 'vetted' and upgrade authority."""
+    """Mark a chunk as vetted: set scan_status to 'vetted', approval_status to 'approved'."""
     from ..services.milvus_service import safe_query as sq
 
     rows = sq(CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1)
@@ -470,7 +476,7 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
         client = get_milvus()
         client.upsert(
             collection_name=CATALOG_COLLECTION,
-            data=[{"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted"}],
+            data=[{"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}],
         )
     except Exception:
         logger.warning("review_vet_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
@@ -481,12 +487,63 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
 
 @router.post("/review/{chunk_id}/reject")
 async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
-    """Remove a flagged chunk from the catalog."""
-    from ..services.milvus_service import safe_delete
-
-    ok = safe_delete(CATALOG_COLLECTION, chunk_id)
+    """Mark a chunk as rejected: set approval_status to 'rejected' (excluded from RAG retrieval)."""
+    try:
+        client = get_milvus()
+        client.upsert(
+            collection_name=CATALOG_COLLECTION,
+            data=[{"chunk_id": chunk_id, "scan_status": "rejected", "approval_status": "rejected"}],
+        )
+        ok = True
+    except Exception:
+        logger.warning("review_reject_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
+        ok = False
     logger.info("review_reject_chunk", extra={"chunk_id": chunk_id, "user": _user.username, "ok": ok})
     return {"ok": ok, "chunk_id": chunk_id, "action": "rejected"}
+
+
+@router.post("/review/bulk/{action}")
+async def bulk_review_action(
+    action: str,
+    request: dict,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Bulk approve or reject multiple chunks.
+
+    POST /review/bulk/vet   {"chunk_ids": ["id1", "id2"]}
+    POST /review/bulk/reject {"chunk_ids": ["id1", "id2"]}
+    """
+    chunk_ids = request.get("chunk_ids", [])
+    if not chunk_ids:
+        return {"ok": False, "error": "no chunk_ids provided"}
+    if action not in ("vet", "reject"):
+        return {"ok": False, "error": "action must be 'vet' or 'reject'"}
+
+    results = {"ok": True, "processed": 0, "errors": 0}
+    client = get_milvus()
+
+    for chunk_id in chunk_ids:
+        try:
+            if action == "vet":
+                client.upsert(
+                    collection_name=CATALOG_COLLECTION,
+                    data=[{"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}],
+                )
+            else:
+                client.upsert(
+                    collection_name=CATALOG_COLLECTION,
+                    data=[{"chunk_id": chunk_id, "scan_status": "rejected", "approval_status": "rejected"}],
+                )
+            results["processed"] += 1
+        except Exception:
+            logger.warning("review_bulk_%s_failed", action, extra={"chunk_id": chunk_id}, exc_info=True)
+            results["errors"] += 1
+
+    logger.info(
+        "review_bulk_action",
+        extra={"action": action, "count": len(chunk_ids), "processed": results["processed"], "user": _user.username},
+    )
+    return results
 
 
 def get_milvus():

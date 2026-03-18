@@ -258,6 +258,26 @@ class DiscoveredConflictGroup(Base):
     )
 
 
+class MilvusSchemaSync(Base):
+    """Tracks the last-known Milvus schema version for drift detection.
+
+    On startup and when the indexer reports a schema change, the admin service
+    compares stored vs. current version. If they differ, all 'indexed' ingestion
+    items are reset to 'pending' for re-indexing, since the Milvus collection
+    was dropped+recreated and all previous chunks are gone.
+    """
+    __tablename__ = "milvus_schema_sync"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    collection: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_reported_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class IngestionSource(Base):
     __tablename__ = "ingestion_sources"
 

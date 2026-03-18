@@ -72,18 +72,48 @@ Queue mode is the default for the deployed CronJob. YAML mode remains available 
 
 ## Handler Types
 
+### Code (tree-sitter AST — 25+ languages)
+
+| Handler | Source Type | What It Does |
+|---------|-----------|--------------|
+| `github_code` | GitHub repos | Shallow-clones repos, AST-aware chunking via tree-sitter-language-pack. Also routes `.yaml`/`.json`/`.xml`/`.toml`/`.tf` files to structured_data handler. |
+
+**Supported languages:** Python, Go, Rust, JavaScript, TypeScript, Java, C, C++, C#, Ruby, PHP, Bash/Shell, Lua, Kotlin, Scala, Swift, SQL, R, Elixir, Haskell, Perl, Dockerfile, Makefile, Protobuf, HCL/Terraform.
+
+Each language has configured `top_level` and `nested` AST node types for semantic chunking (functions, classes, methods, structs, etc.).
+
+### Structured Data (format-aware chunking)
+
+| Handler | Source Type | What It Does |
+|---------|-----------|--------------|
+| `structured_data` | URLs / local | YAML, JSON, TOML, XML, HCL — splits at semantic boundaries |
+
+Format-specific chunking:
+- **YAML**: Splits on `---` document separators. Kubernetes manifests get `kind/name` as heading. Ansible playbooks split per task/play.
+- **JSON**: Arrays split per element; objects split at top-level keys.
+- **XML**: Element-tree split at child elements (Maven POMs, config files).
+- **TOML**: Split per top-level table.
+- **HCL/Terraform**: Split per `resource`/`data`/`module`/`variable`/`output` block.
+
+### Documents
+
 | Handler | Source Type | What It Does |
 |---------|-----------|--------------|
 | `github_markdown` | GitHub repos | Fetches .md files via GitHub API, heading-aware chunking with heading_path tracking |
-| `github_code` | GitHub repos | AST-aware chunking via tree-sitter (functions, classes as semantic units) |
-| `openapi_spec` | URLs | Parses OpenAPI 3.x / Swagger 2.0 into endpoint-level chunks |
+| `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
 | `web_page` | URLs | Crawl4AI-based web crawling, HTML→Markdown conversion, heading-aware chunking |
 | `pdf_document` | URLs | PyMuPDF text extraction plus structured table markdown, section-based splitting |
-| `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
-| `seed_corpus` | JSON files | Batch import from JSON URL lists (legacy format) |
-| `arxiv_paper` | arXiv IDs | Fetches PDFs from arXiv, extracts and chunks |
 | `markdown_file` | Local paths | Reads local .md files, heading-aware chunking |
-| `license_spdx` | SPDX/Fedora/choosealicense | License data from three authoritative sources plus compatibility rules |
+| `arxiv_paper` | arXiv IDs | Fetches PDFs from arXiv, extracts and chunks |
+
+### Specialized
+
+| Handler | Source Type | What It Does |
+|---------|-----------|--------------|
+| `openapi_spec` | URLs | Parses OpenAPI 3.x / Swagger 2.0 into endpoint-level chunks |
+| `license_spdx` | SPDX sources | License data from three authoritative sources plus compatibility rules |
+| `seed_corpus` | JSON files | Batch import from JSON URL lists (legacy format) |
+| `generic_text` | URLs | Catch-all for unrecognized formats — paragraph-boundary chunking with overlap |
 
 ## Adding Content
 
@@ -195,8 +225,11 @@ Single Milvus collection with `authority` as partition key and HNSW index on emb
 | `origin_type` | VARCHAR(32) | Provenance: internal, external, curated |
 | `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external (partition key) |
 | `source_url` | VARCHAR(512) | Citation URL |
+| `scan_status` | VARCHAR(16) | Injection scan result: clean, flagged, vetted, rejected |
+| `content_format` | VARCHAR(32) | Source format: python, yaml, json, hcl, xml, markdown, etc. |
+| `symbol_type` | VARCHAR(64) | Semantic unit type: function, class, k8s_deployment, hcl_resource, etc. |
+| `approval_status` | VARCHAR(16) | HITL status: auto_approved, pending, approved, rejected |
 | `embedding` | FLOAT_VECTOR(384) | all-MiniLM-L6-v2 embedding |
-| `scan_status` | VARCHAR(16) | Injection scan result: clean, flagged, review |
 
 ## Enrichment Pipeline
 

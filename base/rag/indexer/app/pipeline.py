@@ -224,6 +224,7 @@ def index_source(
         )
 
     # 6. Build catalog entities (per-chunk metadata overrides source-level defaults)
+    # approval_status: vetted/canonical sources are auto-approved; flagged chunks are pending
     entities = []
     for (doc, chunk, cid), enrichment, emb, chunk_scan in zip(new_chunks, enrichments, embeddings, scan_statuses):
         chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
@@ -231,6 +232,15 @@ def index_source(
         chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain
         chunk_authority = chunk.metadata.get("authority") or doc.metadata.get("authority") or authority
         chunk_keywords = enrichment.keywords
+        content_format = chunk.metadata.get("content_format", "")
+        symbol_type = chunk.metadata.get("symbol_type", "")
+
+        if chunk_scan == "flagged":
+            approval = "pending"
+        elif chunk_authority in ("canonical", "vetted"):
+            approval = "auto_approved"
+        else:
+            approval = "auto_approved"
 
         entities.append(
             catalog_entity(
@@ -253,6 +263,9 @@ def index_source(
                 authority=chunk_authority,
                 source_url=chunk_source_url,
                 scan_status=chunk_scan,
+                content_format=content_format,
+                symbol_type=symbol_type,
+                approval_status=approval,
             )
         )
 

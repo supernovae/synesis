@@ -13,11 +13,6 @@ beautifulsoup4>=4.12.0
 trafilatura>=2.0.0
 # Web crawling
 crawl4ai>=0.4.0
-# Code parsing (tree-sitter)
+# Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.23.0
-tree-sitter-python>=0.23.0
-tree-sitter-go>=0.23.0
-tree-sitter-rust>=0.23.0
-tree-sitter-javascript>=0.23.0
-tree-sitter-typescript>=0.23.0
-tree-sitter-java>=0.23.0
+tree-sitter-language-pack>=0.13.0

@@ -16,6 +16,11 @@ Version history:
   v5 → v6: Added scan_status for index-time injection scanning
             (clean/flagged/unscanned). Admin review queue uses this to
             surface suspicious documents for human vetting.
+  v6 → v7: Added content_format (python/yaml/hcl/xml/...) for format-aware
+            retrieval filtering; symbol_type (function/class/resource/module)
+            for code/structured data semantic context; approval_status
+            (auto_approved/pending/approved/rejected) for HITL review
+            workflow — rejected chunks excluded from RAG retrieval.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -44,7 +49,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -67,6 +72,9 @@ EXPECTED_FIELDS = frozenset(
         "authority",
         "source_url",
         "scan_status",
+        "content_format",
+        "symbol_type",
+        "approval_status",
         "embedding",
         "sparse_text",
     }
@@ -99,6 +107,11 @@ CATALOG_FIELDS = [
     FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
     # Injection scan status (index-time scanning; admin review queue)
     FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
+    # Format and structure (v7)
+    FieldSchema(name="content_format", dtype=DataType.VARCHAR, max_length=32),
+    FieldSchema(name="symbol_type", dtype=DataType.VARCHAR, max_length=64),
+    # HITL approval status (v7): auto_approved, pending, approved, rejected
+    FieldSchema(name="approval_status", dtype=DataType.VARCHAR, max_length=16),
     # Vector
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     # Sparse BM25 vector (auto-populated by BM25 Function from text field)
@@ -248,6 +261,9 @@ def catalog_entity(
     authority: str = "community",
     source_url: str = "",
     scan_status: str = "unscanned",
+    content_format: str = "",
+    symbol_type: str = "",
+    approval_status: str = "auto_approved",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. Truncates fields to schema byte limits."""
     return {
@@ -269,5 +285,8 @@ def catalog_entity(
         "authority": (authority or "community")[:32],
         "source_url": _trunc_bytes(source_url or "", 512),
         "scan_status": (scan_status or "unscanned")[:16],
+        "content_format": (content_format or "")[:32],
+        "symbol_type": (symbol_type or "")[:64],
+        "approval_status": (approval_status or "auto_approved")[:16],
         "embedding": embedding,
     }

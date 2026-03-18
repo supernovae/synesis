@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { ShieldAlert, ShieldCheck, Trash2, Loader2, Info } from "lucide-react";
+import {
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  Loader2,
+  Info,
+  CheckSquare,
+  Square,
+  MinusSquare,
+} from "lucide-react";
 import client from "../../api/client";
 
 interface FlagReason {
@@ -19,11 +28,15 @@ interface ReviewChunk {
   heading_path: string;
   text_preview: string;
   flag_reasons: FlagReason[];
+  content_format?: string;
+  symbol_type?: string;
+  approval_status?: string;
 }
 
 interface ReviewStats {
   flagged: number;
   unscanned: number;
+  pending_approval: number;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -35,13 +48,19 @@ const STATUS_BADGE: Record<string, string> = {
     "bg-green-100 text-green-700 border border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/30",
   clean:
     "bg-green-100 text-green-700 border border-green-200 dark:bg-green-500/20 dark:text-green-400 dark:border-green-500/30",
+  pending:
+    "bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-500/20 dark:text-orange-400 dark:border-orange-500/30",
 };
 
 const AUTHORITY_BADGE: Record<string, string> = {
-  vetted: "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300",
-  canonical: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  community: "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300",
-  external: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  vetted:
+    "bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  canonical:
+    "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  community:
+    "bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-slate-300",
+  external:
+    "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
 };
 
 export default function ReviewQueue() {
@@ -53,6 +72,9 @@ export default function ReviewQueue() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkActing, setBulkActing] = useState(false);
+  const [confirmBulkReject, setConfirmBulkReject] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -65,6 +87,7 @@ export default function ReviewQueue() {
       ]);
       setStats(statsRes);
       setChunks(chunkRes.chunks || []);
+      setSelected(new Set());
     } catch {
       setChunks([]);
     } finally {
@@ -76,22 +99,75 @@ export default function ReviewQueue() {
     fetchData();
   }, [fetchData]);
 
+  function toggleSelect(chunkId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(chunkId)) next.delete(chunkId);
+      else next.add(chunkId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === chunks.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(chunks.map((c) => c.chunk_id)));
+    }
+  }
+
   async function handleAction(chunkId: string, action: "vet" | "reject") {
     setActing(chunkId);
     setConfirmReject(null);
     try {
       await client.post(`/rag/review/${chunkId}/${action}`);
       setChunks((prev) => prev.filter((c) => c.chunk_id !== chunkId));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(chunkId);
+        return next;
+      });
       if (stats) {
         const key = chunks.find((c) => c.chunk_id === chunkId)
           ?.scan_status as keyof ReviewStats;
-        if (key && stats[key] > 0)
+        if (key && typeof stats[key] === "number" && stats[key] > 0)
           setStats({ ...stats, [key]: stats[key] - 1 });
       }
     } finally {
       setActing(null);
     }
   }
+
+  async function handleBulkAction(action: "vet" | "reject") {
+    if (selected.size === 0) return;
+    setBulkActing(true);
+    setConfirmBulkReject(false);
+    try {
+      await client.post(`/rag/review/bulk/${action}`, {
+        chunk_ids: Array.from(selected),
+      });
+      setChunks((prev) =>
+        prev.filter((c) => !selected.has(c.chunk_id)),
+      );
+      setSelected(new Set());
+      if (stats) {
+        const updated = { ...stats };
+        for (const c of chunks) {
+          if (selected.has(c.chunk_id)) {
+            const key = c.scan_status as keyof ReviewStats;
+            if (key && typeof updated[key] === "number" && updated[key] > 0)
+              updated[key] = updated[key] - 1;
+          }
+        }
+        setStats(updated);
+      }
+    } finally {
+      setBulkActing(false);
+    }
+  }
+
+  const allSelected = chunks.length > 0 && selected.size === chunks.length;
+  const someSelected = selected.size > 0 && !allSelected;
 
   return (
     <div className="space-y-6">
@@ -100,15 +176,13 @@ export default function ReviewQueue() {
           Review Queue
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Chunks flagged by index-time injection scanning or awaiting initial
-          review. Each flag shows which pattern matched so you can quickly
-          distinguish real threats from false positives (e.g. code discussing
-          LLM prompts).
+          Chunks flagged by index-time injection scanning or awaiting
+          approval. Select multiple chunks for bulk actions.
         </p>
       </div>
 
       {stats && (
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
           <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-slate-800">
             <ShieldAlert className="h-4 w-4 text-red-500 dark:text-red-400" />
             <span className="text-sm text-gray-700 dark:text-slate-300">
@@ -121,23 +195,78 @@ export default function ReviewQueue() {
               {stats.unscanned} unscanned
             </span>
           </div>
+          {stats.pending_approval > 0 && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-slate-800">
+              <Info className="h-4 w-4 text-orange-500 dark:text-orange-400" />
+              <span className="text-sm text-gray-700 dark:text-slate-300">
+                {stats.pending_approval} pending approval
+              </span>
+            </div>
+          )}
         </div>
       )}
 
-      <div className="flex gap-2">
-        {(["flagged", "unscanned", "all"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              filter === f
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-600 hover:text-gray-900 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white"
-            }`}
-          >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
-          </button>
-        ))}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2">
+          {(["flagged", "unscanned", "all"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                filter === f
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:text-gray-900 dark:bg-slate-800 dark:text-slate-400 dark:hover:text-white"
+              }`}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 dark:text-slate-400">
+              {selected.size} selected
+            </span>
+            <button
+              disabled={bulkActing}
+              onClick={() => handleBulkAction("vet")}
+              className="flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {bulkActing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5" />
+              )}
+              Approve All
+            </button>
+            {confirmBulkReject ? (
+              <div className="flex items-center gap-1">
+                <button
+                  disabled={bulkActing}
+                  onClick={() => handleBulkAction("reject")}
+                  className="flex items-center gap-1 rounded-md bg-red-600 px-2 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  Confirm Reject
+                </button>
+                <button
+                  onClick={() => setConfirmBulkReject(false)}
+                  className="rounded-md px-2 py-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                disabled={bulkActing}
+                onClick={() => setConfirmBulkReject(true)}
+                className="flex items-center gap-1 rounded-md bg-red-100 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-200 disabled:opacity-50 dark:bg-red-600/20 dark:text-red-400 dark:hover:bg-red-600/30"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Reject All
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -153,12 +282,48 @@ export default function ReviewQueue() {
         </div>
       ) : (
         <div className="space-y-3">
+          {/* Select all header */}
+          <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 dark:border-gray-700 dark:bg-slate-800/30">
+            <button onClick={toggleSelectAll} className="text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white">
+              {allSelected ? (
+                <CheckSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              ) : someSelected ? (
+                <MinusSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Square className="h-5 w-5" />
+              )}
+            </button>
+            <span className="text-sm text-gray-500 dark:text-slate-400">
+              {allSelected
+                ? "All selected"
+                : someSelected
+                  ? `${selected.size} of ${chunks.length} selected`
+                  : "Select all"}
+            </span>
+          </div>
+
           {chunks.map((chunk) => (
             <div
               key={chunk.chunk_id}
-              className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-slate-800/50"
+              className={`rounded-lg border bg-white p-4 transition-colors dark:bg-slate-800/50 ${
+                selected.has(chunk.chunk_id)
+                  ? "border-blue-300 bg-blue-50/30 dark:border-blue-600/50 dark:bg-blue-900/10"
+                  : "border-gray-200 dark:border-gray-700"
+              }`}
             >
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                {/* Checkbox */}
+                <button
+                  onClick={() => toggleSelect(chunk.chunk_id)}
+                  className="mt-0.5 flex-shrink-0 text-gray-400 hover:text-gray-900 dark:text-slate-500 dark:hover:text-white"
+                >
+                  {selected.has(chunk.chunk_id) ? (
+                    <CheckSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  ) : (
+                    <Square className="h-5 w-5" />
+                  )}
+                </button>
+
                 <div className="min-w-0 flex-1">
                   {/* Status badges */}
                   <div className="flex flex-wrap items-center gap-2">
@@ -177,9 +342,21 @@ export default function ReviewQueue() {
                         {chunk.domain}
                       </span>
                     )}
-                    {chunk.origin_type && (
-                      <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-slate-700/50 dark:text-slate-400">
-                        {chunk.origin_type}
+                    {chunk.content_format && (
+                      <span className="rounded bg-purple-50 px-2 py-0.5 text-xs text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                        {chunk.content_format}
+                      </span>
+                    )}
+                    {chunk.symbol_type && (
+                      <span className="rounded bg-cyan-50 px-2 py-0.5 text-xs text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                        {chunk.symbol_type}
+                      </span>
+                    )}
+                    {chunk.approval_status && chunk.approval_status !== "auto_approved" && (
+                      <span
+                        className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[chunk.approval_status] || STATUS_BADGE.pending}`}
+                      >
+                        {chunk.approval_status}
                       </span>
                     )}
                   </div>
@@ -236,7 +413,7 @@ export default function ReviewQueue() {
                     onClick={() => handleAction(chunk.chunk_id, "vet")}
                     className="flex items-center gap-1 rounded-md bg-green-100 px-3 py-1.5 text-sm font-medium text-green-700 hover:bg-green-200 disabled:opacity-50 dark:bg-green-600/20 dark:text-green-400 dark:hover:bg-green-600/30"
                   >
-                    <ShieldCheck className="h-3.5 w-3.5" /> Vet
+                    <ShieldCheck className="h-3.5 w-3.5" /> Approve
                   </button>
                   {confirmReject === chunk.chunk_id ? (
                     <div className="flex items-center gap-1">

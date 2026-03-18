@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..db.models import IngestionItem, IngestionRun, IngestionSource
+from ..db.models import IngestionItem, IngestionRun, IngestionSource, MilvusSchemaSync
 
 logger = logging.getLogger("synesis.admin.ingestion")
 
@@ -512,6 +512,130 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
         "failed": failed,
         "total_chunks": total_chunks,
     }
+
+
+# ---------------------------------------------------------------------------
+# Schema sync — detect Milvus schema drift and reset stale items
+# ---------------------------------------------------------------------------
+
+class SchemaReport(BaseModel):
+    collection: str = "synesis_catalog"
+    schema_version: int
+    reporter: str = "indexer"
+
+
+@router.post("/schema-sync")
+async def report_schema_version(body: SchemaReport):
+    """Called by the indexer after ensuring/recreating the Milvus collection.
+
+    If the reported version differs from what's stored, all 'indexed' and
+    'running' ingestion items are reset to 'pending' (since the old Milvus
+    data is gone after a schema bump). This makes re-import automatic.
+
+    No auth required — called by indexer pods within the cluster.
+    """
+    now = datetime.now(timezone.utc)
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(MilvusSchemaSync).where(
+                    MilvusSchemaSync.collection == body.collection
+                )
+            )
+        ).scalar_one_or_none()
+
+        if row is None:
+            row = MilvusSchemaSync(
+                collection=body.collection,
+                schema_version=body.schema_version,
+                last_reported_by=body.reporter,
+                updated_at=now,
+            )
+            session.add(row)
+            await session.commit()
+            logger.info(
+                "schema_sync_initialized",
+                extra={"collection": body.collection, "version": body.schema_version},
+            )
+            return {
+                "ok": True,
+                "action": "initialized",
+                "schema_version": body.schema_version,
+                "items_reset": 0,
+            }
+
+        if row.schema_version == body.schema_version:
+            row.last_reported_by = body.reporter
+            row.updated_at = now
+            await session.commit()
+            return {
+                "ok": True,
+                "action": "no_change",
+                "schema_version": body.schema_version,
+                "items_reset": 0,
+            }
+
+        old_version = row.schema_version
+        row.schema_version = body.schema_version
+        row.last_reported_by = body.reporter
+        row.last_reset_at = now
+        row.updated_at = now
+
+        from sqlalchemy import update
+
+        result = await session.execute(
+            update(IngestionItem)
+            .where(IngestionItem.status.in_(["indexed", "running"]))
+            .values(
+                status="pending",
+                chunk_count=0,
+                error_message="",
+                milvus_doc_id="",
+                started_at=None,
+                completed_at=None,
+                queued_at=now,
+            )
+        )
+        items_reset = result.rowcount  # type: ignore[union-attr]
+        await session.commit()
+
+        logger.info(
+            "schema_sync_reset",
+            extra={
+                "collection": body.collection,
+                "old_version": old_version,
+                "new_version": body.schema_version,
+                "items_reset": items_reset,
+            },
+        )
+        return {
+            "ok": True,
+            "action": "reset",
+            "old_version": old_version,
+            "new_version": body.schema_version,
+            "items_reset": items_reset,
+        }
+
+
+@router.get("/schema-sync")
+async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
+    """Get the current Milvus schema version tracked by the admin DB."""
+    async with async_session() as session:
+        rows = (
+            await session.execute(select(MilvusSchemaSync))
+        ).scalars().all()
+        return {
+            "syncs": [
+                {
+                    "collection": r.collection,
+                    "schema_version": r.schema_version,
+                    "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
+                    "last_reported_by": r.last_reported_by,
+                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                }
+                for r in rows
+            ]
+        }
 
 
 # ---------------------------------------------------------------------------

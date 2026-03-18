@@ -21,7 +21,7 @@ from .embed_client import EmbedClient
 from .handlers import get_handler
 from .milvus_writer import MilvusWriter, ProgressTracker
 from .pipeline import index_source
-from .schema import ensure_synesis_catalog
+from .schema import SCHEMA_VERSION, ensure_synesis_catalog
 
 logger = get_logger("synesis.indexer.queue")
 
@@ -75,6 +75,18 @@ class QueueClient:
     def update_run(self, run_id: int, **kwargs: Any) -> None:
         resp = self._http.patch(f"/api/v1/ingestion/runs/{run_id}", json=kwargs)
         resp.raise_for_status()
+
+    def report_schema_version(self, version: int, collection: str = "synesis_catalog") -> dict[str, Any]:
+        """Report the current Milvus schema version to the admin service.
+
+        If the version changed, admin resets all 'indexed' items to 'pending'.
+        """
+        resp = self._http.post(
+            "/api/v1/ingestion/schema-sync",
+            json={"collection": collection, "schema_version": version, "reporter": "indexer"},
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
 def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
@@ -137,6 +149,27 @@ def run_queue(
             return
         embedder = EmbedClient(**embedder_kwargs)
         ensure_synesis_catalog(writer.client)
+
+        try:
+            sync_result = client.report_schema_version(SCHEMA_VERSION)
+            action = sync_result.get("action", "unknown")
+            if action == "reset":
+                items_reset = sync_result.get("items_reset", 0)
+                logger.info(
+                    "schema_sync_reset_items",
+                    extra={
+                        "old_version": sync_result.get("old_version"),
+                        "new_version": sync_result.get("new_version"),
+                        "items_reset": items_reset,
+                    },
+                )
+            elif action == "initialized":
+                logger.info("schema_sync_first_report", extra={"version": SCHEMA_VERSION})
+            else:
+                logger.debug("schema_sync_no_change", extra={"version": SCHEMA_VERSION})
+        except Exception as e:
+            logger.warning("schema_sync_report_failed", extra={"error": str(e)})
+
         existing_ids = writer.existing_chunk_ids() if not force else set()
     else:
         writer = None  # type: ignore[assignment]
