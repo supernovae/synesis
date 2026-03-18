@@ -387,6 +387,41 @@ _REVIEW_FIELDS = [
     "heading_path",
 ]
 
+# Lightweight copy of the indexer's named patterns for on-the-fly reason extraction.
+# Kept in sync with base/rag/indexer/app/injection_scan.py.
+import re as _re
+
+_FLAG_PATTERNS: list[tuple[str, str, _re.Pattern[str]]] = [
+    ("ignore_previous_instructions", "Ignore previous instructions", _re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", _re.IGNORECASE)),
+    ("disregard_previous", "Disregard previous context", _re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|above)", _re.IGNORECASE)),
+    ("forget_everything", "Forget everything told", _re.compile(r"forget\s+(?:everything|all)\s+(?:you\s+)?(?:were\s+)?told", _re.IGNORECASE)),
+    ("new_instructions", "New instructions block", _re.compile(r"new\s+instructions?\s*:", _re.IGNORECASE)),
+    ("override_instructions", "Override instructions/prompt", _re.compile(r"override\s+(?:your\s+)?(?:instructions?|prompt)", _re.IGNORECASE)),
+    ("role_hijack_you_are_now", "Role hijack: 'you are now'", _re.compile(r"you\s+are\s+now\s+(?:a|an)\s", _re.IGNORECASE)),
+    ("role_hijack_pretend", "Role hijack: 'pretend you are'", _re.compile(r"pretend\s+you\s+are", _re.IGNORECASE)),
+    ("role_hijack_act_as", "Role hijack: 'act as if'", _re.compile(r"act\s+as\s+if\s+you", _re.IGNORECASE)),
+    ("system_prompt_marker", "System prompt marker (system:)", _re.compile(r"system\s*:\s*", _re.IGNORECASE)),
+    ("chatml_system_tag", "ChatML system tag", _re.compile(r"<\|im_start\|>\s*system", _re.IGNORECASE)),
+    ("markdown_human_prompt", "Markdown human prompt (### human:)", _re.compile(r"###\s*human\s*:", _re.IGNORECASE)),
+    ("llama_inst_tag", "Llama [INST] tag", _re.compile(r"\[INST\]\s*", _re.IGNORECASE)),
+    ("xml_system_tag", "XML system/s tag", _re.compile(r"<\/?s(?:ystem)?>", _re.IGNORECASE)),
+    ("ignore_the_above", "Ignore the above", _re.compile(r"ignore\s+the\s+above", _re.IGNORECASE)),
+    ("ignore_above", "Ignore above", _re.compile(r"ignore\s+above\b", _re.IGNORECASE)),
+    ("follow_instead", "Follow these instructions instead", _re.compile(r"follow\s+these\s+instructions?\s+instead", _re.IGNORECASE)),
+    ("output_only_following", "Output only the following", _re.compile(r"output\s+(?:only|just)\s+the\s+following", _re.IGNORECASE)),
+    ("print_exactly_this", "Print exactly this", _re.compile(r"print\s+(?:exactly|only)\s+this\s*:", _re.IGNORECASE)),
+]
+
+
+def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
+    """Return list of {id, label} for each injection pattern matched in text."""
+    sample = text[:32_000].lower()
+    reasons = []
+    for pid, label, pat in _FLAG_PATTERNS:
+        if pat.search(sample):
+            reasons.append({"id": pid, "label": label})
+    return reasons
+
 
 @router.get("/review/stats")
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
@@ -414,8 +449,12 @@ async def review_queue(
         expr = f'scan_status == "{status}"'
     rows = safe_query(CATALOG_COLLECTION, filter_expr=expr, output_fields=_REVIEW_FIELDS, limit=limit, offset=offset)
     for r in rows:
-        if "text" in r:
-            r["text_preview"] = r.pop("text")[:300]
+        full_text = r.pop("text", "")
+        r["text_preview"] = full_text[:500]
+        if r.get("scan_status") == "flagged" and full_text:
+            r["flag_reasons"] = _detect_flag_reasons(full_text)
+        else:
+            r["flag_reasons"] = []
     return {"chunks": rows, "offset": offset, "limit": limit}
 
 
