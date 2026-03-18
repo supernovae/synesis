@@ -622,15 +622,13 @@ DOMAIN_ALIGNER_NODE = "strategic_advisor"
 # Each node maps to a phase label.  Only phase transitions emit a new status event.
 _NODE_TO_PHASE: dict[str, str] = {
     "entry_pipeline": "Analyzing request\u2026",
-    # Legacy node names kept for backward-compat with debug chatter
     "entry_classifier": "Analyzing request\u2026",
     "strategic_advisor": "Analyzing request\u2026",
     "frame_extractor": "Analyzing request\u2026",
-    "router": "Gathering evidence\u2026",
     "planner": "Building plan\u2026",
-    "executor": "Generating code\u2026",
+    "plan_gate": "Validating plan\u2026",
+    "router": "Gathering evidence\u2026",
     "writer": "Composing response\u2026",
-    "patch_integrity_gate": "Validating code\u2026",
     "critic": "Evaluating quality\u2026",
     "final_scrubber": "Polishing\u2026",
     "respond": "Finalizing\u2026",
@@ -1082,11 +1080,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # Log task payload for debugging empty-task issues (proxy/request transformation)
     _task_preview = (last_user_content or "")[:80]
     logger.info(
-        "chat_request task_len=%d preview=%r memory_scope=%s inference_mode=%s",
+        "chat_request task_len=%d preview=%r memory_scope=%s",
         len(last_user_content or ""),
         _task_preview,
         memory_scope,
-        settings.inference_mode,
         extra={"user_id": user_id, "conversation_id": conversation_id},
     )
 
@@ -1195,12 +1192,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     if _tracer is not None:
         _tracer.start_trace(trace_id=run_id, user_id=user_id, query=(last_user_content or "")[:500])
     coding_client = _is_coding_client(http_request)
-    # Ensure task_description is never empty at graph entry (avoids robotic needs_input)
-    # Per-request inference mode override (for A/B evaluation)
-    _req_inference_mode = http_request.headers.get("x-synesis-inference-mode", "").strip().lower()
-    if _req_inference_mode in ("full", "selective"):
-        settings.inference_mode = _req_inference_mode  # type: ignore[assignment]
-
     initial_state: dict[str, Any] = {
         "messages": user_messages,
         "task_description": (last_user_content or "").strip()[:2000],

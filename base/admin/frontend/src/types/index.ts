@@ -387,7 +387,6 @@ export interface TraceRecord {
   estimated_cost_usd: number;
   difficulty: number;
   task_type: string;
-  retrieval_mode?: string;
   domain_tags: string[];
   is_code_task: boolean;
   has_error: boolean;

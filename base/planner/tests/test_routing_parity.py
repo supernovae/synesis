@@ -13,14 +13,12 @@ import pytest
 pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
 
 NEXT_NODE_PRODUCERS_AND_ROUTERS = [
-    ("planner_node", "planner_node", "route_after_planner"),
-    ("patch_integrity_gate", "patch_integrity_gate_node", "route_after_patch_integrity_gate"),
+    ("planner_node", "planner_node", "route_after_plan_gate"),
     ("critic", "critic_node", "route_after_critic"),
 ]
 
 ROUTER_MUST_READ = {
-    "route_after_planner": "plan_pending_approval",
-    "route_after_patch_integrity_gate": "integrity_passed",
+    "route_after_plan_gate": "plan_gate_passed",
     "route_after_critic": "critic_approved",
 }
 
@@ -28,13 +26,11 @@ ROUTER_MUST_READ = {
 def _get_router_source(router_name: str) -> str:
     from app.graph import (
         route_after_critic,
-        route_after_patch_integrity_gate,
-        route_after_planner,
+        route_after_plan_gate,
     )
 
     routers = {
-        "route_after_planner": route_after_planner,
-        "route_after_patch_integrity_gate": route_after_patch_integrity_gate,
+        "route_after_plan_gate": route_after_plan_gate,
         "route_after_critic": route_after_critic,
     }
     func = routers.get(router_name)
@@ -47,7 +43,6 @@ def _node_sets_next_node(module_name: str, func_name: str) -> bool:
     """Check if the node function returns dict with 'next_node' key."""
     mod_map = {
         "planner_node": ("app.nodes.planner_node", "planner_node"),
-        "patch_integrity_gate": ("app.nodes.patch_integrity_gate", "patch_integrity_gate_node"),
         "critic": ("app.nodes.critic", "critic_node"),
     }
     try:

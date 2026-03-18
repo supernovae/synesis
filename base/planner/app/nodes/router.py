@@ -376,7 +376,7 @@ class RouterNode:
 
         difficulty = evidence_request.get("_difficulty", 0.5)
 
-        if not settings.router_multi_query_enabled or difficulty < settings.effective_multi_query_above:
+        if not settings.router_multi_query_enabled or difficulty < settings.multi_query_above:
             variants = [direct_query]
             original_q = evidence_request.get("original_query")
             if original_q and original_q != direct_query:
@@ -393,7 +393,7 @@ class RouterNode:
             expansion_hints = get_query_expansion_hints(taxonomy_metadata)
 
         tasks: list[asyncio.Task[str]] = []
-        if settings.router_hyde_enabled and difficulty >= settings.effective_hyde_above:
+        if settings.router_hyde_enabled and difficulty >= settings.hyde_above:
             tasks.append(asyncio.create_task(self.generate_hyde_variant(direct_query)))
         if settings.taxonomy_query_expansion_enabled:
             tasks.append(
@@ -1157,38 +1157,14 @@ class RouterNode:
     def _decide_next_node(self, state: dict[str, Any]) -> str:
         """Determine where to route after evidence gathering.
 
-        Skips the planner for easy/medium tasks (rag_mode != normal) since
-        the planner adds latency but little value when retrieval is light
-        or disabled. Hard tasks (rag_mode=normal) always go through planner.
-
-        In planner-driven retrieval mode, the execution_plan is always set
-        (planner ran first), so this routes to writer/executor as expected.
-
-        In text_only front door mode, executor is never a valid target;
-        all paths route through writer instead.
+        Unified pipeline: planner always runs before router, so
+        execution_plan should be set. Route to writer unconditionally.
+        If plan is missing (shouldn't happen), route back to planner.
         """
-        from ..config import settings
-
-        text_only = settings.frontdoor_mode == "text_only"
         execution_plan = state.get("execution_plan") or {}
-        is_code_task = state.get("is_code_task", False) and not text_only
-        task_is_trivial = state.get("task_is_trivial", False)
-        rag_mode = state.get("rag_mode", "normal")
-        retrieval_mode = state.get("retrieval_mode", "router")
-
-        if task_is_trivial:
-            return "executor" if is_code_task else "writer"
-        if rag_mode != "normal" and not execution_plan:
-            return "executor" if is_code_task else "writer"
         if not execution_plan:
             return "planner"
-        target = "executor" if is_code_task else "writer"
-        if retrieval_mode == "planner":
-            logger.info(
-                "router_planner_mode_post_evidence",
-                extra={"next_node": target, "retrieval_mode": retrieval_mode},
-            )
-        return target
+        return "writer"
 
     async def run(self, state: dict[str, Any]) -> dict[str, Any]:
         """LangGraph entry point."""

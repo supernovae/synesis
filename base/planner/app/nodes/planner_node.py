@@ -77,23 +77,6 @@ Authority tiers: [R:canonical] > [R:vetted] > [R:community] > [R:external].
 When sources conflict, prefer higher-authority sources.
 """
 
-PLANNER_SYSTEM_PROMPT = (
-    """\
-You are the Planner. Break the task into atomic, verifiable steps. You do NOT write code.
-
-Rules:
-- One step = max 3 files. Every step MUST have a verification_command.
-- Build incrementally: step N verifies before step N+1 starts.
-
-Reply with JSON:
-{"plan":{"steps":[{"id":1,"action":"...","dependencies":[],"files":["file.py"],"verification_command":"python file.py"}],"open_questions":[],"assumptions":[]},"touched_files":["file.py"],"reasoning":"Brief","confidence":0.0-1.0}
-
-Keep plans concise. 1-3 steps for simple tasks; more for complex.
-"""
-    + _PLANNER_TRUST_POLICY
-)
-
-
 def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
     """Build the knowledge planner prompt, scaling depth language with difficulty."""
     if difficulty >= 0.6:
@@ -340,8 +323,6 @@ def _should_activate_depth_mode(state: dict[str, Any], steps: list) -> bool:
     """
     if settings.depth_mode == "disabled":
         return False
-    if state.get("is_code_task", False):
-        return False
     return len(steps) >= 2
 
 
@@ -349,13 +330,13 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     start = time.monotonic()
     node_name = "planner"
 
-    # Short-circuit: is_code_task=False (explanation-only) WITHOUT plan_required (taxonomy didn't request structured bullets)
-    if not state.get("is_code_task", False) and not state.get("plan_required"):
+    # Lightweight path: when taxonomy didn't require a structured plan, produce a
+    # minimal 1-step plan so the pipeline still runs uniformly.
+    if not state.get("plan_required"):
         latency = (time.monotonic() - start) * 1000
-        is_code_task = state.get("is_code_task", False)
         logger.info(
-            "planner_skipped_text_mode",
-            extra={"label": "code" if is_code_task else "text", "latency_ms": latency},
+            "planner_lightweight_plan",
+            extra={"latency_ms": latency},
         )
         return {
             "execution_plan": {
@@ -384,8 +365,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         task_desc = state.get("task_description", "")
-        is_code_task = state.get("is_code_task", False)
-        target_lang = state.get("target_language") or ("python" if is_code_task else "markdown")
+        target_lang = state.get("target_language") or "markdown"
 
         assumptions = state.get("assumptions", [])
         if isinstance(assumptions, list):
@@ -395,19 +375,14 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         difficulty = state.get("difficulty", 0.5)
         context_block = _build_evidence_context(state)
-        retrieval_mode = state.get("retrieval_mode", "router")
 
-        # Planner-driven retrieval: when running without initial evidence,
-        # instruct the planner to produce precise evidence requests per step.
-        if retrieval_mode == "planner" and not context_block:
+        if not context_block:
             context_block = (
-                "\n<retrieval_mode>planner-driven</retrieval_mode>\n"
-                "No evidence has been gathered yet. You are responsible for specifying "
+                "\nNo evidence has been gathered yet. You are responsible for specifying "
                 "exactly what evidence each plan step needs. For every step, include a "
                 "clear 'action' describing the evidence query so the retrieval system "
                 "can fetch targeted documents. Be specific about domain, technology, "
-                "and scope. The more precise your evidence requests, the better the "
-                "retrieved context will be.\n"
+                "and scope.\n"
             )
 
         # Domain-specific decomposition rules (Sovereign alignment)
@@ -431,13 +406,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         from ..taxonomy_prompt_factory import get_planner_system_prompt_append
 
         taxonomy_append = get_planner_system_prompt_append(state.get("taxonomy_metadata") or {})
-        is_code_task = state.get("is_code_task", False)
         difficulty = state.get("difficulty", 0.5)
         explicit_deliverables = state.get("explicit_deliverables", 0)
         user_task = state.get("user_task") or {}
-        # DEPRECATION(is_code_task): In text_only mode is_code_task is always False.
-        # Remove the PLANNER_SYSTEM_PROMPT branch when legacy_hybrid is retired.
-        base_prompt = _build_knowledge_planner_prompt(difficulty) if not is_code_task else PLANNER_SYSTEM_PROMPT
+        base_prompt = _build_knowledge_planner_prompt(difficulty)
         system_prompt = base_prompt + taxonomy_append
 
         # UserTask: inject structured deliverables, constraints, and context
@@ -524,21 +496,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         elif _req_format != "prose":
             system_prompt += f"\n\nExpected output format: {_req_format}."
 
-        # DEPRECATION(is_code_task): code-task prompt branch is dead in text_only mode.
-        # Remove when legacy_hybrid is retired.
-        if is_code_task:
-            prompt = (
-                f"## Task\nLanguage: {target_lang}\n{task_desc}\n"
-                f"## Supervisor assumptions\n{assumptions_str}"
-                f"{context_block}{domain_rules_block}\n\n"
-                f"Produce a structured execution plan for the Executor to follow."
-            )
-        else:
-            prompt = (
-                f"## Task\n{task_desc}\n"
-                f"{context_block}{domain_rules_block}\n\n"
-                f"Produce a structured outline of sections for the response."
-            )
+        prompt = (
+            f"## Task\n{task_desc}\n"
+            f"{context_block}{domain_rules_block}\n\n"
+            f"Produce a structured outline of sections for the response."
+        )
 
         # Plan gate feedback: on retry, inject specific repair instructions from
         # the fast plan gate so the LLM knows exactly what to fix.
@@ -662,13 +624,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             plan_required and settings.require_plan_approval and len(steps) > 0
         )
 
-        # Text mode: skip approval unless explicit plan_session
-        if needs_approval and not state.get("is_code_task", False) and not plan_session:
+        if needs_approval and not plan_session:
             needs_approval = False
-            logger.info(
-                "planner_skip_approval_text_mode",
-                extra={"label": "code" if state.get("is_code_task", False) else "text"},
-            )
+            logger.info("planner_skip_approval_text_mode")
 
         next_node = "respond" if needs_approval else "worker"
 
@@ -817,7 +775,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             out["clarification_question"] = clarify_question
             out["clarification_options"] = clarify_options
             out["next_node"] = "respond"
-        if not needs_approval and not state.get("is_code_task", False):
+        if not needs_approval:
             out["is_code_task"] = False
             out["allowed_tools"] = ["none"]
             out["target_language"] = "markdown"

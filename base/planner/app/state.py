@@ -118,11 +118,8 @@ class GraphState(TypedDict, total=False):
     query_normalization: dict[str, Any]
 
     # --- Classification / routing ---
-    # DEPRECATION(is_code_task): Always False in text_only front door mode.
-    # Kept for legacy_hybrid rollback and analytics. Remove when legacy_hybrid retired.
-    is_code_task: bool
+    is_code_task: bool  # always False in unified pipeline; kept for analytics
     rag_mode: str  # "normal" | "light" | "disabled" — set by entry_classifier
-    retrieval_mode: str  # "router" | "hybrid" | "planner" — effective mode (resolved from auto)
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
@@ -265,7 +262,6 @@ class GraphState(TypedDict, total=False):
     # --- Always-plan routing ---
     plan_required: bool
     task_is_trivial: bool
-    inference_mode: str  # "full" | "selective" — logged for A/B comparison
 
     # --- Routing overrides ---
     task_size_override: str

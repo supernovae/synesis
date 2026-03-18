@@ -1,11 +1,12 @@
 """Synesis LangGraph -- the core orchestration loop.
 
-All paths:
-  [User] -> EntryPipeline (Classifier + Advisor || FrameExtractor) -> Router
-  -> Planner -> PlanGate -> Router -> Executor/Writer -> FinalScrubber -> Respond
+Canonical pipeline (single path for all requests):
 
-PlanGate runs deterministic validation on the plan before evidence retrieval.
-On failure it routes back to Planner with specific repair feedback.
+  EntryPipeline -> Planner -> PlanGate -> Router -> Writer -> Critic -> Scrubber -> Respond
+
+The Planner scales plan depth by difficulty (1-8 steps). PlanGate runs
+deterministic validation before evidence retrieval; on failure it routes
+back to Planner with repair feedback.
 
 The Router is the single retrieval orchestrator. No other node touches
 retrieval backends (rag_client, web_search, unified_retrieval).
@@ -28,19 +29,13 @@ from langgraph.graph import END, StateGraph
 from .config import settings
 from .failure_store import record_error
 from .contract_validator import (
-    validate_citation_preservation,
     validate_critique_resolutions,
-    validate_decision_drift,
-    validate_required_sections,
-    validate_style_compliance,
     validated_node,
 )
 from .nodes import (
     critic_node,
     entry_pipeline_node,
-    executor_node,
     final_scrubber_node,
-    patch_integrity_gate_node,
     planner_node,
     router_node,
     writer_node,
@@ -152,27 +147,12 @@ def with_timeout(timeout_seconds: float):
 # ---------------------------------------------------------------------------
 
 
-def _is_text_only() -> bool:
-    return settings.frontdoor_mode == "text_only"
-
-
 def route_after_entry_pipeline(state: dict[str, Any]) -> str:
-    """After entry pipeline -> router OR planner OR directly to writer.
+    """Unified pipeline: every request goes to planner.
 
-    Trivial tasks (difficulty < 0.15) skip the router and planner entirely,
-    going straight to the writer to answer from parametric knowledge.
-
-    Easy tasks where the classifier set rag_mode=disabled (difficulty < 0.3,
-    no plan required) also skip the router — there's nothing to retrieve, so
-    the router adds only latency and memory overhead.
-
-    When retrieval_mode="planner", the initial router pass is skipped so the
-    planner runs first without evidence and explicitly requests what it needs.
-    The router runs *after* the planner (via plan_gate → route_after_plan_gate → router)
-    to fulfill those evidence requests.
-
-    In text_only front door mode, code tasks are never routed to executor;
-    they use the writer path (which can emit fenced code blocks).
+    Two special cases:
+    - pending_question_continue: resumes prior conversation via router
+    - ui_helper: internal helper messages, respond immediately
     """
     if state.get("pending_question_continue"):
         return "router"
@@ -180,125 +160,32 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
     if state.get("message_origin") == "ui_helper":
         return "respond"
 
-    text_only = _is_text_only()
-    retrieval_mode = state.get("retrieval_mode", "router")
-
-    if state.get("task_is_trivial"):
-        is_code = state.get("is_code_task", False)
-        target = "executor" if (is_code and not text_only) else "writer"
-        logger.info(
-            "entry_pipeline_trivial_fast_path",
-            extra={
-                "target": target,
-                "difficulty": state.get("difficulty", 0),
-                "retrieval_mode": retrieval_mode,
-                "frontdoor_mode": settings.frontdoor_mode,
-            },
-        )
-        return target
-
-    # Easy tasks with no retrieval needed go straight to writer.
-    rag_mode = state.get("rag_mode", "normal")
-    if rag_mode == "disabled" and not state.get("plan_required"):
-        target = "writer"
-        if not text_only and state.get("is_code_task", False):
-            target = "executor"
-        logger.info(
-            "entry_pipeline_easy_no_retrieval",
-            extra={
-                "target": target,
-                "difficulty": state.get("difficulty", 0),
-                "rag_mode": rag_mode,
-                "retrieval_mode": retrieval_mode,
-                "intent_class": state.get("intent_class", ""),
-                "frontdoor_mode": settings.frontdoor_mode,
-            },
-        )
-        return target
-
-    # Planner-driven retrieval: skip initial router, let planner request evidence.
-    if retrieval_mode == "planner":
-        logger.info(
-            "entry_pipeline_planner_mode_skip_router",
-            extra={
-                "difficulty": state.get("difficulty", 0),
-                "retrieval_mode": retrieval_mode,
-            },
-        )
-        return "planner"
-
-    return "router"
+    logger.info(
+        "entry_pipeline_to_planner",
+        extra={
+            "difficulty": state.get("difficulty", 0),
+            "rag_mode": state.get("rag_mode", "normal"),
+        },
+    )
+    return "planner"
 
 
 def route_after_router(state: dict[str, Any]) -> str:
-    """Router sets next_node based on mode detection.
-
-    In text_only mode, executor is never a valid target; redirect to writer.
-    """
+    """Router sets next_node; unified pipeline always goes to planner or writer."""
     if state.get("error"):
         return "respond"
     next_node = state.get("next_node", "planner")
-    if _is_text_only() and next_node == "executor":
-        next_node = "writer"
-    if next_node in ("planner", "executor", "writer", "respond"):
+    if next_node in ("planner", "writer", "respond"):
         return next_node
     return "planner"
 
 
-def _evidence_sufficient(state: dict[str, Any]) -> bool:
-    """Check whether existing evidence_packets are sufficient to skip section_evidence.
-
-    Sufficient when packet count is high enough relative to plan steps and
-    mean confidence exceeds the configured threshold.
-    """
-    if not settings.skip_section_evidence_when_sufficient:
-        return False
-
-    packets = state.get("evidence_packets") or []
-    if not packets:
-        return False
-
-    steps = (state.get("execution_plan") or {}).get("steps") or []
-    num_steps = max(1, len(steps))
-    min_packets = int(num_steps * settings.evidence_sufficiency_min_packets_ratio)
-
-    if len(packets) < min_packets:
-        return False
-
-    confidences = [p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0) for p in packets]
-    mean_conf = sum(confidences) / max(1, len(confidences))
-    sufficient = mean_conf >= settings.evidence_sufficiency_confidence_min
-
-    logger.info(
-        "evidence_sufficiency_check",
-        extra={
-            "packets": len(packets),
-            "num_steps": num_steps,
-            "min_packets": min_packets,
-            "mean_confidence": round(mean_conf, 3),
-            "threshold": settings.evidence_sufficiency_confidence_min,
-            "sufficient": sufficient,
-        },
-    )
-    return sufficient
-
-
-def _next_after_planner(state: dict[str, Any]) -> str:
-    """Determine the right target node when planner routes forward (not to router)."""
-    text_only = settings.frontdoor_mode == "text_only"
-    is_code_task = state.get("is_code_task", False) and not text_only
-    return "executor" if is_code_task else "writer"
-
-
 def route_after_plan_gate(state: dict[str, Any]) -> str:
-    """After plan_gate: retry planner on failure, or continue to evidence/writing.
+    """After plan_gate: retry planner on failure, or continue to router.
 
-    Combines the fast plan gate result with the original planner routing logic.
-    When the gate fails and retries remain, routes back to planner with feedback.
-    When the gate passes (or retries are exhausted), applies the standard
-    post-planner routing: clarification, approval, evidence, or proceed.
+    Unified pipeline: gate passes → always go to router for evidence.
+    Gate fails with retries → back to planner. Exhausted → fall through.
     """
-    # Gate failure with retries remaining → send back to planner
     gate_passed = state.get("plan_gate_passed", True)
     planner_errors = state.get("planner_error_count", 0)
     max_gate_retries = settings.plan_gate_max_retries
@@ -314,63 +201,21 @@ def route_after_plan_gate(state: dict[str, Any]) -> str:
         )
         return "planner"
 
-    # Standard post-planner routing (gate passed or retries exhausted)
     if state.get("clarification_question"):
         return "respond"
     if state.get("plan_pending_approval"):
         return "respond"
 
-    retrieval_mode = state.get("retrieval_mode", "router")
     has_plan = bool((state.get("execution_plan") or {}).get("steps"))
-
-    if planner_errors > max_gate_retries and has_plan:
-        logger.warning(
-            "plan_gate_exhausted_fallthrough",
-            extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
-        )
-        return _next_after_planner(state)
 
     if planner_errors > max_gate_retries and not has_plan:
         logger.error(
             "plan_gate_exhausted_no_plan",
-            extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
+            extra={"planner_errors": planner_errors},
         )
         return "respond"
-
-    if retrieval_mode == "planner":
-        logger.info(
-            "planner_mode_always_route_to_router",
-            extra={"retrieval_mode": retrieval_mode, "has_plan": has_plan},
-        )
-        return "router"
-
-    if _evidence_sufficient(state):
-        target = _next_after_planner(state)
-        logger.info(
-            "planner_skip_section_evidence",
-            extra={"target": target, "retrieval_mode": retrieval_mode},
-        )
-        return target
 
     return "router"
-
-
-def route_after_executor(state: dict[str, Any]) -> str:
-    """Route after executor (code tasks).
-
-    In text_only mode, executor should not be reached but as a safety net
-    routes straight to respond and skips patch_integrity_gate.
-    """
-    if _is_text_only():
-        return "respond"
-    if state.get("needs_input_question"):
-        return "respond"
-    stop_reason = state.get("stop_reason", "")
-    if stop_reason:
-        return "respond"
-    if not state.get("is_code_task", False):
-        return "respond"
-    return "patch_integrity_gate"
 
 
 def route_after_writer(state: dict[str, Any]) -> str:
@@ -383,15 +228,8 @@ def route_after_writer(state: dict[str, Any]) -> str:
     if settings.critic_background:
         return "final_scrubber"
     difficulty = state.get("difficulty", 0.5)
-    if difficulty < settings.effective_critic_skip_below:
+    if difficulty < settings.critic_skip_below_difficulty:
         return "final_scrubber"
-    return "critic"
-
-
-def route_after_patch_integrity_gate(state: dict[str, Any]) -> str:
-    """Gate pass -> critic; Gate fail -> router (for evidence re-retrieval)."""
-    if not state.get("integrity_passed", True):
-        return "router"
     return "critic"
 
 
@@ -736,7 +574,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             {
                 "run_id": state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
-                "source_node": "executor",
+                "source_node": "planner",
                 "question": needs_input_question,
                 "context": ctx,
                 "needs_input_question": needs_input_question,
@@ -901,7 +739,6 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     _fb_blocking = len(state.get("blocking_issues") or [])
     _fb_iterations = state.get("iteration_count", 0)
     _fb_is_code = state.get("is_code_task", False)
-    _fb_retrieval_mode = state.get("retrieval_mode", "router")
     _fb_resp_len = len(content)
     _fb_has_error = bool(error)
     logger.info(
@@ -910,7 +747,6 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "run_id": _fb_run_id,
             "difficulty": _fb_difficulty,
             "task_type": _fb_task_type,
-            "retrieval_mode": _fb_retrieval_mode,
             "domain_tags": _fb_domain_tags,
             "needs_web": user_task.get("needs_web", False),
             "evidence_packet_count": _fb_evidence_count,
@@ -928,7 +764,6 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             run_id=_fb_run_id,
             difficulty=_fb_difficulty,
             task_type=_fb_task_type,
-            retrieval_mode=_fb_retrieval_mode,
             domain_tags=_fb_domain_tags,
             evidence_packet_count=_fb_evidence_count,
             avg_evidence_confidence=_fb_avg_confidence,
@@ -949,7 +784,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         settings.critic_background
         and not state.get("critic_approved")
         and not state.get("critic_feedback")
-        and state.get("difficulty", 0.5) >= settings.effective_critic_skip_below
+        and state.get("difficulty", 0.5) >= settings.critic_skip_below_difficulty
         and has_content
     ):
         _fire_background_critic(dict(state))
@@ -1158,20 +993,7 @@ graph_builder.add_node("entry_pipeline", with_telemetry_node(with_timeout(timeou
 graph_builder.add_node("router", with_telemetry_node(with_timeout(timeout)(router_node)))
 graph_builder.add_node("planner", with_telemetry_node(with_timeout(timeout)(planner_node)))
 graph_builder.add_node("plan_gate", with_telemetry_node(with_timeout(timeout)(plan_gate_node)))
-graph_builder.add_node(
-    "executor",
-    with_telemetry_node(
-        with_timeout(timeout)(
-            validated_node(
-                executor_node,
-                validators_before=[validate_decision_drift, validate_style_compliance],
-                validators_after=[validate_required_sections, validate_citation_preservation],
-            )
-        )
-    ),
-)
 graph_builder.add_node("writer", with_telemetry_node(with_timeout(timeout)(writer_node)))
-graph_builder.add_node("patch_integrity_gate", with_telemetry_node(with_timeout(timeout)(patch_integrity_gate_node)))
 graph_builder.add_node(
     "critic",
     with_telemetry_node(
@@ -1186,36 +1008,29 @@ graph_builder.add_node(
 graph_builder.add_node("final_scrubber", with_telemetry_node(with_timeout(timeout)(final_scrubber_node)))
 graph_builder.add_node("respond", with_telemetry_node(with_timeout(timeout)(respond_node)))
 
-# Entry flow: single pipeline node -> router
+# Entry -> planner (canonical path) | router (pending_question) | respond (ui_helper)
 graph_builder.set_entry_point("entry_pipeline")
 graph_builder.add_conditional_edges(
     "entry_pipeline",
     route_after_entry_pipeline,
-    {"router": "router", "planner": "planner", "writer": "writer", "executor": "executor", "respond": "respond"},
-)
-
-# Router -> planner | executor | writer | respond
-graph_builder.add_conditional_edges(
-    "router",
-    route_after_router,
-    {"planner": "planner", "executor": "executor", "writer": "writer", "respond": "respond"},
+    {"planner": "planner", "router": "router", "respond": "respond"},
 )
 
 # Planner -> plan_gate (unconditional fast validation)
 graph_builder.add_edge("planner", "plan_gate")
 
-# Plan gate -> planner (retry) | router | writer/executor | respond
+# Plan gate -> planner (retry) | router (evidence) | respond (clarify/approve/error)
 graph_builder.add_conditional_edges(
     "plan_gate",
     route_after_plan_gate,
-    {"planner": "planner", "router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
+    {"planner": "planner", "router": "router", "respond": "respond"},
 )
 
-# Executor -> patch_integrity_gate | respond
+# Router -> planner | writer | respond
 graph_builder.add_conditional_edges(
-    "executor",
-    route_after_executor,
-    {"respond": "respond", "patch_integrity_gate": "patch_integrity_gate"},
+    "router",
+    route_after_router,
+    {"planner": "planner", "writer": "writer", "respond": "respond"},
 )
 
 # Writer -> critic | final_scrubber
@@ -1223,13 +1038,6 @@ graph_builder.add_conditional_edges(
     "writer",
     route_after_writer,
     {"critic": "critic", "final_scrubber": "final_scrubber"},
-)
-
-# Patch integrity gate -> critic | router
-graph_builder.add_conditional_edges(
-    "patch_integrity_gate",
-    route_after_patch_integrity_gate,
-    {"router": "router", "critic": "critic"},
 )
 
 # Critic -> writer (quality revision) | router (evidence gap) | final_scrubber (approved) | respond

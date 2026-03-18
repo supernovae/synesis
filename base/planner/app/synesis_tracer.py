@@ -39,10 +39,8 @@ _NODE_DISPLAY_NAMES: dict[str, str] = {
     "router": "Router",
     "planner": "Planner",
     "plan_gate": "Plan gate",
-    "executor": "Executor",
     "writer": "Writer",
     "critic": "Critic",
-    "patch_integrity_gate": "Patch gate",
     "final_scrubber": "Final scrubber",
     "respond": "Respond",
 }
@@ -94,7 +92,6 @@ class TraceRecord:
     estimated_cost_usd: float = 0.0
     difficulty: float = 0.0
     task_type: str = ""
-    retrieval_mode: str = ""  # effective mode: "router" | "hybrid" | "planner"
     domain_tags: list[str] = field(default_factory=list)
     is_code_task: bool = False
     has_error: bool = False
@@ -350,7 +347,6 @@ class SynesisTracer(BaseCallbackHandler):
         run_id: str = "",
         difficulty: float = 0.0,
         task_type: str = "",
-        retrieval_mode: str = "",
         domain_tags: list[str] | None = None,
         evidence_packet_count: int = 0,
         avg_evidence_confidence: float = 0.0,
@@ -366,7 +362,6 @@ class SynesisTracer(BaseCallbackHandler):
         t = self._current_trace
         t.difficulty = difficulty
         t.task_type = task_type
-        t.retrieval_mode = retrieval_mode
         t.domain_tags = (domain_tags or [])[:10]
         t.is_code_task = is_code_task
         t.has_error = has_error

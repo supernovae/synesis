@@ -219,25 +219,16 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
 
     out["intent_class"] = analysis.get("intent_class", "general")
 
-    # Front door mode: text_only forces all requests through the text pipeline.
-    # is_code_task is only used for routing in legacy_hybrid mode; in text_only
-    # mode it's always False (coder agents handle code via their own front door).
-    _text_only = settings.frontdoor_mode == "text_only"
-    out["is_code_task"] = False if _text_only else analysis.get("is_code_task", False)
+    # Unified pipeline: all requests go through the text pipeline (writer).
+    # Coder agents handle code generation via their own front door.
+    out["is_code_task"] = False
 
-    # target_language: kept for formatting hints (code fences) even in text_only.
-    is_code_task = out.get("is_code_task", False)
-    if not is_code_task:
-        # Detect language for formatting hints even in text_only mode
-        if _text_only and _language_explicitly_mentioned(last_content):
-            out["target_language"] = "markdown"
-            out["detected_language_hint"] = _detect_language(last_content)
-        else:
-            out["target_language"] = "markdown"
-    elif _language_explicitly_mentioned(last_content):
-        out["target_language"] = _detect_language(last_content)
+    # target_language: kept for formatting hints (code fences in markdown).
+    if _language_explicitly_mentioned(last_content):
+        out["target_language"] = "markdown"
+        out["detected_language_hint"] = _detect_language(last_content)
     else:
-        out["target_language"] = TARGET_LANGUAGE_INFER
+        out["target_language"] = "markdown"
     # Phase 1: explainability — classification_reasons and score_breakdown for /why
     out["classification_reasons"] = analysis.get("classification_reasons") or []
     out["score_breakdown"] = analysis.get("score_breakdown") or {}
@@ -249,7 +240,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
     out["risk_score"] = analysis.get("risk_score", 0)
     out["explicit_deliverables"] = analysis.get("explicit_deliverables", 0)
     out["domain_hints"] = analysis.get("domain_hints") or []
-    out["inference_mode"] = settings.inference_mode
     out["current_node"] = "entry_classifier"
     if norm_result:
         out["query_normalization"] = norm_result.to_dict()
@@ -313,7 +303,7 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["plan_required"] = bool(plan_session)
         out["bypass_supervisor"] = (difficulty >= bypass_threshold) and not plan_session
         if not out.get("is_code_task", False):
-            _rag_cutoff = settings.effective_rag_disable_below
+            _rag_cutoff = settings.rag_disable_below
             out["rag_mode"] = "light" if difficulty >= _rag_cutoff else "disabled"
 
     if state.get("pending_question_continue") and not state.get("is_code_task", False):
@@ -335,23 +325,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["include_run_commands"] = True
         out["task_type"] = "code_generation"
         out["allowed_tools"] = ["sandbox"]
-    # Resolve effective retrieval_mode from config + difficulty.
-    # "auto" selects based on difficulty thresholds; explicit modes pass through.
-    # Trivial/rag_disabled tasks always use "router" (no retrieval = no planner-driven fetch).
-    _configured_mode = settings.retrieval_mode
-    if out.get("rag_mode") == "disabled" or out.get("task_is_trivial"):
-        _effective_mode = "router"
-    elif _configured_mode == "auto":
-        if difficulty >= settings.retrieval_mode_planner_threshold:
-            _effective_mode = "planner"
-        elif difficulty >= settings.retrieval_mode_hybrid_threshold:
-            _effective_mode = "hybrid"
-        else:
-            _effective_mode = "router"
-    else:
-        _effective_mode = _configured_mode
-    out["retrieval_mode"] = _effective_mode
-
     # Extract semantic classifier diagnostics for logging
     _hits = analysis.get("classification_hits") or []
     _semantic_hit = next((h for h in _hits if "semantic:" in h), "")
@@ -360,12 +333,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         "entry_classifier_result",
         extra={
             "intent_class": out.get("intent_class"),
-            "is_code_task": out.get("is_code_task"),
             "task_size": out.get("task_size"),
             "target_language": out.get("target_language"),
             "difficulty": out.get("difficulty"),
-            "retrieval_mode": _effective_mode,
-            "retrieval_mode_config": _configured_mode,
+            "rag_mode": out.get("rag_mode"),
             "coding_client": state.get("coding_client_detected", False),
             "semantic_hit": _semantic_hit,
             "preview": (last_content or "")[:80],

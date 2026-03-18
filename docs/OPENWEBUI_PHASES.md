@@ -24,7 +24,7 @@ Uses `graph.astream_events(version="v2")` for fine-grained token-level streaming
 
 - `on_chain_start` events emit phase-based status messages via `_flow_phase()`
 - `on_chain_end` events accumulate state and emit rich status messages (router search results, planner summary)
-- `on_chat_model_stream` events from the writer/executor stream content tokens to the client
+- `on_chat_model_stream` events from the writer stream content tokens to the client
 - **Reasoning content:** R1-Distill `<think>` tags surface via `reasoning_content` field in chunks, with "Thinking..." status
 - **Plan step visibility:** For knowledge deep-dives (non-code tasks with a planner), plan steps are emitted as visible markdown content (blockquote) before the main response
 - `StatusQueueCallback` provides fallback node-level status when `streaming_events_enabled=false`
@@ -36,11 +36,10 @@ _NODE_TO_PHASE = {
     "entry_classifier": "Classifying request…",
     "strategic_advisor": "Assessing strategy…",
     "frame_extractor": "Extracting intent…",
-    "router": "Gathering evidence…",
     "planner": "Building plan…",
-    "executor": "Generating code…",
+    "plan_gate": "Validating plan…",
+    "router": "Gathering evidence…",
     "writer": "Composing response…",
-    "patch_integrity_gate": "Validating code…",
     "critic": "Evaluating quality…",
     "final_scrubber": "Polishing…",
     "respond": "Finalizing…",
@@ -128,7 +127,7 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 
 **Phase resolution:** The planner resolves the current node from `astream_events` using `_resolve_node_from_event()` (exact match on `metadata.langgraph_node` or `name`, then substring match for wrapped runnables). This ensures phase status events are emitted even when LangGraph event shape varies.
 
-**Full vs selective (classic vs streamlined) retrieval:** Phases are **node-driven**: each node in `_NODE_TO_PHASE` emits its label when that node runs. The same streaming logic runs for both `inference_mode=full` (evidence up front) and `inference_mode=selective` (RAG only when critic says so). In full mode you typically see "Gathering evidence" → "Building plan" → "Composing response" → "Evaluating quality". In selective mode, the first pass may skip the router and planner, so you see "Analyzing request" → "Composing response"; if the critic later requests more evidence, a second pass runs the router and "Gathering evidence" is emitted then. No separate phase support is needed for the two retrieval approaches — retrieval always goes through the router node, which is already in the phase map.
+**Unified pipeline phases:** Phases are **node-driven**: each node in `_NODE_TO_PHASE` emits its label when that node runs. The typical sequence is "Classifying request" → "Building plan" → "Validating plan" → "Gathering evidence" → "Composing response" → "Evaluating quality". If the critic requests more evidence, a second pass runs the router and "Gathering evidence" is emitted again. No separate phase support is needed — retrieval always goes through the router node, which is already in the phase map.
 
 **Production behavior:** Use Open WebUI's **native** status display only; do not install or enable any custom Synesis Progress pipe or client-side function for status. Do **not** set `SYNESIS_STREAM_DEBUG_CHATTER` in production (it is for local/dev debugging only and gates the `/debug/sse-test` endpoint).
 

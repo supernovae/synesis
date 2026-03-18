@@ -790,14 +790,6 @@ export default function TraceDetail() {
             {trace.difficulty.toFixed(2)}
           </p>
         </div>
-        {trace.retrieval_mode && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-700 dark:bg-emerald-900/20">
-            <p className="text-xs text-emerald-600 dark:text-emerald-400">Retrieval Mode</p>
-            <p className="mt-0.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200">
-              {trace.retrieval_mode}
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Query */}
@@ -811,11 +803,6 @@ export default function TraceDetail() {
             {trace.task_type && (
               <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                 {trace.task_type}
-              </span>
-            )}
-            {trace.retrieval_mode && (
-              <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-                retrieval: {trace.retrieval_mode}
               </span>
             )}
             {trace.is_code_task && (

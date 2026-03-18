@@ -1,10 +1,11 @@
-"""Tests for front door simplification — text_only mode, code fence rendering,
-routing behavior, integrity core, and legacy_hybrid rollback.
+"""Tests for integrity core, code fence rendering, and MCP integrity contract.
+
+The text_only/legacy_hybrid routing tests have been removed; the unified pipeline
+no longer has separate front door modes. See test_graph_routing.py for current
+routing tests.
 """
 
 from __future__ import annotations
-
-from unittest.mock import patch
 
 import pytest
 
@@ -125,83 +126,6 @@ class TestCodeFenceRendering:
         scrubbed = result.get("scrubbed_answer", "")
         assert "```mermaid" in scrubbed
         assert "graph TD" in scrubbed
-
-
-# ---------------------------------------------------------------------------
-# Routing behavior — text_only mode
-# These tests require langgraph which is container-only.
-# ---------------------------------------------------------------------------
-
-try:
-    from app.graph import (
-        route_after_entry_pipeline,
-        route_after_executor,
-        route_after_router,
-    )
-
-    _has_graph = True
-except ImportError:
-    _has_graph = False
-
-
-@pytest.mark.skipif(not _has_graph, reason="Requires langgraph (container-only)")
-class TestTextOnlyRouting:
-    """Verify routing functions redirect code paths to writer in text_only mode."""
-
-    def test_entry_pipeline_trivial_code_to_writer_in_text_only(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "text_only"
-            state = {"task_is_trivial": True, "is_code_task": True}
-            assert route_after_entry_pipeline(state) == "writer"
-
-    def test_entry_pipeline_trivial_code_to_executor_in_legacy(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "legacy_hybrid"
-            state = {"task_is_trivial": True, "is_code_task": True}
-            assert route_after_entry_pipeline(state) == "executor"
-
-    def test_router_executor_redirected_in_text_only(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "text_only"
-            state = {"next_node": "executor"}
-            assert route_after_router(state) == "writer"
-
-    def test_router_executor_preserved_in_legacy(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "legacy_hybrid"
-            state = {"next_node": "executor"}
-            assert route_after_router(state) == "executor"
-
-    def test_executor_routes_to_respond_in_text_only(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "text_only"
-            state = {"is_code_task": True}
-            assert route_after_executor(state) == "respond"
-
-    def test_executor_routes_to_gate_in_legacy(self):
-        with patch("app.graph.settings") as mock_settings:
-            mock_settings.frontdoor_mode = "legacy_hybrid"
-            state = {"is_code_task": True}
-            assert route_after_executor(state) == "patch_integrity_gate"
-
-
-# ---------------------------------------------------------------------------
-# Config validation
-# ---------------------------------------------------------------------------
-
-
-class TestFrontdoorConfig:
-    def test_default_is_text_only(self):
-        from app.config import Settings
-
-        s = Settings()
-        assert s.frontdoor_mode == "text_only"
-
-    def test_legacy_hybrid_accepted(self):
-        from app.config import Settings
-
-        s = Settings(frontdoor_mode="legacy_hybrid")
-        assert s.frontdoor_mode == "legacy_hybrid"
 
 
 # ---------------------------------------------------------------------------

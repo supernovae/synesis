@@ -4,42 +4,33 @@ This document describes the LangGraph orchestration flow, routing logic, and key
 
 ## Overview
 
-Synesis implements a **Router-Governed Evidence Architecture** with 11 active nodes:
-Entry Classifier, Strategic Advisor, Frame Extractor, **Router**,
-Planner, Executor, Writer, Patch Integrity Gate, Critic,
-Final Scrubber, and Respond.
+Synesis implements a **unified pipeline** with 9 active nodes:
+Entry Classifier, Strategic Advisor, Frame Extractor, Planner,
+Plan Gate, **Router**, Writer, Critic, Final Scrubber, and Respond.
+
+Every request follows the same canonical path — the Planner scales
+its plan depth (1-8 steps) based on difficulty, ensuring consistent
+observability and feedback loops across all prompts.
 
 The **Router is the single retrieval orchestrator**. No other node
 touches retrieval backends (RAG, web search, unified retrieval).
 All evidence flows through structured **Evidence Packets** — downstream
-agents (Planner, Executor, Writer, Critic) consume evidence but never
+agents (Planner, Writer, Critic) consume evidence but never
 retrieve it directly.
 
 **Two Front Doors:**
 
 - **Planner front door** (this pipeline): Owns reasoning, RAG
   synthesis, architecture guidance, and markdown answers — including
-  code snippets in fenced blocks. Runs in `text_only` mode by default.
+  code snippets in fenced blocks.
 - **Coder front door** (Qwen Coder via LiteLLM): Owns file edits,
   patches, and execution loops for IDE coding agents (Cursor, Claude
   Code). Accessed directly through LiteLLM, not through the planner
   pipeline.
 
-The planner can still emit fenced code blocks (```lang ... ```) in its
-markdown responses. It does **not** orchestrate code execution, sandbox
-runs, or patch-apply workflows — those belong to the coder front door.
-
-**Front Door Mode (`frontdoor_mode` in config.py / `SYNESIS_FRONTDOOR_MODE` env var):**
-
-| Mode | Default | Behavior |
-|------|---------|----------|
-| `text_only` | **Yes** | All requests route through Writer. Executor and patch integrity gate are bypassed. `is_code_task` is always False. |
-| `legacy_hybrid` | No | Preserves the old code-task routing through Executor → Patch Integrity Gate → Critic. Rollback safety net. |
-
-**Sandbox and LSP are not in the default pipeline.** They remain
-available as tool-accessible resources for future agent-based
-self-correction loops (see [Architecture Decision: Sandbox/LSP
-Decoupling](#architecture-decision-sandboxlsp-decoupling)).
+The planner can still emit fenced code blocks in its markdown responses.
+It does **not** orchestrate code execution, sandbox runs, or patch-apply
+workflows — those belong to the coder front door.
 
 ## Models
 
@@ -57,121 +48,56 @@ Decoupling](#architecture-decision-sandboxlsp-decoupling)).
 | Config field | Env var | Used by |
 |---|---|---|
 | `router_model_url` | `SYNESIS_ROUTER_MODEL_URL` | Router (query generation, summarization, refinement), Planner |
-| `general_model_url` | `SYNESIS_GENERAL_MODEL_URL` | Executor, Writer |
+| `general_model_url` | `SYNESIS_GENERAL_MODEL_URL` | Writer |
 | `critic_model_url` | `SYNESIS_CRITIC_MODEL_URL` | Critic |
 
 ## Graph Flow
 
-All requests enter through the same pipeline: Entry Classifier →
-Strategic Advisor → Frame Extractor. From there, routing depends on
-the **continuous difficulty score** and the resulting `rag_mode`:
-
-### text_only mode (default)
+All requests enter through the same pipeline and follow one canonical path.
+The Planner scales its depth based on difficulty — trivial prompts get a
+lightweight 1-step plan, hard prompts get full multi-step decomposition.
 
 ```mermaid
 flowchart TD
-    EC["entry_classifier\n(deterministic)"] --> SA["strategic_advisor\n(domain alignment)"]
-    SA --> FE["frame_extractor\n(semantic frame)"]
-
-    FE -->|"trivial\n(diff < 0.15)"| WR["writer\n(knowledge synthesis)"]
-    FE -->|"easy/medium/hard"| RT["router\n(evidence orchestrator)"]
-
-    RT -->|"hard + no plan"| PL["planner\n(structured plan)"]
-    RT -->|"plan ready"| WR
-    RT -->|"error"| RS["respond"]
-
-    PL -->|"evidence requests\nor plan ready"| RT
-    PL -->|"plan_pending_approval"| RS
-
+    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(scales 1-8 steps by difficulty)"]
+    PL --> PG["plan_gate\n(deterministic validation)"]
+    PG -->|"fail, retries left"| PL
+    PG -->|pass| RT["router\n(evidence: disabled/light/normal)"]
+    RT --> WR["writer\n(knowledge synthesis)"]
     WR -->|"high difficulty"| CR["critic\n(quality gate)"]
-    WR -->|"low difficulty"| FS["final_scrubber"]
-
-    CR -->|"approved"| FS
-    CR -->|"need_more_evidence"| RT
-    CR -->|"writing quality\nrevision"| WR
-    CR -->|"oscillation or\nmax_iterations"| FS
-
-    FS --> RS
-    RS --> END([END])
+    WR -->|"low difficulty / background"| FS["final_scrubber"]
+    CR -->|approved| FS
+    CR -->|"need evidence"| RT
+    CR -->|revision| WR
+    CR -->|"oscillation or max_iterations"| FS
+    FS --> RS["respond"]
+    RS --> endNode([END])
 ```
 
-### legacy_hybrid mode (rollback)
+### Difficulty-Based Scaling
 
-```mermaid
-flowchart TD
-    EC["entry_classifier\n(deterministic)"] --> SA["strategic_advisor\n(domain alignment)"]
-    SA --> FE["frame_extractor\n(semantic frame)"]
+The entry classifier sets `rag_mode` based on the continuous difficulty
+score. This controls retrieval depth within the router — the pipeline
+path itself is always the same:
 
-    FE -->|"trivial\n(diff < 0.15)"| WR["writer\n(knowledge synthesis)"]
-    FE -->|"trivial code\n(diff < 0.15)"| EX["executor\n(code generation)"]
-    FE -->|"easy/medium/hard"| RT["router\n(evidence orchestrator)"]
-
-    RT -->|"hard + no plan"| PL["planner\n(structured plan)"]
-    RT -->|"code task\n+ plan ready"| EX
-    RT -->|"knowledge task\n+ easy/medium/plan ready"| WR
-    RT -->|"error"| RS["respond"]
-
-    PL -->|"evidence requests\nor plan ready"| RT
-    PL -->|"plan_pending_approval"| RS
-
-    EX --> PIG["patch_integrity_gate"]
-    EX -->|"needs_input\nor stop_reason"| RS
-
-    WR -->|"high difficulty"| CR["critic\n(quality gate)"]
-    WR -->|"low difficulty"| FS["final_scrubber"]
-
-    PIG -->|"pass"| CR
-    PIG -->|"fail"| RT
-
-    CR -->|"approved"| FS
-    CR -->|"need_more_evidence"| RT
-    CR -->|"writing quality\nrevision"| WR
-    CR -->|"oscillation or\nmax_iterations"| FS
-
-    FS --> RS
-    RS --> END([END])
-```
-
-### Difficulty-Based Routing Paths
-
-The entry classifier sets `rag_mode` and `task_is_trivial` based on
-the continuous difficulty score. These signals control which nodes
-are visited and how much retrieval work is done:
-
-| Difficulty | rag_mode | task_is_trivial | Path (text_only) | Path (legacy_hybrid) |
+| Difficulty | rag_mode | Planner Depth | Router Behavior | Critic |
 |---|---|---|---|---|
-| < 0.15 (trivial) | `disabled` | `true` | Entry → **Writer** → Scrubber → Respond | Entry → **Writer/Executor** → Scrubber → Respond |
-| 0.15-0.29 (easy) | `disabled` | `false` | Entry → Router → **Writer** → Scrubber → Respond | Entry → Router → **Writer/Executor** → Scrubber → Respond |
-| 0.3-0.69 (medium) | `light` | `false` | Entry → Router → **Writer** → [Critic] → Scrubber → Respond | Entry → Router → **Writer/Executor** → [Critic] → Scrubber → Respond |
-| >= 0.7 (hard) | `normal` | `false` | Entry → Router (multi-query, HyDE, 8 docs) → **Planner** → Router (section evidence) → Writer/Executor → Critic → Scrubber → Respond |
+| < 0.15 (trivial) | `disabled` | 1-step lightweight | No retrieval | Skipped |
+| 0.15-0.29 (easy) | `disabled` | 1-2 steps | No retrieval | Skipped |
+| 0.3-0.69 (medium) | `light` | 2-4 steps | 1 query, 3 docs | Lenient |
+| >= 0.7 (hard) | `normal` | 4-8 steps, section evidence | Multi-query, HyDE, 8 docs | Full |
 
 **Key behaviors by rag_mode:**
 
 - **`disabled`**: Router returns immediately with empty evidence packets.
-  No retrieval, no LLM calls for query generation. Writer/Executor
-  answers from parametric knowledge only.
+  No retrieval, no LLM calls for query generation. Writer answers
+  from parametric knowledge only.
 - **`light`**: Router issues a single evidence request (main question
   only, no per-deliverable fan-out). No HyDE or conceptual expansion
-  variants. Doc cap reduced to 3. No refinement rounds. Planner is
-  skipped — Router routes directly to Writer/Executor.
+  variants. Doc cap reduced to 3. No refinement rounds.
 - **`normal`**: Full multi-query retrieval (direct + HyDE + conceptual
   expansion), per-deliverable evidence requests, up to 2 refinement
-  rounds, Planner decomposition, section-level evidence gathering.
-
-**Path 1 — Trivial (diff < 0.15):**
-Entry → Writer/Executor → Scrubber → Respond (no Router, no retrieval)
-
-**Path 2 — Easy (diff 0.15-0.29):**
-Entry → Router (fast-path, no retrieval) → Writer/Executor → Scrubber → Respond
-
-**Path 3 — Medium knowledge (diff 0.3-0.69):**
-Entry → Router (light retrieval) → Writer → [Critic if diff >= 0.4] → Scrubber → Respond
-
-**Path 4 — Hard knowledge (diff >= 0.7):**
-Entry → Router (initial evidence) → Planner → Router (section evidence) → Writer → Critic → Scrubber → Respond
-
-**Path 5 — Hard code (diff >= 0.7):**
-Entry → Router (initial evidence) → Planner → Router (section evidence) → Executor → Patch Integrity Gate → Critic → Scrubber → Respond
+  rounds, section-level evidence gathering.
 
 ### Streaming Behavior
 
@@ -379,60 +305,41 @@ acknowledgements get 256 tokens.
 
 ## Routing Logic
 
-### After Entry Classifier + Strategic Advisor + Frame Extractor
+### After Entry Pipeline
 
 | Condition | Next Node |
 |-----------|-----------|
 | `pending_question_continue` | `router` |
 | `message_origin == "ui_helper"` | `respond` |
-| `task_is_trivial` (diff < 0.15) + `is_code_task` | `executor` |
-| `task_is_trivial` (diff < 0.15) + knowledge | `writer` |
-| else | `router` |
+| else (all requests) | `planner` |
 
-Trivial tasks bypass the Router entirely, going straight to Writer or
-Executor to answer from parametric knowledge. All other tasks go
-through the Router, which respects `rag_mode` to control retrieval depth.
+### Planner → Plan Gate (unconditional)
+
+### After Plan Gate
+
+| Condition | Next Node |
+|-----------|-----------|
+| gate failed, retries left | `planner` (with repair feedback) |
+| `clarification_question` | `respond` |
+| `plan_pending_approval` | `respond` |
+| gate failed, no retries, no plan | `respond` |
+| else | `router` |
 
 ### After Router
 
 | Condition | Next Node |
 |-----------|-----------|
 | `error` | `respond` |
-| `next_node == "planner"` | `planner` |
-| `next_node == "executor"` | `executor` |
 | `next_node == "writer"` | `writer` |
-| `next_node == "respond"` | `respond` |
+| `next_node == "planner"` | `planner` |
 | default | `planner` |
-
-### After Planner
-
-| Condition | Next Node |
-|-----------|-----------|
-| `plan_pending_approval` | `respond` (surface plan; user replies to proceed) |
-| `evidence_requests` present | `router` (gather section evidence) |
-| else | `router` (router decides next step) |
-
-### After Executor
-
-| Condition | Next Node |
-|-----------|-----------|
-| `needs_input_question` | `respond` |
-| `stop_reason` (any) | `respond` |
-| `is_code_task=false` | `respond` |
-| else | `patch_integrity_gate` |
 
 ### After Writer
 
 | Condition | Next Node |
 |-----------|-----------|
+| `critic_background` enabled | `final_scrubber` |
 | `difficulty < critic_skip_below_difficulty` | `final_scrubber` |
-| else | `critic` |
-
-### After Patch Integrity Gate
-
-| Condition | Next Node |
-|-----------|-----------|
-| `integrity_passed == false` | `router` (re-retrieve evidence) |
 | else | `critic` |
 
 ### After Critic
@@ -458,7 +365,7 @@ through the Router, which respects `rag_mode` to control retrieval depth.
    flows as structured packets with query, sources, snippets, summary,
    confidence, and retrieval notes. No raw retrieval results leak downstream.
 3. **Taxonomy-Driven Everything**: Entry Classifier outputs
-   `intent_class`, `is_code_task`, `active_domain_refs`,
+   `intent_class`, `active_domain_refs`,
    `taxonomy_metadata`, `difficulty`, and YAML-driven
    `routing_thresholds`. 190 taxonomy entries define persona,
    depth, output style, epistemic guidance, and planner rules.
@@ -466,30 +373,29 @@ through the Router, which respects `rag_mode` to control retrieval depth.
    in `resolve_taxonomy_metadata()` — new fields added to YAML are
    automatically available downstream. Taxonomy config is compiled
    at startup with Pydantic schema validation.
-4. **Dual Planner Prompts**: Code tasks use `PLANNER_SYSTEM_PROMPT`
-   (atomic steps with files and verification commands). Knowledge
-   tasks use `KNOWLEDGE_PLANNER_PROMPT` (section outlines mapped
-   from the user's explicit requests).
-5. **Evidence-Gated Critic**: `approved=false` requires
+4. **Single Planner Prompt**: The knowledge planner prompt creates
+   section outlines scaled by difficulty (1-8 steps), mapped from
+   the user's explicit requests.
+5. **Plan Gate Validation**: After the Planner, a deterministic
+   Plan Gate validates schema, section presence, and hallucination
+   guardrails before evidence retrieval. Failed gates route back
+   to the Planner with specific repair feedback.
+6. **Evidence-Gated Critic**: `approved=false` requires
    `blocking_issue` with valid `evidence_refs`. The Critic validates
    against evidence packets and flags unsupported claims. Missing
    evidence triggers `need_more_evidence` → Router re-retrieval.
-6. **Unified Markdown Output**: Executor and Writer produce markdown.
-   No JSON wrapper. Code is in fenced blocks; `code_extractor.py`
-   extracts blocks for validation. `is_code_task` controls routing.
-7. **Monotonic Retry** (`state.retry`): Failures, decisions,
+7. **Unified Markdown Output**: The Writer produces markdown.
+   No JSON wrapper. Code is in fenced blocks.
+8. **Monotonic Retry** (`state.retry`): Failures, decisions,
    diversification_history only append. At `max_iterations`, force
    PASS (degraded).
-8. **Continuous Token Budgets**: Difficulty-based curve (not
+9. **Continuous Token Budgets**: Difficulty-based curve (not
    bucketed). Social acknowledgements get minimal budget (256
    tokens). Thinking budgets scale with `task_size`.
-9. **No fixed sandbox/LSP pipeline stages**: Sandbox and LSP are
-   decoupled from the default graph edges. The default code path
-   is Executor → PatchIntegrityGate → Critic → Respond.
 10. **Immutable Frame**: `SemanticFrame` is set-once via `_set_once_dict`
     reducer. No downstream node can overwrite the frame after
     `frame_extractor` sets it.
-11. **Decision Ledger**: Executor and Writer consume structured
+11. **Decision Ledger**: The Writer consumes structured
     `DecisionEntry` objects from the planner (append-only ledger),
     not raw planner prose. Critic validates draft against ledger.
 12. **Hybrid Cache Stability**: The retrieval cache prevents
@@ -594,7 +500,6 @@ Enforced by deterministic validators wrapped around nodes via `validated_node()`
 Validators are wired as pre/post checks via the `validated_node()` wrapper in
 `graph.py`, not as separate graph nodes:
 
-- **Executor**: pre=[`validate_decision_drift`, `validate_style_compliance`], post=[`validate_required_sections`, `validate_citation_preservation`]
 - **Critic**: post=[`validate_critique_resolutions`]
 
 Pre-violations are injected into the node's context as warnings. Post-violations
@@ -760,32 +665,29 @@ Additional protected patterns and jargon terms are configurable via
 
 ## Adaptive Rigor
 
-Rigor scales with the continuous `difficulty` score. Decouples general utility from
-engineering rigor. Both retrieval depth and quality review are proportional to difficulty.
+Rigor scales with the continuous `difficulty` score. The pipeline path
+is always the same; difficulty controls depth within each node.
 
-| Difficulty | Retrieval | Planner | Critic Mode | Path Cost |
+| Difficulty | Retrieval | Planner Depth | Critic Mode | Path Cost |
 |---|---|---|---|---|
-| < 0.15 (trivial) | None (skip Router) | Skipped | Skipped | ~1 LLM call |
-| 0.15-0.29 (easy) | None (Router fast-path) | Skipped | Skipped (below `critic_skip_below_difficulty`) | ~1 LLM call |
-| 0.3-0.39 (medium-low) | Light (1 query, 3 docs) | Skipped | Lenient rubber-stamp (below `critic_lenient_below_difficulty`) | ~2 LLM calls |
-| 0.4-0.69 (medium) | Light (1 query, 3 docs) | Skipped | Lenient rubber-stamp | ~3 LLM calls |
-| >= 0.7 (hard) | Full (multi-query, HyDE, 8 docs, refinement) | Full plan + section evidence | Full critic with scoring rubric | ~8-12 LLM calls |
+| < 0.15 (trivial) | None | 1 step | Skipped | ~2 LLM calls |
+| 0.15-0.29 (easy) | None | 1-2 steps | Skipped | ~2 LLM calls |
+| 0.3-0.39 (medium-low) | Light (1 query, 3 docs) | 2-4 steps | Lenient rubber-stamp | ~3-4 LLM calls |
+| 0.4-0.69 (medium) | Light (1 query, 3 docs) | 2-4 steps | Lenient rubber-stamp | ~4-5 LLM calls |
+| >= 0.7 (hard) | Full (multi-query, HyDE, 8 docs, refinement) | 4-8 steps + section evidence | Full critic with scoring rubric | ~8-12 LLM calls |
 
-- **Trivial/Easy** (diff < 0.3): No retrieval, no planning, no critic.
-  Writer/Executor answers from parametric knowledge. Fastest path (~1s).
-- **Medium** (diff 0.3-0.69): Light retrieval (single query, 3 docs,
-  no HyDE/expansion, no refinement). No planner — Router routes
-  directly to Writer. Critic runs in lenient mode (fast rubber-stamp).
-- **Hard** (diff >= 0.7): Full pipeline — multi-query retrieval with
-  HyDE and conceptual expansion, Planner decomposition with section-level
-  evidence gathering, full critic with scoring rubric and evidence-gated
-  blocking.
+- **Trivial/Easy** (diff < 0.3): Lightweight plan, no retrieval, critic
+  skipped. Writer answers from parametric knowledge. Fastest path.
+- **Medium** (diff 0.3-0.69): Light retrieval (single query, 3 docs).
+  Planner produces 2-4 step outline. Critic runs in lenient mode.
+- **Hard** (diff >= 0.7): Full multi-query retrieval with HyDE and
+  conceptual expansion, Planner multi-step decomposition with
+  section-level evidence gathering, full critic with scoring rubric.
 - **Background critic mode** (`critic_background=true`): When enabled,
   the SSE stream closes after the Writer finishes. The critic runs
   silently in the background.
 - **Vertical Persona Injection**: Taxonomy plugins inject
-  domain-specific Executor persona blocks, Planner decomposition
-  rules, and Critic mode overrides.
+  domain-specific Planner decomposition rules and Critic mode overrides.
 
 ## Critic: Universal Principles + Dynamic Rubric
 
@@ -880,18 +782,16 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 
 | Path | Mechanism | Reasoning |
 |------|-----------|-----------|
-| Text mode (`is_code_task=false`) | Writer returns `direct_stream_request` dict; `main.py` calls executor via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
-| Code mode (`is_code_task=true`) | Executor calls LLM via LangChain `ainvoke`; code extracted from markdown post-hoc | Full response needed for code extraction |
+| All requests | Writer returns `direct_stream_request` dict; `main.py` streams via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
 
 **Phase-based status**: Nodes are grouped into user-facing phases:
 
 | Phase | Nodes | Description |
 |-------|-------|-------------|
-| **Planning...** | entry_classifier, strategic_advisor, frame_extractor, planner | Fast (~2s total) |
+| **Planning...** | entry_classifier, strategic_advisor, frame_extractor, planner, plan_gate | Fast (~2s total) |
 | **Researching...** | router | Evidence gathering, refinement |
-| **Working...** | executor | Code generation |
 | **Writing...** | writer, final_scrubber, respond | Knowledge synthesis, final assembly |
-| **Reviewing...** | patch_integrity_gate, critic | Quality review |
+| **Reviewing...** | critic | Quality review |
 
 Only phase transitions emit new status events. During long-running phases
 (>5s), elapsed-time heartbeats update the status (e.g., "Researching... (15s)")
@@ -899,30 +799,24 @@ so the user knows the system hasn't stalled.
 
 ## Architecture Decision: Two Front Doors
 
-**Decision**: The planner pipeline operates as a text-first front door
-(`frontdoor_mode=text_only`). Code editing/execution is owned by the
-coder front door (Qwen Coder via LiteLLM → IDE agents).
+**Decision**: The planner pipeline is the text/knowledge front door.
+Code editing/execution is owned by the coder front door (Qwen Coder
+via LiteLLM → IDE agents).
 
 The planner still emits fenced code blocks in markdown responses but
 does not orchestrate code execution, sandbox runs, or patch workflows.
 
-**Default flow** (`text_only`):
+**Canonical flow:**
 ```
-Writer -> [Critic] -> FinalScrubber -> Respond
-```
-
-**Rollback flow** (`legacy_hybrid`):
-```
-Executor -> PatchIntegrityGate -> Critic -> FinalScrubber -> Respond
+Entry → Planner → PlanGate → Router → Writer → [Critic] → FinalScrubber → Respond
 ```
 
 ## Architecture Decision: Patch Integrity as MCP Service
 
-PatchIntegrityGate logic has been extracted to `integrity_core.py` — a
-framework-agnostic module with pure check functions. It is exposed as
-the `synesis_patch_integrity` MCP tool for coder agents that need
-deterministic safety checks (secrets, network, workspace boundaries,
-import integrity, AST syntax, dangerous commands).
+Integrity check logic lives in `integrity_core.py` — a framework-agnostic
+module with pure check functions. It is exposed as the `synesis_patch_integrity`
+MCP tool for coder agents that need deterministic safety checks (secrets,
+network, workspace boundaries, import integrity, AST syntax, dangerous commands).
 
 **MCP contract:**
 
@@ -942,41 +836,26 @@ POST /mcp/tools/call
 → {"passed": true/false, "failures": [{"category": "...", "evidence": "...", "remediation": "..."}]}
 ```
 
-**Deprecation timeline:**
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| Phase 1 | **Complete** | `text_only` mode default, `legacy_hybrid` rollback available |
-| Phase 2 | **Complete** | Writer and scrubber preserve fenced code blocks |
-| Phase 3 | **Complete** | Integrity checks extracted to `integrity_core.py`, MCP tool registered |
-| Phase 4 | **Current** | `is_code_task` branches marked `DEPRECATION(is_code_task)` in source |
-| Phase 5 | Pending | After one release cycle with near-zero `legacy_hybrid` usage, remove dead branches |
-
 ## Architecture Decision: Sandbox/LSP Decoupling
 
 **Decision**: Sandbox and LSP are removed from the default graph
 edges. They remain as tool-accessible resources for future
 agent-based self-correction loops.
 
-## Planner: When, Why, and Performance
+## Planner: Scaling and Performance
 
-**When Planner runs:**
-1. **Hard tasks**: `difficulty >= 0.7`. Uses `KNOWLEDGE_PLANNER_PROMPT`
-   which creates section outlines based on the user's explicitly
-   requested deliverables. (In `text_only` mode, the code-specific
-   `PLANNER_SYSTEM_PROMPT` branch is inactive.)
-2. **Legacy hybrid only**: Hard code tasks (`difficulty >= 0.7` +
-   `is_code_task`) use `PLANNER_SYSTEM_PROMPT` with atomic steps,
-   file manifests, and verification commands.
+**The Planner runs on every request.** It scales its depth by difficulty:
 
-**When Planner is skipped:**
-- **Trivial** (diff < 0.15): Entry → Writer directly (no Router either).
-- **Easy** (diff 0.15-0.29): Router fast-path (no retrieval) → Writer.
-- **Medium** (diff 0.3-0.69): Router light retrieval → Writer.
+| Difficulty | Planner Behavior |
+|---|---|
+| < 0.15 (trivial) | Lightweight 1-step plan (near-zero latency) |
+| 0.15-0.29 (easy) | 1-2 step plan |
+| 0.3-0.69 (medium) | 2-4 step plan with section outlines |
+| >= 0.7 (hard) | 4-8 step plan with section evidence requests |
 
-The Planner only runs when `rag_mode=normal` (hard tasks). For all
-other difficulty levels, the Router routes directly to Writer/Executor
-via `_decide_next_node()`.
+This ensures every prompt gets taxonomy labeling, observability, and
+feedback loop data — even trivial ones. The Plan Gate validates each
+plan before evidence retrieval begins.
 
 **Evidence requests:** When the Planner identifies evidence gaps or
 `open_questions` in the plan, it populates `evidence_requests` in

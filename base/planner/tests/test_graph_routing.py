@@ -1,6 +1,7 @@
 """Tests for graph.py routing functions -- pure logic, no LLM calls needed.
 
-These verify the conditional edges that determine which node runs next.
+These verify the conditional edges that determine which node runs next
+in the unified pipeline.
 """
 
 from __future__ import annotations
@@ -15,17 +16,15 @@ from app.graph import (
     respond_node,
     route_after_critic,
     route_after_entry_pipeline,
-    route_after_executor,
-    route_after_patch_integrity_gate,
-    route_after_planner,
+    route_after_plan_gate,
     route_after_router,
     route_after_writer,
 )
 
 
 class TestRouteAfterEntryPipeline:
-    def test_default_routes_to_router(self):
-        assert route_after_entry_pipeline({}) == "router"
+    def test_default_routes_to_planner(self):
+        assert route_after_entry_pipeline({}) == "planner"
 
     def test_pending_question_routes_to_router(self):
         state = {"pending_question_continue": True}
@@ -35,13 +34,13 @@ class TestRouteAfterEntryPipeline:
         state = {"message_origin": "ui_helper"}
         assert route_after_entry_pipeline(state) == "respond"
 
-    def test_trivial_non_code_routes_to_writer(self):
-        state = {"task_is_trivial": True, "is_code_task": False}
-        assert route_after_entry_pipeline(state) == "writer"
+    def test_trivial_still_routes_to_planner(self):
+        state = {"task_is_trivial": True}
+        assert route_after_entry_pipeline(state) == "planner"
 
-    def test_trivial_code_routes_to_executor(self):
-        state = {"task_is_trivial": True, "is_code_task": True}
-        assert route_after_entry_pipeline(state) == "executor"
+    def test_code_task_still_routes_to_planner(self):
+        state = {"is_code_task": True}
+        assert route_after_entry_pipeline(state) == "planner"
 
 
 class TestRouteAfterRouter:
@@ -57,10 +56,6 @@ class TestRouteAfterRouter:
         state = {"next_node": "writer"}
         assert route_after_router(state) == "writer"
 
-    def test_next_node_executor(self):
-        state = {"next_node": "executor"}
-        assert route_after_router(state) == "executor"
-
     def test_default_routes_to_planner(self):
         assert route_after_router({}) == "planner"
 
@@ -68,50 +63,56 @@ class TestRouteAfterRouter:
         state = {"next_node": "nonexistent"}
         assert route_after_router(state) == "planner"
 
+    def test_executor_target_remapped_to_planner(self):
+        state = {"next_node": "executor"}
+        assert route_after_router(state) == "planner"
 
-class TestRouteAfterPlanner:
-    def test_plan_approval_routes_to_respond(self):
-        state = {"plan_pending_approval": True}
-        assert route_after_planner(state) == "respond"
 
-    def test_no_approval_routes_to_router(self):
-        state = {"plan_pending_approval": False}
-        assert route_after_planner(state) == "router"
+class TestRouteAfterPlanGate:
+    @patch("app.graph.settings")
+    def test_gate_pass_routes_to_router(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
+        state = {"plan_gate_passed": True, "execution_plan": {"steps": [{"id": 1}]}}
+        assert route_after_plan_gate(state) == "router"
 
-    def test_default_routes_to_router(self):
-        assert route_after_planner({}) == "router"
+    @patch("app.graph.settings")
+    def test_gate_fail_retries_left_routes_to_planner(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 2
+        state = {"plan_gate_passed": False, "planner_error_count": 1}
+        assert route_after_plan_gate(state) == "planner"
 
-    def test_planner_errors_with_plan_routes_to_router(self):
+    @patch("app.graph.settings")
+    def test_gate_fail_retries_exhausted_routes_to_router(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
         state = {
-            "planner_error_count": 3,
-            "execution_plan": {"steps": [{"id": 1, "action": "test"}]},
+            "plan_gate_passed": False,
+            "planner_error_count": 2,
+            "execution_plan": {"steps": [{"id": 1}]},
         }
-        assert route_after_planner(state) == "router"
+        assert route_after_plan_gate(state) == "router"
 
-    def test_planner_errors_without_plan_routes_to_respond(self):
-        state = {"planner_error_count": 3, "execution_plan": {}}
-        assert route_after_planner(state) == "respond"
+    @patch("app.graph.settings")
+    def test_gate_fail_no_plan_routes_to_respond(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
+        state = {"plan_gate_passed": False, "planner_error_count": 2, "execution_plan": {}}
+        assert route_after_plan_gate(state) == "respond"
 
-    def test_evidence_requests_routes_to_router(self):
-        state = {"evidence_requests": [{"description": "need more"}]}
-        assert route_after_planner(state) == "router"
+    @patch("app.graph.settings")
+    def test_clarification_routes_to_respond(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
+        state = {"plan_gate_passed": True, "clarification_question": "Which framework?"}
+        assert route_after_plan_gate(state) == "respond"
 
+    @patch("app.graph.settings")
+    def test_approval_routes_to_respond(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
+        state = {"plan_gate_passed": True, "plan_pending_approval": True}
+        assert route_after_plan_gate(state) == "respond"
 
-class TestRouteAfterExecutor:
-    def test_needs_input_routes_to_respond(self):
-        state = {"needs_input_question": "Which database?"}
-        assert route_after_executor(state) == "respond"
-
-    def test_stop_reason_routes_to_respond(self):
-        state = {"stop_reason": "blocked_external"}
-        assert route_after_executor(state) == "respond"
-
-    def test_code_task_routes_to_patch_gate(self):
-        state = {"is_code_task": True}
-        assert route_after_executor(state) == "patch_integrity_gate"
-
-    def test_non_code_routes_to_respond(self):
-        assert route_after_executor({}) == "respond"
+    @patch("app.graph.settings")
+    def test_default_routes_to_router(self, mock_settings):
+        mock_settings.plan_gate_max_retries = 1
+        assert route_after_plan_gate({}) == "router"
 
 
 class TestRouteAfterWriter:
@@ -133,19 +134,6 @@ class TestRouteAfterWriter:
         mock_settings.critic_skip_below_difficulty = 0.3
         state = {"difficulty": 0.8}
         assert route_after_writer(state) == "critic"
-
-
-class TestRouteAfterPatchIntegrityGate:
-    def test_fail_routes_to_router(self):
-        state = {"integrity_passed": False}
-        assert route_after_patch_integrity_gate(state) == "router"
-
-    def test_pass_routes_to_critic(self):
-        state = {"integrity_passed": True}
-        assert route_after_patch_integrity_gate(state) == "critic"
-
-    def test_default_routes_to_critic(self):
-        assert route_after_patch_integrity_gate({}) == "critic"
 
 
 class TestRouteAfterCritic:
