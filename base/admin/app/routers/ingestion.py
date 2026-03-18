@@ -52,7 +52,7 @@ class BulkImport(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status: str = Field(..., pattern="^(indexed|failed|pending)$")
+    status: str = Field(..., pattern="^(indexed|failed|pending|dead_letter)$")
     chunk_count: int | None = None
     error_message: str | None = None
     milvus_doc_id: str | None = None
@@ -287,17 +287,41 @@ async def delete_item(
 
 @router.post("/items/claim")
 async def claim_item(response: Response):
-    """Atomically claim the next pending item for processing.
+    """Atomically claim the next pending or retryable-failed item.
 
-    Uses SELECT ... FOR UPDATE SKIP LOCKED to allow multiple workers.
-    Returns 204 when the queue is empty.
+    Priority order: pending items first (by priority desc, then age),
+    then failed items whose retry_count < max_retries (exponential backoff).
+    Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent claiming.
+    Returns 204 when nothing is claimable.
     No auth required — called by indexer pods within the cluster.
     """
+    from sqlalchemy import or_, text
+
     async with async_session() as session:
         q = (
             select(IngestionItem)
-            .where(IngestionItem.status == "pending")
-            .order_by(IngestionItem.priority.desc(), IngestionItem.created_at)
+            .where(
+                or_(
+                    IngestionItem.status == "pending",
+                    # Auto-retry failed items that haven't exceeded max_retries,
+                    # with exponential backoff: 2^retry_count minutes after last attempt
+                    (
+                        (IngestionItem.status == "failed")
+                        & (IngestionItem.retry_count < IngestionItem.max_retries)
+                        & (
+                            IngestionItem.completed_at <= text(
+                                "NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))"
+                            )
+                        )
+                    ),
+                )
+            )
+            .order_by(
+                # pending items first, then retryable failed items
+                (IngestionItem.status == "pending").desc(),
+                IngestionItem.priority.desc(),
+                IngestionItem.created_at,
+            )
             .limit(1)
             .with_for_update(skip_locked=True)
         )
@@ -348,14 +372,17 @@ async def update_item_status(
     item_id: int,
     body: StatusUpdate,
 ):
-    """Update item status after processing. No auth — called by indexer pods."""
+    """Update item status after processing. No auth — called by indexer pods.
+
+    When status is 'failed' and retry_count reaches max_retries, the item is
+    automatically escalated to 'dead_letter' so it won't be retried again.
+    """
     now = datetime.now(timezone.utc)
     async with async_session() as session:
         item = await session.get(IngestionItem, item_id)
         if not item:
             return {"ok": False, "error": "not_found"}
 
-        item.status = body.status
         if body.chunk_count is not None:
             item.chunk_count = body.chunk_count
         if body.error_message is not None:
@@ -365,27 +392,46 @@ async def update_item_status(
         if body.content_hash is not None:
             item.content_hash = body.content_hash
 
-        if body.status in ("indexed", "failed"):
+        if body.status in ("indexed", "failed", "dead_letter"):
             item.completed_at = now
+
         if body.status == "failed":
             item.retry_count = (item.retry_count or 0) + 1
+            if item.retry_count >= item.max_retries:
+                item.status = "dead_letter"
+                logger.info(
+                    "ingestion_item_dead_letter",
+                    extra={"item_id": item_id, "uri": item.uri, "retries": item.retry_count},
+                )
+            else:
+                item.status = "failed"
+        else:
+            item.status = body.status
 
         await session.commit()
-    return {"ok": True}
+    return {"ok": True, "status": item.status}
 
 
 @router.post("/items/{item_id}/retry")
 async def retry_item(
     item_id: int,
+    reset_retries: bool = Query(False, description="Reset retry count (for dead_letter items)"),
     _user: UserInfo = Depends(get_current_user),
 ):
-    """Reset a failed item back to pending for reprocessing."""
+    """Reset a failed or dead_letter item back to pending for reprocessing.
+
+    For dead_letter items, pass reset_retries=true to clear the retry counter.
+    """
     async with async_session() as session:
         item = await session.get(IngestionItem, item_id)
         if not item:
             return {"ok": False, "error": "not_found"}
-        if item.retry_count >= item.max_retries:
-            return {"ok": False, "error": "max_retries_exceeded"}
+        if item.status not in ("failed", "dead_letter"):
+            return {"ok": False, "error": f"cannot retry item with status '{item.status}'"}
+        if item.status == "dead_letter" and not reset_retries:
+            return {"ok": False, "error": "dead_letter items require reset_retries=true"}
+        if reset_retries:
+            item.retry_count = 0
         item.status = "pending"
         item.error_message = ""
         item.started_at = None
@@ -498,6 +544,11 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
                 select(func.count()).where(IngestionItem.status == "failed")
             )
         ).scalar() or 0
+        dead_letter = (
+            await session.execute(
+                select(func.count()).where(IngestionItem.status == "dead_letter")
+            )
+        ).scalar() or 0
         total_chunks = (
             await session.execute(
                 select(func.sum(IngestionItem.chunk_count))
@@ -510,6 +561,7 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
         "running": running,
         "indexed": indexed,
         "failed": failed,
+        "dead_letter": dead_letter,
         "total_chunks": total_chunks,
     }
 
@@ -585,12 +637,13 @@ async def report_schema_version(body: SchemaReport):
 
         result = await session.execute(
             update(IngestionItem)
-            .where(IngestionItem.status.in_(["indexed", "running"]))
+            .where(IngestionItem.status.in_(["indexed", "running", "failed", "dead_letter"]))
             .values(
                 status="pending",
                 chunk_count=0,
                 error_message="",
                 milvus_doc_id="",
+                retry_count=0,
                 started_at=None,
                 completed_at=None,
                 queued_at=now,

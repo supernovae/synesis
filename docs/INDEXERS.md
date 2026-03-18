@@ -5,55 +5,104 @@ Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQ
 ## Architecture
 
 ```
-                     ┌─────────────────────────┐
-                     │    Admin Service (DB)    │
-                     │  ingestion_items table   │
-                     │  ┌─────────────────────┐ │
-                     │  │ pending → running →  │ │
- Admin UI / CLI ────▶│  │ indexed | failed     │ │◀──── bootstrap/corpus/*.yaml
-                     │  └─────────────────────┘ │
-                     └────────────┬────────────┘
+                     ┌──────────────────────────────┐
+                     │      Admin Service (DB)       │
+                     │    ingestion_items table       │
+                     │  ┌──────────────────────────┐ │
+                     │  │ pending ──→ running ──→   │ │
+ Admin UI / CLI ────▶│  │   ↑          │  indexed   │ │◀──── bootstrap/corpus/*.yaml
+                     │  │   │          ↓            │ │
+                     │  │   ├── failed (auto-retry) │ │
+                     │  │   │          ↓            │ │
+                     │  │   └── dead_letter (parked)│ │
+                     │  └──────────────────────────┘ │
+                     │  milvus_schema_sync table      │
+                     └────────────┬─────────────────┘
                                   │ POST /claim
                                   │ PATCH /status
+                                  │ POST /schema-sync
                                   ▼
-                     ┌─────────────────────────┐
-                     │   Indexer (CronJob)      │
-                     │   --mode queue           │
-                     │                          │
-                     │  claim → fetch → chunk   │
-                     │  → enrich → embed →      │
-                     │  upsert → report         │
-                     └────────────┬────────────┘
+                     ┌──────────────────────────────┐
+                     │     Indexer (CronJob)         │
+                     │     --mode queue              │
+                     │                               │
+                     │  ensure_catalog → schema-sync │
+                     │  claim → fetch → chunk →      │
+                     │  enrich → embed → upsert →    │
+                     │  report status                 │
+                     └────────────┬─────────────────┘
                                   │
                                   ▼
-                     ┌─────────────────────────┐
-                     │  Milvus (synesis_catalog)│
-                     └─────────────────────────┘
+                     ┌──────────────────────────────┐
+                     │   Milvus (synesis_catalog)    │
+                     └──────────────────────────────┘
 ```
 
 One container image (`base/rag/indexer/`) with handler plugins for each document type. The queue runner (`queue_runner.py`) claims items one at a time via `SELECT ... FOR UPDATE SKIP LOCKED`, processes them through the existing pipeline, and reports status back to the admin API.
+
+## Item Lifecycle
+
+```
+pending ──→ running ──→ indexed           (success)
+              │
+              └──→ failed                  (retry_count < max_retries)
+                     │                       ↳ auto-retried with exponential backoff
+                     │                         (2^retry_count minutes between attempts)
+                     └──→ dead_letter        (retry_count >= max_retries — permanently parked)
+```
+
+| Status | Meaning | What happens next |
+|--------|---------|-------------------|
+| `pending` | Waiting to be processed | Claimed by next indexer run |
+| `running` | Claimed by an indexer | Processing in progress |
+| `indexed` | Successfully processed | Chunks in Milvus, item complete |
+| `failed` | Processing error (retries left) | Auto-retried on next indexer run after backoff |
+| `dead_letter` | Exceeded max retries (default 3) | Permanently parked — won't be retried automatically |
+
+**Auto-retry with exponential backoff:** Failed items are automatically re-claimed by the indexer after a backoff delay of `2^retry_count` minutes (2 min, 4 min, 8 min). Pending items are always prioritized over retries.
+
+**Dead letter recovery:** Items in `dead_letter` can be manually revived via the admin UI or API:
+```bash
+curl -X POST http://synesis-admin:8000/api/v1/ingestion/items/{item_id}/retry?reset_retries=true \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Error tracking:** Each failed item stores the specific error in `error_message` (e.g. "httpx.ConnectError: Connection refused", "yaml.YAMLError: ...") so you can diagnose failures from the admin UI.
+
+## Milvus Schema Sync
+
+The admin DB tracks the last-known Milvus schema version in the `milvus_schema_sync` table. When the indexer bumps the schema (e.g. v6 → v7):
+
+1. **Indexer** calls `ensure_synesis_catalog()` — detects version mismatch, drops the old collection, recreates with new schema
+2. **Indexer** reports the new version via `POST /api/v1/ingestion/schema-sync`
+3. **Admin service** compares stored vs. reported version — if different, resets **all** `indexed`, `failed`, and `dead_letter` items back to `pending` with `retry_count = 0`
+4. **Next indexer run** processes everything fresh with the new schema
+
+This means schema bumps are fully automatic — no manual intervention to re-import. Dead-letter items also get a fresh start since the new handler code may fix the original failure.
 
 ```
 base/rag/indexer/
 ├── app/
 │   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
-│   ├── queue_runner.py     # Queue client: claim, process, report
+│   ├── queue_runner.py     # Queue client: claim, process, report, schema-sync
 │   ├── pipeline.py         # Orchestration: fetch → parse → chunk → enrich → embed → upsert
-│   ├── schema.py           # Milvus collection schema (synesis_catalog)
+│   ├── schema.py           # Milvus collection schema v7 (synesis_catalog)
 │   ├── chunking.py         # Heading-aware split with overlap
 │   ├── enrichment.py       # Keyword extraction, context_prefix, optional LLM summary
 │   ├── embed_client.py     # Batch embedding via TEI
 │   ├── milvus_writer.py    # Idempotent upsert with content-hash dedup
 │   └── handlers/           # Handler plugins (auto-discovered)
+│       ├── github_code.py       # 25+ languages via tree-sitter-language-pack
+│       ├── structured_data.py   # YAML/JSON/TOML/XML/HCL format-aware chunking
+│       ├── generic_text.py      # Catch-all paragraph-boundary chunking
 │       ├── github_markdown.py
-│       ├── github_code.py
-│       ├── openapi_spec.py
 │       ├── web_page.py
-│       ├── pdf_document.py
 │       ├── html_document.py
-│       ├── seed_corpus.py
+│       ├── pdf_document.py
+│       ├── openapi_spec.py
 │       ├── arxiv_paper.py
 │       ├── markdown_file.py
+│       ├── seed_corpus.py
 │       └── license_spdx.py
 ├── cronjob-queue.yaml      # Single CronJob manifest
 ├── Dockerfile
@@ -252,6 +301,20 @@ The indexer uses **content-hash chunk IDs** and `existing_chunk_ids()` to skip r
 - **Content hash tracking** → `ingestion_items.content_hash` detects when source content changes
 - Use `--force` to re-embed everything (e.g., after embedding model change)
 
+## HITL Review Queue
+
+Chunks with `scan_status = "flagged"` or `approval_status = "pending"` appear in the admin UI's **RAG Pipeline > Review Queue**. Reviewers can:
+
+- **Approve** individual chunks or bulk-select and approve all
+- **Reject** individual chunks or bulk-reject (sets `approval_status = "rejected"` — excluded from RAG retrieval)
+- See **flag reasons** (injection scan pattern matches) and metadata badges (`content_format`, `symbol_type`, `domain`)
+
+Approval status flows:
+- `auto_approved` — vetted/canonical sources pass through automatically
+- `pending` — flagged by injection scanning, awaiting human review
+- `approved` — manually approved by reviewer
+- `rejected` — excluded from retrieval (stays in Milvus for audit trail)
+
 ## Configuration
 
 | Setting | Default | Description |
@@ -259,6 +322,20 @@ The indexer uses **content-hash chunk IDs** and `existing_chunk_ids()` to skip r
 | `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8000` | Admin API for queue mode |
 | `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
 | `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) |
+
+### Ingestion item defaults
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `max_retries` | 3 | Attempts before dead_letter escalation |
+| `priority` | 0 | Higher = claimed first (use for urgent re-imports) |
+| `authority` | vetted | Trust tier for new items |
+
+### Schema version
+
+Current Milvus schema: **v7** (defined in `base/rag/indexer/app/schema.py`)
+
+To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, add/remove fields in `CATALOG_FIELDS` and `catalog_entity()`. On next indexer run, the collection is automatically dropped, recreated, and all ingestion items are reset for re-indexing.
 
 ---
 
