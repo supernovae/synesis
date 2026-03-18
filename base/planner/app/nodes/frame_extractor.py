@@ -116,8 +116,11 @@ async def _llm_repair(
     raw_text: str,
     first_pass: FirstPassFrame,
     report: MissingFieldReport,
-) -> UserTask:
-    """Stage 3: LLM second-pass to repair missing/conflicting fields."""
+) -> tuple[UserTask, int]:
+    """Stage 3: LLM second-pass to repair missing/conflicting fields.
+
+    Returns (repaired_task, tokens_used).
+    """
     _repair_kw: dict[str, Any] = {}
     if settings.guided_json_enabled:
         _repair_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
@@ -131,6 +134,7 @@ async def _llm_repair(
         temperature=0.1,
         max_completion_tokens=768 if not settings.guided_json_enabled else 1024,
         streaming=True,
+        stream_usage=True,
         use_responses_api=False,
         stop=["\n\n"],
         model_kwargs=_repair_kw if _repair_kw else None,
@@ -160,7 +164,10 @@ async def _llm_repair(
         logger.warning("llm_repair_json_parse_failed", extra={"error": str(exc)[:200]})
         raise
 
-    return UserTask(**{k: v for k, v in raw.items() if k in UserTask.model_fields})
+    task = UserTask(**{k: v for k, v in raw.items() if k in UserTask.model_fields})
+    usage = getattr(result, "usage_metadata", None) or {}
+    repair_tokens = usage.get("total_tokens", 0) if isinstance(usage, dict) else 0
+    return task, repair_tokens
 
 
 _NUMBERED_LINE_RE = re.compile(r"^\s*(\d+)[.)]\s+(.+)$", re.MULTILINE)
@@ -388,12 +395,11 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             _saved_anchors = user_task.intent_anchors
             _saved_excl = user_task.anchor_exclude_signals
             _saved_assumptions = user_task.anchor_assumptions
-            user_task = await _llm_repair(prompt_text, first_pass, report)
+            user_task, tokens_used = await _llm_repair(prompt_text, first_pass, report)
             if _saved_anchors:
                 user_task.intent_anchors = _saved_anchors
                 user_task.anchor_exclude_signals = _saved_excl
                 user_task.anchor_assumptions = _saved_assumptions
-            tokens_used = 0  # token tracking happens inside ChatOpenAI
         elif report.should_call_second_pass:
             extraction_mode = "gliner2_skip_repair_low_difficulty"
             logger.info(

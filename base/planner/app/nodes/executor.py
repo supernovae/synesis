@@ -108,6 +108,7 @@ executor_llm = ChatOpenAI(
     temperature=0.2,
     max_completion_tokens=16384,
     streaming=True,
+    stream_usage=True,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.general_model_uds or None),
     model_kwargs=(

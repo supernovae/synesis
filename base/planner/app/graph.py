@@ -931,7 +931,13 @@ def _ensure_bg_critic_metrics() -> None:
     _bg_critic_metrics_init = True
 
 
-def _persist_background_critic(run_id: str, critic_data: dict[str, Any], elapsed_ms: float = 0.0) -> None:
+def _persist_background_critic(
+    run_id: str,
+    critic_data: dict[str, Any],
+    elapsed_ms: float = 0.0,
+    llm_calls: list[dict[str, Any]] | None = None,
+    tokens_used: int = 0,
+) -> None:
     """Append background critic results to the trace row in Postgres.
 
     Also appends a synthetic span to the trace's spans array so the admin
@@ -952,13 +958,13 @@ def _persist_background_critic(run_id: str, critic_data: dict[str, Any], elapsed
             "start_time": now - (elapsed_ms / 1000),
             "end_time": now,
             "latency_ms": round(elapsed_ms, 1),
-            "tokens_used": 0,
+            "tokens_used": tokens_used,
             "confidence": critic_data.get("scores", {}).get("weighted_overall", 0.0) / 10.0,
             "outcome": "approved" if critic_data.get("approved") else "rejected",
             "reasoning": f"Async critic: {'approved' if critic_data.get('approved') else 'rejected'}, "
             f"score={critic_data.get('scores', {}).get('weighted_overall', 0.0)}, "
             f"blocking_issues={len(critic_data.get('blocking_issues', []))}",
-            "llm_calls": [],
+            "llm_calls": llm_calls or [],
             "metadata": {
                 "async": True,
                 "scores": critic_data.get("scores", {}),
@@ -978,9 +984,10 @@ def _persist_background_critic(run_id: str, critic_data: dict[str, Any], elapsed
                        ),
                        '{spans}',
                        COALESCE(full_record->'spans', '[]'::jsonb) || %s::jsonb
-                   )
+                   ),
+                   total_tokens = COALESCE(total_tokens, 0) + %s
                    WHERE trace_id = %s""",
-                (json.dumps(critic_data, default=str), json.dumps(bg_span, default=str), run_id),
+                (json.dumps(critic_data, default=str), json.dumps(bg_span, default=str), tokens_used, run_id),
             )
     except Exception:
         logger.debug("background_critic_persist_failed", exc_info=True)
@@ -990,12 +997,24 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
     """Schedule the critic to run as a background task outside the graph.
 
     Results are persisted to the trace row for admin dashboard analytics.
+    A temporary SynesisTracer captures LLM call details (prompt, completion,
+    tokens) so the admin UI can display full critic introspection.
     """
 
     async def _run() -> None:
+        from dataclasses import asdict
+
+        from .synesis_tracer import SynesisTracer
+
         _bg_start = time.monotonic()
+        bg_tracer = SynesisTracer()
+        bg_run_id = state_snapshot.get("run_id", "")
+        bg_tracer.start_trace(trace_id=f"bg-critic-{bg_run_id}")
         try:
-            result = await critic_node(state_snapshot)
+            from langchain_core.runnables.config import set_config_context
+
+            with set_config_context({"callbacks": [bg_tracer]}):
+                result = await critic_node(state_snapshot)
             _bg_elapsed = (time.monotonic() - _bg_start) * 1000
             scores = result.get("critic_scores") or {}
             approved = result.get("critic_approved", False)
@@ -1003,14 +1022,28 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
             repair_instructions = result.get("repair_instructions") or []
             blocking_issues = result.get("blocking_issues") or []
 
+            bg_llm_calls: list[dict[str, Any]] = []
+            bg_tokens = 0
+            if bg_tracer._current_trace:
+                for span in bg_tracer._current_trace.spans:
+                    bg_tokens += span.tokens_used
+                    for call in span.llm_calls:
+                        bg_llm_calls.append(asdict(call))
+                if not bg_llm_calls:
+                    for _rid, info in bg_tracer._llm_starts.items():
+                        pass
+            bg_tracer._current_trace = None
+
             logger.info(
                 "background_critic_complete",
                 extra={
-                    "run_id": state_snapshot.get("run_id", ""),
+                    "run_id": bg_run_id,
                     "weighted_overall": scores.get("weighted_overall", 0.0),
                     "blocking_issues": len(blocking_issues),
                     "approved": approved,
                     "elapsed_ms": round(_bg_elapsed, 1),
+                    "tokens_used": bg_tokens,
+                    "llm_calls": len(bg_llm_calls),
                 },
             )
             _ensure_bg_critic_metrics()
@@ -1019,8 +1052,7 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
             elif not approved and _bg_critic_rejected_counter:
                 _bg_critic_rejected_counter.inc()
 
-            run_id = state_snapshot.get("run_id", "")
-            if run_id:
+            if bg_run_id:
                 import threading
 
                 critic_data = {
@@ -1033,7 +1065,8 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
                 }
                 threading.Thread(
                     target=_persist_background_critic,
-                    args=(run_id, critic_data, _bg_elapsed),
+                    args=(bg_run_id, critic_data, _bg_elapsed),
+                    kwargs={"llm_calls": bg_llm_calls, "tokens_used": bg_tokens},
                     daemon=True,
                 ).start()
         except Exception as _bg_exc:

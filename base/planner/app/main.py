@@ -1863,6 +1863,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_full_content = ""
                         _ds_in_reasoning = False
                         _ds_first_content = False
+                        _ds_usage: dict[str, int] | None = None
+                        _ds_t0 = time.monotonic()
 
                         yield _sse_content_delta(chat_id, {"role": "assistant", "content": ""}, run_id=run_id)
                         sent_role = True
@@ -1871,9 +1873,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_stream = await _aclient.chat.completions.create(
                             model=_ds_model,
                             stream=True,
+                            stream_options={"include_usage": True},
                             **_stream_req,
                         )
                         async for _ds_chunk in _ds_stream:
+                            if getattr(_ds_chunk, "usage", None):
+                                _ds_usage = {
+                                    "prompt_tokens": _ds_chunk.usage.prompt_tokens or 0,
+                                    "completion_tokens": _ds_chunk.usage.completion_tokens or 0,
+                                }
                             if not _ds_chunk.choices:
                                 continue
                             _ds_delta = _ds_chunk.choices[0].delta
@@ -1921,6 +1929,30 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 token_count_estimate += 1
 
                         accumulated_state["generated_code"] = _ds_full_content
+
+                        if _ds_usage:
+                            _ds_node = accumulated_state.get("current_node") or "writer"
+                            _ds_elapsed = (time.monotonic() - _ds_t0) * 1000
+                            _ds_prompt_text = ""
+                            _ds_msgs = (_stream_req.get("messages") or [])
+                            if _ds_msgs:
+                                _last_msg = _ds_msgs[-1]
+                                _ds_prompt_text = (
+                                    _last_msg.get("content", "") if isinstance(_last_msg, dict) else str(_last_msg)
+                                )
+                            from .synesis_tracer import get_synesis_tracer as _get_ds_tracer
+
+                            _ds_tracer = _get_ds_tracer()
+                            if _ds_tracer is not None:
+                                _ds_tracer.record_direct_stream_usage(
+                                    node=_ds_node,
+                                    model=_ds_model,
+                                    prompt_tokens=_ds_usage["prompt_tokens"],
+                                    completion_tokens=_ds_usage["completion_tokens"],
+                                    prompt_text=_ds_prompt_text,
+                                    completion_text=_ds_full_content,
+                                    latency_ms=_ds_elapsed,
+                                )
                     except Exception:
                         logger.exception("direct_stream_error")
                         yield _sse_content_delta(

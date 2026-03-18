@@ -883,6 +883,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             temperature=0.3,
             max_completion_tokens=writer_budget,
             streaming=True,
+            stream_usage=True,
             use_responses_api=False,
             model_kwargs=(
                 {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}

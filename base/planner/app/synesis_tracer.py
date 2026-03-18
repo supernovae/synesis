@@ -427,6 +427,49 @@ class SynesisTracer(BaseCallbackHandler):
             return
         self._current_trace.short_circuit_reason = reason
 
+    def record_direct_stream_usage(
+        self,
+        *,
+        node: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        prompt_text: str = "",
+        completion_text: str = "",
+        latency_ms: float = 0.0,
+    ) -> None:
+        """Record token usage for a direct-stream call (raw OpenAI SDK, not LangChain).
+
+        Creates a synthetic LLMCallRecord and attaches it to the most recent
+        span matching *node*, or the last span if none matches.
+        """
+        if self._current_trace is None:
+            return
+        total = prompt_tokens + completion_tokens
+        call = LLMCallRecord(
+            model=model,
+            node=node,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total,
+            latency_ms=latency_ms,
+            prompt_snippet=prompt_text[:_MAX_SNIPPET],
+            completion_snippet=completion_text[:_MAX_SNIPPET],
+            prompt_full=prompt_text[:_MAX_FULL_CHARS],
+            completion_full=completion_text[:_MAX_FULL_CHARS],
+            timestamp=time.time(),
+        )
+        target_span = None
+        for span in reversed(self._current_trace.spans):
+            if span.node_name == node:
+                target_span = span
+                break
+        if target_span is None and self._current_trace.spans:
+            target_span = self._current_trace.spans[-1]
+        if target_span is not None:
+            target_span.llm_calls.append(call)
+            target_span.tokens_used += total
+
     def annotate_span(self, node_name: str, annotations: dict[str, Any]) -> None:
         """Attach structured metadata to the most recent span matching *node_name*.
 
@@ -722,6 +765,26 @@ class SynesisTracer(BaseCallbackHandler):
             )
         except Exception:
             logger.debug("on_llm_end_callback_error", exc_info=True)
+
+    def on_chat_model_end(
+        self,
+        response: LLMResult,
+        *,
+        run_id: uuid.UUID,
+        parent_run_id: uuid.UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Mirror of on_llm_end for the chat-model callback path.
+
+        ChatOpenAI may fire on_chat_model_end instead of (or in addition to)
+        on_llm_end.  Guard against double-counting by checking whether the
+        run was already consumed in on_llm_end (the _llm_starts entry will
+        have been popped).
+        """
+        rid = str(run_id)
+        if self._current_trace is None or rid not in self._llm_starts:
+            return
+        self.on_llm_end(response, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
 
     def on_llm_error(
         self,
