@@ -75,6 +75,7 @@ class TestRecordError:
 
         with patch.dict(os.environ, {"SYNESIS_TRACE_DATABASE_URL": ""}, clear=False):
             import app.failure_store as fs
+
             fs._error_pg_conn = None
 
             _persist_error(
@@ -86,7 +87,14 @@ class TestRecordError:
         """All supported error types should be accepted."""
         from app.failure_store import record_error
 
-        for etype in ("graph_error", "timeout", "retrieval_timeout", "retrieval_error", "model_timeout", "critic_error"):
+        for etype in (
+            "graph_error",
+            "timeout",
+            "retrieval_timeout",
+            "retrieval_error",
+            "model_timeout",
+            "critic_error",
+        ):
             with patch("app.failure_store._persist_error"):
                 record_error(error_type=etype, error_output="test")
 
@@ -158,12 +166,14 @@ class TestCacheCounters:
 
         before_hits = _prompt_cache_hits._value.get()
         from app.api_metrics import record_prompt_cache_hit
+
         record_prompt_cache_hit()
         after_hits = _prompt_cache_hits._value.get()
         assert after_hits == before_hits + 1
 
         before_misses = _prompt_cache_misses._value.get()
         from app.api_metrics import record_prompt_cache_miss
+
         record_prompt_cache_miss()
         after_misses = _prompt_cache_misses._value.get()
         assert after_misses == before_misses + 1
@@ -208,11 +218,14 @@ class TestDashboardSafeHelper:
 
     def test_gather_partial_failures(self):
         """Verify asyncio.gather with _safe tolerates mixed success/failure."""
+
         async def _run():
             async def _ok1():
                 return "a"
+
             async def _fail():
                 raise RuntimeError("down")
+
             async def _ok2():
                 return "b"
 

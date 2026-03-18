@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+from datetime import UTC
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
@@ -105,34 +106,41 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
 async def quality_summary(_user: UserInfo = Depends(get_current_user)):
     """Quality summary — try DB snapshots first, fall back to JSON file."""
     try:
+        from sqlalchemy import select
+
         from ..db.engine import async_session
         from ..db.models import QualitySnapshot
-        from sqlalchemy import select
 
         async with async_session() as session:
             rows = (
-                await session.execute(
-                    select(QualitySnapshot)
-                    .distinct(QualitySnapshot.domain)
-                    .order_by(QualitySnapshot.domain, QualitySnapshot.scored_at.desc())
+                (
+                    await session.execute(
+                        select(QualitySnapshot)
+                        .distinct(QualitySnapshot.domain)
+                        .order_by(QualitySnapshot.domain, QualitySnapshot.scored_at.desc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if rows:
                 scorecards = []
                 counts = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
                 for r in rows:
                     h = r.health
                     counts[h] = counts.get(h, 0) + 1
-                    scorecards.append({
-                        "domain": r.domain,
-                        "health": r.health,
-                        "chunk_count": r.chunk_count,
-                        "doc_count": r.doc_count,
-                        "freshness_pct": r.freshness_pct,
-                        "authority_mix": r.authority_mix,
-                        "dead_weight_count": r.dead_weight_count,
-                        "scored_at": r.scored_at.isoformat() if r.scored_at else None,
-                    })
+                    scorecards.append(
+                        {
+                            "domain": r.domain,
+                            "health": r.health,
+                            "chunk_count": r.chunk_count,
+                            "doc_count": r.doc_count,
+                            "freshness_pct": r.freshness_pct,
+                            "authority_mix": r.authority_mix,
+                            "dead_weight_count": r.dead_weight_count,
+                            "scored_at": r.scored_at.isoformat() if r.scored_at else None,
+                        }
+                    )
                 return {**counts, "scorecards": scorecards}
     except Exception:
         logger.debug("quality_db_read_failed", exc_info=True)
@@ -156,12 +164,12 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     if not hierarchy:
         return {"ok": False, "error": "no corpus data"}
 
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from ..db.engine import async_session
     from ..db.models import QualitySnapshot
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     snapshots = []
     for entry in hierarchy:
         domain = entry["domain"]
@@ -296,12 +304,14 @@ async def benchmark_history(
 
         async with async_session() as session:
             rows = (
-                await session.execute(
-                    select(BenchmarkResult)
-                    .order_by(BenchmarkResult.started_at.desc())
-                    .limit(limit)
+                (
+                    await session.execute(
+                        select(BenchmarkResult).order_by(BenchmarkResult.started_at.desc()).limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return {
                 "runs": [
                     {
@@ -324,13 +334,13 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
     """Trigger a lightweight benchmark: retrieve a few test queries and measure quality."""
     import hashlib
     import time as _time
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from ..db.engine import async_session
     from ..db.models import BenchmarkResult
 
     run_id = hashlib.sha256(f"bench-{_time.time()}".encode()).hexdigest()[:16]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     test_queries = [
         "How does FAISS handle hybrid search with metadata filtering?",
@@ -355,17 +365,21 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
         total_time += elapsed
         hits = len(results)
         total_hits += hits
-        per_query.append({
-            "query": q,
-            "hits": hits,
-            "latency_ms": round(elapsed, 1),
-        })
+        per_query.append(
+            {
+                "query": q,
+                "hits": hits,
+                "latency_ms": round(elapsed, 1),
+            }
+        )
 
     aggregate = {
         "total_queries": len(test_queries),
         "avg_hits": round(total_hits / max(len(test_queries), 1), 1),
         "avg_latency_ms": round(total_time / max(len(test_queries), 1), 1),
-        "p95_ms": round(sorted([p["latency_ms"] for p in per_query])[int(len(per_query) * 0.95)] if per_query else 0, 1),
+        "p95_ms": round(
+            sorted([p["latency_ms"] for p in per_query])[int(len(per_query) * 0.95)] if per_query else 0, 1
+        ),
     }
 
     try:
@@ -378,7 +392,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
                     per_query=per_query,
                     triggered_by=_user.username,
                     started_at=now,
-                    completed_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -413,12 +427,32 @@ _REVIEW_FIELDS = [
 import re as _re
 
 _FLAG_PATTERNS: list[tuple[str, str, _re.Pattern[str]]] = [
-    ("ignore_previous_instructions", "Ignore previous instructions", _re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", _re.IGNORECASE)),
-    ("disregard_previous", "Disregard previous context", _re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|above)", _re.IGNORECASE)),
-    ("forget_everything", "Forget everything told", _re.compile(r"forget\s+(?:everything|all)\s+(?:you\s+)?(?:were\s+)?told", _re.IGNORECASE)),
+    (
+        "ignore_previous_instructions",
+        "Ignore previous instructions",
+        _re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", _re.IGNORECASE),
+    ),
+    (
+        "disregard_previous",
+        "Disregard previous context",
+        _re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|above)", _re.IGNORECASE),
+    ),
+    (
+        "forget_everything",
+        "Forget everything told",
+        _re.compile(r"forget\s+(?:everything|all)\s+(?:you\s+)?(?:were\s+)?told", _re.IGNORECASE),
+    ),
     ("new_instructions", "New instructions block", _re.compile(r"new\s+instructions?\s*:", _re.IGNORECASE)),
-    ("override_instructions", "Override instructions/prompt", _re.compile(r"override\s+(?:your\s+)?(?:instructions?|prompt)", _re.IGNORECASE)),
-    ("role_hijack_you_are_now", "Role hijack: 'you are now'", _re.compile(r"you\s+are\s+now\s+(?:a|an)\s", _re.IGNORECASE)),
+    (
+        "override_instructions",
+        "Override instructions/prompt",
+        _re.compile(r"override\s+(?:your\s+)?(?:instructions?|prompt)", _re.IGNORECASE),
+    ),
+    (
+        "role_hijack_you_are_now",
+        "Role hijack: 'you are now'",
+        _re.compile(r"you\s+are\s+now\s+(?:a|an)\s", _re.IGNORECASE),
+    ),
     ("role_hijack_pretend", "Role hijack: 'pretend you are'", _re.compile(r"pretend\s+you\s+are", _re.IGNORECASE)),
     ("role_hijack_act_as", "Role hijack: 'act as if'", _re.compile(r"act\s+as\s+if\s+you", _re.IGNORECASE)),
     ("system_prompt_marker", "System prompt marker (system:)", _re.compile(r"system\s*:\s*", _re.IGNORECASE)),
@@ -428,8 +462,16 @@ _FLAG_PATTERNS: list[tuple[str, str, _re.Pattern[str]]] = [
     ("xml_system_tag", "XML system/s tag", _re.compile(r"<\/?s(?:ystem)?>", _re.IGNORECASE)),
     ("ignore_the_above", "Ignore the above", _re.compile(r"ignore\s+the\s+above", _re.IGNORECASE)),
     ("ignore_above", "Ignore above", _re.compile(r"ignore\s+above\b", _re.IGNORECASE)),
-    ("follow_instead", "Follow these instructions instead", _re.compile(r"follow\s+these\s+instructions?\s+instead", _re.IGNORECASE)),
-    ("output_only_following", "Output only the following", _re.compile(r"output\s+(?:only|just)\s+the\s+following", _re.IGNORECASE)),
+    (
+        "follow_instead",
+        "Follow these instructions instead",
+        _re.compile(r"follow\s+these\s+instructions?\s+instead", _re.IGNORECASE),
+    ),
+    (
+        "output_only_following",
+        "Output only the following",
+        _re.compile(r"output\s+(?:only|just)\s+the\s+following", _re.IGNORECASE),
+    ),
     ("print_exactly_this", "Print exactly this", _re.compile(r"print\s+(?:exactly|only)\s+this\s*:", _re.IGNORECASE)),
 ]
 
@@ -487,14 +529,18 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     """Mark a chunk as vetted: set scan_status to 'vetted', approval_status to 'approved'."""
     from ..services.milvus_service import safe_query as sq
 
-    rows = sq(CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1)
+    rows = sq(
+        CATALOG_COLLECTION, filter_expr=f'chunk_id == "{chunk_id}"', output_fields=["authority", "scan_status"], limit=1
+    )
     if not rows:
         return {"ok": False, "error": "chunk not found"}
     try:
         client = get_milvus()
         client.upsert(
             collection_name=CATALOG_COLLECTION,
-            data=[{"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}],
+            data=[
+                {"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}
+            ],
         )
     except Exception:
         logger.warning("review_vet_milvus_update_failed", extra={"chunk_id": chunk_id}, exc_info=True)
@@ -545,7 +591,14 @@ async def bulk_review_action(
             if action == "vet":
                 client.upsert(
                     collection_name=CATALOG_COLLECTION,
-                    data=[{"chunk_id": chunk_id, "scan_status": "vetted", "authority": "vetted", "approval_status": "approved"}],
+                    data=[
+                        {
+                            "chunk_id": chunk_id,
+                            "scan_status": "vetted",
+                            "authority": "vetted",
+                            "approval_status": "approved",
+                        }
+                    ],
                 )
             else:
                 client.upsert(

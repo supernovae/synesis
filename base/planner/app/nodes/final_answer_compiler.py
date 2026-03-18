@@ -105,6 +105,7 @@ def _build_compiler_system(state: dict[str, Any]) -> str:
 
     return _COMPILER_SYSTEM_TEMPLATE.format(output_directive=directive)
 
+
 _LIGHT_COMPILER_SYSTEM = """\
 You are the Final Answer Writer. A team of specialist writers has already \
 produced the full document. Your ONLY job is to write two small pieces:

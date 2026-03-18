@@ -217,9 +217,7 @@ class QualitySnapshot(Base):
     freshness_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     authority_mix: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     dead_weight_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    scored_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class BenchmarkResult(Base):
@@ -231,9 +229,7 @@ class BenchmarkResult(Base):
     metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     per_query: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     triggered_by: Mapped[str] = mapped_column(String(128), nullable=False, default="")
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
@@ -266,6 +262,7 @@ class MilvusSchemaSync(Base):
     items are reset to 'pending' for re-indexing, since the Milvus collection
     was dropped+recreated and all previous chunks are gone.
     """
+
     __tablename__ = "milvus_schema_sync"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -290,9 +287,7 @@ class IngestionSource(Base):
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -327,9 +322,7 @@ class IngestionItem(Base):
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_ingestion_items_uri_unique", "uri", unique=True),
@@ -350,9 +343,7 @@ class IngestionRun(Base):
     items_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_indexed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     items_failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (

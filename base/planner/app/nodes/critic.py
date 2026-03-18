@@ -330,7 +330,7 @@ def _strip_code_fences(text: str) -> str:
     if stripped.startswith("```"):
         first_nl = stripped.find("\n")
         if first_nl != -1:
-            stripped = stripped[first_nl + 1:]
+            stripped = stripped[first_nl + 1 :]
         if stripped.endswith("```"):
             stripped = stripped[:-3].rstrip()
     return stripped
@@ -377,7 +377,7 @@ def _check_format_compliance(
         try:
             import xml.etree.ElementTree as ET
 
-            ET.fromstring(clean)
+            ET.fromstring(clean)  # noqa: S314  # nosec B314
         except ET.ParseError:
             failures.append("format_miss")
 
@@ -765,15 +765,18 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
                 _tracer = get_synesis_tracer()
                 if _tracer:
-                    _tracer.annotate_span("critic", {
-                        "critic_result": {
-                            "path": "deterministic_pass",
-                            "approved": True,
-                            "deliverables_checked": len(deliverables),
-                            "difficulty": round(difficulty, 2),
-                            "latency_ms": round(latency, 1),
+                    _tracer.annotate_span(
+                        "critic",
+                        {
+                            "critic_result": {
+                                "path": "deterministic_pass",
+                                "approved": True,
+                                "deliverables_checked": len(deliverables),
+                                "difficulty": round(difficulty, 2),
+                                "latency_ms": round(latency, 1),
+                            },
                         },
-                    })
+                    )
                 return {
                     "what_if_analyses": [],
                     "critic_feedback": "All deliverables covered (deterministic pass)",
@@ -1121,7 +1124,9 @@ Reply with JSON:
                 # sections that LLM-based critic might score as nominally covered.
                 if generated_code:
                     _det_failures = _deterministic_depth_checks(
-                        generated_code, difficulty, state.get("taxonomy_metadata") or {},
+                        generated_code,
+                        difficulty,
+                        state.get("taxonomy_metadata") or {},
                         user_task=user_task_data,
                     )
                     for df in _det_failures:
@@ -1241,31 +1246,42 @@ Reply with JSON:
                         for _p in _packets:
                             _pd = _p if isinstance(_p, dict) else _p.__dict__ if hasattr(_p, "__dict__") else {}
                             _pkt_confidences.append(_pd.get("confidence", 0))
-                            for _s in (_pd.get("sources") or []):
+                            for _s in _pd.get("sources") or []:
                                 _st = _s.get("type", "") if isinstance(_s, dict) else getattr(_s, "type", "")
                                 if _st == "web":
                                     _web_count += 1
                                 else:
                                     _rag_count += 1
-                        _tracer.annotate_span("critic", {
-                            "evidence_summary": {
-                                "packet_count": len(_packets),
-                                "rag_source_count": _rag_count,
-                                "web_source_count": _web_count,
-                                "avg_confidence": round(sum(_pkt_confidences) / max(1, len(_pkt_confidences)), 3),
-                                "response_length": len(generated_code),
+                        _tracer.annotate_span(
+                            "critic",
+                            {
+                                "evidence_summary": {
+                                    "packet_count": len(_packets),
+                                    "rag_source_count": _rag_count,
+                                    "web_source_count": _web_count,
+                                    "avg_confidence": round(sum(_pkt_confidences) / max(1, len(_pkt_confidences)), 3),
+                                    "response_length": len(generated_code),
+                                },
+                                "critic_result": {
+                                    "weighted_score": round(scores.weighted_overall, 1),
+                                    "approved": doc_approved,
+                                    "failure_modes": failure_modes[:10],
+                                    "blocking_issues": len(
+                                        [
+                                            f
+                                            for f in failure_modes
+                                            if f
+                                            in (
+                                                "hallucinated_citation",
+                                                "missing_requirement_coverage",
+                                                "critical_factual_error",
+                                            )
+                                        ]
+                                    ),
+                                    "hallucinated_urls": len(hallucinated_urls),
+                                },
                             },
-                            "critic_result": {
-                                "weighted_score": round(scores.weighted_overall, 1),
-                                "approved": doc_approved,
-                                "failure_modes": failure_modes[:10],
-                                "blocking_issues": len([f for f in failure_modes if f in (
-                                    "hallucinated_citation", "missing_requirement_coverage",
-                                    "critical_factual_error",
-                                )]),
-                                "hallucinated_urls": len(hallucinated_urls),
-                            },
-                        })
+                        )
 
                 # Deterministic override: reject if hallucinated URLs found
                 if hallucinated_urls:
@@ -1338,14 +1354,18 @@ Reply with JSON:
                         )
 
                 doc_iteration = state.get("iteration_count", 0)
-                _scores_dict = {
-                    "weighted_overall": round(scores.weighted_overall, 1),
-                    "task_faithfulness": round(scores.task_faithfulness, 1),
-                    "constraint_compliance": round(scores.constraint_compliance, 1),
-                    "coverage": round(scores.coverage, 1),
-                    "judgment_quality": round(scores.judgment_quality, 1),
-                    "approved": doc_approved,
-                } if scores else {}
+                _scores_dict = (
+                    {
+                        "weighted_overall": round(scores.weighted_overall, 1),
+                        "task_faithfulness": round(scores.task_faithfulness, 1),
+                        "constraint_compliance": round(scores.constraint_compliance, 1),
+                        "coverage": round(scores.coverage, 1),
+                        "judgment_quality": round(scores.judgment_quality, 1),
+                        "approved": doc_approved,
+                    }
+                    if scores
+                    else {}
+                )
                 result = {
                     "what_if_analyses": [],
                     "critic_feedback": doc_parsed.revision_feedback or doc_parsed.overall_assessment or "",
@@ -1602,23 +1622,26 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
         if _tracer:
             _tracer.record_phase_timing("critic.total_ms", latency)
             _existing_meta = {}
-            for _s in reversed((_tracer._current_trace.spans if _tracer._current_trace else [])):
+            for _s in reversed(_tracer._current_trace.spans if _tracer._current_trace else []):
                 if _s.node_name == "critic":
                     _existing_meta = dict(_s.metadata)
                     break
             if "critic_result" not in _existing_meta:
-                _tracer.annotate_span("critic", {
-                    "critic_result": {
-                        "path": "code" if is_code else "document",
-                        "approved": approved,
-                        "confidence": parsed.confidence,
-                        "risk_count": len(what_ifs),
-                        "high_risks": sum(1 for w in what_ifs if w.risk_level in ("high", "critical")),
-                        "iteration": iteration,
-                        "forced_approval": at_max_iterations and not parsed.approved,
-                        "latency_ms": round(latency, 1),
+                _tracer.annotate_span(
+                    "critic",
+                    {
+                        "critic_result": {
+                            "path": "code" if is_code_task else "document",
+                            "approved": approved,
+                            "confidence": parsed.confidence,
+                            "risk_count": len(what_ifs),
+                            "high_risks": sum(1 for w in what_ifs if w.risk_level in ("high", "critical")),
+                            "iteration": iteration,
+                            "forced_approval": at_max_iterations and not parsed.approved,
+                            "latency_ms": round(latency, 1),
+                        },
                     },
-                })
+                )
 
         is_evidence_only = critic_continue_reason == "needs_evidence"
         evidence_count = state.get("evidence_experiments_count", 0)

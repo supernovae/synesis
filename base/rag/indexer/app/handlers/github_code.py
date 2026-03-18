@@ -50,8 +50,12 @@ LANG_CONFIGS: dict[str, dict[str, Any]] = {
     "typescript": {
         "extensions": {".ts", ".tsx"},
         "top_level": {
-            "function_declaration", "class_declaration", "lexical_declaration",
-            "export_statement", "interface_declaration", "type_alias_declaration",
+            "function_declaration",
+            "class_declaration",
+            "lexical_declaration",
+            "export_statement",
+            "interface_declaration",
+            "type_alias_declaration",
         },
         "nested": {"function_declaration", "method_definition"},
     },
@@ -68,14 +72,24 @@ LANG_CONFIGS: dict[str, dict[str, Any]] = {
     "cpp": {
         "extensions": {".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".h"},
         "top_level": {
-            "function_definition", "class_specifier", "struct_specifier",
-            "namespace_definition", "template_declaration", "enum_specifier",
+            "function_definition",
+            "class_specifier",
+            "struct_specifier",
+            "namespace_definition",
+            "template_declaration",
+            "enum_specifier",
         },
         "nested": {"function_definition"},
     },
     "c_sharp": {
         "extensions": {".cs"},
-        "top_level": {"class_declaration", "interface_declaration", "struct_declaration", "enum_declaration", "namespace_declaration"},
+        "top_level": {
+            "class_declaration",
+            "interface_declaration",
+            "struct_declaration",
+            "enum_declaration",
+            "namespace_declaration",
+        },
         "nested": {"method_declaration", "constructor_declaration", "property_declaration"},
     },
     "ruby": {
@@ -110,12 +124,23 @@ LANG_CONFIGS: dict[str, dict[str, Any]] = {
     },
     "swift": {
         "extensions": {".swift"},
-        "top_level": {"function_declaration", "class_declaration", "struct_declaration", "protocol_declaration", "enum_declaration"},
+        "top_level": {
+            "function_declaration",
+            "class_declaration",
+            "struct_declaration",
+            "protocol_declaration",
+            "enum_declaration",
+        },
         "nested": {"function_declaration"},
     },
     "sql": {
         "extensions": {".sql"},
-        "top_level": {"create_table_statement", "create_function_statement", "create_view_statement", "select_statement"},
+        "top_level": {
+            "create_table_statement",
+            "create_function_statement",
+            "create_view_statement",
+            "select_statement",
+        },
         "nested": set(),
     },
     "r": {
@@ -141,7 +166,13 @@ LANG_CONFIGS: dict[str, dict[str, Any]] = {
     "dockerfile": {
         "extensions": set(),
         "filenames": {"Dockerfile", "Containerfile"},
-        "top_level": {"from_instruction", "run_instruction", "copy_instruction", "cmd_instruction", "entrypoint_instruction"},
+        "top_level": {
+            "from_instruction",
+            "run_instruction",
+            "copy_instruction",
+            "cmd_instruction",
+            "entrypoint_instruction",
+        },
         "nested": set(),
     },
     "make": {
@@ -290,7 +321,9 @@ def _collect_all_files(
             if not fp.is_file():
                 continue
             rel = fp.relative_to(root)
-            if any(part.startswith(".") or part in {"__pycache__", "node_modules", ".git", "vendor"} for part in rel.parts):
+            if any(
+                part.startswith(".") or part in {"__pycache__", "node_modules", ".git", "vendor"} for part in rel.parts
+            ):
                 continue
 
             is_structured = fp.suffix.lower() in STRUCTURED_EXTENSIONS
@@ -331,9 +364,12 @@ def _chunk_structured_file(content: str, file_path: str, doc: RawDocument) -> li
 
     suffix = Path(file_path).suffix.lower()
     fmt_map = {
-        ".yaml": "yaml", ".yml": "yaml",
-        ".json": "json", ".toml": "toml",
-        ".xml": "xml", ".pom": "xml",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".json": "json",
+        ".toml": "toml",
+        ".xml": "xml",
+        ".pom": "xml",
     }
     fmt = fmt_map.get(suffix, "yaml")
     return chunk_structured_content(content, fmt, file_path, doc.name)
@@ -346,7 +382,7 @@ def _tree_sitter_chunk(
 ) -> list[dict[str, Any]]:
     """Parse source code with tree-sitter and extract semantic chunks."""
     try:
-        from tree_sitter_language_pack import get_language, get_parser
+        from tree_sitter_language_pack import get_parser
     except ImportError:
         logger.warning("tree-sitter-language-pack not installed — falling back to raw file chunks")
         return []
@@ -376,7 +412,12 @@ def _tree_sitter_chunk(
         node_text = leading + source_bytes[node.start_byte : node.end_byte]
         text = node_text.decode("utf-8", errors="replace")
         symbol_name = _extract_symbol_name(node)
-        symbol_type = node.type.replace("_declaration", "").replace("_definition", "").replace("_item", "").replace("_specifier", "")
+        symbol_type = (
+            node.type.replace("_declaration", "")
+            .replace("_definition", "")
+            .replace("_item", "")
+            .replace("_specifier", "")
+        )
 
         if len(text) <= MAX_CHUNK_CHARS:
             chunks.append(

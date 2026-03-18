@@ -8,6 +8,7 @@ Create Date: 2026-03-18
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -30,11 +31,9 @@ def upgrade() -> None:
     if "uri" not in cols and "url" not in cols:
         op.add_column("ingestion_items", sa.Column("uri", sa.Text(), nullable=False, server_default=""))
 
-    uri_col = "uri" if "uri" in cols or "url" in cols else "uri"
-    try:
+    uri_col = "uri"
+    with contextlib.suppress(Exception):
         op.create_index("ix_ingestion_items_uri_unique", "ingestion_items", [uri_col], unique=True)
-    except Exception:
-        pass
 
     new_cols = [
         ("handler", sa.String(64), True, None),
@@ -52,10 +51,8 @@ def upgrade() -> None:
                 kw["server_default"] = default
             op.add_column("ingestion_items", sa.Column(name, col_type, **kw))
 
-    try:
+    with contextlib.suppress(Exception):
         op.create_index("ix_ingestion_items_handler", "ingestion_items", ["handler"])
-    except Exception:
-        pass
 
 
 def downgrade() -> None:

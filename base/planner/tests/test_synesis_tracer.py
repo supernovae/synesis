@@ -6,8 +6,7 @@ import json
 import os
 import sys
 import time
-import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -20,7 +19,6 @@ from app.synesis_tracer import (
     TraceRecord,
     _compute_cost,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -127,9 +125,12 @@ class TestSpanAnnotation:
     def test_annotate_completed_span(self, tracer: SynesisTracer):
         span = SpanRecord(node_name="final_scrubber")
         tracer._current_trace.spans.append(span)
-        tracer.annotate_span("final_scrubber", {
-            "scrub_details": {"artifacts_stripped": 2, "false_precision": 1},
-        })
+        tracer.annotate_span(
+            "final_scrubber",
+            {
+                "scrub_details": {"artifacts_stripped": 2, "false_precision": 1},
+            },
+        )
         assert span.metadata["scrub_details"]["artifacts_stripped"] == 2
 
     def test_annotate_active_span(self, tracer: SynesisTracer):
@@ -184,6 +185,7 @@ class TestTraceRecordSerialization:
     def test_short_circuit_reason_in_json(self, tracer: SynesisTracer):
         tracer.mark_short_circuit("prompt_cache_hit")
         from dataclasses import asdict
+
         data = asdict(tracer._current_trace)
         assert data["short_circuit_reason"] == "prompt_cache_hit"
 
@@ -191,6 +193,7 @@ class TestTraceRecordSerialization:
         span = SpanRecord(node_name="final_scrubber", metadata={"scrub_details": {"fp": 2}})
         tracer._current_trace.spans.append(span)
         from dataclasses import asdict
+
         data = json.dumps(asdict(tracer._current_trace), default=str)
         parsed = json.loads(data)
         assert parsed["spans"][0]["metadata"]["scrub_details"]["fp"] == 2
@@ -256,9 +259,12 @@ class TestCostComputation:
         ]
         record.spans = [span]
 
-        with patch("app.synesis_tracer._load_pricing", return_value={
-            "synesis-router": (0.20, 0.50),
-        }):
+        with patch(
+            "app.synesis_tracer._load_pricing",
+            return_value={
+                "synesis-router": (0.20, 0.50),
+            },
+        ):
             cost = _compute_cost(record)
         assert cost == round(0.20 + 0.25, 8)
 

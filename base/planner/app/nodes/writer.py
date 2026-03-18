@@ -976,16 +976,19 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         _tracer = get_synesis_tracer()
         if _tracer:
             _tracer.record_phase_timing("writer.total_ms", latency)
-            _tracer.annotate_span("writer", {
-                "write_summary": {
-                    "output_len": len(compiled),
-                    "evidence_len": len(compiled_evidence),
-                    "sections_written": sections_written,
-                    "available_sources": available_sources_count,
-                    "writer_budget": writer_budget,
-                    "latency_ms": round(latency, 1),
+            _tracer.annotate_span(
+                "writer",
+                {
+                    "write_summary": {
+                        "output_len": len(compiled),
+                        "evidence_len": len(compiled_evidence),
+                        "sections_written": sections_written,
+                        "available_sources": available_sources_count,
+                        "writer_budget": writer_budget,
+                        "latency_ms": round(latency, 1),
+                    },
                 },
-            })
+            )
 
         from ..token_utils import track_budget
 

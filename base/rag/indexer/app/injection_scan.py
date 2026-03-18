@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 
 NAMED_INJECTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("ignore_previous_instructions", re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", re.IGNORECASE)),
+    (
+        "ignore_previous_instructions",
+        re.compile(r"ignore\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?", re.IGNORECASE),
+    ),
     ("disregard_previous", re.compile(r"disregard\s+(?:all\s+)?(?:previous|prior|above)", re.IGNORECASE)),
     ("forget_everything", re.compile(r"forget\s+(?:everything|all)\s+(?:you\s+)?(?:were\s+)?told", re.IGNORECASE)),
     ("new_instructions", re.compile(r"new\s+instructions?\s*:", re.IGNORECASE)),

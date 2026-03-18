@@ -1925,7 +1925,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             _ds_node = accumulated_state.get("current_node") or "writer"
                             _ds_elapsed = (time.monotonic() - _ds_t0) * 1000
                             _ds_prompt_text = ""
-                            _ds_msgs = (_stream_req.get("messages") or [])
+                            _ds_msgs = _stream_req.get("messages") or []
                             if _ds_msgs:
                                 _last_msg = _ds_msgs[-1]
                                 _ds_prompt_text = (

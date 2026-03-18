@@ -130,9 +130,7 @@ async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_admin)):
     from ..db.engine import async_session as db_session
 
     async with db_session() as session:
-        result = await session.execute(
-            sa_text("DELETE FROM traces WHERE trace_id = :tid"), {"tid": trace_id}
-        )
+        result = await session.execute(sa_text("DELETE FROM traces WHERE trace_id = :tid"), {"tid": trace_id})
         await session.commit()
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Trace not found")
@@ -187,9 +185,7 @@ async def purge_trivial_traces(
         if dry_run or count == 0:
             return {"would_delete": count, "dry_run": True, "min_tokens": min_tokens}
 
-        await session.execute(
-            sa_text("DELETE FROM traces WHERE total_tokens < :min"), {"min": min_tokens}
-        )
+        await session.execute(sa_text("DELETE FROM traces WHERE total_tokens < :min"), {"min": min_tokens})
         await session.commit()
     return {"deleted": count, "dry_run": False, "min_tokens": min_tokens}
 

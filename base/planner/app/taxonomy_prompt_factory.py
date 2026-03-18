@@ -95,9 +95,7 @@ def _load_config() -> dict[str, Any]:
         db_config = _load_from_db()
         if db_config:
             _cached = db_config
-            _cached_taxonomies = {
-                k: v for k, v in db_config.items() if isinstance(v, dict) and "path" in v
-            }
+            _cached_taxonomies = {k: v for k, v in db_config.items() if isinstance(v, dict) and "path" in v}
             _cache_ts = now
             return _cached
     except Exception:
@@ -111,9 +109,7 @@ def _load_config() -> dict[str, Any]:
 
     yaml_config = _load_from_yaml()
     _cached = yaml_config
-    _cached_taxonomies = {
-        k: v for k, v in yaml_config.items() if isinstance(v, dict) and "path" in v
-    }
+    _cached_taxonomies = {k: v for k, v in yaml_config.items() if isinstance(v, dict) and "path" in v}
     _cache_ts = now
     return _cached
 

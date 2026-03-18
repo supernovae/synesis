@@ -242,15 +242,19 @@ async def get_model_topology() -> dict:
             service_name = roles[role_name].get("service_name", role_name)
             namespace = roles[role_name].get("namespace", "synesis-models")
             endpoint = f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1"
-            env_entries.append({
-                "role": role_name,
-                "model": model,
-                "served_name": assignment.get("served_model_name", roles[role_name].get("served_model_name", role_name)),
-                "endpoint": endpoint,
-                "status": "configured",
-                "gpu": assignment.get("gpu", ""),
-                "notes": assignment.get("notes", ""),
-            })
+            env_entries.append(
+                {
+                    "role": role_name,
+                    "model": model,
+                    "served_name": assignment.get(
+                        "served_model_name", roles[role_name].get("served_model_name", role_name)
+                    ),
+                    "endpoint": endpoint,
+                    "status": "configured",
+                    "gpu": assignment.get("gpu", ""),
+                    "notes": assignment.get("notes", ""),
+                }
+            )
         environments[env_name] = env_entries
 
     for profile_name, profile_cfg in openrouter_profiles.items():
@@ -258,15 +262,17 @@ async def get_model_topology() -> dict:
         env_entries = []
         assignments = profile_cfg.get("assignments", {})
         for role_name, assignment in assignments.items():
-            env_entries.append({
-                "role": role_name,
-                "model": assignment.get("openrouter_model", ""),
-                "served_name": role_name,
-                "endpoint": "https://openrouter.ai/api/v1",
-                "status": "configured",
-                "gpu": "",
-                "notes": assignment.get("notes", ""),
-            })
+            env_entries.append(
+                {
+                    "role": role_name,
+                    "model": assignment.get("openrouter_model", ""),
+                    "served_name": role_name,
+                    "endpoint": "https://openrouter.ai/api/v1",
+                    "status": "configured",
+                    "gpu": "",
+                    "notes": assignment.get("notes", ""),
+                }
+            )
         environments[env_name] = env_entries
 
     try:
@@ -279,23 +285,23 @@ async def get_model_topology() -> dict:
                 env = row.environment
                 if env not in environments:
                     environments[env] = []
-                existing = next(
-                    (e for e in environments[env] if e["role"] == row.role), None
-                )
+                existing = next((e for e in environments[env] if e["role"] == row.role), None)
                 if existing:
                     existing["status"] = row.status
                     existing["model"] = row.model or existing["model"]
                     existing["endpoint"] = row.endpoint or existing["endpoint"]
                 else:
-                    environments[env].append({
-                        "role": row.role,
-                        "model": row.model,
-                        "served_name": row.served_name,
-                        "endpoint": row.endpoint,
-                        "status": row.status,
-                        "gpu": "",
-                        "notes": "",
-                    })
+                    environments[env].append(
+                        {
+                            "role": row.role,
+                            "model": row.model,
+                            "served_name": row.served_name,
+                            "endpoint": row.endpoint,
+                            "status": row.status,
+                            "gpu": "",
+                            "notes": "",
+                        }
+                    )
     except Exception:
         logger.debug("model_topology_db_merge_failed", exc_info=True)
 

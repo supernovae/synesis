@@ -141,7 +141,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             text_to_analyze = f"{orig} {last_content or ''}".strip()[:800]
 
     message_origin = _classify_message_origin(last_content)
-    policy = get_defaults_policy()
 
     # Query normalization: deterministic typo correction before classification
     normalizer = get_normalizer()
@@ -259,18 +258,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["plan_required"] = plan_required
         out["escalation_reason"] = "reclassify_override" if not bypass_supervisor else ""
 
-    # Coding client (Cursor, Claude Code): ambiguous/general → allow code bias
-    # Skipped in text_only mode — coder agents use their own front door.
-    if (
-        not _text_only
-        and state.get("coding_client_detected")
-        and out.get("intent_class") != "knowledge"
-        and analysis.get("intent_class") == "general"
-        and not analysis.get("is_code_task", False)
-    ):
-        out["is_code_task"] = True
-        out["intent_class"] = "code"
-
     # Taxonomy-Driven Contextual Injection: resolve taxonomy_metadata from active_domain_refs + task_size
     taxonomy_metadata = resolve_taxonomy_metadata(
         active_domain_refs=out.get("active_domain_refs") or [],
@@ -311,20 +298,6 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["plan_required"] = difficulty >= plan_threshold
         out["rag_mode"] = "normal" if difficulty >= 0.3 else "light"
 
-    # Code trivial fast-path: low-difficulty code tasks bypass supervisor
-    # In text_only mode is_code_task is always False so this block is inert.
-    if out.get("is_code_task") and not _text_only and difficulty < trivial_threshold and not plan_session:
-        out["task_is_trivial"] = True
-        out["rag_mode"] = "disabled"
-        out["task_description"] = (last_content or "").strip()[:2000]
-        eff_lang = out["target_language"] if out["target_language"] not in ("", "infer") else DEFAULT_LANGUAGE
-        out["touched_files"] = _easy_touched_files(last_content, eff_lang)
-        out["defaults_used"] = policy.get_defaults_used(eff_lang)
-        out["is_code_task"] = True
-        out["include_tests"] = _easy_wants_tests(last_content)
-        out["include_run_commands"] = True
-        out["task_type"] = "code_generation"
-        out["allowed_tools"] = ["sandbox"]
     # Extract semantic classifier diagnostics for logging
     _hits = analysis.get("classification_hits") or []
     _semantic_hit = next((h for h in _hits if "semantic:" in h), "")

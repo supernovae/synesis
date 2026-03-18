@@ -59,7 +59,6 @@ async def costs_by_role(
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-role cost breakdown from trace LLM calls via full_record JSONB."""
-    from ..db.models import Trace
 
     cutoff = time.time() - days * 86400
     try:
@@ -100,8 +99,7 @@ async def costs_by_role(
         for role, agg in role_agg.items():
             rates = pricing.get(role, (0, 0))
             agg["cost_usd"] = round(
-                (agg["prompt_tokens"] / 1_000_000) * rates[0]
-                + (agg["completion_tokens"] / 1_000_000) * rates[1],
+                (agg["prompt_tokens"] / 1_000_000) * rates[0] + (agg["completion_tokens"] / 1_000_000) * rates[1],
                 6,
             )
 

@@ -126,6 +126,7 @@ def record_error(
         daemon=True,
     ).start()
 
+
 COLLECTION = "failures_v1"
 EMBEDDING_DIM = 384
 
@@ -363,6 +364,7 @@ def _update_resolution_pg(failure_id: str, resolution: str) -> None:
 async def update_resolution(failure_id: str, resolution: str) -> None:
     """Update a failure entry with the code that eventually passed."""
     try:
+
         def _do_update(client):
             results = client.get(collection_name=COLLECTION, ids=[failure_id])
             if results:

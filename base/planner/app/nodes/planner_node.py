@@ -77,6 +77,7 @@ Authority tiers: [R:canonical] > [R:vetted] > [R:community] > [R:external].
 When sources conflict, prefer higher-authority sources.
 """
 
+
 def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
     """Build the knowledge planner prompt, scaling depth language with difficulty."""
     if difficulty >= 0.6:
@@ -370,13 +371,6 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         task_desc = state.get("task_description", "")
-        target_lang = state.get("target_language") or "markdown"
-
-        assumptions = state.get("assumptions", [])
-        if isinstance(assumptions, list):
-            assumptions_str = ", ".join(assumptions) if assumptions else "None stated"
-        else:
-            assumptions_str = str(assumptions)
 
         difficulty = state.get("difficulty", 0.5)
         context_block = _build_evidence_context(state)
@@ -590,15 +584,18 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         _tracer = get_synesis_tracer()
         if _tracer:
             _tracer.record_phase_timing("planner.total_ms", latency)
-            _tracer.annotate_span("planner", {
-                "plan_summary": {
-                    "steps": len(plan.get("steps", [])),
-                    "open_questions": len(plan.get("open_questions", [])),
-                    "confidence": parsed.confidence,
-                    "latency_ms": round(latency, 1),
-                    "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
+            _tracer.annotate_span(
+                "planner",
+                {
+                    "plan_summary": {
+                        "steps": len(plan.get("steps", [])),
+                        "open_questions": len(plan.get("open_questions", [])),
+                        "confidence": parsed.confidence,
+                        "latency_ms": round(latency, 1),
+                        "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
+                    },
                 },
-            })
+            )
 
         steps = plan.get("steps", [])
 

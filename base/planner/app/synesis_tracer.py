@@ -148,13 +148,13 @@ def _load_pricing() -> dict[str, tuple[float, float]]:
 
 def _parse_pricing_from_models_yaml() -> dict[str, tuple[float, float]] | None:
     """Try to parse $/M rates from models.yaml openrouter notes fields."""
-    import re
 
     yaml_path = os.environ.get("SYNESIS_MODELS_YAML_PATH", "")
     if not yaml_path:
         return None
     try:
         import yaml
+
         with open(yaml_path) as f:
             data = yaml.safe_load(f) or {}
     except Exception:
@@ -178,6 +178,7 @@ def _parse_pricing_from_models_yaml() -> dict[str, tuple[float, float]] | None:
 def _extract_rates(notes: str) -> tuple[float, float]:
     """Extract $/M input and output rates from notes like '$0.20/M in, $0.50/M out'."""
     import re
+
     matches = re.findall(r"\$(\d+\.?\d*)/M", notes)
     if len(matches) >= 2:
         return (float(matches[0]), float(matches[1]))

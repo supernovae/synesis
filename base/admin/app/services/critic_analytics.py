@@ -50,8 +50,10 @@ _APPROVED_EXPR = f"""(
     END
 )"""
 
+
 def _score_col(key: str) -> str:
     return f"COALESCE(({_MC} ->> '{key}')::float, ({_BG} ->> '{key}')::float, ({_CS} ->> '{key}')::float)"
+
 
 # All queries are pre-built at module load with fixed JSONB path expressions.
 # Bind parameters (:cutoff) handle the only runtime input.
@@ -61,11 +63,11 @@ _Q_MAIN = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-
         COUNT(*)::int AS total_evaluated,
         COUNT(*) FILTER (WHERE {_APPROVED_EXPR})::int AS approved,
         COUNT(*) FILTER (WHERE NOT {_APPROVED_EXPR})::int AS rejected,
-        AVG({_score_col('weighted_overall')}) AS avg_weighted_overall,
-        AVG({_score_col('task_faithfulness')}) AS avg_task_faithfulness,
-        AVG({_score_col('constraint_compliance')}) AS avg_constraint_compliance,
-        AVG({_score_col('coverage')}) AS avg_coverage,
-        AVG({_score_col('judgment_quality')}) AS avg_judgment_quality
+        AVG({_score_col("weighted_overall")}) AS avg_weighted_overall,
+        AVG({_score_col("task_faithfulness")}) AS avg_task_faithfulness,
+        AVG({_score_col("constraint_compliance")}) AS avg_constraint_compliance,
+        AVG({_score_col("coverage")}) AS avg_coverage,
+        AVG({_score_col("judgment_quality")}) AS avg_judgment_quality
     FROM traces
     WHERE timestamp >= :cutoff
       AND {_HAS_CRITIC}
@@ -179,9 +181,7 @@ _Q_EVAL_COUNT = text(  # nosemgrep
 )
 
 
-async def get_critic_evaluations(
-    days: int = 7, limit: int = 50, offset: int = 0
-) -> dict[str, Any] | None:
+async def get_critic_evaluations(days: int = 7, limit: int = 50, offset: int = 0) -> dict[str, Any] | None:
     """Return paginated list of individual critic evaluations."""
     cutoff = time.time() - (days * 86400)
     try:
@@ -189,9 +189,7 @@ async def get_critic_evaluations(
             cnt_row = (await session.execute(_Q_EVAL_COUNT, {"cutoff": cutoff})).one()
             total = cnt_row.cnt or 0
 
-            rows = (await session.execute(
-                _Q_EVALUATIONS, {"cutoff": cutoff, "lim": limit, "off": offset}
-            )).all()
+            rows = (await session.execute(_Q_EVALUATIONS, {"cutoff": cutoff, "lim": limit, "off": offset})).all()
 
             items = []
             for r in rows:
@@ -202,15 +200,17 @@ async def get_critic_evaluations(
                         modes = [m.strip().strip('"') for m in raw.split(",")] if raw else []
                     else:
                         modes = list(r.failure_modes)
-                items.append({
-                    "trace_id": r.trace_id,
-                    "timestamp": r.timestamp,
-                    "query_snippet": (r.query_snippet or "")[:200],
-                    "weighted_overall": round(float(r.weighted_overall or 0), 2),
-                    "approved": bool(r.approved),
-                    "failure_modes": [m for m in modes if m],
-                    "repair_instructions": (r.repair_instructions or "")[:500],
-                })
+                items.append(
+                    {
+                        "trace_id": r.trace_id,
+                        "timestamp": r.timestamp,
+                        "query_snippet": (r.query_snippet or "")[:200],
+                        "weighted_overall": round(float(r.weighted_overall or 0), 2),
+                        "approved": bool(r.approved),
+                        "failure_modes": [m for m in modes if m],
+                        "repair_instructions": (r.repair_instructions or "")[:500],
+                    }
+                )
             return {"evaluations": items, "total": total, "limit": limit, "offset": offset}
     except Exception:
         logger.warning("critic_evaluations_query_failed", exc_info=True)

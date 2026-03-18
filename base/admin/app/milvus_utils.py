@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger("synesis.admin.milvus_utils")
 
@@ -54,6 +55,7 @@ class ResilientMilvusClient:
 
     def _create(self) -> Any:
         from pymilvus import MilvusClient
+
         return MilvusClient(uri=self._uri, timeout=self._timeout)
 
     def get(self) -> Any:

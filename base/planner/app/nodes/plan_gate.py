@@ -46,8 +46,7 @@ def _check_step_quality(steps: list[dict[str, Any]]) -> list[str]:
         action = (s.get("action") or "").strip()
         if len(action) < 10:
             errors.append(
-                f"step_trivial: step {s.get('id', '?')} action is too short "
-                f"({len(action)} chars): '{action[:30]}'"
+                f"step_trivial: step {s.get('id', '?')} action is too short ({len(action)} chars): '{action[:30]}'"
             )
     return errors
 
@@ -74,8 +73,7 @@ def _check_deliverable_coverage(
         if missing_ids:
             names = [deliverables[i] for i in missing_ids if i < len(deliverables)]
             return [
-                f"deliverable_uncovered: {len(missing_ids)} deliverable(s) not mapped "
-                f"to any plan step: {names[:5]}"
+                f"deliverable_uncovered: {len(missing_ids)} deliverable(s) not mapped to any plan step: {names[:5]}"
             ]
         return []
 
@@ -150,8 +148,7 @@ def _check_hallucination_guard(
         action = s.get("action") or ""
         if _URL_RE.search(action):
             errors.append(
-                f"phantom_url: step {s.get('id', '?')} references a URL but no "
-                f"evidence has been retrieved yet"
+                f"phantom_url: step {s.get('id', '?')} references a URL but no evidence has been retrieved yet"
             )
         if _DOC_REF_RE.search(action) or _EVIDENCE_CITE_RE.search(action):
             errors.append(
@@ -210,10 +207,7 @@ async def _shallow_coherence_check(
         model_kwargs={"response_format": {"type": "json_object"}},
     )
 
-    plan_summary = "\n".join(
-        f"  Step {s.get('id', i)}: {(s.get('action') or '')[:120]}"
-        for i, s in enumerate(steps)
-    )
+    plan_summary = "\n".join(f"  Step {s.get('id', i)}: {(s.get('action') or '')[:120]}" for i, s in enumerate(steps))
     deliverable_list = ", ".join(deliverables[:10]) if deliverables else "(none)"
 
     system = (
@@ -229,10 +223,12 @@ async def _shallow_coherence_check(
     )
 
     try:
-        resp = await llm.ainvoke([
-            SystemMessage(content=system),
-            HumanMessage(content=prompt),
-        ])
+        resp = await llm.ainvoke(
+            [
+                SystemMessage(content=system),
+                HumanMessage(content=prompt),
+            ]
+        )
         import json
 
         data = json.loads(resp.content or "{}")
@@ -363,15 +359,18 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     _tracer = get_synesis_tracer()
     if _tracer:
         _tracer.record_phase_timing("plan_gate.total_ms", latency)
-        _tracer.annotate_span(node_name, {
-            "plan_gate": {
-                "passed": passed,
-                "errors": errors[:10],
-                "checks_run": checks_run,
-                "coherence_check": ran_coherence,
-                "latency_ms": round(latency, 1),
+        _tracer.annotate_span(
+            node_name,
+            {
+                "plan_gate": {
+                    "passed": passed,
+                    "errors": errors[:10],
+                    "checks_run": checks_run,
+                    "coherence_check": ran_coherence,
+                    "latency_ms": round(latency, 1),
+                },
             },
-        })
+        )
 
     return {
         "plan_gate_passed": passed,

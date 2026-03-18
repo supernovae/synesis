@@ -34,6 +34,7 @@ class GenericTextHandler:
             return []
 
         import httpx
+
         try:
             with httpx.Client(timeout=30, follow_redirects=True) as client:
                 resp = client.get(url)
@@ -59,13 +60,15 @@ class GenericTextHandler:
             return []
 
         if len(content) <= MAX_CHUNK_CHARS:
-            return [Chunk(
-                text=content,
-                section=doc.name,
-                heading_path=doc.name,
-                chunk_index=0,
-                metadata={"content_format": "text"},
-            )]
+            return [
+                Chunk(
+                    text=content,
+                    section=doc.name,
+                    heading_path=doc.name,
+                    chunk_index=0,
+                    metadata={"content_format": "text"},
+                )
+            ]
 
         paragraphs = content.split("\n\n")
         chunks: list[Chunk] = []
@@ -80,13 +83,15 @@ class GenericTextHandler:
 
             if current_len + len(para) > MAX_CHUNK_CHARS and current:
                 chunk_text = "\n\n".join(current)
-                chunks.append(Chunk(
-                    text=chunk_text,
-                    section=f"{doc.name} (part {idx + 1})",
-                    heading_path=doc.name,
-                    chunk_index=idx,
-                    metadata={"content_format": "text"},
-                ))
+                chunks.append(
+                    Chunk(
+                        text=chunk_text,
+                        section=f"{doc.name} (part {idx + 1})",
+                        heading_path=doc.name,
+                        chunk_index=idx,
+                        metadata={"content_format": "text"},
+                    )
+                )
                 idx += 1
 
                 overlap_text = chunk_text[-OVERLAP_CHARS:] if len(chunk_text) > OVERLAP_CHARS else ""
@@ -97,12 +102,14 @@ class GenericTextHandler:
             current_len += len(para) + 2
 
         if current:
-            chunks.append(Chunk(
-                text="\n\n".join(current),
-                section=f"{doc.name} (part {idx + 1})" if idx > 0 else doc.name,
-                heading_path=doc.name,
-                chunk_index=idx,
-                metadata={"content_format": "text"},
-            ))
+            chunks.append(
+                Chunk(
+                    text="\n\n".join(current),
+                    section=f"{doc.name} (part {idx + 1})" if idx > 0 else doc.name,
+                    heading_path=doc.name,
+                    chunk_index=idx,
+                    metadata={"content_format": "text"},
+                )
+            )
 
         return chunks

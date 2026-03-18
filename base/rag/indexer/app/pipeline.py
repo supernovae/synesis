@@ -27,11 +27,31 @@ from .schema import catalog_entity, ensure_synesis_catalog
 
 logger = get_logger("synesis.indexer.pipeline")
 
-_CODE_FORMATS = frozenset({
-    "python", "go", "rust", "javascript", "typescript", "java", "c", "cpp",
-    "c_sharp", "ruby", "php", "bash", "lua", "kotlin", "scala", "swift",
-    "sql", "r", "elixir", "haskell", "perl",
-})
+_CODE_FORMATS = frozenset(
+    {
+        "python",
+        "go",
+        "rust",
+        "javascript",
+        "typescript",
+        "java",
+        "c",
+        "cpp",
+        "c_sharp",
+        "ruby",
+        "php",
+        "bash",
+        "lua",
+        "kotlin",
+        "scala",
+        "swift",
+        "sql",
+        "r",
+        "elixir",
+        "haskell",
+        "perl",
+    }
+)
 
 _CONFIG_FORMATS = frozenset({"yaml", "json", "toml", "xml", "hcl", "dockerfile", "make", "protobuf"})
 

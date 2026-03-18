@@ -793,7 +793,9 @@ class RouterNode:
                 error_output=f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s ({len(queries)} queries)",
                 task_description=combined_query[:2048],
             )
-            return [_timeout_packet(combined_query, f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")], None
+            return [
+                _timeout_packet(combined_query, f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")
+            ], None
         retrieve_ms = (time.monotonic() - t_retrieve) * 1000
 
         unified = _rag_to_unified(rag_results)
@@ -1327,28 +1329,27 @@ class RouterNode:
         cache_hit_rate = (cs.exact_hits + cs.semantic_hits) / max(1, total_cache_lookups)
 
         if _tracer:
-            _rag_sources = sum(
-                1 for p in packets for s in p.sources if getattr(s, "type", "") != "web"
-            )
-            _web_sources = sum(
-                1 for p in packets for s in p.sources if getattr(s, "type", "") == "web"
-            )
-            _tracer.annotate_span("router", {
-                "retrieval_cache": {
-                    "exact_hits": cs.exact_hits,
-                    "semantic_hits": cs.semantic_hits,
-                    "misses": cs.misses,
-                    "hit_rate": round(cache_hit_rate, 4),
+            _rag_sources = sum(1 for p in packets for s in p.sources if getattr(s, "type", "") != "web")
+            _web_sources = sum(1 for p in packets for s in p.sources if getattr(s, "type", "") == "web")
+            _tracer.annotate_span(
+                "router",
+                {
+                    "retrieval_cache": {
+                        "exact_hits": cs.exact_hits,
+                        "semantic_hits": cs.semantic_hits,
+                        "misses": cs.misses,
+                        "hit_rate": round(cache_hit_rate, 4),
+                    },
+                    "evidence": {
+                        "packet_count": len(packets),
+                        "total_snippets": total_snips,
+                        "avg_confidence": round(avg_conf, 4),
+                        "rag_source_count": _rag_sources,
+                        "web_source_count": _web_sources,
+                        "mode": mode,
+                    },
                 },
-                "evidence": {
-                    "packet_count": len(packets),
-                    "total_snippets": total_snips,
-                    "avg_confidence": round(avg_conf, 4),
-                    "rag_source_count": _rag_sources,
-                    "web_source_count": _web_sources,
-                    "mode": mode,
-                },
-            })
+            )
 
         logger.info(
             "router_complete",

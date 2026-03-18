@@ -27,11 +27,11 @@ from typing import Any
 from langgraph.graph import END, StateGraph
 
 from .config import settings
-from .failure_store import record_error
 from .contract_validator import (
     validate_critique_resolutions,
     validated_node,
 )
+from .failure_store import record_error
 from .nodes import (
     critic_node,
     entry_pipeline_node,
@@ -418,7 +418,8 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
                 f"Combine these sections into a single valid {frame_output_format.upper()} document. "
                 f"Do NOT wrap in markdown, do NOT add headings or prose outside the {frame_output_format} structure. "
                 f"The entire output must be parseable as {frame_output_format}.{schema_hint}"
-                + preserve_hints + cohesion_hint
+                + preserve_hints
+                + cohesion_hint
             )
         else:
             instruction = (
@@ -428,8 +429,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
                 "and any structured headings the user explicitly requested. "
                 "Do NOT add generic compliance scaffolding or enterprise boilerplate "
                 "that was not present in the source sections. "
-                "Match your depth to the source material — do not compress or inflate."
-                + preserve_hints + cohesion_hint
+                "Match your depth to the source material — do not compress or inflate." + preserve_hints + cohesion_hint
             )
 
         result = await writer_llm.ainvoke(

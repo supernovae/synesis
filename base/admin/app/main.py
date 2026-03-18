@@ -48,6 +48,7 @@ from app.routers.auth_router import router as auth_router
 from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
+from app.routers.ingestion import router as ingestion_router
 from app.routers.integrations import router as integrations_router
 from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
@@ -55,7 +56,6 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.rag import router as rag_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
-from app.routers.ingestion import router as ingestion_router
 from app.routers.traces import router as traces_router
 
 app.include_router(assistant_router)
@@ -98,7 +98,7 @@ async def sse_events():
             await asyncio.sleep(5)
             try:
                 from app.db.engine import async_session
-                from sqlalchemy import func, select, text
+                from sqlalchemy import text
 
                 async with async_session() as session:
                     row = (

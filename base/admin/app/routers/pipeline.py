@@ -301,10 +301,10 @@ async def run_critic_on_trace(
             completion = resp.json()
     except httpx.HTTPStatusError as e:
         logger.warning("critic_run_http_error", extra={"status": e.response.status_code, "model": model})
-        raise HTTPException(status_code=502, detail=f"Critic model returned {e.response.status_code}")
+        raise HTTPException(status_code=502, detail=f"Critic model returned {e.response.status_code}") from e
     except Exception as e:
         logger.warning("critic_run_failed", extra={"error": str(e)[:200], "model": model})
-        raise HTTPException(status_code=502, detail=f"Failed to call critic model: {type(e).__name__}")
+        raise HTTPException(status_code=502, detail=f"Failed to call critic model: {type(e).__name__}") from e
 
     latency_ms = round((time.monotonic() - t0) * 1000)
 

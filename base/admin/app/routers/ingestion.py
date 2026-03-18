@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import yaml
-from fastapi import APIRouter, Depends, Query, Response, UploadFile, File
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/v1/ingestion", tags=["ingestion"])
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
+
 
 class SourceCreate(BaseModel):
     name: str
@@ -76,6 +77,7 @@ class RunUpdate(BaseModel):
 # Helper: serialize an IngestionItem row to dict
 # ---------------------------------------------------------------------------
 
+
 def _item_dict(r: IngestionItem) -> dict:
     return {
         "id": r.id,
@@ -107,6 +109,7 @@ def _item_dict(r: IngestionItem) -> dict:
 # Sources
 # ---------------------------------------------------------------------------
 
+
 @router.get("/sources")
 async def list_sources(
     _user: UserInfo = Depends(get_current_user),
@@ -121,9 +124,7 @@ async def list_sources(
         sources = []
         for r in rows:
             item_count = (
-                await session.execute(
-                    select(func.count()).where(IngestionItem.source_id == r.id)
-                )
+                await session.execute(select(func.count()).where(IngestionItem.source_id == r.id))
             ).scalar() or 0
             pending = (
                 await session.execute(
@@ -133,20 +134,22 @@ async def list_sources(
                     )
                 )
             ).scalar() or 0
-            sources.append({
-                "id": r.id,
-                "name": r.name,
-                "handler": r.handler,
-                "origin_type": r.origin_type,
-                "authority": r.authority,
-                "domain": r.domain,
-                "config": r.config,
-                "tags": r.tags,
-                "status": r.status,
-                "item_count": item_count,
-                "pending_count": pending,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            })
+            sources.append(
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "handler": r.handler,
+                    "origin_type": r.origin_type,
+                    "authority": r.authority,
+                    "domain": r.domain,
+                    "config": r.config,
+                    "tags": r.tags,
+                    "status": r.status,
+                    "item_count": item_count,
+                    "pending_count": pending,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+            )
     return {"sources": sources}
 
 
@@ -175,6 +178,7 @@ async def create_source(
 # Items — CRUD
 # ---------------------------------------------------------------------------
 
+
 @router.get("/items")
 async def list_items(
     _user: UserInfo = Depends(get_current_user),
@@ -199,10 +203,8 @@ async def list_items(
 
         total = (await session.execute(select(func.count()).select_from(q.subquery()))).scalar() or 0
         rows = (
-            await session.execute(
-                q.order_by(IngestionItem.id.desc()).offset(offset).limit(page_size)
-            )
-        ).scalars().all()
+            (await session.execute(q.order_by(IngestionItem.id.desc()).offset(offset).limit(page_size))).scalars().all()
+        )
 
     return {"items": [_item_dict(r) for r in rows], "total": total, "page": page, "page_size": page_size}
 
@@ -214,20 +216,24 @@ async def add_item(
 ):
     """Add a single URI to the ingestion queue (dedup by uri)."""
     async with async_session() as session:
-        stmt = pg_insert(IngestionItem).values(
-            source_id=body.source_id,
-            uri=body.uri,
-            handler=body.handler,
-            title=body.title,
-            domain=body.domain,
-            authority=body.authority,
-            origin_type=body.origin_type,
-            tags=body.tags,
-            priority=body.priority,
-            config=body.config,
-            status="pending",
-            queued_at=datetime.now(timezone.utc),
-        ).on_conflict_do_nothing(index_elements=["uri"])
+        stmt = (
+            pg_insert(IngestionItem)
+            .values(
+                source_id=body.source_id,
+                uri=body.uri,
+                handler=body.handler,
+                title=body.title,
+                domain=body.domain,
+                authority=body.authority,
+                origin_type=body.origin_type,
+                tags=body.tags,
+                priority=body.priority,
+                config=body.config,
+                status="pending",
+                queued_at=datetime.now(UTC),
+            )
+            .on_conflict_do_nothing(index_elements=["uri"])
+        )
         result = await session.execute(stmt)
         await session.commit()
         inserted = result.rowcount > 0  # type: ignore[union-attr]
@@ -240,25 +246,29 @@ async def add_items_bulk(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Bulk-add URIs to the ingestion queue (dedup by uri)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     added = 0
     skipped = 0
     async with async_session() as session:
         for item in body.items:
-            stmt = pg_insert(IngestionItem).values(
-                source_id=item.source_id,
-                uri=item.uri,
-                handler=item.handler,
-                title=item.title,
-                domain=item.domain,
-                authority=item.authority,
-                origin_type=item.origin_type,
-                tags=item.tags,
-                priority=item.priority,
-                config=item.config,
-                status="pending",
-                queued_at=now,
-            ).on_conflict_do_nothing(index_elements=["uri"])
+            stmt = (
+                pg_insert(IngestionItem)
+                .values(
+                    source_id=item.source_id,
+                    uri=item.uri,
+                    handler=item.handler,
+                    title=item.title,
+                    domain=item.domain,
+                    authority=item.authority,
+                    origin_type=item.origin_type,
+                    tags=item.tags,
+                    priority=item.priority,
+                    config=item.config,
+                    status="pending",
+                    queued_at=now,
+                )
+                .on_conflict_do_nothing(index_elements=["uri"])
+            )
             result = await session.execute(stmt)
             if result.rowcount > 0:  # type: ignore[union-attr]
                 added += 1
@@ -286,6 +296,7 @@ async def delete_item(
 # Items — Claim + Status (indexer work queue)
 # ---------------------------------------------------------------------------
 
+
 @router.post("/items/claim")
 async def claim_item(response: Response):
     """Atomically claim the next pending or retryable-failed item.
@@ -310,9 +321,8 @@ async def claim_item(response: Response):
                         (IngestionItem.status == "failed")
                         & (IngestionItem.retry_count < IngestionItem.max_retries)
                         & (
-                            IngestionItem.completed_at <= text(
-                                "NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))"
-                            )
+                            IngestionItem.completed_at
+                            <= text("NOW() - INTERVAL '1 minute' * POWER(2, COALESCE(retry_count, 0))")
                         )
                     ),
                 )
@@ -332,8 +342,8 @@ async def claim_item(response: Response):
             return None
 
         item.status = "running"
-        item.started_at = datetime.now(timezone.utc)
-        item.retry_count = (item.retry_count or 0)
+        item.started_at = datetime.now(UTC)
+        item.retry_count = item.retry_count or 0
 
         # Resolve handler from source if not set on item
         effective_handler = item.handler
@@ -378,7 +388,7 @@ async def update_item_status(
     When status is 'failed' and retry_count reaches max_retries, the item is
     automatically escalated to 'dead_letter' so it won't be retried again.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with async_session() as session:
         item = await session.get(IngestionItem, item_id)
         if not item:
@@ -437,7 +447,7 @@ async def retry_item(
         item.error_message = ""
         item.started_at = None
         item.completed_at = None
-        item.queued_at = datetime.now(timezone.utc)
+        item.queued_at = datetime.now(UTC)
         await session.commit()
     return {"ok": True}
 
@@ -446,6 +456,7 @@ async def retry_item(
 # Runs
 # ---------------------------------------------------------------------------
 
+
 @router.get("/runs")
 async def list_runs(
     _user: UserInfo = Depends(get_current_user),
@@ -453,10 +464,8 @@ async def list_runs(
 ):
     async with async_session() as session:
         rows = (
-            await session.execute(
-                select(IngestionRun).order_by(IngestionRun.id.desc()).limit(limit)
-            )
-        ).scalars().all()
+            (await session.execute(select(IngestionRun).order_by(IngestionRun.id.desc()).limit(limit))).scalars().all()
+        )
         return {
             "runs": [
                 {
@@ -500,7 +509,7 @@ async def update_run(run_id: int, body: RunUpdate):
         if body.status is not None:
             run.status = body.status
             if body.status in ("complete", "failed"):
-                run.completed_at = datetime.now(timezone.utc)
+                run.completed_at = datetime.now(UTC)
         if body.items_total is not None:
             run.items_total = body.items_total
         if body.items_indexed is not None:
@@ -515,46 +524,21 @@ async def update_run(run_id: int, body: RunUpdate):
 # Stats
 # ---------------------------------------------------------------------------
 
+
 @router.get("/stats")
 async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
     """Summary stats for the ingestion queue."""
     async with async_session() as session:
-        total_sources = (
-            await session.execute(select(func.count()).select_from(IngestionSource))
-        ).scalar() or 0
-        total_items = (
-            await session.execute(select(func.count()).select_from(IngestionItem))
-        ).scalar() or 0
-        pending = (
-            await session.execute(
-                select(func.count()).where(IngestionItem.status == "pending")
-            )
-        ).scalar() or 0
-        running = (
-            await session.execute(
-                select(func.count()).where(IngestionItem.status == "running")
-            )
-        ).scalar() or 0
-        indexed = (
-            await session.execute(
-                select(func.count()).where(IngestionItem.status == "indexed")
-            )
-        ).scalar() or 0
-        failed = (
-            await session.execute(
-                select(func.count()).where(IngestionItem.status == "failed")
-            )
-        ).scalar() or 0
+        total_sources = (await session.execute(select(func.count()).select_from(IngestionSource))).scalar() or 0
+        total_items = (await session.execute(select(func.count()).select_from(IngestionItem))).scalar() or 0
+        pending = (await session.execute(select(func.count()).where(IngestionItem.status == "pending"))).scalar() or 0
+        running = (await session.execute(select(func.count()).where(IngestionItem.status == "running"))).scalar() or 0
+        indexed = (await session.execute(select(func.count()).where(IngestionItem.status == "indexed"))).scalar() or 0
+        failed = (await session.execute(select(func.count()).where(IngestionItem.status == "failed"))).scalar() or 0
         dead_letter = (
-            await session.execute(
-                select(func.count()).where(IngestionItem.status == "dead_letter")
-            )
+            await session.execute(select(func.count()).where(IngestionItem.status == "dead_letter"))
         ).scalar() or 0
-        total_chunks = (
-            await session.execute(
-                select(func.sum(IngestionItem.chunk_count))
-            )
-        ).scalar() or 0
+        total_chunks = (await session.execute(select(func.sum(IngestionItem.chunk_count)))).scalar() or 0
     return {
         "total_sources": total_sources,
         "total_items": total_items,
@@ -570,6 +554,7 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Schema sync — detect Milvus schema drift and reset stale items
 # ---------------------------------------------------------------------------
+
 
 class SchemaReport(BaseModel):
     collection: str = "synesis_catalog"
@@ -587,14 +572,10 @@ async def report_schema_version(body: SchemaReport):
 
     No auth required — called by indexer pods within the cluster.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(MilvusSchemaSync).where(
-                    MilvusSchemaSync.collection == body.collection
-                )
-            )
+            await session.execute(select(MilvusSchemaSync).where(MilvusSchemaSync.collection == body.collection))
         ).scalar_one_or_none()
 
         if row is None:
@@ -685,9 +666,7 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
     schema bump.
     """
     async with async_session() as session:
-        rows = (
-            await session.execute(select(MilvusSchemaSync))
-        ).scalars().all()
+        rows = (await session.execute(select(MilvusSchemaSync))).scalars().all()
 
         syncs = []
         any_pending = False
@@ -695,27 +674,31 @@ async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
             pending = r.schema_version < EXPECTED_SCHEMA_VERSION
             if pending:
                 any_pending = True
-            syncs.append({
-                "collection": r.collection,
-                "schema_version": r.schema_version,
-                "expected_version": EXPECTED_SCHEMA_VERSION,
-                "upgrade_pending": pending,
-                "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
-                "last_reported_by": r.last_reported_by,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-            })
+            syncs.append(
+                {
+                    "collection": r.collection,
+                    "schema_version": r.schema_version,
+                    "expected_version": EXPECTED_SCHEMA_VERSION,
+                    "upgrade_pending": pending,
+                    "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
+                    "last_reported_by": r.last_reported_by,
+                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                }
+            )
 
         if not syncs:
             any_pending = True
-            syncs.append({
-                "collection": "synesis_catalog",
-                "schema_version": 0,
-                "expected_version": EXPECTED_SCHEMA_VERSION,
-                "upgrade_pending": True,
-                "last_reset_at": None,
-                "last_reported_by": None,
-                "updated_at": None,
-            })
+            syncs.append(
+                {
+                    "collection": "synesis_catalog",
+                    "schema_version": 0,
+                    "expected_version": EXPECTED_SCHEMA_VERSION,
+                    "upgrade_pending": True,
+                    "last_reset_at": None,
+                    "last_reported_by": None,
+                    "updated_at": None,
+                }
+            )
 
         return {
             "expected_version": EXPECTED_SCHEMA_VERSION,
@@ -850,6 +833,7 @@ async def list_handler_types():
 # Bootstrap — import normalized YAML into the queue
 # ---------------------------------------------------------------------------
 
+
 @router.post("/bootstrap")
 async def bootstrap_from_yaml(
     file: UploadFile = File(...),
@@ -870,7 +854,7 @@ async def bootstrap_from_yaml(
     if not items_list:
         return {"ok": False, "error": "No 'items' key found in YAML"}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     added = 0
     skipped = 0
 
@@ -881,19 +865,23 @@ async def bootstrap_from_yaml(
                 skipped += 1
                 continue
 
-            stmt = pg_insert(IngestionItem).values(
-                uri=uri,
-                handler=entry.get("handler"),
-                title=entry.get("title", ""),
-                domain=entry.get("domain", ""),
-                authority=entry.get("authority", "vetted"),
-                origin_type=entry.get("origin_type", "curated"),
-                tags=entry.get("tags"),
-                priority=entry.get("priority", 0),
-                config=entry.get("config"),
-                status=status_override,
-                queued_at=now if status_override == "pending" else None,
-            ).on_conflict_do_nothing(index_elements=["uri"])
+            stmt = (
+                pg_insert(IngestionItem)
+                .values(
+                    uri=uri,
+                    handler=entry.get("handler"),
+                    title=entry.get("title", ""),
+                    domain=entry.get("domain", ""),
+                    authority=entry.get("authority", "vetted"),
+                    origin_type=entry.get("origin_type", "curated"),
+                    tags=entry.get("tags"),
+                    priority=entry.get("priority", 0),
+                    config=entry.get("config"),
+                    status=status_override,
+                    queued_at=now if status_override == "pending" else None,
+                )
+                .on_conflict_do_nothing(index_elements=["uri"])
+            )
             result = await session.execute(stmt)
             if result.rowcount > 0:  # type: ignore[union-attr]
                 added += 1

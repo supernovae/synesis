@@ -185,7 +185,7 @@ def _extract_main_question_heuristic(raw_text: str) -> str:
     # Try: "Task:" / "Question:" / "Goal:" prefix — extract text after it
     m = _TASK_PREFIX_RE.search(raw_text)
     if m:
-        after = raw_text[m.end():].strip()
+        after = raw_text[m.end() :].strip()
         first_block = after.split("\n\n")[0].strip()
         first_line = first_block.split("\n")[0].strip()
         if len(first_line) > 20:

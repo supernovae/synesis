@@ -935,7 +935,9 @@ async def retrieve_multi_query_fused(
         merged = [d for d in merged if (d.get("rerank_score", 0.0) or d.get("rrf_score", 0.0)) >= score_min]
         dropped = pre_floor - len(merged)
         if dropped:
-            logger.info("fused_rerank_score_floor", extra={"threshold": score_min, "dropped": dropped, "kept": len(merged)})
+            logger.info(
+                "fused_rerank_score_floor", extra={"threshold": score_min, "dropped": dropped, "kept": len(merged)}
+            )
 
     results = [
         RetrievalResult(

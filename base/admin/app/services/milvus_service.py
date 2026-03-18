@@ -6,7 +6,7 @@ import contextlib
 import logging
 from typing import Any
 
-from ..deps import get_milvus, get_resilient_milvus
+from ..deps import get_resilient_milvus
 from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
@@ -51,6 +51,7 @@ def safe_query(
 
 def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
     """Upsert a single entity into a Milvus collection. Returns True on success."""
+
     def _do(client):
         if collection not in client.list_collections():
             _ensure_status_collection(client, collection)
@@ -73,6 +74,7 @@ def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
 
 def safe_delete(collection: str, chunk_id: str) -> bool:
     """Delete a single entity by chunk_id from a Milvus collection."""
+
     def _do(client):
         if collection not in client.list_collections():
             return
@@ -132,6 +134,7 @@ def safe_vector_search(
 
     Returns list of dicts with requested output_fields plus 'distance'.
     """
+
     def _do(client):
         if collection not in client.list_collections():
             return []
@@ -180,6 +183,7 @@ def safe_vector_search(
 
 def collection_schema_info(collection: str) -> dict[str, Any]:
     """Return field definitions, index info, and domain->source hierarchy."""
+
     def _do(client):
         if collection not in client.list_collections():
             return {"exists": False}
@@ -187,25 +191,29 @@ def collection_schema_info(collection: str) -> dict[str, Any]:
         desc = client.describe_collection(collection_name=collection)
         fields = []
         for f in desc.get("fields", []):
-            fields.append({
-                "name": f.get("name", ""),
-                "type": str(f.get("type", "")),
-                "is_primary": f.get("is_primary", False),
-                "max_length": f.get("params", {}).get("max_length"),
-                "dim": f.get("params", {}).get("dim"),
-            })
+            fields.append(
+                {
+                    "name": f.get("name", ""),
+                    "type": str(f.get("type", "")),
+                    "is_primary": f.get("is_primary", False),
+                    "max_length": f.get("params", {}).get("max_length"),
+                    "dim": f.get("params", {}).get("dim"),
+                }
+            )
 
         indexes = []
         try:
             idx_list = client.list_indexes(collection_name=collection)
             for idx_name in idx_list:
                 idx_desc = client.describe_index(collection_name=collection, index_name=idx_name)
-                indexes.append({
-                    "name": idx_name,
-                    "field": idx_desc.get("field_name", ""),
-                    "type": idx_desc.get("index_type", ""),
-                    "metric": idx_desc.get("metric_type", ""),
-                })
+                indexes.append(
+                    {
+                        "name": idx_name,
+                        "field": idx_desc.get("field_name", ""),
+                        "type": idx_desc.get("index_type", ""),
+                        "metric": idx_desc.get("metric_type", ""),
+                    }
+                )
         except Exception:
             pass
 
@@ -223,11 +231,15 @@ def collection_domain_hierarchy(collection: str) -> list[dict[str, Any]]:
     try:
         rows = with_retry(
             get_resilient_milvus(),
-            lambda c: [] if collection not in c.list_collections() else c.query(
-                collection_name=collection,
-                filter="",
-                output_fields=["domain", "source_name"],
-                limit=16384,
+            lambda c: (
+                []
+                if collection not in c.list_collections()
+                else c.query(
+                    collection_name=collection,
+                    filter="",
+                    output_fields=["domain", "source_name"],
+                    limit=16384,
+                )
             ),
         )
         if not rows:
