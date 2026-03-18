@@ -169,6 +169,10 @@ spec:
             # scale via replicas (more pods) rather than workers to avoid OOM per pod.
             - name: WEB_CONCURRENCY
               value: "1"
+            # Retrieval mode: auto (default) selects based on difficulty thresholds.
+            # Override to "planner", "router", or "hybrid" for fixed behavior.
+            - name: SYNESIS_RETRIEVAL_MODE
+              value: "auto"
             # Warm cache disabled — runs 8 full router pipelines at startup per worker
             - name: SYNESIS_RETRIEVAL_CACHE_WARM_ON_STARTUP
               value: "false"

@@ -335,6 +335,23 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         out["include_run_commands"] = True
         out["task_type"] = "code_generation"
         out["allowed_tools"] = ["sandbox"]
+    # Resolve effective retrieval_mode from config + difficulty.
+    # "auto" selects based on difficulty thresholds; explicit modes pass through.
+    # Trivial/rag_disabled tasks always use "router" (no retrieval = no planner-driven fetch).
+    _configured_mode = settings.retrieval_mode
+    if out.get("rag_mode") == "disabled" or out.get("task_is_trivial"):
+        _effective_mode = "router"
+    elif _configured_mode == "auto":
+        if difficulty >= settings.retrieval_mode_planner_threshold:
+            _effective_mode = "planner"
+        elif difficulty >= settings.retrieval_mode_hybrid_threshold:
+            _effective_mode = "hybrid"
+        else:
+            _effective_mode = "router"
+    else:
+        _effective_mode = _configured_mode
+    out["retrieval_mode"] = _effective_mode
+
     # Extract semantic classifier diagnostics for logging
     _hits = analysis.get("classification_hits") or []
     _semantic_hit = next((h for h in _hits if "semantic:" in h), "")
@@ -347,6 +364,8 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
             "task_size": out.get("task_size"),
             "target_language": out.get("target_language"),
             "difficulty": out.get("difficulty"),
+            "retrieval_mode": _effective_mode,
+            "retrieval_mode_config": _configured_mode,
             "coding_client": state.get("coding_client_detected", False),
             "semantic_hit": _semantic_hit,
             "preview": (last_content or "")[:80],

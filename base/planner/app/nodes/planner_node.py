@@ -395,6 +395,20 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         difficulty = state.get("difficulty", 0.5)
         context_block = _build_evidence_context(state)
+        retrieval_mode = state.get("retrieval_mode", "router")
+
+        # Planner-driven retrieval: when running without initial evidence,
+        # instruct the planner to produce precise evidence requests per step.
+        if retrieval_mode == "planner" and not context_block:
+            context_block = (
+                "\n<retrieval_mode>planner-driven</retrieval_mode>\n"
+                "No evidence has been gathered yet. You are responsible for specifying "
+                "exactly what evidence each plan step needs. For every step, include a "
+                "clear 'action' describing the evidence query so the retrieval system "
+                "can fetch targeted documents. Be specific about domain, technology, "
+                "and scope. The more precise your evidence requests, the better the "
+                "retrieved context will be.\n"
+            )
 
         # Domain-specific decomposition rules (Sovereign alignment)
         from ..taxonomy_prompt_factory import (

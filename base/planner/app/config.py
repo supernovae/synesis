@@ -130,6 +130,15 @@ class Settings(BaseSettings):
     anchor_show_assumptions: bool = True
     anchor_llm_fallback_enabled: bool = True
 
+    # Retrieval mode: controls when RAG evidence is gathered relative to the planner.
+    #   "auto"    — difficulty-driven: low→router, medium→hybrid, high→planner (default)
+    #   "router"  — router pre-hydrates before planner, planner gets evidence upfront
+    #   "hybrid"  — router pre-hydrates global context + planner requests task-specific evidence
+    #   "planner" — planner runs first (no initial evidence), explicitly requests evidence
+    retrieval_mode: Literal["auto", "planner", "router", "hybrid"] = "auto"
+    retrieval_mode_planner_threshold: float = 0.7  # difficulty >= this → planner mode in auto
+    retrieval_mode_hybrid_threshold: float = 0.3   # difficulty >= this → hybrid mode in auto (below → router)
+
     # Retrieval strategy: "hybrid" (BM25 + vector), "vector", or "bm25"
     rag_retrieval_strategy: Literal["hybrid", "vector", "bm25"] = "hybrid"
 

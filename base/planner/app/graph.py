@@ -153,7 +153,7 @@ def _is_text_only() -> bool:
 
 
 def route_after_entry_pipeline(state: dict[str, Any]) -> str:
-    """After entry pipeline -> router OR directly to writer.
+    """After entry pipeline -> router OR planner OR directly to writer.
 
     Trivial tasks (difficulty < 0.15) skip the router and planner entirely,
     going straight to the writer to answer from parametric knowledge.
@@ -161,6 +161,11 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
     Easy tasks where the classifier set rag_mode=disabled (difficulty < 0.3,
     no plan required) also skip the router — there's nothing to retrieve, so
     the router adds only latency and memory overhead.
+
+    When retrieval_mode="planner", the initial router pass is skipped so the
+    planner runs first without evidence and explicitly requests what it needs.
+    The router runs *after* the planner (via route_after_planner → router)
+    to fulfill those evidence requests.
 
     In text_only front door mode, code tasks are never routed to executor;
     they use the writer path (which can emit fenced code blocks).
@@ -172,6 +177,7 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
         return "respond"
 
     text_only = _is_text_only()
+    retrieval_mode = state.get("retrieval_mode", "router")
 
     if state.get("task_is_trivial"):
         is_code = state.get("is_code_task", False)
@@ -181,15 +187,13 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
             extra={
                 "target": target,
                 "difficulty": state.get("difficulty", 0),
+                "retrieval_mode": retrieval_mode,
                 "frontdoor_mode": settings.frontdoor_mode,
             },
         )
         return target
 
     # Easy tasks with no retrieval needed go straight to writer.
-    # The entry classifier sets rag_mode="disabled" for difficulty < 0.3
-    # (parametric knowledge only — code snippets, general questions, etc.).
-    # Skipping the router avoids initializing the full retrieval stack.
     rag_mode = state.get("rag_mode", "normal")
     if rag_mode == "disabled" and not state.get("plan_required"):
         target = "writer"
@@ -201,11 +205,23 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
                 "target": target,
                 "difficulty": state.get("difficulty", 0),
                 "rag_mode": rag_mode,
+                "retrieval_mode": retrieval_mode,
                 "intent_class": state.get("intent_class", ""),
                 "frontdoor_mode": settings.frontdoor_mode,
             },
         )
         return target
+
+    # Planner-driven retrieval: skip initial router, let planner request evidence.
+    if retrieval_mode == "planner":
+        logger.info(
+            "entry_pipeline_planner_mode_skip_router",
+            extra={
+                "difficulty": state.get("difficulty", 0),
+                "retrieval_mode": retrieval_mode,
+            },
+        )
+        return "planner"
 
     return "router"
 
@@ -276,34 +292,47 @@ def route_after_planner(state: dict[str, Any]) -> str:
     When initial evidence is sufficient, skip the second router pass
     (section_evidence) and go directly to writer/executor. Only the
     critic can trigger a refetch later via need_more_evidence.
+
+    In planner-driven retrieval mode, the planner always routes to router
+    next (for section_evidence) since it had no initial evidence.
     """
     if state.get("clarification_question"):
         return "respond"
     if state.get("plan_pending_approval"):
         return "respond"
 
+    retrieval_mode = state.get("retrieval_mode", "router")
     planner_errors = state.get("planner_error_count", 0)
     has_plan = bool((state.get("execution_plan") or {}).get("steps"))
 
     if planner_errors >= 2 and has_plan:
         logger.warning(
             "planner_fallback_routing_to_writer",
-            extra={"planner_errors": planner_errors},
+            extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
         )
         return _next_after_planner(state)
 
     if planner_errors >= 2 and not has_plan:
         logger.error(
             "planner_exhausted_no_plan",
-            extra={"planner_errors": planner_errors},
+            extra={"planner_errors": planner_errors, "retrieval_mode": retrieval_mode},
         )
         return "respond"
+
+    # Planner-driven mode: always go to router for evidence gathering since
+    # the planner ran without initial evidence and has now produced evidence_requests.
+    if retrieval_mode == "planner":
+        logger.info(
+            "planner_mode_always_route_to_router",
+            extra={"retrieval_mode": retrieval_mode, "has_plan": has_plan},
+        )
+        return "router"
 
     if _evidence_sufficient(state):
         target = _next_after_planner(state)
         logger.info(
             "planner_skip_section_evidence",
-            extra={"target": target},
+            extra={"target": target, "retrieval_mode": retrieval_mode},
         )
         return target
 
@@ -844,6 +873,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     _fb_blocking = len(state.get("blocking_issues") or [])
     _fb_iterations = state.get("iteration_count", 0)
     _fb_is_code = state.get("is_code_task", False)
+    _fb_retrieval_mode = state.get("retrieval_mode", "router")
     _fb_resp_len = len(content)
     _fb_has_error = bool(error)
     logger.info(
@@ -852,6 +882,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "run_id": _fb_run_id,
             "difficulty": _fb_difficulty,
             "task_type": _fb_task_type,
+            "retrieval_mode": _fb_retrieval_mode,
             "domain_tags": _fb_domain_tags,
             "needs_web": user_task.get("needs_web", False),
             "evidence_packet_count": _fb_evidence_count,
@@ -869,6 +900,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             run_id=_fb_run_id,
             difficulty=_fb_difficulty,
             task_type=_fb_task_type,
+            retrieval_mode=_fb_retrieval_mode,
             domain_tags=_fb_domain_tags,
             evidence_packet_count=_fb_evidence_count,
             avg_evidence_confidence=_fb_avg_confidence,
@@ -1130,7 +1162,7 @@ graph_builder.set_entry_point("entry_pipeline")
 graph_builder.add_conditional_edges(
     "entry_pipeline",
     route_after_entry_pipeline,
-    {"router": "router", "writer": "writer", "executor": "executor", "respond": "respond"},
+    {"router": "router", "planner": "planner", "writer": "writer", "executor": "executor", "respond": "respond"},
 )
 
 # Router -> planner | executor | writer | respond

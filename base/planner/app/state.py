@@ -122,6 +122,7 @@ class GraphState(TypedDict, total=False):
     # Kept for legacy_hybrid rollback and analytics. Remove when legacy_hybrid retired.
     is_code_task: bool
     rag_mode: str  # "normal" | "light" | "disabled" — set by entry_classifier
+    retrieval_mode: str  # "router" | "hybrid" | "planner" — effective mode (resolved from auto)
     include_tests: bool
     include_run_commands: bool
     allowed_tools: list[str]
