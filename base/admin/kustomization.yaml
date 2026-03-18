@@ -13,3 +13,15 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
+
+configMapGenerator:
+  - name: synesis-models-config
+    files:
+      - ../../models.yaml
+    options:
+      disableNameSuffixHash: true
+  - name: synesis-taxonomy-config
+    files:
+      - ../planner/taxonomy_prompt_config.yaml
+    options:
+      disableNameSuffixHash: true

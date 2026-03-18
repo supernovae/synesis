@@ -904,7 +904,9 @@ def _extract_content_and_metrics(
 
     total_tokens = 0
     for trace in result.get("node_traces", []) or []:
-        if hasattr(trace, "tokens_used"):
+        if isinstance(trace, dict):
+            total_tokens += trace.get("tokens_used", 0)
+        elif hasattr(trace, "tokens_used"):
             total_tokens += trace.tokens_used
         node_name = trace.get("node_name", "") if isinstance(trace, dict) else getattr(trace, "node_name", "")
         confidence = trace.get("confidence", 0) if isinstance(trace, dict) else getattr(trace, "confidence", 0) or 0

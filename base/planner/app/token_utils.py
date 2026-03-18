@@ -59,10 +59,21 @@ def extract_usage_tokens(response: Any) -> int:
     """Extract total token usage from a LangChain AIMessage or response object."""
     meta = getattr(response, "usage_metadata", None)
     if meta:
-        return int(getattr(meta, "total_tokens", 0) or 0)
+        if isinstance(meta, dict):
+            total = meta.get("total_tokens", 0)
+            if not total:
+                total = meta.get("input_tokens", 0) + meta.get("output_tokens", 0)
+            return int(total or 0)
+        total = int(getattr(meta, "total_tokens", 0) or 0)
+        if not total:
+            total = int(getattr(meta, "input_tokens", 0) or 0) + int(getattr(meta, "output_tokens", 0) or 0)
+        return total
     resp_meta = getattr(response, "response_metadata", {})
     usage = resp_meta.get("usage", {}) if isinstance(resp_meta, dict) else {}
-    return int(usage.get("total_tokens", 0))
+    total = int(usage.get("total_tokens", 0))
+    if not total:
+        total = int(usage.get("prompt_tokens", 0)) + int(usage.get("completion_tokens", 0))
+    return total
 
 
 def track_budget(state: dict, response: Any, role: str = "") -> int:

@@ -1,5 +1,6 @@
 """Model registry, cost, and performance endpoints."""
 
+import logging
 import time
 
 from fastapi import APIRouter, Body, Depends, Query
@@ -15,6 +16,7 @@ from ..services.model_registry import (
     upsert_model_cost,
 )
 
+logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
@@ -72,7 +74,7 @@ async def costs_by_role(
 
         role_agg: dict[str, dict] = {}
         for row in rows:
-            full = row.full_record or {}
+            full = row[1] or {}
             for span in full.get("spans", []):
                 node = span.get("node_name", "unknown")
                 for call in span.get("llm_calls", []):
@@ -108,6 +110,7 @@ async def costs_by_role(
             "period_days": days,
         }
     except Exception:
+        logger.warning("costs_by_role_failed", exc_info=True)
         return {"roles": [], "period_days": days}
 
 
@@ -167,6 +170,7 @@ async def costs_daily(
                 "period_days": days,
             }
     except Exception:
+        logger.warning("costs_daily_failed", exc_info=True)
         return {"daily": [], "period_days": days}
 
 

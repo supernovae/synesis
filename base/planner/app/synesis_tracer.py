@@ -111,10 +111,9 @@ _pricing_table: dict[str, tuple[float, float]] | None = None
 
 
 def _load_pricing() -> dict[str, tuple[float, float]]:
-    """Build a model→(input_per_million, output_per_million) lookup table.
+    """Build a model->(input_per_million, output_per_million) lookup table.
 
-    Reads from SYNESIS_MODEL_PRICING_PATH (a small JSON file) if available,
-    otherwise falls back to known defaults from models.yaml openrouter_profiles.
+    Priority: SYNESIS_MODEL_PRICING_PATH JSON > models.yaml notes > hardcoded defaults.
     """
     global _pricing_table
     if _pricing_table is not None:
@@ -131,6 +130,11 @@ def _load_pricing() -> dict[str, tuple[float, float]]:
         except Exception:
             logger.warning("pricing_table_load_failed", exc_info=True)
 
+    table = _parse_pricing_from_models_yaml()
+    if table:
+        _pricing_table = table
+        return _pricing_table
+
     _pricing_table = {
         "synesis-router": (0.20, 0.50),
         "synesis-general": (0.26, 0.38),
@@ -139,6 +143,46 @@ def _load_pricing() -> dict[str, tuple[float, float]]:
         "synesis-summarizer": (0.20, 0.50),
     }
     return _pricing_table
+
+
+def _parse_pricing_from_models_yaml() -> dict[str, tuple[float, float]] | None:
+    """Try to parse $/M rates from models.yaml openrouter notes fields."""
+    import re
+
+    yaml_path = os.environ.get("SYNESIS_MODELS_YAML_PATH", "")
+    if not yaml_path:
+        return None
+    try:
+        import yaml
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+
+    table: dict[str, tuple[float, float]] = {}
+    for profiles_key in ("openrouter_profiles", "profiles"):
+        for _pname, profile in data.get(profiles_key, {}).items():
+            for role, assignment in profile.get("assignments", {}).items():
+                served = f"synesis-{role}"
+                if served in table:
+                    continue
+                notes = assignment.get("notes", "")
+                if "$" in notes and "/M" in notes:
+                    rates = _extract_rates(notes)
+                    if rates[0] > 0 or rates[1] > 0:
+                        table[served] = rates
+    return table if table else None
+
+
+def _extract_rates(notes: str) -> tuple[float, float]:
+    """Extract $/M input and output rates from notes like '$0.20/M in, $0.50/M out'."""
+    import re
+    matches = re.findall(r"\$(\d+\.?\d*)/M", notes)
+    if len(matches) >= 2:
+        return (float(matches[0]), float(matches[1]))
+    elif len(matches) == 1:
+        return (float(matches[0]), float(matches[0]))
+    return (0.0, 0.0)
 
 
 def _compute_cost(record: TraceRecord) -> float:
@@ -586,6 +630,7 @@ class SynesisTracer(BaseCallbackHandler):
             parent_span.tokens_used += total_tokens
         elif self._current_trace.spans:
             self._current_trace.spans[-1].llm_calls.append(call)
+            self._current_trace.spans[-1].tokens_used += total_tokens
 
     def on_llm_end(
         self,

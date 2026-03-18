@@ -59,6 +59,14 @@ spec:
             - name: quality-data
               mountPath: /data/quality
               readOnly: true
+            - name: models-config
+              mountPath: /etc/synesis/models.yaml
+              subPath: models.yaml
+              readOnly: true
+            - name: taxonomy-config
+              mountPath: /etc/synesis/taxonomy_prompt_config.yaml
+              subPath: taxonomy_prompt_config.yaml
+              readOnly: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -87,4 +95,12 @@ spec:
         - name: quality-data
           configMap:
             name: quality-report
+            optional: true
+        - name: models-config
+          configMap:
+            name: synesis-models-config
+            optional: true
+        - name: taxonomy-config
+          configMap:
+            name: synesis-taxonomy-config
             optional: true
