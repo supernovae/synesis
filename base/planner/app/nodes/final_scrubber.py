@@ -123,17 +123,21 @@ def _restore_fenced_blocks(text: str, blocks: list[str]) -> str:
     return text
 
 
-def _strip_artifacts(text: str) -> tuple[str, int]:
+def _strip_artifacts(text: str) -> tuple[str, int, list[str]]:
     """Strip self-narration and any safety-net matches.
 
     Fenced code blocks (including mermaid diagrams) are protected.
+    Returns (cleaned_text, count, removed_snippets).
     """
     text, blocks = _protect_fenced_blocks(text)
     count = 0
+    removed: list[str] = []
 
     safety_matches = _SAFETY_NET_RE.findall(text)
     if safety_matches:
         count += len(safety_matches)
+        for m in safety_matches:
+            removed.append(f"[safety-net] {m.strip()[:200]}")
         logger.warning(
             "scrubber_safety_net_fired",
             extra={"matches": len(safety_matches), "sample": str(safety_matches[0])[:120]},
@@ -141,16 +145,21 @@ def _strip_artifacts(text: str) -> tuple[str, int]:
         text = _SAFETY_NET_RE.sub("", text)
 
     narration_matches = _SELF_NARRATION_RE.findall(text)
+    for m in narration_matches:
+        removed.append(f"[narration] {m.strip()[:200]}")
     count += len(narration_matches)
     text = _SELF_NARRATION_RE.sub("", text)
 
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = _restore_fenced_blocks(text, blocks)
-    return text.strip(), count
+    return text.strip(), count, removed
 
 
-def _detect_false_precision(text: str) -> tuple[str, int]:
-    """Find unsupported specific numbers and label them as estimates."""
+def _detect_false_precision(text: str) -> tuple[str, int, list[str]]:
+    """Find unsupported specific numbers and label them as estimates.
+
+    Returns (cleaned_text, count, labeled_snippets).
+    """
     code_block_ranges: list[tuple[int, int]] = []
     for m in re.finditer(r"```.*?```", text, re.DOTALL):
         code_block_ranges.append((m.start(), m.end()))
@@ -160,6 +169,7 @@ def _detect_false_precision(text: str) -> tuple[str, int]:
 
     count = 0
     offset = 0
+    labeled: list[str] = []
     for m in _FALSE_PRECISION_RE.finditer(text):
         if _in_code_block(m.start()):
             continue
@@ -167,23 +177,26 @@ def _detect_false_precision(text: str) -> tuple[str, int]:
         line = text[line_start : m.end() + offset] if line_start >= 0 else ""
         if "|" in line:
             continue
+        labeled.append(f"[false-precision] {m.group()}")
         replacement = f"{m.group()} [Estimate]"
         text = text[: m.start() + offset] + replacement + text[m.end() + offset :]
         offset += len(" [Estimate]")
         count += 1
-    return text, count
+    return text, count, labeled
 
 
-def _remove_duplicate_paragraphs(text: str) -> tuple[str, int]:
+def _remove_duplicate_paragraphs(text: str) -> tuple[str, int, list[str]]:
     """Remove paragraphs that are near-duplicates of earlier paragraphs.
 
     Fenced code/diagram blocks are always preserved — never treated as
     duplicate prose even if they appear similar.
+    Returns (cleaned_text, removed_count, removed_snippets).
     """
     paragraphs = text.split("\n\n")
     seen: list[str] = []
     result: list[str] = []
     removed = 0
+    removed_snippets: list[str] = []
 
     for para in paragraphs:
         stripped = para.strip()
@@ -199,12 +212,13 @@ def _remove_duplicate_paragraphs(text: str) -> tuple[str, int]:
             if SequenceMatcher(None, stripped, prev).ratio() > 0.85:
                 is_dup = True
                 removed += 1
+                removed_snippets.append(f"[dup] {stripped[:200]}")
                 break
         if not is_dup:
             seen.append(stripped)
             result.append(para)
 
-    return "\n\n".join(result), removed
+    return "\n\n".join(result), removed, removed_snippets
 
 
 def _detect_overgrown_sections(text: str) -> list[str]:
@@ -229,7 +243,7 @@ def _detect_overgrown_sections(text: str) -> list[str]:
     return overgrown
 
 
-def _validate_sources_section(text: str) -> tuple[str, int]:
+def _validate_sources_section(text: str) -> tuple[str, int, list[str]]:
     """Validate the ## Sources section: strip uncited sources, normalize badges.
 
     If no inline [N] citations exist anywhere in the body, the Sources
@@ -237,11 +251,11 @@ def _validate_sources_section(text: str) -> tuple[str, int]:
     Only prune individual sources when inline citations ARE present but
     don't reference them.
 
-    Returns (cleaned_text, sources_removed_count).
+    Returns (cleaned_text, sources_removed_count, removed_snippets).
     """
     sources_match = _SOURCES_HEADING_RE.search(text)
     if not sources_match:
-        return text, 0
+        return text, 0, []
 
     body_before_sources = text[: sources_match.start()]
     sources_section = text[sources_match.start() :]
@@ -253,12 +267,13 @@ def _validate_sources_section(text: str) -> tuple[str, int]:
     # (it was built from retrieval provenance, not LLM output)
     if not cited_nums:
         normalized = _AUTHORITY_BADGE_RE.sub(lambda m: f"[{m.group(1).title()}]", sources_section)
-        return body_before_sources.rstrip() + "\n\n" + normalized.strip() + "\n", 0
+        return body_before_sources.rstrip() + "\n\n" + normalized.strip() + "\n", 0, []
 
     # Inline citations exist — prune sources not referenced
     source_lines = _SOURCE_LINE_RE.findall(sources_section)
     kept_lines: list[str] = []
     removed = 0
+    removed_snippets: list[str] = []
     for line in source_lines:
         line_match = re.match(r"^\[(\d+)\]", line)
         if line_match and line_match.group(1) in cited_nums:
@@ -266,12 +281,13 @@ def _validate_sources_section(text: str) -> tuple[str, int]:
             kept_lines.append(normalized)
         else:
             removed += 1
+            removed_snippets.append(f"[uncited-src] {line.strip()[:200]}")
 
     if not kept_lines:
-        return body_before_sources.rstrip() + "\n", removed
+        return body_before_sources.rstrip() + "\n", removed, removed_snippets
 
     new_sources = "## Sources\n\n" + "\n".join(kept_lines) + "\n"
-    return body_before_sources.rstrip() + "\n\n" + new_sources, removed
+    return body_before_sources.rstrip() + "\n\n" + new_sources, removed, removed_snippets
 
 
 async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -287,10 +303,10 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     text, mermaid_fixes = _sanitize_mermaid(text)
-    text, artifact_count = _strip_artifacts(text)
-    text, fp_count = _detect_false_precision(text)
-    text, dup_count = _remove_duplicate_paragraphs(text)
-    text, sources_removed = _validate_sources_section(text)
+    text, artifact_count, artifact_removed = _strip_artifacts(text)
+    text, fp_count, fp_labeled = _detect_false_precision(text)
+    text, dup_count, dup_removed = _remove_duplicate_paragraphs(text)
+    text, sources_removed, sources_removed_snippets = _validate_sources_section(text)
     overgrown = _detect_overgrown_sections(text)
 
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -305,7 +321,8 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
 
     latency = (time.monotonic() - start) * 1000
     _input_len = len(state.get("compiled_answer") or state.get("generated_code", ""))
-    scrub_details = {
+    removed_items = artifact_removed + fp_labeled + dup_removed + sources_removed_snippets
+    scrub_details: dict[str, Any] = {
         "input_len": _input_len,
         "output_len": len(text),
         "chars_removed": _input_len - len(text),
@@ -317,6 +334,8 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "overgrown_sections": len(overgrown),
         "latency_ms": round(latency, 1),
     }
+    if removed_items:
+        scrub_details["removed_content"] = removed_items
     logger.info("scrubber_complete", extra=scrub_details)
 
     _tracer = get_synesis_tracer()
