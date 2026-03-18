@@ -101,11 +101,11 @@ function DomainRow({
 
   const startEditing = () => {
     if (detail) {
-      setDepthInstructions((detail as Record<string, unknown>).depth_instructions as string ?? "");
-      setOutputStyleGuidance((detail as Record<string, unknown>).output_style_guidance as string ?? "");
+      setDepthInstructions((detail.depth_instructions as string) ?? "");
+      setOutputStyleGuidance((detail.output_style_guidance as string) ?? "");
       setRequiredElements(
-        Array.isArray((detail as Record<string, unknown>).required_elements)
-          ? ((detail as Record<string, unknown>).required_elements as string[]).join("\n")
+        Array.isArray(detail.required_elements)
+          ? (detail.required_elements as string[]).join("\n")
           : ""
       );
     }
@@ -244,21 +244,21 @@ function DomainRow({
                   <p><strong>Persona:</strong> {domain.persona || "---"}</p>
                   {detail && (
                     <>
-                      {Array.isArray((detail as Record<string, unknown>).required_elements) &&
-                        ((detail as Record<string, unknown>).required_elements as string[]).length > 0 && (
+                      {Array.isArray(detail.required_elements) &&
+                        (detail.required_elements as string[]).length > 0 && (
                         <div>
                           <strong>Required Elements:</strong>
                           <ul className="ml-4 list-disc text-xs">
-                            {((detail as Record<string, unknown>).required_elements as string[]).map((el) => (
+                            {(detail.required_elements as string[]).map((el) => (
                               <li key={el}>{el}</li>
                             ))}
                           </ul>
                         </div>
                       )}
-                      {(detail as Record<string, unknown>).depth_instructions && (
+                      {detail.depth_instructions && (
                         <p className="text-xs">
                           <strong>Depth:</strong>{" "}
-                          {((detail as Record<string, unknown>).depth_instructions as string).slice(0, 200)}...
+                          {(detail.depth_instructions as string).slice(0, 200)}...
                         </p>
                       )}
                     </>

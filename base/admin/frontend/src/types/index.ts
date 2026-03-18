@@ -81,6 +81,9 @@ export interface DomainScorecard {
   domain: string;
   path: string;
   health: "strong" | "adequate" | "weak" | "empty";
+  chunk_count?: number;
+  doc_count?: number;
+  freshness_pct?: number;
   inventory: {
     total_chunks: number;
     total_documents: number;
@@ -103,11 +106,16 @@ export interface QualitySummary {
 }
 
 export interface TaxonomyDomain {
+  [key: string]: unknown;
   key: string;
   path: string;
   complexity: number;
   persona: string;
   children?: TaxonomyDomain[];
+  required_elements?: string[];
+  depth_instructions?: string;
+  output_style_guidance?: string;
+  epistemic_guidance?: string;
 }
 
 export interface PipelineMetrics {
