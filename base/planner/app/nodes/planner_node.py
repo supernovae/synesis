@@ -103,10 +103,15 @@ Reply with JSON only:
 Rules:
 - Each step = one section of the final response. {section_desc}
 - Group related deliverables into cohesive sections. A section can address \
-1-3 related deliverables. Aim for 5-8 sections for complex tasks.
+1-3 related deliverables. Use as few sections as the task allows for simple \
+requests, and as many as needed to give every deliverable proper depth for \
+complex ones. Do NOT compress deliverables into fewer sections than they need.
 - Every deliverable must be covered by at least one section, but related \
 deliverables belong together — do NOT create a separate section for each \
 individual deliverable if they naturally overlap.
+- If the task requires more than ~10 sections, note in your reasoning that \
+this is a comprehensive topic. Do not artificially compress — cover every \
+deliverable with appropriate depth.
 - Each step MUST include "deliverable_ids": a list of 0-based indices \
 referencing the deliverables listed below. Every deliverable index must \
 appear in at least one step. If no deliverables are listed, use [].
@@ -179,8 +184,8 @@ def _build_evidence_context(state: dict[str, Any]) -> str:
     if len(parts) >= 3 and mean_conf >= 0.4:
         ctx += (
             "\nNote: Strong evidence already gathered above. "
-            "Prefer 3-5 cohesive sections unless the user explicitly "
-            "requested more distinct deliverables.\n"
+            "Prefer fewer cohesive sections when deliverables naturally "
+            "overlap, but always create enough sections for full coverage.\n"
         )
     return ctx
 
@@ -421,17 +426,17 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             deliverable_list = "\n".join(f"  [{i}] {d}" for i, d in enumerate(frame_deliverables))
             n = len(frame_deliverables)
             min_sections = max(3, (n + 1) // 2)
-            max_sections = min(n + 2, 10)
             system_prompt += (
                 f"\n\nUSER TASK — the user expects these deliverables (0-based IDs):\n{deliverable_list}\n"
-                f"Group related deliverables into {min_sections}-{max_sections} cohesive sections. "
+                f"Create at least {min_sections} cohesive sections — more if needed to give "
+                f"every deliverable proper depth. "
                 f"Every deliverable ID above must appear in at least one step's deliverable_ids."
             )
         elif explicit_deliverables > 0:
             min_sections = max(3, (explicit_deliverables + 1) // 2)
             system_prompt += (
                 f"\n\nThe user explicitly requested {explicit_deliverables} deliverables. "
-                f"Group into {min_sections}-{min(explicit_deliverables + 2, 10)} cohesive sections."
+                f"Create at least {min_sections} cohesive sections — more if needed for full coverage."
             )
 
         # Capability requirements: inject explicit_requirements that describe

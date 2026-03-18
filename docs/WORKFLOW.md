@@ -9,8 +9,8 @@ Entry Classifier, Strategic Advisor, Frame Extractor, Planner,
 Plan Gate, **Router**, Writer, Critic, Final Scrubber, and Respond.
 
 Every request follows the same canonical path — the Planner scales
-its plan depth (1-8 steps) based on difficulty, ensuring consistent
-observability and feedback loops across all prompts.
+its plan depth based on difficulty and deliverable count, ensuring
+consistent observability and feedback loops across all prompts.
 
 The **Router is the single retrieval orchestrator**. No other node
 touches retrieval backends (RAG, web search, unified retrieval).
@@ -59,7 +59,7 @@ lightweight 1-step plan, hard prompts get full multi-step decomposition.
 
 ```mermaid
 flowchart TD
-    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(scales 1-8 steps by difficulty)"]
+    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(scales depth by deliverables)"]
     PL --> PG["plan_gate\n(deterministic validation)"]
     PG -->|"fail, retries left"| PL
     PG -->|pass| RT["router\n(evidence: disabled/light/normal)"]
@@ -82,10 +82,15 @@ path itself is always the same:
 
 | Difficulty | rag_mode | Planner Depth | Router Behavior | Critic |
 |---|---|---|---|---|
-| < 0.15 (trivial) | `disabled` | 1-step lightweight | No retrieval | Skipped |
-| 0.15-0.29 (easy) | `disabled` | 1-2 steps | No retrieval | Skipped |
-| 0.3-0.69 (medium) | `light` | 2-4 steps | 1 query, 3 docs | Lenient |
-| >= 0.7 (hard) | `normal` | 4-8 steps, section evidence | Multi-query, HyDE, 8 docs | Full |
+| < 0.15 (trivial) | `disabled` | Lightweight (1 step) | No retrieval | Skipped |
+| 0.15-0.29 (easy) | `disabled` | Brief outline | No retrieval | Skipped |
+| 0.3-0.69 (medium) | `light` | Structured outline | 1 query, 3 docs | Lenient |
+| >= 0.7 (hard) | `normal` | Full plan, section evidence | Multi-query, HyDE, 8 docs | Full |
+
+Step count is driven by the number of deliverables extracted from the
+user's prompt, not capped by difficulty. A hard task with 3 deliverables
+gets 3-4 sections; an easy task with 12 deliverables gets 6-12 sections.
+Difficulty controls section *depth* and retrieval intensity, not section count.
 
 **Key behaviors by rag_mode:**
 
@@ -374,8 +379,8 @@ acknowledgements get 256 tokens.
    automatically available downstream. Taxonomy config is compiled
    at startup with Pydantic schema validation.
 4. **Single Planner Prompt**: The knowledge planner prompt creates
-   section outlines scaled by difficulty (1-8 steps), mapped from
-   the user's explicit requests.
+   section outlines driven by the user's deliverables. Step count
+   scales with deliverable count; difficulty controls depth per section.
 5. **Plan Gate Validation**: After the Planner, a deterministic
    Plan Gate validates schema, section presence, and hallucination
    guardrails before evidence retrieval. Failed gates route back
@@ -670,16 +675,16 @@ is always the same; difficulty controls depth within each node.
 
 | Difficulty | Retrieval | Planner Depth | Critic Mode | Path Cost |
 |---|---|---|---|---|
-| < 0.15 (trivial) | None | 1 step | Skipped | ~2 LLM calls |
-| 0.15-0.29 (easy) | None | 1-2 steps | Skipped | ~2 LLM calls |
-| 0.3-0.39 (medium-low) | Light (1 query, 3 docs) | 2-4 steps | Lenient rubber-stamp | ~3-4 LLM calls |
-| 0.4-0.69 (medium) | Light (1 query, 3 docs) | 2-4 steps | Lenient rubber-stamp | ~4-5 LLM calls |
-| >= 0.7 (hard) | Full (multi-query, HyDE, 8 docs, refinement) | 4-8 steps + section evidence | Full critic with scoring rubric | ~8-12 LLM calls |
+| < 0.15 (trivial) | None | Lightweight (1 step) | Skipped | ~2 LLM calls |
+| 0.15-0.29 (easy) | None | Brief outline | Skipped | ~2 LLM calls |
+| 0.3-0.39 (medium-low) | Light (1 query, 3 docs) | Structured outline | Lenient rubber-stamp | ~3-4 LLM calls |
+| 0.4-0.69 (medium) | Light (1 query, 3 docs) | Structured outline | Lenient rubber-stamp | ~4-5 LLM calls |
+| >= 0.7 (hard) | Full (multi-query, HyDE, 8 docs, refinement) | Full plan + section evidence | Full critic with scoring rubric | ~8-12 LLM calls |
 
 - **Trivial/Easy** (diff < 0.3): Lightweight plan, no retrieval, critic
   skipped. Writer answers from parametric knowledge. Fastest path.
 - **Medium** (diff 0.3-0.69): Light retrieval (single query, 3 docs).
-  Planner produces 2-4 step outline. Critic runs in lenient mode.
+  Planner produces structured outline. Critic runs in lenient mode.
 - **Hard** (diff >= 0.7): Full multi-query retrieval with HyDE and
   conceptual expansion, Planner multi-step decomposition with
   section-level evidence gathering, full critic with scoring rubric.
@@ -844,14 +849,21 @@ agent-based self-correction loops.
 
 ## Planner: Scaling and Performance
 
-**The Planner runs on every request.** It scales its depth by difficulty:
+**The Planner runs on every request.** Section count is driven by the
+number of deliverables from frame extraction; difficulty controls depth
+per section and retrieval intensity:
 
-| Difficulty | Planner Behavior |
-|---|---|
-| < 0.15 (trivial) | Lightweight 1-step plan (near-zero latency) |
-| 0.15-0.29 (easy) | 1-2 step plan |
-| 0.3-0.69 (medium) | 2-4 step plan with section outlines |
-| >= 0.7 (hard) | 4-8 step plan with section evidence requests |
+| Difficulty | Section Depth | Evidence |
+|---|---|---|
+| < 0.15 (trivial) | Concise, brief | None |
+| 0.15-0.29 (easy) | Clear, organized | None |
+| 0.3-0.69 (medium) | Structured | Light (1 query, 3 docs) |
+| >= 0.7 (hard) | Detailed, with tradeoff analysis | Full (multi-query, HyDE) |
+
+A simple question gets 1 section regardless of difficulty. A request with
+12 deliverables gets as many sections as needed for full coverage — the
+planner is not capped. For dense plans (10+ sections), the planner notes
+in its reasoning that this is a comprehensive topic.
 
 This ensures every prompt gets taxonomy labeling, observability, and
 feedback loop data — even trivial ones. The Plan Gate validates each
