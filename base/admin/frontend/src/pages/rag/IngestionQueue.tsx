@@ -11,6 +11,7 @@ import {
   useBootstrapIngestion,
   useCreateIngestionSource,
   useIngestionHandlers,
+  useSchemaSync,
 } from "../../api/hooks";
 import type { HandlerMetadata } from "../../api/hooks";
 import type { IngestionItem, IngestionRun } from "../../types";
@@ -29,6 +30,53 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[status] || "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"}`}>
       {status}
     </span>
+  );
+}
+
+function SchemaUpgradeBanner() {
+  const { data } = useSchemaSync();
+  if (!data || !data.upgrade_pending) return null;
+
+  const sync = data.syncs[0];
+  const currentVersion = sync?.schema_version ?? 0;
+  const expectedVersion = data.expected_version;
+  const lastReported = sync?.updated_at
+    ? new Date(sync.updated_at).toLocaleString()
+    : "never";
+  const neverReported = currentVersion === 0;
+
+  return (
+    <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-600 dark:bg-amber-900/20">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 text-amber-600 dark:text-amber-400 text-lg">&#9888;</span>
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            Schema Upgrade Pending {neverReported ? "" : `(v${currentVersion} → v${expectedVersion})`}
+          </h3>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            {neverReported ? (
+              <>
+                No schema version has been reported yet. The indexer needs to run to initialize
+                the Milvus collection at <strong>v{expectedVersion}</strong> and report back.
+              </>
+            ) : (
+              <>
+                The deployed code expects schema <strong>v{expectedVersion}</strong> but Milvus
+                is still on <strong>v{currentVersion}</strong>. The indexer will automatically
+                drop and recreate the collection, then reset all items to pending for re-indexing.
+              </>
+            )}
+          </p>
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+            Last reported: {lastReported}
+            {sync?.last_reported_by && <> by <strong>{sync.last_reported_by}</strong></>}
+          </p>
+          <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+            Items shown below as "indexed" are stale and will be reset once the indexer starts.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -359,6 +407,7 @@ export default function IngestionQueue() {
           Add content to index. Items are claimed by the indexer and processed into the Milvus corpus.
         </p>
       </div>
+      <SchemaUpgradeBanner />
       <StatsBar />
       <AddItemForm />
       <ItemsTable />

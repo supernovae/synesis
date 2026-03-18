@@ -798,6 +798,30 @@ export function useIngestionHandlers() {
   });
 }
 
+export interface SchemaSyncEntry {
+  collection: string;
+  schema_version: number;
+  expected_version: number;
+  upgrade_pending: boolean;
+  last_reset_at: string | null;
+  last_reported_by: string | null;
+  updated_at: string | null;
+}
+
+export interface SchemaSyncResponse {
+  expected_version: number;
+  upgrade_pending: boolean;
+  syncs: SchemaSyncEntry[];
+}
+
+export function useSchemaSync() {
+  return useQuery<SchemaSyncResponse>({
+    queryKey: ["ingestion", "schema-sync"],
+    queryFn: () => client.get("/ingestion/schema-sync").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
 export function useIngestionSources() {
   return useQuery<{ sources: IngestionSource[] }>({
     queryKey: ["ingestion", "sources"],

@@ -55,6 +55,8 @@ spec:
               value: "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
             - name: SYNESIS_JWT_SECRET
               value: "synesis-dev-secret-change-me"
+            - name: SYNESIS_EXPECTED_SCHEMA_VERSION
+              value: "8"
           volumeMounts:
             - name: quality-data
               mountPath: /data/quality

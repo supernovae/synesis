@@ -37,6 +37,24 @@ def _load_quality_report() -> dict:
 
 @router.get("/corpus")
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
+    from ..db.engine import async_session as _async_session
+    from ..db.models import MilvusSchemaSync
+
+    schema_version = 0
+    try:
+        async with _async_session() as session:
+            from sqlalchemy import select as _select
+
+            row = (
+                await session.execute(
+                    _select(MilvusSchemaSync).where(MilvusSchemaSync.collection == CATALOG_COLLECTION)
+                )
+            ).scalar_one_or_none()
+            if row:
+                schema_version = row.schema_version
+    except Exception:
+        pass
+
     try:
         stats = collection_stats(CATALOG_COLLECTION)
         meta_rows = safe_query(
@@ -53,7 +71,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_documents": unique_docs,
             "total_sources": unique_sources,
             "domains_covered": unique_domains,
-            "schema_version": 7,
+            "schema_version": schema_version,
         }
     except Exception:
         logger.warning("corpus_overview_failed", exc_info=True)
@@ -63,7 +81,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
             "total_documents": 0,
             "total_sources": 0,
             "domains_covered": 0,
-            "schema_version": 7,
+            "schema_version": schema_version,
         }
 
 

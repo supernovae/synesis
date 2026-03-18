@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 
 import yaml
@@ -672,24 +673,54 @@ async def report_schema_version(body: SchemaReport):
         }
 
 
+EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "8"))
+
+
 @router.get("/schema-sync")
 async def get_schema_sync(_user: UserInfo = Depends(get_current_user)):
-    """Get the current Milvus schema version tracked by the admin DB."""
+    """Get the current Milvus schema version tracked by the admin DB.
+
+    Includes expected_version (from deploy config) and upgrade_pending flag
+    so the UI can show a banner when the indexer hasn't run yet after a
+    schema bump.
+    """
     async with async_session() as session:
         rows = (
             await session.execute(select(MilvusSchemaSync))
         ).scalars().all()
+
+        syncs = []
+        any_pending = False
+        for r in rows:
+            pending = r.schema_version < EXPECTED_SCHEMA_VERSION
+            if pending:
+                any_pending = True
+            syncs.append({
+                "collection": r.collection,
+                "schema_version": r.schema_version,
+                "expected_version": EXPECTED_SCHEMA_VERSION,
+                "upgrade_pending": pending,
+                "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
+                "last_reported_by": r.last_reported_by,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            })
+
+        if not syncs:
+            any_pending = True
+            syncs.append({
+                "collection": "synesis_catalog",
+                "schema_version": 0,
+                "expected_version": EXPECTED_SCHEMA_VERSION,
+                "upgrade_pending": True,
+                "last_reset_at": None,
+                "last_reported_by": None,
+                "updated_at": None,
+            })
+
         return {
-            "syncs": [
-                {
-                    "collection": r.collection,
-                    "schema_version": r.schema_version,
-                    "last_reset_at": r.last_reset_at.isoformat() if r.last_reset_at else None,
-                    "last_reported_by": r.last_reported_by,
-                    "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-                }
-                for r in rows
-            ]
+            "expected_version": EXPECTED_SCHEMA_VERSION,
+            "upgrade_pending": any_pending,
+            "syncs": syncs,
         }
 
 
