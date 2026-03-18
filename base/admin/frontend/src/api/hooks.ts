@@ -20,6 +20,10 @@ import type {
   CacheMetrics,
   CircuitBreakerState,
   BenchmarkResults,
+  IngestionSource,
+  IngestionItem,
+  IngestionRun,
+  IngestionStats,
 } from "../types";
 
 // --- Dashboard ---
@@ -745,6 +749,145 @@ export function useDeleteConflictGroup() {
       client.delete(`/pipeline/conflict-groups/${id}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["conflict-groups"] });
+    },
+  });
+}
+
+// --- Ingestion Queue ---
+
+export function useIngestionStats() {
+  return useQuery<IngestionStats>({
+    queryKey: ["ingestion", "stats"],
+    queryFn: () => client.get("/ingestion/stats").then((r) => r.data),
+    refetchInterval: 10_000,
+  });
+}
+
+export function useIngestionSources() {
+  return useQuery<{ sources: IngestionSource[] }>({
+    queryKey: ["ingestion", "sources"],
+    queryFn: () => client.get("/ingestion/sources").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateIngestionSource() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      name: string;
+      handler: string;
+      domain?: string;
+      authority?: string;
+      origin_type?: string;
+      config?: Record<string, unknown>;
+      tags?: string[];
+    }) => client.post("/ingestion/sources", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useIngestionItems(params?: {
+  status?: string;
+  handler?: string;
+  domain?: string;
+  source_id?: number;
+  page?: number;
+  page_size?: number;
+}) {
+  return useQuery<{ items: IngestionItem[]; total: number; page: number; page_size: number }>({
+    queryKey: ["ingestion", "items", params],
+    queryFn: () => client.get("/ingestion/items", { params }).then((r) => r.data),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useAddIngestionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      uri: string;
+      handler?: string;
+      title?: string;
+      domain?: string;
+      authority?: string;
+      origin_type?: string;
+      tags?: string[];
+      priority?: number;
+      config?: Record<string, unknown>;
+    }) => client.post("/ingestion/items", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useAddIngestionItemsBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      items: Array<{
+        uri: string;
+        handler?: string;
+        title?: string;
+        domain?: string;
+        authority?: string;
+        tags?: string[];
+        priority?: number;
+        config?: Record<string, unknown>;
+      }>;
+    }) => client.post("/ingestion/items/bulk", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useDeleteIngestionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.delete(`/ingestion/items/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useRetryIngestionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.post(`/ingestion/items/${id}/retry`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useIngestionRuns() {
+  return useQuery<{ runs: IngestionRun[] }>({
+    queryKey: ["ingestion", "runs"],
+    queryFn: () => client.get("/ingestion/runs").then((r) => r.data),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useBootstrapIngestion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { file: File; status_override?: string }) => {
+      const form = new FormData();
+      form.append("file", data.file);
+      const params = data.status_override ? `?status_override=${data.status_override}` : "";
+      return client.post(`/ingestion/bootstrap${params}`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      }).then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
     },
   });
 }

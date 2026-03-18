@@ -1,24 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy the Unified RAG Indexer CronJobs.
+# Deploy the Synesis RAG Indexer (queue mode).
 #
-# Builds the correct overlay for the target environment and applies it.
-# Each overlay sets the GHCR image path, environment-specific schedules,
-# and (for dev) suspends CronJobs so they only run via --run.
+# The indexer runs as a single CronJob that claims work from the admin
+# service's ingestion queue (PostgreSQL-backed).  Content is added via
+# the admin UI or the bootstrap API; the indexer processes whatever is
+# pending — no ConfigMaps or sources.yaml required.
 #
-# Usage: ./scripts/deploy-indexer.sh [dev|staging|prod]
-#   Default: dev
-#
-# One-shot run:
-#   ./scripts/deploy-indexer.sh dev --run docs
-#   ./scripts/deploy-indexer.sh dev --run code
-#   ./scripts/deploy-indexer.sh dev --run apispec
-#   ./scripts/deploy-indexer.sh dev --run license
-#   ./scripts/deploy-indexer.sh dev --run research
-#   ./scripts/deploy-indexer.sh dev --run epistemic
-#   ./scripts/deploy-indexer.sh dev --run epistemic-band2
-#   ./scripts/deploy-indexer.sh dev --run epistemic-developer
+# Usage:
+#   ./scripts/deploy-indexer.sh            # Apply the CronJob manifest
+#   ./scripts/deploy-indexer.sh --run      # One-shot: create a Job now
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -26,104 +18,83 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $*" >&2; }
 
-ENV="${1:-dev}"
-RUN_GROUP=""
-
-shift || true
+RUN_NOW=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --run)
-            RUN_GROUP="$2"
-            shift 2
+        --run) RUN_NOW=true; shift ;;
+        -h|--help)
+            echo "Usage: $0 [--run]"
+            echo ""
+            echo "  (no args)  Apply the indexer queue CronJob to synesis-rag namespace"
+            echo "  --run      Also create a one-shot Job immediately"
+            exit 0
             ;;
         *)
-            echo "Unknown arg: $1"
-            exit 1
-            ;;
+            echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
 
-if [[ ! "$ENV" =~ ^(dev|staging|prod)$ ]]; then
-    echo "Usage: $0 [dev|staging|prod] [--run docs|code|apispec|license|research|epistemic|epistemic-band2|epistemic-developer]"
-    exit 1
-fi
+CRONJOB_NAME="synesis-indexer-queue"
+NAMESPACE="synesis-rag"
 
-# Map environment to overlay directory
-case "$ENV" in
-    dev)     OVERLAY_DIR="$PROJECT_ROOT/overlays/jobs" ;;
-    staging) OVERLAY_DIR="$PROJECT_ROOT/overlays/jobs-staging" ;;
-    prod)    OVERLAY_DIR="$PROJECT_ROOT/overlays/jobs-prod" ;;
-esac
-
-# Pre-flight: verify Milvus and embedder are running
-log "=== Deploying Unified RAG Indexer ($ENV) ==="
+# ── Pre-flight: verify Milvus and embedder ────────────────────────────
+log "=== Synesis RAG Indexer (queue mode) ==="
 log ""
 log "Checking RAG dependencies..."
 
-MILVUS_READY=$(oc get pods -n synesis-rag -l app.kubernetes.io/instance=synesis,app.kubernetes.io/name=milvus --no-headers 2>&1 | grep -c Running || true)
+MILVUS_READY=$(oc get pods -n "$NAMESPACE" \
+    -l app.kubernetes.io/instance=synesis,app.kubernetes.io/name=milvus \
+    --no-headers 2>&1 | grep -c Running || true)
 if [[ "$MILVUS_READY" -gt 0 ]] 2>/dev/null; then
     log "  Milvus: running ($MILVUS_READY pods)"
 else
-    warn "Milvus is not running in synesis-rag."
-    warn "  Deploy services first: ./scripts/deploy.sh $ENV"
-    warn "  Check Milvus CR: oc get milvus synesis -n synesis-rag"
+    warn "Milvus is not running in $NAMESPACE."
+    warn "  Deploy services first: ./scripts/deploy.sh"
     exit 1
 fi
 
-EMBEDDER_READY=$(oc get deployment embedder -n synesis-rag -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
+EMBEDDER_READY=$(oc get deployment embedder -n "$NAMESPACE" \
+    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)
 if [[ "$EMBEDDER_READY" -gt 0 ]] 2>/dev/null; then
     log "  Embedder: running ($EMBEDDER_READY replicas)"
 else
-    # Fallback: check pods by label in case the deployment name differs
-    EMBEDDER_PODS=$(oc get pods -n synesis-rag -l app.kubernetes.io/name=embedder --no-headers 2>&1 | grep -c Running || true)
+    EMBEDDER_PODS=$(oc get pods -n "$NAMESPACE" \
+        -l app.kubernetes.io/name=embedder --no-headers 2>&1 | grep -c Running || true)
     if [[ "$EMBEDDER_PODS" -gt 0 ]] 2>/dev/null; then
         log "  Embedder: running ($EMBEDDER_PODS pods)"
     else
-        warn "Embedder is not running in synesis-rag."
-        warn "  Deploy services first: ./scripts/deploy.sh $ENV"
-        warn "  Debug: oc get deployment embedder -n synesis-rag"
+        warn "Embedder is not running in $NAMESPACE."
+        warn "  Deploy services first: ./scripts/deploy.sh"
         exit 1
     fi
 fi
 
+# ── Apply CronJob manifest ────────────────────────────────────────────
 log ""
+oc create namespace "$NAMESPACE" 2>/dev/null || true
 
-if [[ -n "$RUN_GROUP" ]]; then
-    # One-shot: create a Job from the CronJob
-    CRONJOB_NAME="synesis-indexer-${RUN_GROUP}"
-    log "Creating one-shot Job from CronJob '$CRONJOB_NAME'..."
+log "Applying indexer queue CronJob..."
+oc apply -f "$PROJECT_ROOT/base/rag/indexer/cronjob-queue.yaml"
 
-    # Apply manifests first to ensure CronJob exists with correct image
-    oc create namespace synesis-rag 2>/dev/null || true
-    kustomize build "$OVERLAY_DIR" 2>/dev/null | oc apply -f -
+log ""
+log "CronJob deployed:"
+oc get cronjob "$CRONJOB_NAME" -n "$NAMESPACE" --no-headers 2>/dev/null || true
 
-    oc create job "${CRONJOB_NAME}-manual-$(date +%s)" \
-        --from=cronjob/"$CRONJOB_NAME" \
-        -n synesis-rag
+# ── One-shot run ──────────────────────────────────────────────────────
+if $RUN_NOW; then
+    JOB_NAME="${CRONJOB_NAME}-manual-$(date +%s)"
+    log ""
+    log "Creating one-shot Job '$JOB_NAME'..."
+    oc create job "$JOB_NAME" --from=cronjob/"$CRONJOB_NAME" -n "$NAMESPACE"
 
     log "Job created. Monitor with:"
-    log "  oc get jobs -n synesis-rag -l synesis.io/indexer-group=$RUN_GROUP"
-    log "  oc logs -n synesis-rag -l synesis.io/indexer-group=$RUN_GROUP -f"
+    log "  oc logs -n $NAMESPACE -l synesis.io/indexer-group=queue -f"
 else
-    # Deploy CronJobs
-    oc create namespace synesis-rag 2>/dev/null || true
-    log "Applying unified indexer CronJobs ($ENV overlay)..."
-    kustomize build "$OVERLAY_DIR" 2>/dev/null | oc apply -f -
-
     log ""
-    log "Done. CronJobs deployed:"
-    oc get cronjobs -n synesis-rag -l app.kubernetes.io/component=rag-indexer --no-headers 2>/dev/null || true
-
-    if [[ "$ENV" == "dev" ]]; then
-        log ""
-        log "CronJobs are suspended in dev. For manual one-shot runs:"
-        log "  ./scripts/deploy-indexer.sh dev --run docs"
-        log "  ./scripts/deploy-indexer.sh dev --run code"
-        log "  ./scripts/deploy-indexer.sh dev --run apispec"
-        log "  ./scripts/deploy-indexer.sh dev --run license"
-        log "  ./scripts/deploy-indexer.sh dev --run research"
-        log "  ./scripts/deploy-indexer.sh dev --run epistemic"
-        log "  ./scripts/deploy-indexer.sh dev --run epistemic-band2"
-        log "  ./scripts/deploy-indexer.sh dev --run epistemic-developer"
-    fi
+    log "To process pending items now:"
+    log "  ./scripts/deploy-indexer.sh --run"
+    log ""
+    log "To add content to the queue:"
+    log "  - Admin UI: RAG Pipeline > Ingestion Queue"
+    log "  - Bootstrap: curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap -F file=@bootstrap/corpus/docs.yaml"
 fi

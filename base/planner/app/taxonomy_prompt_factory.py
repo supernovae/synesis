@@ -1,44 +1,125 @@
 """Taxonomy-Driven Contextual Injection — PromptFactory from taxonomy state.
 
 Maps router tags (active_domain_refs, intent_class) to TaxonomyNode metadata.
-No new LLM — deterministic lookup from taxonomy_prompt_config.yaml.
-Planner and Executor use this to shape prompts and depth.
+No new LLM — deterministic lookup from taxonomy_domains DB table (with TTL
+cache) or bootstrap YAML fallback.  Planner and Executor use this to shape
+prompts and depth.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import time
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("synesis.taxonomy_factory")
 
-_CONFIG_PATH = Path(__file__).parent.parent / "taxonomy_prompt_config.yaml"
+_BOOTSTRAP_YAML = Path(__file__).parent.parent / "taxonomy_prompt_config.yaml"
+_BOOTSTRAP_DIR = Path(os.getenv("SYNESIS_BOOTSTRAP_DIR", "")) / "taxonomy" / "taxonomy_prompt_config.yaml"
+
 _cached: dict[str, Any] | None = None
 _cached_taxonomies: dict[str, dict[str, Any]] | None = None
+_cache_ts: float = 0.0
+_CACHE_TTL_S = int(os.getenv("SYNESIS_TAXONOMY_CACHE_TTL", "300"))
+
+
+def _load_from_db() -> dict[str, Any] | None:
+    """Load taxonomy config from the taxonomy_domains DB table.
+
+    Uses the same Postgres connection as the tracer (SYNESIS_TRACE_DATABASE_URL).
+    Returns None if DB is unavailable or empty.
+    """
+    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return None
+    try:
+        import psycopg2
+
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        conn = psycopg2.connect(dsn, connect_timeout=5)
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("SELECT key, raw_config FROM taxonomy_domains WHERE raw_config IS NOT NULL")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not rows:
+            return None
+
+        config: dict[str, Any] = {}
+        for key, raw_config in rows:
+            if isinstance(raw_config, dict) and raw_config:
+                config[key] = raw_config
+        if config:
+            logger.info("taxonomy_loaded_from_db", extra={"domains": len(config)})
+        return config or None
+    except Exception:
+        logger.debug("taxonomy_db_read_failed", exc_info=True)
+        return None
+
+
+def _load_from_yaml() -> dict[str, Any]:
+    """Load taxonomy from bootstrap YAML file (seed/dev fallback)."""
+    import yaml
+
+    for path in [_BOOTSTRAP_DIR, _BOOTSTRAP_YAML]:
+        try:
+            if path.exists():
+                with open(path) as f:
+                    data = yaml.safe_load(f) or {}
+                logger.info("taxonomy_loaded_from_yaml", extra={"path": str(path), "domains": len(data)})
+                return data
+        except Exception as e:
+            logger.warning("taxonomy_yaml_load_failed path=%s error=%s", path, e)
+    return {}
 
 
 def _load_config() -> dict[str, Any]:
-    global _cached, _cached_taxonomies
-    if _cached is not None:
-        return _cached
-    try:
-        import yaml
+    """Load taxonomy config with DB-first, sticky-cache, YAML-fallback.
 
-        if _CONFIG_PATH.exists():
-            with open(_CONFIG_PATH) as f:
-                _cached = yaml.safe_load(f) or {}
-        else:
-            _cached = {}
-    except Exception as e:
-        logger.warning("taxonomy_prompt_config_load_failed path=%s error=%s", _CONFIG_PATH, e)
-        _cached = {}
-    _cached_taxonomies = {k: v for k, v in (_cached or {}).items() if isinstance(v, dict) and "path" in v}
+    Cache contract:
+    - Startup: try DB -> YAML fallback
+    - TTL tick: try DB refresh -> on failure keep stale cache
+    - Never returns empty if data was ever loaded
+    """
+    global _cached, _cached_taxonomies, _cache_ts
+    now = time.monotonic()
+
+    if _cached and (now - _cache_ts) < _CACHE_TTL_S:
+        return _cached
+
+    try:
+        db_config = _load_from_db()
+        if db_config:
+            _cached = db_config
+            _cached_taxonomies = {
+                k: v for k, v in db_config.items() if isinstance(v, dict) and "path" in v
+            }
+            _cache_ts = now
+            return _cached
+    except Exception:
+        logger.warning("taxonomy_db_refresh_failed", exc_info=True)
+        if _cached:
+            return _cached
+
+    if _cached:
+        logger.debug("taxonomy_serving_stale_cache")
+        return _cached
+
+    yaml_config = _load_from_yaml()
+    _cached = yaml_config
+    _cached_taxonomies = {
+        k: v for k, v in yaml_config.items() if isinstance(v, dict) and "path" in v
+    }
+    _cache_ts = now
     return _cached
 
 
 def _get_taxonomies() -> dict[str, dict[str, Any]]:
-    """Return pre-filtered taxonomy entries (built once at load time)."""
+    """Return pre-filtered taxonomy entries (domain keys with 'path')."""
     if _cached_taxonomies is None:
         _load_config()
     return _cached_taxonomies or {}

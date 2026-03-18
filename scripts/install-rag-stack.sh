@@ -7,7 +7,7 @@ set -euo pipefail
 # Requires: Milvus Operator already installed (bootstrap.sh handles this).
 #
 # Use this for standalone RAG infra setup. deploy.sh applies this
-# as part of the full stack; deploy-indexer.sh handles CronJobs separately.
+# as part of the full stack; deploy-indexer.sh handles the indexer CronJob separately.
 #
 # Usage: ./scripts/install-rag-stack.sh [--wait]
 
@@ -100,7 +100,7 @@ log ""
 log "=== RAG stack install complete ==="
 log ""
 log "Next steps:"
-log "  1. Deploy indexer CronJobs:  ./scripts/deploy-indexer.sh dev"
+log "  1. Deploy indexer:           ./scripts/deploy-indexer.sh"
 log "  2. Load knowledge:           ./scripts/load-language-pack.sh bash"
 log "  3. Run full deploy:          ./scripts/deploy.sh dev"
 log ""

@@ -1,0 +1,483 @@
+items:
+- uri: https://www.who.int/health-topics
+  handler: html_document
+  title: WHO Health Topics
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - public-health
+  - conditions
+  - wellbeing
+  - reference
+  priority: 1
+- uri: https://www.cdc.gov/healthyweight/index.html/
+  handler: html_document
+  title: CDC Healthy Weight, Nutrition, and Physical Activity
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - nutrition
+  - physical-activity
+  - sleep
+  - stress
+  - reference
+  priority: 1
+- uri: https://www.cdc.gov/physical-activity-basics/about/index.html
+  handler: html_document
+  title: CDC Physical Activity Basics and Your Health
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - exercise
+  - physical-activity
+  - wellbeing
+  priority: 1
+- uri: https://www.cdc.gov/physical-activity-basics/benefits/index.html
+  handler: html_document
+  title: CDC Benefits of Physical Activity
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - exercise
+  - benefits
+  - sleep
+  - function
+  priority: 2
+- uri: https://www.nhlbi.nih.gov/health/sleep-deprivation/health-effects
+  handler: html_document
+  title: 'NHLBI: How Sleep Affects Your Health'
+  domain: sleep
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - sleep
+  - mental-health
+  - physical-health
+  priority: 2
+- uri: https://www.who.int/health-topics/noncommunicable-diseases
+  handler: html_document
+  title: WHO Noncommunicable Diseases
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - chronic-disease
+  - risk-factors
+  - prevention
+  priority: 2
+- uri: https://www.who.int/health-topics/alcohol
+  handler: html_document
+  title: WHO Alcohol
+  domain: health
+  authority: vetted
+  origin_type: curated
+  tags:
+  - health
+  - alcohol
+  - risk
+  - public-health
+  priority: 2
+- uri: https://www.consumerfinance.gov/consumer-tools/educator-tools/your-money-your-goals/toolkit/
+  handler: html_document
+  title: CFPB Your Money, Your Goals Toolkit
+  domain: personal_finance
+  authority: vetted
+  origin_type: curated
+  tags:
+  - finance
+  - budgeting
+  - credit
+  - debt
+  - savings
+  - consumer-finance
+  priority: 1
+- uri: https://www.consumerfinance.gov/owning-a-home/prepare/get-your-money-situation-in-order/
+  handler: html_document
+  title: CFPB Get Your Money Situation in Order
+  domain: personal_finance
+  authority: vetted
+  origin_type: curated
+  tags:
+  - finance
+  - credit
+  - mortgage
+  - planning
+  - consumer-finance
+  priority: 1
+- uri: https://www.consumerfinance.gov/about-us/blog/budgeting-how-to-create-a-budget-and-stick-with-it/
+  handler: html_document
+  title: 'CFPB Budgeting: How to Create a Budget and Stick With It'
+  domain: personal_finance
+  authority: vetted
+  origin_type: curated
+  tags:
+  - finance
+  - budgeting
+  - savings
+  - cash-flow
+  priority: 2
+- uri: https://www.irs.gov/individuals/seniors-retirees
+  handler: html_document
+  title: IRS Seniors & Retirees
+  domain: taxes_personal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - tax
+  - retirement
+  - irs
+  - social-security
+  - reference
+  priority: 1
+- uri: https://www.irs.gov/taxtopics/tc410
+  handler: html_document
+  title: IRS Topic No. 410, Pensions and Annuities
+  domain: taxes_personal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - tax
+  - pensions
+  - annuities
+  - withholding
+  priority: 1
+- uri: https://www.irs.gov/forms-pubs/about-form-w-4-p
+  handler: html_document
+  title: IRS About Form W-4P
+  domain: taxes_personal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - tax
+  - withholding
+  - retirement
+  - form
+  priority: 2
+- uri: https://www.irs.gov/retirement-plans/reporting-ira-and-retirement-plan-transactions
+  handler: html_document
+  title: IRS Reporting IRA and Retirement Plan Transactions
+  domain: taxes_personal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - tax
+  - ira
+  - retirement
+  - forms
+  - reference
+  priority: 2
+- uri: https://www.sba.gov/business-guide/plan-your-business
+  handler: html_document
+  title: SBA Plan Your Business
+  domain: entrepreneurship
+  authority: vetted
+  origin_type: curated
+  tags:
+  - business
+  - startup
+  - planning
+  - operations
+  - small-business
+  priority: 1
+- uri: https://www.sba.gov/business-guide/plan-your-business/write-your-business-plan
+  handler: html_document
+  title: SBA Write Your Business Plan
+  domain: entrepreneurship
+  authority: vetted
+  origin_type: curated
+  tags:
+  - business
+  - business-plan
+  - planning
+  - template
+  priority: 1
+- uri: https://www.sba.gov/business-guide/manage-your-business
+  handler: html_document
+  title: SBA Manage Your Business
+  domain: business
+  authority: vetted
+  origin_type: curated
+  tags:
+  - business
+  - finance
+  - compliance
+  - operations
+  priority: 1
+- uri: https://www.sba.gov/business-guide/manage-your-business/marketing-sales
+  handler: html_document
+  title: SBA Marketing and Sales
+  domain: marketing
+  authority: vetted
+  origin_type: curated
+  tags:
+  - business
+  - marketing
+  - sales
+  - planning
+  priority: 2
+- uri: https://www.sba.gov/document/support-marketing-plan-example
+  handler: html_document
+  title: SBA Marketing Plan Example
+  domain: marketing
+  authority: vetted
+  origin_type: curated
+  tags:
+  - business
+  - marketing
+  - template
+  - example
+  priority: 2
+- uri: https://travel.state.gov/en/international-travel.html
+  handler: html_document
+  title: Travel.State.gov International Travel
+  domain: travel
+  authority: vetted
+  origin_type: curated
+  tags:
+  - travel
+  - international
+  - entry-requirements
+  - safety
+  - government
+  priority: 1
+- uri: https://travel.state.gov/en/international-travel/travel-advisories.html
+  handler: html_document
+  title: Travel Advisories
+  domain: travel
+  authority: vetted
+  origin_type: curated
+  tags:
+  - travel
+  - safety
+  - risk
+  - advisories
+  priority: 1
+- uri: https://travel.state.gov/en/international-travel/planning/checklist.html
+  handler: html_document
+  title: International Travel Checklist
+  domain: travel
+  authority: vetted
+  origin_type: curated
+  tags:
+  - travel
+  - checklist
+  - passport
+  - planning
+  priority: 1
+- uri: https://www.nps.gov/planyourvisit/index.htm
+  handler: html_document
+  title: NPS Plan Your Visit
+  domain: outdoors
+  authority: vetted
+  origin_type: curated
+  tags:
+  - travel
+  - outdoors
+  - parks
+  - planning
+  - safety
+  priority: 2
+- uri: https://www.nps.gov/subjects/healthandsafety/trip-planning-guide.htm
+  handler: html_document
+  title: NPS Trip Planning Guide - Health & Safety
+  domain: outdoors
+  authority: vetted
+  origin_type: curated
+  tags:
+  - outdoors
+  - safety
+  - trip-planning
+  - health
+  priority: 2
+- uri: https://www.nps.gov/articles/hiking-safety.htm
+  handler: html_document
+  title: NPS Hike Smart
+  domain: outdoors
+  authority: vetted
+  origin_type: curated
+  tags:
+  - outdoors
+  - hiking
+  - safety
+  - preparation
+  priority: 2
+- uri: https://www.nps.gov/subjects/camping/staying-safe.htm
+  handler: html_document
+  title: NPS Camping Safety
+  domain: outdoors
+  authority: vetted
+  origin_type: curated
+  tags:
+  - outdoors
+  - camping
+  - safety
+  - trip-planning
+  priority: 2
+- uri: https://extension.umn.edu/preserving-and-preparing/safe-food-handling-basics
+  handler: html_document
+  title: University of Minnesota Extension Safe Food Handling Basics
+  domain: cooking
+  authority: vetted
+  origin_type: curated
+  tags:
+  - food
+  - food-safety
+  - home
+  - cooking
+  priority: 2
+- uri: https://extension.umn.edu/safe-food-production/food-safety-basics
+  handler: html_document
+  title: University of Minnesota Extension Food Safety Basics
+  domain: cooking
+  authority: vetted
+  origin_type: curated
+  tags:
+  - food
+  - food-safety
+  - temperature
+  - cooking
+  priority: 2
+- uri: https://extension.umn.edu/food-safety-basics/cooking-safely-crowd
+  handler: html_document
+  title: University of Minnesota Extension Cooking Safely for a Crowd
+  domain: cooking
+  authority: vetted
+  origin_type: curated
+  tags:
+  - food
+  - cooking
+  - safety
+  - events
+  priority: 2
+- uri: https://extension.umn.edu/preserving-and-preparing/preparing-food-without-power
+  handler: html_document
+  title: University of Minnesota Extension Preparing Food Without Power
+  domain: cooking
+  authority: vetted
+  origin_type: curated
+  tags:
+  - food
+  - emergency
+  - cooking
+  - preparedness
+  priority: 2
+- uri: https://www.bls.gov/ooh/
+  handler: html_document
+  title: BLS Occupational Outlook Handbook
+  domain: career
+  authority: vetted
+  origin_type: curated
+  tags:
+  - career
+  - jobs
+  - salary
+  - outlook
+  - occupations
+  priority: 1
+- uri: https://www.bls.gov/ooh/occupation-finder.htm
+  handler: html_document
+  title: BLS Occupation Finder
+  domain: career
+  authority: vetted
+  origin_type: curated
+  tags:
+  - career
+  - job-search
+  - matching
+  - occupations
+  priority: 2
+- uri: https://www.bls.gov/careeroutlook/
+  handler: html_document
+  title: BLS Career Outlook
+  domain: career
+  authority: vetted
+  origin_type: curated
+  tags:
+  - career
+  - education
+  - planning
+  - trends
+  priority: 2
+- uri: https://www.bls.gov/ooh/field-of-degree/
+  handler: html_document
+  title: BLS Field of Degree
+  domain: career
+  authority: vetted
+  origin_type: curated
+  tags:
+  - career
+  - education
+  - majors
+  - occupations
+  priority: 2
+- uri: https://consumer.ftc.gov/identity-theft-online-security
+  handler: html_document
+  title: FTC Identity Theft and Online Security
+  domain: consumer_protection
+  authority: vetted
+  origin_type: curated
+  tags:
+  - consumer
+  - security
+  - identity-theft
+  - privacy
+  - scams
+  priority: 1
+- uri: https://consumer.ftc.gov/articles/what-know-about-identity-theft
+  handler: html_document
+  title: FTC What To Know About Identity Theft
+  domain: consumer_protection
+  authority: vetted
+  origin_type: curated
+  tags:
+  - consumer
+  - identity-theft
+  - fraud
+  - recovery
+  priority: 1
+- uri: https://consumer.ftc.gov/articles/credit-freezes-and-fraud-alerts
+  handler: html_document
+  title: FTC Credit Freezes and Fraud Alerts
+  domain: consumer_protection
+  authority: vetted
+  origin_type: curated
+  tags:
+  - consumer
+  - credit
+  - fraud
+  - identity-theft
+  priority: 1
+- uri: https://consumer.ftc.gov/articles/how-recognize-avoid-phishing-scams
+  handler: html_document
+  title: FTC How To Recognize and Avoid Phishing Scams
+  domain: consumer_protection
+  authority: vetted
+  origin_type: curated
+  tags:
+  - consumer
+  - phishing
+  - security
+  - fraud
+  priority: 2
+- uri: https://consumer.ftc.gov/identity-theft-can-happen-anyone
+  handler: html_document
+  title: FTC Identity Theft Can Happen to Anyone
+  domain: consumer_protection
+  authority: vetted
+  origin_type: curated
+  tags:
+  - consumer
+  - identity-theft
+  - prevention
+  - awareness
+  priority: 2

@@ -1,42 +1,74 @@
-# Unified RAG Indexer
+# Synesis RAG Indexer
 
-Synesis uses a **single config-driven indexer container** with handler plugins that consolidates all RAG knowledge indexing. The indexer runs as Kubernetes CronJobs (automated refresh) or one-shot Jobs (manual trigger) and populates the `synesis_catalog` Milvus collection with enriched chunks.
+Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. The indexer processes whatever is pending — no ConfigMaps or per-handler CronJobs required.
 
 ## Architecture
 
-One container image (`base/rag/indexer/`) replaces the previous 7 per-indexer containers. Each document type is handled by a **handler plugin** that implements fetch, parse, and chunk operations. Source configurations are YAML files mounted as ConfigMaps.
+```
+                     ┌─────────────────────────┐
+                     │    Admin Service (DB)    │
+                     │  ingestion_items table   │
+                     │  ┌─────────────────────┐ │
+                     │  │ pending → running →  │ │
+ Admin UI / CLI ────▶│  │ indexed | failed     │ │◀──── bootstrap/corpus/*.yaml
+                     │  └─────────────────────┘ │
+                     └────────────┬────────────┘
+                                  │ POST /claim
+                                  │ PATCH /status
+                                  ▼
+                     ┌─────────────────────────┐
+                     │   Indexer (CronJob)      │
+                     │   --mode queue           │
+                     │                          │
+                     │  claim → fetch → chunk   │
+                     │  → enrich → embed →      │
+                     │  upsert → report         │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │  Milvus (synesis_catalog)│
+                     └─────────────────────────┘
+```
+
+One container image (`base/rag/indexer/`) with handler plugins for each document type. The queue runner (`queue_runner.py`) claims items one at a time via `SELECT ... FOR UPDATE SKIP LOCKED`, processes them through the existing pipeline, and reports status back to the admin API.
 
 ```
 base/rag/indexer/
 ├── app/
-│   ├── cli.py              # Unified CLI entrypoint
-│   ├── pipeline.py          # Orchestration: fetch → parse → chunk → enrich → embed → upsert
-│   ├── schema.py            # Milvus collection schema (synesis_catalog)
-│   ├── chunking.py          # Heading-aware split with overlap
-│   ├── enrichment.py        # KeyBERT keywords, context_prefix, optional LLM summary
-│   ├── embed_client.py      # Batch embedding via TEI
-│   ├── milvus_writer.py     # Idempotent upsert with content-hash dedup
-│   └── handlers/            # Handler plugins (auto-discovered)
+│   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
+│   ├── queue_runner.py     # Queue client: claim, process, report
+│   ├── pipeline.py         # Orchestration: fetch → parse → chunk → enrich → embed → upsert
+│   ├── schema.py           # Milvus collection schema (synesis_catalog)
+│   ├── chunking.py         # Heading-aware split with overlap
+│   ├── enrichment.py       # Keyword extraction, context_prefix, optional LLM summary
+│   ├── embed_client.py     # Batch embedding via TEI
+│   ├── milvus_writer.py    # Idempotent upsert with content-hash dedup
+│   └── handlers/           # Handler plugins (auto-discovered)
 │       ├── github_markdown.py
 │       ├── github_code.py
 │       ├── openapi_spec.py
 │       ├── web_page.py
 │       ├── pdf_document.py
 │       ├── html_document.py
+│       ├── seed_corpus.py
+│       ├── arxiv_paper.py
 │       ├── markdown_file.py
 │       └── license_spdx.py
-├── sources-docs.yaml        # Documentation sources (runbooks, architecture, web pages)
-├── sources-code.yaml        # Code repository sources
-├── sources-apispec.yaml     # API specification sources
-├── sources-license.yaml     # License compliance sources
+├── cronjob-queue.yaml      # Single CronJob manifest
 ├── Dockerfile
 ├── requirements.txt
-├── kustomization.yaml
-├── cronjob-docs.yaml
-├── cronjob-code.yaml
-├── cronjob-apispec.yaml
-└── cronjob-license.yaml
+└── kustomization.yaml
 ```
+
+## Queue Mode vs Legacy YAML Mode
+
+| Mode | Flag | Source of work | Use case |
+|------|------|----------------|----------|
+| **Queue** (primary) | `--mode queue` | Admin DB `ingestion_items` | Production — content managed via UI/API |
+| **YAML** (legacy) | `--mode yaml --sources file.yaml` | Local YAML file | Local development, one-off imports |
+
+Queue mode is the default for the deployed CronJob. YAML mode remains available for local development.
 
 ## Handler Types
 
@@ -46,14 +78,103 @@ base/rag/indexer/
 | `github_code` | GitHub repos | AST-aware chunking via tree-sitter (functions, classes as semantic units) |
 | `openapi_spec` | URLs | Parses OpenAPI 3.x / Swagger 2.0 into endpoint-level chunks |
 | `web_page` | URLs | Crawl4AI-based web crawling, HTML→Markdown conversion, heading-aware chunking |
-| `pdf_document` | URLs | PyMuPDF text extraction plus structured table markdown (`find_tables` → `to_markdown`), section-based splitting |
+| `pdf_document` | URLs | PyMuPDF text extraction plus structured table markdown, section-based splitting |
 | `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
+| `seed_corpus` | JSON files | Batch import from JSON URL lists (legacy format) |
+| `arxiv_paper` | arXiv IDs | Fetches PDFs from arXiv, extracts and chunks |
 | `markdown_file` | Local paths | Reads local .md files, heading-aware chunking |
 | `license_spdx` | SPDX/Fedora/choosealicense | License data from three authoritative sources plus compatibility rules |
 
+## Adding Content
+
+### Via Admin UI (recommended)
+
+Navigate to **RAG Pipeline > Ingestion Queue** in the admin dashboard:
+
+- **Single item** — enter a URI, select handler and domain, submit
+- **Bulk paste** — one URI per line
+- **Upload YAML** — normalized bootstrap format (see below)
+
+### Via Bootstrap API
+
+```bash
+curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+  -F "file=@bootstrap/corpus/docs.yaml" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Deduplication is automatic — existing URIs are skipped (`ON CONFLICT (uri) DO NOTHING`).
+
+### Bootstrap YAML Format
+
+All files in `bootstrap/corpus/` use a normalized schema that maps 1:1 to `ingestion_items` rows:
+
+```yaml
+items:
+  - uri: "https://example.com/docs"
+    handler: html_document
+    title: "Example Documentation"
+    domain: architecture
+    authority: vetted
+    origin_type: curated
+    tags: [cloud, architecture]
+    priority: 0
+    config: {}
+```
+
+See [bootstrap/README.md](../bootstrap/README.md) for full schema details and the `convert.py` migration tool.
+
+## Running the Indexer
+
+### Deploy the CronJob
+
+```bash
+./scripts/deploy-indexer.sh            # Apply the CronJob manifest
+./scripts/deploy-indexer.sh --run      # Also trigger a one-shot run now
+```
+
+### Monitor
+
+```bash
+oc logs -n synesis-rag -l synesis.io/indexer-group=queue -f
+```
+
+### Run Locally (development)
+
+```bash
+cd base/rag/indexer
+
+# Queue mode (needs admin service running)
+python -m app --mode queue --admin-url http://localhost:8000
+
+# YAML mode (legacy, for local testing)
+python -m app --mode yaml --sources sources-docs.yaml
+python -m app --mode yaml --sources sources-code.yaml --enrich full
+```
+
+## Post-Migration Import
+
+After deploying the admin service (Alembic migrations run automatically), import all bootstrap data:
+
+```bash
+# Import all bootstrap corpus files
+for f in bootstrap/corpus/*.yaml; do
+  curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+    -F "file=@$f" -H "Authorization: Bearer $TOKEN"
+done
+
+# Or use the admin UI: RAG Pipeline > Ingestion Queue > Upload YAML
+```
+
+Items enter the queue as `pending`. Run the indexer to process them:
+
+```bash
+./scripts/deploy-indexer.sh --run
+```
+
 ## Schema (synesis_catalog)
 
-Single collection with `authority` as partition key and HNSW index on embeddings.
+Single Milvus collection with `authority` as partition key and HNSW index on embeddings.
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -75,90 +196,37 @@ Single collection with `authority` as partition key and HNSW index on embeddings
 | `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external (partition key) |
 | `source_url` | VARCHAR(512) | Citation URL |
 | `embedding` | FLOAT_VECTOR(384) | all-MiniLM-L6-v2 embedding |
+| `scan_status` | VARCHAR(16) | Injection scan result: clean, flagged, review |
 
 ## Enrichment Pipeline
 
 Every chunk passes through a two-tier enrichment pipeline before embedding:
 
 **Tier 1 (always, zero cost):**
-- `context_prefix`: Template-based from document_name + heading_path (e.g., "From 'vLLM Deployment Guide', section 'GPU Parallelism > Tensor Parallel'.")
-- `keywords`: KeyBERT extraction (up to 8 terms per chunk)
+- `context_prefix`: Template-based from document_name + heading_path
+- `keywords`: KeyBERT extraction via keyword-service (up to 8 terms per chunk)
 
 **Tier 2 (optional, uses synesis-general LLM):**
 - `chunk_summary`: 1-2 sentence neutral description via LLM
 - Enhanced `context_prefix`: LLM-generated contextual sentence
 
-Tier 1 alone captures most of the Contextual Retrieval benefit because heading_path and document_name are the primary context signals.
-
-## Running the Indexer
-
-```bash
-# Deploy all CronJobs
-./scripts/deploy-indexer.sh dev
-
-# Trigger a one-shot indexing job
-./scripts/deploy-indexer.sh dev --trigger docs
-./scripts/deploy-indexer.sh dev --trigger code
-./scripts/deploy-indexer.sh dev --trigger apispec
-./scripts/deploy-indexer.sh dev --trigger license
-
-# Run locally (for development)
-cd base/rag/indexer
-python -m app --sources sources-docs.yaml
-python -m app --sources sources-code.yaml --enrich full  # with LLM enrichment
-```
-
-## Adding Sources
-
-Edit the appropriate `sources-*.yaml` file in `base/rag/indexer/`:
-
-```yaml
-sources:
-  - name: my-internal-docs
-    handler: github_markdown
-    repo: my-org/my-repo
-    branch: main
-    paths: ["docs/"]
-    domain: engineering
-    authority: canonical
-    origin_type: internal
-    tags: [internal, docs]
-```
-
-## CronJob Schedules
-
-| Environment | Docs | Code | API Spec | License |
-|------------|------|------|----------|---------|
-| **Dev** | Suspended | Suspended | Suspended | Suspended |
-| **Staging** | 1st & 15th | 1st & 15th | 1st & 15th | 1st & 15th |
-| **Prod** | Weekly (Sun 3am) | Weekly (Sun 3am) | Weekly (Sun 4am) | Weekly (Sun 5am) |
-
 ## Idempotency
 
-The indexer uses **content-hash chunk IDs** (`chunk_id_hash`) and `existing_chunk_ids()` to skip re-embedding unchanged content. On re-run:
+The indexer uses **content-hash chunk IDs** and `existing_chunk_ids()` to skip re-embedding unchanged content. On re-run:
 
 - **Same source data** → existing chunks skipped, only new/changed chunks embedded and upserted
 - **Upsert by primary key** → same chunk_id overwrites in place (no duplicates)
+- **Content hash tracking** → `ingestion_items.content_hash` detects when source content changes
 - Use `--force` to re-embed everything (e.g., after embedding model change)
-
-## Resource Requirements
-
-| Job | CPU Request | Memory | Typical Runtime |
-|-----|-----------|--------|-----------------|
-| Docs (all sources) | 500m | 2Gi | 10-30 minutes |
-| Code (all repos) | 1 core | 4Gi | 2-6 hours |
-| API Spec | 500m | 1Gi | 5-15 minutes |
-| License | 250m | 512Mi | 5-10 minutes |
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8000` | Admin API for queue mode |
 | `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
 | `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) |
-| `RAG_CRITIC_ARCH_ENABLED` | `true` | Give the Critic architecture context |
-| `RAG_CRITIC_LICENSE_ENABLED` | `true` | Give the Critic license compliance context |
 
 ---
 
-Back to [README](../README.md) | See also: [RAG Pipeline](RAG.md), [Taxonomy Shaping](TAXONOMY_SHAPING.md)
+Back to [README](../README.md) | See also: [RAG Pipeline](RAG.md), [Taxonomy Shaping](TAXONOMY_SHAPING.md), [Bootstrap Data](../bootstrap/README.md)

@@ -1,0 +1,3981 @@
+items:
+- uri: https://github.com/openshift/runbooks
+  handler: github_markdown
+  title: OpenShift Runbooks
+  domain: openshift
+  authority: community
+  origin_type: curated
+  tags:
+  - ocp
+  - runbooks
+  - alerts
+  config:
+    repo: openshift/runbooks
+    branch: master
+    path: alerts
+- uri: https://github.com/red-hat-storage/ocs-sop
+  handler: github_markdown
+  title: OCS/ODF Storage SOPs
+  domain: openshift
+  authority: community
+  origin_type: curated
+  tags:
+  - ods
+  - ocs
+  - storage
+  - odf
+  config:
+    repo: red-hat-storage/ocs-sop
+    branch: main
+    path: sop
+- uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/framework/wellarchitected-framework.pdf
+  handler: pdf_document
+  title: AWS Well-Architected Framework
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cloud
+  - architecture
+  - architecture-review
+  - quality-attributes
+  - tradeoffs
+  - reliability
+  - security
+  - performance
+  - cost
+  - sustainability
+- uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/reliability-pillar/wellarchitected-reliability-pillar.pdf
+  handler: pdf_document
+  title: AWS Reliability Pillar
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - reliability
+  - fault-tolerance
+  - resilience
+  - disaster-recovery
+- uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/security-pillar/wellarchitected-security-pillar.pdf
+  handler: pdf_document
+  title: AWS Security Pillar
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - identity
+  - encryption
+  - detection
+- uri: https://docs.aws.amazon.com/pdfs/wellarchitected/latest/operational-excellence-pillar/wellarchitected-operational-excellence-pillar.pdf
+  handler: pdf_document
+  title: AWS Operational Excellence Pillar
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - operations
+  - monitoring
+  - incident-response
+  - automation
+- uri: https://12factor.net/
+  handler: html_document
+  title: Twelve-Factor App
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - twelve-factor
+  - saas
+  - cloud-native
+  - best-practices
+  - software-engineering
+- uri: https://github.com/MicrosoftDocs/architecture-center
+  handler: github_markdown
+  title: Cloud Design Patterns (Microsoft)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - patterns
+  - microservices
+  - resilience
+  - scalability
+  config:
+    repo: MicrosoftDocs/architecture-center
+    branch: main
+    path: docs/patterns
+- uri: https://aws.amazon.com/architecture/
+  handler: web_page
+  title: AWS Architecture Center
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - cloud
+  - architecture
+  - reference-architectures
+- uri: https://wellarchitectedlabs.com/
+  handler: web_page
+  title: AWS Well-Architected Labs
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - well-architected
+  - labs
+  - hands-on
+  config:
+    follow_links: true
+- uri: https://learn.microsoft.com/en-us/azure/well-architected/
+  handler: web_page
+  title: Azure Well-Architected Framework
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - well-architected
+  - architecture-review
+  - reliability
+  - security
+  - cost
+  - performance
+  - quality-attributes
+  config:
+    follow_links: true
+- uri: https://learn.microsoft.com/en-us/azure/architecture/
+  handler: web_page
+  title: Azure Architecture Center
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - architecture
+  - patterns
+  - reference-architectures
+  config:
+    follow_links: true
+- uri: https://learn.microsoft.com/en-us/assessments/azure-architecture-review/
+  handler: web_page
+  title: Azure Well-Architected Review
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - well-architected
+  - assessment
+  - governance
+- uri: https://docs.cloud.google.com/architecture/framework
+  handler: web_page
+  title: Google Cloud Architecture Framework
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - architecture
+  - architecture-review
+  - framework
+  - best-practices
+  - quality-attributes
+  config:
+    follow_links: true
+- uri: https://docs.cloud.google.com/architecture
+  handler: web_page
+  title: Google Cloud Architecture Center
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - architecture
+  - reference-architectures
+- uri: https://cloud.google.com/whitepapers
+  handler: web_page
+  title: Google Cloud Whitepapers
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - whitepapers
+  - cloud
+- uri: https://cloud.google.com/blog/products/application-modernization/well-architected-framework-to-accelerate-your-cloud-journey
+  handler: web_page
+  title: Google Cloud Well-Architected Framework Overview
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - well-architected
+  - overview
+- uri: https://martinfowler.com/microservices/
+  handler: web_page
+  title: 'Martin Fowler: Microservices Guide'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - microservices
+  - patterns
+  - distributed-systems
+  config:
+    follow_links: true
+- uri: https://martinfowler.com/articles/microservices.html
+  handler: web_page
+  title: 'Martin Fowler: Microservices'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - microservices
+  - definition
+  - architecture
+- uri: https://martinfowler.com/architecture/
+  handler: web_page
+  title: 'Martin Fowler: Software Architecture Guide'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - patterns
+  - design
+  config:
+    follow_links: true
+- uri: https://12factor.net/config
+  handler: html_document
+  title: 'Twelve-Factor App: Config'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - twelve-factor
+  - config
+  - environment
+- uri: https://12factor.net/logs
+  handler: html_document
+  title: 'Twelve-Factor App: Logs'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - twelve-factor
+  - logs
+  - observability
+- uri: https://12factor.net/dev-prod-parity
+  handler: html_document
+  title: 'Twelve-Factor App: Dev/Prod Parity'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - twelve-factor
+  - dev-prod-parity
+  - environments
+- uri: https://c4model.com/
+  handler: web_page
+  title: C4 Model
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - c4
+  - diagramming
+  - architecture-documentation
+  - visualization
+  - architecture-review
+  - design-goals
+  config:
+    follow_links: true
+- uri: https://arc42.org/
+  handler: web_page
+  title: arc42 Architecture Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - arc42
+  - documentation
+  - templates
+  - architecture
+  - architecture-review
+  - adr
+  config:
+    follow_links: true
+- uri: https://quality.arc42.org/articles/quality-models
+  handler: web_page
+  title: arc42 Quality Model
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - arc42
+  - quality
+  - quality-attributes
+  - nfr
+  - tradeoffs
+- uri: https://sre.google/
+  handler: web_page
+  title: Google SRE
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - google
+  - toil
+  - slo
+  - systems-engineering
+  config:
+    follow_links: true
+- uri: https://cloud.google.com/sre
+  handler: web_page
+  title: Google Cloud SRE Overview
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - gcp
+  - reliability
+- uri: https://sre.google/workbook/table-of-contents/
+  handler: web_page
+  title: The Site Reliability Workbook
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - workbook
+  - practices
+  - on-call
+  - monitoring
+  config:
+    follow_links: true
+- uri: https://dora.dev/research/
+  handler: web_page
+  title: DORA Research & Metrics
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dora
+  - metrics
+  - devops
+  - deployment-frequency
+  - lead-time
+  - mttr
+  config:
+    follow_links: true
+- uri: https://dora.dev/guides/dora-metrics/
+  handler: web_page
+  title: DORA Metrics Guide
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dora
+  - metrics
+  - measurement
+  - engineering-excellence
+- uri: https://dora.dev/capabilities/continuous-delivery/
+  handler: web_page
+  title: DORA Continuous Delivery Capability
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dora
+  - continuous-delivery
+  - capabilities
+- uri: https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-3
+  handler: web_page
+  title: State of Platform Engineering Report Vol. 3
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - platform-engineering
+  - report
+  - idp
+  - humanitec
+- uri: https://humanitec.com/whitepapers/state-of-platform-engineering-report-volume-2
+  handler: web_page
+  title: State of Platform Engineering Report Vol. 2
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - platform-engineering
+  - report
+  - idp
+  - humanitec
+- uri: https://humanitec.com/blog/platform-as-a-product-the-evolution-of-devops-and-platform-engineering
+  handler: web_page
+  title: 'Platform as a Product: Evolution of DevOps'
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - platform-engineering
+  - devops
+  - platform-as-product
+- uri: https://humanitec.com/blog/devops-maturity
+  handler: web_page
+  title: Evaluating DevOps Maturity
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - devops
+  - maturity-model
+  - assessment
+- uri: https://humanitec.com/blog/build-your-internal-developer-platform-with-humanitec-cortex
+  handler: web_page
+  title: Build Your IDP with Humanitec & Cortex
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - idp
+  - platform-engineering
+  - developer-experience
+- uri: https://cheatsheetseries.owasp.org/index.html
+  handler: web_page
+  title: OWASP Cheat Sheet Series
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - security
+  - security-architecture
+  - cheat-sheets
+  - best-practices
+  config:
+    follow_links: true
+- uri: https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html
+  handler: web_page
+  title: OWASP Threat Modeling Cheat Sheet
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - threat-modeling
+  - security
+- uri: https://owasp.org/www-community/Threat_Modeling_Process
+  handler: web_page
+  title: OWASP Threat Modeling Process
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - threat-modeling
+  - process
+- uri: https://devguide.owasp.org/en/04-design/01-threat-modeling/07-practical-threat-modeling/
+  handler: web_page
+  title: OWASP Practical Threat Modeling
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - threat-modeling
+  - practical
+- uri: https://owasp.org/www-project-threat-dragon/
+  handler: web_page
+  title: OWASP Threat Dragon
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - threat-dragon
+  - tooling
+  - threat-modeling
+- uri: https://cloud.google.com/resources/delivering-software-securely
+  handler: web_page
+  title: Delivering Software Securely (Google)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - supply-chain
+  - security
+  - slsa
+  - google
+- uri: https://research.google/pubs/borg-omega-and-kubernetes/
+  handler: web_page
+  title: Borg, Omega, and Kubernetes (Google Research)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - borg
+  - omega
+  - kubernetes
+  - cluster-management
+  - google
+- uri: https://research.google/pubs/large-scale-cluster-management-at-google-with-borg/
+  handler: web_page
+  title: Large-scale Cluster Management at Google with Borg
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - borg
+  - cluster-management
+  - scheduling
+  - google
+- uri: https://research.google/pubs/omega-flexible-scalable-schedulers-for-large-compute-clusters/
+  handler: web_page
+  title: 'Omega: Flexible Scalable Schedulers for Large Compute Clusters'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - omega
+  - scheduling
+  - cluster-management
+  - google
+- uri: https://kubernetes.io/docs/
+  handler: web_page
+  title: Kubernetes Documentation
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubernetes
+  - k8s
+  - orchestration
+  - containers
+- uri: https://kubernetes.io/docs/concepts/
+  handler: web_page
+  title: Kubernetes Concepts
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubernetes
+  - concepts
+  - pods
+  - services
+  - deployments
+  config:
+    follow_links: true
+- uri: https://cloud.google.com/blog/products/containers-kubernetes/kubernetes-best-practices-organizing-with-namespaces
+  handler: web_page
+  title: 'Kubernetes Best Practices: Organizing with Namespaces'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubernetes
+  - namespaces
+  - best-practices
+  - multi-tenancy
+- uri: https://docs.cloud.google.com/architecture/best-practices-vpc-design
+  handler: web_page
+  title: Best Practices for VPC Design (Google Cloud)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vpc
+  - networking
+  - gcp
+  - best-practices
+- uri: https://research.google/pubs/mapreduce-simplified-data-processing-on-large-clusters/
+  handler: web_page
+  title: 'MapReduce: Simplified Data Processing on Large Clusters'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mapreduce
+  - distributed-systems
+  - batch-processing
+  - google
+- uri: https://research.google/pubs/the-google-file-system/
+  handler: web_page
+  title: The Google File System
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gfs
+  - distributed-storage
+  - google
+- uri: https://research.google/pubs/bigtable-a-distributed-storage-system-for-structured-data/
+  handler: web_page
+  title: 'Bigtable: A Distributed Storage System for Structured Data'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bigtable
+  - distributed-storage
+  - nosql
+  - google
+- uri: https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf
+  handler: pdf_document
+  title: 'Dynamo: Amazon''s Highly Available Key-value Store'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dynamo
+  - eventual-consistency
+  - partitioning
+  - amazon
+- uri: https://research.google/pubs/spanner-googles-globally-distributed-database-2/
+  handler: web_page
+  title: 'Spanner: Google''s Globally-Distributed Database'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - spanner
+  - distributed-database
+  - consistency
+  - google
+- uri: https://research.google/pubs/spanner-becoming-a-sql-system/
+  handler: web_page
+  title: 'Spanner: Becoming a SQL System'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - spanner
+  - sql
+  - distributed-database
+  - google
+- uri: https://www.usenix.org/system/files/atc22-elhemali.pdf
+  handler: pdf_document
+  title: 'Amazon DynamoDB: A Scalable NoSQL Database Service'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dynamodb
+  - nosql
+  - serverless
+  - amazon
+- uri: https://raft.github.io/raft.pdf
+  handler: pdf_document
+  title: In Search of an Understandable Consensus Algorithm (Raft)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - raft
+  - consensus
+  - distributed-systems
+- uri: https://raft.github.io/
+  handler: web_page
+  title: Raft Consensus Algorithm
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - raft
+  - consensus
+  - visualization
+- uri: https://www.usenix.org/legacy/event/atc10/tech/full_papers/Hunt.pdf
+  handler: pdf_document
+  title: 'ZooKeeper: Wait-free Coordination for Internet-scale Systems'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - zookeeper
+  - coordination
+  - consensus
+  - distributed-systems
+- uri: https://lamport.azurewebsites.net/pubs/paxos-simple.pdf
+  handler: pdf_document
+  title: Paxos Made Simple
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - paxos
+  - consensus
+  - lamport
+- uri: https://lamport.azurewebsites.net/pubs/time-clocks.pdf
+  handler: pdf_document
+  title: Time, Clocks, and the Ordering of Events in a Distributed System
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - lamport-clocks
+  - ordering
+  - causality
+  - distributed-systems
+- uri: https://research.google/pubs/dapper-a-large-scale-distributed-systems-tracing-infrastructure/
+  handler: web_page
+  title: 'Dapper: Large-Scale Distributed Systems Tracing Infrastructure'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dapper
+  - tracing
+  - observability
+  - google
+- uri: https://www.confluent.io/blog/log-what-every-software-engineer-should-know-about-real-time-data/
+  handler: web_page
+  title: 'The Log: What Every Software Engineer Should Know'
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - log
+  - streaming
+  - kafka
+  - event-sourcing
+  - confluent
+- uri: https://dataintensive.net/
+  handler: web_page
+  title: Designing Data-Intensive Applications
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - ddia
+  - distributed-systems
+  - data-systems
+  - kleppmann
+- uri: https://grpc.io/docs/
+  handler: web_page
+  title: gRPC Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - grpc
+  - rpc
+  - protobuf
+  - api
+  config:
+    follow_links: true
+- uri: https://spec.openapis.org/oas/latest.html
+  handler: web_page
+  title: OpenAPI Specification
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - openapi
+  - rest
+  - api-spec
+  - swagger
+- uri: https://www.asyncapi.com/docs/reference/specification/latest
+  handler: web_page
+  title: AsyncAPI Specification
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - asyncapi
+  - event-driven
+  - messaging
+  - api-spec
+- uri: https://cloudevents.io/
+  handler: web_page
+  title: CloudEvents Specification
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - cloudevents
+  - cncf
+  - event-driven
+  - messaging
+- uri: https://opentelemetry.io/docs/
+  handler: web_page
+  title: OpenTelemetry Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - opentelemetry
+  - otel
+  - tracing
+  - metrics
+  - logging
+  - cncf
+  - observability
+  config:
+    follow_links: true
+- uri: https://prometheus.io/docs/introduction/overview/
+  handler: web_page
+  title: Prometheus Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - prometheus
+  - metrics
+  - monitoring
+  - alerting
+  - cncf
+  - observability
+- uri: https://openmetrics.io/
+  handler: web_page
+  title: OpenMetrics
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - openmetrics
+  - metrics
+  - exposition-format
+- uri: https://www.oreilly.com/library/view/distributed-systems-observability/9781492033431/
+  handler: web_page
+  title: Distributed Systems Observability (O'Reilly)
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - observability
+  - distributed-systems
+  - monitoring
+  - book
+- uri: https://martinfowler.com/books/continuousDelivery.html
+  handler: web_page
+  title: 'Martin Fowler: Continuous Delivery'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - continuous-delivery
+  - deployment
+  - release
+- uri: https://martinfowler.com/articles/continuousIntegration.html
+  handler: web_page
+  title: 'Martin Fowler: Continuous Integration'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - continuous-integration
+  - ci
+  - build
+  - testing
+- uri: https://trunkbaseddevelopment.com/
+  handler: web_page
+  title: Trunk Based Development
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - trunk-based
+  - branching
+  - version-control
+  - ci
+  config:
+    follow_links: true
+- uri: https://opengitops.dev/
+  handler: web_page
+  title: GitOps Principles (OpenGitOps)
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - gitops
+  - declarative
+  - reconciliation
+  - cncf
+- uri: https://argo-cd.readthedocs.io/en/stable/
+  handler: web_page
+  title: Argo CD Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - argocd
+  - gitops
+  - kubernetes
+  - cncf
+  config:
+    follow_links: true
+- uri: https://fluxcd.io/flux/
+  handler: web_page
+  title: Flux CD Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - flux
+  - gitops
+  - kubernetes
+  - cncf
+  config:
+    follow_links: true
+- uri: https://pragprog.com/titles/mnee2/release-it-second-edition/
+  handler: web_page
+  title: Release It! (Second Edition)
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - resilience
+  - stability
+  - circuit-breaker
+  - release
+- uri: https://principlesofchaos.org/
+  handler: web_page
+  title: Principles of Chaos Engineering
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - chaos-engineering
+  - resilience
+  - fault-injection
+- uri: https://chaos-mesh.org/docs/
+  handler: web_page
+  title: Chaos Mesh Documentation
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - chaos-mesh
+  - chaos-engineering
+  - kubernetes
+  - cncf
+  config:
+    follow_links: true
+- uri: https://www.gremlin.com/community/tutorials
+  handler: web_page
+  title: Gremlin Reliability & Chaos Engineering Tutorials
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - gremlin
+  - chaos-engineering
+  - reliability
+  - tutorials
+- uri: https://martinfowler.com/articles/serverless.html
+  handler: web_page
+  title: 'Martin Fowler: Serverless Architectures'
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - serverless
+  - faas
+  - lambda
+  - architecture
+- uri: https://aws.amazon.com/event-driven-architecture/
+  handler: web_page
+  title: AWS Event-Driven Architecture
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - event-driven
+  - eventbridge
+  - sqs
+  - sns
+- uri: https://learn.microsoft.com/en-us/azure/architecture/guide/architecture-styles/event-driven
+  handler: web_page
+  title: Azure Event-Driven Architecture Guide
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - event-driven
+  - architecture-styles
+- uri: https://cloud.google.com/eventarc/docs/event-driven-architectures
+  handler: web_page
+  title: Google Cloud Event-Driven Architectures
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - eventarc
+  - event-driven
+  - pub-sub
+- uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/welcome.html
+  handler: web_page
+  title: AWS ADR Guide
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - aws
+  - decision-records
+  config:
+    follow_links: true
+- uri: https://docs.aws.amazon.com/pdfs/prescriptive-guidance/latest/architectural-decision-records/architectural-decision-records.pdf
+  handler: pdf_document
+  title: AWS ADR Guide (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - aws
+  - decision-records
+- uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/adr-process.html
+  handler: web_page
+  title: AWS ADR Process
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - aws
+  - governance
+- uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/architectural-decision-records/best-practices.html
+  handler: web_page
+  title: AWS ADR Best Practices
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - aws
+  - best-practices
+- uri: https://docs.cloud.google.com/architecture/architecture-decision-records
+  handler: web_page
+  title: Google Cloud ADR Overview
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - gcp
+  - decision-records
+- uri: https://github.com/joelparkerhenderson/architecture-decision-record
+  handler: github_markdown
+  title: Joel Parker Henderson – ADR Repository
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - templates
+  - examples
+  config:
+    repo: joelparkerhenderson/architecture-decision-record
+    branch: main
+    path: ''
+- uri: https://www.thoughtworks.com/en-us/radar/techniques/lightweight-architecture-decision-records
+  handler: web_page
+  title: Thoughtworks – Lightweight ADRs
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - thoughtworks
+- uri: https://www.thoughtworks.com/en-us/radar/techniques/lightweight-approach-to-rfcs
+  handler: web_page
+  title: Thoughtworks – Lightweight RFCs
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - adr
+  - architecture
+  - rfc
+  - thoughtworks
+- uri: https://www.sei.cmu.edu/library/atam-method-for-architecture-evaluation/
+  handler: web_page
+  title: SEI ATAM Method for Architecture Evaluation
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - quality-attributes
+  - sei
+- uri: https://www.sei.cmu.edu/documents/629/2000_005_001_13706.pdf
+  handler: pdf_document
+  title: SEI ATAM Report (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - quality-attributes
+  - sei
+- uri: https://www.sei.cmu.edu/library/file_redirect/1998_005_001_16646.pdf/
+  handler: pdf_document
+  title: SEI Architecture Tradeoff Analysis Method (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - atam
+  - architecture-review
+  - tradeoffs
+  - sei
+- uri: https://www.sei.cmu.edu/library/file_redirect/2011_015_001_28266.pdf/
+  handler: pdf_document
+  title: SEI ATAM Overview (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - atam
+  - architecture-review
+  - sei
+- uri: https://www.sei.cmu.edu/documents/1971/2001_004_001_13808.pdf
+  handler: pdf_document
+  title: SEI ATAM in Acquisition (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - atam
+  - architecture-review
+  - acquisition
+  - sei
+- uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/the-review-process.html
+  handler: web_page
+  title: AWS Well-Architected Review Process
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - well-architected
+  - architecture-review
+- uri: https://learn.microsoft.com/en-us/azure/well-architected/pillars
+  handler: web_page
+  title: Azure Well-Architected Pillars
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - well-architected
+  - quality-attributes
+  - pillars
+- uri: https://docs.arc42.org/
+  handler: web_page
+  title: arc42 Documentation (docs)
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - arc42
+  - documentation
+  - architecture
+  - architecture-review
+  config:
+    follow_links: true
+- uri: https://docs.arc42.org/section-1/
+  handler: web_page
+  title: 'arc42 Section 1: Introduction and Goals'
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - arc42
+  - design-goals
+  - constraints
+  - stakeholders
+- uri: https://docs.arc42.org/tips/9-9/
+  handler: web_page
+  title: 'arc42 Tips: Architecture Decisions / ADRs'
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - arc42
+  - adr
+  - architecture
+  - decision-records
+- uri: https://c4model.com/diagrams/checklist
+  handler: web_page
+  title: C4 Model Diagram Review Checklist
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - c4
+  - architecture-review
+  - diagramming
+  - checklist
+- uri: https://c4model.com/example/
+  handler: web_page
+  title: C4 Model Example Diagrams
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - c4
+  - architecture
+  - examples
+  - diagramming
+- uri: https://owasp.org/www-project-secure-by-design-framework/
+  handler: web_page
+  title: OWASP Secure by Design Framework
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - security-architecture
+  - secure-by-design
+- uri: https://cheatsheetseries.owasp.org/cheatsheets/Secure_Product_Design_Cheat_Sheet.html
+  handler: web_page
+  title: OWASP Secure Product Design Cheat Sheet
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - owasp
+  - security-architecture
+  - secure-by-design
+  - cheat-sheet
+- uri: https://www.cisa.gov/resources-tools/resources/secure-by-design
+  handler: web_page
+  title: CISA Secure by Design
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cisa
+  - security-architecture
+  - secure-by-design
+- uri: https://www.cisa.gov/sites/default/files/2023-10/SecureByDesign_1025_508c.pdf
+  handler: pdf_document
+  title: CISA Secure by Design (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cisa
+  - security-architecture
+  - secure-by-design
+- uri: https://soadecisions.org/download/ComplianceByDesign-AAM.pdf
+  handler: pdf_document
+  title: Compliance by Design (PDF)
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - architecture
+  - security-architecture
+  - risk-management
+  - compliance
+- uri: https://arxiv.org/pdf/1706.03762
+  handler: pdf_document
+  title: Attention Is All You Need (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - llm
+  - transformer
+  - architecture
+  - foundational
+- uri: https://arxiv.org/pdf/2005.14165
+  handler: pdf_document
+  title: Language Models are Few-Shot Learners (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - llm
+  - in-context-learning
+  - foundational
+- uri: https://arxiv.org/pdf/2005.11401
+  handler: pdf_document
+  title: RAG for Knowledge-Intensive NLP Tasks (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - retrieval
+  - llm
+  - foundational
+- uri: https://arxiv.org/pdf/2405.07437
+  handler: pdf_document
+  title: 'Evaluation of RAG: A Survey (PDF)'
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - eval
+  - survey
+  - benchmarks
+- uri: https://arxiv.org/abs/2404.10981
+  handler: web_page
+  title: Survey on RAG Text Generation for LLMs
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - survey
+  - llm
+  - retrieval
+- uri: https://arxiv.org/abs/2409.14924
+  handler: web_page
+  title: 'RAG and Beyond: Comprehensive Survey'
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - survey
+  - llm
+  - architecture
+- uri: https://arxiv.org/abs/2410.12837
+  handler: web_page
+  title: 'Comprehensive Survey of RAG: Evolution and Future'
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - survey
+  - llm
+- uri: https://arxiv.org/abs/2307.03172
+  handler: web_page
+  title: 'Lost in the Middle: Long Contexts'
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - long-context
+  - position-bias
+  - llm
+- uri: https://arxiv.org/pdf/2403.04797
+  handler: pdf_document
+  title: Long Contexts via Plug-and-Play Positional Encoding (PDF)
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - llm
+  - long-context
+  - positional-encoding
+- uri: https://arxiv.org/abs/2406.02536
+  handler: web_page
+  title: Mitigate Position Bias via Reinforcement Learning
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - llm
+  - position-bias
+  - reinforcement-learning
+- uri: https://arxiv.org/pdf/2201.11903
+  handler: pdf_document
+  title: Chain-of-Thought Prompting (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - reasoning
+  - chain-of-thought
+  - llm
+- uri: https://arxiv.org/abs/2205.11916
+  handler: web_page
+  title: Large Language Models are Zero-Shot Reasoners
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - reasoning
+  - zero-shot
+  - llm
+- uri: https://cdn.openai.com/business-guides-and-resources/a-practical-guide-to-building-agents.pdf
+  handler: pdf_document
+  title: OpenAI Practical Guide to Building Agents (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - openai
+  - tool-use
+  - eval
+  - guardrails
+- uri: https://developers.openai.com/tracks/building-agents/
+  handler: web_page
+  title: OpenAI Building Agents Track
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - openai
+  - orchestration
+- uri: https://developers.openai.com/api/docs/guides/agents/
+  handler: web_page
+  title: OpenAI Agents Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - openai
+  - implementation
+- uri: https://developers.openai.com/api/docs/guides/agent-builder/
+  handler: web_page
+  title: OpenAI Agent Builder Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - openai
+  - workflow-composition
+- uri: https://services.google.com/fh/files/misc/operationalizing_generative_ai_on_vertex_ai.pdf
+  handler: pdf_document
+  title: Google Cloud Operationalizing GenAI (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - llm
+  - eval
+  - gcp
+  - prompt-engineering
+  - rag
+- uri: https://services.google.com/fh/files/misc/evaluation_framework.pdf
+  handler: pdf_document
+  title: Google Cloud Evaluation Framework (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - eval
+  - llm
+  - gcp
+  - rubric
+- uri: https://services.google.com/fh/files/blogs/neurips_evaluation.pdf
+  handler: pdf_document
+  title: Google Cloud Evaluating LLMs (NeurIPS PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - eval
+  - llm
+  - gcp
+  - benchmarks
+- uri: https://docs.cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai
+  handler: web_page
+  title: Google Cloud RAG Infrastructure Architecture
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - architecture
+  - gcp
+  - reference-architecture
+- uri: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/evaluation-overview
+  handler: web_page
+  title: Google Cloud Gen AI Evaluation Service
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - eval
+  - llm
+  - gcp
+- uri: https://nvlpubs.nist.gov/nistpubs/ai/nist.ai.100-1.pdf
+  handler: pdf_document
+  title: NIST AI Risk Management Framework (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - risk-management
+  - llm
+  - governance
+  - nist
+- uri: https://nvlpubs.nist.gov/nistpubs/ai/NIST.AI.600-1.pdf
+  handler: pdf_document
+  title: NIST AI RMF Generative AI Profile (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - risk-management
+  - llm
+  - generative-ai
+  - nist
+- uri: https://airc.nist.gov/airmf-resources/playbook/
+  handler: web_page
+  title: NIST AI RMF Playbook
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - risk-management
+  - llm
+  - nist
+  - playbook
+- uri: https://developers.openai.com/api/docs/guides/prompt-engineering/
+  handler: web_page
+  title: OpenAI Prompt Engineering Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - openai
+- uri: https://developers.openai.com/api/docs/guides/prompt-guidance/
+  handler: web_page
+  title: OpenAI Prompt Guidance
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - openai
+- uri: https://help.openai.com/en/articles/10032626-prompt-engineering-best-practices-for-chatgpt
+  handler: web_page
+  title: OpenAI Prompt Best Practices for ChatGPT
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - openai
+  - best-practices
+- uri: https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview
+  handler: web_page
+  title: Anthropic Prompt Engineering Overview
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - anthropic
+- uri: https://docs.anthropic.com/en/prompt-library/library
+  handler: web_page
+  title: Anthropic Prompt Library
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - anthropic
+  - examples
+- uri: https://services.google.com/fh/files/misc/1_vertex_ai_gemini_prompting_strategies.pdf
+  handler: pdf_document
+  title: Google Vertex AI Gemini Prompting Strategies (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - gcp
+  - gemini
+- uri: https://services.google.com/fh/files/misc/improve_llm_performance_reliability.pdf
+  handler: pdf_document
+  title: Google Improve LLM Performance & Reliability (PDF)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - rag
+  - fine-tuning
+  - gcp
+- uri: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies
+  handler: web_page
+  title: Google Prompt Design Strategies
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompt-engineering
+  - gcp
+- uri: https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking
+  handler: web_page
+  title: Anthropic Extended Thinking
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - anthropic
+  - reasoning
+  - tool-use
+- uri: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/implement-tool-use
+  handler: web_page
+  title: Anthropic Tool Use Implementation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - tool-use
+  - anthropic
+- uri: https://docs.langchain.com/oss/python/langchain/retrieval
+  handler: web_page
+  title: LangChain Retrieval
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - langchain
+  - retrieval
+- uri: https://docs.langchain.com/oss/python/langgraph/agentic-rag
+  handler: web_page
+  title: LangGraph Agentic RAG
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - agents
+  - langgraph
+- uri: https://docs.langchain.com/oss/python/langchain/rag
+  handler: web_page
+  title: LangChain Build a RAG Agent
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - langchain
+  - tutorial
+- uri: https://docs.langchain.com/oss/python/langchain/multi-agent
+  handler: web_page
+  title: LangChain Multi-Agent
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - agents
+  - multi-agent
+  - langchain
+- uri: https://tag-app-delivery.cncf.io/whitepapers/platforms/
+  handler: web_page
+  title: CNCF Platforms White Paper
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - platform-engineering
+  - cncf
+  - internal-developer-platform
+- uri: https://tag-app-delivery.cncf.io/whitepapers/platform-eng-maturity-model/
+  handler: web_page
+  title: CNCF Platform Engineering Maturity Model
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - platform-engineering
+  - cncf
+  - maturity-model
+- uri: https://tag-app-delivery.cncf.io/blog/paap-personas/
+  handler: web_page
+  title: CNCF Platform as a Product Personas
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - platform-engineering
+  - cncf
+  - product-thinking
+- uri: https://tag-app-delivery.cncf.io/whitepapers/operator/
+  handler: web_page
+  title: CNCF Operator White Paper
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - platform-engineering
+  - cncf
+  - kubernetes
+  - operators
+- uri: https://backstage.io/docs/overview/what-is-backstage/
+  handler: web_page
+  title: Backstage Overview
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - internal-developer-platform
+  - portal
+- uri: https://backstage.io/docs/features/software-catalog/
+  handler: web_page
+  title: Backstage Software Catalog
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - catalog
+  - ownership
+  - internal-developer-platform
+- uri: https://backstage.io/docs/features/software-catalog/descriptor-format/
+  handler: web_page
+  title: Backstage Descriptor Format
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - catalog
+  - schema
+  - metadata
+- uri: https://backstage.io/docs/features/software-templates/
+  handler: web_page
+  title: Backstage Software Templates
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - templates
+  - self-service
+- uri: https://backstage.io/docs/features/software-templates/writing-templates/
+  handler: web_page
+  title: Backstage Writing Templates
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - templates
+  - scaffolding
+- uri: https://backstage.io/docs/features/techdocs/
+  handler: web_page
+  title: Backstage TechDocs
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - backstage
+  - docs-as-code
+  - internal-developer-platform
+- uri: https://teamtopologies.com/
+  handler: web_page
+  title: Team Topologies
+  domain: architecture
+  authority: community
+  origin_type: curated
+  tags:
+  - platform-engineering
+  - team-boundaries
+  - cognitive-load
+- uri: https://www.nasa.gov/wp-content/uploads/2018/09/nasa_systems_engineering_handbook_0.pdf
+  handler: pdf_document
+  title: NASA Systems Engineering Handbook (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - systems-engineering
+  - nasa
+  - handbook
+- uri: https://www.nasa.gov/reference/systems-engineering-handbook/
+  handler: web_page
+  title: NASA Systems Engineering Handbook
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - systems-engineering
+  - nasa
+- uri: https://standards.nasa.gov/sites/default/files/standards/NASA/Baseline/0/2022-10-14-NASA-HDBK-1009.pdf
+  handler: pdf_document
+  title: NASA Systems Modeling Handbook (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - systems-engineering
+  - nasa
+  - mbse
+  - modeling
+- uri: https://www.incose.org/resources-publications/technical-publications/se-handbook/
+  handler: web_page
+  title: INCOSE Systems Engineering Handbook
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - systems-engineering
+  - incose
+- uri: https://sre.google/workbook/implementing-slos/
+  handler: web_page
+  title: Google SRE Implementing SLOs
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - slo
+  - error-budget
+- uri: https://sre.google/static/pdf/IncidentManagementGuide.pdf
+  handler: pdf_document
+  title: Google Incident Management Guide (PDF)
+  domain: architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - incident-response
+- uri: https://platformengineering.org/blog/platform-engineering-maturity-in-2026
+  handler: web_page
+  title: PlatformEngineering.org Maturity 2026
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - platform-engineering
+  - maturity-model
+- uri: https://platformengineering.org/blog/metrics-that-matter-measuring-platform-success-and-maturity
+  handler: web_page
+  title: PlatformEngineering.org Metrics
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - platform-engineering
+  - metrics
+- uri: https://www.thoughtworks.com/en-us/radar/techniques/architecture-advice-process
+  handler: web_page
+  title: Thoughtworks Architecture Advice Process
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - architecture
+  - decision-records
+  - thoughtworks
+- uri: https://www.thoughtworks.com/content/dam/thoughtworks/documents/report/thoughtworks-enterprise-architecture-playbook.pdf
+  handler: pdf_document
+  title: Thoughtworks Enterprise Architecture Playbook (PDF)
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - architecture
+  - enterprise
+  - thoughtworks
+- uri: https://www.computer.org/education/bodies-of-knowledge/software-engineering
+  handler: web_page
+  title: SWEBOK Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - software-engineering
+  - body-of-knowledge
+  - foundations
+- uri: https://refactoring.com/catalog/
+  handler: web_page
+  title: Martin Fowler Refactoring Catalog
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - software-engineering
+  - refactoring
+  - code-review
+  - design
+- uri: https://google.github.io/eng-practices/
+  handler: web_page
+  title: Google Engineering Practices
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - software-engineering
+  - code-review
+  - readability
+  - google
+  config:
+    follow_links: true
+- uri: https://testing.googleblog.com/
+  handler: web_page
+  title: Google Testing Blog
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - testing
+  - software-engineering
+  - google
+- uri: https://testing.googleblog.com/search/label/Testing%20on%20the%20Toilet
+  handler: web_page
+  title: Google Testing on the Toilet
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - testing
+  - software-engineering
+  - google
+  - best-practices
+- uri: https://semver.org/
+  handler: web_page
+  title: Semantic Versioning 2.0.0
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - software-engineering
+  - versioning
+  - release
+  - spec
+- uri: https://www.conventionalcommits.org/en/v1.0.0/
+  handler: web_page
+  title: Conventional Commits
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - software-engineering
+  - version-control
+  - commits
+  - spec
+- uri: https://www.opengroup.org/togaf
+  handler: web_page
+  title: TOGAF Overview
+  domain: architecture
+  authority: external
+  origin_type: external
+  tags:
+  - architecture
+  - enterprise
+  - togaf
+- uri: https://git-scm.com/doc
+  handler: web_page
+  title: Git Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - version-control
+  - git
+  - reference
+- uri: https://git-scm.com/book/en/v2
+  handler: web_page
+  title: Pro Git Book
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - version-control
+  - git
+  - book
+  config:
+    follow_links: true
+- uri: https://docs.github.com/
+  handler: web_page
+  title: GitHub Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - version-control
+  - github
+  - ci-cd
+  - collaboration
+- uri: https://docs.github.com/actions
+  handler: web_page
+  title: GitHub Actions Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ci-cd
+  - github
+  - automation
+  - build
+- uri: https://docs.gitlab.com/ee/ci/
+  handler: web_page
+  title: GitLab CI/CD Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ci-cd
+  - gitlab
+  - pipelines
+  - build
+- uri: https://www.jenkins.io/doc/
+  handler: web_page
+  title: Jenkins Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - ci-cd
+  - jenkins
+  - build
+- uri: https://bazel.build/docs
+  handler: web_page
+  title: Bazel Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - build
+  - bazel
+  - monorepo
+  - google
+- uri: https://cmake.org/documentation/
+  handler: web_page
+  title: CMake Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - build
+  - cmake
+  - cpp
+  - c
+- uri: https://www.rfc-editor.org/rfc/rfc9110
+  handler: web_page
+  title: HTTP Semantics (RFC 9110)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - http
+  - rfc
+  - spec
+- uri: https://www.rfc-editor.org/rfc/rfc9111
+  handler: web_page
+  title: HTTP Caching (RFC 9111)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - http
+  - caching
+  - rfc
+  - spec
+- uri: https://www.rfc-editor.org/rfc/rfc3986
+  handler: web_page
+  title: URI Syntax (RFC 3986)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - http
+  - uri
+  - rfc
+  - spec
+- uri: https://www.rfc-editor.org/rfc/rfc8259
+  handler: web_page
+  title: JSON (RFC 8259)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - json
+  - rfc
+  - spec
+- uri: https://json-schema.org/
+  handler: web_page
+  title: JSON Schema
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - json
+  - schema
+  - validation
+  - spec
+- uri: https://spec.graphql.org/
+  handler: web_page
+  title: GraphQL Specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - graphql
+  - spec
+- uri: https://html.spec.whatwg.org/
+  handler: web_page
+  title: WHATWG HTML Living Standard
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - html
+  - spec
+  - standard
+- uri: https://developer.mozilla.org/
+  handler: web_page
+  title: MDN Web Docs
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - javascript
+  - css
+  - html
+  - reference
+- uri: https://www.postgresql.org/docs/
+  handler: web_page
+  title: PostgreSQL Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - database
+  - sql
+  - postgresql
+  - reference
+- uri: https://dev.mysql.com/doc/
+  handler: web_page
+  title: MySQL Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - database
+  - sql
+  - mysql
+  - reference
+- uri: https://www.sqlite.org/docs.html
+  handler: web_page
+  title: SQLite Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - database
+  - sql
+  - sqlite
+  - reference
+- uri: https://redis.io/docs/
+  handler: web_page
+  title: Redis Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - database
+  - redis
+  - caching
+  - data-structures
+- uri: https://kafka.apache.org/documentation/
+  handler: web_page
+  title: Apache Kafka Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - messaging
+  - kafka
+  - event-streaming
+- uri: https://www.rabbitmq.com/docs
+  handler: web_page
+  title: RabbitMQ Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - messaging
+  - rabbitmq
+  - queue
+- uri: https://owasp.org/www-project-application-security-verification-standard/
+  handler: web_page
+  title: OWASP Application Security Verification Standard
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - owasp
+  - asvs
+  - verification
+- uri: https://csrc.nist.gov/pubs/sp/800/218/final
+  handler: web_page
+  title: NIST Secure Software Development Framework (SP 800-218)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - nist
+  - sdlc
+  - supply-chain
+- uri: https://slsa.dev/
+  handler: web_page
+  title: SLSA Supply Chain Integrity
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - supply-chain
+  - provenance
+  - slsa
+- uri: https://scorecard.dev/
+  handler: web_page
+  title: OpenSSF Scorecard
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - security
+  - supply-chain
+  - openssf
+- uri: https://grafana.com/docs/
+  handler: web_page
+  title: Grafana Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - observability
+  - grafana
+  - dashboards
+  - monitoring
+- uri: https://packaging.python.org/
+  handler: web_page
+  title: Python Packaging User Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - packaging
+  - build
+  - pip
+- uri: https://pip.pypa.io/en/stable/
+  handler: web_page
+  title: pip Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pip
+  - packaging
+- uri: https://docs.pytest.org/
+  handler: web_page
+  title: pytest Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - testing
+  - pytest
+- uri: https://docs.astral.sh/ruff/
+  handler: web_page
+  title: Ruff Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - python
+  - linting
+  - formatting
+  - ruff
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide
+  handler: web_page
+  title: MDN JavaScript Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - reference
+  - mdn
+- uri: https://tc39.es/ecma262/
+  handler: web_page
+  title: ECMAScript Specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - spec
+  - ecmascript
+- uri: https://nodejs.org/docs/latest/api/
+  handler: web_page
+  title: Node.js Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - runtime
+  - api
+- uri: https://docs.npmjs.com/
+  handler: web_page
+  title: npm Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - npm
+  - packaging
+- uri: https://jestjs.io/docs/getting-started
+  handler: web_page
+  title: Jest Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - testing
+  - jest
+- uri: https://www.typescriptlang.org/docs/
+  handler: web_page
+  title: TypeScript Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - reference
+- uri: https://www.typescriptlang.org/docs/handbook/intro.html
+  handler: web_page
+  title: TypeScript Handbook
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - handbook
+  - guide
+- uri: https://www.typescriptlang.org/tsconfig/
+  handler: web_page
+  title: tsconfig Reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - config
+  - reference
+- uri: https://typescript-eslint.io/
+  handler: web_page
+  title: TypeScript ESLint
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - typescript
+  - linting
+  - eslint
+- uri: https://docs.oracle.com/en/java/
+  handler: web_page
+  title: Java Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - reference
+  - oracle
+- uri: https://dev.java/learn/
+  handler: web_page
+  title: dev.java Learn
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - guide
+  - tutorials
+- uri: https://maven.apache.org/guides/
+  handler: web_page
+  title: Maven Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - build
+  - dependencies
+- uri: https://docs.gradle.org/current/userguide/userguide.html
+  handler: web_page
+  title: Gradle User Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - kotlin
+  - gradle
+  - build
+- uri: https://junit.org/junit5/docs/current/user-guide/
+  handler: web_page
+  title: JUnit 5 User Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - testing
+  - junit
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/
+  handler: web_page
+  title: Microsoft C# Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - reference
+  - microsoft
+- uri: https://learn.microsoft.com/en-us/dotnet/
+  handler: web_page
+  title: .NET Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - runtime
+  - microsoft
+- uri: https://learn.microsoft.com/en-us/nuget/
+  handler: web_page
+  title: NuGet Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - nuget
+  - packaging
+- uri: https://xunit.net/docs/getting-started/v2/getting-started
+  handler: web_page
+  title: xUnit Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - csharp
+  - testing
+  - xunit
+- uri: https://learn.microsoft.com/en-us/aspnet/core/
+  handler: web_page
+  title: ASP.NET Core Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - aspnet
+  - web
+  - microsoft
+- uri: https://en.cppreference.com/w/
+  handler: web_page
+  title: cppreference (C++)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - reference
+- uri: https://isocpp.org/get-started
+  handler: web_page
+  title: ISO C++ Getting Started
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - guide
+  - iso
+- uri: https://google.github.io/googletest/
+  handler: web_page
+  title: GoogleTest Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - testing
+  - googletest
+  - google
+- uri: https://en.cppreference.com/w/c
+  handler: web_page
+  title: cppreference (C)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - reference
+- uri: https://www.gnu.org/software/gnu-c-manual/gnu-c-manual.html
+  handler: web_page
+  title: GNU C Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - gnu
+  - manual
+- uri: https://clang.llvm.org/docs/
+  handler: web_page
+  title: Clang Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - cpp
+  - clang
+  - llvm
+  - compiler
+- uri: https://go.dev/doc/
+  handler: web_page
+  title: Go Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - reference
+- uri: https://go.dev/doc/effective_go
+  handler: web_page
+  title: Effective Go
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - idioms
+  - style
+  - guide
+- uri: https://go.dev/ref/spec
+  handler: web_page
+  title: Go Language Specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - spec
+  - reference
+- uri: https://go.dev/ref/mod
+  handler: web_page
+  title: Go Modules Reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - modules
+  - dependencies
+- uri: https://gobyexample.com/
+  handler: web_page
+  title: Go by Example
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - go
+  - examples
+  - tutorial
+- uri: https://doc.rust-lang.org/
+  handler: web_page
+  title: Rust Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - reference
+- uri: https://doc.rust-lang.org/book/
+  handler: web_page
+  title: The Rust Programming Language
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - book
+  - guide
+- uri: https://doc.rust-lang.org/reference/
+  handler: web_page
+  title: Rust Reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - spec
+  - reference
+- uri: https://doc.rust-lang.org/cargo/
+  handler: web_page
+  title: Cargo Book
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - cargo
+  - build
+  - packaging
+- uri: https://doc.rust-lang.org/rust-by-example/
+  handler: web_page
+  title: Rust by Example
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rust
+  - examples
+  - tutorial
+- uri: https://www.gnu.org/software/bash/manual/
+  handler: web_page
+  title: GNU Bash Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - shell
+  - gnu
+  - reference
+- uri: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html
+  handler: web_page
+  title: POSIX Shell Command Language
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - bash
+  - shell
+  - posix
+  - spec
+- uri: https://www.shellcheck.net/wiki/
+  handler: web_page
+  title: ShellCheck Wiki
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - bash
+  - shell
+  - linting
+  - shellcheck
+- uri: https://learn.microsoft.com/en-us/powershell/
+  handler: web_page
+  title: PowerShell Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - powershell
+  - microsoft
+  - reference
+- uri: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/
+  handler: web_page
+  title: PowerShell about_* Topics
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - powershell
+  - concepts
+  - microsoft
+- uri: https://pester.dev/
+  handler: web_page
+  title: Pester Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - powershell
+  - testing
+  - pester
+- uri: https://www.php.net/docs.php
+  handler: web_page
+  title: PHP Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - reference
+- uri: https://getcomposer.org/doc/
+  handler: web_page
+  title: Composer Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - composer
+  - packaging
+- uri: https://docs.phpunit.de/
+  handler: web_page
+  title: PHPUnit Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - testing
+  - phpunit
+- uri: https://kotlinlang.org/docs/home.html
+  handler: web_page
+  title: Kotlin Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - reference
+- uri: https://kotlinlang.org/spec/introduction.html
+  handler: web_page
+  title: Kotlin Language Specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - spec
+  - reference
+- uri: https://kotlinlang.org/docs/coroutines-guide.html
+  handler: web_page
+  title: Kotlin Coroutines Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - coroutines
+  - concurrency
+- uri: https://www.ruby-lang.org/en/documentation/
+  handler: web_page
+  title: Ruby Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - reference
+- uri: https://docs.ruby-lang.org/en/
+  handler: web_page
+  title: Ruby Core / Stdlib Docs
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - stdlib
+  - reference
+- uri: https://guides.rubygems.org/
+  handler: web_page
+  title: RubyGems Guides
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rubygems
+  - packaging
+- uri: https://rspec.info/documentation/
+  handler: web_page
+  title: RSpec Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - ruby
+  - testing
+  - rspec
+- uri: https://dart.dev/guides
+  handler: web_page
+  title: Dart Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dart
+  - reference
+- uri: https://dart.dev/language
+  handler: web_page
+  title: Dart Language Tour
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dart
+  - guide
+  - language
+- uri: https://dart.dev/tools/pub
+  handler: web_page
+  title: Dart pub Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dart
+  - pub
+  - packaging
+- uri: https://docs.flutter.dev/
+  handler: web_page
+  title: Flutter Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - dart
+  - flutter
+  - mobile
+  - ui
+- uri: https://www.swift.org/documentation/
+  handler: web_page
+  title: Swift Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - swift
+  - reference
+- uri: https://docs.swift.org/swift-book/documentation/the-swift-programming-language/
+  handler: web_page
+  title: The Swift Programming Language
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - swift
+  - book
+  - guide
+- uri: https://www.swift.org/documentation/package-manager/
+  handler: web_page
+  title: Swift Package Manager
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - swift
+  - spm
+  - packaging
+- uri: https://developer.apple.com/documentation/xctest
+  handler: web_page
+  title: XCTest Documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - swift
+  - testing
+  - xctest
+  - apple
+- uri: https://cran.r-project.org/manuals.html
+  handler: web_page
+  title: R Manuals
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - r
+  - reference
+  - cran
+- uri: https://cran.r-project.org/web/views/
+  handler: web_page
+  title: CRAN Task Views
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - r
+  - cran
+  - ecosystem
+  - packages
+- uri: https://testthat.r-lib.org/
+  handler: web_page
+  title: testthat Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - r
+  - testing
+  - testthat
+- uri: https://www.lua.org/pil/
+  handler: web_page
+  title: Programming in Lua
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - lua
+  - book
+  - guide
+- uri: https://www.lua.org/manual/5.4/
+  handler: web_page
+  title: Lua 5.4 Reference Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - lua
+  - reference
+  - spec
+- uri: https://github.com/luarocks/luarocks/wiki
+  handler: web_page
+  title: LuaRocks Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - lua
+  - luarocks
+  - packaging
+- uri: https://www.nasm.us/docs.php
+  handler: web_page
+  title: NASM Documentation
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - assembly
+  - nasm
+  - x86
+- uri: https://sourceware.org/binutils/docs/as/
+  handler: web_page
+  title: GNU Assembler Manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - assembly
+  - gas
+  - gnu
+- uri: https://www.intel.com/content/www/us/en/developer/articles/technical/intel-sdm.html
+  handler: web_page
+  title: Intel 64 and IA-32 Developer Manuals
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - assembly
+  - intel
+  - x86
+  - isa
+  - reference
+- uri: https://www.fratepietro.com/2025/building-ai-coding-assistants/
+  handler: web_page
+  title: Building AI Coding Assistants — Technical Deep Dive
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - coding-assistant
+  - architecture
+  - llm
+  - rag
+  - production
+- uri: https://reintech.io/blog/llm-application-architecture-patterns-enterprise-systems
+  handler: web_page
+  title: LLM Application Architecture Patterns for Enterprise Systems
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - llm
+  - enterprise
+  - architecture
+  - design-patterns
+  - production
+- uri: https://explore.n1n.ai/blog/designing-llm-applications-for-production-system-design-guide-2026-02-09
+  handler: web_page
+  title: Designing LLM Applications for Production — System Design Guide
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - llm
+  - production
+  - system-design
+  - architecture
+  - enterprise
+- uri: https://pub.towardsai.net/building-enterprise-ready-ai-assistants-a-practical-guide-to-scalable-llm-applications-3570c9590482
+  handler: web_page
+  title: Building Enterprise-Ready AI Assistants — Practical Guide
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - ai-assistant
+  - enterprise
+  - llm
+  - scalable
+  - architecture
+- uri: https://sealos.io/blog/the-architecture-of-a-modern-ai-application-a-2025-blueprint
+  handler: web_page
+  title: Architecture of a Modern AI Application — 2025 Blueprint
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - ai-application
+  - architecture
+  - modern
+  - blueprint
+  - production
+- uri: https://medium.com/@guruprasadhj/designing-a-fully-local-rag-assistant-to-improve-internal-knowledge-retrieval-5e4e1ba699ce
+  handler: web_page
+  title: Designing a Fully Local RAG Assistant for Internal Knowledge
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - local
+  - internal
+  - knowledge-retrieval
+  - architecture
+- uri: https://medium.com/@shubhodaya.hampiholi/building-production-grade-rag-systems-architecture-evaluation-and-advanced-design-patterns-1d9d649aebfa
+  handler: web_page
+  title: Building Production-Grade RAG Systems — Advanced Design Patterns
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - rag
+  - production
+  - design-patterns
+  - evaluation
+  - architecture
+- uri: https://medium.com/@richardhightower/agent-brain-a-code-first-rag-system-for-ai-coding-assistants-83e95c972255
+  handler: web_page
+  title: Agent Brain — Code-First RAG System for AI Coding Assistants
+  domain: generalist
+  authority: community
+  origin_type: curated
+  tags:
+  - coding-assistant
+  - rag
+  - agent
+  - code-first
+  - architecture
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/architecture/OpenShift_Container_Platform-4.17-Architecture-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Architecture'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - architecture
+  - platform
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/networking/OpenShift_Container_Platform-4.17-Networking-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Networking'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - networking
+  - sdn
+  - ovn
+  - ingress
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/security_and_compliance/OpenShift_Container_Platform-4.17-Security_and_compliance-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Security and Compliance'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - security
+  - compliance
+  - rbac
+  - scc
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/operators/OpenShift_Container_Platform-4.17-Operators-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Operators'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - operators
+  - olm
+  - operator-sdk
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/nodes/OpenShift_Container_Platform-4.17-Nodes-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Nodes'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - nodes
+  - pods
+  - scheduling
+  - autoscaling
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/storage/OpenShift_Container_Platform-4.17-Storage-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Storage'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - storage
+  - pv
+  - csi
+  - ocs
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/installation_configuration/OpenShift_Container_Platform-4.17-Installation_configuration-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Installation Configuration'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - installation
+  - configuration
+  - ipi
+  - upi
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/monitoring/OpenShift_Container_Platform-4.17-Monitoring-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Monitoring'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - ocp
+  - monitoring
+  - prometheus
+  - alertmanager
+  - metrics
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/introduction_to_rosa/Red_Hat_OpenShift_Service_on_AWS-4-Introduction_to_ROSA-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: Introduction to ROSA'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - managed-service
+  - architecture
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/getting_started/Red_Hat_OpenShift_Service_on_AWS-4-Getting_started-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: Getting Started'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - getting-started
+  - sts
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/networking/Red_Hat_OpenShift_Service_on_AWS-4-Networking-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: Networking'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - networking
+  - vpc
+  - privatelink
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/cluster_administration/Red_Hat_OpenShift_Service_on_AWS-4-Cluster_administration-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: Cluster Administration'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - cluster-admin
+  - upgrade
+  - maintenance
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/rosa_cli/Red_Hat_OpenShift_Service_on_AWS-4-ROSA_CLI-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: CLI Tools (rosa + oc)'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - cli
+  - rosa-cli
+  - oc-cli
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/pdf/prepare_your_environment/Red_Hat_OpenShift_Service_on_AWS-4-Prepare_your_environment-en-US.pdf
+  handler: pdf_document
+  title: 'ROSA: Security and Compliance'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - openshift
+  - aws
+  - security
+  - iam
+  - sts
+  - prerequisites
+  - red-hat
+- uri: https://learn.microsoft.com/en-us/azure/openshift/
+  handler: web_page
+  title: 'ARO: Azure Red Hat OpenShift Documentation'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - aro
+  - openshift
+  - azure
+  - managed-service
+  - microsoft
+  - red-hat
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://learn.microsoft.com/en-us/azure/openshift/
+- uri: https://learn.microsoft.com/en-us/azure/openshift/create-cluster
+  handler: web_page
+  title: 'ARO: Create a Cluster'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - aro
+  - openshift
+  - azure
+  - cluster-creation
+  - installation
+- uri: https://learn.microsoft.com/en-us/cli/azure/aro?view=azure-cli-latest
+  handler: web_page
+  title: 'ARO: az aro CLI Reference'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - aro
+  - openshift
+  - azure
+  - cli
+  - az-aro
+- uri: https://learn.microsoft.com/en-us/azure/openshift/concepts-networking
+  handler: web_page
+  title: 'ARO: Networking'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - aro
+  - openshift
+  - azure
+  - networking
+  - vnet
+  - private-cluster
+- uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/introduction_to_openshift_dedicated/OpenShift_Dedicated-4-Introduction_to_OpenShift_Dedicated-en-US.pdf
+  handler: pdf_document
+  title: 'OSD: Introduction to OpenShift Dedicated'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - osd
+  - openshift
+  - gcp
+  - aws
+  - managed-service
+  - architecture
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/installing_accessing_and_deleting_openshift_dedicated_clusters/OpenShift_Dedicated-4-Installing_accessing_and_deleting_OpenShift_Dedicated_clusters-en-US.pdf
+  handler: pdf_document
+  title: 'OSD: Clusters on GCP'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - osd
+  - openshift
+  - gcp
+  - installation
+  - cluster-creation
+  - wif
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/planning_your_environment/OpenShift_Dedicated-4-Planning_your_environment-en-US.pdf
+  handler: pdf_document
+  title: 'OSD: Planning Your Environment'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - osd
+  - openshift
+  - gcp
+  - planning
+  - ccs
+  - prerequisites
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/cluster_administration/OpenShift_Dedicated-4-Cluster_administration-en-US.pdf
+  handler: pdf_document
+  title: 'OSD: Cluster Administration'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - osd
+  - openshift
+  - gcp
+  - cluster-admin
+  - upgrade
+  - maintenance
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_dedicated/4/pdf/networking/OpenShift_Dedicated-4-Networking-en-US.pdf
+  handler: pdf_document
+  title: 'OSD: Networking'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - osd
+  - openshift
+  - gcp
+  - networking
+  - ingress
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/install/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Install-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Install'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - installation
+  - hub
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/clusters/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Clusters-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Cluster Lifecycle'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - cluster-lifecycle
+  - provisioning
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/governance/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Governance-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Governance'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - governance
+  - policy
+  - compliance
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/observability/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Observability-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Observability'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - observability
+  - monitoring
+  - thanos
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/applications/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Applications-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Applications'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - applications
+  - gitops
+  - subscriptions
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/pdf/access_control/Red_Hat_Advanced_Cluster_Management_for_Kubernetes-2.12-Access_control-en-US.pdf
+  handler: pdf_document
+  title: 'ACM 2.12: Access Control'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acm
+  - openshift
+  - multicluster
+  - rbac
+  - access-control
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/installing/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Installing-en-US.pdf
+  handler: pdf_document
+  title: 'ACS 4.7: Installing'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - installation
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/operating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Operating-en-US.pdf
+  handler: pdf_document
+  title: 'ACS 4.7: Operating'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - vulnerability
+  - compliance
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/integrating/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Integrating-en-US.pdf
+  handler: pdf_document
+  title: 'ACS 4.7: Integrating'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - integration
+  - ci-cd
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_security_for_kubernetes/4.7/pdf/configuring/Red_Hat_Advanced_Cluster_Security_for_Kubernetes-4.7-Configuring-en-US.pdf
+  handler: pdf_document
+  title: 'ACS 4.7: Configuration'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - acs
+  - stackrox
+  - openshift
+  - security
+  - configuration
+  - policies
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/configuring_argo_cd/Red_Hat_OpenShift_GitOps-1.15-Configuring_Argo_CD-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift GitOps 1.15: Configuring Argo CD'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - gitops
+  - argocd
+  - openshift
+  - configuration
+  - declarative
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/argo_rollouts/Red_Hat_OpenShift_GitOps-1.15-Argo_Rollouts-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift GitOps 1.15: Argo Rollouts'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - gitops
+  - argocd
+  - openshift
+  - argo-rollouts
+  - canary
+  - blue-green
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_gitops/1.15/pdf/installing_gitops/Red_Hat_OpenShift_GitOps-1.15-Installing_GitOps-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift GitOps 1.15: Installing'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - gitops
+  - argocd
+  - openshift
+  - installation
+  - operator
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/about_openshift_pipelines/Red_Hat_OpenShift_Pipelines-1.17-About_OpenShift_Pipelines-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift Pipelines 1.17: About OpenShift Pipelines'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - tekton
+  - pipelines
+  - openshift
+  - ci-cd
+  - tasks
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/creating_cicd_pipelines/Red_Hat_OpenShift_Pipelines-1.17-Creating_CICD_pipelines-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift Pipelines 1.17: Creating CI/CD Pipelines'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - tekton
+  - pipelines
+  - openshift
+  - ci-cd
+  - pipeline-creation
+  - triggers
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_pipelines/1.17/pdf/installing_and_configuring/Red_Hat_OpenShift_Pipelines-1.17-Installing_and_configuring-en-US.pdf
+  handler: pdf_document
+  title: 'OpenShift Pipelines 1.17: Installing and Configuring'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - tekton
+  - pipelines
+  - openshift
+  - installation
+  - tektonconfig
+  - red-hat
+- uri: https://tekton.dev/docs/
+  handler: web_page
+  title: Tekton Documentation (tekton.dev)
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - tekton
+  - ci-cd
+  - pipelines
+  - tasks
+  - kubernetes
+  - cncf
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://tekton.dev/docs/
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/logging/OpenShift_Container_Platform-4.17-Logging-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: Logging'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - logging
+  - elasticsearch
+  - fluentd
+  - loki
+  - vector
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/index
+  handler: web_page
+  title: 'Cluster Observability Operator: About'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - observability
+  - coo
+  - prometheus
+  - thanos
+  - alertmanager
+  - red-hat
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html/cluster_observability_operator/
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/html-single/cluster_observability_operator/index
+  handler: web_page
+  title: 'Cluster Observability Operator: Installing'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - observability
+  - coo
+  - installation
+  - operator
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/openshift_container_platform/4.17/pdf/cli_tools/OpenShift_Container_Platform-4.17-CLI_tools-en-US.pdf
+  handler: pdf_document
+  title: 'OCP 4.17: CLI Tools (oc, odo, kubectl plugins)'
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - openshift
+  - oc-cli
+  - odo
+  - kubectl
+  - cli
+  - reference
+  - red-hat
+- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/rosa-get-started-cli
+  handler: web_page
+  title: ROSA CLI Reference
+  domain: openshift
+  authority: vetted
+  origin_type: external
+  tags:
+  - rosa
+  - rosa-cli
+  - aws
+  - openshift
+  - cli
+  - red-hat
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://docs.redhat.com/en/documentation/red_hat_openshift_service_on_aws/4/html/rosa_cli/
+- uri: https://tekton.dev/docs/cli/
+  handler: web_page
+  title: Tekton CLI (tkn) Documentation
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - tekton
+  - tkn-cli
+  - ci-cd
+  - pipelines
+  - cli
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://tekton.dev/docs/cli/
+- uri: https://registry.terraform.io/providers/terraform-redhat/rhcs/latest/docs
+  handler: web_page
+  title: RHCS Terraform Provider Documentation
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - terraform
+  - rhcs
+  - rosa
+  - openshift
+  - iac
+  - aws
+  - red-hat
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://registry.terraform.io/providers/terraform-redhat/rhcs/
+- uri: https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/rhcs/latest
+  handler: web_page
+  title: RHCS ROSA HCP Terraform Module
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - terraform
+  - rhcs
+  - rosa
+  - hcp
+  - openshift
+  - iac
+  - aws
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://registry.terraform.io/modules/terraform-redhat/rosa-hcp/
+- uri: https://registry.terraform.io/modules/terraform-redhat/rosa-classic/rhcs/latest
+  handler: web_page
+  title: RHCS ROSA Classic Terraform Module
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - terraform
+  - rhcs
+  - rosa
+  - classic
+  - openshift
+  - iac
+  - aws
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://registry.terraform.io/modules/terraform-redhat/rosa-classic/
+- uri: https://github.com/terraform-redhat/terraform-provider-rhcs
+  handler: web_page
+  title: terraform-provider-rhcs (GitHub)
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - terraform
+  - rhcs
+  - rosa
+  - openshift
+  - iac
+  - source-code
+- uri: https://kubernetes.io/docs/concepts/scheduling-eviction/
+  handler: web_page
+  title: 'Kubernetes: Scheduling, Preemption, and Eviction'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - scheduling
+  - preemption
+  - eviction
+  - pod-priority
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/scheduling-eviction/
+- uri: https://kubernetes.io/docs/concepts/cluster-administration/
+  handler: web_page
+  title: 'Kubernetes: Cluster Administration'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - cluster-admin
+  - networking
+  - logging
+  - addons
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/cluster-administration/
+- uri: https://kubernetes.io/docs/concepts/configuration/
+  handler: web_page
+  title: 'Kubernetes: Configuration Best Practices'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - configuration
+  - configmaps
+  - secrets
+  - resource-management
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/configuration/
+- uri: https://kubernetes.io/docs/concepts/workloads/
+  handler: web_page
+  title: 'Kubernetes: Workloads'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - workloads
+  - deployments
+  - statefulsets
+  - daemonsets
+  - jobs
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/workloads/
+- uri: https://kubernetes.io/docs/concepts/services-networking/
+  handler: web_page
+  title: 'Kubernetes: Services, Load Balancing, and Networking'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - services
+  - networking
+  - ingress
+  - load-balancing
+  - dns
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/services-networking/
+- uri: https://kubernetes.io/docs/concepts/storage/
+  handler: web_page
+  title: 'Kubernetes: Storage'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - storage
+  - persistent-volumes
+  - csi
+  - storageclasses
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/storage/
+- uri: https://kubernetes.io/docs/concepts/security/
+  handler: web_page
+  title: 'Kubernetes: Security'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - security
+  - rbac
+  - network-policies
+  - pod-security
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/security/
+- uri: https://kubernetes.io/docs/concepts/extend-kubernetes/
+  handler: web_page
+  title: 'Kubernetes: Extending Kubernetes'
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - kubernetes
+  - extensions
+  - crd
+  - operators
+  - api-aggregation
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/extend-kubernetes/
+- uri: https://etcd.io/docs/v3.5/
+  handler: web_page
+  title: etcd Documentation
+  domain: generalist
+  authority: community
+  origin_type: external
+  tags:
+  - etcd
+  - distributed-systems
+  - consensus
+  - kubernetes
+  - storage
+  config:
+    follow_links: true
+    max_depth: 2
+    allowed_prefixes:
+    - https://etcd.io/docs/v3.5/

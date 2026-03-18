@@ -501,7 +501,7 @@ in routing YAML against taxonomy keys — any mismatch is logged as a warning.
 | Layer | Convention |
 |-------|------------|
 | **Taxonomy** | `domain_keywords.athletics` → `domain: athletics_running`. Add `music` with subdomains `music_piano`, `music_synthesizer` as separate entries. |
-| **Indexer** | Tag chunks with `domain=<taxonomy_id>` when upserting. Each source in `sources-*.yaml` specifies `domain: <taxonomy_id>` (e.g. `domain: music_piano`). |
+| **Indexer** | Tag chunks with `domain=<taxonomy_id>` when upserting. Each item in the ingestion queue specifies `domain: <taxonomy_id>` (set via admin UI or bootstrap YAML). |
 | **RAG client** | `select_collections_for_task` builds `domain in ["athletics_running", "music"]` from `active_domain_refs`. Milvus vector search applies filter. |
 
 **Adding a new vertical (e.g. music):**
@@ -510,7 +510,7 @@ in routing YAML against taxonomy keys — any mismatch is logged as a warning.
 3. Index music docs with `domain="music_piano"` or `domain="music_synthesizer"` in catalog schema.
 4. RAG will filter by `active_domain_refs` when user query matches.
 
-The unified indexer (`base/rag/indexer/`) uses the `domain` field in each source configuration entry. Align by setting `domain` to match a taxonomy ID in the appropriate `sources-*.yaml` file.
+The indexer (`base/rag/indexer/`) uses the `domain` field from each ingestion queue item. Set `domain` to match a taxonomy ID when adding content via the admin UI or bootstrap YAML files.
 
 ---
 
@@ -520,9 +520,10 @@ The unified indexer (`base/rag/indexer/`) uses the `domain` field in each source
 prompts for Planner, Writer, and Critic without adding new LLMs. Config-driven depth,
 style, and epistemic discipline.
 
-**File:** `base/planner/taxonomy_prompt_config.yaml` — 190 entries mapping taxonomy keys
-to full metadata. Compiled at startup into `_cached_taxonomies` with Pydantic schema
-validation via `taxonomy_config_linter.py`.
+**Source:** Taxonomy domains are loaded DB-first from the `taxonomy_domains` table (managed
+via admin UI), with sticky cache and YAML fallback (`bootstrap/taxonomy/taxonomy_prompt_config.yaml`).
+190 entries mapping taxonomy keys to full metadata, compiled into `_cached_taxonomies` with
+Pydantic schema validation via `taxonomy_config_linter.py`.
 
 **Schema per entry:**
 

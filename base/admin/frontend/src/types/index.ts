@@ -265,6 +265,70 @@ export interface ConflictGroup {
   reviewed_at: string;
 }
 
+// --- Ingestion Queue ---
+
+export interface IngestionSource {
+  id: number;
+  name: string;
+  handler: string;
+  origin_type: string;
+  authority: string;
+  domain: string;
+  config: Record<string, unknown> | null;
+  tags: string[] | null;
+  status: string;
+  item_count: number;
+  pending_count: number;
+  created_at: string | null;
+}
+
+export interface IngestionItem {
+  id: number;
+  source_id: number | null;
+  uri: string;
+  handler: string | null;
+  title: string;
+  domain: string;
+  authority: string;
+  origin_type: string;
+  tags: string[] | null;
+  priority: number;
+  config: Record<string, unknown> | null;
+  status: string;
+  content_hash: string | null;
+  chunk_count: number;
+  error_message: string;
+  milvus_doc_id: string;
+  retry_count: number;
+  max_retries: number;
+  queued_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string | null;
+}
+
+export interface IngestionRun {
+  id: number;
+  source_id: number | null;
+  trigger: string;
+  status: string;
+  items_total: number;
+  items_indexed: number;
+  items_failed: number;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface IngestionStats {
+  total_sources: number;
+  total_items: number;
+  pending: number;
+  running: number;
+  indexed: number;
+  failed: number;
+  total_chunks: number;
+}
+
 // --- Traces ---
 
 export interface LLMCallRecord {

@@ -1,0 +1,44 @@
+items:
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/api__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Core v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - core
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apps__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Apps v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - apps
+  - deployments
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__batch__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Batch v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - batch
+  - jobs
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Networking v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - networking
+  - ingress

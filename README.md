@@ -179,14 +179,22 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 ./scripts/deploy.sh prod      # Production (HA, PDBs)
 ```
 
-### 5. Deploy indexer CronJobs
+### 5. Deploy the indexer
 
-Run after `deploy.sh` so Milvus and embedder are healthy first:
+Run after `deploy.sh` so Milvus and embedder are healthy first. A single queue-driven CronJob processes all pending items from the admin database:
 
 ```bash
-./scripts/deploy-indexer.sh dev       # CronJobs suspended (manual trigger)
-./scripts/deploy-indexer.sh staging   # Bi-weekly schedule
-./scripts/deploy-indexer.sh prod      # Weekly schedule
+./scripts/deploy-indexer.sh            # Deploy the queue CronJob
+./scripts/deploy-indexer.sh --run      # Also trigger a one-shot run now
+```
+
+Add content via the admin UI (RAG Pipeline > Ingestion Queue) or import bootstrap data:
+
+```bash
+for f in bootstrap/corpus/*.yaml; do
+  curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+    -F "file=@$f" -H "Authorization: Bearer $TOKEN"
+done
 ```
 
 ### 6. Connect your tools
@@ -206,7 +214,7 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 |-----------|-------------|---------------|
 | **Taxonomy-Driven Prompt Shaping** | 173 domain entries with persona, depth, epistemic guidance, output style — compiled at startup with Pydantic validation | [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md) |
 | **Hybrid RAG** | Vector + BM25 retrieval, multi-query expansion (HyDE + conceptual), RRF, authority-weighted provenance | [docs/RAG.md](docs/RAG.md) |
-| **Knowledge Indexers** | Code (tree-sitter AST), API specs, architecture docs, license, web-docs (Crawl4AI) | [docs/INDEXERS.md](docs/INDEXERS.md) |
+| **Knowledge Indexers** | Queue-driven indexer with handler plugins: code (tree-sitter AST), API specs, docs, license, web pages — content managed via admin UI | [docs/INDEXERS.md](docs/INDEXERS.md) |
 | **Code Sandbox** | Exception-flow validation: lint, security scan, execute in isolated pods | [docs/SANDBOX.md](docs/SANDBOX.md) |
 | **LSP Intelligence** | 6-language deep diagnostics (Python, Go, TypeScript, Bash, Java, Rust) | [docs/LSP.md](docs/LSP.md) |
 | **Web Search** | Self-hosted SearXNG for live grounding — no API keys, no tracking | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
@@ -265,7 +273,7 @@ synesis/
 | [docs/INTENT_TAXONOMY.md](docs/INTENT_TAXONOMY.md) | Intent classes, BM25 routing, critic behavior by intent |
 | [docs/TAXONOMY.md](docs/TAXONOMY.md) | Full taxonomy coverage design — 173 domain entries across 27 categories |
 | [docs/RAG.md](docs/RAG.md) | Hybrid retrieval pipeline, multi-query expansion, provenance, authority weighting |
-| [docs/INDEXERS.md](docs/INDEXERS.md) | Code, API spec, architecture, license, and web-docs indexers |
+| [docs/INDEXERS.md](docs/INDEXERS.md) | Queue-driven RAG indexer, handler plugins, bootstrap import |
 | [docs/SANDBOX.md](docs/SANDBOX.md) | Code execution sandbox, warm pool, security controls |
 | [docs/LSP.md](docs/LSP.md) | LSP Gateway architecture, supported languages, circuit breakers |
 | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) | SearXNG integration, search profiles, auto-trigger logic |

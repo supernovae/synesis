@@ -574,7 +574,7 @@ main() {
     log "  1. Download models:      ./scripts/run-model-pipeline.sh --profile=small"
     log "  2. Build images:         ./scripts/build-images.sh --push"
     log "  3. Deploy services:      ./scripts/deploy.sh dev"
-    log "  4. Deploy indexers:      ./scripts/deploy-indexer.sh dev"
+    log "  4. Deploy indexer:       ./scripts/deploy-indexer.sh"
     log "  5. Load RAG corpus:      ./scripts/load-language-pack.sh bash"
     log ""
     log "  If models fail:          ./scripts/list-model-runtimes.sh"

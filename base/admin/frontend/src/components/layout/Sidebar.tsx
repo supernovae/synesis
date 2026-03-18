@@ -52,6 +52,7 @@ const navigation: NavItem[] = [
       { label: "Quality", path: "/rag/quality" },
       { label: "Benchmarks", path: "/rag/benchmarks" },
       { label: "Review Queue", path: "/rag/review" },
+      { label: "Ingestion Queue", path: "/rag/ingestion" },
     ],
   },
   {

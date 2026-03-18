@@ -50,9 +50,9 @@ The pipeline forms a closed loop:
 
 3. **Curate** — Run `curator_agent.py` to automatically discover high-quality sources for weak domains. Uses SearXNG for web search and an LLM to evaluate source quality (1-5 scale). Outputs `proposed_sources.yaml` for human review.
 
-4. **Review** — In the admin UI (`/admin/quality/curator`), review proposed sources. Approve or reject each entry. Approved sources are copied into the appropriate `sources-*.yaml` file.
+4. **Review** — In the admin UI (`/admin/quality/curator`), review proposed sources. Approve or reject each entry. Approved sources are added to the ingestion queue via the admin API.
 
-5. **Ingest** — The indexer picks up new sources and processes them through the standard pipeline (chunking, enrichment, embedding, Milvus upsert).
+5. **Ingest** — The queue-driven indexer claims pending items and processes them through the standard pipeline (chunking, enrichment, embedding, Milvus upsert). Trigger with `./scripts/deploy-indexer.sh --run`.
 
 6. **Verify** — Re-run the audit to confirm that weak domains have improved. Compare before/after metrics in the admin dashboard.
 
@@ -156,7 +156,7 @@ For each weak/empty domain:
 4. Evaluates each candidate's quality (1-5 scale)
 5. Outputs approved sources (>= min-quality threshold)
 
-After review, copy approved entries to the appropriate `sources-*.yaml` and re-run the indexer.
+After review, approved entries are added to the ingestion queue. Run `./scripts/deploy-indexer.sh --run` to process them.
 
 ## CI/CD Automation
 
@@ -274,7 +274,7 @@ synesis/
 
 ### Taxonomy
 
-Quality tools use `base/planner/taxonomy_prompt_config.yaml` as the authoritative source for domain definitions. Each domain entry provides:
+Quality tools use the taxonomy domain definitions (loaded DB-first from `taxonomy_domains` table, with YAML fallback from `bootstrap/taxonomy/taxonomy_prompt_config.yaml`). Each domain entry provides:
 
 - `path` — Human-readable taxonomy path (e.g., "DevOps > Kubernetes > Helm")
 - `query_expansion_hints` — Keywords used to generate audit queries

@@ -1,68 +1,16 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Dev indexer CronJobs: suspended (manual trigger only).
-# Staging and prod use jobs-staging/ and jobs-prod/ overlays.
-#
-# Usage: ./scripts/deploy-indexer.sh dev
-# Prereq: deploy.sh has been run (Milvus, embedder must be healthy)
+# Dev indexer: suspended (manual trigger via deploy-indexer.sh --run).
+# Usage: ./scripts/deploy-indexer.sh --run
 
 resources:
   - ../../base/rag/indexer
 
 patches:
-  # Suspend all CronJobs in dev (run manually via deploy-indexer.sh --trigger)
   - target:
       kind: CronJob
-      name: synesis-indexer-docs
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-code
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-apispec
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-license
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-research
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-epistemic-band2
-    patch: |
-      - op: replace
-        path: /spec/suspend
-        value: true
-
-  - target:
-      kind: CronJob
-      name: synesis-indexer-epistemic-developer
+      name: synesis-indexer-queue
     patch: |
       - op: replace
         path: /spec/suspend

@@ -1,11 +1,17 @@
 """Unified CLI for the Synesis RAG Indexer.
 
-Usage:
+Usage (YAML mode — existing behavior):
     python -m app.cli --sources /data/sources.yaml
     python -m app.cli --sources /data/sources.yaml --handler github_markdown
     python -m app.cli --sources /data/sources.yaml --source "OpenShift Runbooks"
     python -m app.cli --sources /data/sources.yaml --enrich full --llm-url http://...
     python -m app.cli --sources /data/sources.yaml --dry-run
+
+Usage (queue mode — DB-driven):
+    python -m app.cli --mode queue
+    python -m app.cli --mode queue --admin-url http://synesis-admin:8000
+
+Utilities:
     python -m app.cli --list-handlers
 """
 
@@ -29,12 +35,19 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  python -m app.cli --sources /data/sources.yaml\n"
-            "  python -m app.cli --sources /data/sources.yaml --handler github_markdown\n"
-            "  python -m app.cli --sources /data/sources.yaml --force --enrich full\n"
+            "  python -m app.cli --mode queue --admin-url http://synesis-admin:8000\n"
             "  python -m app.cli --list-handlers\n"
         ),
     )
-    parser.add_argument("--sources", help="Path to unified sources.yaml")
+    parser.add_argument(
+        "--mode",
+        choices=["yaml", "queue"],
+        default="yaml",
+        help="yaml: read sources from file (default). queue: claim items from admin API.",
+    )
+    parser.add_argument("--sources", help="Path to unified sources.yaml (yaml mode only)")
+    parser.add_argument("--admin-url", default="", help="Admin API base URL (queue mode)")
+    parser.add_argument("--trigger", default="cron", help="Run trigger label (queue mode)")
     parser.add_argument("--handler", default=None, help="Only run sources with this handler type")
     parser.add_argument("--source", default=None, help="Only run this source by name")
     parser.add_argument("--force", action="store_true", help="Re-embed all chunks (ignore existing)")
@@ -43,7 +56,7 @@ def main() -> None:
         "--enrich",
         choices=["basic", "full"],
         default="basic",
-        help="Enrichment level: basic (template context_prefix + KeyBERT) or full (+ LLM summary)",
+        help="Enrichment level: basic (template context_prefix) or full (+ LLM summary)",
     )
     parser.add_argument("--llm-url", default="", help="LLM endpoint URL for full enrichment")
     parser.add_argument("--milvus-uri", default="", help="Override Milvus URI")
@@ -59,8 +72,35 @@ def main() -> None:
             print(f"  - {h}")
         return
 
+    if args.mode == "queue":
+        _run_queue_mode(args)
+    else:
+        _run_yaml_mode(args)
+
+
+def _run_queue_mode(args: argparse.Namespace) -> None:
+    """Claim items from the admin API work queue and process them."""
+    from .queue_runner import run_queue
+
+    logger.info("indexer_mode_queue", extra={"admin_url": args.admin_url or "(default)"})
+
+    run_queue(
+        admin_url=args.admin_url,
+        force=args.force,
+        enrich_full=args.enrich == "full",
+        llm_url=args.llm_url,
+        dry_run=args.dry_run,
+        milvus_uri=args.milvus_uri,
+        embedder_url=args.embedder_url,
+        trigger=args.trigger,
+    )
+
+
+def _run_yaml_mode(args: argparse.Namespace) -> None:
+    """Original YAML-driven pipeline mode."""
     if not args.sources:
-        parser.error("--sources is required (or use --list-handlers)")
+        logger.error("indexer_sources_required")
+        sys.exit(1)
 
     sources_path = Path(args.sources)
     if not sources_path.exists():

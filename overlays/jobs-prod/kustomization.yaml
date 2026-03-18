@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Production indexer CronJobs: unsuspended, weekly schedule (base defaults).
-# Usage: ./scripts/deploy-indexer.sh prod
+# Production indexer: weekly schedule (base default).
+# Usage: ./scripts/deploy-indexer.sh
 
 resources:
   - ../../base/rag/indexer
@@ -11,6 +11,3 @@ images:
   - name: synesis-indexer
     newName: ghcr.io/supernovae/synesis/indexer
     newTag: latest
-
-# NOTE: Global environment labels removed — prevents operator reconcile
-# churn when switching overlays on the same cluster.

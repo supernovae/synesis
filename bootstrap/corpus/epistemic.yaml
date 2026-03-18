@@ -1,0 +1,1768 @@
+items:
+- uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html
+  handler: html_document
+  title: AWS Well-Architected Framework
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - tradeoffs
+  - reliability
+  - security
+  - cost
+  - performance
+  priority: 1
+- uri: https://docs.cloud.google.com/architecture/framework
+  handler: html_document
+  title: Google Cloud Well-Architected Framework
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - tradeoffs
+  - reliability
+  - cost
+  - performance
+  priority: 1
+- uri: https://learn.microsoft.com/en-us/azure/well-architected/
+  handler: html_document
+  title: Azure Well-Architected Framework
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - tradeoffs
+  - operational-excellence
+  - security
+  - cost
+  priority: 1
+- uri: https://adr.github.io/
+  handler: html_document
+  title: Architectural Decision Records
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - context
+  - decision
+  - consequences
+  - tradeoffs
+  priority: 1
+- uri: https://adr.github.io/madr/
+  handler: html_document
+  title: MADR
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - adr
+  - template
+  - structured-decisions
+  priority: 1
+- uri: https://diataxis.fr/
+  handler: html_document
+  title: Diátaxis
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - documentation
+  - tutorial
+  - how-to
+  - reference
+  - explanation
+  priority: 1
+- uri: https://diataxis.fr/start-here/
+  handler: html_document
+  title: Diátaxis Start Here
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - documentation
+  - framing
+  - content-types
+  priority: 2
+- uri: https://diataxis.fr/reference/
+  handler: html_document
+  title: Diátaxis Reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - documentation
+  - reference-writing
+  - facts
+  priority: 2
+- uri: https://diataxis.fr/explanation/
+  handler: html_document
+  title: Diátaxis Explanation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - documentation
+  - explanation
+  - theory
+  - why
+  priority: 2
+- uri: https://diataxis.fr/tutorials-how-to/
+  handler: html_document
+  title: Diátaxis Tutorials vs How-To
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - documentation
+  - tutorial
+  - how-to
+  - task-vs-learning
+  priority: 2
+- uri: https://owl.purdue.edu/owl/subject_specific_writing/professional_technical_writing/index.html
+  handler: html_document
+  title: Purdue OWL Professional, Technical Writing
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - technical-writing
+  - clarity
+  - workplace-writing
+  - reports
+  priority: 1
+- uri: https://c4model.com/
+  handler: html_document
+  title: C4 Model
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - communication
+  - context
+  - containers
+  - components
+  priority: 2
+- uri: https://c4model.com/diagrams
+  handler: html_document
+  title: C4 Model Diagrams
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - diagramming
+  - system-views
+  priority: 2
+- uri: https://sre.google/resources/
+  handler: html_document
+  title: Google SRE Resource Library
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - operations
+  - monitoring
+  - incident-response
+  priority: 1
+- uri: https://sre.google/books/
+  handler: html_document
+  title: Google SRE Books
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - operations
+  - secure-systems
+  priority: 1
+- uri: https://sre.google/sre-book/table-of-contents/
+  handler: html_document
+  title: Google SRE Book TOC
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - slos
+  - toil
+  - release-engineering
+  - monitoring
+  priority: 2
+- uri: https://arxiv.org/abs/2310.17631
+  handler: html_document
+  title: JudgeLM
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - judge-model
+  - evaluation
+  - critic
+  - rubric
+  priority: 1
+- uri: https://arxiv.org/abs/2310.08491
+  handler: html_document
+  title: Prometheus
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - judge-model
+  - evaluation
+  - rubric
+  - critic
+  priority: 1
+- uri: https://arxiv.org/abs/2405.01535
+  handler: html_document
+  title: Prometheus 2
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - judge-model
+  - evaluation
+  - pairwise-ranking
+  - critic
+  priority: 1
+- uri: https://arxiv.org/abs/2504.00050
+  handler: html_document
+  title: JudgeLRM
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - judge-model
+  - reasoning
+  - critic
+  priority: 2
+- uri: https://arxiv.org/abs/2312.10997
+  handler: html_document
+  title: 'Retrieval-Augmented Generation for Large Language Models: A Survey'
+  domain: llm_rag
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - retrieval
+  - generation
+  - survey
+  priority: 1
+- uri: https://developers.openai.com/api/docs/guides/prompt-engineering/
+  handler: html_document
+  title: OpenAI Prompt Engineering Guide
+  domain: llm_prompting
+  authority: vetted
+  origin_type: curated
+  tags:
+  - prompting
+  - structured-prompts
+  - agent-design
+  priority: 2
+- uri: https://developers.openai.com/api/docs/guides/structured-outputs/
+  handler: html_document
+  title: OpenAI Structured Outputs Guide
+  domain: llm_prompting
+  authority: vetted
+  origin_type: curated
+  tags:
+  - structured-outputs
+  - json-schema
+  - validation
+  priority: 2
+- uri: https://developers.openai.com/cookbook/examples/structured_outputs_intro/
+  handler: html_document
+  title: Structured Outputs Intro
+  domain: llm_prompting
+  authority: vetted
+  origin_type: curated
+  tags:
+  - structured-outputs
+  - examples
+  - schemas
+  priority: 3
+- uri: https://www.equator-network.org/
+  handler: html_document
+  title: EQUATOR Network
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - science
+  - reporting-guidelines
+  - research-quality
+  - evidence
+  priority: 1
+- uri: https://www.nature.com/articles/s41591-025-03635-5
+  handler: html_document
+  title: CONSORT 2025 Statement
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - science
+  - clinical-trials
+  - reporting
+  - checklists
+  priority: 1
+- uri: https://www.law.cornell.edu/wex/legal_writing
+  handler: html_document
+  title: 'Cornell LII: Legal Writing'
+  domain: personal_legal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - legal-writing
+  - clarity
+  - precision
+  - argumentation
+  priority: 2
+- uri: https://www.law.cornell.edu/citation/1-100
+  handler: html_document
+  title: 'Cornell LII: Introduction to Basic Legal Citation'
+  domain: personal_legal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - legal-citation
+  - authority
+  - precision
+  - supporting-claims
+  priority: 2
+- uri: https://www.law.cornell.edu/wex/legalese
+  handler: html_document
+  title: 'Cornell LII: Legalese'
+  domain: personal_legal
+  authority: vetted
+  origin_type: curated
+  tags:
+  - plain-language
+  - legal-writing
+  - clarity
+  - anti-jargon
+  priority: 3
+- uri: https://viva.pressbooks.pub/openmusictheory/
+  handler: html_document
+  title: Open Music Theory
+  domain: music
+  authority: vetted
+  origin_type: curated
+  tags:
+  - music-theory
+  - notation
+  - harmony
+  - analysis
+  priority: 2
+- uri: https://viva.pressbooks.pub/openmusictheory/part/fundamentals/
+  handler: html_document
+  title: 'Open Music Theory: Fundamentals'
+  domain: music
+  authority: vetted
+  origin_type: curated
+  tags:
+  - music-theory
+  - notation
+  - rhythm
+  - pitch
+  priority: 2
+- uri: https://viva.pressbooks.pub/openmusictheory/chapter/chord-symbols/
+  handler: html_document
+  title: 'Open Music Theory: Chord Symbols'
+  domain: music
+  authority: vetted
+  origin_type: curated
+  tags:
+  - music-theory
+  - chord-symbols
+  - lead-sheet
+  - harmony
+  priority: 2
+- uri: https://lilypond.org/doc/v2.24/Documentation/web-big-page
+  handler: html_document
+  title: LilyPond Documentation
+  domain: music
+  authority: vetted
+  origin_type: curated
+  tags:
+  - music-notation
+  - engraving
+  - lilypond
+  - formal-notation
+  priority: 2
+- uri: https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-160v1.pdf
+  handler: pdf_document
+  title: NIST SP 800-160 Volume 1
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - systems-engineering
+  - security
+  - resilience
+  - engineering-principles
+  priority: 2
+- uri: https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-100.pdf
+  handler: pdf_document
+  title: NIST SP 800-100 Information Security Handbook
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - governance
+  - risk
+  - operations
+  priority: 3
+- uri: https://martinfowler.com/tags/enterprise%20architecture.html
+  handler: html_document
+  title: 'Martin Fowler: Enterprise Architecture'
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - tradeoffs
+  - software-design
+  priority: 3
+- uri: https://martinfowler.com/tags/application%20architecture.html
+  handler: html_document
+  title: 'Martin Fowler: Application Architecture'
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - software-design
+  - application-architecture
+  priority: 3
+- uri: https://genai.owasp.org/llm-top-10/
+  handler: html_document
+  title: OWASP Top 10 for LLM Applications
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - llm
+  - owasp
+  - top-10
+  - prompt-injection
+  - data-leakage
+  priority: 1
+- uri: https://genai.owasp.org/llm-ai-security-and-governance-checklist/
+  handler: html_document
+  title: OWASP LLM AI Security & Governance Checklist
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - governance
+  - checklist
+  - llm
+  - owasp
+  priority: 1
+- uri: https://www.nist.gov/artificial-intelligence/executive-order-safe-secure-and-trustworthy-artificial-intelligence
+  handler: html_document
+  title: NIST AI Risk Management Framework
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - risk-management
+  - nist
+  - ai-governance
+  - trustworthy-ai
+  priority: 1
+- uri: https://www.microsoft.com/en-us/ai/responsible-ai
+  handler: html_document
+  title: Microsoft Responsible AI Practices
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - responsible-ai
+  - microsoft
+  - fairness
+  - transparency
+  priority: 1
+- uri: https://simonwillison.net/2023/Apr/14/worst-that-can-happen/
+  handler: html_document
+  title: 'Simon Willison: Prompt Injection Explained'
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - prompt-injection
+  - attack-vectors
+  - defense
+  - practitioner
+  priority: 1
+- uri: https://docs.anthropic.com/en/docs/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks
+  handler: html_document
+  title: 'Anthropic: Defending Against Prompt Injection'
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - prompt-injection
+  - guardrails
+  - anthropic
+  - defense
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/security/benchmark/azure/baselines/azure-openai-security-baseline
+  handler: html_document
+  title: 'Azure: Security Baseline for Azure OpenAI'
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - azure
+  - openai
+  - baseline
+  - network-isolation
+  - data-protection
+  priority: 2
+- uri: https://python.langchain.com/docs/security/
+  handler: html_document
+  title: 'LangChain: Security Best Practices'
+  domain: secops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - security
+  - langchain
+  - best-practices
+  - sandboxing
+  - input-validation
+  priority: 2
+- uri: https://www.databricks.com/glossary/retrieval-augmented-generation-rag
+  handler: html_document
+  title: 'Databricks: What Is RAG?'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - architecture
+  - production
+  - databricks
+  - overview
+  priority: 1
+- uri: https://docs.llamaindex.ai/en/stable/optimizing/production_rag/
+  handler: html_document
+  title: 'LlamaIndex: Building Production RAG'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - production
+  - llamaindex
+  - optimization
+  - architecture
+  priority: 1
+- uri: https://docs.llamaindex.ai/en/stable/optimizing/evaluation/evaluation/
+  handler: html_document
+  title: 'LlamaIndex: RAG Evaluation Guide'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - evaluation
+  - llamaindex
+  - metrics
+  - quality
+  priority: 1
+- uri: https://weaviate.io/blog/rag-explained
+  handler: html_document
+  title: 'Weaviate: RAG Explained'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - architecture
+  - weaviate
+  - retrieval
+  - generation
+  priority: 1
+- uri: https://qdrant.tech/articles/rag-evaluation-guide/
+  handler: html_document
+  title: 'Qdrant: RAG Evaluation Guide'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - evaluation
+  - qdrant
+  - metrics
+  - quality
+  priority: 1
+- uri: https://www.pinecone.io/learn/retrieval-augmented-generation/
+  handler: html_document
+  title: 'Pinecone: RAG Architecture Guide'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - architecture
+  - pinecone
+  - production
+  - guide
+  priority: 1
+- uri: https://docs.aws.amazon.com/sagemaker/latest/dg/jumpstart-foundation-models-customize-rag.html
+  handler: html_document
+  title: 'AWS: RAG on AWS'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - aws
+  - sagemaker
+  - production
+  - architecture
+  priority: 1
+- uri: https://docs.cohere.com/docs/retrieval-augmented-generation-rag
+  handler: html_document
+  title: 'Cohere: RAG Best Practices'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - best-practices
+  - cohere
+  - reranking
+  - production
+  priority: 2
+- uri: https://python.langchain.com/docs/tutorials/rag/
+  handler: html_document
+  title: 'LangChain: RAG Tutorial'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - tutorial
+  - langchain
+  - implementation
+  - step-by-step
+  priority: 2
+- uri: https://cloud.google.com/architecture/rag-capable-gen-ai-app-using-vertex-ai
+  handler: html_document
+  title: 'Google Cloud: RAG Architecture Guide'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - google-cloud
+  - vertex-ai
+  - architecture
+  - production
+  priority: 2
+- uri: https://unstructured.io/blog/chunking-for-rag-best-practices
+  handler: html_document
+  title: 'Unstructured: Chunking Strategies for RAG'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rag
+  - chunking
+  - strategies
+  - best-practices
+  - preprocessing
+  priority: 2
+- uri: https://zilliz.com/learn/choosing-right-vector-database-for-your-use-case
+  handler: html_document
+  title: 'Zilliz: Choosing the Right Vector Database'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - selection
+  - comparison
+  - milvus
+  - zilliz
+  priority: 1
+- uri: https://superlinked.com/vector-db-comparison
+  handler: html_document
+  title: 'Superlinked: Vector Database Comparison'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - comparison
+  - benchmark
+  - faiss
+  - pinecone
+  - milvus
+  - qdrant
+  priority: 1
+- uri: https://qdrant.tech/benchmarks/
+  handler: html_document
+  title: 'Qdrant: Benchmarks'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - benchmark
+  - qdrant
+  - performance
+  - comparison
+  priority: 1
+- uri: https://github.com/pgvector/pgvector
+  handler: html_document
+  title: 'pgvector: Getting Started'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - pgvector
+  - postgres
+  - embedding
+  - open-source
+  priority: 2
+- uri: https://milvus.io/docs/architecture_overview.md
+  handler: html_document
+  title: 'Milvus: Architecture Overview'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - milvus
+  - architecture
+  - distributed
+  - hybrid-search
+  priority: 2
+- uri: https://github.com/facebookresearch/faiss/wiki/Getting-started
+  handler: html_document
+  title: 'FAISS: Getting Started Wiki'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - faiss
+  - facebook
+  - in-memory
+  - similarity-search
+  priority: 2
+- uri: https://weaviate.io/blog/what-is-a-vector-database
+  handler: html_document
+  title: 'Weaviate: Vector Database Use Cases'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - weaviate
+  - use-cases
+  - overview
+  - comparison
+  priority: 2
+- uri: https://github.com/aurelio-labs/semantic-router
+  handler: html_document
+  title: 'Semantic Router: Documentation'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - semantic-router
+  - classifier
+  - cost-optimization
+  - intent
+  priority: 1
+- uri: https://www.anyscale.com/blog/how-to-build-a-router-for-llm-queries
+  handler: html_document
+  title: 'Anyscale: How to Build an LLM Router'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - llm
+  - cost-optimization
+  - anyscale
+  - architecture
+  priority: 1
+- uri: https://withmartian.com/post/model-router
+  handler: html_document
+  title: 'Martian: Model Router Architecture'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - model-router
+  - cost
+  - quality
+  - martian
+  priority: 1
+- uri: https://openrouter.ai/docs/features/model-routing
+  handler: html_document
+  title: 'OpenRouter: Model Routing and Fallback'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - openrouter
+  - fallback
+  - cost
+  - api-gateway
+  priority: 1
+- uri: https://docs.litellm.ai/docs/routing
+  handler: html_document
+  title: 'LiteLLM: Router Documentation'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - litellm
+  - load-balancing
+  - fallback
+  - cost
+  priority: 2
+- uri: https://www.notdiamond.ai/blog/introducing-not-diamond
+  handler: html_document
+  title: 'Not Diamond: Intelligent Model Routing'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - routing
+  - model-selection
+  - not-diamond
+  - quality-prediction
+  priority: 2
+- uri: https://docs.anthropic.com/en/docs/about-claude/use-case-guides/summarization
+  handler: html_document
+  title: 'Anthropic: Claude''s Uncertainty and Limitations'
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - confidence
+  - uncertainty
+  - anthropic
+  - limitations
+  - guardrails
+  priority: 1
+- uri: https://platform.openai.com/docs/guides/safety-best-practices
+  handler: html_document
+  title: 'OpenAI: Safety Best Practices'
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - confidence
+  - safety
+  - openai
+  - refusal
+  - escalation
+  priority: 1
+- uri: https://ai.google/responsibility/responsible-ai-practices/
+  handler: html_document
+  title: 'Google: Responsible AI Practices'
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - confidence
+  - responsible-ai
+  - google
+  - fairness
+  - transparency
+  priority: 1
+- uri: https://lilianweng.github.io/posts/2023-06-23-agent/
+  handler: html_document
+  title: 'Lilian Weng: LLM Powered Autonomous Agents'
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - agents
+  - planning
+  - memory
+  - tool-use
+  - confidence
+  - survey
+  priority: 2
+- uri: https://lilianweng.github.io/posts/2024-07-07-hallucination/
+  handler: html_document
+  title: 'Lilian Weng: Extrinsic Hallucinations in LLMs'
+  domain: llm_evaluation
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hallucination
+  - factuality
+  - detection
+  - mitigation
+  - confidence
+  priority: 2
+- uri: https://github.blog/ai-and-ml/github-copilot/how-github-copilot-is-getting-better-at-understanding-your-code/
+  handler: html_document
+  title: 'GitHub: How GitHub Copilot Works'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - copilot
+  - code-assistant
+  - architecture
+  - github
+  - retrieval
+  priority: 1
+- uri: https://sourcegraph.com/blog/cody-is-cheating
+  handler: html_document
+  title: 'Sourcegraph: Cody Architecture'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cody
+  - code-assistant
+  - architecture
+  - sourcegraph
+  - context-window
+  priority: 1
+- uri: https://docs.continue.dev/customize/overview
+  handler: html_document
+  title: 'Continue.dev: How It Works'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - continue
+  - code-assistant
+  - architecture
+  - open-source
+  - ide
+  priority: 1
+- uri: https://www.cursor.com/blog/behind-the-scenes
+  handler: html_document
+  title: 'Cursor: Behind the Scenes of AI Code Editor'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cursor
+  - code-assistant
+  - architecture
+  - ide
+  - retrieval
+  priority: 1
+- uri: https://aws.amazon.com/q/developer/
+  handler: html_document
+  title: 'AWS: Building a Code Assistant with Amazon Q'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-assistant
+  - amazon-q
+  - aws
+  - enterprise
+  - architecture
+  priority: 2
+- uri: https://cloud.google.com/products/gemini-code-assist
+  handler: html_document
+  title: 'Google: Gemini Code Assist Overview'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-assistant
+  - gemini
+  - google-cloud
+  - enterprise
+  - code-review
+  priority: 2
+- uri: https://www.qodo.ai/blog/the-evolution-of-ai-code-quality/
+  handler: html_document
+  title: 'Qodo (formerly CodiumAI): AI Code Quality'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-quality
+  - testing
+  - code-review
+  - ai-assisted
+  - qodo
+  priority: 2
+- uri: https://aider.chat/docs/repomap.html
+  handler: html_document
+  title: 'Aider: Repository Map and Code Context'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-assistant
+  - aider
+  - repo-map
+  - context
+  - architecture
+  priority: 2
+- uri: https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning
+  handler: html_document
+  title: 'Google Cloud: MLOps Best Practices'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - deployment
+  - ci-cd
+  - monitoring
+  - google-cloud
+  priority: 1
+- uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/welcome.html
+  handler: html_document
+  title: 'AWS: MLOps Foundation Roadmap'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - deployment
+  - aws
+  - roadmap
+  - production
+  priority: 1
+- uri: https://huyenchip.com/ml-systems-design.html
+  handler: html_document
+  title: 'Chip Huyen: Designing Machine Learning Systems (Monitoring Chapter)'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - monitoring
+  - evaluation
+  - production
+  - system-design
+  priority: 1
+- uri: https://launchdarkly.com/solutions/ai/
+  handler: html_document
+  title: 'Feature Flagging for ML: LaunchDarkly AI Config'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - feature-flags
+  - a-b-testing
+  - rollout
+  - launchdarkly
+  - ml
+  priority: 2
+- uri: https://mlflow.org/docs/latest/model-registry.html
+  handler: html_document
+  title: 'MLflow: Model Registry and Deployment'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlflow
+  - model-registry
+  - deployment
+  - versioning
+  - production
+  priority: 2
+- uri: https://wandb.ai/site/solutions/llm-monitoring
+  handler: html_document
+  title: 'Weights & Biases: LLM Monitoring in Production'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - monitoring
+  - llm
+  - production
+  - wandb
+  - observability
+  priority: 2
+- uri: https://kserve.github.io/kserve/
+  handler: html_document
+  title: 'KServe: Kubernetes InferenceService'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kserve
+  - kubernetes
+  - inference
+  - model-serving
+  - autoscaling
+  priority: 1
+- uri: https://kserve.github.io/kserve/master/reference/architecture/
+  handler: html_document
+  title: 'KServe: Architecture Overview'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kserve
+  - architecture
+  - kubernetes
+  - inference-graph
+  - serving
+  priority: 1
+- uri: https://kubernetes.io/docs/concepts/workloads/best-practices/
+  handler: html_document
+  title: 'Kubernetes: AI/ML Workload Best Practices'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubernetes
+  - ai-workloads
+  - gpu
+  - scheduling
+  - best-practices
+  priority: 1
+- uri: https://docs.ray.io/en/latest/serve/index.html
+  handler: html_document
+  title: 'Ray Serve: Scalable Model Serving'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ray-serve
+  - model-serving
+  - scalable
+  - batching
+  - kubernetes
+  priority: 2
+- uri: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html
+  handler: html_document
+  title: NVIDIA Triton Inference Server
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - triton
+  - nvidia
+  - inference
+  - model-serving
+  - gpu
+  priority: 2
+- uri: https://huyenchip.com/2023/04/11/llm-engineering.html
+  handler: html_document
+  title: 'Chip Huyen: Building LLM Applications for Production'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - llm
+  - production
+  - architecture
+  - cost
+  - latency
+  - evaluation
+  priority: 1
+- uri: https://huyenchip.com/2024/01/21/real-time-ml.html
+  handler: html_document
+  title: 'Chip Huyen: Real-Time Machine Learning'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - real-time
+  - latency
+  - streaming
+  - production
+  - ml-systems
+  priority: 1
+- uri: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+  handler: html_document
+  title: 'Anthropic: Guide to Prompt Caching'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - caching
+  - prompt-caching
+  - cost-optimization
+  - anthropic
+  - production
+  priority: 1
+- uri: https://platform.openai.com/docs/guides/production-best-practices
+  handler: html_document
+  title: 'OpenAI: Production Best Practices'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - production
+  - best-practices
+  - openai
+  - api
+  - reliability
+  priority: 1
+- uri: https://docs.smith.langchain.com/
+  handler: html_document
+  title: 'LangSmith: LLM Observability and Tracing'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - observability
+  - tracing
+  - langsmith
+  - debugging
+  - production
+  priority: 2
+- uri: https://www.braintrust.dev/docs
+  handler: html_document
+  title: 'Braintrust: LLM Evaluation Platform'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - evaluation
+  - llm
+  - production
+  - testing
+  - quality
+  priority: 2
+- uri: https://python.langchain.com/docs/versions/v0_3
+  handler: html_document
+  title: 'LangChain v0.3: What''s New and Migration Guide'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - v0.3
+  - migration
+  - current
+  - breaking-changes
+  priority: 1
+- uri: https://python.langchain.com/docs/concepts/retrievers
+  handler: html_document
+  title: 'LangChain Concepts: Retrievers'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - retrievers
+  - concepts
+  - rag
+  - current
+  priority: 1
+- uri: https://python.langchain.com/docs/how_to/ensemble_retriever
+  handler: html_document
+  title: 'LangChain How-To: Ensemble Retriever (Hybrid Search)'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - ensemble-retriever
+  - hybrid-search
+  - bm25
+  - vector
+  priority: 1
+- uri: https://python.langchain.com/docs/integrations/vectorstores/faiss/
+  handler: html_document
+  title: 'LangChain: FAISS Vector Store Integration'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - faiss
+  - vector-store
+  - integration
+  - limitations
+  priority: 1
+- uri: https://python.langchain.com/docs/integrations/vectorstores
+  handler: html_document
+  title: 'LangChain: Vector Stores Overview and Comparison'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - vector-stores
+  - comparison
+  - integrations
+  - current
+  priority: 1
+- uri: https://python.langchain.com/docs/integrations/retrievers/elasticsearch_retriever
+  handler: html_document
+  title: 'LangChain: Elasticsearch Retriever (Hybrid Search Example)'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - elasticsearch
+  - hybrid-search
+  - bm25
+  - vector-search
+  priority: 2
+- uri: https://python.langchain.com/docs/versions/v0_2/deprecations
+  handler: html_document
+  title: LangChain v0.2 Deprecations (What to Avoid)
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - deprecations
+  - migration
+  - v0.2
+  - legacy
+  priority: 2
+- uri: https://python.langchain.com/docs/versions/migrating_chains/map_rerank_docs_chain
+  handler: html_document
+  title: 'LangChain: Migrating from Legacy Chains'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langchain
+  - migration
+  - chains
+  - legacy
+  - lcel
+  priority: 2
+- uri: https://langchain-ai.github.io/langgraph
+  handler: html_document
+  title: 'LangGraph: Framework Overview and Architecture'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - agents
+  - orchestration
+  - stateful
+  - architecture
+  priority: 1
+- uri: https://langchain-ai.github.io/langgraph/concepts/
+  handler: html_document
+  title: 'LangGraph: Conceptual Guide (State, Nodes, Edges, Persistence)'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - concepts
+  - state-management
+  - persistence
+  - checkpointing
+  priority: 1
+- uri: https://sumanta9090.medium.com/langgraph-patterns-best-practices-guide-2025-38cc2abb8763
+  handler: html_document
+  title: LangGraph Patterns and Best Practices Guide (2025)
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - patterns
+  - best-practices
+  - react
+  - tool-calling
+  priority: 1
+- uri: https://myengineeringpath.dev/genai-engineer/langgraph-multi-agent/
+  handler: html_document
+  title: LangGraph Multi-Agent Supervisor Pattern Guide (2026)
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - multi-agent
+  - supervisor
+  - orchestration
+  - command-api
+  priority: 1
+- uri: https://www.mager.co/blog/2026-03-12-langgraph-deep-dive/
+  handler: html_document
+  title: 'LangGraph: Build Stateful Multi-Agent Systems (Deep Dive)'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - multi-agent
+  - stateful
+  - production
+  - deep-dive
+  priority: 2
+- uri: https://blogs.pavanrangani.com/multi-agent-ai-systems-langgraph-guide/
+  handler: html_document
+  title: Multi-Agent AI Systems with LangGraph (Comprehensive Guide)
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - langgraph
+  - multi-agent
+  - supervisor
+  - swarm
+  - architecture
+  priority: 2
+- uri: https://github.com/facebookresearch/faiss/wiki/Guidelines-to-choose-an-index
+  handler: html_document
+  title: 'FAISS Wiki: Guidelines to Choose an Index'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - faiss
+  - index-selection
+  - ivf
+  - hnsw
+  - flat
+  - guidelines
+  priority: 1
+- uri: https://github.com/facebookresearch/faiss/wiki/Faiss-indexes
+  handler: html_document
+  title: 'FAISS Wiki: Index Types and Capabilities'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - faiss
+  - indexes
+  - ivf
+  - pq
+  - hnsw
+  - flat
+  - capabilities
+  priority: 1
+- uri: https://github.com/facebookresearch/faiss/wiki/FAQ
+  handler: html_document
+  title: 'FAISS Wiki: FAQ (Limitations, Accuracy, Operations)'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - faiss
+  - faq
+  - limitations
+  - accuracy
+  - operations
+  - troubleshooting
+  priority: 1
+- uri: https://github.com/facebookresearch/faiss/wiki/The-index-factory
+  handler: html_document
+  title: 'FAISS Wiki: The Index Factory (Composite Index Strings)'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - faiss
+  - index-factory
+  - composite
+  - configuration
+  - encoding
+  priority: 2
+- uri: https://medium.com/@ashutoshkumars1ngh/hybrid-search-done-right-fixing-rag-retrieval-failures-using-bm25-hnsw-reciprocal-rank-fusion-a73596652d22
+  handler: html_document
+  title: 'Hybrid Search Done Right: BM25 + HNSW + RRF in Elasticsearch'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hybrid-search
+  - bm25
+  - hnsw
+  - rrf
+  - elasticsearch
+  - production
+  priority: 1
+- uri: https://fmorenovr.medium.com/building-a-production-ready-rag-system-from-simple-retrieval-to-advanced-hybrid-search-498a50f9a04f
+  handler: html_document
+  title: 'Building a Production-Ready RAG System: From Simple to Hybrid Search'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hybrid-search
+  - rag
+  - production
+  - architecture
+  - reranking
+  priority: 1
+- uri: https://optyxstack.com/rag-reliability/hybrid-search-reranking-playbook
+  handler: html_document
+  title: 'Hybrid Search + Reranking Playbook: When Vectors Fail and BM25 Saves Recall'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hybrid-search
+  - reranking
+  - bm25
+  - production
+  - reliability
+  priority: 1
+- uri: https://medium.com/@kumaran.isk/building-a-production-rag-pipeline-start-with-hybrid-retrieval-dense-bm25-rrf-e901aba17cae
+  handler: html_document
+  title: 'Production RAG Pipeline: Start With Hybrid Retrieval (Dense + BM25 + RRF)'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hybrid-search
+  - rag
+  - rrf
+  - dense-retrieval
+  - bm25
+  - production
+  priority: 1
+- uri: https://thread-transfer.com/blog/2025-03-22-hybrid-search-production/
+  handler: html_document
+  title: 'Hybrid Search in 2025: Combining Semantic + BM25 for Production'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - hybrid-search
+  - semantic
+  - bm25
+  - production
+  - '2025'
+  - patterns
+  priority: 1
+- uri: https://medium.com/@sepehrnorouzi7/milvus-vs-faiss-vs-qdrant-vs-chroma-a-deep-take-on-four-vector-databases-c2b8c67e9fad
+  handler: html_document
+  title: 'Milvus vs FAISS vs Qdrant vs Chroma: A Deep Comparison'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - milvus
+  - faiss
+  - qdrant
+  - chroma
+  - comparison
+  priority: 1
+- uri: https://jishulabs.com/blog/vector-database-comparison-2026
+  handler: html_document
+  title: 'Vector Database Comparison 2026: Pinecone vs Weaviate vs Qdrant vs Milvus'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - comparison
+  - '2026'
+  - pinecone
+  - weaviate
+  - qdrant
+  - milvus
+  priority: 1
+- uri: https://www.firecrawl.dev/blog/best-vector-databases
+  handler: html_document
+  title: 'Best Vector Databases in 2026: A Complete Comparison Guide'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - comparison
+  - '2026'
+  - production
+  - metadata-filtering
+  priority: 1
+- uri: https://viqus.ai/blog/vector-databases-compared
+  handler: html_document
+  title: 'Vector Databases in 2026: A Practical Comparison for Production Teams'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - comparison
+  - production
+  - '2026'
+  - operational
+  priority: 2
+- uri: https://www.f22labs.com/blogs/qdrant-vs-milvus-which-vector-database-should-you-choose/
+  handler: html_document
+  title: 'Qdrant vs Milvus: Which Vector Database Should You Choose?'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vector-db
+  - qdrant
+  - milvus
+  - comparison
+  - filtering
+  - hybrid-search
+  priority: 2
+- uri: https://like2byte.com/ollama-vs-vllm-local-benchmarks-2026/
+  handler: html_document
+  title: 'Ollama vs vLLM: Which Local LLM Backend Pays Off on Single GPUs?'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - ollama
+  - benchmark
+  - gpu
+  - latency
+  - throughput
+  priority: 1
+- uri: https://www.youngju.dev/blog/llm/2026-03-07-llm-vllm-serving-optimization-production.en
+  handler: html_document
+  title: 'Complete Guide to vLLM Production Serving Optimization: PagedAttention to
+    Kubernetes'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - production
+  - optimization
+  - kubernetes
+  - paged-attention
+  - latency
+  priority: 1
+- uri: https://vllm.ai/blog/stack-release
+  handler: html_document
+  title: 'vLLM Production Stack: High Performance Deployment in Kubernetes'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - kubernetes
+  - production
+  - helm
+  - autoscaling
+  - kv-cache
+  priority: 1
+- uri: https://developers.redhat.com/articles/2025/08/08/ollama-vs-vllm-deep-dive-performance-benchmarking
+  handler: html_document
+  title: 'Red Hat: Ollama vs vLLM Deep Dive Performance Benchmarking'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - ollama
+  - benchmark
+  - red-hat
+  - a100
+  - throughput
+  - latency
+  priority: 1
+- uri: https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes
+  handler: html_document
+  title: 'Red Hat: Deploy and Benchmark vLLM with GuideLLM on Kubernetes'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - kubernetes
+  - benchmark
+  - red-hat
+  - openshift
+  - guidellm
+  priority: 1
+- uri: https://medium.com/@shsax/how-i-built-coderag-with-dependency-graph-using-tree-sitter-0a71867059ae
+  handler: html_document
+  title: CodeRAG with Dependency Graph Using Tree-Sitter
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-rag
+  - tree-sitter
+  - dependency-graph
+  - ast
+  - import-graph
+  priority: 1
+- uri: https://arxiv.org/html/2602.20048v1
+  handler: html_document
+  title: 'Navigation Paradox: Graph-Structured Dependency Navigation vs Retrieval'
+  domain: software_architecture
+  authority: vetted
+  origin_type: curated
+  tags:
+  - code-navigation
+  - dependency-graph
+  - retrieval
+  - research
+  - architecture-tasks
+  priority: 1
+- uri: https://milvus.io/docs/multi-vector-search.md
+  handler: html_document
+  title: 'Milvus: Hybrid Search (Dense + Sparse Vectors)'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - milvus
+  - hybrid-search
+  - dense
+  - sparse
+  - rrf
+  - weighted
+  priority: 1
+- uri: https://milvus.io/docs/full-text-search.md
+  handler: html_document
+  title: 'Milvus: Full-Text Search (BM25)'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - milvus
+  - full-text-search
+  - bm25
+  - sparse
+  - tokenization
+  priority: 1
+- uri: https://milvus.io/docs/boolean.md
+  handler: html_document
+  title: 'Milvus: Metadata Filtering and Scalar Indexing'
+  domain: databases
+  authority: vetted
+  origin_type: curated
+  tags:
+  - milvus
+  - metadata-filtering
+  - scalar-index
+  - boolean
+  - expressions
+  priority: 2
