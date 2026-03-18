@@ -21,11 +21,13 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, record_frame_cache_size
 from ..config import settings
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import FirstPassFrame, MissingFieldReport, UserTask, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
+from ..synesis_tracer import get_synesis_tracer
 from .frame_normalizer import normalize_frame
 
 logger = logging.getLogger("synesis.frame_extractor")
@@ -42,12 +44,16 @@ def _frame_cache_get(task_description: str) -> dict[str, Any] | None:
     key = hashlib.sha256(task_description.encode()).hexdigest()
     entry = _frame_cache.get(key)
     if entry is None:
+        record_frame_cache_miss()
         return None
     expires_at, result = entry
     if expires_at and time.monotonic() > expires_at:
         _frame_cache.pop(key, None)
+        record_frame_cache_miss()
+        record_frame_cache_size(len(_frame_cache))
         return None
     _frame_cache.move_to_end(key)
+    record_frame_cache_hit()
     return result
 
 
@@ -58,6 +64,7 @@ def _frame_cache_put(task_description: str, result: dict[str, Any]) -> None:
     while len(_frame_cache) >= settings.frame_cache_max_entries:
         _frame_cache.popitem(last=False)
     _frame_cache[key] = (0.0, result)  # no TTL expiry (0 = never)
+    record_frame_cache_size(len(_frame_cache))
 
 
 # --------------------------------------------------------------------------- #
@@ -281,6 +288,16 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "gliner_used": False,
             },
         )
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.annotate_span("entry_pipeline", {
+                "frame_extraction": {
+                    "path": "deterministic_trivial",
+                    "difficulty": round(difficulty, 2),
+                    "latency_ms": round(latency, 1),
+                    "prompt_snippet": task_description[:200],
+                },
+            })
         return {
             "user_task": user_task,
             "current_node": node_name,
@@ -300,6 +317,16 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
     if cached_frame is not None:
         latency = (time.monotonic() - start) * 1000
         logger.info("frame_cache_hit", extra={"latency_ms": round(latency)})
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.annotate_span("entry_pipeline", {
+                "frame_extraction": {
+                    "path": "cache_hit",
+                    "latency_ms": round(latency, 1),
+                    "prompt_snippet": task_description[:200],
+                    "cached_deliverables": len(cached_frame.get("deliverables", [])),
+                },
+            })
         return {
             "user_task": cached_frame,
             "current_node": node_name,
@@ -431,6 +458,24 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         _frame_cache_put(task_description, user_task_dict)
+
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.annotate_span("entry_pipeline", {
+                "frame_extraction": {
+                    "path": extraction_mode,
+                    "stage1_latency_ms": round(stage1_latency, 1),
+                    "stage2_latency_ms": round(stage2_latency, 1),
+                    "total_latency_ms": round(latency, 1),
+                    "gliner_spans": total_spans,
+                    "deliverables": len(user_task.deliverables),
+                    "requirements": len(user_task.explicit_requirements),
+                    "constraints": len(user_task.constraints),
+                    "domain_tags": user_task.domain_tags,
+                    "needs_web": user_task.needs_web,
+                    "prompt_snippet": task_description[:200],
+                },
+            })
 
         result: dict[str, Any] = {
             "user_task": user_task_dict,

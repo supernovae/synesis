@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { clsx } from "clsx";
 
 interface Column<T> {
@@ -16,6 +16,7 @@ interface Props<T> {
   emptyMessage?: string;
   onRowClick?: (row: T) => void;
   className?: string;
+  headerSlot?: React.ReactNode;
 }
 
 export default function DataTable<T extends object>({
@@ -25,6 +26,7 @@ export default function DataTable<T extends object>({
   emptyMessage = "No data available",
   onRowClick,
   className,
+  headerSlot,
 }: Props<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -68,24 +70,27 @@ export default function DataTable<T extends object>({
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            {columns.map((col) => (
-              <th
-                key={col.key}
-                className={clsx(
-                  "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500",
-                  col.sortable && "cursor-pointer select-none hover:text-gray-700",
-                  col.className,
-                )}
-                onClick={col.sortable ? () => handleSort(col.key) : undefined}
-              >
-                <span className="flex items-center gap-1">
-                  {col.label}
-                  {col.sortable && sortKey === col.key && (
-                    <span>{sortDir === "asc" ? "\u2191" : "\u2193"}</span>
+            {columns.map((col, idx) => {
+              if (idx === 0 && headerSlot) return <React.Fragment key={col.key}>{headerSlot}</React.Fragment>;
+              return (
+                <th
+                  key={col.key}
+                  className={clsx(
+                    "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500",
+                    col.sortable && "cursor-pointer select-none hover:text-gray-700",
+                    col.className,
                   )}
-                </span>
-              </th>
-            ))}
+                  onClick={col.sortable ? () => handleSort(col.key) : undefined}
+                >
+                  <span className="flex items-center gap-1">
+                    {col.label}
+                    {col.sortable && sortKey === col.key && (
+                      <span>{sortDir === "asc" ? "\u2191" : "\u2193"}</span>
+                    )}
+                  </span>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-200 bg-white">

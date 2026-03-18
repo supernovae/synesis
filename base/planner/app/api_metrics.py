@@ -14,6 +14,12 @@ _node_confidence = None
 _tokens_total = None
 _memory_rss_gauge = None
 _memory_cgroup_gauge = None
+_prompt_cache_hits = None
+_prompt_cache_misses = None
+_prompt_cache_entries = None
+_frame_cache_hits = None
+_frame_cache_misses = None
+_frame_cache_entries = None
 
 
 def _ensure_metrics():
@@ -21,6 +27,8 @@ def _ensure_metrics():
     global _chat_requests, _chat_duration, _critic_rejections
     global _graph_iterations, _node_confidence, _tokens_total
     global _memory_rss_gauge, _memory_cgroup_gauge
+    global _prompt_cache_hits, _prompt_cache_misses, _prompt_cache_entries
+    global _frame_cache_hits, _frame_cache_misses, _frame_cache_entries
     if _metrics_registered:
         return
     try:
@@ -62,6 +70,30 @@ def _ensure_metrics():
         _memory_cgroup_gauge = Gauge(
             "synesis_planner_memory_cgroup_mib",
             "Cgroup memory usage in MiB if available (sampled at request end).",
+        )
+        _prompt_cache_hits = Counter(
+            "synesis_prompt_cache_hits_total",
+            "Prompt-level response cache hits",
+        )
+        _prompt_cache_misses = Counter(
+            "synesis_prompt_cache_misses_total",
+            "Prompt-level response cache misses",
+        )
+        _prompt_cache_entries = Gauge(
+            "synesis_prompt_cache_entries",
+            "Current prompt cache entry count",
+        )
+        _frame_cache_hits = Counter(
+            "synesis_frame_cache_hits_total",
+            "Frame extraction cache hits",
+        )
+        _frame_cache_misses = Counter(
+            "synesis_frame_cache_misses_total",
+            "Frame extraction cache misses",
+        )
+        _frame_cache_entries = Gauge(
+            "synesis_frame_cache_entries",
+            "Current frame cache entry count",
         )
     except Exception:  # nosec B110
         pass
@@ -115,3 +147,39 @@ def record_memory_after_request(rss_mib: float, cgroup_mib: float = 0.0):
         _memory_rss_gauge.set(round(rss_mib, 2))
     if _memory_cgroup_gauge is not None and cgroup_mib >= 0:
         _memory_cgroup_gauge.set(round(cgroup_mib, 2))
+
+
+def record_prompt_cache_hit():
+    _ensure_metrics()
+    if _prompt_cache_hits:
+        _prompt_cache_hits.inc()
+
+
+def record_prompt_cache_miss():
+    _ensure_metrics()
+    if _prompt_cache_misses:
+        _prompt_cache_misses.inc()
+
+
+def record_prompt_cache_size(size: int):
+    _ensure_metrics()
+    if _prompt_cache_entries is not None:
+        _prompt_cache_entries.set(size)
+
+
+def record_frame_cache_hit():
+    _ensure_metrics()
+    if _frame_cache_hits:
+        _frame_cache_hits.inc()
+
+
+def record_frame_cache_miss():
+    _ensure_metrics()
+    if _frame_cache_misses:
+        _frame_cache_misses.inc()
+
+
+def record_frame_cache_size(size: int):
+    _ensure_metrics()
+    if _frame_cache_entries is not None:
+        _frame_cache_entries.set(size)

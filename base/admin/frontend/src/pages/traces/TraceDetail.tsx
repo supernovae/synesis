@@ -101,7 +101,7 @@ function SpanRow({
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
       >
-        {span.llm_calls?.length > 0 ? (
+        {(span.llm_calls?.length > 0 || (span.metadata && Object.keys(span.metadata).length > 0)) ? (
           open ? (
             <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-400" />
           ) : (
@@ -152,9 +152,32 @@ function SpanRow({
         </button>
       </button>
 
-      {open && span.llm_calls && span.llm_calls.length > 0 && (
+      {open && (
         <div className="ml-12 border-l-2 border-gray-200 pb-2 pl-4 dark:border-gray-600">
-          {span.llm_calls.map((call: LLMCallRecord, idx: number) => (
+          {span.metadata && Object.keys(span.metadata).length > 0 && (
+            <div className="mb-2 space-y-1">
+              {Object.entries(span.metadata).map(([key, value]) => (
+                <div key={key} className="rounded bg-gray-50 px-3 py-2 dark:bg-gray-800">
+                  <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">{key.replace(/_/g, ' ')}</span>
+                  {typeof value === 'object' && value !== null ? (
+                    <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
+                      {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
+                        <div key={k} className="flex items-baseline gap-1 text-xs">
+                          <span className="text-gray-500 dark:text-gray-400">{k.replace(/_/g, ' ')}:</span>
+                          <span className="font-mono text-gray-800 dark:text-gray-200">
+                            {typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(3)) : String(v)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="ml-2 font-mono text-xs text-gray-800 dark:text-gray-200">{String(value)}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {span.llm_calls && span.llm_calls.length > 0 && span.llm_calls.map((call: LLMCallRecord, idx: number) => (
             <LLMCallRow key={idx} call={call} />
           ))}
         </div>
@@ -795,6 +818,11 @@ export default function TraceDetail() {
                 {tag}
               </span>
             ))}
+            {trace.short_circuit_reason && (
+              <span className="rounded bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                {trace.short_circuit_reason.replace(/_/g, ' ')}
+              </span>
+            )}
           </div>
         </div>
       )}

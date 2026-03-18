@@ -3,6 +3,9 @@
 Stores failed code + error output as embeddings in a dedicated Milvus
 collection. The worker can query similar past failures before generating
 code to avoid repeating known mistakes.
+
+``record_error()`` is a lightweight Postgres-only helper used by the
+planner to persist graph/retrieval/model errors without touching Milvus.
 """
 
 from __future__ import annotations
@@ -10,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import threading
 import time
 from typing import Any
 
@@ -18,6 +23,107 @@ from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
 from .config import settings
 
 logger = logging.getLogger("synesis.failure_store")
+
+# ---------------------------------------------------------------------------
+# Lightweight Postgres-only error recording (no Milvus dependency)
+# ---------------------------------------------------------------------------
+
+_error_pg_conn = None
+_error_pg_lock = threading.Lock()
+
+_ERROR_INSERT_SQL = """\
+INSERT INTO failures (failure_id, code, error_output, exit_code, error_type,
+                      language, task_description, resolution, timestamp)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (failure_id) DO UPDATE SET
+    error_output = EXCLUDED.error_output,
+    task_description = EXCLUDED.task_description,
+    timestamp = EXCLUDED.timestamp
+"""
+
+
+def _get_error_pg():
+    """Lazy-init synchronous Postgres connection for error writes."""
+    global _error_pg_conn
+    if _error_pg_conn is not None:
+        try:
+            _error_pg_conn.cursor().execute("SELECT 1")
+            return _error_pg_conn
+        except Exception:
+            _error_pg_conn = None
+
+    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
+    if not db_url:
+        return None
+    try:
+        import psycopg2
+
+        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
+        _error_pg_conn = psycopg2.connect(dsn)
+        _error_pg_conn.autocommit = True
+        return _error_pg_conn
+    except Exception:
+        logger.debug("record_error_pg_connect_failed", exc_info=True)
+        return None
+
+
+def _persist_error(
+    error_type: str,
+    error_output: str,
+    task_description: str = "",
+    code: str = "",
+    language: str = "",
+    exit_code: int = 1,
+    trace_id: str = "",
+) -> None:
+    """Write error to admin Postgres failures table (synchronous, best-effort)."""
+    with _error_pg_lock:
+        conn = _get_error_pg()
+        if conn is None:
+            return
+        try:
+            desc_for_hash = task_description or error_type
+            fid = _failure_id(code or desc_for_hash, error_output)
+            if trace_id:
+                fid = f"{fid[:48]}_{trace_id[:15]}"
+            with conn.cursor() as cur:
+                cur.execute(
+                    _ERROR_INSERT_SQL,
+                    (
+                        fid[:64],
+                        code[:8192],
+                        error_output[:4096],
+                        exit_code,
+                        error_type[:128],
+                        language[:32],
+                        task_description[:2048],
+                        "",
+                        int(time.time()),
+                    ),
+                )
+        except Exception:
+            logger.debug("persist_error_pg_failed", exc_info=True)
+
+
+def record_error(
+    error_type: str,
+    error_output: str,
+    task_description: str = "",
+    code: str = "",
+    language: str = "",
+    exit_code: int = 1,
+    trace_id: str = "",
+) -> None:
+    """Record an operational error to Postgres (non-blocking, daemon thread).
+
+    Unlike ``store_failure()``, this does NOT require Milvus and is suitable
+    for graph crashes, retrieval timeouts, model failures, and critic errors.
+    """
+    threading.Thread(
+        target=_persist_error,
+        args=(error_type, error_output, task_description, code, language, exit_code, trace_id),
+        daemon=True,
+    ).start()
 
 COLLECTION = "failures_v1"
 EMBEDDING_DIM = 384

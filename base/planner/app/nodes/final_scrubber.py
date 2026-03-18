@@ -16,6 +16,7 @@ from typing import Any
 
 from ..schemas import FinalAnswerAudit
 from ..state import NodeOutcome, NodeTrace
+from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.final_scrubber")
 
@@ -303,19 +304,24 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     latency = (time.monotonic() - start) * 1000
-    logger.info(
-        "scrubber_complete",
-        extra={
-            "mermaid_labels_fixed": mermaid_fixes,
-            "artifacts_stripped": artifact_count,
-            "false_precision": fp_count,
-            "duplicates_removed": dup_count,
-            "uncited_sources_removed": sources_removed,
-            "overgrown_sections": len(overgrown),
-            "output_len": len(text),
-            "latency_ms": round(latency, 1),
-        },
-    )
+    _input_len = len(state.get("compiled_answer") or state.get("generated_code", ""))
+    scrub_details = {
+        "input_len": _input_len,
+        "output_len": len(text),
+        "chars_removed": _input_len - len(text),
+        "mermaid_labels_fixed": mermaid_fixes,
+        "artifacts_stripped": artifact_count,
+        "false_precision": fp_count,
+        "duplicates_removed": dup_count,
+        "uncited_sources_removed": sources_removed,
+        "overgrown_sections": len(overgrown),
+        "latency_ms": round(latency, 1),
+    }
+    logger.info("scrubber_complete", extra=scrub_details)
+
+    _tracer = get_synesis_tracer()
+    if _tracer:
+        _tracer.annotate_span("final_scrubber", {"scrub_details": scrub_details})
 
     return {
         "scrubbed_answer": text,

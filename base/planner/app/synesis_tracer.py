@@ -79,6 +79,7 @@ class SpanRecord:
     outcome: str = ""
     reasoning: str = ""
     llm_calls: list[LLMCallRecord] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -101,6 +102,7 @@ class TraceRecord:
     evidence_summary: dict[str, Any] = field(default_factory=dict)
     taxonomy: dict[str, Any] = field(default_factory=dict)
     phase_timings: dict[str, float] = field(default_factory=dict)
+    short_circuit_reason: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +416,37 @@ class SynesisTracer(BaseCallbackHandler):
         if self._current_trace is None:
             return
         self._current_trace.phase_timings[phase] = round(duration_ms, 1)
+
+    def mark_short_circuit(self, reason: str) -> None:
+        """Mark current trace as short-circuited (e.g. prompt_cache_hit).
+
+        The trace will still be flushed, but its short_circuit_reason field
+        explains why no graph spans were produced.
+        """
+        if self._current_trace is None:
+            return
+        self._current_trace.short_circuit_reason = reason
+
+    def annotate_span(self, node_name: str, annotations: dict[str, Any]) -> None:
+        """Attach structured metadata to the most recent span matching *node_name*.
+
+        Nodes call this to record non-LLM operational details (cache hits,
+        scrubber counts, frame extraction path, etc.) without duplicating
+        ad-hoc logic.  Values are merged into ``SpanRecord.metadata``.
+        """
+        if self._current_trace is None:
+            return
+        # Walk completed spans in reverse; most callers annotate *their own*
+        # span right at the end of the node function.
+        for span in reversed(self._current_trace.spans):
+            if span.node_name == node_name:
+                span.metadata.update(annotations)
+                return
+        # Span may still be active (on_chain_end not yet called).
+        for span in self._active_spans.values():
+            if span.node_name == node_name:
+                span.metadata.update(annotations)
+                return
 
     # -- LangChain BaseCallbackHandler overrides ---------------------------
 

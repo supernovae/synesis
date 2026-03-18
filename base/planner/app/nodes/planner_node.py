@@ -17,6 +17,7 @@ from ..config import settings
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import DecisionEntry, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
+from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.planner")
 
@@ -572,6 +573,19 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
             },
         )
+
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("planner.total_ms", latency)
+            _tracer.annotate_span("planner", {
+                "plan_summary": {
+                    "steps": len(plan.get("steps", [])),
+                    "open_questions": len(plan.get("open_questions", [])),
+                    "confidence": parsed.confidence,
+                    "latency_ms": round(latency, 1),
+                    "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
+                },
+            })
 
         steps = plan.get("steps", [])
 

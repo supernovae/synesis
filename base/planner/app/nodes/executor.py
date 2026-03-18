@@ -27,6 +27,7 @@ from ..config import settings
 from ..injection_scanner import reduce_context_on_injection, scan_text
 from ..llm_telemetry import get_llm_http_client
 from ..state import NodeOutcome, NodeTrace
+from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.executor")
 
@@ -927,6 +928,20 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
             len(patch_ops_list),
             extra={"iteration": iteration, "latency_ms": latency},
         )
+
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("executor.total_ms", latency)
+            _tracer.annotate_span("executor", {
+                "execution_summary": {
+                    "output_len": len(generated_code),
+                    "patch_ops": len(patch_ops_list),
+                    "files_touched": len(files_touched),
+                    "iteration": iteration,
+                    "tokens_used": tokens_used,
+                    "latency_ms": round(latency, 1),
+                },
+            })
 
         updates: dict[str, Any] = {
             "generated_code": generated_code,

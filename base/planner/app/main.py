@@ -32,11 +32,15 @@ from .api_metrics import (
     record_graph_iterations,
     record_memory_after_request,
     record_node_confidence,
+    record_prompt_cache_hit,
+    record_prompt_cache_miss,
+    record_prompt_cache_size,
     record_tokens,
 )
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
+from .failure_store import record_error
 from .graph import flush_tracer, get_graph_config, graph, upgrade_checkpointer_to_redis
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
@@ -78,11 +82,15 @@ def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
     key = _prompt_cache_key(user_id, prompt, model)
     entry = _prompt_cache.get(key)
     if entry is None:
+        record_prompt_cache_miss()
         return None
     expires_at, text = entry
     if time.monotonic() > expires_at:
         _prompt_cache.pop(key, None)
+        record_prompt_cache_miss()
+        record_prompt_cache_size(len(_prompt_cache))
         return None
+    record_prompt_cache_hit()
     return text
 
 
@@ -94,6 +102,7 @@ def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> N
         _prompt_cache.pop(oldest_key, None)
     key = _prompt_cache_key(user_id, prompt, model)
     _prompt_cache[key] = (time.monotonic() + settings.prompt_cache_ttl_seconds, response)
+    record_prompt_cache_size(len(_prompt_cache))
 
 
 def _get_rss_mib() -> float:
@@ -1299,6 +1308,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             "prompt_cache_hit",
             extra={"user_id": user_id, "run_id": run_id, "model": request.model},
         )
+        if _tracer is not None:
+            _tracer.mark_short_circuit("prompt_cache_hit")
+            _tracer.record_phase_timing("prompt_cache", (time.monotonic() - start) * 1000)
+        flush_tracer()
         record_chat_success(time.monotonic() - start)
         if request.stream:
             _cache_chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
@@ -1771,6 +1784,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             "state_error": str(_err_state)[:200] if _err_state else "",
                         },
                     )
+                    record_error(
+                        error_type=_error_code,
+                        error_output=f"node={_cur_node} next={_nxt_node}: {str(_graph_exc)[:2000]}",
+                        task_description=(last_user_content or "")[:2048],
+                        trace_id=run_id,
+                    )
                     record_chat_error(time.monotonic() - start)
                     rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
                     record_memory_after_request(rss_mib, cgroup_mib)
@@ -2091,6 +2110,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             "state_error": str(_err_state)[:200] if _err_state else "",
                         },
                     )
+                    record_error(
+                        error_type=_error_code,
+                        error_output=f"node={_cur_node} next={_nxt_node}: {str(_graph_exc)[:2000]}",
+                        task_description=(last_user_content or "")[:2048],
+                        trace_id=run_id,
+                    )
                     record_chat_error(time.monotonic() - start)
                     rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
                     record_memory_after_request(rss_mib, cgroup_mib)
@@ -2159,6 +2184,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         logger.exception(
             "graph_execution_error",
             extra={"error_code": _error_code},
+        )
+        record_error(
+            error_type=_error_code,
+            error_output=str(_graph_exc)[:2000],
+            task_description=(last_user_content or "")[:2048],
+            trace_id=run_id,
         )
         record_chat_error(time.monotonic() - start)
         rss_mib, cgroup_mib = _sample_memory_and_log("request_end")
@@ -2407,6 +2438,27 @@ async def metrics():
 async def cache_stats():
     """Cache statistics for admin observability."""
     stats: dict[str, Any] = {}
+
+    # Prompt cache stats
+    now = time.monotonic()
+    active_entries = sum(1 for _, (exp, _) in _prompt_cache.items() if exp > now)
+    stats["prompt_cache"] = {
+        "enabled": settings.prompt_cache_enabled,
+        "entries": active_entries,
+        "max_entries": settings.prompt_cache_max_entries,
+        "ttl_seconds": settings.prompt_cache_ttl_seconds,
+    }
+
+    # Frame cache stats
+    try:
+        from .nodes.frame_extractor import _frame_cache
+
+        fc_active = sum(1 for _, (exp, _) in _frame_cache.items() if exp > now) if _frame_cache else 0
+        stats["frame_cache"] = {
+            "entries": fc_active,
+        }
+    except Exception:
+        stats["frame_cache"] = {"entries": 0}
 
     # Retrieval cache stats
     try:

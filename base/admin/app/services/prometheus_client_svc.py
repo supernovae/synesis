@@ -50,26 +50,39 @@ def parse_prometheus_text(text: str) -> dict[str, Any]:
 
 async def get_cache_metrics() -> dict[str, Any]:
     raw = await fetch_planner_metrics()
-    exact = _find_metric(raw, "synesis_cache_exact_hits_total")
-    semantic = _find_metric(raw, "synesis_cache_semantic_hits_total")
-    misses = _find_metric(raw, "synesis_cache_misses_total")
-    evictions = _find_metric(raw, "synesis_cache_evictions_total")
-    entries = _find_metric(raw, "synesis_cache_entries")
-    total_hits = exact + semantic
-    total = total_hits + misses
-    return {
-        "exact_hits": exact,
-        "semantic_hits": semantic,
-        "misses": misses,
-        "evictions": evictions,
-        "entries": entries,
-        "hit_rate": total_hits / total if total > 0 else 0,
-    }
+    return _build_retrieval_cache(raw)
 
 
 async def get_extended_cache_metrics() -> dict[str, Any]:
     """Fetch Prometheus cache counters and planner /debug/cache-stats, merge into one response."""
-    cache_metrics = await get_cache_metrics()
+    raw = await fetch_planner_metrics()
+    cache_metrics = _build_retrieval_cache(raw)
+
+    # Prompt cache from Prometheus
+    pc_hits = _find_metric(raw, "synesis_prompt_cache_hits_total")
+    pc_misses = _find_metric(raw, "synesis_prompt_cache_misses_total")
+    pc_entries = _find_metric(raw, "synesis_prompt_cache_entries")
+    pc_total = pc_hits + pc_misses
+    cache_metrics["prompt_cache"] = {
+        "hits": int(pc_hits),
+        "misses": int(pc_misses),
+        "entries": int(pc_entries),
+        "hit_rate": pc_hits / pc_total if pc_total > 0 else 0,
+    }
+
+    # Frame cache from Prometheus
+    fc_hits = _find_metric(raw, "synesis_frame_cache_hits_total")
+    fc_misses = _find_metric(raw, "synesis_frame_cache_misses_total")
+    fc_entries = _find_metric(raw, "synesis_frame_cache_entries")
+    fc_total = fc_hits + fc_misses
+    cache_metrics["frame_cache"] = {
+        "hits": int(fc_hits),
+        "misses": int(fc_misses),
+        "entries": int(fc_entries),
+        "hit_rate": fc_hits / fc_total if fc_total > 0 else 0,
+    }
+
+    # /debug/cache-stats for enrichment (TTL, max entries, etc.)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -85,7 +98,34 @@ async def get_extended_cache_metrics() -> dict[str, Any]:
     cache_metrics["redis"] = extra.get("redis", {})
     cache_metrics["session"] = extra.get("session", {})
     cache_metrics["l2_archive"] = extra.get("l2_archive", {})
+
+    # Enrich prompt cache with config from /debug/cache-stats
+    pc_debug = extra.get("prompt_cache", {})
+    if pc_debug:
+        cache_metrics["prompt_cache"]["enabled"] = pc_debug.get("enabled", False)
+        cache_metrics["prompt_cache"]["max_entries"] = pc_debug.get("max_entries", 0)
+        cache_metrics["prompt_cache"]["ttl_seconds"] = pc_debug.get("ttl_seconds", 0)
+
     return cache_metrics
+
+
+def _build_retrieval_cache(raw: dict[str, Any]) -> dict[str, Any]:
+    """Build retrieval cache metrics from raw Prometheus data."""
+    exact = _find_metric(raw, "synesis_cache_exact_hits_total")
+    semantic = _find_metric(raw, "synesis_cache_semantic_hits_total")
+    misses = _find_metric(raw, "synesis_cache_misses_total")
+    evictions = _find_metric(raw, "synesis_cache_evictions_total")
+    entries = _find_metric(raw, "synesis_cache_entries")
+    total_hits = exact + semantic
+    total = total_hits + misses
+    return {
+        "exact_hits": exact,
+        "semantic_hits": semantic,
+        "misses": misses,
+        "evictions": evictions,
+        "entries": entries,
+        "hit_rate": total_hits / total if total > 0 else 0,
+    }
 
 
 def _get_labeled_trips(raw: dict, prefix: str, label_key: str, label_val: str) -> int:
@@ -112,9 +152,32 @@ def _get_unlabeled_metric(raw: dict, name: str) -> float:
     return 0.0
 
 
+_REMEDIATION_HINTS: dict[str, dict[str, str]] = {
+    "llm": {
+        "open": "Model is unreachable or timing out. Check model deployment health in OpenShift AI, verify vLLM pod status, and consider adding a fallback model in LiteLLM config.",
+        "half_open": "Model recovering — probe requests being sent. If this persists, check model resource limits (GPU memory, max-model-len) in vLLM deployment.",
+    },
+    "web_search": {
+        "open": "Web search provider is failing. Check API key validity, provider status page, and network egress rules.",
+    },
+    "infrastructure": {
+        "open": "Service is down or unreachable. Check pod status, resource limits, and network policies in the cluster.",
+        "half_open": "Service recovering. Monitor for repeated trips which may indicate resource pressure.",
+    },
+}
+
+
+def _remediation(category: str, state: str) -> str | None:
+    return _REMEDIATION_HINTS.get(category, {}).get(state)
+
+
 async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
     raw = await fetch_planner_metrics()
     breakers: list[dict[str, Any]] = []
+
+    # Retry/fallback totals for context
+    retry_total = int(_find_metric(raw, "synesis_llm_retry_total"))
+    fallback_total = int(_find_metric(raw, "synesis_llm_fallback_total"))
 
     # 1. Infrastructure (health-monitor sidecar): synesis_circuit_breaker_state{service="..."}
     # State: 0=closed, 1=half_open, 2=open
@@ -134,6 +197,7 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
                     "trips": trips,
                     "last_trip": None,
                     "category": "infrastructure",
+                    "remediation": _remediation("infrastructure", state),
                 }
             )
 
@@ -155,6 +219,9 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
                     "trips": trips,
                     "last_trip": None,
                     "category": "llm",
+                    "remediation": _remediation("llm", state),
+                    "retry_total": retry_total,
+                    "fallback_total": fallback_total,
                 }
             )
 
@@ -171,6 +238,7 @@ async def get_circuit_breaker_metrics() -> list[dict[str, Any]]:
                 "trips": trips,
                 "last_trip": None,
                 "category": "web_search",
+                "remediation": _remediation("web_search", state),
             }
         )
 

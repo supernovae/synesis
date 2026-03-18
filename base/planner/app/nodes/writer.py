@@ -23,6 +23,7 @@ from ..config import settings
 from ..contract_validator import fingerprint_draft
 from ..llm_telemetry import get_llm_http_client
 from ..state import NodeOutcome, NodeTrace
+from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.writer")
 
@@ -944,6 +945,20 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "sections_written": sections_written,
             },
         )
+
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("writer.total_ms", latency)
+            _tracer.annotate_span("writer", {
+                "write_summary": {
+                    "output_len": len(compiled),
+                    "evidence_len": len(compiled_evidence),
+                    "sections_written": sections_written,
+                    "available_sources": available_sources_count,
+                    "writer_budget": writer_budget,
+                    "latency_ms": round(latency, 1),
+                },
+            })
 
         from ..token_utils import track_budget
 

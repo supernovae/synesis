@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from functools import wraps
 from typing import Any
 
 from langgraph.graph import END, StateGraph
 
 from .config import settings
+from .failure_store import record_error
 from .contract_validator import (
     validate_citation_preservation,
     validate_critique_resolutions,
@@ -929,8 +931,12 @@ def _ensure_bg_critic_metrics() -> None:
     _bg_critic_metrics_init = True
 
 
-def _persist_background_critic(run_id: str, critic_data: dict[str, Any]) -> None:
-    """Append background critic results to the trace row in Postgres."""
+def _persist_background_critic(run_id: str, critic_data: dict[str, Any], elapsed_ms: float = 0.0) -> None:
+    """Append background critic results to the trace row in Postgres.
+
+    Also appends a synthetic span to the trace's spans array so the admin
+    UI renders the async critic as the final trace entry.
+    """
     from .synesis_tracer import _get_pg
 
     conn = _get_pg()
@@ -939,16 +945,42 @@ def _persist_background_critic(run_id: str, critic_data: dict[str, Any]) -> None
     try:
         import json
 
+        now = time.time()
+        bg_span = {
+            "node_name": "background_critic",
+            "intent": "Background Critic (async)",
+            "start_time": now - (elapsed_ms / 1000),
+            "end_time": now,
+            "latency_ms": round(elapsed_ms, 1),
+            "tokens_used": 0,
+            "confidence": critic_data.get("scores", {}).get("weighted_overall", 0.0) / 10.0,
+            "outcome": "approved" if critic_data.get("approved") else "rejected",
+            "reasoning": f"Async critic: {'approved' if critic_data.get('approved') else 'rejected'}, "
+            f"score={critic_data.get('scores', {}).get('weighted_overall', 0.0)}, "
+            f"blocking_issues={len(critic_data.get('blocking_issues', []))}",
+            "llm_calls": [],
+            "metadata": {
+                "async": True,
+                "scores": critic_data.get("scores", {}),
+                "failure_modes": critic_data.get("failure_modes", []),
+                "blocking_issues": critic_data.get("blocking_issues", []),
+            },
+        }
+
         with conn.cursor() as cur:
             cur.execute(
                 """UPDATE traces
                    SET full_record = jsonb_set(
-                       COALESCE(full_record, '{}'::jsonb),
-                       '{background_critic}',
-                       %s::jsonb
+                       jsonb_set(
+                           COALESCE(full_record, '{}'::jsonb),
+                           '{background_critic}',
+                           %s::jsonb
+                       ),
+                       '{spans}',
+                       COALESCE(full_record->'spans', '[]'::jsonb) || %s::jsonb
                    )
                    WHERE trace_id = %s""",
-                (json.dumps(critic_data, default=str), run_id),
+                (json.dumps(critic_data, default=str), json.dumps(bg_span, default=str), run_id),
             )
     except Exception:
         logger.debug("background_critic_persist_failed", exc_info=True)
@@ -961,8 +993,10 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
     """
 
     async def _run() -> None:
+        _bg_start = time.monotonic()
         try:
             result = await critic_node(state_snapshot)
+            _bg_elapsed = (time.monotonic() - _bg_start) * 1000
             scores = result.get("critic_scores") or {}
             approved = result.get("critic_approved", False)
             failure_modes = result.get("failure_modes_detected") or result.get("failure_modes") or []
@@ -976,6 +1010,7 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
                     "weighted_overall": scores.get("weighted_overall", 0.0),
                     "blocking_issues": len(blocking_issues),
                     "approved": approved,
+                    "elapsed_ms": round(_bg_elapsed, 1),
                 },
             )
             _ensure_bg_critic_metrics()
@@ -998,11 +1033,17 @@ def _fire_background_critic(state_snapshot: dict[str, Any]) -> None:
                 }
                 threading.Thread(
                     target=_persist_background_critic,
-                    args=(run_id, critic_data),
+                    args=(run_id, critic_data, _bg_elapsed),
                     daemon=True,
                 ).start()
-        except Exception:
+        except Exception as _bg_exc:
             logger.warning("background_critic_failed", exc_info=True)
+            record_error(
+                error_type="critic_error",
+                error_output=f"Background critic failed: {str(_bg_exc)[:2000]}",
+                task_description=(state_snapshot.get("task_description") or "")[:2048],
+                trace_id=state_snapshot.get("run_id", ""),
+            )
 
     task = asyncio.create_task(_run())
     _bg_critic_tasks.add(task)

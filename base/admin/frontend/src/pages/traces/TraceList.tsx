@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useTraces,
   useTraceStats,
   useDeleteTrace,
   usePurgeTrivialTraces,
+  useBulkDeleteTraces,
 } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import DataTable from "../../components/common/DataTable";
@@ -35,6 +36,9 @@ export default function TraceList() {
     undefined,
   );
   const [taskType, setTaskType] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [purgeThreshold, setPurgeThreshold] = useState(100);
+  const [maxTokensFilter, setMaxTokensFilter] = useState<number | undefined>(undefined);
   const limit = 30;
 
   const { data, isLoading } = useTraces({
@@ -42,24 +46,63 @@ export default function TraceList() {
     limit,
     has_error: errorFilter,
     task_type: taskType || undefined,
+    max_tokens: maxTokensFilter,
   });
   const { data: stats } = useTraceStats();
   const deleteTrace = useDeleteTrace();
   const purgeMutation = usePurgeTrivialTraces();
+  const bulkDelete = useBulkDeleteTraces();
   const traces = data?.traces ?? [];
   const total = data?.total ?? 0;
 
-  const enriched = traces.map((t) => ({
-    ...t,
-    _time: fmtDate(t.timestamp),
-    _duration: fmtDuration(t.total_duration_ms),
-    _cost: fmtCost(t.estimated_cost_usd),
-    _query: t.query_snippet?.slice(0, 80) || "—",
-    _status: t.has_error ? "error" : "ok",
-    _critic: t.critic_scores?.weighted_overall
-      ? `${Number(t.critic_scores.weighted_overall).toFixed(1)}`
-      : "—",
-  }));
+  const enriched = useMemo(
+    () =>
+      traces.map((t) => ({
+        ...t,
+        _time: fmtDate(t.timestamp),
+        _duration: fmtDuration(t.total_duration_ms),
+        _cost: fmtCost(t.estimated_cost_usd),
+        _query: t.query_snippet?.slice(0, 80) || "—",
+        _status: t.has_error ? "error" : "ok",
+        _critic: t.critic_scores?.weighted_overall
+          ? `${Number(t.critic_scores.weighted_overall).toFixed(1)}`
+          : "—",
+      })),
+    [traces],
+  );
+
+  const visibleIds = useMemo(() => new Set(traces.map((t) => t.trace_id as string)), [traces]);
+  const allSelected = visibleIds.size > 0 && [...visibleIds].every((id) => selected.has(id));
+  const someSelected = selected.size > 0;
+
+  const toggleOne = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelected((prev) => {
+      if (allSelected) {
+        const next = new Set(prev);
+        for (const id of visibleIds) next.delete(id);
+        return next;
+      }
+      return new Set([...prev, ...visibleIds]);
+    });
+  }, [allSelected, visibleIds]);
+
+  const handleBulkDelete = useCallback(() => {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected trace(s)?`)) return;
+    bulkDelete.mutate(ids, {
+      onSuccess: () => setSelected(new Set()),
+    });
+  }, [selected, bulkDelete]);
 
   return (
     <div className="space-y-6">
@@ -72,14 +115,46 @@ export default function TraceList() {
             Per-request pipeline traces with LLM call detail
           </p>
         </div>
-        <button
-          onClick={() => purgeMutation.mutate({ min_tokens: 100, dry_run: true })}
-          disabled={purgeMutation.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          {purgeMutation.isPending ? "Scanning..." : "Purge Trivial"}
-        </button>
+        <div className="flex items-center gap-2">
+          {someSelected && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDelete.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {bulkDelete.isPending
+                ? "Deleting..."
+                : `Delete ${selected.size} selected`}
+            </button>
+          )}
+          <div className="flex items-center gap-1.5">
+            <select
+              value={purgeThreshold}
+              onChange={(e) => setPurgeThreshold(Number(e.target.value))}
+              className="rounded-md border border-gray-300 px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+              title="Token threshold for trivial traces"
+            >
+              <option value={50}>&lt;50 tok</option>
+              <option value={100}>&lt;100 tok</option>
+              <option value={200}>&lt;200 tok</option>
+              <option value={500}>&lt;500 tok</option>
+            </select>
+            <button
+              onClick={() =>
+                purgeMutation.mutate({
+                  min_tokens: purgeThreshold,
+                  dry_run: true,
+                })
+              }
+              disabled={purgeMutation.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {purgeMutation.isPending ? "Scanning..." : "Purge Trivial"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {purgeMutation.data && (
@@ -87,10 +162,15 @@ export default function TraceList() {
           {purgeMutation.data.dry_run ? (
             <>
               Found <strong>{purgeMutation.data.would_delete}</strong> trivial
-              traces (&lt;100 tokens).{" "}
+              traces (&lt;{purgeMutation.data.min_tokens ?? purgeThreshold} tokens).{" "}
               {(purgeMutation.data.would_delete ?? 0) > 0 && (
                 <button
-                  onClick={() => purgeMutation.mutate({ min_tokens: 100, dry_run: false })}
+                  onClick={() =>
+                    purgeMutation.mutate({
+                      min_tokens: purgeMutation.data?.min_tokens ?? purgeThreshold,
+                      dry_run: false,
+                    })
+                  }
                   className="ml-2 rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
                 >
                   Delete them
@@ -100,7 +180,7 @@ export default function TraceList() {
           ) : (
             <>
               Deleted <strong>{purgeMutation.data.deleted}</strong> trivial
-              traces.
+              traces (&lt;{purgeMutation.data.min_tokens ?? purgeThreshold} tokens).
             </>
           )}
         </div>
@@ -133,7 +213,7 @@ export default function TraceList() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <select
           value={errorFilter === undefined ? "" : errorFilter ? "error" : "ok"}
           onChange={(e) => {
@@ -158,6 +238,28 @@ export default function TraceList() {
           }}
           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
         />
+        <span className="text-xs text-gray-400 dark:text-gray-500">Quick:</span>
+        {[
+          { label: "All tokens", value: undefined },
+          { label: "<50 tok", value: 50 },
+          { label: "<100 tok", value: 100 },
+          { label: "<200 tok", value: 200 },
+        ].map((chip) => (
+          <button
+            key={chip.label}
+            onClick={() => {
+              setMaxTokensFilter(chip.value);
+              setOffset(0);
+            }}
+            className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+              maxTokensFilter === chip.value
+                ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
       </div>
 
       {isLoading ? (
@@ -168,9 +270,30 @@ export default function TraceList() {
         <>
           <DataTable
             columns={[
+              {
+                key: "_select",
+                label: "",
+                render: (row: Record<string, unknown>) => (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(row.trace_id as string)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleOne(row.trace_id as string);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                ),
+                className: "w-10",
+              },
               { key: "_time", label: "Time", sortable: true },
               { key: "user_id", label: "User" },
-              { key: "_query", label: "Query", className: "max-w-xs truncate" },
+              {
+                key: "_query",
+                label: "Query",
+                className: "max-w-xs truncate",
+              },
               { key: "_duration", label: "Duration", sortable: true },
               { key: "total_tokens", label: "Tokens", sortable: true },
               { key: "_cost", label: "Cost", sortable: true },
@@ -190,7 +313,11 @@ export default function TraceList() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (confirm(`Delete trace ${String(row.trace_id).slice(0, 12)}…?`)) {
+                      if (
+                        confirm(
+                          `Delete trace ${String(row.trace_id).slice(0, 12)}…?`,
+                        )
+                      ) {
                         deleteTrace.mutate(row.trace_id as string);
                       }
                     }}
@@ -205,6 +332,20 @@ export default function TraceList() {
             data={enriched}
             keyField="trace_id"
             onRowClick={(r) => navigate(`/traces/${r.trace_id}`)}
+            headerSlot={
+              <th className="w-10 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el)
+                      el.indeterminate = someSelected && !allSelected;
+                  }}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+              </th>
+            }
           />
           <div className="flex items-center gap-2">
             <button

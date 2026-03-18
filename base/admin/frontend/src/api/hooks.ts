@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import client from "./client";
 import type {
   DashboardSummary,
@@ -33,6 +33,7 @@ export function useDashboardSummary() {
     queryKey: ["dashboard", "summary"],
     queryFn: () => client.get("/dashboard/summary").then((r) => r.data),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -300,7 +301,7 @@ export function useRunCritic() {
 export function usePurgeTrivialTraces() {
   const qc = useQueryClient();
   return useMutation<
-    { deleted?: number; would_delete?: number; dry_run: boolean },
+    { deleted?: number; would_delete?: number; dry_run: boolean; min_tokens?: number },
     Error,
     { min_tokens?: number; dry_run?: boolean }
   >({
@@ -317,6 +318,18 @@ export function useDeleteTrace() {
   const qc = useQueryClient();
   return useMutation<{ deleted: string }, Error, string>({
     mutationFn: (traceId) => client.delete(`/traces/${traceId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["traces"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+    },
+  });
+}
+
+export function useBulkDeleteTraces() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: number; requested: number }, Error, string[]>({
+    mutationFn: (traceIds) =>
+      client.post("/traces/bulk-delete", traceIds).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["traces"] });
       qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
@@ -512,6 +525,7 @@ export function useServiceHealth() {
     queryKey: ["observability", "health"],
     queryFn: () => client.get("/observability/health").then((r) => r.data),
     refetchInterval: 15_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -520,6 +534,7 @@ export function useCacheMetrics() {
     queryKey: ["observability", "cache"],
     queryFn: () => client.get("/observability/cache").then((r) => r.data),
     refetchInterval: 15_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -529,6 +544,7 @@ export function useCircuitBreakers() {
     queryFn: () =>
       client.get("/observability/circuit-breakers").then((r) => r.data),
     refetchInterval: 15_000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -649,6 +665,7 @@ export function useTraces(params?: {
   user_id?: string;
   task_type?: string;
   domain_tag?: string;
+  max_tokens?: number;
 }) {
   return useQuery<{ traces: import("../types").TraceRecord[]; total: number }>({
     queryKey: ["traces", params],

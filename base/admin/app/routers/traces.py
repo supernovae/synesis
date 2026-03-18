@@ -5,7 +5,7 @@ import logging
 import time
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..deps import PLANNER_URL
@@ -28,6 +28,7 @@ async def list_traces(
     domain_tag: str = "",
     since: float = 0,
     until: float = 0,
+    max_tokens: int | None = None,
     _user: UserInfo = Depends(get_current_user),
 ):
     return await trace_store.list_traces(
@@ -41,6 +42,7 @@ async def list_traces(
         domain_tag=domain_tag,
         since=since,
         until=until,
+        max_tokens=max_tokens,
     )
 
 
@@ -135,6 +137,28 @@ async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_admin)):
         if result.rowcount == 0:
             raise HTTPException(status_code=404, detail="Trace not found")
     return {"deleted": trace_id}
+
+
+_BULK_DELETE_MAX = 500
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_traces(
+    trace_ids: list[str] = Body(..., min_length=1, max_length=_BULK_DELETE_MAX),
+    _user: UserInfo = Depends(require_admin),
+):
+    """Delete multiple traces by their IDs (max 500 per call)."""
+    from sqlalchemy import text as sa_text
+
+    from ..db.engine import async_session as db_session
+
+    async with db_session() as session:
+        result = await session.execute(
+            sa_text("DELETE FROM traces WHERE trace_id = ANY(:ids)"),
+            {"ids": trace_ids},
+        )
+        await session.commit()
+    return {"deleted": result.rowcount, "requested": len(trace_ids)}
 
 
 @router.post("/purge-trivial")

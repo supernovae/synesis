@@ -39,6 +39,7 @@ const ServiceHealth = lazy(() => import("./pages/observability/ServiceHealth"));
 const CachePerformance = lazy(() => import("./pages/observability/CachePerformance"));
 const CircuitBreakers = lazy(() => import("./pages/observability/CircuitBreakers"));
 const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
+const ErrorDetail = lazy(() => import("./pages/observability/ErrorDetail"));
 const RetrievalGaps = lazy(() => import("./pages/observability/KnowledgeGaps"));
 
 const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
@@ -91,6 +92,7 @@ export const router = createBrowserRouter([
       { path: "observability/cache", element: <CachePerformance /> },
       { path: "observability/circuit-breakers", element: <CircuitBreakers /> },
       { path: "observability/errors", element: <ErrorLog /> },
+      { path: "observability/errors/:failureId", element: <ErrorDetail /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
 
       { path: "assistant", element: <AdminAssistant /> },

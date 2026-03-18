@@ -25,6 +25,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..config import settings
+from ..failure_store import record_error
 from ..llm_telemetry import get_llm_http_client
 from ..rag_client import ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
@@ -613,6 +614,11 @@ class RouterNode:
                     "router_request_timeout",
                     extra={"query": query_hint[:80], "timeout_seconds": round(self.request_timeout_seconds, 1)},
                 )
+                record_error(
+                    error_type="retrieval_timeout",
+                    error_output=f"Evidence request timed out after {self.request_timeout_seconds:.1f}s: {query_hint[:200]}",
+                    task_description=task_context[:2048],
+                )
                 return (
                     _timeout_packet(
                         query_hint or "evidence request",
@@ -685,6 +691,11 @@ class RouterNode:
                         retrieval_phase5b.append(float(rpt["phase5b_cohesion_ms"]))
             elif isinstance(r, Exception):
                 logger.warning("parallel_dispatch_error", extra={"error": str(r)[:200]})
+                record_error(
+                    error_type="retrieval_error",
+                    error_output=f"{type(r).__name__}: {str(r)[:2000]}",
+                    task_description=f"query={query_hint[:500]}",
+                )
                 packets.append(_timeout_packet(query_hint, f"Evidence request failed ({type(r).__name__})"))
         if _tracer and (retrieve_ms_list or summarize_ms_list or retrieval_phase1):
             if retrieve_ms_list:
@@ -762,6 +773,11 @@ class RouterNode:
                 extra={"queries": len(queries), "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
             )
             combined_query = " | ".join(q[:80] for q in queries[:4])
+            record_error(
+                error_type="retrieval_timeout",
+                error_output=f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s ({len(queries)} queries)",
+                task_description=combined_query[:2048],
+            )
             return [_timeout_packet(combined_query, f"Fused retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")], None
         retrieve_ms = (time.monotonic() - t_retrieve) * 1000
 
@@ -960,6 +976,11 @@ class RouterNode:
             logger.warning(
                 "router_retrieve_timeout",
                 extra={"query": query[:80], "timeout_seconds": round(self.retrieve_timeout_seconds, 1)},
+            )
+            record_error(
+                error_type="retrieval_timeout",
+                error_output=f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s: {query[:200]}",
+                task_description=query[:2048],
             )
             packet = _timeout_packet(query, f"Retrieval timed out after {self.retrieve_timeout_seconds:.1f}s")
             await self.cache.aput(query, packet)
@@ -1303,6 +1324,30 @@ class RouterNode:
         cs = self.cache.stats
         total_cache_lookups = cs.exact_hits + cs.semantic_hits + cs.misses
         cache_hit_rate = (cs.exact_hits + cs.semantic_hits) / max(1, total_cache_lookups)
+
+        if _tracer:
+            _rag_sources = sum(
+                1 for p in packets for s in p.sources if getattr(s, "type", "") != "web"
+            )
+            _web_sources = sum(
+                1 for p in packets for s in p.sources if getattr(s, "type", "") == "web"
+            )
+            _tracer.annotate_span("router", {
+                "retrieval_cache": {
+                    "exact_hits": cs.exact_hits,
+                    "semantic_hits": cs.semantic_hits,
+                    "misses": cs.misses,
+                    "hit_rate": round(cache_hit_rate, 4),
+                },
+                "evidence": {
+                    "packet_count": len(packets),
+                    "total_snippets": total_snips,
+                    "avg_confidence": round(avg_conf, 4),
+                    "rag_source_count": _rag_sources,
+                    "web_source_count": _web_sources,
+                    "mode": mode,
+                },
+            })
 
         logger.info(
             "router_complete",

@@ -665,6 +665,19 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                         "deterministic_pass": True,
                     },
                 )
+                from ..synesis_tracer import get_synesis_tracer
+
+                _tracer = get_synesis_tracer()
+                if _tracer:
+                    _tracer.annotate_span("critic", {
+                        "critic_result": {
+                            "path": "deterministic_pass",
+                            "approved": True,
+                            "deliverables_checked": len(deliverables),
+                            "difficulty": round(difficulty, 2),
+                            "latency_ms": round(latency, 1),
+                        },
+                    })
                 return {
                     "what_if_analyses": [],
                     "critic_feedback": "All deliverables covered (deterministic pass)",
@@ -1124,6 +1137,38 @@ Reply with JSON:
                             difficulty=round(difficulty, 2),
                             hallucinated_urls_count=len(hallucinated_urls),
                         )
+                        _packets = state.get("evidence_packets") or []
+                        _pkt_confidences = []
+                        _rag_count = 0
+                        _web_count = 0
+                        for _p in _packets:
+                            _pd = _p if isinstance(_p, dict) else _p.__dict__ if hasattr(_p, "__dict__") else {}
+                            _pkt_confidences.append(_pd.get("confidence", 0))
+                            for _s in (_pd.get("sources") or []):
+                                _st = _s.get("type", "") if isinstance(_s, dict) else getattr(_s, "type", "")
+                                if _st == "web":
+                                    _web_count += 1
+                                else:
+                                    _rag_count += 1
+                        _tracer.annotate_span("critic", {
+                            "evidence_summary": {
+                                "packet_count": len(_packets),
+                                "rag_source_count": _rag_count,
+                                "web_source_count": _web_count,
+                                "avg_confidence": round(sum(_pkt_confidences) / max(1, len(_pkt_confidences)), 3),
+                                "response_length": len(generated_code),
+                            },
+                            "critic_result": {
+                                "weighted_score": round(scores.weighted_overall, 1),
+                                "approved": doc_approved,
+                                "failure_modes": failure_modes[:10],
+                                "blocking_issues": len([f for f in failure_modes if f in (
+                                    "hallucinated_citation", "missing_requirement_coverage",
+                                    "critical_factual_error",
+                                )]),
+                                "hallucinated_urls": len(hallucinated_urls),
+                            },
+                        })
 
                 # Deterministic override: reject if hallucinated URLs found
                 if hallucinated_urls:
@@ -1444,17 +1489,39 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
             tokens_used=response.usage_metadata.get("total_tokens", 0) if (response and response.usage_metadata) else 0,
         )
 
-        logger.info(
-            "critic_decision",
-            extra={
-                "approved": approved,
-                "risk_count": len(what_ifs),
-                "high_risks": sum(1 for w in what_ifs if w.risk_level in ("high", "critical")),
-                "iteration": iteration,
-                "forced_approval": at_max_iterations and not parsed.approved,
-                "latency_ms": latency,
-            },
-        )
+        _decision_detail = {
+            "approved": approved,
+            "risk_count": len(what_ifs),
+            "high_risks": sum(1 for w in what_ifs if w.risk_level in ("high", "critical")),
+            "iteration": iteration,
+            "forced_approval": at_max_iterations and not parsed.approved,
+            "latency_ms": latency,
+        }
+        logger.info("critic_decision", extra=_decision_detail)
+
+        from ..synesis_tracer import get_synesis_tracer
+
+        _tracer = get_synesis_tracer()
+        if _tracer:
+            _tracer.record_phase_timing("critic.total_ms", latency)
+            _existing_meta = {}
+            for _s in reversed((_tracer._current_trace.spans if _tracer._current_trace else [])):
+                if _s.node_name == "critic":
+                    _existing_meta = dict(_s.metadata)
+                    break
+            if "critic_result" not in _existing_meta:
+                _tracer.annotate_span("critic", {
+                    "critic_result": {
+                        "path": "code" if is_code else "document",
+                        "approved": approved,
+                        "confidence": parsed.confidence,
+                        "risk_count": len(what_ifs),
+                        "high_risks": sum(1 for w in what_ifs if w.risk_level in ("high", "critical")),
+                        "iteration": iteration,
+                        "forced_approval": at_max_iterations and not parsed.approved,
+                        "latency_ms": round(latency, 1),
+                    },
+                })
 
         is_evidence_only = critic_continue_reason == "needs_evidence"
         evidence_count = state.get("evidence_experiments_count", 0)

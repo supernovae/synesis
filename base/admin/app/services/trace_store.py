@@ -30,6 +30,7 @@ async def list_traces(
     domain_tag: str = "",
     since: float = 0,
     until: float = 0,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Return paginated trace list from Postgres, newest first."""
     async with async_session() as session:
@@ -52,6 +53,8 @@ async def list_traces(
                 q = q.where(Trace.timestamp <= until)
             if domain_tag:
                 q = q.where(Trace.full_record["domain_tags"].astext.contains(domain_tag))
+            if max_tokens is not None:
+                q = q.where(Trace.total_tokens <= max_tokens)
 
             count_q = select(func.count()).select_from(q.subquery())
             total = (await session.execute(count_q)).scalar_one()

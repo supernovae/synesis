@@ -220,6 +220,21 @@ export interface CacheMetrics {
   evictions: number;
   entries: number;
   hit_rate: number;
+  prompt_cache?: {
+    hits: number;
+    misses: number;
+    entries: number;
+    hit_rate: number;
+    enabled?: boolean;
+    max_entries?: number;
+    ttl_seconds?: number;
+  };
+  frame_cache?: {
+    hits: number;
+    misses: number;
+    entries: number;
+    hit_rate: number;
+  };
   redis?: {
     status: string;
     used_memory_human?: string;
@@ -242,6 +257,9 @@ export interface CircuitBreakerState {
   trips: number;
   last_trip: string | null;
   category?: "llm" | "web_search" | "infrastructure";
+  remediation?: string | null;
+  retry_total?: number;
+  fallback_total?: number;
 }
 
 export interface BenchmarkResults {
@@ -356,6 +374,7 @@ export interface SpanRecord {
   outcome: string;
   reasoning: string;
   llm_calls: LLMCallRecord[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface TraceRecord {
@@ -379,6 +398,7 @@ export interface TraceRecord {
   evidence_summary: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
   phase_timings?: Record<string, number>;
+  short_circuit_reason?: string;
 }
 
 export interface TraceStats {

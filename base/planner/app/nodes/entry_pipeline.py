@@ -104,6 +104,16 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
                 "skipped": "advisor+frame_extractor",
             },
         )
+        if _tracer:
+            _tracer.annotate_span("entry_pipeline", {
+                "fast_path": {
+                    "reason": _reason,
+                    "difficulty": classified.get("difficulty", 0),
+                    "rag_mode": classified.get("rag_mode", ""),
+                    "classifier_ms": round(_classifier_ms, 1),
+                    "skipped": "advisor+frame_extractor",
+                },
+            })
         classified["current_node"] = "entry_pipeline"
         return classified
 
