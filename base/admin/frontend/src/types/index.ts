@@ -310,6 +310,8 @@ export interface TraceRecord {
   iteration_count: number;
   spans: SpanRecord[];
   critic_scores: Record<string, unknown>;
+  background_critic?: Record<string, unknown>;
+  manual_critic?: Record<string, unknown>;
   evidence_summary: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
   phase_timings?: Record<string, number>;

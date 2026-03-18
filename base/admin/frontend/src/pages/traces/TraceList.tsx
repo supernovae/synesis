@@ -1,11 +1,16 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useTraces, useTraceStats } from "../../api/hooks";
+import {
+  useTraces,
+  useTraceStats,
+  useDeleteTrace,
+  usePurgeTrivialTraces,
+} from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import DataTable from "../../components/common/DataTable";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
-import { Activity, Clock, DollarSign, AlertTriangle } from "lucide-react";
+import { Activity, Clock, DollarSign, AlertTriangle, Trash2 } from "lucide-react";
 
 function fmtDate(ts: number) {
   if (!ts) return "";
@@ -39,6 +44,8 @@ export default function TraceList() {
     task_type: taskType || undefined,
   });
   const { data: stats } = useTraceStats();
+  const deleteTrace = useDeleteTrace();
+  const purgeMutation = usePurgeTrivialTraces();
   const traces = data?.traces ?? [];
   const total = data?.total ?? 0;
 
@@ -56,14 +63,48 @@ export default function TraceList() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-          LLM Traces
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Per-request pipeline traces with LLM call detail
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
+            LLM Traces
+          </h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Per-request pipeline traces with LLM call detail
+          </p>
+        </div>
+        <button
+          onClick={() => purgeMutation.mutate({ min_tokens: 100, dry_run: true })}
+          disabled={purgeMutation.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {purgeMutation.isPending ? "Scanning..." : "Purge Trivial"}
+        </button>
       </div>
+
+      {purgeMutation.data && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          {purgeMutation.data.dry_run ? (
+            <>
+              Found <strong>{purgeMutation.data.would_delete}</strong> trivial
+              traces (&lt;100 tokens).{" "}
+              {(purgeMutation.data.would_delete ?? 0) > 0 && (
+                <button
+                  onClick={() => purgeMutation.mutate({ min_tokens: 100, dry_run: false })}
+                  className="ml-2 rounded bg-red-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-red-700"
+                >
+                  Delete them
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              Deleted <strong>{purgeMutation.data.deleted}</strong> trivial
+              traces.
+            </>
+          )}
+        </div>
+      )}
 
       {stats && (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -142,6 +183,24 @@ export default function TraceList() {
                 ),
               },
               { key: "_critic", label: "Critic" },
+              {
+                key: "_actions",
+                label: "",
+                render: (row: Record<string, unknown>) => (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete trace ${String(row.trace_id).slice(0, 12)}…?`)) {
+                        deleteTrace.mutate(row.trace_id as string);
+                      }
+                    }}
+                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30"
+                    title="Delete trace"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ),
+              },
             ]}
             data={enriched}
             keyField="trace_id"

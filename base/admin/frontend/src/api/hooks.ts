@@ -320,6 +320,18 @@ export function useDeleteTrace() {
   });
 }
 
+export function useClearCriticData() {
+  const qc = useQueryClient();
+  return useMutation<{ trace_id: string; cleared: boolean }, Error, string>({
+    mutationFn: (traceId) =>
+      client.post("/pipeline/critic/clear", { trace_id: traceId }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pipeline", "critic"] });
+      qc.invalidateQueries({ queryKey: ["traces"] });
+    },
+  });
+}
+
 // --- Integrations ---
 
 export function useMcpTools() {

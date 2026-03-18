@@ -186,6 +186,33 @@ Scoring guide:
 Be rigorous. Return ONLY valid JSON, no markdown fences."""
 
 
+@router.post("/critic/clear")
+async def clear_critic_data(
+    trace_id: str = Body(..., embed=True),
+    _user: UserInfo = Depends(require_admin),
+):
+    """Remove critic evaluations from a trace without deleting the trace itself."""
+    async with async_session() as session:
+        result = await session.execute(
+            sa_text("""
+                UPDATE traces
+                SET full_record = full_record
+                    - 'background_critic'
+                    - 'manual_critic'
+                    - 'critic_scores'
+                WHERE trace_id = :tid
+                  AND (full_record ? 'background_critic'
+                       OR full_record ? 'manual_critic'
+                       OR full_record ? 'critic_scores')
+            """),
+            {"tid": trace_id},
+        )
+        await session.commit()
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Trace not found or no critic data to clear")
+    return {"trace_id": trace_id, "cleared": True}
+
+
 @router.post("/critic/run")
 async def run_critic_on_trace(
     trace_id: str = Body(...),

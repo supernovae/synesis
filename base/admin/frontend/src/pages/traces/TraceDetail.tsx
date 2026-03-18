@@ -1,5 +1,12 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useTrace, useAssistantChat } from "../../api/hooks";
+import {
+  useTrace,
+  useAssistantChat,
+  useDeleteTrace,
+  useClearCriticData,
+  useCriticModels,
+  useRunCritic,
+} from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import {
@@ -17,6 +24,9 @@ import {
   Minimize2,
   ExternalLink,
   X,
+  Trash2,
+  Eraser,
+  Play,
 } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import MarkdownContent from "../../components/common/MarkdownContent";
@@ -602,9 +612,22 @@ function TraceAssistantPanel({
 export default function TraceDetail() {
   const { traceId } = useParams<{ traceId: string }>();
   const navigate = useNavigate();
-  const { data: trace, isLoading } = useTrace(traceId || "");
+  const { data: trace, isLoading, refetch: refetchTrace } = useTrace(traceId || "");
   const [assistantSpanIndex, setAssistantSpanIndex] = useState<number | null>(null);
   const [showTraceAssistant, setShowTraceAssistant] = useState(false);
+  const deleteTrace = useDeleteTrace();
+  const clearCritic = useClearCriticData();
+  const { data: modelData } = useCriticModels();
+  const runCritic = useRunCritic();
+  const [selectedModel, setSelectedModel] = useState("");
+
+  const hasCriticData = !!(
+    trace?.critic_scores && Object.keys(trace.critic_scores).length > 0
+  ) || !!(
+    trace?.background_critic && Object.keys(trace.background_critic).length > 0
+  ) || !!(
+    trace?.manual_critic && Object.keys(trace.manual_critic).length > 0
+  );
 
   if (isLoading) {
     return <div className="h-96 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />;
@@ -636,7 +659,74 @@ export default function TraceDetail() {
           </p>
         </div>
         <span className="flex-1" />
-        <StatusBadge status={trace.has_error ? "error" : "ok"} />
+        <div className="flex items-center gap-2">
+          {/* Run Critic */}
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="rounded border border-gray-300 px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          >
+            <option value="">Critic model…</option>
+            {(modelData?.models ?? []).map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              if (!selectedModel || !traceId) return;
+              runCritic.mutate(
+                { trace_id: traceId, model: selectedModel },
+                { onSuccess: () => refetchTrace() },
+              );
+            }}
+            disabled={!selectedModel || runCritic.isPending}
+            className="inline-flex items-center gap-1 rounded bg-indigo-600 px-2.5 py-1 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
+            title="Run critic on this trace"
+          >
+            <Play className="h-3 w-3" />
+            {runCritic.isPending ? "Running…" : "Run Critic"}
+          </button>
+
+          {/* Clear Critic */}
+          {hasCriticData && (
+            <button
+              onClick={() => {
+                if (confirm("Clear all critic data from this trace? The trace itself will be preserved.")) {
+                  clearCritic.mutate(traceId!, {
+                    onSuccess: () => refetchTrace(),
+                  });
+                }
+              }}
+              disabled={clearCritic.isPending}
+              className="inline-flex items-center gap-1 rounded bg-amber-50 px-2.5 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/40"
+              title="Clear critic data (keeps trace)"
+            >
+              <Eraser className="h-3 w-3" />
+              Clear Critic
+            </button>
+          )}
+
+          {/* Delete Trace */}
+          <button
+            onClick={() => {
+              if (confirm("Delete this trace and all its data permanently?")) {
+                deleteTrace.mutate(traceId!, {
+                  onSuccess: () => navigate("/traces"),
+                });
+              }
+            }}
+            disabled={deleteTrace.isPending}
+            className="inline-flex items-center gap-1 rounded bg-red-50 px-2.5 py-1 text-xs text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+            title="Delete trace permanently"
+          >
+            <Trash2 className="h-3 w-3" />
+            Delete
+          </button>
+
+          <StatusBadge status={trace.has_error ? "error" : "ok"} />
+        </div>
       </div>
 
       {/* Header metrics */}
@@ -720,8 +810,34 @@ export default function TraceDetail() {
         <div className="lg:col-span-2">
           <WaterfallChart spans={trace.spans || []} traceStart={traceStart} />
         </div>
-        <div>
+        <div className="space-y-4">
           <CriticScoresPanel scores={trace.critic_scores || {}} />
+          {trace.manual_critic && Object.keys(trace.manual_critic).length > 0 && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+              <h3 className="mb-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                Manual Critic
+                {trace.manual_critic.model && (
+                  <span className="ml-2 font-mono text-xs font-normal text-indigo-500">
+                    {trace.manual_critic.model as string}
+                  </span>
+                )}
+              </h3>
+              <CriticScoresPanel scores={trace.manual_critic as Record<string, unknown>} />
+              {trace.manual_critic.overall_assessment && (
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                  {trace.manual_critic.overall_assessment as string}
+                </p>
+              )}
+            </div>
+          )}
+          {trace.background_critic && Object.keys(trace.background_critic).length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+              <h3 className="mb-2 text-sm font-semibold text-gray-600 dark:text-gray-400">
+                Background Critic
+              </h3>
+              <CriticScoresPanel scores={trace.background_critic as Record<string, unknown>} />
+            </div>
+          )}
         </div>
       </div>
 

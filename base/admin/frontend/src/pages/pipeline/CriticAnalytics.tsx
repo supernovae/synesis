@@ -18,7 +18,7 @@ import {
   useCriticModels,
   useRunCritic,
   usePurgeTrivialTraces,
-  useDeleteTrace,
+  useClearCriticData,
 } from "../../api/hooks";
 import type { CriticEvaluation, CriticRunResult } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
@@ -323,7 +323,7 @@ function EvaluationsTable({ days }: { days: number }) {
   });
   const { data: modelData } = useCriticModels();
   const runCritic = useRunCritic();
-  const deleteTrace = useDeleteTrace();
+  const clearCritic = useClearCriticData();
 
   const evaluations = data?.evaluations ?? [];
   const total = data?.total ?? 0;
@@ -446,9 +446,9 @@ function EvaluationsTable({ days }: { days: number }) {
                       setExpanded(expanded === ev.trace_id ? null : ev.trace_id)
                     }
                     onRunCritic={() => handleRunCritic(ev.trace_id)}
-                    onDelete={() => {
-                      if (confirm(`Delete trace ${ev.trace_id.slice(0, 12)}...?`)) {
-                        deleteTrace.mutate(ev.trace_id);
+                    onClearCritic={() => {
+                      if (confirm(`Clear critic data for ${ev.trace_id.slice(0, 12)}...? The trace itself will be preserved.`)) {
+                        clearCritic.mutate(ev.trace_id);
                       }
                     }}
                     isRunning={runCritic.isPending}
@@ -491,14 +491,14 @@ function EvalRow({
   expanded,
   onToggle,
   onRunCritic,
-  onDelete,
+  onClearCritic,
   isRunning,
 }: {
   ev: CriticEvaluation;
   expanded: boolean;
   onToggle: () => void;
   onRunCritic: () => void;
-  onDelete: () => void;
+  onClearCritic: () => void;
   isRunning: boolean;
 }) {
   const scoreColor =
@@ -568,9 +568,9 @@ function EvalRow({
               )}
             </button>
             <button
-              onClick={onDelete}
-              className="rounded p-1 text-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/30"
-              title="Delete trace"
+              onClick={onClearCritic}
+              className="rounded p-1 text-amber-400 hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-amber-900/30"
+              title="Clear critic data (keeps trace)"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
