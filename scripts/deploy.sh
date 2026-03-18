@@ -305,6 +305,39 @@ if [[ "$ENV" == "openrouter" ]]; then
     ensure_openrouter_key
 fi
 
+# -----------------------------------------------------------------------
+# Admin ConfigMaps: models.yaml and taxonomy config mounted into the pod.
+# Created from repo-root files so the admin service can read model registry
+# and taxonomy data without baking them into the Docker image.
+# -----------------------------------------------------------------------
+ensure_admin_configmaps() {
+    local ns="synesis-admin"
+    oc create namespace "$ns" 2>/dev/null || true
+
+    if [[ -f "$PROJECT_ROOT/models.yaml" ]]; then
+        oc create configmap synesis-models-config \
+            --from-file=models.yaml="$PROJECT_ROOT/models.yaml" \
+            -n "$ns" --dry-run=client -o yaml | oc apply -f -
+        log "  ConfigMap synesis-models-config updated from models.yaml"
+    else
+        log "WARNING: models.yaml not found at $PROJECT_ROOT/models.yaml"
+    fi
+
+    local taxonomy_path="$PROJECT_ROOT/base/planner/taxonomy_prompt_config.yaml"
+    if [[ -f "$taxonomy_path" ]]; then
+        oc create configmap synesis-taxonomy-config \
+            --from-file=taxonomy_prompt_config.yaml="$taxonomy_path" \
+            -n "$ns" --dry-run=client -o yaml | oc apply -f -
+        log "  ConfigMap synesis-taxonomy-config updated from taxonomy_prompt_config.yaml"
+    else
+        log "WARNING: taxonomy_prompt_config.yaml not found at $taxonomy_path"
+    fi
+}
+
+log ""
+log "Setting up admin ConfigMaps..."
+ensure_admin_configmaps
+
 log ""
 log "Setting up admin Postgres..."
 ensure_admin_db
@@ -633,8 +666,9 @@ if [[ "$APPLY_OK" == "true" ]]; then
         fi
     }
 
-    _patch_configmap_hash synesis-search   searxng       searxng-settings
-    _patch_configmap_hash synesis-gateway  litellm-proxy litellm-config
+    _patch_configmap_hash synesis-search   searxng        searxng-settings
+    _patch_configmap_hash synesis-gateway  litellm-proxy  litellm-config
+    _patch_configmap_hash synesis-admin    synesis-admin  synesis-models-config
 fi
 
 log ""
