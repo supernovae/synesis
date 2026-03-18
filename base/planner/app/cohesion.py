@@ -29,7 +29,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import settings
+from .config import reasoning_body, settings
 from .schemas import safe_parse_json
 
 logger = logging.getLogger("synesis.cohesion")
@@ -263,17 +263,21 @@ async def _detect_cohesion_lock_llm(
         from .llm_telemetry import get_llm_http_client
 
         _cohesion_kw: dict[str, Any] = {}
+        _coh_eb: dict[str, Any] = {}
         if settings.guided_json_enabled:
-            _cohesion_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            _coh_eb["chat_template_kwargs"] = {"enable_thinking": False}
         else:
             _cohesion_kw["response_format"] = {"type": "json_object"}
+        _coh_eb.update(reasoning_body(settings.router_reasoning_effort))
+        if _coh_eb:
+            _cohesion_kw["extra_body"] = _coh_eb
 
         llm = ChatOpenAI(
             base_url=settings.router_model_url,
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=512 if not settings.guided_json_enabled else 128,
+            max_completion_tokens=1024,
             streaming=False,
             use_responses_api=False,
             model_kwargs=_cohesion_kw,
@@ -379,17 +383,21 @@ async def _micro_critic_llm_single(
         from .llm_telemetry import get_llm_http_client
 
         _mc_kw: dict[str, Any] = {}
+        _mc_eb: dict[str, Any] = {}
         if settings.guided_json_enabled:
-            _mc_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            _mc_eb["chat_template_kwargs"] = {"enable_thinking": False}
         else:
             _mc_kw["response_format"] = {"type": "json_object"}
+        _mc_eb.update(reasoning_body(settings.router_reasoning_effort))
+        if _mc_eb:
+            _mc_kw["extra_body"] = _mc_eb
 
         llm = ChatOpenAI(
             base_url=settings.router_model_url,
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=256 if not settings.guided_json_enabled else 64,
+            max_completion_tokens=1024,
             streaming=False,
             use_responses_api=False,
             model_kwargs=_mc_kw,

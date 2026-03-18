@@ -24,7 +24,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..failure_store import record_error
 from ..llm_telemetry import get_llm_http_client
 from ..rag_client import build_metadata_filter, ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
@@ -211,6 +211,10 @@ def _get_router_query_llm() -> ChatOpenAI:
     """Tight LLM for short-form outputs: query gen, HyDE, expansion, refine."""
     global _router_query_llm
     if _router_query_llm is None:
+        _qkw: dict[str, Any] = {"stop": ["\n"]}
+        _qrb = reasoning_body(settings.router_reasoning_effort)
+        if _qrb:
+            _qkw["extra_body"] = _qrb
         _router_query_llm = ChatOpenAI(
             base_url=settings.router_model_url,
             api_key="not-needed",
@@ -218,7 +222,7 @@ def _get_router_query_llm() -> ChatOpenAI:
             temperature=0.0,
             max_completion_tokens=settings.router_query_max_tokens,
             use_responses_api=False,
-            model_kwargs={"stop": ["\n"]},
+            model_kwargs=_qkw,
             http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
         )
     return _router_query_llm
@@ -228,6 +232,10 @@ def _get_router_llm() -> ChatOpenAI:
     """Router LLM for summarization (larger output budget)."""
     global _router_llm
     if _router_llm is None:
+        _rkw: dict[str, Any] = {}
+        _rrb = reasoning_body(settings.planner_reasoning_effort)
+        if _rrb:
+            _rkw["extra_body"] = _rrb
         _router_llm = ChatOpenAI(
             base_url=settings.router_model_url,
             api_key="not-needed",
@@ -235,6 +243,7 @@ def _get_router_llm() -> ChatOpenAI:
             temperature=0.0,
             max_completion_tokens=settings.router_max_summary_tokens,
             use_responses_api=False,
+            model_kwargs=_rkw or None,
             http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
         )
     return _router_llm
@@ -252,6 +261,7 @@ def _get_summarizer_llm() -> ChatOpenAI:
             extra_body["guided_json"] = _ep_schema
         else:
             model_kw["response_format"] = {"type": "json_object"}
+        extra_body.update(reasoning_body(settings.planner_reasoning_effort))
         if extra_body:
             model_kw["extra_body"] = extra_body
 

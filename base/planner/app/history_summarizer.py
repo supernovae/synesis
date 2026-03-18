@@ -16,7 +16,7 @@ import asyncio
 import logging
 from typing import Any
 
-from .config import settings
+from .config import reasoning_body, settings
 from .llm_telemetry import get_llm_http_client
 
 logger = logging.getLogger("synesis.history_summarizer")
@@ -71,14 +71,19 @@ def _get_summarizer_llm():
     try:
         from langchain_openai import ChatOpenAI
 
+        _hs_kw: dict[str, Any] = {}
+        _hs_rb = reasoning_body(settings.router_reasoning_effort)
+        if _hs_rb:
+            _hs_kw["extra_body"] = _hs_rb
         _summarizer_llm = ChatOpenAI(
             base_url=url.rstrip("/"),
             api_key="not-needed",
             model=getattr(settings, "summarizer_model_name", "synesis-summarizer"),
             temperature=0.1,
-            max_completion_tokens=150,
+            max_completion_tokens=1024,
             use_responses_api=False,
             http_client=get_llm_http_client(),
+            model_kwargs=_hs_kw or None,
         )
         return _summarizer_llm
     except Exception as e:

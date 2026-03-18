@@ -15,7 +15,7 @@ import re
 import time
 from typing import Any
 
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -195,16 +195,20 @@ async def _shallow_coherence_check(
 
     from ..llm_telemetry import get_llm_http_client
 
+    _pg_kw: dict[str, Any] = {"response_format": {"type": "json_object"}}
+    _pg_rb = reasoning_body(settings.router_reasoning_effort)
+    if _pg_rb:
+        _pg_kw["extra_body"] = _pg_rb
     llm = ChatOpenAI(
         base_url=settings.router_model_url,
         api_key="not-needed",
         model=settings.router_model_name,
         temperature=0,
-        max_completion_tokens=100,
+        max_completion_tokens=1024,
         streaming=False,
         use_responses_api=False,
         http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
-        model_kwargs={"response_format": {"type": "json_object"}},
+        model_kwargs=_pg_kw,
     )
 
     plan_summary = "\n".join(f"  Step {s.get('id', i)}: {(s.get('action') or '')[:120]}" for i, s in enumerate(steps))

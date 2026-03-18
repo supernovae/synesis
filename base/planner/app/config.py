@@ -250,7 +250,7 @@ class Settings(BaseSettings):
     multi_query_max_queries: int = 3
     trivial_writer_budget: int = 768  # writer budget for trivial tasks (difficulty < 0.15) — direct streamed
     writer_budget_base: int = 2048  # writer synthesis budget at difficulty=0 (non-trivial)
-    writer_budget_max: int = 32768  # writer synthesis budget at difficulty=1 (OpenRouter models support 128K+)
+    writer_budget_max: int = 65536  # writer synthesis budget at difficulty=1 (DS V3.2 supports 66K output)
     compiler_model_context: int = 131072  # max context length — safe for OpenRouter and Qwen3 (128K native)
     evidence_budget_chars: int = 24000  # evidence budget at difficulty=0
     evidence_budget_chars_max: int = 60000  # evidence budget at difficulty=1
@@ -316,10 +316,21 @@ class Settings(BaseSettings):
     l2_archive_redis_url: str = ""  # e.g. "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
     l2_archive_ttl_seconds: int = 604_800  # 7 days
 
+    # Planner: max completion tokens for plan JSON generation.
+    # Reasoning models (grok-4-fast, R1) spend tokens on thinking before output;
+    # budget must be high enough that the JSON payload is never truncated.
+    planner_max_tokens: int = 4096
+
     # Router summarizer: max tokens for evidence packet summaries
-    router_max_summary_tokens: int = 1200
+    router_max_summary_tokens: int = 4096
     # Router query generation: max tokens for short-form outputs (queries, HyDE, expansion)
-    router_query_max_tokens: int = 128
+    router_query_max_tokens: int = 512
+
+    # Reasoning effort control (OpenRouter `reasoning` API param).
+    # Empty string = don't send the param (safe for local vLLM).
+    # Valid values: "none", "low", "medium", "high".
+    router_reasoning_effort: str = ""  # classification/routing calls
+    planner_reasoning_effort: str = ""  # planner/evidence summary calls
 
     # Router multi-query expansion (Retrieval Enrichment Pipeline)
     router_multi_query_enabled: bool = True  # 3 variants per evidence request
@@ -520,3 +531,13 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def reasoning_body(effort: str) -> dict:
+    """Build extra_body fragment for OpenRouter reasoning effort control.
+
+    Returns empty dict when effort is empty (local vLLM — param not sent).
+    """
+    if not effort:
+        return {}
+    return {"reasoning": {"effort": effort}}

@@ -22,7 +22,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, record_frame_cache_size
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import FirstPassFrame, MissingFieldReport, UserTask, safe_parse_json
@@ -123,17 +123,21 @@ async def _llm_repair(
     Returns (repaired_task, tokens_used).
     """
     _repair_kw: dict[str, Any] = {}
+    _repair_eb: dict[str, Any] = {}
     if settings.guided_json_enabled:
-        _repair_kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        _repair_eb["chat_template_kwargs"] = {"enable_thinking": False}
     else:
         _repair_kw["response_format"] = {"type": "json_object"}
+    _repair_eb.update(reasoning_body(settings.planner_reasoning_effort))
+    if _repair_eb:
+        _repair_kw["extra_body"] = _repair_eb
 
     llm = ChatOpenAI(
         base_url=settings.planner_model_url,
         api_key="not-needed",
         model=settings.planner_model_name,
         temperature=0.1,
-        max_completion_tokens=768 if not settings.guided_json_enabled else 1024,
+        max_completion_tokens=2048,
         streaming=True,
         stream_usage=True,
         use_responses_api=False,

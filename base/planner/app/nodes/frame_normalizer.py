@@ -13,7 +13,7 @@ import logging
 import re
 from typing import Any
 
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..schemas import (
     FirstPassFrame,
     MissingFieldReport,
@@ -572,17 +572,21 @@ async def resolve_intent_anchors_with_llm_fallback(
         from ..schemas import safe_parse_json
 
         _kw: dict[str, Any] = {}
+        _fn_eb: dict[str, Any] = {}
         if settings.guided_json_enabled:
-            _kw["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            _fn_eb["chat_template_kwargs"] = {"enable_thinking": False}
         else:
             _kw["response_format"] = {"type": "json_object"}
+        _fn_eb.update(reasoning_body(settings.router_reasoning_effort))
+        if _fn_eb:
+            _kw["extra_body"] = _fn_eb
 
         llm = ChatOpenAI(
             base_url=settings.router_model_url,
             api_key="not-needed",
             model=settings.router_model_name,
             temperature=0.0,
-            max_completion_tokens=256 if not settings.guided_json_enabled else 128,
+            max_completion_tokens=1024,
             streaming=False,
             use_responses_api=False,
             model_kwargs=_kw,

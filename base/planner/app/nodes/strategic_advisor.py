@@ -16,7 +16,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
 from ..state import NodeOutcome, NodeTrace
 
@@ -38,14 +38,20 @@ def _normalize_domain(raw: str) -> str:
     return s if s else "generic"
 
 
+_advisor_kw: dict[str, Any] = {}
+_advisor_rb = reasoning_body(settings.router_reasoning_effort)
+if _advisor_rb:
+    _advisor_kw["extra_body"] = _advisor_rb
+
 advisor_llm = ChatOpenAI(
     base_url=settings.advisor_model_url,
     api_key="not-needed",
     model=settings.advisor_model_name,
     temperature=0.0,
-    max_completion_tokens=15,
+    max_completion_tokens=256,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.advisor_model_uds or None),
+    model_kwargs=_advisor_kw or None,
 )
 
 

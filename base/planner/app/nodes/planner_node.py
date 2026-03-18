@@ -13,7 +13,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from ..config import settings
+from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import DecisionEntry, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
@@ -135,6 +135,7 @@ if settings.guided_json_enabled:
     _planner_extra_body["guided_json"] = PlannerOut.model_json_schema()
 else:
     _planner_model_kw["response_format"] = {"type": "json_object"}
+_planner_extra_body.update(reasoning_body(settings.planner_reasoning_effort))
 if _planner_extra_body:
     _planner_model_kw["extra_body"] = _planner_extra_body
 
@@ -143,7 +144,7 @@ planner_llm = ChatOpenAI(
     api_key="not-needed",
     model=settings.planner_model_name,
     temperature=0.1,
-    max_completion_tokens=1024,
+    max_completion_tokens=settings.planner_max_tokens,
     streaming=False,
     use_responses_api=False,
     model_kwargs=_planner_model_kw,

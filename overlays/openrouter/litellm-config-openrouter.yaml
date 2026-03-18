@@ -24,18 +24,18 @@ data:
           model: openai/synesis-agent
           api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
           api_key: "not-needed"
-          max_tokens: 32768
+          max_tokens: 65536
           temperature: 0.2
 
       # Router (classification, planning, advisor) — Grok 4 Fast:
-      # Use x-ai/grok-4-fast (non-reasoning mode via API param if needed).
       # $0.20/M in / $0.50/M out, 2M context
-      # Temperature 0.1: classification/routing needs deterministic consistency
+      # Reasoning models spend tokens on thinking; budget must cover both
+      # reasoning and output so JSON payloads are never truncated.
       - model_name: synesis-router
         litellm_params:
           model: openrouter/x-ai/grok-4-fast
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 1500
+          max_tokens: 8192
           temperature: 0.1
 
       # General (executor, writer, synthesis) — DeepSeek V3.2:
@@ -45,15 +45,16 @@ data:
         litellm_params:
           model: openrouter/deepseek/deepseek-v3.2:nitro
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 32768
+          max_tokens: 65536
           temperature: 0.3
 
       # Critic (quality gate, R1 distill — DeepSeek-R1-Distill-Llama-70B: $0.70/M in, $0.80/M out)
+      # R1 uses heavy reasoning tokens; 8192 gives room for thinking + structured output.
       - model_name: synesis-critic
         litellm_params:
           model: openrouter/deepseek/deepseek-r1-distill-llama-70b
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 2048
+          max_tokens: 8192
           temperature: 0.1
 
       # Coder (IDE direct endpoint, agentic coding)
@@ -77,7 +78,7 @@ data:
         litellm_params:
           model: openrouter/x-ai/grok-4-fast
           api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 1500
+          max_tokens: 4096
           temperature: 0.1
 
     litellm_settings:
