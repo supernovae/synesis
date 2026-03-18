@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from synesis_telemetry import get_logger
@@ -100,9 +101,13 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     uri = item.get("uri", "")
     if "url" not in config and uri:
         config["url"] = uri
-    if "repo" not in config and uri and ("github.com/" in uri):
-        parts = uri.rstrip("/").split("github.com/")[-1]
-        config.setdefault("repo", parts)
+    if "repo" not in config and uri:
+        parsed = urlparse(uri)
+        host = (parsed.hostname or "").lower()
+        if host == "github.com":
+            repo_path = parsed.path.lstrip("/").rstrip("/")
+            if repo_path:
+                config.setdefault("repo", repo_path)
 
     if isinstance(tags, list) and "tags" not in config:
         config["tags"] = tags
