@@ -148,7 +148,7 @@ async def _llm_repair(
 
     repair_input = json.dumps(
         {
-            "raw_prompt": raw_text[:2000],
+            "raw_prompt": raw_text[:4000],
             "extracted": first_pass.model_dump(),
             "report": report.model_dump(),
         },
@@ -175,8 +175,6 @@ async def _llm_repair(
     return task, repair_tokens
 
 
-_NUMBERED_LINE_RE = re.compile(r"^\s*(\d+)[.)]\s+(.+)$", re.MULTILINE)
-_DASH_BULLET_LINE_RE = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
 _CONSTRAINT_PREFIXES = re.compile(
     r"^(?:team size|budget|security|must support|mix of|the system should|"
     r"must be|should be|needs to be|limited|requires?|at least|at most|"
@@ -188,36 +186,156 @@ _NEGATIVE_PREFIXES = re.compile(
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# Universal structure patterns — every way humans create hierarchy in prompts
+# ---------------------------------------------------------------------------
+# Section-level (top-level deliverables):
+_HEADING_NUMBERED_RE = re.compile(
+    r"^\s*#{1,6}\s+(\d+)\.?\s+(?:\*\*)?(.+?)(?:\*\*)?\s*$", re.MULTILINE,
+)
+_BOLD_SECTION_RE = re.compile(
+    r"^\s*\*\*(?:(?:Section|Part|Step|Phase)\s+)?(\d+)[.):]\s*(.+?)\*\*\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+_NUMBERED_LINE_RE = re.compile(r"^\s*(\d+)[.)]\s+(.+)$", re.MULTILINE)
+_LETTERED_RE = re.compile(r"^\s*([a-zA-Z])[.)]\s+(.+)$", re.MULTILINE)
+_ROMAN_RE = re.compile(
+    r"^\s*((?:X{0,3})(?:IX|IV|V?I{0,3}))[.)]\s+(.+)$",
+    re.MULTILINE | re.IGNORECASE,
+)
+# Item-level (child requirements under a section):
+_DASH_BULLET_LINE_RE = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
+# Colon-delimited label at line start (only when ≥ 2 such lines exist)
+_COLON_LABEL_RE = re.compile(r"^([A-Z][A-Za-z &/]+):\s+(.+)$", re.MULTILINE)
 
-def _extract_deliverables_from_text(text: str) -> tuple[list[str], list[str], list[str]]:
-    """Extract deliverable phrases from numbered and bulleted lists in the prompt.
 
-    Separates imperative asks ("State the main design goals") from constraints
-    ("Budget is limited") and negative constraints ("Do not give a generic answer").
-    Returns only the deliverable-like items.
+class _StructuredItem:
+    """A parsed prompt item with optional children."""
+
+    __slots__ = ("text", "level", "children")
+
+    def __init__(self, text: str, level: int = 0) -> None:
+        self.text = text
+        self.level = level
+        self.children: list[str] = []
+
+
+def _extract_deliverables_from_text(
+    text: str,
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Extract deliverables, child requirements, constraints, and negatives.
+
+    Recognises markdown headings, bold sections, numbered/lettered/roman lists,
+    dash/star bullets, and colon-delimited labels.  Section-level items become
+    deliverables; bullets nested beneath them become child requirements that
+    capture the hierarchy users express in structured prompts.
+
+    Returns (deliverables, sub_requirements, constraints, negative_constraints).
     """
-    candidates: list[str] = []
-    # Numbered items (1. ... / 2) ...)
-    for _, content in _NUMBERED_LINE_RE.findall(text):
-        candidates.append(content.strip().rstrip(",;."))
-    # Dash/bullet items (- ... / * ...)
-    for content in _DASH_BULLET_LINE_RE.findall(text):
-        candidates.append(content.strip().rstrip(",;."))
+    # --- Phase 1: collect section-level candidates (order matters — first match wins) ---
+    section_hits: list[tuple[int, str]] = []
+    seen_positions: set[int] = set()
 
+    for pattern in (_HEADING_NUMBERED_RE, _BOLD_SECTION_RE):
+        for m in pattern.finditer(text):
+            if m.start() not in seen_positions:
+                seen_positions.add(m.start())
+                section_hits.append((m.start(), m.group(2).strip().rstrip(",;.")))
+
+    for pattern in (_NUMBERED_LINE_RE, _LETTERED_RE, _ROMAN_RE):
+        for m in pattern.finditer(text):
+            if m.start() not in seen_positions:
+                seen_positions.add(m.start())
+                section_hits.append((m.start(), m.group(2).strip().rstrip(",;.")))
+
+    colon_matches = list(_COLON_LABEL_RE.finditer(text))
+    if len(colon_matches) >= 2:
+        for m in colon_matches:
+            if m.start() not in seen_positions:
+                seen_positions.add(m.start())
+                label = m.group(1).strip()
+                body = m.group(2).strip().rstrip(",;.")
+                section_hits.append((m.start(), f"{label}: {body}"))
+
+    section_hits.sort(key=lambda t: t[0])
+    sections = [_StructuredItem(content, level=0) for _, content in section_hits]
+
+    # --- Phase 2: collect bullet-level candidates ---
+    bullet_candidates: list[tuple[int, str]] = []
+    for m in _DASH_BULLET_LINE_RE.finditer(text):
+        if m.start() not in seen_positions:
+            bullet_candidates.append((m.start(), m.group(1).strip().rstrip(",;.")))
+
+    # --- Phase 3: assign bullets to their nearest preceding section ---
+    if sections and bullet_candidates:
+        section_positions = [pos for pos, _ in section_hits]
+        for bpos, btext in bullet_candidates:
+            parent_idx = -1
+            for i, spos in enumerate(section_positions):
+                if spos < bpos:
+                    parent_idx = i
+                else:
+                    break
+            if parent_idx >= 0:
+                sections[parent_idx].children.append(btext)
+
+    # Meta-labels whose children should be promoted to top-level deliverables
+    _META_DELIVERABLE_RE = re.compile(
+        r"^(?:deliverables?|what i (?:want|need)|requirements?|tasks?|"
+        r"goals?|objectives?|outputs?|asks?)\b",
+        re.IGNORECASE,
+    )
+
+    # --- Phase 4: classify into deliverables / constraints / negatives ---
     deliverables: list[str] = []
+    sub_requirements: list[str] = []
     constraints: list[str] = []
     negative: list[str] = []
-    for c in candidates:
-        if not c or len(c) < 5:
-            continue
-        if _NEGATIVE_PREFIXES.match(c):
-            negative.append(c)
-        elif _CONSTRAINT_PREFIXES.match(c):
-            constraints.append(c)
-        else:
-            deliverables.append(c)
 
-    return deliverables, constraints, negative
+    def _classify_child(item: str, target_list: list[str]) -> None:
+        """Classify a sub-item (bullet) as deliverable/constraint/negative."""
+        if not item or len(item) < 3:
+            return
+        if _NEGATIVE_PREFIXES.match(item):
+            negative.append(item)
+        elif _CONSTRAINT_PREFIXES.match(item):
+            constraints.append(item)
+        else:
+            target_list.append(item)
+
+    for sec in sections:
+        t = sec.text
+        if not t or len(t) < 3:
+            continue
+
+        # When the section heading is a meta-label (e.g. "Deliverables:"),
+        # promote its children directly to the deliverables list.
+        promote_children = bool(_META_DELIVERABLE_RE.match(t))
+
+        # Section-level items are always treated as deliverables unless
+        # they are meta-labels.  Users explicitly numbering or heading
+        # a section means they want it covered.  Constraint/negative
+        # classification only applies to sub-items (bullets).
+        if not promote_children:
+            deliverables.append(t)
+
+        child_target = deliverables if promote_children else sub_requirements
+        for child in sec.children:
+            _classify_child(child, child_target)
+
+    # Orphan bullets (no parent section) — classify directly
+    if not sections:
+        for _, btext in bullet_candidates:
+            if not btext or len(btext) < 5:
+                continue
+            if _NEGATIVE_PREFIXES.match(btext):
+                negative.append(btext)
+            elif _CONSTRAINT_PREFIXES.match(btext):
+                constraints.append(btext)
+            else:
+                deliverables.append(btext)
+
+    return deliverables, sub_requirements, constraints, negative
 
 
 def _build_deterministic_task(
@@ -234,8 +352,8 @@ def _build_deterministic_task(
     domain = taxonomy_metadata.get("taxonomy_key", "general")
     required_elements = taxonomy_metadata.get("required_elements") or []
 
-    extracted_deliverables, extracted_constraints, extracted_negative = _extract_deliverables_from_text(
-        task_description
+    extracted_deliverables, extracted_sub_reqs, extracted_constraints, extracted_negative = (
+        _extract_deliverables_from_text(task_description)
     )
 
     if extracted_deliverables:
@@ -246,10 +364,13 @@ def _build_deterministic_task(
         deliverables = []
 
     first_sentence = task_description.split("\n")[0].strip()[:200]
+    requirements = [first_sentence] if first_sentence else []
+    if extracted_sub_reqs:
+        requirements.extend(extracted_sub_reqs)
 
     task = UserTask(
         main_question=first_sentence,
-        explicit_requirements=[first_sentence] if first_sentence else [],
+        explicit_requirements=requirements,
         deliverables=deliverables,
         constraints=extracted_constraints,
         negative_constraints=extracted_negative,
@@ -361,7 +482,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
 
     try:
         # Stage 1: GLiNER2 extraction (offloaded to thread to avoid blocking event loop)
-        prompt_text = task_description[:3000]
+        prompt_text = task_description[:5000]
         client = get_gliner_client()
         first_pass = await asyncio.to_thread(client.extract, prompt_text)
 

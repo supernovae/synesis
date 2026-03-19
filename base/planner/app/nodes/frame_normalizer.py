@@ -516,7 +516,7 @@ def _build_topic_frame(user_task: UserTask) -> str:
     if mq:
         parts.append(mq)
 
-    for d in (user_task.deliverables or [])[:6]:
+    for d in user_task.deliverables or []:
         d_str = (d if isinstance(d, str) else str(d)).strip()
         if d_str and d_str.lower() != mq.lower():
             parts.append(d_str)

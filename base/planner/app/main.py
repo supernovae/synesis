@@ -1194,10 +1194,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     coding_client = _is_coding_client(http_request)
     initial_state: dict[str, Any] = {
         "messages": user_messages,
-        "task_description": (last_user_content or "").strip()[:2000],
+        "task_description": (last_user_content or "").strip()[:6000],
         "task_size_override": task_size_override,
         "coding_client_detected": coding_client,
-        "last_user_content": (last_user_content or "").strip()[:2000],
+        "last_user_content": (last_user_content or "").strip()[:6000],
         "max_iterations": settings.max_iterations,
         "injection_detected": injection_detected,
         "injection_scan_result": injection_scan_result,

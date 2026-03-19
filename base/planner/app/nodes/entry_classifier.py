@@ -191,14 +191,16 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         else:
             escalation_reason = "moderate_difficulty"
 
-    # task_description: when pending continue, include original for downstream (Worker needs full context)
+    # task_description: preserve full prompt for downstream frame extraction.
+    # Scoring/language detection use their own independent truncations.
+    _DESC_LIMIT = 6000
     if state.get("pending_question_continue") and state.get("task_description"):
-        orig = (state.get("task_description") or "").strip()[:600]
+        orig = (state.get("task_description") or "").strip()[:1200]
         task_description = (
-            f"{orig} {last_content or ''}".strip()[:1000] if orig else (last_content or "").strip()[:1000]
+            f"{orig} {last_content or ''}".strip()[:_DESC_LIMIT] if orig else (last_content or "").strip()[:_DESC_LIMIT]
         )
     else:
-        task_description = (last_content or "").strip()[:1000] if last_content else ""
+        task_description = (last_content or "").strip()[:_DESC_LIMIT] if last_content else ""
 
     out: dict[str, Any] = {
         "message_origin": message_origin,

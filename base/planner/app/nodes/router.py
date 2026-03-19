@@ -1597,11 +1597,10 @@ class RouterNode:
             requests.append({**base, "description": main_q})
 
         deliverables = user_task.get("deliverables") or []
-        max_del_reqs = settings.max_initial_deliverable_requests
-        if len(deliverables) > max_del_reqs:
-            batch_size = max(1, len(deliverables) // max_del_reqs)
-            for batch_idx in range(0, len(deliverables), batch_size):
-                batch = deliverables[batch_idx : batch_idx + batch_size]
+        pair_threshold = settings.max_initial_deliverable_requests
+        if len(deliverables) > pair_threshold:
+            for batch_idx in range(0, len(deliverables), 2):
+                batch = deliverables[batch_idx : batch_idx + 2]
                 combined = "; ".join(d if isinstance(d, str) else str(d) for d in batch)
                 requests.append({**base, "section_id": batch_idx, "description": combined, "_light_mode": True})
         else:

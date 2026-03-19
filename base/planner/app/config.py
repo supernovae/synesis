@@ -358,9 +358,10 @@ class Settings(BaseSettings):
     evidence_sufficiency_confidence_min: float = 0.4  # mean confidence threshold to consider evidence sufficient
     evidence_sufficiency_min_packets_ratio: float = 0.75  # packets >= ratio * num_plan_steps to be sufficient
 
-    # Evidence fan-out caps — bound the number of parallel requests per router pass
-    max_evidence_requests_per_round: int = 4  # planner caps evidence_requests to this many
-    max_initial_deliverable_requests: int = 3  # router caps per-deliverable requests in initial mode
+    # Evidence fan-out — soft defaults for proportional sizing.
+    # Full-depth requests up to this count; additional requests use light mode.
+    max_evidence_requests_per_round: int = 6  # full-depth evidence requests before light-mode fallback
+    max_initial_deliverable_requests: int = 12  # router groups deliverables in pairs beyond this
 
     # Prompt-level response cache — identical (user + prompt + model) returns cached response
     prompt_cache_enabled: bool = False  # opt-in; useful for testing/CI

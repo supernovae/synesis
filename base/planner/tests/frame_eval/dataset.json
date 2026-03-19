@@ -1692,5 +1692,218 @@
       "domain": "legal",
       "output_format": "prose"
     }
+  },
+  {
+    "id": "struct-heading-001",
+    "domain": "software_architecture",
+    "complexity": "high",
+    "structural_pattern": "markdown_heading_numbered",
+    "prompt": "I need a comprehensive technical plan for building a data platform. Cover the following sections:\n\n### 1. **Ingestion Layer**\nDescribe how data enters the system. Include:\n*   Batch ingestion from S3\n*   Real-time streaming via Kafka\n*   Schema validation\n\n### 2. **Storage Layer**\nExplain the storage strategy. Include:\n*   Data lake on S3 with Iceberg tables\n*   Hot cache in Redis\n*   Partitioning strategy\n\n### 3. **Processing Layer**\nDescribe the compute architecture. Include:\n*   Spark for batch\n*   Flink for streaming\n*   Orchestration with Airflow\n\n### 4. **Serving Layer**\nExplain how consumers access data. Include:\n*   REST API\n*   GraphQL endpoint\n*   Dashboard integration\n\n### 5. **Governance & Security**\nCover data governance. Include:\n*   Access control and RBAC\n*   Data lineage tracking\n*   PII masking\n\nPlease structure your answer cleanly and include diagrams where helpful.",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "Ingestion",
+        "Storage",
+        "Processing",
+        "Serving",
+        "Governance"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-bold-001",
+    "domain": "project_management",
+    "complexity": "medium",
+    "structural_pattern": "bold_sections",
+    "prompt": "Help me create a project retrospective document. Organize it into these sections:\n\n**Section 1: Project Overview**\nSummarize the project scope, timeline, and team composition.\n\n**Section 2: What Went Well**\nHighlight successes and positive outcomes.\n\n**Section 3: What Could Be Improved**\nIdentify areas for improvement with specific examples.\n\n**Section 4: Action Items**\nList concrete follow-up tasks with owners and deadlines.\n\n**Section 5: Lessons Learned**\nCapture key takeaways for future projects.\n\nBe specific and avoid generic statements.",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "Overview",
+        "Went Well",
+        "Improved",
+        "Action",
+        "Lessons"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "project_management",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-lettered-001",
+    "domain": "education",
+    "complexity": "medium",
+    "structural_pattern": "lettered_list",
+    "prompt": "I'm designing a training curriculum for new data engineers. Please create a 6-week program covering:\n\na) SQL fundamentals and advanced query optimization\nb) Python for data pipelines and ETL\nc) Data modeling and schema design\nd) Cloud infrastructure basics (AWS/GCP)\ne) Data quality and testing frameworks\nf) Capstone project guidelines\n\nFor each topic, include learning objectives, key resources, and a hands-on exercise.",
+    "expected": {
+      "deliverable_count": 6,
+      "deliverables_must_include": [
+        "SQL",
+        "Python",
+        "modeling",
+        "Cloud",
+        "quality",
+        "Capstone"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "education",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-roman-001",
+    "domain": "legal",
+    "complexity": "medium",
+    "structural_pattern": "roman_numeral",
+    "prompt": "Draft an executive briefing document for our board of directors on our AI strategy. Structure it as follows:\n\nI. Executive Summary\nII. Current State Assessment\nIII. Strategic Objectives\nIV. Investment Requirements\nV. Risk Analysis\nVI. Implementation Timeline\nVII. Governance Framework\n\nKeep the tone formal and concise. Do not include speculative projections without data backing.",
+    "expected": {
+      "deliverable_count": 7,
+      "deliverables_must_include": [
+        "Executive Summary",
+        "Current State",
+        "Strategic",
+        "Investment",
+        "Risk",
+        "Timeline",
+        "Governance"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "legal",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-mixed-001",
+    "domain": "software_architecture",
+    "complexity": "high",
+    "structural_pattern": "mixed_hierarchy",
+    "prompt": "Design a monitoring and alerting stack for our microservices platform.\n\n## 1. Metrics Collection\n- Application-level metrics (latency, error rate, throughput)\n- Infrastructure metrics (CPU, memory, disk)\n- Custom business metrics\n\n## 2. Log Aggregation\n- Centralized logging with structured JSON\n- Log correlation across services\n- Retention policies\n\n## 3. Distributed Tracing\n- End-to-end request tracing\n- Span collection and sampling strategies\n- Integration with existing services\n\n## 4. Alerting Rules\n- SLO-based alerting\n- Anomaly detection\n- Escalation policies and on-call rotation\n\n## 5. Dashboards\n- Service health overview\n- Team-specific views\n- Executive summary dashboard\n\nConstraints:\n- Must be open-source or low-cost\n- Must support Kubernetes\n- Team of 3 SREs to maintain",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "Metrics",
+        "Log",
+        "Tracing",
+        "Alert",
+        "Dashboard"
+      ],
+      "constraint_count_min": 2,
+      "constraints_must_include": [
+        "open-source",
+        "Kubernetes"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-long-001",
+    "domain": "software_architecture",
+    "complexity": "high",
+    "structural_pattern": "markdown_heading_numbered",
+    "edge_case": "long_structured_prompt",
+    "prompt": "I'm building an internal AI platform for my company and I need your help designing the architecture. The goal is to create a production-grade \"Knowledge & Workflow Assistant\" that uses RAG, multi-step reasoning, and workflow agents to help engineers and analysts answer questions, generate documents, and automate tasks.\nI need a detailed, end-to-end technical plan that covers:\n### 1. **System Architecture**\nDescribe the full architecture for a production deployment, including:\n*   API gateway\n*   LLM service\n*   embedding service\n*   vector database\n*   document ingestion pipeline\n*   workflow/agent orchestration\n*   observability stack\n*   security boundaries\n*   recommended cloud services\n*   recommended Kubernetes layout\nProvide a diagram description (text only) and a YAML example of the Kubernetes components.\n### 2. **RAG Strategy**\nExplain how documents should be chunked, embedded, indexed, and retrieved. Include:\n*   recommended embedding models\n*   chunking strategy\n*   metadata schema (JSON)\n*   retrieval pipeline flow\n*   how to handle stale or conflicting documents\n### 3. **Workflow Agent Design**\nDescribe how multi-step tasks should be handled. Include:\n*   agent roles\n*   planning vs execution separation\n*   how agents call tools\n*   how to represent tool schemas (JSON)\n*   how to handle failures or missing information\n### 4. **Data Governance & Compliance**\nExplain how to handle:\n*   PII detection\n*   document access control\n*   audit logging\n*   data retention\n*   redaction\n*   user-level permissions\nProvide a sample YAML policy file.\n### 5. **Deployment Plan**\nGive a phased rollout plan for deploying this system in a real company. Include:\n*   staging vs production\n*   canary rollout\n*   monitoring thresholds\n*   rollback strategy\n*   SLOs and SLIs\n### 6. **Sample Schemas**\nProvide example schemas for:\n*   document metadata\n*   agent tool definitions\n*   workflow request/response\n*   retrieval results\n*   system configuration\nAll schemas should be in JSON or YAML.\n### 7. **Risks & Mitigations**\nList the top risks in building a system like this and how to mitigate them.\n**Important:**   Please structure your answer cleanly, use headings, and ensure all JSON/YAML examples are valid and well-formatted.",
+    "expected": {
+      "deliverable_count": 7,
+      "deliverables_must_include": [
+        "System Architecture",
+        "RAG",
+        "Workflow",
+        "Governance",
+        "Deployment",
+        "Schema",
+        "Risk"
+      ],
+      "deliverables_must_not_include": [
+        "Important"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-colon-001",
+    "domain": "business",
+    "complexity": "medium",
+    "structural_pattern": "colon_delimited",
+    "prompt": "Write a competitive analysis report for our SaaS product. Cover these areas:\n\nMarket Position: Analyze where we stand relative to the top 3 competitors\nPricing Strategy: Compare our pricing tiers vs competitor offerings\nFeature Gap Analysis: Identify features competitors have that we lack\nCustomer Sentiment: Summarize what customers say about us vs competitors on G2 and Capterra\nStrategic Recommendations: Provide 3-5 actionable recommendations\n\nUse data-driven reasoning where possible. Do not make unsupported claims.",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "Market",
+        "Pricing",
+        "Feature",
+        "Customer",
+        "Recommendation"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "business",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-nested-001",
+    "domain": "devops",
+    "complexity": "high",
+    "structural_pattern": "nested_bullets",
+    "edge_case": "deep_nesting",
+    "prompt": "Design a CI/CD pipeline for a monorepo with 12 microservices. Address:\n\n1. Build Strategy\n   - Incremental builds (only changed services)\n   - Shared library handling\n   - Build cache optimization\n2. Testing Layers\n   - Unit tests per service\n   - Integration tests between dependent services\n   - End-to-end smoke tests\n   - Performance regression tests\n3. Deployment Pipeline\n   - Canary deployments per service\n   - Feature flag integration\n   - Rollback automation\n4. Security Gates\n   - SAST/DAST scanning\n   - Container image scanning\n   - Secret detection\n   - License compliance\n5. Observability Integration\n   - Deploy-time metrics tagging\n   - Automated runbook linking\n   - Incident correlation\n\nMust support both GitHub Actions and self-hosted runners. Budget is limited to open-source tools where possible.",
+    "expected": {
+      "deliverable_count": 5,
+      "deliverables_must_include": [
+        "Build",
+        "Test",
+        "Deployment",
+        "Security",
+        "Observability"
+      ],
+      "constraint_count_min": 1,
+      "constraints_must_include": [
+        "budget"
+      ],
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "devops",
+      "output_format": "prose"
+    }
+  },
+  {
+    "id": "struct-uppercase-001",
+    "domain": "software_architecture",
+    "complexity": "medium",
+    "structural_pattern": "lettered_list",
+    "prompt": "I need you to evaluate three database options for our event-sourcing system:\n\nA. PostgreSQL with JSONB columns\nB. Apache Kafka with log compaction\nC. EventStoreDB as a purpose-built solution\n\nFor each option, analyze:\n- Write throughput and latency characteristics\n- Query flexibility for event replay\n- Operational complexity\n- Cost at our scale (50M events/day)\n\nThen recommend which to use and explain why. Be honest about tradeoffs.",
+    "expected": {
+      "deliverable_count": 3,
+      "deliverables_must_include": [
+        "PostgreSQL",
+        "Kafka",
+        "EventStoreDB"
+      ],
+      "constraint_count_min": 0,
+      "meta_requirements_count_min": 0,
+      "uncertainty_count_min": 0,
+      "domain": "software_architecture",
+      "output_format": "prose"
+    }
   }
 ]

@@ -519,3 +519,191 @@ def test_summary_report(frame_mode: str, frame_difficulty: float, capsys: Any) -
 
     with capsys.disabled():
         print("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Deterministic deliverable extraction tests (no LLM / GLiNER needed)
+# ---------------------------------------------------------------------------
+
+try:
+    from app.nodes.frame_extractor import _extract_deliverables_from_text
+
+    _HAS_EXTRACTOR = True
+except Exception:
+    _HAS_EXTRACTOR = False
+
+_skip_no_extractor = pytest.mark.skipif(not _HAS_EXTRACTOR, reason="extractor not importable")
+
+
+def _kw_in_deliverables(keyword: str, deliverables: list[str]) -> bool:
+    kw = keyword.lower()
+    return any(kw in d.lower() for d in deliverables)
+
+
+@_skip_no_extractor
+class TestDeliverableExtraction:
+    """Direct tests of _extract_deliverables_from_text against every
+    structural pattern users produce.  Pure deterministic — no services."""
+
+    def test_numbered_lines(self) -> None:
+        text = "Please cover:\n1. Architecture design\n2. Cost analysis\n3. Risk assessment"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3
+        assert _kw_in_deliverables("Architecture", deliverables)
+        assert _kw_in_deliverables("Cost", deliverables)
+        assert _kw_in_deliverables("Risk", deliverables)
+
+    def test_dash_bullets(self) -> None:
+        text = "Include the following:\n- Database schema\n- API endpoints\n- Authentication flow"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3
+        assert _kw_in_deliverables("Database", deliverables)
+
+    def test_star_bullets(self) -> None:
+        text = "Cover these topics:\n* Networking\n* Storage\n* Compute"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3
+
+    def test_markdown_heading_numbered(self) -> None:
+        text = (
+            "### 1. **Ingestion Layer**\nDescribe data entry.\n"
+            "### 2. **Storage Layer**\nExplain storage.\n"
+            "### 3. **Processing Layer**\nDescribe compute.\n"
+            "### 4. **Serving Layer**\nExplain access.\n"
+            "### 5. **Governance**\nCover security."
+        )
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 5, f"Expected >= 5 deliverables, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("Ingestion", deliverables)
+        assert _kw_in_deliverables("Governance", deliverables)
+
+    def test_bold_sections(self) -> None:
+        text = (
+            "**Section 1: Project Overview**\nSummarize scope.\n"
+            "**Section 2: What Went Well**\nHighlight successes.\n"
+            "**Section 3: Lessons Learned**\nCapture takeaways."
+        )
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3, f"Expected >= 3 deliverables, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("Overview", deliverables)
+        assert _kw_in_deliverables("Lessons", deliverables)
+
+    def test_lettered_lowercase(self) -> None:
+        text = "Cover:\na) SQL fundamentals\nb) Python pipelines\nc) Data modeling\nd) Cloud basics"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 4, f"Expected >= 4, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("SQL", deliverables)
+        assert _kw_in_deliverables("Cloud", deliverables)
+
+    def test_lettered_uppercase(self) -> None:
+        text = "Evaluate:\nA. PostgreSQL with JSONB\nB. Apache Kafka\nC. EventStoreDB"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3, f"Expected >= 3, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("PostgreSQL", deliverables)
+
+    def test_roman_numerals(self) -> None:
+        text = (
+            "I. Executive Summary\n"
+            "II. Current State\n"
+            "III. Strategic Objectives\n"
+            "IV. Investment Requirements\n"
+            "V. Risk Analysis"
+        )
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 5, f"Expected >= 5, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("Executive", deliverables)
+        assert _kw_in_deliverables("Risk", deliverables)
+
+    def test_colon_delimited(self) -> None:
+        text = (
+            "Market Position: Analyze where we stand\n"
+            "Pricing Strategy: Compare pricing tiers\n"
+            "Feature Gap: Identify missing features"
+        )
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3, f"Expected >= 3, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("Market", deliverables)
+
+    def test_hierarchy_parent_child(self) -> None:
+        """Heading-level items become deliverables; sub-bullets become requirements."""
+        text = (
+            "### 1. **Data Governance**\nExplain how to handle:\n"
+            "*   PII detection\n"
+            "*   document access control\n"
+            "*   audit logging\n"
+            "### 2. **Deployment Plan**\nInclude:\n"
+            "*   staging vs production\n"
+            "*   canary rollout"
+        )
+        deliverables, sub_reqs, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 2, f"Expected >= 2 deliverables, got {deliverables}"
+        assert _kw_in_deliverables("Governance", deliverables)
+        assert _kw_in_deliverables("Deployment", deliverables)
+        assert len(sub_reqs) >= 4, f"Expected >= 4 sub-requirements, got {len(sub_reqs)}: {sub_reqs}"
+        assert _kw_in_deliverables("PII", sub_reqs)
+        assert _kw_in_deliverables("canary", sub_reqs)
+
+    def test_constraint_classification(self) -> None:
+        """Orphan bullets get constraint/negative classification;
+        numbered top-level items are always deliverables."""
+        text = "Cover:\n- Budget is limited to $50K\n- Do not use proprietary tools"
+        deliverables, _sub, constraints, negatives = _extract_deliverables_from_text(text)
+        assert _kw_in_deliverables("Budget", constraints)
+        assert _kw_in_deliverables("proprietary", negatives)
+
+    def test_numbered_sections_always_deliverables(self) -> None:
+        """Explicitly numbered sections are deliverables even if text matches
+        constraint patterns (e.g. '4. Security Gates')."""
+        text = "1. Architecture\n2. Security Gates\n3. Budget Analysis"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3, f"Expected 3, got {len(deliverables)}: {deliverables}"
+        assert _kw_in_deliverables("Security", deliverables)
+        assert _kw_in_deliverables("Budget", deliverables)
+
+    def test_mixed_patterns(self) -> None:
+        """Real-world prompt mixing numbered sections with sub-bullets."""
+        text = (
+            "## 1. Metrics Collection\n"
+            "- Application-level metrics\n"
+            "- Infrastructure metrics\n"
+            "## 2. Log Aggregation\n"
+            "- Centralized logging\n"
+            "- Log correlation\n"
+            "## 3. Distributed Tracing\n"
+            "- End-to-end tracing\n"
+            "- Span collection"
+        )
+        deliverables, sub_reqs, _con, _neg = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3, f"Expected >= 3, got {deliverables}"
+        assert len(sub_reqs) >= 4, f"Expected >= 4 sub-reqs, got {sub_reqs}"
+
+    def test_seven_section_prompt_full(self) -> None:
+        """The user's actual 7-section prompt must produce 7 deliverables."""
+        cases = load_cases()
+        case = next((c for c in cases if c["id"] == "struct-long-001"), None)
+        assert case is not None, "struct-long-001 not found in dataset"
+        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(case["prompt"])
+        assert len(deliverables) >= 7, (
+            f"Expected >= 7 deliverables for 7-section prompt, got {len(deliverables)}: {deliverables}"
+        )
+        for kw in case["expected"]["deliverables_must_include"]:
+            assert _kw_in_deliverables(kw, deliverables), (
+                f"'{kw}' not found in deliverables: {deliverables}"
+            )
+
+
+@_skip_no_extractor
+class TestNoDeliverableTruncation:
+    """Regression guard: prompts with many sections must not be silently truncated."""
+
+    def test_all_high_count_cases_preserved(self) -> None:
+        cases = load_cases()
+        for case in cases:
+            expected_count = case["expected"].get("deliverable_count", 0)
+            if expected_count < 7:
+                continue
+            deliverables, _sub, _con, _neg = _extract_deliverables_from_text(case["prompt"])
+            assert len(deliverables) >= expected_count, (
+                f"[{case['id']}] Expected >= {expected_count} deliverables, "
+                f"got {len(deliverables)}: {deliverables}"
+            )

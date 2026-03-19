@@ -651,29 +651,34 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             taxonomy_metadata=state.get("taxonomy_metadata"),
         )
 
-        # Evidence requests for sections that may need more retrieval.
-        # Capped by max_evidence_requests_per_round so the second router pass
-        # stays bounded; the writer can use initial packets for uncapped sections.
+        # Evidence requests for every plan section.  The first N get
+        # full-depth retrieval; the rest are tagged _light_mode so the
+        # router uses cheaper/faster retrieval (fewer chunks per query)
+        # instead of dropping them entirely.
         domain_tags = list(state.get("active_domain_refs") or [])
         if active_vertical:
             domain_tags.append(active_vertical)
         evidence_requests = []
-        cap = settings.max_evidence_requests_per_round
-        for step in steps:
+        full_depth_cap = settings.max_evidence_requests_per_round
+        for idx, step in enumerate(steps):
             if isinstance(step, dict):
-                evidence_requests.append(
-                    {
-                        "section_id": step.get("id"),
-                        "description": step.get("action", ""),
-                        "domain_hints": domain_tags,
-                    }
-                )
-        if len(evidence_requests) > cap:
+                req: dict[str, Any] = {
+                    "section_id": step.get("id"),
+                    "description": step.get("action", ""),
+                    "domain_hints": domain_tags,
+                }
+                if idx >= full_depth_cap:
+                    req["_light_mode"] = True
+                evidence_requests.append(req)
+        if len(evidence_requests) > full_depth_cap:
             logger.info(
-                "planner_evidence_requests_capped",
-                extra={"original": len(evidence_requests), "cap": cap},
+                "planner_evidence_light_mode",
+                extra={
+                    "total": len(evidence_requests),
+                    "full_depth": full_depth_cap,
+                    "light_mode": len(evidence_requests) - full_depth_cap,
+                },
             )
-            evidence_requests = evidence_requests[:cap]
 
         # Phase 2: clarify-first gate — deterministic, uses existing plumbing
         clarify_question = ""
