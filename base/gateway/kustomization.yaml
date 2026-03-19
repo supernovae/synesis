@@ -10,7 +10,9 @@ labels:
 
 resources:
   - namespace.yaml
-  - litellm-secrets.yaml
+  # litellm-secrets: managed only by deploy.sh (see litellm-secrets.yaml).
+  # Applying a placeholder/empty Secret here overwrote the real master-key
+  # on every deploy (API overlay also forced master-key: "").
   # provider-api-keys is NOT applied here — an empty Secret manifest wipes
   # OPENROUTER_API_KEY on every deploy. Create/update via deploy.sh or Admin UI.
   - litellm-config.yaml

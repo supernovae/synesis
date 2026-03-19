@@ -200,6 +200,67 @@ reconcile_provider_api_keys() {
     fi
 }
 
+# Heal litellm-secrets / webui-api-key if an older release applied placeholder
+# Secrets from kustomize (now removed) and clobbered real keys.
+reconcile_litellm_webui_secrets() {
+    local gw="synesis-gateway"
+    local wu="synesis-webui"
+    local mk="" wk="" changed="false"
+
+    oc create namespace "$gw" 2>/dev/null || true
+    oc create namespace "$wu" 2>/dev/null || true
+
+    if oc get secret litellm-secrets -n "$gw" &>/dev/null; then
+        mk=$(oc get secret litellm-secrets -n "$gw" \
+            -o jsonpath='{.data.master-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    mk=$(printf '%s' "$mk" | tr -d '\n\r')
+
+    if oc get secret webui-api-key -n "$wu" &>/dev/null; then
+        wk=$(oc get secret webui-api-key -n "$wu" \
+            -o jsonpath='{.data.api-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    wk=$(printf '%s' "$wk" | tr -d '\n\r')
+
+    if [[ -n "$mk" ]] && [[ "$mk" != "sk-synesis-change-me" ]]; then
+        if [[ "$wk" != "$mk" ]] || [[ -z "$wk" ]] || [[ "$wk" == "sk-synesis-change-me" ]]; then
+            oc create secret generic webui-api-key \
+                -n "$wu" \
+                --from-literal=api-key="$mk" \
+                --dry-run=client -o yaml | oc apply -f -
+            log "  Synced webui-api-key from litellm-secrets (was missing or out of date)"
+            changed="true"
+        fi
+    elif [[ -n "$wk" ]] && [[ "$wk" != "sk-synesis-change-me" ]]; then
+        oc create secret generic litellm-secrets \
+            -n "$gw" \
+            --from-literal=master-key="$wk" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Restored litellm-secrets from existing webui-api-key"
+    else
+        local newk="sk-synesis-$(openssl rand -hex 24)"
+        oc create secret generic litellm-secrets \
+            -n "$gw" \
+            --from-literal=master-key="$newk" \
+            --dry-run=client -o yaml | oc apply -f -
+        oc create secret generic webui-api-key \
+            -n "$wu" \
+            --from-literal=api-key="$newk" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Generated new shared litellm/webui client key (both secrets were missing or placeholders)"
+        changed="true"
+    fi
+
+    # Refresh for any later deploy.sh steps that reference LITELLM_KEY
+    mk=$(oc get secret litellm-secrets -n "$gw" -o jsonpath='{.data.master-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    LITELLM_KEY=$(printf '%s' "$mk" | tr -d '\n\r')
+
+    if [[ "$changed" == "true" ]] && oc get deployment open-webui -n "$wu" &>/dev/null; then
+        log "  Restarting open-webui to pick up api-key / WEBUI_SECRET_KEY..."
+        oc rollout restart deployment/open-webui -n "$wu" 2>/dev/null || true
+    fi
+}
+
 
 # -----------------------------------------------------------------------
 # Admin Postgres: ensure CloudNativePG Cluster exists, read the operator-
@@ -791,6 +852,10 @@ patch_admin_db_urls
 log ""
 log "Reconciling provider API keys (post-apply)..."
 reconcile_provider_api_keys
+
+log ""
+log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
+reconcile_litellm_webui_secrets
 
 # -----------------------------------------------------------------------
 # Keep Deployments and ReplicaSets under control (idempotent, less cruft).
