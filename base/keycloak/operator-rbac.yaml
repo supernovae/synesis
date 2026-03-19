@@ -1,0 +1,57 @@
+# RBAC for the RHBK operator (installed in synesis-admin) to manage
+# Keycloak resources in this namespace.  Required because OLM installs
+# Roles only in the operator's own namespace.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rhbk-operator
+  namespace: synesis-auth
+rules:
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get","list","watch","create","delete","patch","update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["secrets","services"]
+    verbs: ["get","list","watch","create","delete","patch","update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get","list","watch","create","delete","patch","update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses","networkpolicies"]
+    verbs: ["get","list","watch","create","delete","patch","update"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["servicemonitors"]
+    verbs: ["get","list","watch","create","delete","patch","update"]
+  - apiGroups: ["k8s.keycloak.org"]
+    resources:
+      - keycloaks
+      - keycloaks/status
+      - keycloaks/finalizers
+      - keycloakrealmimports
+      - keycloakrealmimports/status
+      - keycloakrealmimports/finalizers
+    verbs: ["get","list","watch","create","delete","patch","update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rhbk-operator
+  namespace: synesis-auth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rhbk-operator
+subjects:
+  - kind: ServiceAccount
+    name: rhbk-operator
+    namespace: synesis-admin

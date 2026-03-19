@@ -10,6 +10,7 @@ resources:
   - realm-configmap.yaml
   - realm-import.yaml
   - route.yaml
+  - operator-rbac.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: synesis

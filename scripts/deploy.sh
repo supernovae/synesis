@@ -366,6 +366,24 @@ ensure_keycloak() {
 
     oc create namespace "$ns" 2>/dev/null || true
 
+    # The RHBK operator is installed in synesis-admin (OLM).  Ensure it
+    # watches synesis-auth by patching the OperatorGroup + deployment annotation.
+    local og_name
+    og_name=$(oc get operatorgroup -n synesis-admin -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [[ -n "$og_name" ]]; then
+        local current_ns
+        current_ns=$(oc get operatorgroup "$og_name" -n synesis-admin -o jsonpath='{.spec.targetNamespaces}' 2>/dev/null || true)
+        if [[ "$current_ns" != *"synesis-auth"* ]]; then
+            log "  Extending RHBK OperatorGroup to watch synesis-auth..."
+            oc patch operatorgroup "$og_name" -n synesis-admin --type=merge \
+                -p '{"spec":{"targetNamespaces":["synesis-admin","synesis-auth"]}}' 2>/dev/null || true
+            oc patch deployment rhbk-operator -n synesis-admin --type=json \
+                -p '[{"op":"add","path":"/spec/template/metadata/annotations/olm.targetNamespaces","value":"synesis-admin,synesis-auth"}]' 2>/dev/null || true
+            log "  Waiting for operator restart..."
+            oc rollout status deployment/rhbk-operator -n synesis-admin --timeout=60s 2>/dev/null || true
+        fi
+    fi
+
     log "  Applying Keycloak manifests..."
     kustomize build "$PROJECT_ROOT/base/keycloak" | oc apply -f -
 
