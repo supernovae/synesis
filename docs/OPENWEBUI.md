@@ -90,6 +90,12 @@ Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planne
 
 ## Troubleshooting
 
+### Auth page shows only “Sign in to Synesis” — no Keycloak button
+
+Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) so OIDC redirect URIs and the SSO button are built correctly. It is set in `base/webui/deployment.yaml` to match the OpenShift Route host. If you change the Route host, patch `WEBUI_URL` to the same value and restart Open WebUI.
+
+See also: [Open WebUI SSO troubleshooting](https://docs.openwebui.com/troubleshooting/sso/).
+
 ### "500: Open WebUI: Server Connection Error"
 
 **Cause:** (a) Open WebUI cannot reach its backend, (b) bad URL persisted in Admin → Settings, or (c) planner's graph execution failed (models down, timeout, etc.).

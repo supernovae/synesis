@@ -74,6 +74,9 @@ spec:
               value: "false"
             - name: WEBUI_NAME
               value: "Synesis"
+            # Required for OIDC: redirect URI + “Sign in with …” button (see Open WebUI SSO docs).
+            - name: WEBUI_URL
+              value: "https://synesis.apps.openshiftdemo.dev"
             - name: ENABLE_IMAGE_GENERATION
               value: "false"
             - name: ENABLE_RAG_WEB_SEARCH

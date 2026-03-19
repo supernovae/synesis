@@ -61,9 +61,12 @@ spec:
               value: "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
             - name: SYNESIS_JWT_SECRET
               value: "synesis-dev-secret-change-me"
-            # ── Keycloak OIDC (empty = legacy local auth) ──
+            # ── Keycloak OIDC ──
+            # Must match Keycloak Route host + realm (see base/keycloak/keycloak.yaml).
+            # If empty, admin falls back to legacy users admin/viewer only — a kustomize
+            # re-apply would wipe deploy.sh patches, so the issuer is set in Git.
             - name: SYNESIS_KEYCLOAK_ISSUER_URL
-              value: ""
+              value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis"
             - name: SYNESIS_KEYCLOAK_AUDIENCE
               value: "synesis-admin"
             - name: SYNESIS_EXPECTED_SCHEMA_VERSION
