@@ -8,6 +8,7 @@ resources:
   - postgres-cluster.yaml
   - keycloak.yaml
   - realm-configmap.yaml
+  - realm-import.yaml
   - route.yaml
 
 commonLabels:

@@ -24,6 +24,7 @@ async def list_traces(
     limit: int = 50,
     has_error: bool | None = None,
     user_id: str = "",
+    user_email: str = "",
     task_type: str = "",
     min_difficulty: float | None = None,
     max_difficulty: float | None = None,
@@ -41,6 +42,8 @@ async def list_traces(
                 q = q.where(Trace.has_error == has_error)
             if user_id:
                 q = q.where(Trace.user_id == user_id)
+            if user_email:
+                q = q.where(Trace.full_record["user_email"].astext == user_email)
             if task_type:
                 q = q.where(Trace.task_type == task_type)
             if min_difficulty is not None:

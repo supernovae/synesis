@@ -7,44 +7,48 @@ set -euo pipefail
 # Auto-generates a LiteLLM API key if one doesn't exist.
 # Prunes stale ReplicaSets and keeps revision history short for idempotent deploys.
 #
-# Usage: ./scripts/deploy.sh <environment> [ref]
-#   environment: dev | staging | prod | api (alias: openrouter)
-#   ref:        (optional) Image tag to deploy. Default: latest.
-#               Use "latest", a branch (main, feature/foo), a tag (v1.0.0), or PR (pr-123).
-#               Images must be built and pushed with that tag first, e.g.:
-#                 ./scripts/build-images.sh --push --tag pr-123
-#               Then: ./scripts/deploy.sh dev pr-123
+# Usage: ./scripts/deploy.sh <mode> [ref]
+#   mode: api   — external LLM providers (OpenRouter, Groq, etc.), no GPUs
+#         model — self-hosted GPU inference via vLLM (requires RHOAI)
+#   ref:  (optional) Image tag to deploy. Default: latest.
+#         Use "latest", a branch (main, feature/foo), a tag (v1.0.0), or PR (pr-123).
 #
 # Examples:
-#   ./scripts/deploy.sh dev                    # deploy latest
-#   ./scripts/deploy.sh dev main               # deploy images tagged "main"
-#   ./scripts/deploy.sh staging v1.2.0         # deploy release tag
-#   SYNESIS_REF=pr-456 ./scripts/deploy.sh dev # deploy PR branch images
-#
-# The "api" environment routes all LLM traffic through API providers
-# (OpenRouter, Groq, etc.), eliminating the need for GPU hardware.
-# On first run it prompts for API keys (or reads from environment variables).
+#   ./scripts/deploy.sh api                     # default — API providers, latest images
+#   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
+#   ./scripts/deploy.sh model                   # self-hosted GPU inference
+#   SYNESIS_REF=pr-456 ./scripts/deploy.sh api  # deploy PR branch images
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Use project venv if available (has PyYAML); fall back to system python3
 PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 [[ -x "$PYTHON" ]] || PYTHON="python3"
 
-ENV="${1:-}"
+MODE="${1:-}"
 REF="${2:-${SYNESIS_REF:-latest}}"
 
-if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|dev-services|staging|prod|api|openrouter)$ ]]; then
-    echo "Usage: $0 <dev|staging|prod|api> [ref]"
-    echo "  ref: optional image tag (default: latest). e.g. main, v1.0.0, pr-123"
-    echo "  'openrouter' is accepted as an alias for 'api'"
+# Reject old overlay names with a clear migration message
+if [[ "$MODE" =~ ^(dev|dev-services|staging|prod|openrouter)$ ]]; then
+    echo "ERROR: '$MODE' is no longer a valid mode."
+    echo ""
+    echo "The overlay structure has been simplified to two modes:"
+    echo "  api   — external LLM providers (OpenRouter, etc.), no GPU hardware"
+    echo "  model — self-hosted GPU inference via vLLM"
+    echo ""
+    echo "Environment-specific tuning (log levels, replicas, model profiles)"
+    echo "is now managed post-deploy via the Admin UI or kubectl."
+    echo ""
+    echo "Usage: $0 <api|model> [ref]"
     exit 1
 fi
 
-# Normalize legacy alias
-if [[ "$ENV" == "openrouter" ]]; then
-    ENV="api"
+if [[ -z "$MODE" ]] || [[ ! "$MODE" =~ ^(api|model)$ ]]; then
+    echo "Usage: $0 <api|model> [ref]"
+    echo "  api:   external LLM providers (OpenRouter, etc.), no GPU hardware"
+    echo "  model: self-hosted GPU inference via vLLM"
+    echo "  ref:   optional image tag (default: latest). e.g. main, v1.0.0, pr-123"
+    exit 1
 fi
 
 # Normalize ref for image tag (no leading/trailing slash; safe for sed)
@@ -54,7 +58,7 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
 }
 
-OVERLAY_DIR="$PROJECT_ROOT/overlays/$ENV"
+OVERLAY_DIR="$PROJECT_ROOT/overlays/$MODE"
 
 if [[ ! -d "$OVERLAY_DIR" ]]; then
     log "ERROR: Overlay directory not found: $OVERLAY_DIR"
@@ -399,14 +403,14 @@ ensure_keycloak() {
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url"
 }
 
-log "=== Deploying Synesis ($ENV) ==="
+log "=== Deploying Synesis ($MODE) ==="
 [[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
 log ""
 
 ensure_litellm_key
 ensure_webui_key
 
-if [[ "$ENV" == "api" ]]; then
+if [[ "$MODE" == "api" ]]; then
     ensure_openrouter_key
 fi
 
@@ -489,7 +493,7 @@ check_custom_images() {
             log "WARNING: Custom images still use bare names (e.g., $sample_image)."
             log "  Kubernetes will try docker.io/library/$sample_image which does not exist."
             log "  Ensure the kustomize overlay has an 'images:' block with your registry."
-            log "  See: overlays/$ENV/kustomization.yaml"
+            log "  See: overlays/$MODE/kustomization.yaml"
             log ""
         fi
         return
@@ -565,7 +569,7 @@ discover_runtimes() {
 }
 
 log ""
-if [[ "$ENV" == "api" ]]; then
+if [[ "$MODE" == "api" ]]; then
     log "API mode: skipping RHOAI/model-serving checks (no GPU hardware needed)"
     ISVC_SKIP=true
 else
@@ -578,7 +582,7 @@ else
         log ""
         log "  To fix, create a DataScienceCluster CR (via Terraform, dashboard, or manifest):"
         log "    spec.components.kserve.managementState: Managed"
-        log "  Then re-run:  ./scripts/deploy.sh $ENV"
+        log "  Then re-run:  ./scripts/deploy.sh $MODE"
         log ""
         log "  Prerequisites:"
         log "    - OpenShift Serverless operator (KNative Serving)"
@@ -648,7 +652,7 @@ ensure_model_pvc() {
         fi
     fi
 }
-if [[ "$ENV" != "api" ]]; then
+if [[ "$MODE" != "api" ]]; then
     ensure_model_pvc
 fi
 
@@ -693,7 +697,7 @@ if [[ "$APPLY_OK" != "true" && "$ISVC_SKIP" != "true" ]]; then
     log "    oc get datascienceclusters"
     log "    oc get pods -n redhat-ods-applications -l app=odh-model-controller"
     log "    oc get endpoints odh-model-controller-webhook-service -n redhat-ods-applications"
-    log "  Once ready, re-run:  ./scripts/deploy.sh $ENV"
+    log "  Once ready, re-run:  ./scripts/deploy.sh $MODE"
 fi
 
 # -----------------------------------------------------------------------
@@ -835,7 +839,7 @@ if [[ "$APPLY_OK" == "true" ]]; then
 fi
 
 log ""
-if [[ "$ENV" == "api" ]]; then
+if [[ "$MODE" == "api" ]]; then
     log "Model serving: API providers (no local GPU hardware)"
     log "  All LLM traffic routes through LiteLLM → external API providers"
     log "  Configure model endpoints via Admin UI or overlays/api/litellm-config-openrouter.yaml"
@@ -867,13 +871,13 @@ else
         else
             log "  Model deployments may not be ready yet."
             log "  Check: oc get pods -n synesis-models"
-            log "  Then retry: ./scripts/deploy.sh $ENV"
+            log "  Then retry: ./scripts/deploy.sh $MODE"
         fi
     fi
 fi
 
 log ""
-log "=== Deployment complete ($ENV) ==="
+log "=== Deployment complete ($MODE) ==="
 
 ROUTE_HOST=$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")

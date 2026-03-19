@@ -1,0 +1,117 @@
+# KeycloakRealmImport — operator-supported mechanism for initial realm creation.
+#
+# Creates a one-time Job that imports the synesis realm. Idempotent: if
+# the realm already exists, the import is skipped. Override spec.realm
+# in overlays when deploying to a different cluster domain.
+#
+# Once imported, the CR and its Job can be safely deleted:
+#   oc delete keycloakrealmimport synesis-realm-import -n synesis-auth
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: synesis-realm-import
+  namespace: synesis-auth
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: identity-provider
+spec:
+  keycloakCRName: synesis-keycloak
+  realm:
+    realm: synesis
+    enabled: true
+    registrationAllowed: true
+    registrationEmailAsUsername: true
+    loginWithEmailAllowed: true
+    duplicateEmailsAllowed: false
+    resetPasswordAllowed: true
+    editUsernameAllowed: false
+    bruteForceProtected: true
+    permanentLockout: false
+    maxFailureWaitSeconds: 900
+    minimumQuickLoginWaitSeconds: 60
+    waitIncrementSeconds: 60
+    quickLoginCheckMilliSeconds: 1000
+    maxDeltaTimeSeconds: 43200
+    failureFactor: 5
+    sslRequired: external
+    accessTokenLifespan: 300
+    ssoSessionIdleTimeout: 1800
+    ssoSessionMaxLifespan: 36000
+    roles:
+      realm:
+        - name: synesis-user
+          description: "Standard Synesis user — chat, generate tokens, view own history"
+        - name: synesis-admin
+          description: "Platform administrator — full access to admin dashboard and APIs"
+    defaultRoles:
+      - synesis-user
+    scopeMappings: []
+    clientScopes:
+      - name: synesis-roles
+        description: "Include realm roles in access and ID tokens"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "false"
+        protocolMappers:
+          - name: realm-roles
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-realm-role-mapper
+            consentRequired: false
+            config:
+              multivalued: "true"
+              userinfo.token.claim: "true"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              claim.name: realm_access.roles
+              jsonType.label: String
+    clients:
+      - clientId: synesis-webui
+        name: "Synesis Web UI (OpenWebUI)"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        redirectUris:
+          - "https://synesis.apps.openshiftdemo.dev/*"
+        webOrigins:
+          - "https://synesis.apps.openshiftdemo.dev"
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: "https://synesis.apps.openshiftdemo.dev/*"
+      - clientId: synesis-admin
+        name: "Synesis Admin Dashboard"
+        enabled: true
+        publicClient: true
+        standardFlowEnabled: true
+        directAccessGrantsEnabled: false
+        redirectUris:
+          - "https://synesis-admin.apps.openshiftdemo.dev/*"
+        webOrigins:
+          - "https://synesis-admin.apps.openshiftdemo.dev"
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles
+        attributes:
+          pkce.code.challenge.method: S256
+          post.logout.redirect.uris: "https://synesis-admin.apps.openshiftdemo.dev/*"
+      - clientId: synesis-api
+        name: "Synesis API (service-to-service)"
+        enabled: true
+        publicClient: false
+        standardFlowEnabled: false
+        serviceAccountsEnabled: true
+        directAccessGrantsEnabled: false
+        defaultClientScopes:
+          - openid
+          - profile
+          - email
+          - synesis-roles

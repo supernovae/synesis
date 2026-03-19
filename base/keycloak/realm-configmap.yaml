@@ -1,6 +1,7 @@
-# Keycloak realm import — applied on first boot.
+# Keycloak realm definition — volume-mounted into /opt/keycloak/data/import.
 #
-# The Keycloak CR references this ConfigMap via realmImport.
+# Used by the Keycloak CR's unsupported.podTemplate volume mount as a fallback
+# import mechanism. The primary import is via KeycloakRealmImport CR (realm-import.yaml).
 # Clients use PKCE (public clients) so no client secrets are needed.
 # Self-registration is enabled; default role is synesis-user.
 ---
@@ -32,6 +33,9 @@ data:
       "maxDeltaTimeSeconds": 43200,
       "failureFactor": 5,
       "sslRequired": "external",
+      "accessTokenLifespan": 300,
+      "ssoSessionIdleTimeout": 1800,
+      "ssoSessionMaxLifespan": 36000,
       "roles": {
         "realm": [
           {

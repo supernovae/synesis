@@ -1,56 +1,34 @@
-# OpenRouter overlay — routes all LLM traffic through OpenRouter.ai API.
+# API mode — routes all LLM traffic through external providers (OpenRouter, etc.).
 #
-# Excludes base/model-serving entirely (no GPU pods, no vLLM).
-# Replaces the LiteLLM config with OpenRouter-backed model entries.
-# Patches the planner to route through LiteLLM instead of direct vLLM.
+# No GPU pods, no vLLM. Provider API keys are prompted by deploy.sh on first
+# run, then managed via Admin UI (Settings > Provider Keys).
 #
-# Deploy:
-#   kustomize build overlays/api | oc apply -f -
-#
-# Set your API key first:
-#   oc create secret generic openrouter-api-key \
-#     --from-literal=api-key=sk-or-v1-YOUR_KEY \
-#     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
+# Usage:
+#   ./scripts/deploy.sh api
+#   ./scripts/deploy.sh api v1.2.0    # specific image tag
 
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# No base/model-serving — all inference goes through OpenRouter
 resources:
-  - ../../base/gateway
-  - ../../base/planner
-  - ../../base/rag
-  - ../../base/supervisor
-  - ../../base/observability
-  - ../../base/sandbox
-  - ../../base/admin
-  - ../../base/lsp
-  - ../../base/search
-  - ../../base/webui
-  - ../../base/keycloak
-  # NOTE: openrouter-secret.yaml is NOT listed here — deploy.sh creates the
-  # secret interactively so oc apply -k never overwrites a live API key.
+  - ../../base/core
 
 patches:
-  # -----------------------------------------------------------------------
-  # LiteLLM config: replace base ConfigMap with OpenRouter-backed model list
-  # -----------------------------------------------------------------------
+  # LiteLLM config: replace base ConfigMap with OpenRouter-backed model list.
+  # After day-0, model routing is managed via Admin UI (Model Registry).
   - target:
       kind: ConfigMap
       name: litellm-config
     path: litellm-config-openrouter.yaml
-  # -----------------------------------------------------------------------
+
   # Supervisor: redirect model health checks through LiteLLM
-  # -----------------------------------------------------------------------
   - target:
       kind: ConfigMap
       name: synesis-supervisor-config
     path: supervisor-config-patch.yaml
 
-  # -----------------------------------------------------------------------
   # LiteLLM secrets: clear master_key so the planner's api_key="not-needed"
   # passes through without triggering a virtual-key DB lookup.
-  # -----------------------------------------------------------------------
   - target:
       kind: Secret
       name: litellm-secrets
@@ -62,10 +40,7 @@ patches:
       stringData:
         master-key: ""
 
-  # -----------------------------------------------------------------------
-  # LiteLLM: clear master key (API mode — no virtual key auth needed).
-  # Provider API keys come from envFrom: provider-api-keys (base deployment).
-  # -----------------------------------------------------------------------
+  # LiteLLM: clear master key env var (API mode — no virtual key auth needed).
   - target:
       kind: Deployment
       name: litellm-proxy
@@ -83,11 +58,8 @@ patches:
                   - name: LITELLM_MASTER_KEY
                     $patch: delete
 
-  # -----------------------------------------------------------------------
-  # OpenWebUI: point directly at the planner so SSE status events
-  # (phase updates, thinking indicators) pass through without being
-  # stripped by LiteLLM's response normalizer.
-  # -----------------------------------------------------------------------
+  # WebUI: point directly at the planner so SSE status events pass through
+  # without being stripped by LiteLLM's response normalizer.
   - target:
       kind: Deployment
       name: open-webui
@@ -105,11 +77,8 @@ patches:
                   - name: OPENAI_API_BASE_URL
                     value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
 
-  # -----------------------------------------------------------------------
-  # Planner: point all model URLs through LiteLLM (which proxies to OpenRouter).
-  # Model names stay the same (synesis-router, synesis-general, etc.) —
-  # LiteLLM resolves them to the correct OpenRouter model paths.
-  # -----------------------------------------------------------------------
+  # Planner: all model URLs through LiteLLM (which proxies to OpenRouter).
+  # Model names stay the same — LiteLLM resolves the routing.
   - target:
       kind: Deployment
       name: synesis-planner
@@ -124,7 +93,6 @@ patches:
             containers:
               - name: planner
                 env:
-                  # All roles route through LiteLLM gateway
                   - name: SYNESIS_ROUTER_MODEL_URL
                     value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
                   - name: SYNESIS_PLANNER_MODEL_URL
@@ -137,7 +105,6 @@ patches:
                     value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
                   - name: SYNESIS_SUMMARIZER_MODEL_URL
                     value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
-                  # Model names unchanged — LiteLLM resolves the routing
                   - name: SYNESIS_ROUTER_MODEL_NAME
                     value: "synesis-router"
                   - name: SYNESIS_PLANNER_MODEL_NAME
@@ -148,20 +115,16 @@ patches:
                     value: "synesis-general"
                   - name: SYNESIS_CRITIC_MODEL_NAME
                     value: "synesis-critic"
-                  # Cap critic output tokens (DeepSeek-R1-Distill-Llama-70B); room for thinking + structured output
                   - name: SYNESIS_CRITIC_MAX_TOKENS
                     value: "4096"
-                  # Reasoning effort: disable thinking for fast classification, low for planning
                   - name: SYNESIS_ROUTER_REASONING_EFFORT
                     value: "none"
                   - name: SYNESIS_PLANNER_REASONING_EFFORT
                     value: "low"
                   - name: SYNESIS_SUMMARIZER_MODEL_NAME
                     value: "synesis-summarizer"
-                  # OpenRouter models are hosted — disable guided JSON (not supported by most providers)
                   - name: SYNESIS_GUIDED_JSON_ENABLED
                     value: "false"
-                  # Disable UDS paths (no co-located vLLM)
                   - name: SYNESIS_ROUTER_MODEL_UDS
                     value: ""
                   - name: SYNESIS_PLANNER_MODEL_UDS
@@ -172,7 +135,6 @@ patches:
                     value: ""
                   - name: SYNESIS_ADVISOR_MODEL_UDS
                     value: ""
-
 
 images:
   - name: synesis-planner
@@ -193,9 +155,3 @@ images:
   - name: synesis-ingestor
     newName: ghcr.io/supernovae/synesis/ingestor
     newTag: latest
-
-# NOTE: No synesis.io/environment label here. Kustomize global labels
-# stamp every resource — switching overlays (dev → openrouter) changes the
-# label on all 80+ resources, triggering operator reconciles (Milvus,
-# ClickHouse, etc.) and cascading pod restarts. The label is informational
-# only; not worth the blast radius.

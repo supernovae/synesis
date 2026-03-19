@@ -393,6 +393,11 @@ def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request)
     return "anonymous"
 
 
+def _resolve_user_email(http_request: Request) -> str:
+    """Extract user email from Open WebUI forwarded headers (shared with Keycloak)."""
+    return (http_request.headers.get("x-openwebui-user-email") or "").strip()[:256]
+
+
 def _resolve_conversation_id(request_body: ChatCompletionRequest, http_request: Request) -> str | None:
     """Resolve conversation scope: body > Open WebUI header > generic headers > None.
     When present, memory (history, pending plans) is scoped per conversation — avoids drift across chats."""
@@ -951,6 +956,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     _sample_memory_and_log("request_start")
 
     user_id = _resolve_user_id(request, http_request)
+    user_email = _resolve_user_email(http_request)
     conversation_id = _resolve_conversation_id(request, http_request)
     memory_scope = _memory_scope_key(user_id, conversation_id)
 
@@ -1210,7 +1216,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     _set_telemetry_ctx(run_id=run_id, user_id=user_id)
     _tracer = get_synesis_tracer()
     if _tracer is not None:
-        _tracer.start_trace(trace_id=run_id, user_id=user_id, query=(last_user_content or "")[:500])
+        _tracer.start_trace(trace_id=run_id, user_id=user_id, user_email=user_email, query=(last_user_content or "")[:500])
     coding_client = _is_coding_client(http_request)
     initial_state: dict[str, Any] = {
         "messages": user_messages,

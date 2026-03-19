@@ -1,0 +1,63 @@
+# Model mode — self-hosted GPU inference via vLLM.
+#
+# Deploys model-serving pods (router, critic, coder, general) alongside
+# all core services. Defaults to the "small profile" where the critic
+# role is served by the router pod (single GPU). Scale up critic and
+# fix the Service selector when dedicated critic GPUs are available.
+#
+# Usage:
+#   ./scripts/deploy.sh model
+#   ./scripts/deploy.sh model v1.2.0    # specific image tag
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base/core
+  - ../../base/model-serving
+  - ../../base/yarn
+
+patches:
+  # Small profile default: no dedicated critic pod — the router pod
+  # serves the critic role via --served-model-name alias.
+  # To enable a dedicated critic: oc scale deployment/synesis-critic --replicas=1
+  # and patch the Service selector back to app: synesis-critic.
+  - target:
+      kind: Deployment
+      name: synesis-critic
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 0
+
+  - target:
+      kind: Service
+      name: synesis-critic
+    patch: |
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: synesis-critic
+      spec:
+        selector:
+          app: synesis-router
+
+images:
+  - name: synesis-planner
+    newName: ghcr.io/supernovae/synesis/planner
+    newTag: latest
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
+  - name: synesis-lsp-gateway
+    newName: ghcr.io/supernovae/synesis/lsp-gateway
+    newTag: latest
+  - name: synesis-sandbox
+    newName: ghcr.io/supernovae/synesis/sandbox
+    newTag: latest
+  - name: synesis-bge-reranker
+    newName: ghcr.io/supernovae/synesis/bge-reranker
+    newTag: latest
+  - name: synesis-ingestor
+    newName: ghcr.io/supernovae/synesis/ingestor
+    newTag: latest

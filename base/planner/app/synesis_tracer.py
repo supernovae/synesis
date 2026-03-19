@@ -86,6 +86,7 @@ class SpanRecord:
 class TraceRecord:
     trace_id: str = ""
     user_id: str = ""
+    user_email: str = ""
     query_snippet: str = ""
     timestamp: float = 0.0
     total_duration_ms: float = 0.0
@@ -339,11 +340,12 @@ class SynesisTracer(BaseCallbackHandler):
 
     # -- Trace lifecycle ---------------------------------------------------
 
-    def start_trace(self, *, trace_id: str = "", user_id: str = "", query: str = "") -> None:
+    def start_trace(self, *, trace_id: str = "", user_id: str = "", user_email: str = "", query: str = "") -> None:
         """Begin a new trace (called from the API layer before graph.ainvoke)."""
         self._current_trace = TraceRecord(
             trace_id=trace_id or str(uuid.uuid4()),
             user_id=user_id,
+            user_email=user_email,
             query_snippet=query[:_MAX_SNIPPET],
             timestamp=time.time(),
         )
