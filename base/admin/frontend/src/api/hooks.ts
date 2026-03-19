@@ -199,6 +199,43 @@ export function useUpdateFallbacks() {
   });
 }
 
+// --- Provider Keys ---
+
+export interface ProviderKeyStatus {
+  name: string;
+  configured: boolean;
+}
+
+export function useProviderKeys() {
+  return useQuery<ProviderKeyStatus[]>({
+    queryKey: ["providers", "keys"],
+    queryFn: () => client.get("/providers/keys").then((r) => r.data.keys ?? r.data),
+    staleTime: 30_000,
+  });
+}
+
+export function useSetProviderKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, value }: { name: string; value: string }) =>
+      client.put(`/providers/keys/${name}`, { value }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+    },
+  });
+}
+
+export function useDeleteProviderKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      client.delete(`/providers/keys/${name}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+    },
+  });
+}
+
 // --- Model Performance (detailed, trace-based) ---
 
 export interface DetailedModelPerformance {

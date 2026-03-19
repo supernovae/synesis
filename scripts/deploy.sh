@@ -8,7 +8,7 @@ set -euo pipefail
 # Prunes stale ReplicaSets and keeps revision history short for idempotent deploys.
 #
 # Usage: ./scripts/deploy.sh <environment> [ref]
-#   environment: dev | staging | prod | openrouter
+#   environment: dev | staging | prod | api (alias: openrouter)
 #   ref:        (optional) Image tag to deploy. Default: latest.
 #               Use "latest", a branch (main, feature/foo), a tag (v1.0.0), or PR (pr-123).
 #               Images must be built and pushed with that tag first, e.g.:
@@ -21,9 +21,9 @@ set -euo pipefail
 #   ./scripts/deploy.sh staging v1.2.0         # deploy release tag
 #   SYNESIS_REF=pr-456 ./scripts/deploy.sh dev # deploy PR branch images
 #
-# The "openrouter" environment routes all LLM traffic through OpenRouter.ai,
-# eliminating the need for GPU hardware.  On first run it prompts for your
-# OpenRouter API key (or reads OPENROUTER_API_KEY from the environment).
+# The "api" environment routes all LLM traffic through API providers
+# (OpenRouter, Groq, etc.), eliminating the need for GPU hardware.
+# On first run it prompts for API keys (or reads from environment variables).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -35,10 +35,16 @@ PYTHON="${PROJECT_ROOT}/.venv/bin/python3"
 ENV="${1:-}"
 REF="${2:-${SYNESIS_REF:-latest}}"
 
-if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|staging|prod|openrouter)$ ]]; then
-    echo "Usage: $0 <dev|staging|prod|openrouter> [ref]"
+if [[ -z "$ENV" ]] || [[ ! "$ENV" =~ ^(dev|dev-services|staging|prod|api|openrouter)$ ]]; then
+    echo "Usage: $0 <dev|staging|prod|api> [ref]"
     echo "  ref: optional image tag (default: latest). e.g. main, v1.0.0, pr-123"
+    echo "  'openrouter' is accepted as an alias for 'api'"
     exit 1
+fi
+
+# Normalize legacy alias
+if [[ "$ENV" == "openrouter" ]]; then
+    ENV="api"
 fi
 
 # Normalize ref for image tag (no leading/trailing slash; safe for sed)
@@ -101,24 +107,27 @@ ensure_webui_key() {
 }
 
 # -----------------------------------------------------------------------
-# OpenRouter API key: prompt interactively or read from OPENROUTER_API_KEY.
-# Creates the openrouter-api-key secret in synesis-gateway namespace.
+# Provider API keys: prompt for OpenRouter key interactively or read from
+# OPENROUTER_API_KEY.  Writes to the unified provider-api-keys secret in
+# synesis-gateway.  Additional provider keys can be managed via Admin UI
+# (Settings > Provider Keys) after deployment.
 # -----------------------------------------------------------------------
 ensure_openrouter_key() {
     local ns="synesis-gateway"
-    local secret_name="openrouter-api-key"
+    local secret_name="provider-api-keys"
     local existing_key=""
 
     oc create namespace "$ns" 2>/dev/null || true
 
     if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
         existing_key=$(oc get secret "$secret_name" -n "$ns" \
-            -o jsonpath='{.data.api-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+            -o jsonpath='{.data.OPENROUTER_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
     fi
 
     if [[ -n "$existing_key" ]] && [[ "$existing_key" != "sk-or-v1-REPLACE_ME" ]]; then
         log "OpenRouter API key already exists in $ns/$secret_name"
-        log "  To rotate: oc delete secret $secret_name -n $ns && ./scripts/deploy.sh openrouter"
+        log "  To rotate: manage keys via Admin UI (Settings > Provider Keys)"
+        log "  Or re-run: oc patch secret $secret_name -n $ns -p '{\"data\":{\"OPENROUTER_API_KEY\":\"'\"$(echo -n NEW_KEY | base64)\"'\"}}'"
         return
     fi
 
@@ -150,10 +159,11 @@ ensure_openrouter_key() {
 
     oc create secret generic "$secret_name" \
         -n "$ns" \
-        --from-literal=api-key="$api_key" \
+        --from-literal=OPENROUTER_API_KEY="$api_key" \
         --dry-run=client -o yaml | oc apply -f -
 
-    log "OpenRouter API key stored in $ns/$secret_name"
+    log "OpenRouter API key stored in $ns/$secret_name (OPENROUTER_API_KEY)"
+    log "  Add more provider keys via Admin UI (Settings > Provider Keys)"
 }
 
 
@@ -394,7 +404,7 @@ log ""
 ensure_litellm_key
 ensure_webui_key
 
-if [[ "$ENV" == "openrouter" ]]; then
+if [[ "$ENV" == "api" ]]; then
     ensure_openrouter_key
 fi
 
@@ -553,8 +563,8 @@ discover_runtimes() {
 }
 
 log ""
-if [[ "$ENV" == "openrouter" ]]; then
-    log "OpenRouter mode: skipping RHOAI/model-serving checks (no GPU hardware needed)"
+if [[ "$ENV" == "api" ]]; then
+    log "API mode: skipping RHOAI/model-serving checks (no GPU hardware needed)"
     ISVC_SKIP=true
 else
     log "Checking RHOAI model serving readiness..."
@@ -636,7 +646,7 @@ ensure_model_pvc() {
         fi
     fi
 }
-if [[ "$ENV" != "openrouter" ]]; then
+if [[ "$ENV" != "api" ]]; then
     ensure_model_pvc
 fi
 
@@ -823,11 +833,10 @@ if [[ "$APPLY_OK" == "true" ]]; then
 fi
 
 log ""
-if [[ "$ENV" == "openrouter" ]]; then
-    log "Model serving: OpenRouter.ai (no local GPU hardware)"
-    log "  All LLM traffic routes through LiteLLM → OpenRouter API"
-    log "  Model mapping defined in overlays/openrouter/litellm-config-openrouter.yaml"
-    log "  To change models, edit the config and re-deploy."
+if [[ "$ENV" == "api" ]]; then
+    log "Model serving: API providers (no local GPU hardware)"
+    log "  All LLM traffic routes through LiteLLM → external API providers"
+    log "  Configure model endpoints via Admin UI or overlays/api/litellm-config-openrouter.yaml"
 else
     log "Model serving status (synesis-models namespace):"
     if [[ "$ISVC_SKIP" == "true" ]]; then

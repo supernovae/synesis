@@ -1,0 +1,19 @@
+# Provider API keys — all LLM provider credentials in one secret.
+#
+# LiteLLM reads these via envFrom. Model configs reference them as
+# "os.environ/OPENROUTER_API_KEY", "os.environ/GROQ_API_KEY", etc.
+#
+# Manage keys via Admin UI (Settings > Provider Keys) or CLI:
+#   oc create secret generic provider-api-keys \
+#     --from-literal=OPENROUTER_API_KEY=sk-or-v1-... \
+#     --from-literal=GROQ_API_KEY=gsk_... \
+#     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: provider-api-keys
+  namespace: synesis-gateway
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: gateway
+type: Opaque

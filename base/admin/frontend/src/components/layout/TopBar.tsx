@@ -30,6 +30,7 @@ const breadcrumbLabels: Record<string, string> = {
   "circuit-breakers": "Circuit Breakers",
   errors: "Errors",
   settings: "Settings",
+  providers: "Provider Keys",
   account: "Account",
   tokens: "API Tokens",
 };

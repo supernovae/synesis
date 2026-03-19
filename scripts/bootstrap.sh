@@ -4,37 +4,56 @@ set -euo pipefail
 # Synesis Bootstrap Script
 #
 # Prepares an OpenShift cluster for Synesis deployment.
-# Requires: RHOAI operator + NVIDIA GPU Operator already installed.
 #
-# Usage: ./scripts/bootstrap.sh [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]
-#   --ghcr-creds     Prompt for GitHub credentials to create GHCR pull secrets (private images)
+# Usage: ./scripts/bootstrap.sh [--mode MODE] [--force] [--force-tokens]
+#            [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]
+#
+#   --mode MODE        Deployment mode: "local" (default, requires RHOAI + GPU)
+#                      or "api" (API-only, no GPU/model-serving needed)
+#   --force            Continue even if operator preflight checks fail
+#   --force-tokens     Overwrite existing token secrets without prompting
+#   --ghcr-creds       Prompt for GitHub credentials to create GHCR pull secrets
 #   --skip-ghcr-creds  Skip GHCR pull secret setup (use when images are public)
-#   --hf-token       Prompt for HuggingFace token (avoids throttling, enables private models)
-#   --github-token   Create synesis-github-token in synesis-rag (RAG indexer jobs need this for GitHub API)
+#   --hf-token         Prompt for HuggingFace token (gated model access)
+#   --github-token     Create synesis-github-token in synesis-rag (RAG indexer)
 
+MODE="local"
 FORCE=false
+FORCE_TOKENS=false
 GHCR_CREDS=false
 SKIP_GHCR_CREDS=false
 HF_TOKEN=false
 GITHUB_TOKEN_FLAG=false
 for arg in "$@"; do
     case "$arg" in
+        --mode=*) MODE="${arg#*=}" ;;
+        --openrouter|--api) MODE="api" ;;
         --force) FORCE=true ;;
+        --force-tokens) FORCE_TOKENS=true ;;
         --ghcr-creds) GHCR_CREDS=true ;;
         --skip-ghcr-creds) SKIP_GHCR_CREDS=true ;;
         --hf-token) HF_TOKEN=true ;;
         --github-token) GITHUB_TOKEN_FLAG=true ;;
         --help|-h)
-            echo "Usage: $0 [--force] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]"
+            echo "Usage: $0 [--mode MODE] [--force] [--force-tokens] [--ghcr-creds] [--skip-ghcr-creds] [--hf-token] [--github-token]"
             echo ""
             echo "Prepares an OpenShift cluster for Synesis deployment."
-            echo "  --force           Continue even if RHOAI/GPU checks fail"
-            echo "  --ghcr-creds      Prompt for GitHub user/token to create GHCR pull secrets (private images)"
-            echo "  --skip-ghcr-creds Skip GHCR pull secret setup (default when not prompting)"
-            echo "  --hf-token        Prompt for HuggingFace token (model downloads, avoids throttling)"
-            echo "  --github-token    Create synesis-github-token in synesis-rag (RAG indexer jobs)"
             echo ""
-            echo "For non-interactive use: GITHUB_USERNAME, GITHUB_TOKEN, HUGGINGFACE_TOKEN env vars."
+            echo "Modes:"
+            echo "  --mode=local       (default) Full deployment: RHOAI + GPU + local vLLM model serving"
+            echo "  --mode=api         API-only: skip RHOAI/GPU checks, no model PVC, no local model serving"
+            echo "  --api / --openrouter  Shorthand for --mode=api"
+            echo ""
+            echo "Options:"
+            echo "  --force            Continue even if operator preflight checks fail"
+            echo "  --force-tokens     Overwrite existing token secrets without prompting"
+            echo "  --ghcr-creds       Prompt for GitHub user/token to create GHCR pull secrets (private images)"
+            echo "  --skip-ghcr-creds  Skip GHCR pull secret setup (default when not prompting)"
+            echo "  --hf-token         Prompt for HuggingFace token (gated model access, avoids throttling)"
+            echo "  --github-token     Create synesis-github-token in synesis-rag (RAG indexer jobs)"
+            echo ""
+            echo "Environment variables (non-interactive):"
+            echo "  GITHUB_USERNAME / GITHUB_USER, GITHUB_TOKEN, HUGGINGFACE_TOKEN"
             exit 0
             ;;
         *)
@@ -43,6 +62,15 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+case "$MODE" in
+    local|api) ;;
+    openrouter) MODE="api" ;;
+    *)
+        echo "Unknown mode: $MODE (expected 'local' or 'api')"
+        exit 1
+        ;;
+esac
 
 log()  { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $*" >&2; }
@@ -298,7 +326,8 @@ create_namespaces() {
     log "Creating Synesis namespaces..."
     local namespaces=(
         synesis-models synesis-gateway synesis-planner synesis-rag
-        synesis-sandbox synesis-search synesis-lsp synesis-webui synesis-auth
+        synesis-sandbox synesis-search synesis-lsp synesis-webui
+        synesis-admin synesis-auth
     )
     for ns in "${namespaces[@]}"; do
         oc create namespace "$ns" 2>/dev/null || log "  Namespace $ns already exists"
@@ -356,7 +385,7 @@ configure_ghcr_pull_secrets() {
     log "Creating GHCR pull secrets in Synesis namespaces..."
     local namespaces=(
         synesis-gateway synesis-planner synesis-rag synesis-sandbox
-        synesis-search synesis-lsp synesis-webui
+        synesis-search synesis-lsp synesis-webui synesis-admin synesis-auth
     )
     for ns in "${namespaces[@]}"; do
         if oc get namespace "$ns" &>/dev/null; then
@@ -380,11 +409,48 @@ configure_ghcr_pull_secrets() {
 }
 
 # ---------------------------------------------------------------------------
-# GitHub token for RAG indexer jobs (synesis-rag)
+# Token management helpers
 #
-# The code indexer (synesis-index-code) needs GITHUB_TOKEN for cloning repos
-# and fetching PR metadata. Stored as synesis-github-token with key "token".
-# Jobs expect: secretKeyRef name=synesis-github-token key=token
+# ensure_secret_in_ns: check if a secret exists in a namespace, prompt to
+# overwrite if interactive, respect --force-tokens for silent rotation.
+# Returns 0 if the secret should be written, 1 if skipped.
+# ---------------------------------------------------------------------------
+_should_write_secret() {
+    local secret_name="$1" ns="$2"
+
+    if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        if [[ "$FORCE_TOKENS" == "true" ]]; then
+            log "  $ns/$secret_name: exists — overwriting (--force-tokens)"
+            return 0
+        elif [[ -t 0 ]]; then
+            local reply=""
+            read -rp "  $ns/$secret_name already exists. Overwrite? [y/N] " reply
+            if [[ "$reply" =~ ^[Yy] ]]; then
+                return 0
+            else
+                log "  $ns/$secret_name: keeping existing"
+                return 1
+            fi
+        else
+            log "  $ns/$secret_name: exists — keeping (use --force-tokens to overwrite)"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+_write_secret() {
+    local secret_name="$1" ns="$2"; shift 2
+    oc create namespace "$ns" 2>/dev/null || true
+    oc create secret generic "$secret_name" "$@" \
+        -n "$ns" --dry-run=client -o yaml | oc apply -f -
+}
+
+# ---------------------------------------------------------------------------
+# GitHub token for RAG indexer jobs
+#
+# The code indexer needs GITHUB_TOKEN for cloning repos and fetching PR
+# metadata. Stored as synesis-github-token with key "token".
 # ---------------------------------------------------------------------------
 configure_github_token_rag() {
     local gh_token="${1:-${GITHUB_TOKEN:-}}"
@@ -393,27 +459,28 @@ configure_github_token_rag() {
         return 0
     fi
 
-    oc create namespace synesis-rag 2>/dev/null || true
-    oc create secret generic synesis-github-token \
-        --from-literal=token="$gh_token" \
-        -n synesis-rag \
-        --dry-run=client -o yaml | oc apply -f -
-    log "  GitHub token stored in synesis-rag/synesis-github-token (RAG indexer)"
+    local namespaces=(synesis-rag)
+    for ns in "${namespaces[@]}"; do
+        if _should_write_secret "synesis-github-token" "$ns"; then
+            _write_secret "synesis-github-token" "$ns" --from-literal=token="$gh_token"
+            log "  GitHub token stored in $ns/synesis-github-token"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------
-# HuggingFace token for model deployments and RAG indexer
+# HuggingFace token for model serving and RAG services
 #
-# KServe/ODH uses HF_TOKEN when pulling models from HuggingFace (hf://).
-# RAG indexer uses it for sentence-transformers model downloads (KeyBERT).
-# Prevents throttling and enables private models.
+# KServe uses HF_TOKEN when pulling gated models from HuggingFace (hf://).
+# RAG microservices (keyword-service, embedder) may need it for gated
+# sentence-transformers. Prevents throttling on public models.
 # ---------------------------------------------------------------------------
 configure_hf_token() {
     local hf_token="${HUGGINGFACE_TOKEN:-}"
 
     if [[ "$HF_TOKEN" == "true" ]] && [[ -z "$hf_token" ]]; then
         if [[ -t 0 ]]; then
-            log "HuggingFace token (avoids throttling, enables private models)"
+            log "HuggingFace token (avoids throttling, enables gated models)"
             read -rsp "  HuggingFace token (optional, press Enter to skip): " hf_token && echo ""
         else
             warn "Cannot prompt (non-interactive). Set HUGGINGFACE_TOKEN to provide HF token."
@@ -425,19 +492,13 @@ configure_hf_token() {
         return 0
     fi
 
-    oc create namespace synesis-models 2>/dev/null || true
-    oc create secret generic synesis-hf-token \
-        --from-literal=HF_TOKEN="$hf_token" \
-        -n synesis-models \
-        --dry-run=client -o yaml | oc apply -f -
-    log "  HuggingFace token stored in synesis-models/synesis-hf-token"
-
-    oc create namespace synesis-rag 2>/dev/null || true
-    oc create secret generic synesis-hf-token \
-        --from-literal=HF_TOKEN="$hf_token" \
-        -n synesis-rag \
-        --dry-run=client -o yaml | oc apply -f -
-    log "  HuggingFace token stored in synesis-rag/synesis-hf-token (indexer)"
+    local namespaces=(synesis-models synesis-rag)
+    for ns in "${namespaces[@]}"; do
+        if _should_write_secret "synesis-hf-token" "$ns"; then
+            _write_secret "synesis-hf-token" "$ns" --from-literal=HF_TOKEN="$hf_token"
+            log "  HuggingFace token stored in $ns/synesis-hf-token"
+        fi
+    done
 }
 
 install_milvus_operator() {
@@ -530,15 +591,19 @@ EOSCC
 }
 
 main() {
-    log "=== Synesis Bootstrap ==="
+    log "=== Synesis Bootstrap (mode: $MODE) ==="
     log ""
 
     check_prerequisites
 
     log ""
     log "--- Preflight: Required Operators ---"
-    verify_rhoai  || true
-    verify_gpu_operator || true
+    if [[ "$MODE" == "local" ]]; then
+        verify_rhoai  || true
+        verify_gpu_operator || true
+    else
+        log "  RHOAI / GPU Operator: skipped (api mode — no local model serving)"
+    fi
     verify_keycloak_operator || true
     preflight_gate
 
@@ -546,9 +611,15 @@ main() {
     log "--- Namespaces ---"
     create_namespaces
 
-    log ""
-    log "--- Model PVC (EFS) ---"
-    create_model_pvc
+    if [[ "$MODE" == "local" ]]; then
+        log ""
+        log "--- Model PVC (EFS) ---"
+        create_model_pvc
+    else
+        log ""
+        log "--- Model PVC (EFS) ---"
+        log "  Skipped (api mode — models served via API providers, no local weights)"
+    fi
 
     if [[ "$SKIP_GHCR_CREDS" != "true" ]]; then
         log ""
@@ -562,9 +633,9 @@ main() {
 
     log ""
     log "--- GitHub Token (RAG indexer jobs) ---"
-    if [[ "$GITHUB_TOKEN_FLAG" == "true" ]]; then
+    if [[ "$GITHUB_TOKEN_FLAG" == "true" ]] || [[ -n "${GITHUB_TOKEN:-}" ]]; then
         local gh_token="${GITHUB_TOKEN:-}"
-        if [[ -z "$gh_token" ]] && [[ -t 0 ]]; then
+        if [[ -z "$gh_token" ]] && [[ "$GITHUB_TOKEN_FLAG" == "true" ]] && [[ -t 0 ]]; then
             log "GitHub token for RAG indexer (clone repos, fetch PR metadata)"
             read -rsp "  GitHub token (or PAT): " gh_token && echo ""
         fi
@@ -573,11 +644,8 @@ main() {
         else
             warn "No token provided. Set GITHUB_TOKEN or run with --ghcr-creds (same token works for both)."
         fi
-    elif [[ -n "${GITHUB_TOKEN:-}" ]] && oc get namespace synesis-rag &>/dev/null; then
-        # If GITHUB_TOKEN is set (e.g. from --ghcr-creds), ensure RAG secret exists
-        configure_github_token_rag || true
     else
-        log "  Skipped (use --github-token to create, or --ghcr-creds which also creates it)"
+        log "  Skipped (use --github-token to prompt, or set GITHUB_TOKEN env var)"
     fi
 
     log ""
@@ -585,25 +653,37 @@ main() {
     install_milvus_operator || true
 
     log ""
-    log "--- HuggingFace Token (model downloads) ---"
+    log "--- HuggingFace Token (gated model access) ---"
     if [[ "$HF_TOKEN" == "true" ]] || [[ -n "${HUGGINGFACE_TOKEN:-}" ]]; then
         configure_hf_token || true
     else
         log "  Skipped (use --hf-token to prompt, or set HUGGINGFACE_TOKEN)"
-        log "  Recommended to avoid rate limiting when deploy.sh deploys models from hf://"
+        log "  Recommended for gated models and to avoid rate limiting"
     fi
 
     log ""
-    log "=== Bootstrap complete ==="
+    log "=== Bootstrap complete (mode: $MODE) ==="
     log ""
     log "Next steps:"
-    log "  1. Download models:      ./scripts/run-model-pipeline.sh --profile=small"
-    log "  2. Build images:         ./scripts/build-images.sh --push"
-    log "  3. Deploy services:      ./scripts/deploy.sh dev"
-    log "  4. Deploy indexer:       ./scripts/deploy-indexer.sh"
-    log "  5. Load RAG corpus:      ./scripts/load-language-pack.sh bash"
-    log ""
-    log "  If models fail:          ./scripts/list-model-runtimes.sh"
+    if [[ "$MODE" == "local" ]]; then
+        log "  1. Download models:      ./scripts/run-model-pipeline.sh --profile=small"
+        log "  2. Build images:         ./scripts/build-images.sh --push"
+        log "  3. Deploy services:      ./scripts/deploy.sh dev"
+        log "  4. Deploy indexer:       ./scripts/deploy-indexer.sh"
+        log ""
+        log "  If models fail:          ./scripts/list-model-runtimes.sh"
+    else
+        log "  1. Build images:         ./scripts/build-images.sh --push"
+        log "  2. Deploy services:      ./scripts/deploy.sh api"
+        log "  3. Deploy indexer:       ./scripts/deploy-indexer.sh"
+        log ""
+        log "  No local models — all LLM traffic routes through API providers."
+        log "  Configure provider API keys and model endpoints via the Admin UI,"
+        log "  or set defaults before deploy (e.g. for OpenRouter):"
+        log "    oc create secret generic openrouter-api-key \\"
+        log "      --from-literal=api-key=sk-or-v1-YOUR_KEY \\"
+        log "      -n synesis-gateway --dry-run=client -o yaml | oc apply -f -"
+    fi
 }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

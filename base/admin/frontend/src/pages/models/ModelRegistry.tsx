@@ -10,6 +10,7 @@ import {
   useReconcileModels,
   useCreateModelDeployment,
   useUpdateFallbacks,
+  useProviderKeys,
 } from "../../api/hooks";
 import type { ModelDeployment } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
@@ -31,10 +32,29 @@ import {
   Zap,
 } from "lucide-react";
 
+const PROVIDERS: Record<string, { label: string; prefix: string; apiKeyEnv: string; needsEndpoint: boolean; placeholder: string }> = {
+  openrouter: { label: "OpenRouter",  prefix: "openrouter/",   apiKeyEnv: "OPENROUTER_API_KEY", needsEndpoint: false, placeholder: "x-ai/grok-4-fast" },
+  groq:       { label: "Groq",        prefix: "groq/",         apiKeyEnv: "GROQ_API_KEY",       needsEndpoint: false, placeholder: "llama-3.3-70b-versatile" },
+  together:   { label: "Together AI", prefix: "together_ai/",  apiKeyEnv: "TOGETHER_API_KEY",   needsEndpoint: false, placeholder: "meta-llama/Llama-3-70b" },
+  deepinfra:  { label: "DeepInfra",   prefix: "deepinfra/",    apiKeyEnv: "DEEPINFRA_API_KEY",  needsEndpoint: false, placeholder: "meta-llama/Meta-Llama-3.1-70B" },
+  fireworks:  { label: "Fireworks AI", prefix: "fireworks_ai/", apiKeyEnv: "FIREWORKS_API_KEY",  needsEndpoint: false, placeholder: "llama-v3p1-70b-instruct" },
+  openai:     { label: "OpenAI",      prefix: "openai/",       apiKeyEnv: "OPENAI_API_KEY",     needsEndpoint: false, placeholder: "gpt-4o" },
+  anthropic:  { label: "Anthropic",   prefix: "anthropic/",    apiKeyEnv: "ANTHROPIC_API_KEY",  needsEndpoint: false, placeholder: "claude-sonnet-4-20250514" },
+  vllm:       { label: "vLLM (local)", prefix: "openai/",      apiKeyEnv: "",                   needsEndpoint: true,  placeholder: "synesis-router" },
+  custom:     { label: "Custom (OpenAI-compatible)", prefix: "openai/", apiKeyEnv: "", needsEndpoint: true, placeholder: "model-name" },
+};
+
 const SOURCE_ICON: Record<string, typeof Cloud> = {
   openrouter: Cloud,
+  groq: Cloud,
+  together: Cloud,
+  deepinfra: Cloud,
+  fireworks: Cloud,
+  openai: Cloud,
+  anthropic: Cloud,
   vllm: Server,
   kserve: Server,
+  custom: Cloud,
   external: Cloud,
   local: Server,
 };
@@ -70,7 +90,10 @@ export default function ModelRegistry() {
 
   const [editing, setEditing] = useState<EditState | null>(null);
   const [showAdd, setShowAdd] = useState(false);
-  const [newDep, setNewDep] = useState({ environment: "", role: "", model: "", source: "openrouter", endpoint: "" });
+  const [newDep, setNewDep] = useState({ environment: "", role: "", model: "", source: "openrouter", endpoint: "", apiKeyEnv: "" });
+
+  const { data: providerKeysData } = useProviderKeys();
+  const configuredKeys = new Set((providerKeysData ?? []).filter((k: any) => k.configured).map((k: any) => k.name));
 
   const deployments = data?.deployments ?? [];
   const active = deployments.filter((d) => d.is_active);
@@ -113,21 +136,32 @@ export default function ModelRegistry() {
   };
 
   const handleCreate = () => {
-    const litellm_params: Record<string, unknown> =
-      newDep.source === "openrouter"
-        ? { model: `openrouter/${newDep.model}`, api_key: "os.environ/OPENROUTER_API_KEY", max_tokens: 8192, temperature: 0.1 }
-        : { model: `openai/synesis-${newDep.role}`, api_base: newDep.endpoint, api_key: "not-needed", max_tokens: 32768, temperature: 0.2 };
+    const provider = PROVIDERS[newDep.source] ?? PROVIDERS.custom;
+    const litellm_params: Record<string, unknown> = {
+      model: `${provider.prefix}${newDep.model}`,
+      max_tokens: provider.needsEndpoint ? 32768 : 8192,
+      temperature: 0.1,
+    };
+    const keyEnv = newDep.apiKeyEnv || provider.apiKeyEnv;
+    if (keyEnv) {
+      litellm_params.api_key = `os.environ/${keyEnv}`;
+    } else if (provider.needsEndpoint) {
+      litellm_params.api_key = "not-needed";
+    }
+    if (provider.needsEndpoint && newDep.endpoint) {
+      litellm_params.api_base = newDep.endpoint;
+    }
     createMut.mutate(
       {
         environment: newDep.environment,
         role: newDep.role,
         model: newDep.model,
-        endpoint: newDep.endpoint || "https://openrouter.ai/api/v1",
+        endpoint: newDep.endpoint || "",
         source: newDep.source as any,
         served_name: `synesis-${newDep.role}`,
         litellm_params: litellm_params as any,
       },
-      { onSuccess: () => { setShowAdd(false); setNewDep({ environment: "", role: "", model: "", source: "openrouter", endpoint: "" }); } }
+      { onSuccess: () => { setShowAdd(false); setNewDep({ environment: "", role: "", model: "", source: "openrouter", endpoint: "", apiKeyEnv: "" }); } }
     );
   };
 
@@ -322,41 +356,71 @@ export default function ModelRegistry() {
       )}
 
       {/* Add modal */}
-      {showAdd && (
-        <Modal onClose={() => setShowAdd(false)} title="Add Model Deployment">
-          <div className="space-y-3">
-            <Field label="Environment" value={newDep.environment} onChange={(v) => setNewDep({ ...newDep, environment: v })} placeholder="e.g. openrouter-custom" />
-            <Field label="Role" value={newDep.role} onChange={(v) => setNewDep({ ...newDep, role: v })} placeholder="e.g. router, general, critic" />
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Source</label>
-              <select
-                value={newDep.source}
-                onChange={(e) => setNewDep({ ...newDep, source: e.target.value })}
-                className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-              >
-                <option value="openrouter">OpenRouter</option>
-                <option value="vllm">vLLM (local)</option>
-                <option value="kserve">KServe</option>
-                <option value="external">External</option>
-              </select>
+      {showAdd && (() => {
+        const provider = PROVIDERS[newDep.source] ?? PROVIDERS.custom;
+        const keyEnv = newDep.apiKeyEnv || provider.apiKeyEnv;
+        const keyConfigured = keyEnv ? configuredKeys.has(keyEnv) : true;
+        return (
+          <Modal onClose={() => setShowAdd(false)} title="Add Model Deployment">
+            <div className="space-y-3">
+              <Field label="Environment" value={newDep.environment} onChange={(v) => setNewDep({ ...newDep, environment: v })} placeholder="e.g. api, dev" />
+              <Field label="Role" value={newDep.role} onChange={(v) => setNewDep({ ...newDep, role: v })} placeholder="e.g. router, general, critic" />
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Provider</label>
+                <select
+                  value={newDep.source}
+                  onChange={(e) => setNewDep({ ...newDep, source: e.target.value, apiKeyEnv: "" })}
+                  className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  {Object.entries(PROVIDERS).map(([key, p]) => (
+                    <option key={key} value={key}>
+                      {p.label}{p.apiKeyEnv ? (configuredKeys.has(p.apiKeyEnv) ? " \u2713" : " \u2022 key needed") : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Field
+                label="Model"
+                value={newDep.model}
+                onChange={(v) => setNewDep({ ...newDep, model: v })}
+                placeholder={provider.placeholder}
+              />
+              {provider.needsEndpoint && (
+                <Field label="Endpoint" value={newDep.endpoint} onChange={(v) => setNewDep({ ...newDep, endpoint: v })} placeholder="http://model-service.namespace.svc:8080/v1" />
+              )}
+              {keyEnv && (
+                <div className="rounded border px-3 py-2 text-xs border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                  <span className="text-gray-500 dark:text-gray-400">API Key env: </span>
+                  <code className="font-mono text-gray-700 dark:text-gray-300">{keyEnv}</code>
+                  {keyConfigured ? (
+                    <span className="ml-2 text-green-600 dark:text-green-400">(configured)</span>
+                  ) : (
+                    <span className="ml-2 text-amber-600 dark:text-amber-400">(not set — add in Settings &gt; Provider Keys)</span>
+                  )}
+                </div>
+              )}
+              {newDep.source === "custom" && (
+                <Field
+                  label="API Key Env Var (optional)"
+                  value={newDep.apiKeyEnv}
+                  onChange={(v) => setNewDep({ ...newDep, apiKeyEnv: v })}
+                  placeholder="e.g. MY_PROVIDER_API_KEY"
+                />
+              )}
+              <div className="flex justify-end gap-2 pt-2">
+                <button onClick={() => setShowAdd(false)} className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">Cancel</button>
+                <button
+                  onClick={handleCreate}
+                  disabled={createMut.isPending || !newDep.environment || !newDep.role || !newDep.model}
+                  className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {createMut.isPending ? "Creating..." : "Create"}
+                </button>
+              </div>
             </div>
-            <Field label="Model" value={newDep.model} onChange={(v) => setNewDep({ ...newDep, model: v })} placeholder="e.g. x-ai/grok-4-fast" />
-            {newDep.source !== "openrouter" && (
-              <Field label="Endpoint" value={newDep.endpoint} onChange={(v) => setNewDep({ ...newDep, endpoint: v })} placeholder="http://..." />
-            )}
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setShowAdd(false)} className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">Cancel</button>
-              <button
-                onClick={handleCreate}
-                disabled={createMut.isPending || !newDep.environment || !newDep.role || !newDep.model}
-                className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {createMut.isPending ? "Creating..." : "Create"}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+          </Modal>
+        );
+      })()}
 
       {/* Reconcile result toast */}
       {reconcileMut.isSuccess && reconcileMut.data && (

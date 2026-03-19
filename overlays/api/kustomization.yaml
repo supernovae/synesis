@@ -5,7 +5,7 @@
 # Patches the planner to route through LiteLLM instead of direct vLLM.
 #
 # Deploy:
-#   kustomize build overlays/openrouter | oc apply -f -
+#   kustomize build overlays/api | oc apply -f -
 #
 # Set your API key first:
 #   oc create secret generic openrouter-api-key \
@@ -63,7 +63,8 @@ patches:
         master-key: ""
 
   # -----------------------------------------------------------------------
-  # LiteLLM: inject OPENROUTER_API_KEY env var from the Secret
+  # LiteLLM: clear master key (API mode — no virtual key auth needed).
+  # Provider API keys come from envFrom: provider-api-keys (base deployment).
   # -----------------------------------------------------------------------
   - target:
       kind: Deployment
@@ -79,11 +80,6 @@ patches:
             containers:
               - name: litellm
                 env:
-                  - name: OPENROUTER_API_KEY
-                    valueFrom:
-                      secretKeyRef:
-                        name: openrouter-api-key
-                        key: api-key
                   - name: LITELLM_MASTER_KEY
                     $patch: delete
 

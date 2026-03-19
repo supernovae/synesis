@@ -11,6 +11,7 @@ labels:
 resources:
   - namespace.yaml
   - litellm-secrets.yaml
+  - provider-api-keys.yaml
   - litellm-config.yaml
   - litellm-deployment.yaml
   - litellm-service.yaml

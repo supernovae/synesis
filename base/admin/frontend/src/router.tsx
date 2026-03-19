@@ -46,6 +46,7 @@ const RetrievalGaps = lazy(() => import("./pages/observability/KnowledgeGaps"));
 
 const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
+const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 
 export const router = createBrowserRouter([
   {
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
 
       { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },
+      { path: "settings/providers", element: <ProviderKeys /> },
     ],
   },
 ]);

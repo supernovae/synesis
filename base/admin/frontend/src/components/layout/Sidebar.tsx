@@ -109,7 +109,14 @@ const navigation: NavItem[] = [
     ],
   },
   { label: "Assistant", icon: Bot, path: "/assistant" },
-  { label: "Settings", icon: Settings, path: "/settings" },
+  {
+    label: "Settings",
+    icon: Settings,
+    children: [
+      { label: "System Config", path: "/settings" },
+      { label: "Provider Keys", path: "/settings/providers" },
+    ],
+  },
 ];
 
 function isGroupActive(children: NavChild[], pathname: string) {
