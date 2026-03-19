@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Key, Plus, Trash2, Copy, Check } from "lucide-react";
-import { client } from "../../api/client";
+import type { AxiosResponse } from "axios";
+import client from "../../api/client";
 import type { PersonalAccessToken, TokenCreated } from "../../types";
 
 export default function ApiTokens() {
@@ -13,17 +14,17 @@ export default function ApiTokens() {
 
   const { data: tokens = [], isLoading } = useQuery<PersonalAccessToken[]>({
     queryKey: ["tokens"],
-    queryFn: () => client.get("/api/v1/tokens").then((r) => r.data),
+    queryFn: () => client.get("/tokens").then((r: AxiosResponse<PersonalAccessToken[]>) => r.data),
   });
 
   const createMutation = useMutation<TokenCreated, Error, void>({
     mutationFn: () =>
       client
-        .post("/api/v1/tokens", {
+        .post("/tokens", {
           name,
           expires_in_days: expiresDays || null,
         })
-        .then((r) => r.data),
+        .then((r: AxiosResponse<TokenCreated>) => r.data),
     onSuccess: (data) => {
       setNewToken(data.token);
       setName("");
@@ -33,7 +34,7 @@ export default function ApiTokens() {
   });
 
   const revokeMutation = useMutation<void, Error, string>({
-    mutationFn: (id) => client.delete(`/api/v1/tokens/${id}`),
+    mutationFn: (id) => client.delete(`/tokens/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tokens"] }),
   });
 

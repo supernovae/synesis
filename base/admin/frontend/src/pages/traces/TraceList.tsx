@@ -305,17 +305,20 @@ export default function TraceList() {
               {
                 key: "_user_display",
                 label: "User",
-                render: (row: Record<string, unknown>) => (
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm">{(row.user_email as string) || (row.user_id as string) || "—"}</span>
-                    {row.org_name && (
-                      <span className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400">
-                        <Building2 className="h-3 w-3" />
-                        {row.org_name as string}
-                      </span>
-                    )}
-                  </div>
-                ),
+                render: (row: Record<string, unknown>) => {
+                  const orgName = row.org_name as string | undefined;
+                  return (
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm">{(row.user_email as string) || (row.user_id as string) || "—"}</span>
+                      {orgName && (
+                        <span className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400">
+                          <Building2 className="h-3 w-3" />
+                          {orgName}
+                        </span>
+                      )}
+                    </div>
+                  );
+                },
               },
               {
                 key: "_query",
