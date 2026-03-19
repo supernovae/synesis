@@ -462,7 +462,7 @@ class Settings(BaseSettings):
     curator_min_rerank_score: float = 0.6  # Drop RAG chunks below this score
     curator_tiktoken_enabled: bool = False  # Use tiktoken for accurate counts (optional dep)
     curator_knowledge_gap_threshold: float = 0.6  # Max RAG score < this → incomplete_knowledge, backlog
-    knowledge_backlog_enabled: bool = True  # Publish knowledge gaps to Milvus
+    knowledge_backlog_enabled: bool = True  # Publish knowledge gaps to Postgres
 
     # Context refs: use hash→text cache to reduce payload between nodes (context_curator → worker)
     context_refs_enabled: bool = True

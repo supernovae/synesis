@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -352,14 +353,26 @@ _EXPECTED_FIELDS = frozenset(
 )
 
 
+_catalog_fields: set[str] = set()
+
+
 def _validate_catalog_schema(client) -> bool:
-    """Check if the existing collection has all expected fields."""
+    """Check if the existing collection has all expected fields.
+
+    Stores detected fields in ``_catalog_fields`` so downstream code can
+    gracefully skip v8 fields that haven't been added to the collection yet.
+    """
+    global _catalog_fields
     try:
         desc = client.describe_collection(collection_name=SYNESIS_CATALOG)
         existing = {f.get("name", "") for f in desc.get("fields", [])}
+        _catalog_fields = existing
         missing = _EXPECTED_FIELDS - existing
         if missing:
-            logger.warning("synesis_catalog schema drift — missing fields: %s", missing)
+            logger.warning(
+                "synesis_catalog schema drift — missing fields: %s  (searches will omit them)",
+                missing,
+            )
             return False
         return True
     except Exception as e:
@@ -367,8 +380,93 @@ def _validate_catalog_schema(client) -> bool:
         return False
 
 
+def _recreate_catalog(client) -> bool:
+    """Drop and recreate synesis_catalog with the full v8 schema.
+
+    This is the nuclear option for schema drift — it drops all indexed data
+    and recreates the collection with the correct schema.  The indexer will
+    repopulate on its next run.
+    """
+    from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType
+
+    EMBEDDING_DIM = int(os.environ.get("SYNESIS_EMBEDDING_DIM", "384"))
+
+    fields = [
+        FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+        FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="chunk_index", dtype=DataType.INT64),
+        FieldSchema(
+            name="text",
+            dtype=DataType.VARCHAR,
+            max_length=8192,
+            enable_analyzer=True,
+            analyzer_params={"type": "english"},
+        ),
+        FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name="heading_path", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="handler", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
+        FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="content_format", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="symbol_type", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="approval_status", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="repo_path", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
+        FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
+    ]
+    bm25_fn = Function(
+        name="bm25_text_fn",
+        input_field_names=["text"],
+        output_field_names=["sparse_text"],
+        function_type=FunctionType.BM25,
+    )
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v8")
+
+    try:
+        client.drop_collection(collection_name=SYNESIS_CATALOG)
+        logger.warning("synesis_catalog_dropped_for_schema_upgrade")
+    except Exception as e:
+        logger.warning("synesis_catalog_drop_failed", extra={"error": str(e)[:200]})
+        return False
+
+    try:
+        client.create_collection(collection_name=SYNESIS_CATALOG, schema=schema)
+        from pymilvus import MilvusClient as _MC
+
+        idx = _MC.prepare_index_params()
+        idx.add_index(field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 256})
+        idx.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
+        client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
+        client.load_collection(collection_name=SYNESIS_CATALOG)
+        logger.warning(
+            "synesis_catalog_recreated_v8",
+            extra={"detail": "Collection is empty — run the indexer to repopulate"},
+        )
+        return True
+    except Exception as e:
+        logger.error("synesis_catalog_recreate_failed", extra={"error": str(e)[:200]})
+        return False
+
+
 def _ensure_synesis_catalog() -> None:
-    """Validate synesis_catalog exists and is loaded. Schema creation is owned by the indexer."""
+    """Validate synesis_catalog exists and is loaded.
+
+    On schema drift, drops and recreates the collection with the v8 schema
+    so searches don't crash on missing fields.  The indexer repopulates data.
+    """
     global _catalog_ensured
     if _catalog_ensured:
         return
@@ -379,16 +477,19 @@ def _ensure_synesis_catalog() -> None:
 
         if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "synesis_catalog_not_found",
-                extra={"detail": "Collection will be created by the indexer on next run"},
+                "synesis_catalog_not_found — creating with v8 schema",
             )
+            if _recreate_catalog(client):
+                _validate_catalog_schema(client)
+                _catalog_ensured = True
             return
 
         if not _validate_catalog_schema(client):
             logger.warning(
-                "synesis_catalog_schema_drift",
-                extra={"detail": "Schema mismatch detected; indexer will reconcile on next run"},
+                "synesis_catalog_schema_drift — recreating collection with v8 schema",
             )
+            if _recreate_catalog(client):
+                _validate_catalog_schema(client)
 
         _ensure_collection_loaded(client, SYNESIS_CATALOG)
         _catalog_ensured = True
@@ -477,17 +578,19 @@ def build_metadata_filter(
 
     Combines optional language, artifact_kind, and repo_path filters with an
     existing domain filter using AND. Returns empty string if no filters apply.
+    Silently skips v8 fields that are missing from the collection schema.
     """
+    available = _catalog_fields
     parts: list[str] = []
     if domain_filter:
         parts.append(f"({domain_filter})")
-    if language:
+    if language and ("language" in available or not available):
         safe = language.replace('"', "")[:32]
         parts.append(f'language == "{safe}"')
-    if artifact_kind:
+    if artifact_kind and ("artifact_kind" in available or not available):
         safe = artifact_kind.replace('"', "")[:32]
         parts.append(f'artifact_kind == "{safe}"')
-    if repo_path:
+    if repo_path and ("repo_path" in available or not available):
         safe = repo_path.replace('"', "")[:256]
         parts.append(f'repo_path == "{safe}"')
     return " and ".join(parts)
@@ -554,7 +657,7 @@ async def _vector_search(
         "collection_name": collection,
         "data": [query_vector],
         "limit": top_k,
-        "output_fields": _OUTPUT_FIELDS,
+        "output_fields": _safe_output_fields(),
         "search_params": {"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
     }
     if filter_expr:
@@ -634,6 +737,19 @@ _OUTPUT_FIELDS = [
     "symbol_name",
 ]
 
+_V8_FIELDS = {"language", "artifact_kind", "repo_path", "module_path", "symbol_name"}
+
+
+def _safe_output_fields() -> list[str]:
+    """Return output fields limited to those that actually exist in the collection.
+
+    If _catalog_fields hasn't been populated yet (startup race), returns the
+    full list and lets Milvus error handling deal with it.
+    """
+    if not _catalog_fields:
+        return _OUTPUT_FIELDS
+    return [f for f in _OUTPUT_FIELDS if f in _catalog_fields]
+
 
 async def _hybrid_search(
     query: str,
@@ -680,7 +796,7 @@ async def _hybrid_search(
                     reqs=[dense_req, sparse_req],
                     ranker=RRFRanker(k=settings.rag_rrf_k),
                     limit=top_k,
-                    output_fields=_OUTPUT_FIELDS,
+                    output_fields=_safe_output_fields(),
                 )
                 break
             except Exception as e:
@@ -821,7 +937,7 @@ async def _hybrid_search_with_vector(
                     reqs=[dense_req, sparse_req],
                     ranker=RRFRanker(k=settings.rag_rrf_k),
                     limit=top_k,
-                    output_fields=_OUTPUT_FIELDS,
+                    output_fields=_safe_output_fields(),
                 )
                 break
             except Exception as e:
@@ -999,7 +1115,7 @@ async def _sparse_search(
         "data": [query],
         "anns_field": "sparse_text",
         "limit": top_k,
-        "output_fields": _OUTPUT_FIELDS,
+        "output_fields": _safe_output_fields(),
         "search_params": {"metric_type": "BM25"},
     }
     if filter_expr:

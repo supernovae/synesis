@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
@@ -302,6 +304,28 @@ class GapValidateResponse(BaseModel):
     details: list[dict] = []
 
 
+_EMBEDDER_URL = os.getenv(
+    "SYNESIS_EMBEDDER_URL",
+    "http://embedder.synesis-rag.svc.cluster.local:8080",
+)
+
+
+async def _embed_query(text: str) -> list[float] | None:
+    """Embed a gap query on-the-fly via TEI."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{_EMBEDDER_URL.rstrip('/')}/v1/embeddings",
+                json={"input": [text[:2048]], "model": "sentence-transformers/all-MiniLM-L6-v2"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["data"][0]["embedding"]
+    except Exception as exc:
+        logger.warning("embed_query_failed", extra={"error": str(exc)[:120]})
+        return None
+
+
 @router.post("/knowledge-gaps/validate", response_model=GapValidateResponse)
 async def validate_knowledge_gaps(
     req: GapValidateRequest | None = None,
@@ -309,19 +333,15 @@ async def validate_knowledge_gaps(
 ):
     """Re-query RAG for open knowledge gaps and auto-resolve satisfied ones.
 
-    For each open/reopened gap, runs a vector similarity search against
-    synesis_catalog using the gap's embedding. If the top hit score exceeds
+    For each open/reopened gap, embeds the query via TEI and runs a vector
+    similarity search against synesis_catalog. If the top hit score exceeds
     the threshold, the gap is auto-resolved.
-
-    Requires Milvus for vector search. If Milvus is unavailable, returns
-    an error explaining that vector search is needed.
     """
     threshold = req.score_threshold if req else 0.6
     max_gaps = req.max_gaps if req else 200
 
     try:
-        from ..deps import get_milvus
-        from ..services.milvus_service import safe_query, safe_vector_search
+        from ..services.milvus_service import safe_vector_search
     except ImportError:
         return GapValidateResponse(
             errors=1,
@@ -330,7 +350,6 @@ async def validate_knowledge_gaps(
             ],
         )
 
-    # Get open gaps from Postgres
     async with async_session() as session:
         stmt = (
             select(KnowledgeGap)
@@ -344,19 +363,6 @@ async def validate_knowledge_gaps(
     if not open_gaps:
         return GapValidateResponse()
 
-    # Fetch embeddings from Milvus knowledge_backlog
-    client = get_milvus()
-    if "synesis_knowledge_backlog" not in client.list_collections():
-        return GapValidateResponse(
-            errors=1,
-            details=[
-                {
-                    "status": "error",
-                    "reason": "synesis_knowledge_backlog collection not found; vector search required for validation.",
-                }
-            ],
-        )
-
     validated = 0
     still_open = 0
     errors = 0
@@ -366,27 +372,10 @@ async def validate_knowledge_gaps(
         chunk_id = gap.gap_id
         query = gap.query or ""
 
-        try:
-            milvus_results = safe_query(
-                "synesis_knowledge_backlog",
-                filter_expr=f'chunk_id == "{chunk_id[:64]}"',
-                output_fields=["chunk_id", "query", "embedding", "max_score", "timestamp"],
-                limit=1,
-            )
-        except Exception as exc:
+        embedding = await _embed_query(query)
+        if not embedding:
             errors += 1
-            details.append({"chunk_id": chunk_id, "status": "error", "reason": str(exc)[:120]})
-            continue
-
-        if not milvus_results:
-            errors += 1
-            details.append({"chunk_id": chunk_id, "status": "error", "reason": "gap not found in Milvus backlog"})
-            continue
-
-        embedding = milvus_results[0].get("embedding")
-        if not embedding or not isinstance(embedding, list) or len(embedding) < 10:
-            errors += 1
-            details.append({"chunk_id": chunk_id, "status": "error", "reason": "missing_embedding"})
+            details.append({"chunk_id": chunk_id, "status": "error", "reason": "embedding_failed"})
             continue
 
         try:

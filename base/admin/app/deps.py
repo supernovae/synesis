@@ -42,7 +42,6 @@ TAXONOMY_YAML_PATH = os.getenv(
 )
 
 FAILURES_COLLECTION = "failures_v1"
-KNOWLEDGE_BACKLOG_COLLECTION = "synesis_knowledge_backlog"
 CATALOG_COLLECTION = "synesis_catalog"
 
 _resilient_milvus = None

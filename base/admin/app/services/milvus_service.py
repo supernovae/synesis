@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import Any
 
@@ -53,8 +52,6 @@ def safe_upsert(collection: str, data: dict[str, Any]) -> bool:
     """Upsert a single entity into a Milvus collection. Returns True on success."""
 
     def _do(client):
-        if collection not in client.list_collections():
-            _ensure_status_collection(client, collection)
         try:
             client.upsert(collection_name=collection, data=[data])
         except Exception as exc:
@@ -95,32 +92,6 @@ def safe_delete(collection: str, chunk_id: str) -> bool:
         return False
 
 
-def _ensure_status_collection(client: Any, collection: str) -> None:
-    """Create the gap status collection if it doesn't exist."""
-    if collection != "synesis_knowledge_gap_status":
-        return
-    if collection in client.list_collections():
-        return
-    try:
-        from pymilvus import CollectionSchema, DataType, FieldSchema
-
-        schema = CollectionSchema(
-            fields=[
-                FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
-                FieldSchema(name="status", dtype=DataType.VARCHAR, max_length=20),
-                FieldSchema(name="resolved_at", dtype=DataType.INT64),
-                FieldSchema(name="resolved_by", dtype=DataType.VARCHAR, max_length=128),
-                FieldSchema(name="resolution_note", dtype=DataType.VARCHAR, max_length=1024),
-                FieldSchema(name="updated_at", dtype=DataType.INT64),
-            ],
-            description="Synesis knowledge gap lifecycle status",
-        )
-        client.create_collection(collection_name=collection, schema=schema)
-        logger.info("milvus_collection_created collection=%s", collection)
-        with contextlib.suppress(Exception):
-            client.load_collection(collection_name=collection)
-    except Exception as exc:
-        logger.warning("ensure_status_collection_error error=%s", str(exc)[:120])
 
 
 def safe_vector_search(

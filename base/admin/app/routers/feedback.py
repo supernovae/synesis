@@ -9,14 +9,12 @@ import httpx
 import yaml
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select
 
 from ..auth import UserInfo, get_current_user, require_admin
-from ..deps import (
-    CURATOR_PROPOSALS_PATH,
-    KNOWLEDGE_BACKLOG_COLLECTION,
-    PLANNER_URL,
-)
-from ..services.milvus_service import safe_query
+from ..db.engine import async_session
+from ..db.models import KnowledgeGap
+from ..deps import CURATOR_PROPOSALS_PATH, PLANNER_URL
 
 logger = logging.getLogger("synesis.admin.feedback")
 
@@ -56,9 +54,6 @@ async def feedback_stats(_user: UserInfo = Depends(get_current_user)):
     return {"up": up, "down": down, "total": len(entries)}
 
 
-KNOWLEDGE_GAP_STATUS_COLLECTION = "synesis_knowledge_gap_status"
-
-
 @router.get("/knowledge-gaps")
 async def knowledge_gaps(
     _user: UserInfo = Depends(get_current_user),
@@ -67,54 +62,37 @@ async def knowledge_gaps(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    filter_parts = []
-    if domain:
-        filter_parts.append(f'platform_context == "{domain}"')
-    filter_expr = " and ".join(filter_parts)
+    """List knowledge gaps from Postgres (canonical store)."""
     offset = (page - 1) * page_size
-    gaps = safe_query(
-        KNOWLEDGE_BACKLOG_COLLECTION,
-        filter_expr=filter_expr,
-        output_fields=[
-            "chunk_id",
-            "query",
-            "task_description",
-            "max_score",
-            "platform_context",
-            "timestamp",
-            "language",
-        ],
-        limit=page_size,
-        offset=offset,
-    )
+    async with async_session() as session:
+        base = select(KnowledgeGap)
+        if domain:
+            base = base.where(KnowledgeGap.platform_context == domain)
+        if status:
+            base = base.where(KnowledgeGap.status == status)
 
-    # Enrich with lifecycle status
-    chunk_ids = [g.get("chunk_id", "") for g in gaps if g.get("chunk_id")]
-    statuses = _batch_gap_statuses(chunk_ids)
-    for g in gaps:
-        cid = g.get("chunk_id", "")
-        st = statuses.get(cid, {})
-        g["status"] = st.get("status", "open")
-        g["resolved_by"] = st.get("resolved_by", "")
-        g["resolution_note"] = st.get("resolution_note", "")
+        total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
+        stmt = base.order_by(KnowledgeGap.timestamp.desc()).offset(offset).limit(page_size)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
 
-    if status:
-        gaps = [g for g in gaps if g.get("status") == status]
-
-    return {"gaps": gaps, "total": len(gaps)}
-
-
-def _batch_gap_statuses(chunk_ids: list[str]) -> dict[str, dict]:
-    if not chunk_ids:
-        return {}
-    id_list = ",".join(f'"{cid[:64]}"' for cid in chunk_ids[:200])
-    results = safe_query(
-        KNOWLEDGE_GAP_STATUS_COLLECTION,
-        filter_expr=f"chunk_id in [{id_list}]",
-        output_fields=["chunk_id", "status", "resolved_at", "resolved_by", "resolution_note", "updated_at"],
-        limit=200,
-    )
-    return {r["chunk_id"]: r for r in results}
+    gaps = [
+        {
+            "chunk_id": g.gap_id,
+            "gap_id": g.gap_id,
+            "query": g.query,
+            "task_description": g.task_description,
+            "max_score": g.max_score,
+            "platform_context": g.platform_context,
+            "language": g.language,
+            "status": g.status,
+            "resolved_by": g.resolved_by,
+            "resolution_note": g.resolution_note,
+            "timestamp": g.timestamp,
+        }
+        for g in rows
+    ]
+    return {"gaps": gaps, "total": total}
 
 
 class KnowledgeSubmit(BaseModel):

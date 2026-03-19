@@ -259,36 +259,60 @@ INSERT INTO traces (
     full_record = EXCLUDED.full_record
 """
 
+_INSERT_SQL_LEGACY = """
+INSERT INTO traces (
+    trace_id, user_id, query_snippet, timestamp, total_duration_ms,
+    total_tokens, estimated_cost_usd, difficulty, task_type,
+    is_code_task, has_error, iteration_count, full_record
+) VALUES (
+    %(trace_id)s, %(user_id)s, %(query_snippet)s, %(timestamp)s, %(total_duration_ms)s,
+    %(total_tokens)s, %(estimated_cost_usd)s, %(difficulty)s, %(task_type)s,
+    %(is_code_task)s, %(has_error)s, %(iteration_count)s, %(full_record)s
+) ON CONFLICT (trace_id) DO UPDATE SET
+    total_duration_ms = EXCLUDED.total_duration_ms,
+    total_tokens = EXCLUDED.total_tokens,
+    estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+    has_error = EXCLUDED.has_error,
+    full_record = EXCLUDED.full_record
+"""
+
 
 def _persist_trace(record: TraceRecord) -> None:
-    """Write a completed trace record to Postgres."""
+    """Write a completed trace record to Postgres.
+
+    Falls back to the legacy INSERT (without actual_cost_usd) if migration
+    010 hasn't been applied yet, so traces are never silently dropped.
+    """
     conn = _get_pg()
     if conn is None:
         return
     try:
         full = json.dumps(asdict(record), default=str)
+        params = {
+            "trace_id": record.trace_id,
+            "user_id": record.user_id,
+            "query_snippet": record.query_snippet,
+            "timestamp": record.timestamp,
+            "total_duration_ms": record.total_duration_ms,
+            "total_tokens": record.total_tokens,
+            "estimated_cost_usd": record.estimated_cost_usd,
+            "actual_cost_usd": record.actual_cost_usd,
+            "difficulty": record.difficulty,
+            "task_type": record.task_type,
+            "is_code_task": record.is_code_task,
+            "has_error": record.has_error,
+            "iteration_count": record.iteration_count,
+            "full_record": full,
+        }
         with conn.cursor() as cur:
-            cur.execute(
-                _INSERT_SQL,
-                {
-                    "trace_id": record.trace_id,
-                    "user_id": record.user_id,
-                    "query_snippet": record.query_snippet,
-                    "timestamp": record.timestamp,
-                    "total_duration_ms": record.total_duration_ms,
-                    "total_tokens": record.total_tokens,
-                    "estimated_cost_usd": record.estimated_cost_usd,
-                    "actual_cost_usd": record.actual_cost_usd,
-                    "difficulty": record.difficulty,
-                    "task_type": record.task_type,
-                    "is_code_task": record.is_code_task,
-                    "has_error": record.has_error,
-                    "iteration_count": record.iteration_count,
-                    "full_record": full,
-                },
-            )
+            try:
+                cur.execute(_INSERT_SQL, params)
+            except Exception:
+                conn.rollback()
+                cur.execute(_INSERT_SQL_LEGACY, params)
+                logger.info("synesis_tracer_used_legacy_insert (migration 010 pending)")
     except Exception:
-        logger.debug("synesis_tracer_persist_failed", exc_info=True)
+        logger.warning("synesis_tracer_persist_failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -330,12 +354,25 @@ class SynesisTracer(BaseCallbackHandler):
     def flush(self) -> None:
         """Persist the current trace and reset state.
 
+        Promotes any in-progress spans (e.g. writer mid-stream when client
+        disconnects) to the trace as interrupted spans so partial work is
+        never silently dropped.
+
         The Postgres write runs in a daemon thread so it never blocks the
         event loop — typical INSERT takes <5ms but we avoid even that stall.
         """
         if self._current_trace is None:
             return
         record = self._current_trace
+
+        for run_id, span in list(self._active_spans.items()):
+            span.latency_ms = (time.monotonic() - self._trace_start) * 1000 - (
+                span.latency_ms if span.latency_ms > 0 else 0
+            )
+            span.outcome = "interrupted"
+            span.reasoning = "stream interrupted before node completed"
+            record.spans.append(span)
+
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
         record.estimated_cost_usd = _compute_cost(record)
