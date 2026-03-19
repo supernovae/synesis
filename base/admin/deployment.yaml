@@ -39,6 +39,12 @@ spec:
               value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
             - name: SYNESIS_LITELLM_URL
               value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000"
+            - name: SYNESIS_LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secrets
+                  key: master-key
+                  optional: true
             - name: SYNESIS_ADMIN_ASSISTANT_MODEL
               value: "synesis-general"
             - name: SYNESIS_MCP_URL

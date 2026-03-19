@@ -46,6 +46,25 @@ export interface ModelEntry {
   description: string;
 }
 
+export interface ModelDeployment {
+  id: number;
+  environment: string;
+  role: string;
+  model: string;
+  endpoint: string;
+  served_name: string;
+  status: string;
+  profile: string;
+  source: "vllm" | "openrouter" | "kserve" | "external" | "local";
+  litellm_params: Record<string, unknown> | null;
+  is_active: boolean;
+  description: string;
+  notes: string;
+  gpu_config: Record<string, unknown> | null;
+  litellm_model_id: string | null;
+  updated_at: string | null;
+}
+
 export interface ModelCost {
   [key: string]: unknown;
   role: string;

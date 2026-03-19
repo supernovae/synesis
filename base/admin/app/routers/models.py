@@ -1,24 +1,35 @@
-"""Model registry, cost, and performance endpoints."""
+"""Model registry, deployments, cost, and performance endpoints."""
 
 import logging
 import time
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..services import prometheus_client_svc as prom
 from ..services.model_registry import (
+    activate_environment,
+    create_deployment,
+    delete_deployment,
     get_cost_by_model,
     get_cost_estimates,
+    get_model_deployments,
     get_model_registry,
+    seed_model_deployments,
+    set_deployment_active,
+    update_deployment,
     upsert_model_cost,
 )
 
 logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
+
+# ---------------------------------------------------------------------------
+# Legacy YAML-based registry (backward compat)
+# ---------------------------------------------------------------------------
 
 @router.get("/")
 async def list_models(_user: UserInfo = Depends(get_current_user)):
@@ -27,11 +38,128 @@ async def list_models(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/topology")
 async def model_topology(_user: UserInfo = Depends(get_current_user)):
-    """Structured deployment topology: environments x roles x models with status."""
     from ..services.model_registry import get_model_topology
 
     return await get_model_topology()
 
+
+# ---------------------------------------------------------------------------
+# DB-first model deployments CRUD
+# ---------------------------------------------------------------------------
+
+@router.get("/deployments")
+async def list_deployments(_user: UserInfo = Depends(get_current_user)):
+    deployments = await get_model_deployments()
+    return {"deployments": deployments}
+
+
+@router.post("/deployments")
+async def create_model_deployment(
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    if not data.get("environment") or not data.get("role"):
+        raise HTTPException(400, "environment and role are required")
+    return await create_deployment(data)
+
+
+@router.put("/deployments/{deployment_id}")
+async def update_model_deployment(
+    deployment_id: int,
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    result = await update_deployment(deployment_id, data)
+    if result is None:
+        raise HTTPException(404, "deployment not found")
+    return result
+
+
+@router.delete("/deployments/{deployment_id}")
+async def delete_model_deployment(
+    deployment_id: int,
+    _user: UserInfo = Depends(get_current_user),
+):
+    from ..services.model_reconciler import reconcile_single
+
+    ok = await delete_deployment(deployment_id)
+    if not ok:
+        raise HTTPException(404, "deployment not found")
+    return {"deleted": deployment_id}
+
+
+@router.post("/deployments/{deployment_id}/activate")
+async def activate_deployment(
+    deployment_id: int,
+    _user: UserInfo = Depends(get_current_user),
+):
+    from ..services.model_reconciler import reconcile_single
+
+    result = await set_deployment_active(deployment_id, True)
+    if result is None:
+        raise HTTPException(404, "deployment not found")
+    try:
+        await reconcile_single(deployment_id)
+    except Exception:
+        logger.warning("reconcile_after_activate_failed id=%d", deployment_id, exc_info=True)
+    return result
+
+
+@router.post("/deployments/{deployment_id}/deactivate")
+async def deactivate_deployment(
+    deployment_id: int,
+    _user: UserInfo = Depends(get_current_user),
+):
+    from ..services.model_reconciler import reconcile_single
+
+    result = await set_deployment_active(deployment_id, False)
+    if result is None:
+        raise HTTPException(404, "deployment not found")
+    try:
+        await reconcile_single(deployment_id)
+    except Exception:
+        logger.warning("reconcile_after_deactivate_failed id=%d", deployment_id, exc_info=True)
+    return result
+
+
+@router.post("/deployments/activate-environment")
+async def activate_env(
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    from ..services.model_reconciler import reconcile
+
+    env = data.get("environment", "")
+    if not env:
+        raise HTTPException(400, "environment is required")
+    updated = await activate_environment(env)
+    try:
+        await reconcile()
+    except Exception:
+        logger.warning("reconcile_after_env_activate_failed", exc_info=True)
+    return {"environment": env, "deployments": updated}
+
+
+@router.post("/sync-from-yaml")
+async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
+    from ..services.model_registry import invalidate_yaml_cache
+
+    invalidate_yaml_cache()
+    count = await seed_model_deployments(force=True)
+    return {"seeded": count}
+
+
+@router.post("/reconcile")
+async def trigger_reconcile(_user: UserInfo = Depends(get_current_user)):
+    from ..services.model_reconciler import reconcile
+
+    summary = await reconcile()
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# Costs
+# ---------------------------------------------------------------------------
 
 @router.get("/costs")
 async def model_costs(_user: UserInfo = Depends(get_current_user)):
@@ -113,7 +241,6 @@ async def costs_by_role(
 
 
 def _infer_role(node_name: str, model_name: str) -> str:
-    """Map node/model names to logical roles."""
     node_lower = node_name.lower()
     model_lower = model_name.lower()
     if "router" in node_lower or "router" in model_lower:

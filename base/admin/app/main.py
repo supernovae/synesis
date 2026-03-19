@@ -6,6 +6,7 @@ Serves the React SPA for all non-API routes and provides
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,11 +23,40 @@ configure_logging(service="synesis-admin")
 logger = logging.getLogger("synesis.admin")
 
 
+_reconciler_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.model_reconciler import reconcile
+    from app.services.model_registry import seed_model_deployments
+
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
+
+    try:
+        seeded = await seed_model_deployments()
+        if seeded:
+            logger.info("model_seed_complete count=%d", seeded)
+    except Exception:
+        logger.warning("model_seed_failed", exc_info=True)
+
+    async def _background_reconciler():
+        await asyncio.sleep(15)
+        while True:
+            try:
+                await reconcile()
+            except Exception:
+                logger.debug("background_reconcile_error", exc_info=True)
+            await asyncio.sleep(60)
+
+    global _reconciler_task
+    _reconciler_task = asyncio.create_task(_background_reconciler())
+
     yield
+
+    if _reconciler_task and not _reconciler_task.done():
+        _reconciler_task.cancel()
     await engine.dispose()
 
 

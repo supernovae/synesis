@@ -92,6 +92,102 @@ export function useModelPerformance() {
   });
 }
 
+// --- Model Deployments (DB-first) ---
+
+export function useModelDeployments() {
+  return useQuery<{ deployments: import("../types").ModelDeployment[] }>({
+    queryKey: ["models", "deployments"],
+    queryFn: () => client.get("/models/deployments").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<import("../types").ModelDeployment> & { environment: string; role: string }) =>
+      client.post("/models/deployments", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useUpdateModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").ModelDeployment>) =>
+      client.put(`/models/deployments/${id}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeleteModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.delete(`/models/deployments/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useActivateModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.post(`/models/deployments/${id}/activate`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeactivateModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.post(`/models/deployments/${id}/deactivate`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useActivateEnvironment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (environment: string) =>
+      client.post("/models/deployments/activate-environment", { environment }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useSyncModelsFromYaml() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/models/sync-from-yaml").then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useReconcileModels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/models/reconcile").then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
 // --- RAG ---
 
 export function useCorpusStats() {

@@ -1,13 +1,16 @@
-"""Async health probes for platform services."""
+"""Async health probes for platform services — deployment-aware."""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import httpx
 
 from ..deps import LITELLM_URL
+
+logger = logging.getLogger("synesis.admin.health_prober")
 
 CORE_SERVICES = [
     {"name": "synesis-planner", "url": "http://synesis-planner.synesis-planner.svc.cluster.local:8000/health"},
@@ -19,7 +22,7 @@ CORE_SERVICES = [
     {"name": "mcp-server", "url": "http://synesis-mcp.synesis-planner.svc.cluster.local:8080/health"},
 ]
 
-MODEL_SERVICES = [
+STATIC_MODEL_SERVICES = [
     {"name": "synesis-router", "url": "http://synesis-router.synesis-models.svc.cluster.local:8080/health"},
     {"name": "synesis-general", "url": "http://synesis-general.synesis-models.svc.cluster.local:8080/health"},
     {"name": "synesis-critic", "url": "http://synesis-critic.synesis-models.svc.cluster.local:8080/health"},
@@ -100,20 +103,48 @@ async def probe_litellm_models(client: httpx.AsyncClient) -> list[dict] | None:
     return results
 
 
+async def _get_active_vllm_probes() -> list[dict]:
+    """Build model probe list from DB active deployments. Only vLLM-sourced models
+    get direct health probes; OpenRouter/external models are covered by LiteLLM /health."""
+    try:
+        from .model_registry import get_active_deployments
+
+        active = await get_active_deployments()
+        if not active:
+            return STATIC_MODEL_SERVICES
+
+        has_any_active = len(active) > 0
+        vllm_probes = []
+        for dep in active:
+            if dep.source in ("openrouter", "external"):
+                continue
+            endpoint = dep.endpoint or ""
+            if endpoint:
+                health_url = endpoint.rstrip("/").rsplit("/v1", 1)[0] + "/health"
+                vllm_probes.append({"name": dep.served_name or dep.role, "url": health_url})
+
+        if has_any_active and not vllm_probes:
+            return []
+
+        return vllm_probes if vllm_probes else STATIC_MODEL_SERVICES
+    except Exception:
+        logger.debug("active_vllm_probes_fallback", exc_info=True)
+        return STATIC_MODEL_SERVICES
+
+
 async def probe_all() -> list[dict]:
     async with httpx.AsyncClient() as client:
-        # Always probe CORE_SERVICES concurrently
         core_tasks = [probe_service(client, svc, category="infrastructure") for svc in CORE_SERVICES]
         core_results = await asyncio.gather(*core_tasks)
 
-        # Try LiteLLM model health first (OpenRouter mode)
         model_results: list[dict] = []
         litellm_models = await probe_litellm_models(client)
         if litellm_models:
             model_results = litellm_models
         else:
-            # Fall back to direct vLLM probes (local mode)
-            model_tasks = [probe_service(client, svc, category="model") for svc in MODEL_SERVICES]
-            model_results = await asyncio.gather(*model_tasks)
+            vllm_probes = await _get_active_vllm_probes()
+            if vllm_probes:
+                model_tasks = [probe_service(client, svc, category="model") for svc in vllm_probes]
+                model_results = await asyncio.gather(*model_tasks)
 
         return list(core_results) + list(model_results)

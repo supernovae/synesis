@@ -199,11 +199,21 @@ class ModelDeployment(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
     profile: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     gpu_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
+    litellm_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    litellm_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    __table_args__ = (Index("ix_model_deployments_env_role", "environment", "role", unique=True),)
+    __table_args__ = (
+        Index("ix_model_deployments_env_role", "environment", "role", unique=True),
+        Index("ix_model_deployments_is_active", "is_active"),
+        Index("ix_model_deployments_source", "source"),
+    )
 
 
 class QualitySnapshot(Base):
