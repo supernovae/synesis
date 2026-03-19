@@ -799,6 +799,20 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         domain_tags = list(state.get("active_domain_refs") or [])
         if active_vertical:
             domain_tags.append(active_vertical)
+
+        # Label-scoped retrieval: propagate language and artifact_kind hints
+        # so the router's consolidated_retrieve path filters at the Milvus
+        # level (pre-filter, not post-reject).
+        _CODE_DOMAINS = frozenset({
+            "python", "javascript", "typescript", "java", "golang", "rust",
+            "csharp", "cpp", "c", "php", "ruby", "web_frontend", "web_backend",
+        })
+        _language_hint = state.get("detected_language_hint", "")
+        _domain_set = set(domain_tags)
+        _has_code_domain = bool(_domain_set & _CODE_DOMAINS)
+        evidence_language_filter = _language_hint if _language_hint and _language_hint != "infer" else ""
+        evidence_artifact_filter = "code" if _has_code_domain else ""
+
         evidence_requests = []
         full_depth_cap = settings.max_evidence_requests_per_round
         for idx, step in enumerate(steps):
@@ -808,6 +822,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     "description": step.get("action", ""),
                     "domain_hints": domain_tags,
                 }
+                if evidence_language_filter:
+                    req["language_filter"] = evidence_language_filter
+                if evidence_artifact_filter:
+                    req["artifact_kind_filter"] = evidence_artifact_filter
                 if idx >= full_depth_cap:
                     req["_light_mode"] = True
                 evidence_requests.append(req)

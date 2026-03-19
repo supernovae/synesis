@@ -573,11 +573,14 @@ def build_metadata_filter(
     artifact_kind: str = "",
     repo_path: str = "",
     domain_filter: str = "",
+    tags: str = "",
+    content_format: str = "",
 ) -> str:
     """Build a Milvus filter expression from v8 metadata signals.
 
-    Combines optional language, artifact_kind, and repo_path filters with an
-    existing domain filter using AND. Returns empty string if no filters apply.
+    Combines optional language, artifact_kind, repo_path, tags, and
+    content_format filters with an existing domain filter using AND.
+    Returns empty string if no filters apply.
     Silently skips v8 fields that are missing from the collection schema.
     """
     available = _catalog_fields
@@ -593,6 +596,12 @@ def build_metadata_filter(
     if repo_path and ("repo_path" in available or not available):
         safe = repo_path.replace('"', "")[:256]
         parts.append(f'repo_path == "{safe}"')
+    if tags and ("tags" in available or not available):
+        safe = tags.replace('"', "").replace("'", "")[:64]
+        parts.append(f'tags like "%{safe}%"')
+    if content_format and ("content_format" in available or not available):
+        safe = content_format.replace('"', "")[:32]
+        parts.append(f'content_format == "{safe}"')
     return " and ".join(parts)
 
 
