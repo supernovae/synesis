@@ -170,6 +170,36 @@ ensure_openrouter_key() {
     log "  Add more provider keys via Admin UI (Settings > Provider Keys)"
 }
 
+# After manifest apply: heal OPENROUTER_API_KEY if the secret was wiped.
+# (Older releases applied an empty provider-api-keys Secret via kustomize.)
+reconcile_provider_api_keys() {
+    [[ "$MODE" != "api" ]] && return 0
+    local ns="synesis-gateway"
+    local secret_name="provider-api-keys"
+    local key=""
+
+    if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        key=$(oc get secret "$secret_name" -n "$ns" \
+            -o jsonpath='{.data.OPENROUTER_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    # Trim whitespace / newlines from decoded value
+    key=$(printf '%s' "$key" | tr -d '\n\r')
+
+    if [[ -n "$key" ]] && [[ "$key" != "sk-or-v1-REPLACE_ME" ]]; then
+        return 0
+    fi
+
+    log ""
+    log "OPENROUTER_API_KEY missing in $ns/$secret_name — LiteLLM will return 401 from OpenRouter."
+    log "  Re-running provider key setup..."
+    ensure_openrouter_key
+
+    if oc get deployment litellm-proxy -n "$ns" &>/dev/null; then
+        log "  Restarting litellm-proxy to reload envFrom..."
+        oc rollout restart deployment/litellm-proxy -n "$ns" 2>/dev/null || true
+    fi
+}
+
 
 # -----------------------------------------------------------------------
 # Admin Postgres: ensure CloudNativePG Cluster exists, read the operator-
@@ -248,32 +278,50 @@ ensure_admin_db() {
     local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
 
     # Patch admin deployment (only if value differs)
-    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url"
+    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
 
-    # Patch planner deployment
-    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
+    # Patch planner deployment (explicit container — not always containers[0])
+    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
 
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
 }
 
 # Helper: set a single env var on a deployment, only if it changed.
+# Optional 5th arg: container name (recommended for multi-container deploys).
 _patch_deployment_env() {
     local ns="$1" deploy="$2" env_name="$3" env_value="$4"
+    local container="${5:-}"
 
     if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
         return
     fi
 
     local current
-    current=$(oc get deployment "$deploy" -n "$ns" \
-        -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='$env_name')].value}" 2>/dev/null || true)
+    local jp
+    if [[ -n "$container" ]]; then
+        jp="{.spec.template.spec.containers[?(@.name=='$container')].env[?(@.name=='$env_name')].value}"
+    else
+        jp="{.spec.template.spec.containers[0].env[?(@.name=='$env_name')].value}"
+    fi
+    current=$(oc get deployment "$deploy" -n "$ns" -o "jsonpath=$jp" 2>/dev/null || true)
 
     if [[ "$current" == "$env_value" ]]; then
         return
     fi
 
-    oc set env deployment/"$deploy" -n "$ns" "${env_name}=${env_value}" 2>/dev/null || true
-    log "  Patched $ns/$deploy $env_name"
+    if [[ -n "$container" ]]; then
+        if oc set env deployment/"$deploy" -n "$ns" -c "$container" "${env_name}=${env_value}" 2>/dev/null; then
+            log "  Patched $ns/$deploy ($container) $env_name"
+        else
+            log "WARNING: oc set env failed for $ns/$deploy ($container) $env_name"
+        fi
+    else
+        if oc set env deployment/"$deploy" -n "$ns" "${env_name}=${env_value}" 2>/dev/null; then
+            log "  Patched $ns/$deploy $env_name"
+        else
+            log "WARNING: oc set env failed for $ns/$deploy $env_name"
+        fi
+    fi
 }
 
 # Post-apply version: re-patches deployments that were just created by
@@ -304,9 +352,9 @@ patch_admin_db_urls() {
     local admin_url="postgresql+asyncpg://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
     local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
 
-    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url"
-    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
-    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url"
+    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
+    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
+    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url" "yarn"
 }
 
 # -----------------------------------------------------------------------
@@ -417,8 +465,8 @@ ensure_keycloak() {
     local kc_host
     kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || echo "synesis-auth.apps.openshiftdemo.dev")
     local issuer_url="https://${kc_host}/realms/synesis"
-    _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url"
-    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url"
+    _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url" "admin"
+    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url" "yarn"
 }
 
 log "=== Deploying Synesis ($MODE) ==="
@@ -739,6 +787,10 @@ fi
 log ""
 log "Patching admin DB credentials (post-apply)..."
 patch_admin_db_urls
+
+log ""
+log "Reconciling provider API keys (post-apply)..."
+reconcile_provider_api_keys
 
 # -----------------------------------------------------------------------
 # Keep Deployments and ReplicaSets under control (idempotent, less cruft).

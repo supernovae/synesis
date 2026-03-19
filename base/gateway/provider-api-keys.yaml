@@ -1,13 +1,16 @@
 # Provider API keys — all LLM provider credentials in one secret.
 #
-# LiteLLM reads these via envFrom. Model configs reference them as
-# "os.environ/OPENROUTER_API_KEY", "os.environ/GROQ_API_KEY", etc.
+# NOT listed in kustomization.yaml: applying an empty Secret would clear
+# existing keys on every `oc apply`. LiteLLM uses envFrom with optional: true.
 #
-# Manage keys via Admin UI (Settings > Provider Keys) or CLI:
+# Create/update via:
+#   ./scripts/deploy.sh api   (prompts for OPENROUTER_API_KEY)
+#   Admin UI → Settings → Provider Keys
 #   oc create secret generic provider-api-keys \
 #     --from-literal=OPENROUTER_API_KEY=sk-or-v1-... \
-#     --from-literal=GROQ_API_KEY=gsk_... \
 #     -n synesis-gateway --dry-run=client -o yaml | oc apply -f -
+#
+# Model configs reference keys as "os.environ/OPENROUTER_API_KEY", etc.
 apiVersion: v1
 kind: Secret
 metadata:

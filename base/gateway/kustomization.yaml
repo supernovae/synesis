@@ -11,7 +11,8 @@ labels:
 resources:
   - namespace.yaml
   - litellm-secrets.yaml
-  - provider-api-keys.yaml
+  # provider-api-keys is NOT applied here — an empty Secret manifest wipes
+  # OPENROUTER_API_KEY on every deploy. Create/update via deploy.sh or Admin UI.
   - litellm-config.yaml
   - litellm-deployment.yaml
   - litellm-service.yaml
