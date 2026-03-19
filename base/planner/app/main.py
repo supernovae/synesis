@@ -50,7 +50,7 @@ from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
 from .stream_fixer import StreamingBlockFixer
-from .streaming_events import StatusQueueCallback, set_sub_phase_queue
+from .streaming_events import StatusQueueCallback, emit_sub_phase, set_sub_phase_queue
 from .synesis_tracer import get_synesis_tracer
 
 # /why and /reclassify command patterns
@@ -698,11 +698,18 @@ def _router_phase(input_data: dict) -> str:
     """Build a status label from router input state.
 
     Summarises what the router is doing: initial evidence gathering,
-    section-specific retrieval, or refinement.
+    section-specific retrieval, or refinement.  Also emits individual
+    query descriptions as sub-phase morsels so the user sees each topic.
     """
     requests = input_data.get("evidence_requests") or []
     if not requests:
         return "Gathering evidence\u2026"
+
+    for req in requests[:6]:
+        desc = (req.get("description") or req.get("query") or "")[:60]
+        if desc:
+            emit_sub_phase(f"Researching: {desc}")
+
     if len(requests) == 1:
         q = (requests[0].get("description") or requests[0].get("query") or "")[:50]
         return f"Gathering evidence: {q}\u2026" if q else "Gathering evidence\u2026"
@@ -713,8 +720,9 @@ def _enrich_phase(base_phase: str, node: str, frame: dict) -> str:
     """Enrich a phase description with TaskFrame context.
 
     Adds lightweight counts and domain labels — never domain-specific content.
+    Also emits individual topic morsels as sub-phases so the user sees what
+    the system is working on during long planning/research phases.
     Falls back to the base phase if no frame data is available.
-    Evidence gatherers get per-topic status via _evidence_gatherer_phase instead.
     """
     if not frame:
         return base_phase
@@ -725,6 +733,10 @@ def _enrich_phase(base_phase: str, node: str, frame: dict) -> str:
     requirements = frame.get("goals") or []
 
     if node == "planner" and deliverables:
+        for d in deliverables[:6]:
+            short = d[:60] + "\u2026" if len(d) > 60 else d
+            if short:
+                emit_sub_phase(f"Planning: {short}")
         return f"Building plan for {len(deliverables)} deliverables\u2026"
     if node == "router":
         n = len(deliverables) or len(requirements)
@@ -1553,13 +1565,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         yield _flow_phase("No evidence found, answering from knowledge\u2026")
                                         await asyncio.sleep(0)
 
-                                # Rich status: summarise the plan
+                                # Rich status: summarise the plan with step previews
                                 elif node_label == "planner":
                                     plan = output.get("execution_plan") or {}
                                     steps = plan.get("steps", []) if isinstance(plan, dict) else []
                                     if steps:
                                         yield _flow_phase(f"Plan ready: {len(steps)} sections")
                                         await asyncio.sleep(0)
+                                        for s in steps[:8]:
+                                            act = s.get("action", "") if isinstance(s, dict) else str(s)
+                                            if act:
+                                                short = act[:80] + "\u2026" if len(act) > 80 else act
+                                                yield _flow_phase(f"\u203a {short}")
+                                                await asyncio.sleep(0)
 
                                 # ── Background critic: close stream after writer/executor ──
                                 elif (

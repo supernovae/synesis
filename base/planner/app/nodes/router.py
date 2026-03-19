@@ -661,9 +661,11 @@ class RouterNode:
         tasks = [_run_request(req, q) for req, q in zip(requests, queries)]
         n_tasks = len(tasks)
 
-        async def _run_with_progress(idx: int, coro) -> tuple[int, Any]:
+        async def _run_with_progress(idx: int, coro, req: dict) -> tuple[int, Any]:
             result = await coro  # (packet, lock, timings) or Exception
-            emit_sub_phase(f"Evidence request {idx + 1}/{n_tasks} done")
+            desc = (req.get("description") or req.get("query") or "")[:50]
+            label = f"Searched: {desc}" if desc else f"Evidence request {idx + 1}/{n_tasks} done"
+            emit_sub_phase(label)
             logger.info(
                 "router_evidence_request_done",
                 extra={"index": idx + 1, "total": n_tasks},
@@ -674,7 +676,7 @@ class RouterNode:
         emit_sub_phase(f"Retrieving & summarizing {n_tasks} evidence request(s)\u2026")
         logger.info("router_phase_fanout_start", extra={"tasks": n_tasks})
         gathered = await asyncio.gather(
-            *[_run_with_progress(i, t) for i, t in enumerate(tasks)],
+            *[_run_with_progress(i, t, req) for i, (t, req) in enumerate(zip(tasks, requests))],
             return_exceptions=True,
         )
         # Preserve order: gathered[i] is (idx, result) or Exception
@@ -765,6 +767,10 @@ class RouterNode:
         """
         t_qgen = time.monotonic()
         emit_sub_phase(f"Generating queries for {len(requests)} topic(s)\u2026")
+        for req in requests[:6]:
+            desc = (req.get("description") or req.get("query") or "")[:60]
+            if desc:
+                emit_sub_phase(f"Researching: {desc}")
         queries = await self.batch_generate_queries(requests, task_context)
         qgen_ms = (time.monotonic() - t_qgen) * 1000
         logger.info("router_phase_query_gen", extra={"requests": len(requests), "latency_ms": round(qgen_ms, 1)})
