@@ -1,7 +1,7 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-api:latest
 
 # --- Stage 1: Build React frontend ---
-FROM node:22-alpine AS frontend
+FROM node:25-alpine AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts 2>/dev/null || npm install
