@@ -1016,7 +1016,7 @@ Reply with JSON:
 - repair_instructions: [{{priority: 1-5, target, action, reason}}]
 - overall_assessment, approved, revision_feedback, blocking_issues, nonblocking, residual_risks"""
 
-            task_summary = task_desc[:2000] if len(task_desc) > 2000 else task_desc
+            task_summary = task_desc[:6000] if len(task_desc) > 6000 else task_desc
 
             # Scale critic input budget by difficulty so complex responses
             # are fully visible.  Previous fixed 8000 char limit meant the

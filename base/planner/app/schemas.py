@@ -821,6 +821,19 @@ class DomainProfile(BaseModel):
     confidence: float = 0.5
 
 
+class DeliverableDetail(BaseModel):
+    """Rich per-deliverable metadata: sub-requirements and format hints.
+
+    Populated by merging GLiNER2 entity extraction with the text structure
+    parser.  Downstream nodes (planner, writer, plan_gate) prefer this over
+    the flat ``deliverables`` list when available.
+    """
+
+    title: str
+    sub_requirements: list[str] = Field(default_factory=list)
+    format_hint: str = ""
+
+
 class UserTask(BaseModel):
     """Structured task frame extracted once, consumed by all downstream nodes.
 
@@ -836,6 +849,7 @@ class UserTask(BaseModel):
     output_schema: list[str] = Field(default_factory=list)  # field/key names for structured formats
     embedded_formats: list[str] = Field(default_factory=list)  # formats wanted as code blocks, not whole-response
     deliverables: list[str] = Field(default_factory=list)
+    deliverable_details: list[DeliverableDetail] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     ambiguities: list[str] = Field(default_factory=list)
     assumptions_needed: list[str] = Field(default_factory=list)

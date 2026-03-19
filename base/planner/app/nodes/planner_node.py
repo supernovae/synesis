@@ -414,18 +414,37 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # UserTask: inject structured deliverables, constraints, and context
         frame_deliverables = user_task.get("deliverables") or []
+        frame_details = user_task.get("deliverable_details") or []
         frame_constraints = user_task.get("constraints") or []
         frame_neg_constraints = user_task.get("negative_constraints") or []
         frame_success_criteria = user_task.get("success_criteria") or []
         if frame_deliverables:
-            deliverable_list = "\n".join(f"  [{i}] {d}" for i, d in enumerate(frame_deliverables))
+            # Prefer rich deliverable_details when available
+            if frame_details and len(frame_details) == len(frame_deliverables):
+                detail_lines: list[str] = []
+                for i, dd in enumerate(frame_details):
+                    title = dd.get("title", frame_deliverables[i]) if isinstance(dd, dict) else getattr(dd, "title", frame_deliverables[i])
+                    sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
+                    fmt = (dd.get("format_hint") or "") if isinstance(dd, dict) else getattr(dd, "format_hint", "")
+                    detail_lines.append(f"  [{i}] {title}")
+                    for sr in sub_reqs:
+                        detail_lines.append(f"      - {sr}")
+                    if fmt:
+                        detail_lines.append(f"      Format: {fmt}")
+                deliverable_list = "\n".join(detail_lines)
+            else:
+                deliverable_list = "\n".join(f"  [{i}] {d}" for i, d in enumerate(frame_deliverables))
+
             n = len(frame_deliverables)
             min_sections = max(3, (n + 1) // 2)
             system_prompt += (
                 f"\n\nUSER TASK — the user expects these deliverables (0-based IDs):\n{deliverable_list}\n"
                 f"Create at least {min_sections} cohesive sections — more if needed to give "
                 f"every deliverable proper depth. "
-                f"Every deliverable ID above must appear in at least one step's deliverable_ids."
+                f"Every deliverable ID above must appear in at least one step's deliverable_ids.\n"
+                f"Sub-requirements listed under each deliverable MUST be addressed in the "
+                f"corresponding section(s). Format hints indicate the output format the user "
+                f"expects for that deliverable."
             )
         elif explicit_deliverables > 0:
             min_sections = max(3, (explicit_deliverables + 1) // 2)
@@ -495,6 +514,21 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             )
         elif _req_format != "prose":
             system_prompt += f"\n\nExpected output format: {_req_format}."
+
+        # Assumption guardrails: prevent technology hallucination
+        system_prompt += (
+            "\n\nASSUMPTION RULES:"
+            "\n- Do NOT assume specific cloud providers, vendors, databases, or "
+            "technologies the user did not mention. If the prompt says 'cloud', "
+            "do not assume AWS, Azure, or GCP — keep it cloud-agnostic."
+            "\n- If the user lists specific items (e.g. 'schemas for: X, Y, Z'), "
+            "every listed item MUST appear as a sub-step or be explicitly addressed "
+            "in a plan step."
+            "\n- The 'assumptions' field should ONLY contain things genuinely "
+            "ambiguous in the prompt — not technology choices you are inserting."
+            "\n- When a deliverable specifies a format (e.g. 'in JSON or YAML'), "
+            "that format requirement MUST appear in the plan step covering it."
+        )
 
         prompt = (
             f"## Task\n{task_desc}\n"

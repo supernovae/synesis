@@ -547,7 +547,7 @@ class TestDeliverableExtraction:
 
     def test_numbered_lines(self) -> None:
         text = "Please cover:\n1. Architecture design\n2. Cost analysis\n3. Risk assessment"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3
         assert _kw_in_deliverables("Architecture", deliverables)
         assert _kw_in_deliverables("Cost", deliverables)
@@ -555,13 +555,13 @@ class TestDeliverableExtraction:
 
     def test_dash_bullets(self) -> None:
         text = "Include the following:\n- Database schema\n- API endpoints\n- Authentication flow"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3
         assert _kw_in_deliverables("Database", deliverables)
 
     def test_star_bullets(self) -> None:
         text = "Cover these topics:\n* Networking\n* Storage\n* Compute"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3
 
     def test_markdown_heading_numbered(self) -> None:
@@ -572,7 +572,7 @@ class TestDeliverableExtraction:
             "### 4. **Serving Layer**\nExplain access.\n"
             "### 5. **Governance**\nCover security."
         )
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 5, f"Expected >= 5 deliverables, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("Ingestion", deliverables)
         assert _kw_in_deliverables("Governance", deliverables)
@@ -583,21 +583,21 @@ class TestDeliverableExtraction:
             "**Section 2: What Went Well**\nHighlight successes.\n"
             "**Section 3: Lessons Learned**\nCapture takeaways."
         )
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3, f"Expected >= 3 deliverables, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("Overview", deliverables)
         assert _kw_in_deliverables("Lessons", deliverables)
 
     def test_lettered_lowercase(self) -> None:
         text = "Cover:\na) SQL fundamentals\nb) Python pipelines\nc) Data modeling\nd) Cloud basics"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 4, f"Expected >= 4, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("SQL", deliverables)
         assert _kw_in_deliverables("Cloud", deliverables)
 
     def test_lettered_uppercase(self) -> None:
         text = "Evaluate:\nA. PostgreSQL with JSONB\nB. Apache Kafka\nC. EventStoreDB"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3, f"Expected >= 3, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("PostgreSQL", deliverables)
 
@@ -609,7 +609,7 @@ class TestDeliverableExtraction:
             "IV. Investment Requirements\n"
             "V. Risk Analysis"
         )
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 5, f"Expected >= 5, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("Executive", deliverables)
         assert _kw_in_deliverables("Risk", deliverables)
@@ -620,7 +620,7 @@ class TestDeliverableExtraction:
             "Pricing Strategy: Compare pricing tiers\n"
             "Feature Gap: Identify missing features"
         )
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3, f"Expected >= 3, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("Market", deliverables)
 
@@ -635,7 +635,7 @@ class TestDeliverableExtraction:
             "*   staging vs production\n"
             "*   canary rollout"
         )
-        deliverables, sub_reqs, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, sub_reqs, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 2, f"Expected >= 2 deliverables, got {deliverables}"
         assert _kw_in_deliverables("Governance", deliverables)
         assert _kw_in_deliverables("Deployment", deliverables)
@@ -647,7 +647,7 @@ class TestDeliverableExtraction:
         """Orphan bullets get constraint/negative classification;
         numbered top-level items are always deliverables."""
         text = "Cover:\n- Budget is limited to $50K\n- Do not use proprietary tools"
-        deliverables, _sub, constraints, negatives = _extract_deliverables_from_text(text)
+        deliverables, _sub, constraints, negatives, _fmt = _extract_deliverables_from_text(text)
         assert _kw_in_deliverables("Budget", constraints)
         assert _kw_in_deliverables("proprietary", negatives)
 
@@ -655,7 +655,7 @@ class TestDeliverableExtraction:
         """Explicitly numbered sections are deliverables even if text matches
         constraint patterns (e.g. '4. Security Gates')."""
         text = "1. Architecture\n2. Security Gates\n3. Budget Analysis"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3, f"Expected 3, got {len(deliverables)}: {deliverables}"
         assert _kw_in_deliverables("Security", deliverables)
         assert _kw_in_deliverables("Budget", deliverables)
@@ -673,7 +673,7 @@ class TestDeliverableExtraction:
             "- End-to-end tracing\n"
             "- Span collection"
         )
-        deliverables, sub_reqs, _con, _neg = _extract_deliverables_from_text(text)
+        deliverables, sub_reqs, _con, _neg, _fmt = _extract_deliverables_from_text(text)
         assert len(deliverables) >= 3, f"Expected >= 3, got {deliverables}"
         assert len(sub_reqs) >= 4, f"Expected >= 4 sub-reqs, got {sub_reqs}"
 
@@ -682,7 +682,7 @@ class TestDeliverableExtraction:
         cases = load_cases()
         case = next((c for c in cases if c["id"] == "struct-long-001"), None)
         assert case is not None, "struct-long-001 not found in dataset"
-        deliverables, _sub, _con, _neg = _extract_deliverables_from_text(case["prompt"])
+        deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(case["prompt"])
         assert len(deliverables) >= 7, (
             f"Expected >= 7 deliverables for 7-section prompt, got {len(deliverables)}: {deliverables}"
         )
@@ -690,6 +690,27 @@ class TestDeliverableExtraction:
             assert _kw_in_deliverables(kw, deliverables), (
                 f"'{kw}' not found in deliverables: {deliverables}"
             )
+
+
+    def test_format_hints_detected(self) -> None:
+        """Per-deliverable format hints are extracted from section children."""
+        text = (
+            "### 1. **Architecture Design**\nInclude:\n"
+            "- Component diagram\n"
+            "- Data flow overview\n"
+            "### 2. **Sample Schemas**\nProvide example schemas for:\n"
+            "- document metadata\n"
+            "- agent tool definitions\n"
+            "- All schemas should be in JSON or YAML\n"
+            "### 3. **Deployment Plan**\nDescribe stages."
+        )
+        deliverables, _sub, _con, _neg, fmt_hints = _extract_deliverables_from_text(text)
+        assert len(deliverables) >= 3
+        assert _kw_in_deliverables("Sample Schemas", deliverables)
+        schema_idx = next(i for i, d in enumerate(deliverables) if "schema" in d.lower())
+        assert schema_idx in fmt_hints, f"Expected format hint for schema deliverable, got {fmt_hints}"
+        assert "json" in fmt_hints[schema_idx].lower()
+        assert "yaml" in fmt_hints[schema_idx].lower()
 
 
 @_skip_no_extractor
@@ -702,7 +723,7 @@ class TestNoDeliverableTruncation:
             expected_count = case["expected"].get("deliverable_count", 0)
             if expected_count < 7:
                 continue
-            deliverables, _sub, _con, _neg = _extract_deliverables_from_text(case["prompt"])
+            deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(case["prompt"])
             assert len(deliverables) >= expected_count, (
                 f"[{case['id']}] Expected >= {expected_count} deliverables, "
                 f"got {len(deliverables)}: {deliverables}"

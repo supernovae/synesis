@@ -25,7 +25,7 @@ from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, recor
 from ..config import reasoning_body, settings
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
-from ..schemas import FirstPassFrame, MissingFieldReport, UserTask, safe_parse_json
+from ..schemas import DeliverableDetail, FirstPassFrame, MissingFieldReport, UserTask, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 from .frame_normalizer import normalize_frame
@@ -128,22 +128,24 @@ async def _llm_repair(
         _repair_eb["chat_template_kwargs"] = {"enable_thinking": False}
     else:
         _repair_kw["response_format"] = {"type": "json_object"}
-    _repair_eb.update(reasoning_body(settings.planner_reasoning_effort))
+    # Repair is a deterministic JSON-fill task — never needs reasoning.
+    # Force "none" regardless of planner_reasoning_effort to avoid Grok
+    # spending 10-20s thinking about simple gap-filling.
+    _repair_eb.update(reasoning_body("none"))
     if _repair_eb:
         _repair_kw["extra_body"] = _repair_eb
 
     llm = ChatOpenAI(
-        base_url=settings.planner_model_url,
+        base_url=settings.router_model_url,
         api_key="not-needed",
-        model=settings.planner_model_name,
+        model=settings.router_model_name,
         temperature=0.1,
-        max_completion_tokens=2048,
-        streaming=True,
-        stream_usage=True,
+        max_completion_tokens=settings.frame_repair_max_tokens,
+        streaming=False,
         use_responses_api=False,
         stop=["\n\n"],
         model_kwargs=_repair_kw if _repair_kw else None,
-        http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
+        http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
     )
 
     repair_input = json.dumps(
@@ -205,8 +207,21 @@ _ROMAN_RE = re.compile(
 )
 # Item-level (child requirements under a section):
 _DASH_BULLET_LINE_RE = re.compile(r"^\s*[-*]\s+(.+)$", re.MULTILINE)
-# Colon-delimited label at line start (only when ≥ 2 such lines exist)
+# Colon-delimited label at line start (only when >= 2 such lines exist)
 _COLON_LABEL_RE = re.compile(r"^([A-Z][A-Za-z &/]+):\s+(.+)$", re.MULTILINE)
+
+# Per-deliverable format hints — detects "in JSON", "provide YAML", etc.
+_FORMAT_HINT_RE = re.compile(
+    r"\b(?:in\s+)?(json|yaml|xml|csv|toml|markdown|mermaid|diagram|table|code)\b",
+    re.IGNORECASE,
+)
+
+# Meta-labels whose children should be promoted to top-level deliverables
+_META_DELIVERABLE_RE = re.compile(
+    r"^(?:deliverables?|what i (?:want|need)|requirements?|tasks?|"
+    r"goals?|objectives?|outputs?|asks?)\b",
+    re.IGNORECASE,
+)
 
 
 class _StructuredItem:
@@ -220,17 +235,28 @@ class _StructuredItem:
         self.children: list[str] = []
 
 
+def _extract_format_hints(section_text: str, children: list[str]) -> str:
+    """Scan a section heading and its children for output format indicators."""
+    combined = section_text + " " + " ".join(children)
+    hits = _FORMAT_HINT_RE.findall(combined)
+    if not hits:
+        return ""
+    unique = list(dict.fromkeys(h.lower() for h in hits))
+    return ", ".join(unique)
+
+
 def _extract_deliverables_from_text(
     text: str,
-) -> tuple[list[str], list[str], list[str], list[str]]:
-    """Extract deliverables, child requirements, constraints, and negatives.
+) -> tuple[list[str], list[str], list[str], list[str], dict[int, str]]:
+    """Extract deliverables, child requirements, constraints, negatives, and format hints.
 
     Recognises markdown headings, bold sections, numbered/lettered/roman lists,
     dash/star bullets, and colon-delimited labels.  Section-level items become
     deliverables; bullets nested beneath them become child requirements that
     capture the hierarchy users express in structured prompts.
 
-    Returns (deliverables, sub_requirements, constraints, negative_constraints).
+    Returns (deliverables, sub_requirements, constraints, negative_constraints,
+             format_hints) where format_hints maps deliverable index -> hint str.
     """
     # --- Phase 1: collect section-level candidates (order matters — first match wins) ---
     section_hits: list[tuple[int, str]] = []
@@ -279,18 +305,16 @@ def _extract_deliverables_from_text(
             if parent_idx >= 0:
                 sections[parent_idx].children.append(btext)
 
-    # Meta-labels whose children should be promoted to top-level deliverables
-    _META_DELIVERABLE_RE = re.compile(
-        r"^(?:deliverables?|what i (?:want|need)|requirements?|tasks?|"
-        r"goals?|objectives?|outputs?|asks?)\b",
-        re.IGNORECASE,
-    )
-
     # --- Phase 4: classify into deliverables / constraints / negatives ---
     deliverables: list[str] = []
     sub_requirements: list[str] = []
     constraints: list[str] = []
     negative: list[str] = []
+    format_hints: dict[int, str] = {}
+
+    # Track which section index maps to which deliverable index so we can
+    # associate sub-requirements with the correct parent deliverable later.
+    section_to_deliverable: dict[int, int] = {}
 
     def _classify_child(item: str, target_list: list[str]) -> None:
         """Classify a sub-item (bullet) as deliverable/constraint/negative."""
@@ -303,21 +327,21 @@ def _extract_deliverables_from_text(
         else:
             target_list.append(item)
 
-    for sec in sections:
+    for sec_idx, sec in enumerate(sections):
         t = sec.text
         if not t or len(t) < 3:
             continue
 
-        # When the section heading is a meta-label (e.g. "Deliverables:"),
-        # promote its children directly to the deliverables list.
         promote_children = bool(_META_DELIVERABLE_RE.match(t))
 
-        # Section-level items are always treated as deliverables unless
-        # they are meta-labels.  Users explicitly numbering or heading
-        # a section means they want it covered.  Constraint/negative
-        # classification only applies to sub-items (bullets).
         if not promote_children:
+            del_idx = len(deliverables)
             deliverables.append(t)
+            section_to_deliverable[sec_idx] = del_idx
+
+            hint = _extract_format_hints(t, sec.children)
+            if hint:
+                format_hints[del_idx] = hint
 
         child_target = deliverables if promote_children else sub_requirements
         for child in sec.children:
@@ -335,7 +359,132 @@ def _extract_deliverables_from_text(
             else:
                 deliverables.append(btext)
 
-    return deliverables, sub_requirements, constraints, negative
+    return deliverables, sub_requirements, constraints, negative, format_hints
+
+
+def _build_deliverable_details(
+    deliverables: list[str],
+    sub_requirements: list[str],
+    format_hints: dict[int, str],
+) -> list[DeliverableDetail]:
+    """Build DeliverableDetail list from text parser output.
+
+    Sub-requirements are currently a flat list (no parent tracking beyond
+    order).  We assign them proportionally across deliverables.  Format
+    hints are keyed by deliverable index from the extraction phase.
+    """
+    if not deliverables:
+        return []
+
+    details: list[DeliverableDetail] = []
+    for i, title in enumerate(deliverables):
+        details.append(
+            DeliverableDetail(
+                title=title,
+                format_hint=format_hints.get(i, ""),
+            )
+        )
+
+    # Distribute sub-requirements across deliverables proportionally.
+    # If we have N deliverables and M sub-reqs, each deliverable gets
+    # roughly M/N sub-reqs in order.  This preserves document order.
+    if sub_requirements and details:
+        n = len(details)
+        chunk_size = max(1, len(sub_requirements) // n)
+        for i, detail in enumerate(details):
+            start = i * chunk_size
+            end = start + chunk_size if i < n - 1 else len(sub_requirements)
+            detail.sub_requirements = sub_requirements[start:end]
+
+    return details
+
+
+def _fuzzy_match(a: str, b: str) -> bool:
+    """Check if two deliverable titles refer to the same thing."""
+    a_lower = a.lower().strip()
+    b_lower = b.lower().strip()
+    if a_lower == b_lower:
+        return True
+    # One contains the other (handles "Architecture Design" vs
+    # "Architecture Design and Implementation")
+    if a_lower in b_lower or b_lower in a_lower:
+        return True
+    # Significant word overlap (>60%)
+    a_words = {w for w in a_lower.split() if len(w) > 3}
+    b_words = {w for w in b_lower.split() if len(w) > 3}
+    if a_words and b_words:
+        overlap = len(a_words & b_words)
+        return overlap / min(len(a_words), len(b_words)) > 0.6
+    return False
+
+
+def _merge_extractions(
+    user_task: UserTask,
+    text_deliverables: list[str],
+    text_sub_reqs: list[str],
+    text_constraints: list[str],
+    text_negatives: list[str],
+    text_fmt_hints: dict[int, str],
+) -> dict[str, Any]:
+    """Merge text structure parser results into a UserTask from GLiNER2.
+
+    GLiNER2 provides entity-level extraction (technologies, domain tags,
+    classification, format detection).  The text structure parser provides
+    hierarchical extraction (sections, sub-requirements, per-deliverable
+    format hints).  Merging gives us the best of both.
+
+    Mutates user_task in place.  Returns stats dict for logging.
+    """
+    deliverables_added = 0
+    constraints_added = 0
+    negatives_added = 0
+
+    existing_deliverables = list(user_task.deliverables)
+
+    # Union of deliverables: add text parser deliverables not already in GLiNER2 set
+    for td in text_deliverables:
+        if not any(_fuzzy_match(td, ed) for ed in existing_deliverables):
+            user_task.deliverables.append(td)
+            existing_deliverables.append(td)
+            deliverables_added += 1
+
+    # Union of constraints
+    existing_constraints_lower = {c.lower() for c in user_task.constraints}
+    for tc in text_constraints:
+        if tc.lower() not in existing_constraints_lower:
+            user_task.constraints.append(tc)
+            existing_constraints_lower.add(tc.lower())
+            constraints_added += 1
+
+    # Union of negative constraints
+    existing_neg_lower = {n.lower() for n in user_task.negative_constraints}
+    for tn in text_negatives:
+        if tn.lower() not in existing_neg_lower:
+            user_task.negative_constraints.append(tn)
+            existing_neg_lower.add(tn.lower())
+            negatives_added += 1
+
+    # Add sub-requirements to explicit_requirements (deduped)
+    existing_reqs_lower = {r.lower() for r in user_task.explicit_requirements}
+    for sr in text_sub_reqs:
+        if sr.lower() not in existing_reqs_lower:
+            user_task.explicit_requirements.append(sr)
+            existing_reqs_lower.add(sr.lower())
+
+    # Build deliverable_details from the merged deliverables list.
+    # Match text parser's positional format hints to the final deliverable
+    # list, and distribute sub-requirements.
+    user_task.deliverable_details = _build_deliverable_details(
+        user_task.deliverables, text_sub_reqs, text_fmt_hints,
+    )
+
+    return {
+        "deliverables_added": deliverables_added,
+        "constraints_added": constraints_added,
+        "negatives_added": negatives_added,
+        "total_deliverables": len(user_task.deliverables),
+        "total_details": len(user_task.deliverable_details),
+    }
 
 
 def _build_deterministic_task(
@@ -352,7 +501,7 @@ def _build_deterministic_task(
     domain = taxonomy_metadata.get("taxonomy_key", "general")
     required_elements = taxonomy_metadata.get("required_elements") or []
 
-    extracted_deliverables, extracted_sub_reqs, extracted_constraints, extracted_negative = (
+    extracted_deliverables, extracted_sub_reqs, extracted_constraints, extracted_negative, fmt_hints = (
         _extract_deliverables_from_text(task_description)
     )
 
@@ -363,6 +512,8 @@ def _build_deterministic_task(
     else:
         deliverables = []
 
+    details = _build_deliverable_details(deliverables, extracted_sub_reqs, fmt_hints)
+
     first_sentence = task_description.split("\n")[0].strip()[:200]
     requirements = [first_sentence] if first_sentence else []
     if extracted_sub_reqs:
@@ -372,6 +523,7 @@ def _build_deterministic_task(
         main_question=first_sentence,
         explicit_requirements=requirements,
         deliverables=deliverables,
+        deliverable_details=details,
         constraints=extracted_constraints,
         negative_constraints=extracted_negative,
         domain_tags=[domain] if domain and domain not in ("generic", "general") else [],
@@ -481,10 +633,16 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        # Stage 1: GLiNER2 extraction (offloaded to thread to avoid blocking event loop)
+        # Stage 1: GLiNER2 + text structure parser in parallel.
+        # GLiNER2 is ~100-500ms (network + CPU inference); text parser is
+        # ~1-5ms pure regex.  Running them concurrently means the text parser
+        # adds zero wall-clock overhead.
         prompt_text = task_description[:5000]
         client = get_gliner_client()
-        first_pass = await asyncio.to_thread(client.extract, prompt_text)
+
+        gliner_coro = asyncio.to_thread(client.extract, prompt_text)
+        text_coro = asyncio.to_thread(_extract_deliverables_from_text, prompt_text)
+        first_pass, text_results = await asyncio.gather(gliner_coro, text_coro)
 
         stage1_latency = (time.monotonic() - start) * 1000
         total_spans = sum(
@@ -492,18 +650,20 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             for f in FirstPassFrame.model_fields
             if f not in ("task_classification", "field_confidence_map")
         )
+        text_deliverables, text_sub_reqs, text_constraints, text_negatives, text_fmt_hints = text_results
         logger.info(
             "frame_stage1_complete",
             extra={
                 "spans": total_spans,
                 "classification": first_pass.task_classification,
+                "text_parser_deliverables": len(text_deliverables),
+                "text_parser_sub_reqs": len(text_sub_reqs),
+                "text_parser_format_hints": len(text_fmt_hints),
                 "latency_ms": round(stage1_latency),
             },
         )
 
         # Stage 2: Deterministic normalization + domain profiling
-        # Pass domain_ref_counts and active_domain_refs from the entry
-        # classifier so the profiler can compute weighted domain understanding.
         user_task, report = normalize_frame(
             first_pass,
             prompt_text,
@@ -512,29 +672,88 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         stage2_latency = (time.monotonic() - start) * 1000
+
+        # Stage 2b: Merge text structure parser results into UserTask.
+        # The text parser captures hierarchy (sections → sub-requirements)
+        # and per-deliverable format hints that GLiNER2 NER cannot detect.
+        merge_stats = _merge_extractions(
+            user_task, text_deliverables, text_sub_reqs,
+            text_constraints, text_negatives, text_fmt_hints,
+        )
+
+        # Frame completeness check: count structural sections in raw text
+        # and compare against extracted deliverables.  A mismatch means we're
+        # losing user-specified sections — flag it loudly.
+        _section_count = len(_HEADING_NUMBERED_RE.findall(prompt_text))
+        _section_count += len(_BOLD_SECTION_RE.findall(prompt_text))
+        if _section_count == 0:
+            _section_count = len(_NUMBERED_LINE_RE.findall(prompt_text))
+        _del_count = len(user_task.deliverables)
+        _completeness_gap = _section_count - _del_count
+        if _completeness_gap > 0 and _section_count >= 3:
+            logger.warning(
+                "frame_completeness_warning",
+                extra={
+                    "sections_in_prompt": _section_count,
+                    "deliverables_extracted": _del_count,
+                    "gap": _completeness_gap,
+                    "prompt_length": len(prompt_text),
+                },
+            )
+
         logger.info(
             "frame_stage2_complete",
             extra={
                 "deliverables": len(user_task.deliverables),
+                "deliverable_details": len(user_task.deliverable_details),
                 "requirements": len(user_task.explicit_requirements),
                 "second_pass_needed": report.should_call_second_pass,
                 "reasons": report.reasons,
+                "merge_stats": merge_stats,
+                "sections_in_prompt": _section_count,
+                "frame_completeness_gap": _completeness_gap,
                 "latency_ms": round(stage2_latency),
             },
         )
 
-        # Stage 3: LLM repair (only if needed AND difficulty warrants it)
+        # Stage 3: LLM repair — only if merge didn't fill the gaps.
+        # Re-evaluate repair need: if text parser provided deliverables
+        # and main_question is populated, skip the expensive LLM call.
         tokens_used = 0
-        extraction_mode = "gliner2_only"
+        extraction_mode = "gliner2_plus_text_parser"
         _repair_threshold = settings.frame_repair_above
         _saved_profile = user_task.domain_profile
-        if report.should_call_second_pass and difficulty >= _repair_threshold:
-            extraction_mode = "gliner2_plus_llm_repair"
+
+        repair_still_needed = report.should_call_second_pass
+        if repair_still_needed and merge_stats.get("deliverables_added", 0) > 0:
+            remaining_reasons = [
+                r for r in (report.reasons or [])
+                if "deliverable" not in r.lower()
+            ]
+            if not remaining_reasons and user_task.main_question:
+                repair_still_needed = False
+                extraction_mode = "gliner2_plus_text_parser_no_repair"
+                logger.info(
+                    "frame_repair_skipped_text_parser_filled_gaps",
+                    extra={
+                        "original_reasons": report.reasons,
+                        "deliverables_after_merge": len(user_task.deliverables),
+                    },
+                )
+
+        if repair_still_needed and difficulty >= _repair_threshold:
+            extraction_mode = "gliner2_text_parser_plus_llm_repair"
             user_task, tokens_used = await _llm_repair(prompt_text, first_pass, report)
             if _saved_profile:
                 user_task.domain_profile = _saved_profile
-        elif report.should_call_second_pass:
-            extraction_mode = "gliner2_skip_repair_low_difficulty"
+            # Re-merge text parser results into repaired task (repair
+            # produces flat lists; text parser adds hierarchy back).
+            _merge_extractions(
+                user_task, text_deliverables, text_sub_reqs,
+                text_constraints, text_negatives, text_fmt_hints,
+            )
+        elif repair_still_needed:
+            extraction_mode = "gliner2_text_parser_skip_repair_low_difficulty"
             logger.info(
                 "frame_repair_skipped_low_difficulty",
                 extra={
@@ -557,11 +776,10 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             extra={
                 "mode": extraction_mode,
                 "deliverables": len(user_task.deliverables),
+                "deliverable_details": len(user_task.deliverable_details),
                 "requirements": len(user_task.explicit_requirements),
                 "constraints": len(user_task.constraints),
                 "negative_constraints": len(user_task.negative_constraints),
-                "deliverables_extracted": len(user_task.deliverables),
-                "constraints_extracted": len(user_task.constraints),
                 "gliner_used": True,
                 "domain_tags": user_task.domain_tags,
                 "format": user_task.requested_format,
@@ -575,6 +793,35 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         _tracer = get_synesis_tracer()
         if _tracer:
+            # Rich trace: dump actual data at each stage so the admin UI
+            # shows exactly what each extractor produced, not just counts.
+            _gliner_snapshot = {
+                "classification": first_pass.task_classification,
+                "deliverables": [c.text for c in first_pass.deliverables][:20],
+                "requirements": [c.text for c in first_pass.requirements][:20],
+                "constraints": [c.text for c in first_pass.constraints][:10],
+                "technologies": [c.text for c in first_pass.technologies][:10],
+                "formats": [c.text for c in first_pass.formats][:5],
+                "confidence_map": {
+                    k: round(v, 2) for k, v in first_pass.field_confidence_map.items()
+                },
+            }
+            _text_parser_snapshot = {
+                "deliverables": text_deliverables[:20],
+                "sub_requirements": text_sub_reqs[:20],
+                "constraints": text_constraints[:10],
+                "negatives": text_negatives[:10],
+                "format_hints": {str(k): v for k, v in text_fmt_hints.items()},
+            }
+            _detail_snapshot = [
+                {
+                    "title": d.title,
+                    "sub_reqs": d.sub_requirements[:8],
+                    "format": d.format_hint,
+                }
+                for d in user_task.deliverable_details[:15]
+            ]
+
             _tracer.annotate_span(
                 "entry_pipeline",
                 {
@@ -583,13 +830,28 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                         "stage1_latency_ms": round(stage1_latency, 1),
                         "stage2_latency_ms": round(stage2_latency, 1),
                         "total_latency_ms": round(latency, 1),
-                        "gliner_spans": total_spans,
-                        "deliverables": len(user_task.deliverables),
-                        "requirements": len(user_task.explicit_requirements),
-                        "constraints": len(user_task.constraints),
-                        "domain_tags": user_task.domain_tags,
-                        "needs_web": user_task.needs_web,
-                        "prompt_snippet": task_description[:200],
+                        "repair_tokens": tokens_used,
+                        "prompt_snippet": task_description[:300],
+                        "gliner_output": _gliner_snapshot,
+                        "text_parser_output": _text_parser_snapshot,
+                        "merge_stats": merge_stats,
+                        "normalizer_report": {
+                            "should_repair": report.should_call_second_pass,
+                            "reasons": report.reasons[:5],
+                        },
+                        "final_frame": {
+                            "main_question": user_task.main_question[:200],
+                            "deliverables": user_task.deliverables[:15],
+                            "deliverable_details": _detail_snapshot,
+                            "explicit_requirements": user_task.explicit_requirements[:15],
+                            "constraints": user_task.constraints[:10],
+                            "negative_constraints": user_task.negative_constraints[:10],
+                            "technologies": user_task.technologies[:10],
+                            "domain_tags": user_task.domain_tags,
+                            "requested_format": user_task.requested_format,
+                            "embedded_formats": user_task.embedded_formats,
+                            "needs_web": user_task.needs_web,
+                        },
                     },
                 },
             )
@@ -601,6 +863,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
                 NodeTrace(
                     node_name=node_name,
                     reasoning=f"{extraction_mode}: {len(user_task.deliverables)} deliverables, "
+                    f"{len(user_task.deliverable_details)} details, "
                     f"{len(user_task.explicit_requirements)} requirements",
                     confidence=0.9,
                     outcome=NodeOutcome.SUCCESS,

@@ -447,7 +447,21 @@ def _build_task_block(state: dict[str, Any]) -> str:
         parts.append("Do NOT: " + "; ".join(negative[:6]))
 
     deliverables = frame.get("deliverables") or []
-    if deliverables:
+    details = frame.get("deliverable_details") or []
+    if details:
+        detail_lines: list[str] = []
+        for dd in details:
+            title = dd.get("title", "") if isinstance(dd, dict) else getattr(dd, "title", "")
+            sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
+            fmt = (dd.get("format_hint") or "") if isinstance(dd, dict) else getattr(dd, "format_hint", "")
+            line = title
+            if fmt:
+                line += f" [format: {fmt}]"
+            detail_lines.append(line)
+            for sr in sub_reqs:
+                detail_lines.append(f"      - {sr}")
+        parts.append("DELIVERABLES (with sub-requirements and format hints):\n" + "\n".join(f"    {l}" for l in detail_lines))
+    elif deliverables:
         parts.append("Required deliverables: " + "; ".join(deliverables[:10]))
 
     success = frame.get("success_criteria") or []

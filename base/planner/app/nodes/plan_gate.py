@@ -54,46 +54,79 @@ def _check_step_quality(steps: list[dict[str, Any]]) -> list[str]:
 def _check_deliverable_coverage(
     steps: list[dict[str, Any]],
     deliverables: list[str],
+    deliverable_details: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     if not deliverables:
         return []
 
+    errors: list[str] = []
     all_ids = set(range(len(deliverables)))
     covered: set[int] = set()
     has_mapping = False
 
+    # Build per-step action text index for sub-requirement checking
+    step_actions_by_deliverable: dict[int, str] = {}
     for s in steps:
         d_ids = s.get("deliverable_ids") or []
         if d_ids:
             has_mapping = True
-            covered.update(int(x) for x in d_ids if isinstance(x, (int, float)))
+            for x in d_ids:
+                if isinstance(x, (int, float)):
+                    did = int(x)
+                    covered.add(did)
+                    step_actions_by_deliverable.setdefault(did, "")
+                    step_actions_by_deliverable[did] += " " + (s.get("action") or "").lower()
 
     if has_mapping:
         missing_ids = sorted(all_ids - covered)
         if missing_ids:
             names = [deliverables[i] for i in missing_ids if i < len(deliverables)]
-            return [
+            errors.append(
                 f"deliverable_uncovered: {len(missing_ids)} deliverable(s) not mapped to any plan step: {names[:5]}"
-            ]
-        return []
+            )
+    else:
+        actions_text = " ".join((s.get("action") or "").lower() for s in steps)
+        uncovered: list[str] = []
+        for d in deliverables:
+            words = [w for w in d.lower().split() if len(w) > 3]
+            if not words:
+                continue
+            hits = sum(1 for w in words if w in actions_text)
+            if hits / len(words) < 0.5:
+                uncovered.append(d)
 
-    # Fallback: keyword overlap when model omits deliverable_ids entirely
-    actions_text = " ".join((s.get("action") or "").lower() for s in steps)
-    uncovered: list[str] = []
-    for d in deliverables:
-        words = [w for w in d.lower().split() if len(w) > 3]
-        if not words:
-            continue
-        hits = sum(1 for w in words if w in actions_text)
-        if hits / len(words) < 0.5:
-            uncovered.append(d)
+        if uncovered:
+            errors.append(
+                f"deliverable_uncovered: {len(uncovered)} deliverable(s) not addressed "
+                f"in plan actions (keyword fallback): {uncovered[:5]}"
+            )
 
-    if uncovered:
-        return [
-            f"deliverable_uncovered: {len(uncovered)} deliverable(s) not addressed "
-            f"in plan actions (keyword fallback): {uncovered[:5]}"
-        ]
-    return []
+    # Sub-requirement coverage: check that each deliverable's sub-requirements
+    # have at least 30% keyword presence in the mapped plan steps.
+    if deliverable_details and has_mapping:
+        for i, dd in enumerate(deliverable_details):
+            if i not in step_actions_by_deliverable:
+                continue
+            sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
+            if len(sub_reqs) < 2:
+                continue
+            action_text = step_actions_by_deliverable[i]
+            missed_reqs: list[str] = []
+            for sr in sub_reqs:
+                words = [w for w in sr.lower().split() if len(w) > 3]
+                if not words:
+                    continue
+                hits = sum(1 for w in words if w in action_text)
+                if hits / len(words) < 0.3:
+                    missed_reqs.append(sr)
+            title = (dd.get("title") or deliverables[i]) if isinstance(dd, dict) else getattr(dd, "title", deliverables[i])
+            if len(missed_reqs) > len(sub_reqs) * 0.5:
+                errors.append(
+                    f"subreq_gap: deliverable '{title}' has {len(missed_reqs)}/{len(sub_reqs)} "
+                    f"sub-requirements not addressed in plan steps: {missed_reqs[:3]}"
+                )
+
+    return errors
 
 
 def _check_format_alignment(
@@ -220,7 +253,7 @@ async def _shallow_coherence_check(
         "Do NOT rewrite the plan. Do NOT reason step by step. Just classify."
     )
     prompt = (
-        f"User request summary: {task_description[:500]}\n"
+        f"User request summary: {task_description[:3000]}\n"
         f"Deliverables: {deliverable_list}\n\n"
         f"Plan steps:\n{plan_summary}\n\n"
         "Does the plan adequately address the user's request and deliverables?"
@@ -288,11 +321,13 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             ],
         }
 
+    deliverable_details = user_task.get("deliverable_details") or []
+
     # Collect errors from all deterministic checks
     errors: list[str] = []
     errors.extend(_check_plan_nonempty(steps))
     errors.extend(_check_step_quality(steps))
-    errors.extend(_check_deliverable_coverage(steps, deliverables))
+    errors.extend(_check_deliverable_coverage(steps, deliverables, deliverable_details))
     errors.extend(_check_format_alignment(steps, requested_format))
     errors.extend(_check_schema_field_mapping(steps, output_schema))
     errors.extend(_check_hallucination_guard(steps, has_evidence))
