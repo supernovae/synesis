@@ -10,8 +10,9 @@ if [ -f alembic.ini ]; then
     echo "[entrypoint] Running database migrations..."
 
     # If tables already exist (from a prior create_all) but alembic_version
-    # doesn't exist or is empty, stamp to head so Alembic doesn't try to
-    # re-create them.
+    # doesn't exist, create it and stamp to the EARLIEST migration so that
+    # `alembic upgrade head` runs all migrations (each one checks table
+    # existence before CREATE, so re-runs are safe).
     python -c "
 import asyncio, os
 from sqlalchemy import text
@@ -24,7 +25,6 @@ async def check():
     eng = create_async_engine(url)
     try:
         async with eng.connect() as conn:
-            # Check if alembic_version exists
             r = await conn.execute(text(
                 \"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')\"
             ))
@@ -34,45 +34,19 @@ async def check():
                 r2 = await conn.execute(text('SELECT version_num FROM alembic_version LIMIT 1'))
                 row = r2.first()
                 if row:
-                    current_ver = row[0]
-                    from alembic.config import Config
-                    from alembic.script import ScriptDirectory
-                    cfg = Config('alembic.ini')
-                    script = ScriptDirectory.from_config(cfg)
-                    head = script.get_current_head()
-                    if current_ver == head:
-                        return  # Already at head
-                    # Behind head — check if the target tables already exist
-                    # (created by old create_all). If so, stamp to head.
-                    r3 = await conn.execute(text(
-                        \"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='failures')\"
-                    ))
-                    if r3.scalar():
-                        print(f'[entrypoint] Alembic at {current_ver} but tables exist up to {head} — stamping forward')
-                        await conn.execute(text('DELETE FROM alembic_version'))
-                        await conn.execute(text(f\"INSERT INTO alembic_version (version_num) VALUES ('{head}')\"))
-                        await conn.commit()
-                        print(f'[entrypoint] Stamped to {head}')
-                        return
-                    # Tables don't exist yet — let alembic upgrade normally
-                    return
+                    return  # Alembic is tracking — let upgrade handle it
 
             # No alembic_version or empty — check if tables were created by create_all
             r = await conn.execute(text(
                 \"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='traces')\"
             ))
             if r.scalar():
-                print('[entrypoint] Tables exist without alembic tracking — stamping to head')
+                print('[entrypoint] Tables exist without alembic tracking — stamping to 001')
                 await conn.execute(text('CREATE TABLE IF NOT EXISTS alembic_version (version_num VARCHAR(32) NOT NULL)'))
                 await conn.execute(text('DELETE FROM alembic_version'))
-                from alembic.config import Config
-                from alembic.script import ScriptDirectory
-                cfg = Config('alembic.ini')
-                script = ScriptDirectory.from_config(cfg)
-                head = script.get_current_head()
-                await conn.execute(text(f\"INSERT INTO alembic_version (version_num) VALUES ('{head}')\"))
+                await conn.execute(text(\"INSERT INTO alembic_version (version_num) VALUES ('001')\"))
                 await conn.commit()
-                print(f'[entrypoint] Stamped to {head}')
+                print('[entrypoint] Stamped to 001 — alembic upgrade will apply remaining migrations')
     finally:
         await eng.dispose()
 
