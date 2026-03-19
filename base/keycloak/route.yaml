@@ -1,0 +1,23 @@
+# Public HTTPS route for Keycloak IdP.
+# Override spec.host via overlay to match your cluster ingress domain.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-auth
+  namespace: synesis-auth
+  labels:
+    app.kubernetes.io/name: synesis-keycloak
+    app.kubernetes.io/part-of: synesis
+  annotations:
+    haproxy.router.openshift.io/timeout: 60s
+spec:
+  host: synesis-auth.apps.openshiftdemo.dev
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: synesis-keycloak-service
+    weight: 100
+  port:
+    targetPort: http

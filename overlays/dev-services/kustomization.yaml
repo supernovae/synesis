@@ -26,6 +26,7 @@ resources:
   - ../../base/lsp
   - ../../base/search
   - ../../base/webui
+  - ../../base/keycloak
 
 patches:
   - target:

@@ -294,6 +294,99 @@ patch_admin_db_urls() {
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
 }
 
+# -----------------------------------------------------------------------
+# Keycloak auth DB: separate CloudNativePG cluster for Keycloak.
+# -----------------------------------------------------------------------
+ensure_keycloak_db() {
+    local ns="synesis-auth"
+    local cluster_name="synesis-auth-db"
+    local cluster_manifest="$PROJECT_ROOT/base/keycloak/postgres-cluster.yaml"
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    if ! oc get crd clusters.postgresql.cnpg.io &>/dev/null; then
+        log "WARNING: CloudNativePG CRD not found — skipping Keycloak DB."
+        return
+    fi
+
+    if [[ -f "$cluster_manifest" ]]; then
+        oc apply -f "$cluster_manifest"
+        log "  Keycloak DB Cluster CR applied: $ns/$cluster_name"
+    else
+        log "WARNING: Keycloak DB manifest not found: $cluster_manifest"
+        return
+    fi
+
+    log "  Waiting for Keycloak Postgres cluster..."
+    local ready="false"
+    for _ in $(seq 1 36); do
+        local phase
+        phase=$(oc get cluster "$cluster_name" -n "$ns" \
+            -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+        if [[ "$phase" == "Cluster in healthy state" ]]; then
+            ready="true"
+            break
+        fi
+        sleep 5
+    done
+
+    if [[ "$ready" != "true" ]]; then
+        log "WARNING: Keycloak Postgres not ready after 3 min."
+        return
+    fi
+    log "  Keycloak Postgres cluster is healthy"
+}
+
+# -----------------------------------------------------------------------
+# Keycloak: deploy the Keycloak CR and realm import via Kustomize.
+# -----------------------------------------------------------------------
+ensure_keycloak() {
+    local ns="synesis-auth"
+
+    if ! oc get crd keycloaks.k8s.keycloak.org &>/dev/null; then
+        log "WARNING: RHBK operator not found — skipping Keycloak deployment."
+        log "  Install from OperatorHub: 'Red Hat build of Keycloak'"
+        return
+    fi
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    log "  Applying Keycloak manifests..."
+    kustomize build "$PROJECT_ROOT/base/keycloak" | oc apply -f -
+
+    log "  Waiting for Keycloak pod to be ready..."
+    local ready="false"
+    for _ in $(seq 1 60); do
+        if oc get keycloak synesis-keycloak -n "$ns" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+            ready="true"
+            break
+        fi
+        sleep 5
+    done
+
+    if [[ "$ready" != "true" ]]; then
+        log "WARNING: Keycloak not ready after 5 min. Check: oc get keycloak -n $ns"
+    else
+        log "  Keycloak is ready"
+    fi
+
+    # Extract initial admin credentials
+    local admin_secret="synesis-keycloak-initial-admin"
+    if oc get secret "$admin_secret" -n "$ns" &>/dev/null; then
+        local kc_user kc_pass
+        kc_user=$(oc get secret "$admin_secret" -n "$ns" -o jsonpath='{.data.username}' | base64 -d 2>/dev/null)
+        kc_pass=$(oc get secret "$admin_secret" -n "$ns" -o jsonpath='{.data.password}' | base64 -d 2>/dev/null)
+        KEYCLOAK_ADMIN_USER="$kc_user"
+        KEYCLOAK_ADMIN_PASS="$kc_pass"
+    fi
+
+    # Patch admin deployment with Keycloak issuer URL
+    local kc_host
+    kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || echo "synesis-auth.apps.openshiftdemo.dev")
+    local issuer_url="https://${kc_host}/realms/synesis"
+    _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url"
+}
+
 log "=== Deploying Synesis ($ENV) ==="
 [[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
 log ""
@@ -341,6 +434,14 @@ ensure_admin_configmaps
 log ""
 log "Setting up admin Postgres..."
 ensure_admin_db
+
+log ""
+log "Setting up Keycloak auth DB..."
+ensure_keycloak_db
+
+log ""
+log "Setting up Keycloak IdP..."
+ensure_keycloak
 
 log ""
 log "Validating kustomize build..."
@@ -766,6 +867,7 @@ log "=== Deployment complete ($ENV) ==="
 ROUTE_HOST=$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 ADMIN_HOST=$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
+KC_HOST=$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 
 log ""
 log "============================================================"
@@ -773,26 +875,40 @@ log "  API endpoint:  https://$ROUTE_HOST"
 log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
 log "  Admin UI:      https://$ADMIN_HOST"
+log "  Keycloak:      https://$KC_HOST"
 log "============================================================"
 log ""
+if [[ -n "${KEYCLOAK_ADMIN_USER:-}" ]]; then
+    log "Keycloak initial admin:"
+    log "  URL:      https://$KC_HOST/admin"
+    log "  Username: $KEYCLOAK_ADMIN_USER"
+    log "  Password: $KEYCLOAK_ADMIN_PASS"
+    log ""
+    log "IMPORTANT: Change the Keycloak admin password after first login!"
+    log ""
+fi
 log "Next: deploy the indexer queue CronJob (after Milvus is healthy):"
 log "  ./scripts/deploy-indexer.sh"
 log "  ./scripts/deploy-indexer.sh --run   # process pending items now"
 log ""
-log "Open WebUI:"
+log "Open WebUI (SSO via Keycloak):"
 log "  Browse to https://$WEBUI_HOST"
-log "  Create an admin account on first visit."
+log "  Click 'Sign in with Keycloak' to register or log in."
 log "  Models are pre-configured -- select 'synesis-agent' to start."
 log ""
+log "API access (generate a Personal Access Token in Admin UI):"
+log "  1. Log in to https://$ADMIN_HOST"
+log "  2. Click the key icon in the top bar"
+log "  3. Generate a token for your IDE or scripts"
+log ""
 log "Export for your shell:"
-log "  export SYNESIS_API_KEY=$LITELLM_KEY"
+log "  export SYNESIS_API_KEY=<your-personal-token>"
 log "  export SYNESIS_API_URL=https://$ROUTE_HOST/v1"
 log ""
-log "Cursor setup:"
-log "  Settings > Models > Add Model > OpenAI Compatible"
+log "Cursor / Claude Code setup:"
 log "  Base URL: https://$ROUTE_HOST/v1"
-log "  API Key:  $LITELLM_KEY"
-log "  Model:    synesis-agent"
+log "  API Key:  <your-personal-token>"
+log "  Model:    synesis-coder"
 log ""
 log "Quick test:"
 log "  curl -s https://$ROUTE_HOST/v1/models -H 'Authorization: Bearer $LITELLM_KEY' | python3 -m json.tool"

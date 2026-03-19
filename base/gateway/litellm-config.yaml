@@ -85,3 +85,4 @@ data:
       master_key: "sk-synesis-change-me"
       forward_client_headers_to_llm_api: true
       background_health_checks: false
+      allow_user_auth: true

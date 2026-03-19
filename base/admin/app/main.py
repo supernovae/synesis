@@ -95,6 +95,7 @@ from app.routers.pipeline import router as pipeline_router
 from app.routers.rag import router as rag_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
+from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 
 app.include_router(assistant_router)
@@ -110,6 +111,7 @@ app.include_router(feedback_router)
 app.include_router(observability_router)
 app.include_router(traces_router)
 app.include_router(settings_router)
+app.include_router(tokens_router)
 app.include_router(ingestion_router)
 
 

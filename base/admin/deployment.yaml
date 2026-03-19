@@ -61,6 +61,11 @@ spec:
               value: "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
             - name: SYNESIS_JWT_SECRET
               value: "synesis-dev-secret-change-me"
+            # ── Keycloak OIDC (empty = legacy local auth) ──
+            - name: SYNESIS_KEYCLOAK_ISSUER_URL
+              value: ""
+            - name: SYNESIS_KEYCLOAK_AUDIENCE
+              value: "synesis-admin"
             - name: SYNESIS_EXPECTED_SCHEMA_VERSION
               value: "8"
           volumeMounts:

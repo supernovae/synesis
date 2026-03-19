@@ -50,6 +50,10 @@ spec:
                 secretKeyRef:
                   name: litellm-secrets
                   key: master-key
+            # Virtual key DB — enables per-user API keys.
+            # deploy.sh patches this with the real DATABASE_URL.
+            - name: DATABASE_URL
+              value: ""
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml

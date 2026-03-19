@@ -1,0 +1,46 @@
+# CloudNativePG Cluster — Keycloak database (isolated from admin DB)
+#
+# Managed by the CloudNativePG operator (same operator as the admin DB).
+# The operator creates:
+#   - Service: synesis-auth-db-rw  (read-write, primary)
+#   - Secret:  synesis-auth-db-app (app user credentials)
+#
+# Keycloak connects via:
+#   postgresql://app:${password}@synesis-auth-db-rw.synesis-auth.svc:5432/keycloak
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: synesis-auth-db
+  namespace: synesis-auth
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: auth-database
+spec:
+  instances: 1
+
+  bootstrap:
+    initdb:
+      database: keycloak
+      owner: app
+
+  storage:
+    size: 2Gi
+    storageClass: gp3-csi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  postgresql:
+    parameters:
+      shared_buffers: "64MB"
+      max_connections: "50"
+      log_statement: "ddl"
+
+  monitoring:
+    enablePodMonitor: false

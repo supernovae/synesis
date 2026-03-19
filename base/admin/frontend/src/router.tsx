@@ -4,7 +4,9 @@ import PageShell from "./components/layout/PageShell";
 import RequireRole from "./components/auth/RequireRole";
 
 const Login = lazy(() => import("./pages/Login"));
+const OidcCallback = lazy(() => import("./pages/OidcCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
 
 const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
@@ -51,6 +53,10 @@ export const router = createBrowserRouter([
     element: <Login />,
   },
   {
+    path: "/callback",
+    element: <OidcCallback />,
+  },
+  {
     element: (
       <RequireRole>
         <PageShell />
@@ -94,6 +100,8 @@ export const router = createBrowserRouter([
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
+
+      { path: "account/tokens", element: <ApiTokens /> },
 
       { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },

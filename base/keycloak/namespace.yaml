@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: synesis-auth
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: auth

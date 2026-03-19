@@ -44,7 +44,26 @@ spec:
             - name: WEBUI_AUTH
               value: "true"
             - name: ENABLE_SIGNUP
+              value: "false"
+            # ── Keycloak OIDC SSO ──
+            - name: ENABLE_OAUTH_SIGNUP
               value: "true"
+            - name: OAUTH_PROVIDER_NAME
+              value: "Keycloak"
+            - name: OPENID_PROVIDER_URL
+              value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis/.well-known/openid-configuration"
+            - name: OAUTH_CLIENT_ID
+              value: "synesis-webui"
+            - name: OAUTH_CLIENT_SECRET
+              value: ""
+            - name: OAUTH_SCOPES
+              value: "openid profile email"
+            - name: ENABLE_OAUTH_ROLE_MANAGEMENT
+              value: "true"
+            - name: OAUTH_ADMIN_ROLES
+              value: "synesis-admin"
+            - name: OAUTH_ALLOWED_ROLES
+              value: "synesis-user,synesis-admin"
             # V3: synesis-agent = default (pipeline), synesis-thinking = R1 optional,
             # synesis-coder = IDE direct. All auto-discovered from LiteLLM /v1/models.
             - name: DEFAULT_MODELS

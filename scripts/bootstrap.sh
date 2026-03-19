@@ -254,6 +254,31 @@ verify_gpu_operator() {
 }
 
 # ---------------------------------------------------------------------------
+# RHBK (Red Hat Build of Keycloak) operator detection
+# ---------------------------------------------------------------------------
+verify_keycloak_operator() {
+    log "Verifying Red Hat Build of Keycloak operator..."
+
+    if oc get crd keycloaks.k8s.keycloak.org &>/dev/null; then
+        log "  RHBK operator: installed (Keycloak CRD exists)"
+        return 0
+    fi
+
+    if oc get csv --all-namespaces 2>/dev/null | grep -qi 'keycloak-operator\|rhbk-operator'; then
+        log "  RHBK operator: installed (CSV found, CRD may still be initializing)"
+        return 0
+    fi
+
+    warn "Red Hat Build of Keycloak operator NOT detected."
+    warn ""
+    warn "  Install from OperatorHub: 'Red Hat build of Keycloak'"
+    warn "  Or community: 'Keycloak Operator'"
+    warn ""
+    warn "  Keycloak is required for SSO authentication."
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # Preflight gate -- abort if critical operators are missing (unless --force)
 # ---------------------------------------------------------------------------
 preflight_gate() {
@@ -273,7 +298,7 @@ create_namespaces() {
     log "Creating Synesis namespaces..."
     local namespaces=(
         synesis-models synesis-gateway synesis-planner synesis-rag
-        synesis-sandbox synesis-search synesis-lsp synesis-webui
+        synesis-sandbox synesis-search synesis-lsp synesis-webui synesis-auth
     )
     for ns in "${namespaces[@]}"; do
         oc create namespace "$ns" 2>/dev/null || log "  Namespace $ns already exists"
@@ -514,6 +539,7 @@ main() {
     log "--- Preflight: Required Operators ---"
     verify_rhoai  || true
     verify_gpu_operator || true
+    verify_keycloak_operator || true
     preflight_gate
 
     log ""

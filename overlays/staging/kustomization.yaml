@@ -16,6 +16,7 @@ resources:
   - ../../base/lsp
   - ../../base/search
   - ../../base/webui
+  - ../../base/keycloak
 
 patches:
   # Staging uses same model config as prod but with info-level logging.

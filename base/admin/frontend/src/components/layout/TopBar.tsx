@@ -1,6 +1,6 @@
 import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { LogOut, Shield, Eye, Moon, Sun } from "lucide-react";
+import { LogOut, Shield, Eye, Moon, Sun, Key } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const breadcrumbLabels: Record<string, string> = {
@@ -30,6 +30,8 @@ const breadcrumbLabels: Record<string, string> = {
   "circuit-breakers": "Circuit Breakers",
   errors: "Errors",
   settings: "Settings",
+  account: "Account",
+  tokens: "API Tokens",
 };
 
 export default function TopBar() {
@@ -101,6 +103,13 @@ export default function TopBar() {
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
               {user.role}
             </span>
+            <Link
+              to="/account/tokens"
+              className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"
+              title="API Tokens"
+            >
+              <Key className="h-4 w-4" />
+            </Link>
           </div>
         )}
         <button

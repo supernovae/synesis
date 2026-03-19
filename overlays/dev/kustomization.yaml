@@ -16,6 +16,7 @@ resources:
   - ../../base/lsp
   - ../../base/search
   - ../../base/webui
+  - ../../base/keycloak
 
 patches:
   # Debug logging, disable FlashRank, reduce resources for dev.

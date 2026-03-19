@@ -27,6 +27,7 @@ resources:
   - ../../base/lsp
   - ../../base/search
   - ../../base/webui
+  - ../../base/keycloak
   # NOTE: openrouter-secret.yaml is NOT listed here — deploy.sh creates the
   # secret interactively so oc apply -k never overwrites a live API key.
 

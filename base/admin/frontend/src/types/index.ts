@@ -1,12 +1,40 @@
 export interface User {
   username: string;
-  role: "admin" | "readonly";
+  role: "admin" | "readonly" | "user";
+  user_id?: string;
 }
 
 export interface AuthResponse {
   access_token: string;
   token_type: string;
   user: User;
+}
+
+export interface OidcConfig {
+  enabled: boolean;
+  issuer?: string;
+  client_id?: string;
+  scopes?: string;
+}
+
+export interface PersonalAccessToken {
+  id: string;
+  name: string;
+  token_prefix: string;
+  role: string;
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked: boolean;
+}
+
+export interface TokenCreated {
+  id: string;
+  name: string;
+  token: string;
+  token_prefix: string;
+  role: string;
+  expires_at: string | null;
 }
 
 export interface ServiceStatus {
