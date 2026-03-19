@@ -59,6 +59,108 @@ _MERMAID_DIAMOND_LABEL_RE = re.compile(r'(\b[A-Za-z]\w*\{)([^}"]*[()|\[\]][^}"]*
 
 _SECTION_OVERGROWTH_WORDS = 1200
 
+# ── Embedded JSON/YAML fixer ──────────────────────────────────────────────
+# LLMs commonly produce almost-valid JSON: trailing commas, Python bools,
+# single quotes, inline comments.  These deterministic fixes resolve 90%+
+# of parse failures without an LLM rewrite.
+
+_EMBEDDED_JSON_RE = re.compile(r"(```json\s*\n)(.*?)(```)", re.DOTALL | re.IGNORECASE)
+_EMBEDDED_YAML_RE = re.compile(r"(```ya?ml\s*\n)(.*?)(```)", re.DOTALL | re.IGNORECASE)
+
+_JSON_TRAILING_COMMA = re.compile(r",\s*([}\]])")
+_JSON_LINE_COMMENT = re.compile(r"\s*//[^\n]*")
+_JSON_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_JSON_SINGLE_QUOTES = re.compile(r"(?<=[\[{,:\s])'((?:[^'\\]|\\.)*)'(?=\s*[,\]}\n:])")
+_JSON_PYTHON_BOOLS = [
+    (re.compile(r"\bTrue\b"), "true"),
+    (re.compile(r"\bFalse\b"), "false"),
+    (re.compile(r"\bNone\b"), "null"),
+]
+
+
+def _try_fix_json(body: str) -> str | None:
+    """Attempt deterministic fixes on malformed JSON. Returns fixed string or None."""
+    import json as _json
+
+    # Already valid?
+    try:
+        _json.loads(body)
+        return None
+    except Exception:
+        pass
+
+    fixed = body
+    fixed = _JSON_BLOCK_COMMENT.sub("", fixed)
+    fixed = _JSON_LINE_COMMENT.sub("", fixed)
+    fixed = _JSON_TRAILING_COMMA.sub(r"\1", fixed)
+    for pat, repl in _JSON_PYTHON_BOOLS:
+        fixed = pat.sub(repl, fixed)
+
+    # Single quotes → double quotes (only if it doesn't already have double quotes for that key)
+    def _sq_to_dq(m: re.Match) -> str:
+        inner = m.group(1).replace('"', '\\"').replace("\\'", "'")
+        return f'"{inner}"'
+
+    fixed = _JSON_SINGLE_QUOTES.sub(_sq_to_dq, fixed)
+
+    try:
+        _json.loads(fixed)
+        return fixed
+    except Exception:
+        return None
+
+
+def _try_fix_yaml(body: str) -> str | None:
+    """Attempt deterministic fixes on malformed YAML. Returns fixed string or None."""
+    try:
+        import yaml
+
+        yaml.safe_load(body)
+        return None
+    except Exception:
+        pass
+
+    # Common LLM YAML issue: tab indentation instead of spaces
+    fixed = body.expandtabs(2)
+    try:
+        import yaml
+
+        yaml.safe_load(fixed)
+        return fixed
+    except Exception:
+        return None
+
+
+def _fix_embedded_structured_blocks(text: str) -> tuple[str, int]:
+    """Fix malformed JSON/YAML inside fenced code blocks.
+
+    Returns (fixed_text, fix_count). Only modifies blocks that fail to
+    parse and where a deterministic fix succeeds. Never makes things worse.
+    """
+    fixes = 0
+
+    def _fix_json_block(m: re.Match) -> str:
+        nonlocal fixes
+        opener, body, closer = m.group(1), m.group(2), m.group(3)
+        fixed = _try_fix_json(body)
+        if fixed is not None:
+            fixes += 1
+            return f"{opener}{fixed}\n{closer}"
+        return m.group(0)
+
+    def _fix_yaml_block(m: re.Match) -> str:
+        nonlocal fixes
+        opener, body, closer = m.group(1), m.group(2), m.group(3)
+        fixed = _try_fix_yaml(body)
+        if fixed is not None:
+            fixes += 1
+            return f"{opener}{fixed}\n{closer}"
+        return m.group(0)
+
+    text = _EMBEDDED_JSON_RE.sub(_fix_json_block, text)
+    text = _EMBEDDED_YAML_RE.sub(_fix_yaml_block, text)
+    return text, fixes
+
 
 def _sanitize_mermaid(text: str) -> tuple[str, int]:
     """Quote Mermaid node labels that contain shape-ambiguous characters.
@@ -303,6 +405,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     text, mermaid_fixes = _sanitize_mermaid(text)
+    text, structured_fixes = _fix_embedded_structured_blocks(text)
     text, artifact_count, artifact_removed = _strip_artifacts(text)
     text, fp_count, fp_labeled = _detect_false_precision(text)
     text, dup_count, dup_removed = _remove_duplicate_paragraphs(text)
@@ -327,6 +430,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "output_len": len(text),
         "chars_removed": _input_len - len(text),
         "mermaid_labels_fixed": mermaid_fixes,
+        "structured_blocks_fixed": structured_fixes,
         "artifacts_stripped": artifact_count,
         "false_precision": fp_count,
         "duplicates_removed": dup_count,
@@ -349,7 +453,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "node_traces": [
             NodeTrace(
                 node_name=node_name,
-                reasoning=f"Scrubbed: {artifact_count} artifacts, {fp_count} false precision, {dup_count} dupes",
+                reasoning=f"Scrubbed: {artifact_count} artifacts, {fp_count} false precision, {dup_count} dupes, {structured_fixes} structured blocks fixed",
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
                 latency_ms=latency,

@@ -49,6 +49,7 @@ from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
 from .rag_client import submit_user_knowledge
 from .state import RetrievalParams
+from .stream_fixer import StreamingBlockFixer
 from .streaming_events import StatusQueueCallback, set_sub_phase_queue
 from .synesis_tracer import get_synesis_tracer
 
@@ -1408,6 +1409,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 # the finally can clean it up even on exception.
                 _pending_next: asyncio.Task | None = None
 
+                _block_fixer = StreamingBlockFixer() if stream_content else None
+
                 try:
                     _event_iter = graph.astream_events(
                         initial_state,
@@ -1742,7 +1745,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "node": _lg_node,
                                         },
                                     )
-                                fragments = [content_tok]
+                                fragments = _block_fixer.feed(content_tok) if _block_fixer else [content_tok]
                                 for fragment in fragments:
                                     if not fragment:
                                         continue
@@ -1759,6 +1762,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             extra={"elapsed_ms": elapsed_now},
                                         )
                                     yield _sse_content_delta(chat_id, delta, run_id=run_id)
+
+                    # Flush any buffered fenced-block tail from the stream fixer
+                    if _block_fixer:
+                        for _flushed in _block_fixer.flush():
+                            if _flushed:
+                                _flush_delta: dict[str, str] = {"content": _flushed}
+                                if not sent_role:
+                                    _flush_delta["role"] = "assistant"
+                                    sent_role = True
+                                content_streamed = True
+                                yield _sse_content_delta(chat_id, _flush_delta, run_id=run_id)
+                        if _block_fixer.fixes:
+                            logger.info(
+                                "stream_fixer_summary",
+                                extra={"fixes": _block_fixer.fixes},
+                            )
 
                 except Exception as _graph_exc:
                     _cur_node = accumulated_state.get("current_node", "unknown") if accumulated_state else "unknown"
@@ -1855,6 +1874,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_in_reasoning = False
                         _ds_first_content = False
                         _ds_usage: dict[str, int] | None = None
+                        _ds_fixer = StreamingBlockFixer()
                         _ds_t0 = time.monotonic()
 
                         yield _sse_content_delta(chat_id, {"role": "assistant", "content": ""}, run_id=run_id)
@@ -1914,10 +1934,19 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "source": "direct_stream",
                                         },
                                     )
-                                yield _sse_content_delta(chat_id, {"content": _ds_ct}, run_id=run_id)
+                                _ds_frags = _ds_fixer.feed(_ds_ct) if _ds_fixer else [_ds_ct]
+                                for _ds_frag in _ds_frags:
+                                    if _ds_frag:
+                                        yield _sse_content_delta(chat_id, {"content": _ds_frag}, run_id=run_id)
                                 _ds_full_content += _ds_ct
                                 content_streamed = True
                                 token_count_estimate += 1
+
+                        # Flush direct-stream block fixer
+                        if _ds_fixer:
+                            for _ds_fl in _ds_fixer.flush():
+                                if _ds_fl:
+                                    yield _sse_content_delta(chat_id, {"content": _ds_fl}, run_id=run_id)
 
                         accumulated_state["generated_code"] = _ds_full_content
 

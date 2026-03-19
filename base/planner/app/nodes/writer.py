@@ -89,6 +89,14 @@ CONSTRAINT AWARENESS:
   explicitly justify why the constraint should be relaxed.
 - Prefer simpler architectures that deliver within the timeline over \
   theoretically superior designs that require more time or resources.
+- Do NOT introduce constraints the user did not state. If the user did \
+  not specify a team size, timeline, budget, data retention policy, SLA, \
+  or compliance requirement, do NOT invent one. Respond to the scope \
+  they gave you, not a scope you imagined.
+- Do NOT assume a specific cloud provider (AWS, Azure, GCP) unless the \
+  user named one. Keep proposals cloud-agnostic when "cloud" is generic.
+- Do NOT assume open-source vs. proprietary, specific model families, \
+  or vendor preferences unless the user stated them.
 
 CITATION:
 - When evidence is provided and a claim relies on it, cite inline: \
@@ -865,7 +873,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "(reasonable but unverified), and RECOMMENDATIONS (your professional judgment).\n"
             "- Inline: tag key assumptions with [Assumption] and estimates with [Estimate].\n"
             "- If a recommendation depends on an assumption, state which one.\n"
-            "- If you infer a constraint the user did not state, mark it [Assumed Constraint].\n"
+            "- Do NOT infer constraints the user did not state (team size, budget, "
+            "timeline, SLAs, retention). If you must note an architectural assumption, "
+            "mark it [Assumption] — but never present invented constraints as requirements.\n"
             "- For complex responses, consider grouping in a dedicated 'Assumptions & Caveats' section."
         )
 

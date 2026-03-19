@@ -397,6 +397,52 @@ def _check_format_compliance(
     return failures
 
 
+_FENCED_BLOCK_RE = re.compile(
+    r"```(json|yaml|yml|toml|xml)\s*\n(.*?)```",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _lint_embedded_blocks(response: str) -> list[str]:
+    """Fast syntax check on embedded YAML/JSON/TOML/XML fenced blocks.
+
+    Runs json.loads / yaml.safe_load / etc. on each block and returns
+    failure-mode strings for blocks that don't parse.  Extremely fast —
+    parsing a few KB of YAML/JSON takes < 1ms.
+    """
+    import json as _json
+
+    errors: list[str] = []
+    for m in _FENCED_BLOCK_RE.finditer(response):
+        lang = m.group(1).lower()
+        body = m.group(2).strip()
+        if not body:
+            continue
+        try:
+            if lang == "json":
+                _json.loads(body)
+            elif lang in ("yaml", "yml"):
+                import yaml
+
+                yaml.safe_load(body)
+            elif lang == "toml":
+                import tomllib
+
+                tomllib.loads(body)
+            elif lang == "xml":
+                import xml.etree.ElementTree as ET
+
+                ET.fromstring(body)  # noqa: S314  # nosec B314
+        except Exception:
+            snippet = body[:60].replace("\n", " ")
+            errors.append(f"embedded_{lang}_syntax_error")
+            logger.debug(
+                "embedded_block_lint_fail",
+                extra={"lang": lang, "snippet": snippet},
+            )
+    return errors
+
+
 def _deterministic_depth_checks(
     response: str,
     difficulty: float,
@@ -415,6 +461,9 @@ def _deterministic_depth_checks(
     requested_format = frame.get("requested_format", "prose")
     output_schema = frame.get("output_schema") or []
     failures.extend(_check_format_compliance(response, requested_format, output_schema))
+
+    # Embedded block linting: always check fenced code blocks for syntax errors.
+    failures.extend(_lint_embedded_blocks(response))
 
     if difficulty < 0.7:
         return failures
@@ -874,6 +923,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "\nFAILURE MODE VOCABULARY (pick from this list):\n"
                     "non_answer, partial_answer, instruction_drift, unsupported_claim, "
                     "false_certainty, buried_lead, failed_prioritization, format_miss, "
+                    "embedded_yaml_syntax_error, embedded_json_syntax_error, "
                     "leaked_reasoning, false_precision, genericity, unsupported_specificity, "
                     "insufficient_depth, evidence_underuse, missing_requirement_coverage, "
                     "thin_technology_coverage, underspecified_control_logic, "
@@ -1139,6 +1189,8 @@ Reply with JSON:
                         if df not in failure_modes:
                             failure_modes.append(df)
                         if df in {"insufficient_depth", "genericity"}:
+                            critical_failures.add(df)
+                        if df.startswith("embedded_") and df.endswith("_syntax_error"):
                             critical_failures.add(df)
 
                 # Per-requirement coverage: ensure each explicit_requirement
