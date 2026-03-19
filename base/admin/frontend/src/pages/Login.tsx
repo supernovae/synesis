@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../components/auth/AuthProvider";
 import { Hexagon, Shield } from "lucide-react";
 
 export default function Login() {
-  const { login, loginWithOidc, oidcConfig, loading } = useAuth();
+  const { login, loginWithOidc, oidcConfig, loading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from =
@@ -16,6 +16,12 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const oidcEnabled = oidcConfig?.enabled ?? false;
+
+  useEffect(() => {
+    if (!loading && oidcEnabled && !isAuthenticated) {
+      loginWithOidc();
+    }
+  }, [loading, oidcEnabled, isAuthenticated, loginWithOidc]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -31,10 +37,15 @@ export default function Login() {
     }
   }
 
-  if (loading) {
+  if (loading || oidcEnabled) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900">
-        <div className="text-slate-400">Loading...</div>
+        <div className="flex flex-col items-center gap-4">
+          <Hexagon className="h-12 w-12 animate-pulse text-blue-500" />
+          <div className="text-slate-400">
+            {oidcEnabled ? "Redirecting to Keycloak..." : "Loading..."}
+          </div>
+        </div>
       </div>
     );
   }
@@ -57,29 +68,6 @@ export default function Login() {
             </div>
           )}
 
-          {oidcEnabled && (
-            <>
-              <button
-                type="button"
-                onClick={loginWithOidc}
-                className="flex w-full items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                <Shield className="h-4 w-4" />
-                Sign in with Keycloak
-              </button>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-white px-2 text-gray-400">
-                    or use local credentials
-                  </span>
-                </div>
-              </div>
-            </>
-          )}
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label
@@ -92,7 +80,7 @@ export default function Login() {
                 id="username"
                 type="text"
                 required
-                autoFocus={!oidcEnabled}
+                autoFocus
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"

@@ -2,6 +2,9 @@ export interface User {
   username: string;
   role: "admin" | "readonly" | "user";
   user_id?: string;
+  org_id?: string;
+  org_name?: string;
+  org_roles?: string[];
 }
 
 export interface AuthResponse {
@@ -428,6 +431,9 @@ export interface SpanRecord {
 export interface TraceRecord {
   trace_id: string;
   user_id: string;
+  user_email?: string;
+  org_id?: string;
+  org_name?: string;
   query_snippet: string;
   timestamp: number;
   total_duration_ms: number;

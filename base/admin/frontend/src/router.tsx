@@ -7,6 +7,7 @@ const Login = lazy(() => import("./pages/Login"));
 const OidcCallback = lazy(() => import("./pages/OidcCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
+const Organization = lazy(() => import("./pages/account/Organization"));
 
 const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
 
       { path: "account/tokens", element: <ApiTokens /> },
+      { path: "account/organization", element: <Organization /> },
 
       { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },

@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
+import { useEffect } from "react";
 import type { ReactNode } from "react";
 
 interface Props {
@@ -8,10 +9,25 @@ interface Props {
 }
 
 export default function RequireRole({ children, role }: Props) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, oidcConfig, loginWithOidc, loading } = useAuth();
   const location = useLocation();
 
+  const oidcEnabled = oidcConfig?.enabled ?? false;
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated && oidcEnabled) {
+      loginWithOidc();
+    }
+  }, [loading, isAuthenticated, oidcEnabled, loginWithOidc]);
+
+  if (loading) {
+    return null;
+  }
+
   if (!isAuthenticated) {
+    if (oidcEnabled) {
+      return null;
+    }
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

@@ -11,7 +11,7 @@ import MetricCard from "../../components/common/MetricCard";
 import DataTable from "../../components/common/DataTable";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
-import { Activity, Clock, DollarSign, AlertTriangle, Trash2 } from "lucide-react";
+import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2 } from "lucide-react";
 
 function fmtDate(ts: number) {
   if (!ts) return "";
@@ -36,6 +36,7 @@ export default function TraceList() {
     undefined,
   );
   const [taskType, setTaskType] = useState("");
+  const [orgFilter, setOrgFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [purgeThreshold, setPurgeThreshold] = useState(100);
   const [maxTokensFilter, setMaxTokensFilter] = useState<number | undefined>(undefined);
@@ -46,6 +47,7 @@ export default function TraceList() {
     limit,
     has_error: errorFilter,
     task_type: taskType || undefined,
+    org_id: orgFilter || undefined,
     max_tokens: maxTokensFilter,
   });
   const { data: stats } = useTraceStats();
@@ -238,6 +240,18 @@ export default function TraceList() {
           }}
           className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
         />
+        <div className="flex items-center gap-1.5">
+          <Building2 className="h-3.5 w-3.5 text-gray-400" />
+          <input
+            placeholder="Filter by org"
+            value={orgFilter}
+            onChange={(e) => {
+              setOrgFilter(e.target.value);
+              setOffset(0);
+            }}
+            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+          />
+        </div>
         <span className="text-xs text-gray-400 dark:text-gray-500">Quick:</span>
         {[
           { label: "All tokens", value: undefined },
@@ -288,7 +302,21 @@ export default function TraceList() {
                 className: "w-10",
               },
               { key: "_time", label: "Time", sortable: true },
-              { key: "user_id", label: "User" },
+              {
+                key: "_user_display",
+                label: "User",
+                render: (row: Record<string, unknown>) => (
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm">{(row.user_email as string) || (row.user_id as string) || "—"}</span>
+                    {row.org_name && (
+                      <span className="flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400">
+                        <Building2 className="h-3 w-3" />
+                        {row.org_name as string}
+                      </span>
+                    )}
+                  </div>
+                ),
+              },
               {
                 key: "_query",
                 label: "Query",

@@ -18,6 +18,7 @@ data:
     {
       "realm": "synesis",
       "enabled": true,
+      "organizationsEnabled": true,
       "registrationAllowed": true,
       "registrationEmailAsUsername": true,
       "loginWithEmailAllowed": true,
@@ -45,6 +46,10 @@ data:
           {
             "name": "synesis-admin",
             "description": "Platform administrator — full access to admin dashboard and APIs"
+          },
+          {
+            "name": "synesis-org-admin",
+            "description": "Organization administrator — manage members and settings for own org"
           }
         ]
       },
@@ -75,6 +80,29 @@ data:
               }
             }
           ]
+        },
+        {
+          "name": "synesis-organization",
+          "description": "Include organization membership in access and ID tokens",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "false"
+          },
+          "protocolMappers": [
+            {
+              "name": "organization",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-organization-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "claim.name": "organization",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
         }
       ],
       "clients": [
@@ -95,7 +123,8 @@ data:
             "openid",
             "profile",
             "email",
-            "synesis-roles"
+            "synesis-roles",
+            "synesis-organization"
           ],
           "attributes": {
             "pkce.code.challenge.method": "S256",
@@ -119,7 +148,8 @@ data:
             "openid",
             "profile",
             "email",
-            "synesis-roles"
+            "synesis-roles",
+            "synesis-organization"
           ],
           "attributes": {
             "pkce.code.challenge.method": "S256",
@@ -138,7 +168,8 @@ data:
             "openid",
             "profile",
             "email",
-            "synesis-roles"
+            "synesis-roles",
+            "synesis-organization"
           ]
         }
       ]

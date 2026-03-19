@@ -17,6 +17,10 @@ metadata:
 spec:
   instances: 1
 
+  additionalOptions:
+    - name: features
+      value: organization
+
   db:
     vendor: postgres
     host: synesis-auth-db-rw.synesis-auth.svc

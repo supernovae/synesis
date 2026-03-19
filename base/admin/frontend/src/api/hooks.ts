@@ -918,6 +918,7 @@ export function useTraces(params?: {
   limit?: number;
   has_error?: boolean;
   user_id?: string;
+  org_id?: string;
   task_type?: string;
   domain_tag?: string;
   max_tokens?: number;

@@ -45,6 +45,8 @@ spec:
               value: "true"
             - name: ENABLE_SIGNUP
               value: "false"
+            - name: ENABLE_LOGIN_FORM
+              value: "false"
             # ── Keycloak OIDC SSO ──
             - name: ENABLE_OAUTH_SIGNUP
               value: "true"

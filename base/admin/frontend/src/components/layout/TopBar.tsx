@@ -1,6 +1,6 @@
 import { useLocation, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { LogOut, Shield, Eye, Moon, Sun, Key } from "lucide-react";
+import { LogOut, Shield, Eye, Moon, Sun, Key, Building2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 const breadcrumbLabels: Record<string, string> = {
@@ -33,6 +33,7 @@ const breadcrumbLabels: Record<string, string> = {
   providers: "Provider Keys",
   account: "Account",
   tokens: "API Tokens",
+  organization: "Organization",
 };
 
 export default function TopBar() {
@@ -101,6 +102,15 @@ export default function TopBar() {
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {user.username}
             </span>
+            {user.org_name && (
+              <Link
+                to="/account/organization"
+                className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50"
+              >
+                <Building2 className="h-3 w-3" />
+                {user.org_name}
+              </Link>
+            )}
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400">
               {user.role}
             </span>

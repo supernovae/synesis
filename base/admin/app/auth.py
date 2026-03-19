@@ -65,6 +65,9 @@ class UserInfo(BaseModel):
     username: str
     role: str
     user_id: str = ""  # Keycloak sub or legacy username
+    org_id: str = ""  # primary Keycloak organization ID
+    org_name: str = ""  # primary organization display name
+    org_roles: list[str] = []  # roles within the organization
 
 
 class TokenResponse(BaseModel):
@@ -74,6 +77,22 @@ class TokenResponse(BaseModel):
 
 
 # ── Token verification ───────────────────────────────────────────────────────
+
+def _parse_org_claim(payload: dict) -> tuple[str, str, list[str]]:
+    """Extract primary organization from Keycloak's ``organization`` JWT claim.
+
+    Keycloak emits: ``{"<org-id>": {"name": "...", "roles": [...]}, ...}``
+    Returns ``(org_id, org_name, org_roles)`` for the first org, or empty
+    values when the user has no organization membership.
+    """
+    org_claim = payload.get("organization")
+    if not org_claim or not isinstance(org_claim, dict):
+        return "", "", []
+    org_id, org_data = next(iter(org_claim.items()))
+    if isinstance(org_data, dict):
+        return org_id, org_data.get("name", ""), org_data.get("roles", [])
+    return org_id, "", []
+
 
 def _verify_keycloak_token(token: str) -> UserInfo:
     """Decode and verify a Keycloak-issued JWT using JWKS."""
@@ -92,7 +111,15 @@ def _verify_keycloak_token(token: str) -> UserInfo:
     roles = payload.get("realm_access", {}).get("roles", [])
     role = "admin" if "synesis-admin" in roles else "user"
     username = payload.get("preferred_username", payload.get("sub", "unknown"))
-    return UserInfo(username=username, role=role, user_id=payload.get("sub", ""))
+    org_id, org_name, org_roles = _parse_org_claim(payload)
+    return UserInfo(
+        username=username,
+        role=role,
+        user_id=payload.get("sub", ""),
+        org_id=org_id,
+        org_name=org_name,
+        org_roles=org_roles,
+    )
 
 
 async def _verify_pat(token: str, request: Request) -> UserInfo | None:
