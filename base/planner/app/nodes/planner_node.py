@@ -477,6 +477,20 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
     try:
         task_desc = state.get("task_description", "")
 
+        # Merge clarification answer: append the user's response so the LLM
+        # sees the original task + the answers to our follow-up questions.
+        clarification_answer = (state.get("user_answer_to_clarification") or "").strip()
+        if clarification_answer:
+            task_desc = (
+                f"{task_desc}\n\n"
+                f"[User clarification — answers to follow-up questions]\n"
+                f"{clarification_answer}"
+            )
+            logger.info(
+                "planner_clarification_merged",
+                extra={"answer_len": len(clarification_answer)},
+            )
+
         difficulty = state.get("difficulty", 0.5)
         context_block = _build_evidence_context(state)
 
@@ -876,11 +890,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         if not clarify_question and not state.get("iteration_count", 0):
             _probes = _detect_actionable_ambiguities(task_frame, plan, difficulty)
             if _probes:
+                numbered = "\n".join(f"{i}. {q}" for i, q in enumerate(_probes, 1))
                 clarify_question = (
                     "Before I commit to an approach, a few details would "
-                    "significantly change my recommendations:\n\n"
-                    + "\n".join(f"- {q}" for q in _probes)
-                    + "\n\nFeel free to answer any or all, or say 'proceed' "
+                    f"significantly change my recommendations:\n\n{numbered}"
+                    "\n\nFeel free to answer any or all, or say 'proceed' "
                     "and I'll keep it general-purpose."
                 )
                 clarify_options = _probes
@@ -898,11 +912,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             already_clarified = bool(state.get("iteration_count", 0) > 0)
             if not trivial and not already_clarified and len(combined_qs) >= settings.clarify_first_min_ambiguities:
                 top_qs = combined_qs[:4]
+                numbered = "\n".join(f"{i}. {q}" for i, q in enumerate(top_qs, 1))
                 clarify_question = (
                     "Before I dive in, I want to make sure I get this right. "
-                    "A few things would materially change my answer:\n\n"
-                    + "\n".join(f"- {q}" for q in top_qs)
-                    + "\n\nFeel free to answer any or all, or just say 'proceed' "
+                    f"A few things would materially change my answer:\n\n{numbered}"
+                    "\n\nFeel free to answer any or all, or just say 'proceed' "
                     "and I'll state my assumptions and continue."
                 )
                 clarify_options = top_qs

@@ -1283,6 +1283,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 ):
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
+            elif source_node == "planner_clarification":
+                initial_state["user_answer_to_clarification"] = last_user_content
+                initial_state["iteration_count"] = 1
             elif source_node == "router":
                 initial_state["user_answer_to_clarification"] = last_user_content
             elif source_node == "planner":
@@ -1298,7 +1301,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     if k in pending and pending[k] is not None:
                         initial_state[k] = pending[k]
             initial_state["pending_question_continue"] = True
-            initial_state["pending_question_source"] = source_node if source_node != "planner" else "executor"
+            initial_state["pending_question_source"] = source_node
 
     # Prompt-level cache: return cached response for identical (user + prompt + model)
     cached_response = _prompt_cache_get(user_id, last_user_content or "", request.model)

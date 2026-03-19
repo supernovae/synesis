@@ -152,9 +152,12 @@ def route_after_entry_pipeline(state: dict[str, Any]) -> str:
 
     Two special cases:
     - pending_question_continue: resumes prior conversation via router
+      (planner_clarification goes directly to planner to merge the answer)
     - ui_helper: internal helper messages, respond immediately
     """
     if state.get("pending_question_continue"):
+        if state.get("pending_question_source") == "planner_clarification":
+            return "planner"
         return "router"
 
     if state.get("message_origin") == "ui_helper":
@@ -523,19 +526,25 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
     if clarification_question and not code and not error:
         content = f"**I need a bit more information to proceed:**\n\n{clarification_question}"
-        if clarification_options:
-            content += "\n\nOptions:\n" + "\n".join(f"- {opt}" for opt in clarification_options)
         memory.store_pending_question(
             memory_scope,
             {
                 "run_id": state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
-                "source_node": "router",
+                "source_node": "planner_clarification",
                 "question": clarification_question,
+                "options": clarification_options,
                 "context": {
                     "task_description": state.get("task_description", ""),
                     "target_language": state.get("target_language") or "markdown",
                     "is_code_task": state.get("is_code_task"),
+                    "task_frame": state.get("task_frame"),
+                    "execution_plan": state.get("execution_plan"),
+                    "taxonomy_metadata": state.get("taxonomy_metadata"),
+                    "difficulty": state.get("difficulty"),
+                    "output_controls": state.get("output_controls"),
+                    "style_contract_locked": state.get("style_contract_locked"),
+                    "active_domain_refs": state.get("active_domain_refs"),
                 },
             },
         )
