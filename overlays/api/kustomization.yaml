@@ -40,7 +40,8 @@ patches:
       stringData:
         master-key: ""
 
-  # LiteLLM: clear master key env var (API mode — no virtual key auth needed).
+  # LiteLLM: clear master key and DATABASE_URL (API mode — no virtual key
+  # auth or Prisma DB needed; removes Prisma startup entirely).
   - target:
       kind: Deployment
       name: litellm-proxy
@@ -56,6 +57,8 @@ patches:
               - name: litellm
                 env:
                   - name: LITELLM_MASTER_KEY
+                    $patch: delete
+                  - name: DATABASE_URL
                     $patch: delete
 
   # WebUI: point directly at the planner so SSE status events pass through

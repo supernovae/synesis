@@ -61,6 +61,8 @@ spec:
               mountPath: /app/config.yaml
               subPath: config.yaml
               readOnly: true
+            - name: prisma-cache
+              mountPath: /.cache
           resources:
             requests:
               cpu: 250m
@@ -84,3 +86,5 @@ spec:
         - name: config
           configMap:
             name: litellm-config
+        - name: prisma-cache
+          emptyDir: {}
