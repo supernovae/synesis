@@ -94,6 +94,12 @@ Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planne
 
 Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) so OIDC redirect URIs and the SSO button are built correctly. It is set in `base/webui/deployment.yaml` to match the OpenShift Route host. If you change the Route host, patch `WEBUI_URL` to the same value and restart Open WebUI.
 
+**Still blank after fixing `WEBUI_URL`?** Open WebUI stores OAuth settings in its SQLite DB on first boot. Set **`ENABLE_OAUTH_PERSISTENT_CONFIG=false`** (in the same Deployment) so env vars always win, then restart the pod.
+
+```bash
+oc logs -n synesis-webui -l app.kubernetes.io/name=open-webui --tail=200
+```
+
 See also: [Open WebUI SSO troubleshooting](https://docs.openwebui.com/troubleshooting/sso/).
 
 ### "500: Open WebUI: Server Connection Error"

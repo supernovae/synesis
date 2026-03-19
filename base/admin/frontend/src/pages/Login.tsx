@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../components/auth/AuthProvider";
 import { Hexagon, Shield } from "lucide-react";
 
+const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
+
 export default function Login() {
   const { login, loginWithOidc, oidcConfig, loading, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -14,13 +16,22 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** After a failed OIDC flow, require a click so we do not redirect-loop with Keycloak. */
+  const [oidcManual, setOidcManual] = useState(
+    () => sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1",
+  );
 
   const oidcEnabled = oidcConfig?.enabled ?? false;
 
   useEffect(() => {
-    if (!loading && oidcEnabled && !isAuthenticated) {
-      loginWithOidc();
+    if (loading || !oidcEnabled || isAuthenticated) {
+      return;
     }
+    if (sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1") {
+      setOidcManual(true);
+      return;
+    }
+    loginWithOidc();
   }, [loading, oidcEnabled, isAuthenticated, loginWithOidc]);
 
   async function handleSubmit(e: FormEvent) {
@@ -37,14 +48,51 @@ export default function Login() {
     }
   }
 
-  if (loading || oidcEnabled) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900">
         <div className="flex flex-col items-center gap-4">
           <Hexagon className="h-12 w-12 animate-pulse text-blue-500" />
-          <div className="text-slate-400">
-            {oidcEnabled ? "Redirecting to Keycloak..." : "Loading..."}
-          </div>
+          <div className="text-slate-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (oidcEnabled && oidcManual) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
+        <div className="w-full max-w-sm rounded-lg bg-white p-8 text-center shadow-xl">
+          <Shield className="mx-auto h-10 w-10 text-blue-600" />
+          <h1 className="mt-4 text-lg font-semibold text-slate-900">
+            Sign in with Keycloak
+          </h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Continue to authenticate. If you were stuck in a loop, use this button
+            instead of an automatic redirect.
+          </p>
+          <button
+            type="button"
+            className="mt-6 w-full rounded-md bg-slate-800 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-900"
+            onClick={() => {
+              sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
+              setOidcManual(false);
+              loginWithOidc();
+            }}
+          >
+            Continue to Keycloak
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (oidcEnabled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <Hexagon className="h-12 w-12 animate-pulse text-blue-500" />
+          <div className="text-slate-400">Redirecting to Keycloak...</div>
         </div>
       </div>
     );

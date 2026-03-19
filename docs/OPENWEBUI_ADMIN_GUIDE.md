@@ -92,6 +92,15 @@ oc port-forward svc/synesis-admin 8080:8080 -n synesis-admin
 
 If you use `./scripts/deploy.sh`, it also patches the issuer from the Keycloak Route; a plain `kustomize | oc apply` used to wipe that patch — the issuer is now in Git so re-applies stay on Keycloak.
 
+**OIDC details:** The dashboard exchanges the authorization code via **`POST /api/v1/auth/oauth/token`** on the admin API (server-side), so the browser does not call Keycloak’s token endpoint (avoids CORS). Token exchange uses **`SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL`** when set (cluster Service URL) so the admin pod does not depend on hairpin access to the public Route.
+
+**“No authorization code” / redirect loop:** Keycloak may return `error` instead of `code` (redirect URI mismatch, cancelled login). After a failure, login uses a **Continue to Keycloak** button instead of an immediate redirect so you are not stuck in a loop. Check:
+
+```bash
+oc logs -n synesis-admin -l app.kubernetes.io/name=synesis-admin --tail=150
+# Look for keycloak_token_exchange_failed — wrong internal URL/port if connection errors.
+```
+
 ### Pages
 
 | Path | Description |

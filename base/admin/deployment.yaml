@@ -69,6 +69,10 @@ spec:
               value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis"
             - name: SYNESIS_KEYCLOAK_AUDIENCE
               value: "synesis-admin"
+            # Token exchange from the admin pod (avoids hairpin / egress issues to the public Route).
+            # JWT issuer in tokens stays the public URL; only the token HTTP call uses this.
+            - name: SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL
+              value: "http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis"
             - name: SYNESIS_EXPECTED_SCHEMA_VERSION
               value: "8"
           volumeMounts:

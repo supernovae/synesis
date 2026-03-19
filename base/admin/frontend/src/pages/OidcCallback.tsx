@@ -1,53 +1,70 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../components/auth/AuthProvider";
 import axios from "axios";
 
+const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
+
 export default function OidcCallback() {
-  const navigate = useNavigate();
   const { oidcConfig } = useAuth();
   const [error, setError] = useState("");
+  const exchangeStarted = useRef(false);
 
   useEffect(() => {
     async function exchangeCode() {
       const params = new URLSearchParams(window.location.search);
+      const oauthError = params.get("error");
+      const oauthDesc = params.get("error_description");
       const code = params.get("code");
 
+      if (oauthError) {
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
+        const msg = oauthDesc
+          ? decodeURIComponent(oauthDesc.replace(/\+/g, " "))
+          : oauthError;
+        setError(msg || "Sign-in was cancelled or denied");
+        return;
+      }
+
       if (!code) {
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         setError("No authorization code received");
         return;
       }
 
       if (!oidcConfig?.enabled || !oidcConfig.issuer || !oidcConfig.client_id) {
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         setError("OIDC not configured");
         return;
       }
 
       const verifier = sessionStorage.getItem("synesis_pkce_verifier");
       if (!verifier) {
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         setError("PKCE verifier missing — please try logging in again");
         return;
       }
 
-      try {
-        const tokenEndpoint = `${oidcConfig.issuer}/protocol/openid-connect/token`;
-        const redirectUri = `${window.location.origin}/callback`;
+      if (exchangeStarted.current) {
+        return;
+      }
+      exchangeStarted.current = true;
 
-        const body = new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: oidcConfig.client_id,
+      const redirectUri = `${window.location.origin}/callback`;
+
+      try {
+        const { data } = await axios.post<{
+          access_token: string;
+          token_type?: string;
+        }>("/api/v1/auth/oauth/token", {
           code,
           redirect_uri: redirectUri,
           code_verifier: verifier,
         });
 
-        const { data } = await axios.post(tokenEndpoint, body.toString(), {
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        });
-
-        const accessToken: string = data.access_token;
+        const accessToken = data.access_token;
 
         sessionStorage.removeItem("synesis_pkce_verifier");
+        sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
 
         const { data: userInfo } = await axios.get("/api/v1/auth/me", {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -56,23 +73,25 @@ export default function OidcCallback() {
         localStorage.setItem("synesis_token", accessToken);
         localStorage.setItem("synesis_user", JSON.stringify(userInfo));
 
-        window.location.href = "/";
+        window.location.replace("/");
       } catch (err) {
         console.error("OIDC code exchange failed:", err);
-        setError("Authentication failed. Please try again.");
+        exchangeStarted.current = false;
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         sessionStorage.removeItem("synesis_pkce_verifier");
+        setError("Authentication failed. Please try again.");
       }
     }
 
     if (oidcConfig !== null) {
-      exchangeCode();
+      void exchangeCode();
     }
-  }, [oidcConfig, navigate]);
+  }, [oidcConfig]);
 
   if (error) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-900 px-4">
-        <div className="w-full max-w-sm rounded-lg bg-white p-6 text-center shadow-xl">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 text-center shadow-xl">
           <p className="text-red-600">{error}</p>
           <a
             href="/login"
