@@ -62,6 +62,7 @@ export interface ModelDeployment {
   notes: string;
   gpu_config: Record<string, unknown> | null;
   litellm_model_id: string | null;
+  fallbacks: string[] | null;
   updated_at: string | null;
 }
 

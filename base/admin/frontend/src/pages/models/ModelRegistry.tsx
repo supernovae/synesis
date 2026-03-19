@@ -9,6 +9,7 @@ import {
   useSyncModelsFromYaml,
   useReconcileModels,
   useCreateModelDeployment,
+  useUpdateFallbacks,
 } from "../../api/hooks";
 import type { ModelDeployment } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
@@ -52,6 +53,7 @@ interface EditState {
   endpoint: string;
   max_tokens: number;
   temperature: number;
+  fallbacks: string;
 }
 
 export default function ModelRegistry() {
@@ -64,6 +66,7 @@ export default function ModelRegistry() {
   const syncYaml = useSyncModelsFromYaml();
   const reconcileMut = useReconcileModels();
   const createMut = useCreateModelDeployment();
+  const fallbackMut = useUpdateFallbacks();
 
   const [editing, setEditing] = useState<EditState | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -94,9 +97,18 @@ export default function ModelRegistry() {
     if (dep?.litellm_params) Object.assign(params, dep.litellm_params);
     params.max_tokens = editing.max_tokens;
     params.temperature = editing.temperature;
+    const fbList = editing.fallbacks
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     updateMut.mutate(
       { id: editing.id, model: editing.model, endpoint: editing.endpoint, litellm_params: params as any },
-      { onSuccess: () => setEditing(null) }
+      {
+        onSuccess: () => {
+          fallbackMut.mutate({ id: editing.id, fallbacks: fbList });
+          setEditing(null);
+        },
+      },
     );
   };
 
@@ -263,6 +275,7 @@ export default function ModelRegistry() {
                             endpoint: d.endpoint,
                             max_tokens: (d.litellm_params?.max_tokens as number) ?? 8192,
                             temperature: (d.litellm_params?.temperature as number) ?? 0.1,
+                            fallbacks: (d.fallbacks ?? []).join(", "),
                           })
                         }
                         className="text-gray-400 hover:text-blue-600"
@@ -297,6 +310,7 @@ export default function ModelRegistry() {
             <Field label="Endpoint" value={editing.endpoint} onChange={(v) => setEditing({ ...editing, endpoint: v })} />
             <Field label="Max Tokens" value={String(editing.max_tokens)} onChange={(v) => setEditing({ ...editing, max_tokens: Number(v) || 8192 })} type="number" />
             <Field label="Temperature" value={String(editing.temperature)} onChange={(v) => setEditing({ ...editing, temperature: Number(v) || 0.1 })} type="number" />
+            <Field label="Fallback Models" value={editing.fallbacks} onChange={(v) => setEditing({ ...editing, fallbacks: v })} placeholder="comma-separated served names, e.g. synesis-general-fb" />
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setEditing(null)} className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">Cancel</button>
               <button onClick={handleSaveEdit} disabled={updateMut.isPending} className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50">

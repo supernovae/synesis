@@ -188,6 +188,128 @@ export function useReconcileModels() {
   });
 }
 
+export function useUpdateFallbacks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, fallbacks }: { id: number; fallbacks: string[] }) =>
+      client.put(`/models/deployments/${id}/fallbacks`, { fallbacks }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+// --- Model Performance (detailed, trace-based) ---
+
+export interface DetailedModelPerformance {
+  model: string;
+  request_count: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  total_tokens: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_actual_cost: number;
+}
+
+export function useDetailedPerformance(days: number = 7) {
+  return useQuery<{ models: DetailedModelPerformance[]; period_days: number }>({
+    queryKey: ["models", "performance", "detailed", days],
+    queryFn: () =>
+      client.get("/models/performance/detailed", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface LatencyTrendPoint {
+  date: string;
+  model: string;
+  avg_latency_ms: number;
+  request_count: number;
+}
+
+export function useLatencyTrend(days: number = 14) {
+  return useQuery<{ trend: LatencyTrendPoint[]; period_days: number }>({
+    queryKey: ["models", "performance", "latency-trend", days],
+    queryFn: () =>
+      client.get("/models/performance/latency-trend", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+// --- Model Costs (enhanced) ---
+
+export interface CostByModelEntry {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  requests: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+}
+
+export function useCostsByModel(days: number = 7) {
+  return useQuery<{ models: CostByModelEntry[]; period_days: number }>({
+    queryKey: ["models", "costs", "by-model", days],
+    queryFn: () =>
+      client.get("/models/costs/by-model", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface CostByRoleEntry {
+  role: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  requests: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+}
+
+export function useCostsByRole(days: number = 7) {
+  return useQuery<{ roles: CostByRoleEntry[]; period_days: number }>({
+    queryKey: ["models", "costs", "by-role", days],
+    queryFn: () =>
+      client.get("/models/costs/by-role", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface DailyCostEntry {
+  date: string;
+  tokens: number;
+  requests: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+}
+
+export function useCostsDaily(days: number = 7) {
+  return useQuery<{ daily: DailyCostEntry[]; period_days: number }>({
+    queryKey: ["models", "costs", "daily", days],
+    queryFn: () =>
+      client.get("/models/costs/daily", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export interface CostRateSnapshotEntry {
+  model: string;
+  role: string;
+  input_per_million: number;
+  output_per_million: number;
+  source: string;
+  captured_at: string;
+}
+
+export function useCostRateHistory(days: number = 90) {
+  return useQuery<{ snapshots: CostRateSnapshotEntry[]; period_days: number }>({
+    queryKey: ["models", "costs", "rate-history", days],
+    queryFn: () =>
+      client.get("/models/costs/rate-history", { params: { days } }).then((r) => r.data),
+    refetchInterval: 5 * 60_000,
+  });
+}
+
 // --- RAG ---
 
 export function useCorpusStats() {

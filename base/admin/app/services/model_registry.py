@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from ..db.engine import async_session
-from ..db.models import ModelCost as ModelCostRow
-from ..db.models import ModelDeployment
+from ..db.models import CostRateSnapshot, ModelCost as ModelCostRow, ModelDeployment
 from ..deps import MODELS_YAML_PATH
 
 logger = logging.getLogger("synesis.admin.models")
@@ -49,22 +48,31 @@ def invalidate_yaml_cache() -> None:
 async def seed_model_deployments(*, force: bool = False) -> int:
     """Parse models.yaml and populate model_deployments if the table is empty.
 
-    Returns the number of rows inserted.
+    Returns the number of rows inserted.  When force=True, existing rows are
+    deleted first so the unique constraint is not violated.
     """
     data = _load_models_yaml()
     if not data:
         logger.info("seed_models_skip reason=no_yaml")
         return 0
 
+    is_first_seed = False
+
     async with async_session() as session:
-        if not force:
-            count = (await session.execute(select(func.count(ModelDeployment.id)))).scalar() or 0
-            if count > 0:
-                logger.info("seed_models_skip reason=table_not_empty count=%d", count)
-                return 0
+        count = (await session.execute(select(func.count(ModelDeployment.id)))).scalar() or 0
+        if not force and count > 0:
+            logger.info("seed_models_skip reason=table_not_empty count=%d", count)
+            return 0
+
+        is_first_seed = count == 0
+
+        if force and count > 0:
+            await session.execute(delete(ModelDeployment))
+            logger.info("seed_models_cleared existing=%d", count)
 
         roles = data.get("roles", {})
         inserted = 0
+        first_openrouter_env: str = ""
 
         for profile_name, profile_cfg in data.get("profiles", {}).items():
             env_name = f"local-{profile_name}"
@@ -106,6 +114,8 @@ async def seed_model_deployments(*, force: bool = False) -> int:
 
         for profile_name, profile_cfg in data.get("openrouter_profiles", {}).items():
             env_name = f"openrouter-{profile_name}"
+            if not first_openrouter_env:
+                first_openrouter_env = env_name
             assignments = profile_cfg.get("assignments", {})
             for role_name, assignment in assignments.items():
                 role_def = roles.get(role_name, {})
@@ -120,17 +130,19 @@ async def seed_model_deployments(*, force: bool = False) -> int:
                     "temperature": 0.1,
                 }
 
+                activate = is_first_seed and env_name == first_openrouter_env
+
                 row = ModelDeployment(
                     environment=env_name,
                     role=role_name,
                     model=or_model,
                     endpoint="https://openrouter.ai/api/v1",
                     served_name=served_name,
-                    status="configured",
+                    status="activating" if activate else "configured",
                     profile=profile_name,
                     source="openrouter",
                     litellm_params=litellm_params,
-                    is_active=False,
+                    is_active=activate,
                     description=role_def.get("description", ""),
                     notes=notes_text.strip() if notes_text else "",
                 )
@@ -138,7 +150,11 @@ async def seed_model_deployments(*, force: bool = False) -> int:
                 inserted += 1
 
         await session.commit()
-        logger.info("seed_models_done inserted=%d", inserted)
+        logger.info(
+            "seed_models_done inserted=%d auto_activated=%s",
+            inserted,
+            first_openrouter_env if is_first_seed else "none",
+        )
         return inserted
 
 
@@ -201,7 +217,7 @@ async def update_deployment(deployment_id: int, data: dict) -> dict | None:
         for field in (
             "model", "endpoint", "served_name", "status", "profile",
             "source", "litellm_params", "is_active", "description",
-            "notes", "gpu_config", "environment", "role",
+            "notes", "gpu_config", "environment", "role", "fallbacks",
         ):
             if field in data:
                 setattr(row, field, data[field])
@@ -272,6 +288,7 @@ def _deployment_to_dict(row: ModelDeployment) -> dict:
         "notes": row.notes,
         "gpu_config": row.gpu_config,
         "litellm_model_id": row.litellm_model_id,
+        "fallbacks": row.fallbacks,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
 
@@ -567,3 +584,58 @@ async def get_cost_by_model() -> list[dict]:
         except Exception:
             logger.warning("cost_by_model_failed", exc_info=True)
             return []
+
+
+# ---------------------------------------------------------------------------
+# Cost rate snapshots — detect and record pricing changes
+# ---------------------------------------------------------------------------
+
+async def capture_cost_rate_snapshots() -> int:
+    """Compare current model_costs rates with the most recent snapshot.
+
+    If rates have changed (or no snapshot exists for a model), write a new row.
+    Returns the number of new snapshots created.
+    """
+    costs = await get_cost_estimates()
+    if not costs:
+        return 0
+
+    async with async_session() as session:
+        # Fetch the latest snapshot per model
+        result = await session.execute(
+            select(CostRateSnapshot).order_by(CostRateSnapshot.captured_at.desc())
+        )
+        all_snaps = result.scalars().all()
+        latest_by_model: dict[str, CostRateSnapshot] = {}
+        for s in all_snaps:
+            if s.model not in latest_by_model:
+                latest_by_model[s.model] = s
+
+        created = 0
+        for cost in costs:
+            model = cost.get("model", "")
+            if not model:
+                continue
+            inp = cost.get("input_per_million", 0.0)
+            out = cost.get("output_per_million", 0.0)
+            if inp == 0 and out == 0:
+                continue
+
+            prev = latest_by_model.get(model)
+            if prev and prev.input_per_million == inp and prev.output_per_million == out:
+                continue
+
+            snap = CostRateSnapshot(
+                model=model,
+                role=cost.get("role", ""),
+                input_per_million=inp,
+                output_per_million=out,
+                source=cost.get("source", "manual"),
+            )
+            session.add(snap)
+            created += 1
+
+        if created:
+            await session.commit()
+            logger.info("cost_rate_snapshots_created count=%d", created)
+        return created

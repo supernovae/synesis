@@ -24,6 +24,7 @@ class Trace(Base):
     total_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     difficulty: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     task_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     is_code_task: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -205,6 +206,7 @@ class ModelDeployment(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
     litellm_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    fallbacks: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -214,6 +216,20 @@ class ModelDeployment(Base):
         Index("ix_model_deployments_is_active", "is_active"),
         Index("ix_model_deployments_source", "source"),
     )
+
+
+class CostRateSnapshot(Base):
+    __tablename__ = "cost_rate_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    input_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_cost_rate_snapshots_model_captured", "model", "captured_at"),)
 
 
 class QualitySnapshot(Base):

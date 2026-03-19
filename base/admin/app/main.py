@@ -29,7 +29,7 @@ _reconciler_task: asyncio.Task | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.services.model_reconciler import reconcile
-    from app.services.model_registry import seed_model_deployments
+    from app.services.model_registry import capture_cost_rate_snapshots, seed_model_deployments
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
@@ -41,13 +41,22 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("model_seed_failed", exc_info=True)
 
+    _snapshot_counter = 0
+
     async def _background_reconciler():
+        nonlocal _snapshot_counter
         await asyncio.sleep(15)
         while True:
             try:
                 await reconcile()
             except Exception:
                 logger.debug("background_reconcile_error", exc_info=True)
+            _snapshot_counter += 1
+            if _snapshot_counter % 30 == 0:  # every ~30 min
+                try:
+                    await capture_cost_rate_snapshots()
+                except Exception:
+                    logger.debug("cost_snapshot_error", exc_info=True)
             await asyncio.sleep(60)
 
     global _reconciler_task

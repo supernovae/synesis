@@ -64,6 +64,7 @@ class LLMCallRecord:
     prompt_full: str = ""
     completion_full: str = ""
     timestamp: float = 0.0
+    actual_cost: float = 0.0
 
 
 @dataclass
@@ -90,6 +91,7 @@ class TraceRecord:
     total_duration_ms: float = 0.0
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    actual_cost_usd: float = 0.0
     difficulty: float = 0.0
     task_type: str = ""
     domain_tags: list[str] = field(default_factory=list)
@@ -242,16 +244,17 @@ def _get_pg():
 _INSERT_SQL = """
 INSERT INTO traces (
     trace_id, user_id, query_snippet, timestamp, total_duration_ms,
-    total_tokens, estimated_cost_usd, difficulty, task_type,
+    total_tokens, estimated_cost_usd, actual_cost_usd, difficulty, task_type,
     is_code_task, has_error, iteration_count, full_record
 ) VALUES (
     %(trace_id)s, %(user_id)s, %(query_snippet)s, %(timestamp)s, %(total_duration_ms)s,
-    %(total_tokens)s, %(estimated_cost_usd)s, %(difficulty)s, %(task_type)s,
+    %(total_tokens)s, %(estimated_cost_usd)s, %(actual_cost_usd)s, %(difficulty)s, %(task_type)s,
     %(is_code_task)s, %(has_error)s, %(iteration_count)s, %(full_record)s
 ) ON CONFLICT (trace_id) DO UPDATE SET
     total_duration_ms = EXCLUDED.total_duration_ms,
     total_tokens = EXCLUDED.total_tokens,
     estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+    actual_cost_usd = EXCLUDED.actual_cost_usd,
     has_error = EXCLUDED.has_error,
     full_record = EXCLUDED.full_record
 """
@@ -275,6 +278,7 @@ def _persist_trace(record: TraceRecord) -> None:
                     "total_duration_ms": record.total_duration_ms,
                     "total_tokens": record.total_tokens,
                     "estimated_cost_usd": record.estimated_cost_usd,
+                    "actual_cost_usd": record.actual_cost_usd,
                     "difficulty": record.difficulty,
                     "task_type": record.task_type,
                     "is_code_task": record.is_code_task,
@@ -335,6 +339,9 @@ class SynesisTracer(BaseCallbackHandler):
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
         record.estimated_cost_usd = _compute_cost(record)
+        record.actual_cost_usd = sum(
+            c.actual_cost for s in record.spans for c in s.llm_calls
+        )
         threading.Thread(target=_persist_trace, args=(record,), daemon=True).start()
         self._current_trace = None
         self._active_spans.clear()
@@ -677,6 +684,7 @@ class SynesisTracer(BaseCallbackHandler):
         completion_tokens: int,
         total_tokens: int,
         completion_text: str,
+        actual_cost: float = 0.0,
     ) -> None:
         """Shared logic for on_llm_end / on_chat_model_end."""
         rid = str(run_id)
@@ -698,6 +706,7 @@ class SynesisTracer(BaseCallbackHandler):
             prompt_full=prompt_full,
             completion_full=completion_full,
             timestamp=time.time(),
+            actual_cost=actual_cost,
         )
 
         parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
@@ -724,6 +733,7 @@ class SynesisTracer(BaseCallbackHandler):
             completion_tokens = 0
             total_tokens = 0
             model = ""
+            actual_cost = 0.0
 
             if response.generations and response.generations[0]:
                 gen = response.generations[0][0]
@@ -739,6 +749,7 @@ class SynesisTracer(BaseCallbackHandler):
                 completion_tokens = usage.get("completion_tokens", 0)
                 total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
                 model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
+                actual_cost = float(usage.get("cost", 0.0) or 0.0)
 
             # ChatOpenAI streaming often puts usage on the AIMessage instead of llm_output
             if total_tokens == 0 and response.generations and response.generations[0]:
@@ -753,6 +764,9 @@ class SynesisTracer(BaseCallbackHandler):
                     resp_meta = getattr(msg, "response_metadata", None) or {}
                     if not model:
                         model = resp_meta.get("model_name", "") or resp_meta.get("model", "")
+                    if actual_cost == 0.0 and resp_meta:
+                        resp_usage = resp_meta.get("usage", {}) or {}
+                        actual_cost = float(resp_usage.get("cost", 0.0) or 0.0)
 
             self._build_llm_call(
                 run_id=run_id,
@@ -762,6 +776,7 @@ class SynesisTracer(BaseCallbackHandler):
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
                 completion_text=completion_text,
+                actual_cost=actual_cost,
             )
         except Exception:
             logger.debug("on_llm_end_callback_error", exc_info=True)

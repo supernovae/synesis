@@ -83,7 +83,26 @@ async def reconcile() -> dict:
             else:
                 logger.warning("reconcile_remove_failed model=%s", name)
 
-    summary = {"added": added, "removed": removed, "unchanged": unchanged, "total_active": len(active_rows)}
+    # Push fallback configuration to LiteLLM for active models that have fallbacks defined
+    fallback_map: list[dict[str, list[str]]] = []
+    for row in active_rows:
+        fb = row.fallbacks
+        if fb and isinstance(fb, list) and row.served_name not in PROTECTED_MODELS:
+            fallback_map.append({row.served_name: fb})
+    if fallback_map:
+        ok = await litellm_client.set_fallbacks(fallback_map)
+        if ok:
+            logger.info("reconcile_fallbacks_set count=%d", len(fallback_map))
+        else:
+            logger.warning("reconcile_fallbacks_failed")
+
+    summary = {
+        "added": added,
+        "removed": removed,
+        "unchanged": unchanged,
+        "total_active": len(active_rows),
+        "fallbacks_configured": len(fallback_map),
+    }
     logger.info("reconcile_done %s", summary)
     return summary
 

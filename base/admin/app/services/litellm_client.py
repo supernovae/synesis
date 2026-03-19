@@ -78,6 +78,29 @@ async def delete_model(model_id: str, timeout: float = 10.0) -> bool:
         return False
 
 
+async def set_fallbacks(
+    fallback_map: list[dict[str, list[str]]],
+    timeout: float = 10.0,
+) -> bool:
+    """POST /fallbacks — configure model fallback mappings in LiteLLM.
+
+    ``fallback_map`` is a list like [{"synesis-general": ["synesis-general-fb"]}].
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{_base()}/fallbacks",
+                json={"fallbacks": fallback_map},
+                headers=_headers(),
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return True
+    except Exception:
+        logger.warning("litellm_set_fallbacks_failed", exc_info=True)
+        return False
+
+
 async def health_check(timeout: float = 5.0) -> dict[str, Any] | None:
     """GET /health — probe LiteLLM proxy health."""
     try:
