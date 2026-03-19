@@ -51,6 +51,7 @@ synesis-models/
 # Secrets and credentials
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 credentials.json

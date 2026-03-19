@@ -1,0 +1,22 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: synesis-yarn
+  namespace: synesis-yarn
+  labels:
+    app.kubernetes.io/name: synesis-yarn
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: yarn
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
+spec:
+  host: synesis-yarn.apps.openshiftdemo.dev
+  to:
+    kind: Service
+    name: synesis-yarn
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

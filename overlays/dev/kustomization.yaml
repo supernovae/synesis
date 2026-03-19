@@ -17,6 +17,7 @@ resources:
   - ../../base/search
   - ../../base/webui
   - ../../base/keycloak
+  - ../../base/yarn
 
 patches:
   # Debug logging, disable FlashRank, reduce resources for dev.

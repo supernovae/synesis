@@ -1,0 +1,59 @@
+# Synesis Yarn Runtime — Local Development
+#
+# Usage:
+#   cp .env.example .env  # add your DEEPINFRA_API_KEY
+#   podman-compose up
+#
+# Then point Cursor at http://localhost:8000/v1
+# with any API key (e.g. Bearer syn-dev-test)
+
+services:
+  redis:
+    image: redis/redis-stack-server:7.4.0-v2
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: synesis_admin
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+  yarn:
+    build:
+      context: ./base/yarn
+      dockerfile: Containerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      SYNESIS_YARN_PROVIDER: deepinfra
+      SYNESIS_YARN_MODEL: Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo
+      SYNESIS_YARN_SESSION_REDIS_URL: redis://redis:6379/3
+      SYNESIS_YARN_MEMORY_REDIS_URL: redis://redis:6379/4
+      SYNESIS_YARN_ADMIN_DB_URL: postgresql+asyncpg://app:changeme@postgres:5432/synesis_admin
+      SYNESIS_YARN_KEYCLOAK_ISSUER_URL: ""
+      SYNESIS_YARN_MCP_URL: ""
+      SYNESIS_YARN_PLANNER_URL: ""
+      SYNESIS_YARN_LOG_LEVEL: debug
+    depends_on:
+      - redis
+      - postgres
+
+volumes:
+  redis-data:
+  pg-data:

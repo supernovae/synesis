@@ -17,6 +17,7 @@ resources:
   - ../../base/search
   - ../../base/webui
   - ../../base/keycloak
+  - ../../base/yarn
   - network-policy.yaml
   - pdb.yaml
 

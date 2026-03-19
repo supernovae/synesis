@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: synesis-yarn
+  namespace: synesis-yarn
+  labels:
+    app.kubernetes.io/name: synesis-yarn
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: yarn
+spec:
+  selector:
+    app.kubernetes.io/name: synesis-yarn
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

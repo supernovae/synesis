@@ -302,6 +302,7 @@ patch_admin_db_urls() {
 
     _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url"
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url"
+    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url"
 }
 
 # -----------------------------------------------------------------------
@@ -395,6 +396,7 @@ ensure_keycloak() {
     kc_host=$(oc get route synesis-auth -n "$ns" -o jsonpath='{.spec.host}' 2>/dev/null || echo "synesis-auth.apps.openshiftdemo.dev")
     local issuer_url="https://${kc_host}/realms/synesis"
     _patch_deployment_env "synesis-admin" "synesis-admin" "SYNESIS_KEYCLOAK_ISSUER_URL" "$issuer_url"
+    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_KEYCLOAK_ISSUER_URL" "$issuer_url"
 }
 
 log "=== Deploying Synesis ($ENV) ==="

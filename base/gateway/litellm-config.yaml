@@ -75,6 +75,17 @@ data:
           max_tokens: 16384
           temperature: 0.2
 
+      # Yarn Runtime — Stateful agentic coding endpoint for IDE clients
+      # (Cursor, Claude Code, Windsurf, OpenCode). Routes through the Yarn
+      # memory buffer + tool orchestrator with prefix-cache-optimized context.
+      - model_name: synesis-yarn
+        litellm_params:
+          model: openai/synesis-yarn
+          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 32768
+          temperature: 0.2
+
     litellm_settings:
       drop_params: true
       set_verbose: false

@@ -17,6 +17,7 @@ resources:
   - ../../base/search
   - ../../base/webui
   - ../../base/keycloak
+  - ../../base/yarn
 
 patches:
   # Staging uses same model config as prod but with info-level logging.
