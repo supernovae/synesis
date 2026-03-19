@@ -513,13 +513,43 @@ install_milvus_operator() {
         --set "podSecurityContext.runAsUser=null"
     )
 
-    if helm list -n "$ns" 2>/dev/null | grep -q "$release"; then
-        log "  Milvus Operator already installed in $ns — upgrading"
-        helm upgrade "$release" "$chart" -n "$ns" --create-namespace --wait \
-            "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
+    # Ensure Helm repo is registered (idempotent)
+    helm repo add milvus-operator "$repo_url" 2>/dev/null || true
+
+    # Get currently installed chart version (empty string if not installed)
+    local installed_version=""
+    installed_version=$(helm list -n "$ns" -o json 2>/dev/null \
+        | grep -o '"chart":"milvus-operator-[^"]*"' \
+        | head -1 | sed 's/.*milvus-operator-//' | sed 's/"//' || true)
+
+    if [[ -n "$installed_version" ]]; then
+        # Already installed — check if upgrade is actually needed
+        helm repo update milvus-operator 2>&1 | while read -r line; do log "  $line"; done
+
+        local latest_version=""
+        latest_version=$(helm search repo milvus-operator/milvus-operator -o json 2>/dev/null \
+            | grep -o '"version":"[^"]*"' | head -1 | sed 's/"version":"//' | sed 's/"//' || true)
+
+        if [[ "$installed_version" == "$latest_version" ]]; then
+            # Same version — check if operator pod is healthy before skipping
+            local operator_ready
+            operator_ready=$(oc get deploy milvus-operator -n "$ns" \
+                -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+
+            if [[ "${operator_ready:-0}" -ge 1 ]]; then
+                log "  Milvus Operator v${installed_version} already running and healthy — skipping"
+            else
+                log "  Milvus Operator v${installed_version} installed but not ready — re-applying"
+                helm upgrade "$release" "$chart" -n "$ns" --version "$installed_version" --wait \
+                    "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
+            fi
+        else
+            log "  Milvus Operator upgrade available: v${installed_version} -> v${latest_version}"
+            helm upgrade "$release" "$chart" -n "$ns" --wait \
+                "${ocp_values[@]}" 2>&1 | while read -r line; do log "  $line"; done
+        fi
     else
-        log "  Adding Milvus Operator Helm repo..."
-        helm repo add milvus-operator "$repo_url" 2>/dev/null || true
+        # Fresh install
         helm repo update milvus-operator 2>&1 | while read -r line; do log "  $line"; done
         log "  Installing Milvus Operator..."
         helm install "$release" "$chart" \
