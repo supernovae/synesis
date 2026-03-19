@@ -13,6 +13,8 @@ Validates:
 
 from __future__ import annotations
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Gap 1 & 4: Section worker prompt — constraint injection + version rule
 # ---------------------------------------------------------------------------
@@ -56,17 +58,17 @@ class TestStructuredWriterPrompt:
 
 
 class TestFrameInjection:
-    """Verify that UserTask fields get injected into the unified USER FRAME block."""
+    """Verify that TaskFrame fields get injected into the unified USER FRAME block."""
 
-    def _build_frame_block(self, user_task: dict) -> str:
+    def _build_frame_block(self, task_frame: dict) -> str:
         """Replicate the consolidated frame injection logic from evidence_gatherer/structured_writer."""
         frame_block: list[str] = []
-        success_criteria = user_task.get("success_criteria") or []
+        success_criteria = task_frame.get("evaluation") or []
         if success_criteria:
             frame_block.append("SUCCESS CRITERIA (apply to ALL sections — these describe HOW to write):")
             frame_block.extend(f"  - {r}" for r in success_criteria)
-        constraints = user_task.get("constraints") or []
-        neg_constraints = user_task.get("negative_constraints") or []
+        constraints = task_frame.get("global_constraints") or []
+        neg_constraints = task_frame.get("negative_constraints") or []
         all_constraints = constraints + neg_constraints
         if all_constraints:
             frame_block.append("CONSTRAINTS (cross-cutting — weave into analysis, do NOT treat as section topics):")
@@ -76,7 +78,7 @@ class TestFrameInjection:
         return ""
 
     def test_constraints_injected_when_present(self):
-        frame = {"constraints": ["under 30 minutes", "no external dependencies"]}
+        frame = {"global_constraints": ["under 30 minutes", "no external dependencies"]}
         block = self._build_frame_block(frame)
         assert "CONSTRAINTS" in block
         assert "under 30 minutes" in block
@@ -84,7 +86,7 @@ class TestFrameInjection:
         assert "section topics" in block
 
     def test_success_criteria_injected(self):
-        frame = {"success_criteria": ["separate pros and cons", "use tables where appropriate"]}
+        frame = {"evaluation": ["separate pros and cons", "use tables where appropriate"]}
         block = self._build_frame_block(frame)
         assert "SUCCESS CRITERIA" in block
         assert "separate pros and cons" in block
@@ -94,7 +96,7 @@ class TestFrameInjection:
         assert block == ""
 
     def test_constraints_capped_at_six(self):
-        frame = {"constraints": [f"constraint_{i}" for i in range(10)]}
+        frame = {"global_constraints": [f"constraint_{i}" for i in range(10)]}
         block = self._build_frame_block(frame)
         assert "constraint_5" in block
         assert "constraint_6" not in block
@@ -214,19 +216,6 @@ class TestCriticVocabulary:
 # ---------------------------------------------------------------------------
 
 
-def _read_repair_system() -> str:
-    """Read the _REPAIR_SYSTEM prompt from frame_extractor.py source."""
-    import pathlib
-
-    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "frame_extractor.py"
-    text = src.read_text()
-    marker_start = '_REPAIR_SYSTEM = """\\\n'
-    marker_end = '"""'
-    start = text.index(marker_start) + len(marker_start)
-    end = text.index(marker_end, start)
-    return text[start:end]
-
-
 def _read_planner_prompt_source() -> str:
     """Read the _build_knowledge_planner_prompt function source."""
     import pathlib
@@ -251,42 +240,11 @@ def _read_compiler_system() -> str:
     return text[start:end]
 
 
+@pytest.mark.skip(reason="LLM repair prompt removed; replaced by segmenter-based pipeline")
 class TestRepairPrompt:
-    """Stage 3 repair prompt must enforce repair-only semantics."""
+    """Stage 3 repair prompt — skipped; repair semantics now handled by segmenter."""
 
-    def test_no_hallucination_rule(self):
-        prompt = _read_repair_system()
-        assert "never hallucinate" in prompt.lower() or "do not invent" in prompt.lower()
-
-    def test_preserve_ambiguity_rule(self):
-        prompt = _read_repair_system()
-        assert "ambiguity" in prompt.lower() or "ambiguities" in prompt.lower()
-
-    def test_repair_not_re_extraction(self):
-        prompt = _read_repair_system()
-        assert "repair" in prompt.lower() or "not re-extract" in prompt.lower()
-
-    def test_user_task_schema_present(self):
-        prompt = _read_repair_system()
-        assert "main_question" in prompt
-        assert "explicit_requirements" in prompt
-        assert "deliverables" in prompt
-
-    def test_needs_web_rule(self):
-        prompt = _read_repair_system()
-        assert "needs_web" in prompt
-
-    def test_frame_schema_has_key_fields(self):
-        """Frame repair schema includes key task fields for extraction."""
-        prompt = _read_repair_system()
-        assert "explicit_requirements" in prompt
-        assert "deliverables" in prompt
-
-    def test_no_hardcoded_prompt_examples(self):
-        prompt = _read_repair_system()
-        assert "80 engineers" not in prompt
-        assert "What I want from you" not in prompt
-        assert "regulated industry" not in prompt
+    pass
 
 
 class TestAntiEchoPlanner:

@@ -1208,11 +1208,11 @@ class RouterNode:
             await warm_milvus_pool()
 
         task_desc = state.get("task_description", "")
-        user_task = state.get("user_task") or {}
+        task_frame = state.get("task_frame") or {}
         difficulty = state.get("difficulty", 0.5)
         rag_mode = state.get("rag_mode", "normal")
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
-        task_context = f"{task_desc}\n{json.dumps(user_task, default=str)[:500]}"
+        task_context = f"{task_desc}\n{json.dumps(task_frame, default=str)[:500]}"
 
         # Fast path: skip all retrieval when rag_mode is disabled.
         # Entry classifier sets this for difficulty < 0.3 (trivial + easy).
@@ -1287,7 +1287,7 @@ class RouterNode:
         # Only preseed a CohesionLock for focused frames where one domain
         # clearly dominates. Composite/diffuse frames get broad retrieval.
         _preseeded_lock = None
-        _domain_profile = user_task.get("domain_profile") or {}
+        _domain_profile = task_frame.get("domain_profile") or {}
         _frame_coherence = _domain_profile.get("frame_coherence", "")
         _profile_domains = _domain_profile.get("domains") or []
 
@@ -1314,7 +1314,7 @@ class RouterNode:
                     req["_preseeded_lock"] = _preseeded_lock
 
         # Inject topic_frame into requests so query generation uses it
-        topic_frame = user_task.get("topic_frame", "")
+        topic_frame = task_frame.get("topic_frame", "")
         if topic_frame:
             for req in requests:
                 req["_topic_frame"] = topic_frame
@@ -1549,8 +1549,8 @@ class RouterNode:
         For composite frames: return ALL weighted domains (broad retrieval).
         Otherwise: prefer taxonomy_key + active_domain_refs.
         """
-        user_task = state.get("user_task") or {}
-        profile = user_task.get("domain_profile") or {}
+        task_frame = state.get("task_frame") or {}
+        profile = task_frame.get("domain_profile") or {}
         profile_domains = profile.get("domains") or []
 
         if profile.get("frame_coherence") == "composite" and profile_domains:
@@ -1563,7 +1563,7 @@ class RouterNode:
             active_refs.append(taxonomy_key)
         if active_refs:
             return active_refs
-        return user_task.get("domain_tags") or []
+        return task_frame.get("domain_tags") or []
 
     def _build_initial_requests(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         """Build evidence requests from the frame/task for initial retrieval.
@@ -1574,12 +1574,12 @@ class RouterNode:
         context and technologies are listed as metadata for the query generator
         to use as *optional* constraints.
         """
-        user_task = state.get("user_task") or {}
+        task_frame = state.get("task_frame") or {}
         task_desc = state.get("task_description", "")
         domain_hints = self._domain_hints_from_state(state)
-        domain_tags = user_task.get("domain_tags") or []
-        technologies = user_task.get("technologies") or []
-        skip_web = not user_task.get("needs_web", True)
+        domain_tags = task_frame.get("domain_tags") or []
+        technologies = task_frame.get("technologies") or []
+        skip_web = not task_frame.get("needs_web", True)
 
         search_source_ids = self._resolve_search_sources(state, domain_tags)
 
@@ -1592,11 +1592,11 @@ class RouterNode:
             base["search_source_ids"] = search_source_ids
 
         requests = []
-        main_q = user_task.get("main_question", task_desc)
+        main_q = task_frame.get("main_question", task_desc)
         if main_q:
             requests.append({**base, "description": main_q})
 
-        deliverables = user_task.get("deliverables") or []
+        deliverables = [t.get("description", "") for t in (task_frame.get("tasks") or [])]
         pair_threshold = settings.max_initial_deliverable_requests
         if len(deliverables) > pair_threshold:
             for batch_idx in range(0, len(deliverables), 2):
@@ -1654,14 +1654,14 @@ class RouterNode:
         Uses only the main question (no per-deliverable fan-out) and marks
         the request for single-query retrieval (no HyDE, no expansion).
         """
-        user_task = state.get("user_task") or {}
+        task_frame = state.get("task_frame") or {}
         task_desc = state.get("task_description", "")
-        main_q = user_task.get("main_question", task_desc)
+        main_q = task_frame.get("main_question", task_desc)
         return {
             "description": main_q or task_desc,
             "domain_hints": self._domain_hints_from_state(state),
-            "technologies": user_task.get("technologies") or [],
-            "skip_web": not user_task.get("needs_web", True),
+            "technologies": task_frame.get("technologies") or [],
+            "skip_web": not task_frame.get("needs_web", True),
             "_light_mode": True,
         }
 

@@ -780,16 +780,6 @@ class FirstPassFrame(BaseModel):
     field_confidence_map: dict[str, float] = Field(default_factory=dict)
 
 
-class MissingFieldReport(BaseModel):
-    """Stage 2 diagnostic: what's missing, conflicting, or low-confidence."""
-
-    missing_critical_fields: list[str] = Field(default_factory=list)
-    conflicting_fields: list[tuple[str, str]] = Field(default_factory=list)
-    low_confidence_fields: list[str] = Field(default_factory=list)
-    should_call_second_pass: bool = False
-    reasons: list[str] = Field(default_factory=list)
-
-
 class DomainWeight(BaseModel):
     """A single domain's relevance to the prompt.
 
@@ -821,54 +811,67 @@ class DomainProfile(BaseModel):
     confidence: float = 0.5
 
 
-class DeliverableDetail(BaseModel):
-    """Rich per-deliverable metadata: sub-requirements and format hints.
+# ---------------------------------------------------------------------------
+# TaskFrame — scoped task decomposition with per-task constraints
+# ---------------------------------------------------------------------------
 
-    Populated by merging GLiNER2 entity extraction with the text structure
-    parser.  Downstream nodes (planner, writer, plan_gate) prefer this over
-    the flat ``deliverables`` list when available.
-    """
 
-    title: str
+class FrameUnit(BaseModel):
+    """A single semantic unit extracted from the user prompt by LLM Stage 1."""
+
+    text: str
+    unit_type: Literal["goal", "task", "constraint", "context", "dependency", "evaluation"]
+    confidence: float = 0.0
+
+
+class EvidenceSpec(BaseModel):
+    """Whether the user expects evidence/citations in the response."""
+
+    required: bool = False
+    sources: list[str] = Field(default_factory=list)
+
+
+class ScopedTask(BaseModel):
+    """A discrete deliverable with its own scoped constraints and artifacts."""
+
+    id: str
+    description: str
+    constraints: list[str] = Field(default_factory=list)
+    artifacts: list[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
     sub_requirements: list[str] = Field(default_factory=list)
     format_hint: str = ""
 
 
-class UserTask(BaseModel):
+class TaskFrame(BaseModel):
     """Structured task frame extracted once, consumed by all downstream nodes.
 
-    Replaces SemanticFrame with a cleaner, richer schema produced by the
-    3-stage GLiNER2 pipeline (extract -> normalize -> optional LLM repair).
+    Constraints are scoped: each ScopedTask carries its own constraints,
+    while global_constraints apply cross-cutting to the entire response.
     """
 
-    main_question: str = ""
-    explicit_requirements: list[str] = Field(default_factory=list)
-    constraints: list[str] = Field(default_factory=list)
+    goals: list[str] = Field(default_factory=list)
+    tasks: list[ScopedTask] = Field(default_factory=list)
+    global_constraints: list[str] = Field(default_factory=list)
     negative_constraints: list[str] = Field(default_factory=list)
+    context: list[str] = Field(default_factory=list)
+    evaluation: list[str] = Field(default_factory=list)
+    evidence: EvidenceSpec = Field(default_factory=EvidenceSpec)
+
+    main_question: str = ""
     requested_format: str = "prose"
-    output_schema: list[str] = Field(default_factory=list)  # field/key names for structured formats
-    embedded_formats: list[str] = Field(default_factory=list)  # formats wanted as code blocks, not whole-response
-    deliverables: list[str] = Field(default_factory=list)
-    deliverable_details: list[DeliverableDetail] = Field(default_factory=list)
-    success_criteria: list[str] = Field(default_factory=list)
-    ambiguities: list[str] = Field(default_factory=list)
-    assumptions_needed: list[str] = Field(default_factory=list)
+    output_schema: list[str] = Field(default_factory=list)
+    embedded_formats: list[str] = Field(default_factory=list)
     domain_tags: list[str] = Field(default_factory=list)
     technologies: list[str] = Field(default_factory=list)
-    escalation_signals: list[str] = Field(default_factory=list)
-    decision_required: bool = False
     needs_web: bool = False
     persona: str = ""
     output_controls: dict[str, bool] = Field(default_factory=dict)
-
-    # Domain profile — sensemaking-driven weighted domain understanding.
-    # Replaces the old intent_anchors / anchor_exclude_signals hard-lock system.
     domain_profile: DomainProfile | None = None
-
-    # Topic frame — the conceptual entity driving RAG search queries.
-    # Derived from main_question + deliverables + domain_tags (NOT technologies).
-    # Technologies feed OutputCohesion instead; they constrain the *output*, not the search.
     topic_frame: str = ""
+
+
+STRUCTURED_FORMATS = frozenset({"json", "yaml", "xml", "csv", "toml"})
 
 
 class OutputControls(BaseModel):

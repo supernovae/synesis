@@ -1,7 +1,7 @@
 """FinalAnswerCompilerNode — write polished user-facing prose from section text.
 
 This node receives the merged section text (generated_code) and the
-structured user_task from the frame extractor, and produces a polished
+structured task_frame from the frame extractor, and produces a polished
 markdown response.  The final_scrubber downstream handles deterministic
 artifact cleanup as a safety net.
 
@@ -85,9 +85,9 @@ HEADING STYLE:
 
 def _build_compiler_system(state: dict[str, Any]) -> str:
     """Build the compiler system prompt with format-aware output directive."""
-    from .frame_normalizer import STRUCTURED_FORMATS
+    from ..schemas import STRUCTURED_FORMATS
 
-    frame = state.get("user_task") or {}
+    frame = state.get("task_frame") or {}
     fmt = frame.get("requested_format", "prose")
     schema_fields = frame.get("output_schema") or []
     embedded = frame.get("embedded_formats") or []
@@ -269,8 +269,8 @@ def _build_sources_section(state: dict[str, Any]) -> str:
 
 
 def _build_task_block(state: dict[str, Any]) -> str:
-    """Build user_task context block for the compiler prompt."""
-    frame = state.get("user_task") or {}
+    """Build task_frame context block for the compiler prompt."""
+    frame = state.get("task_frame") or {}
     if not frame:
         return ""
 
@@ -280,39 +280,36 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if main_q:
         parts.append(f"Main question: {main_q}")
 
-    requirements = frame.get("explicit_requirements") or []
-    if requirements:
-        parts.append("Requirements: " + "; ".join(requirements[:8]))
+    goals = frame.get("goals") or []
+    if goals:
+        parts.append("Goals: " + "; ".join(goals[:8]))
 
-    constraints = frame.get("constraints") or []
-    if constraints:
-        parts.append("Constraints: " + "; ".join(constraints[:6]))
+    global_constraints = frame.get("global_constraints") or []
+    if global_constraints:
+        parts.append("Constraints: " + "; ".join(global_constraints[:6]))
 
     negative = frame.get("negative_constraints") or []
     if negative:
         parts.append("Do NOT: " + "; ".join(negative[:4]))
 
-    deliverables = frame.get("deliverables") or []
-    details = frame.get("deliverable_details") or []
-    if details:
+    tasks = frame.get("tasks") or []
+    if tasks:
         detail_lines: list[str] = []
-        for dd in details:
-            title = dd.get("title", "") if isinstance(dd, dict) else getattr(dd, "title", "")
-            sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
-            fmt = (dd.get("format_hint") or "") if isinstance(dd, dict) else getattr(dd, "format_hint", "")
-            line = title
+        for t in tasks:
+            desc = t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")
+            sub_reqs = (t.get("sub_requirements") or []) if isinstance(t, dict) else getattr(t, "sub_requirements", [])
+            fmt = (t.get("format_hint") or "") if isinstance(t, dict) else getattr(t, "format_hint", "")
+            line = desc
             if fmt:
                 line += f" [format: {fmt}]"
             detail_lines.append(line)
             for sr in sub_reqs[:5]:
-                detail_lines.append(f"    - {sr}")
-        parts.append("Deliverables: " + "; ".join(detail_lines))
-    elif deliverables:
-        parts.append("Required deliverables: " + "; ".join(deliverables[:8]))
+                detail_lines.append(f"      - {sr}")
+        parts.append("Tasks (with sub-requirements and format hints):\n" + "\n".join(f"    {l}" for l in detail_lines))
 
-    success = frame.get("success_criteria") or []
-    if success:
-        parts.append("Success criteria: " + "; ".join(success[:6]))
+    evaluation = frame.get("evaluation") or []
+    if evaluation:
+        parts.append("Success criteria: " + "; ".join(evaluation[:6]))
 
     # Output format is handled by the OUTPUT directive in the compiler system prompt.
     output_schema = frame.get("output_schema") or []
@@ -329,7 +326,7 @@ _MIN_FULL_REWRITE_HEADROOM = 3072  # tokens — below this, light mode is better
 
 
 async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
-    """Compile polished prose from approved section text and user_task.
+    """Compile polished prose from approved section text and task_frame.
 
     Two modes based on whether sections fit in the compiler model context:
       - Full rewrite: LLM rewrites the entire document.

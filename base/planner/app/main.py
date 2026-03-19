@@ -702,7 +702,7 @@ def _router_phase(input_data: dict) -> str:
 
 
 def _enrich_phase(base_phase: str, node: str, frame: dict) -> str:
-    """Enrich a phase description with UserTask context.
+    """Enrich a phase description with TaskFrame context.
 
     Adds lightweight counts and domain labels — never domain-specific content.
     Falls back to the base phase if no frame data is available.
@@ -711,10 +711,10 @@ def _enrich_phase(base_phase: str, node: str, frame: dict) -> str:
     if not frame:
         return base_phase
 
-    deliverables = frame.get("deliverables") or []
+    deliverables = [t.get("description", "") for t in (frame.get("tasks") or [])]
     domain_tags = frame.get("domain_tags") or []
     domain = domain_tags[0] if domain_tags else ""
-    requirements = frame.get("explicit_requirements") or []
+    requirements = frame.get("goals") or []
 
     if node == "planner" and deliverables:
         return f"Building plan for {len(deliverables)} deliverables\u2026"
@@ -1484,7 +1484,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 _phase_start = now
                                 if not section_phase:
                                     effective_phase = _enrich_phase(
-                                        phase, node_label, accumulated_state.get("user_task") or {}
+                                        phase, node_label, accumulated_state.get("task_frame") or {}
                                     )
                                     _current_phase = effective_phase
                                 thinking_phases.append(effective_phase)

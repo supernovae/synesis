@@ -93,13 +93,13 @@ def _extract_keywords(text: str) -> set[str]:
 
 
 def validate_required_sections(state: dict[str, Any]) -> ValidationResult:
-    """Every user_task.deliverables item must be covered in the draft.
+    """Every task_frame.tasks description must be covered in the draft.
 
     Uses keyword overlap rather than exact substring matching so that
     rephrased headings still satisfy the deliverable requirement.
     """
-    frame = state.get("user_task") or {}
-    deliverables = frame.get("deliverables") or []
+    frame = state.get("task_frame") or {}
+    deliverables = [t.get("description", "") for t in (frame.get("tasks") or [])]
     if not deliverables:
         return True, []
 

@@ -94,7 +94,7 @@ class GraphState(TypedDict, total=False):
 
     # --- Identity & messages ---
     taxonomy_metadata: dict[str, Any]
-    user_task: Annotated[dict[str, Any], _set_once_dict]
+    task_frame: Annotated[dict[str, Any], _set_once_dict]
     messages: Annotated[list[BaseMessage], add_messages]
     user_id: str
     conversation_history: list[str]
@@ -131,8 +131,8 @@ class GraphState(TypedDict, total=False):
     # --- Cohesion Lock (Router-set, consumed by Writer/Critic) ---
     cohesion_lock: Annotated[dict[str, Any], _set_once_dict]
 
-    # --- Domain Profiling (Frame Normalizer-set via UserTask.domain_profile) ---
-    # DomainProfile is embedded in user_task; no separate state key needed.
+    # --- Domain Profiling (set via TaskFrame.domain_profile) ---
+    # DomainProfile is embedded in task_frame; no separate state key needed.
 
     # --- Domain Context (Entry Classifier + Strategic Advisor) ---
     domain_ref_counts: dict[str, int]

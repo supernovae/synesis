@@ -233,10 +233,10 @@ class TestWriterTemplate:
         assert "Structured Writer" in prompt
         assert "COHESION LOCK" not in prompt
 
-    def test_persona_from_user_task(self):
+    def test_persona_from_task_frame(self):
         from app.nodes.writer import _build_system_prompt
 
-        state = {"user_task": {"persona": "pirate"}}
+        state = {"task_frame": {"persona": "pirate"}}
         prompt = _build_system_prompt(state)
         assert "pirate" in prompt
 
@@ -244,17 +244,17 @@ class TestWriterTemplate:
         from app.nodes.writer import _build_system_prompt
 
         state = {
-            "user_task": {"persona": ""},
+            "task_frame": {"persona": ""},
             "taxonomy_metadata": {"persona_instructions": "Formal Analyst"},
         }
         prompt = _build_system_prompt(state)
         assert "Formal Analyst" in prompt
 
-    def test_persona_priority_user_task_over_taxonomy(self):
+    def test_persona_priority_task_frame_over_taxonomy(self):
         from app.nodes.writer import _build_system_prompt
 
         state = {
-            "user_task": {"persona": "pirate"},
+            "task_frame": {"persona": "pirate"},
             "taxonomy_metadata": {"persona_instructions": "Formal Analyst"},
         }
         prompt = _build_system_prompt(state)
@@ -294,7 +294,7 @@ class TestPersonaDetection:
     """Test persona extraction from raw user text.
 
     _detect_persona is a pure regex function, but importing it from
-    frame_normalizer triggers the schemas -> state -> langgraph chain.
+    frame_extractor triggers the schemas -> state -> langgraph chain.
     We replicate the function's regex logic inline here so tests run
     locally without langgraph. The full integration is tested in CI.
     """
@@ -397,16 +397,16 @@ class TestCohesionLockState:
         hints = GraphState.__annotations__
         assert "cohesion_lock" in hints
 
-    def test_persona_in_usertask(self):
-        from app.schemas import UserTask
+    def test_persona_in_task_frame(self):
+        from app.schemas import TaskFrame
 
-        task = UserTask(persona="pirate")
+        task = TaskFrame(persona="pirate")
         assert task.persona == "pirate"
 
     def test_persona_defaults_empty(self):
-        from app.schemas import UserTask
+        from app.schemas import TaskFrame
 
-        task = UserTask()
+        task = TaskFrame()
         assert task.persona == ""
 
 

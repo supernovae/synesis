@@ -41,7 +41,7 @@ def _merge_evidence_packets(existing: list[dict[str, Any]], new: list[dict[str, 
 def _set_once_dict(existing: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     """First non-empty dict wins; subsequent writes are ignored.
 
-    Used for ``user_task`` and ``style_contract_locked`` — once set by
+    Used for ``task_frame`` and ``style_contract_locked`` — once set by
     frame_extractor / planner, no downstream node can overwrite them.
     """
     if existing:

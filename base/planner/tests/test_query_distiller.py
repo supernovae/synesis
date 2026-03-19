@@ -22,7 +22,7 @@ from app.query_distiller import (
 )
 
 _REALISTIC_FRAME = {
-    "problem": "Design a production-ready AI assistant for an engineering organization",
+    "main_question": "Design a production-ready AI assistant for an engineering organization",
     "goals": [
         "Answer questions about company docs",
         "Help write and review code",
@@ -30,21 +30,21 @@ _REALISTIC_FRAME = {
         "Escalate when lacking evidence",
         "Keep latency and cost reasonable",
     ],
-    "deliverables": [
-        "Main design goals",
-        "Concrete architecture proposal",
-        "Explanation of model choices",
-        "Explanation of retrieval mechanism",
-        "Description of failure modes and mitigations",
-        "Explanation of system functionality",
+    "tasks": [
+        {"id": "t1", "description": "Main design goals", "constraints": [], "artifacts": []},
+        {"id": "t2", "description": "Concrete architecture proposal", "constraints": [], "artifacts": []},
+        {"id": "t3", "description": "Explanation of model choices", "constraints": [], "artifacts": []},
+        {"id": "t4", "description": "Explanation of retrieval mechanism", "constraints": [], "artifacts": []},
+        {"id": "t5", "description": "Description of failure modes and mitigations", "constraints": [], "artifacts": []},
+        {"id": "t6", "description": "Explanation of system functionality", "constraints": [], "artifacts": []},
     ],
-    "constraints": [
+    "global_constraints": [
         "Team size: 80 engineers",
         "Budget is limited",
         "Must support Kubernetes, Terraform, and Python workflows",
         "System should be useful within 90 days",
     ],
-    "domain": "software_architecture",
+    "domain_tags": ["software_architecture"],
 }
 
 

@@ -1,7 +1,7 @@
 """Frame-driven query distillation for focused RAG and web retrieval.
 
-Builds retrieval queries from the pre-extracted UserTask (main_question,
-deliverables, domain) instead of parsing raw prompt text.  This eliminates
+Builds retrieval queries from the pre-extracted TaskFrame (main_question,
+tasks, goals, domain) instead of parsing raw prompt text.  This eliminates
 instructional language, newlines, and prompt boilerplate from queries.
 
 Fallback path (distill_query) preserved for callers without a frame.
@@ -271,9 +271,9 @@ def _dedup_terms(terms: list[str], exclude_tokens: set[str]) -> list[str]:
 
 def distill_from_frame(
     section_action: str,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
 ) -> str:
-    """Build a focused RAG query from UserTask fields.
+    """Build a focused RAG query from TaskFrame fields.
 
     Extracts key terms from the main question and constraints — NOT
     from the deliverable, which tends to echo the section title and
@@ -286,10 +286,10 @@ def distill_from_frame(
       "Model Choices model choices model choices software architecture"
     """
     section_topic = _extract_section_topic(section_action)
-    domain_tags = user_task.get("domain_tags") or []
+    domain_tags = task_frame.get("domain_tags") or []
     domain = domain_tags[0] if domain_tags else ""
-    problem = _sanitize(user_task.get("main_question", ""))
-    constraints = user_task.get("constraints") or []
+    problem = _sanitize(task_frame.get("main_question", ""))
+    constraints = task_frame.get("global_constraints") or []
     constraint_text = " ".join(constraints[:3])
 
     source_text = f"{problem} {constraint_text}".strip()
@@ -336,9 +336,9 @@ _AUTHORITY_QUALIFIERS: dict[str, str] = {
 
 def distill_web_from_frame(
     section_action: str,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
 ) -> str:
-    """Build a concise web search query (5-10 words) from UserTask fields.
+    """Build a concise web search query (5-10 words) from TaskFrame fields.
 
     Extracts key terms from main_question + constraints (the rich context) rather
     than the deliverable, which echoes the section title.  Deduplicates
@@ -350,10 +350,10 @@ def distill_web_from_frame(
     Produces: "Model Choices coding assistant best practices"
     """
     section_topic = _extract_section_topic(section_action)
-    domain_tags = user_task.get("domain_tags") or []
+    domain_tags = task_frame.get("domain_tags") or []
     domain = domain_tags[0] if domain_tags else ""
-    problem = _sanitize(user_task.get("main_question", ""))
-    constraints = user_task.get("constraints") or []
+    problem = _sanitize(task_frame.get("main_question", ""))
+    constraints = task_frame.get("global_constraints") or []
     constraint_text = " ".join(constraints[:3])
 
     source_text = f"{problem} {constraint_text}".strip()
@@ -389,29 +389,29 @@ def distill_web_from_frame(
 
 def decompose_section_queries(
     section_action: str,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
     max_queries: int = 3,
 ) -> list[tuple[str, str]]:
     """Decompose a complex section into multiple (rag_query, web_query) pairs.
 
-    Uses the user_task's explicit_requirements to identify sub-topics relevant
-    to this section.  For each matching requirement, builds a targeted query
-    combining the requirement with relevant constraints.  Returns 1-3 query pairs.
+    Uses the task_frame's goals to identify sub-topics relevant to this section.
+    For each matching goal, builds a targeted query combining the goal with
+    relevant constraints.  Returns 1-3 query pairs.
 
-    Deterministic — no LLM call.  Uses TEI embedder for requirement-section
+    Deterministic — no LLM call.  Uses TEI embedder for goal-section
     similarity when available, falling back to token overlap.
     """
-    primary_rag = distill_from_frame(section_action, user_task)
-    primary_web = distill_web_from_frame(section_action, user_task)
+    primary_rag = distill_from_frame(section_action, task_frame)
+    primary_web = distill_web_from_frame(section_action, task_frame)
     pairs: list[tuple[str, str]] = [(primary_rag, primary_web)]
 
-    goals = user_task.get("explicit_requirements") or []
+    goals = task_frame.get("goals") or []
     if not goals or max_queries <= 1:
         return pairs
 
     section_topic = _extract_section_topic(section_action)
-    constraints = user_task.get("constraints") or []
-    domain_tags = user_task.get("domain_tags") or []
+    constraints = task_frame.get("global_constraints") or []
+    domain_tags = task_frame.get("domain_tags") or []
     domain = domain_tags[0] if domain_tags else ""
 
     scored_goals: list[tuple[float, str]] = []
@@ -473,7 +473,7 @@ def decompose_section_queries(
 def distill_query(section_action: str, task_description: str) -> str:
     """Extract keyphrases and compose a focused retrieval query.
 
-    Legacy path for callers that don't have a UserTask available.
+    Legacy path for callers that don't have a TaskFrame available.
     Prefer distill_from_frame() when the frame is available.
     """
     section_topic = _extract_section_topic(section_action)

@@ -67,14 +67,14 @@ class TestOutputControlsSchema:
         assert sc.show_assumptions is True
         assert sc.verbosity_target == "thorough"
 
-    def test_user_task_carries_output_controls(self):
-        from app.schemas import UserTask
+    def test_task_frame_carries_output_controls(self):
+        from app.schemas import TaskFrame
 
-        ut = UserTask(
+        tf = TaskFrame(
             main_question="design an architecture",
             output_controls={"precise": True, "show_assumptions": True},
         )
-        assert ut.output_controls["precise"] is True
+        assert tf.output_controls["precise"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -83,11 +83,11 @@ class TestOutputControlsSchema:
 
 
 class TestPrecedenceResolution:
-    def _derive(self, user_task=None, difficulty=0.5, taxonomy_key="", output_controls=None, taxonomy_metadata=None):
+    def _derive(self, task_frame=None, difficulty=0.5, taxonomy_key="", output_controls=None, taxonomy_metadata=None):
         from app.nodes.planner_node import _derive_style_contract
 
         return _derive_style_contract(
-            user_task=user_task or {"success_criteria": []},
+            task_frame=task_frame or {"evaluation": []},
             difficulty=difficulty,
             taxonomy_key=taxonomy_key,
             output_controls=output_controls,
@@ -107,17 +107,17 @@ class TestPrecedenceResolution:
         assert sc["show_assumptions"] is True
         assert sc["clarify_first"] is False
 
-    def test_user_task_overrides_taxonomy(self):
+    def test_task_frame_overrides_taxonomy(self):
         tax = {"output_controls": {"precise": True}}
-        ut = {"success_criteria": [], "output_controls": {"precise": False}}
-        sc = self._derive(user_task=ut, taxonomy_metadata=tax)
+        tf = {"evaluation": [], "output_controls": {"precise": False}}
+        sc = self._derive(task_frame=tf, taxonomy_metadata=tax)
         assert sc["precise"] is False
 
     def test_request_overrides_all(self):
         tax = {"output_controls": {"precise": False, "show_assumptions": False}}
-        ut = {"success_criteria": [], "output_controls": {"precise": False}}
+        tf = {"evaluation": [], "output_controls": {"precise": False}}
         oc = {"precise": True, "show_assumptions": True}
-        sc = self._derive(user_task=ut, taxonomy_metadata=tax, output_controls=oc)
+        sc = self._derive(task_frame=tf, taxonomy_metadata=tax, output_controls=oc)
         assert sc["precise"] is True
         assert sc["show_assumptions"] is True
 
@@ -141,7 +141,7 @@ class TestClarifyFirstGate:
         from app.nodes.planner_node import _derive_style_contract
 
         sc = _derive_style_contract(
-            {"success_criteria": [], "ambiguities": ["a?", "b?", "c?"]},
+            {"evaluation": []},
             difficulty=0.1,
             output_controls={"clarify_first": True},
         )
@@ -152,7 +152,7 @@ class TestClarifyFirstGate:
         from app.nodes.planner_node import _derive_style_contract
 
         sc = _derive_style_contract(
-            {"success_criteria": [], "ambiguities": ["a?", "b?", "c?"]},
+            {"evaluation": []},
             difficulty=0.9,
         )
         assert sc["clarify_first"] is False
@@ -171,7 +171,7 @@ class TestWriterPromptInjection:
         state = {
             "style_contract_locked": {"precise": True, "show_assumptions": False, "verbosity_target": "thorough"},
             "taxonomy_metadata": {},
-            "user_task": {},
+            "task_frame": {},
         }
         prompt = _build_system_prompt(state)
         assert "PRECISION" not in prompt
@@ -183,7 +183,7 @@ class TestWriterPromptInjection:
         state = {
             "style_contract_locked": {"precise": False, "show_assumptions": True, "verbosity_target": "thorough"},
             "taxonomy_metadata": {},
-            "user_task": {},
+            "task_frame": {},
         }
         prompt = _build_system_prompt(state)
         assert "ASSUMPTION" not in prompt
@@ -199,10 +199,10 @@ class TestCriticControlAlignment:
         from app.nodes.critic import _build_frame_rubric
 
         frame = {
-            "deliverables": ["Architecture"],
-            "constraints": [],
+            "tasks": [{"description": "Architecture", "constraints": [], "artifacts": []}],
+            "global_constraints": [],
             "negative_constraints": [],
-            "success_criteria": [],
+            "evaluation": [],
         }
         state = {
             "style_contract_locked": {"precise": True, "show_assumptions": False, "verbosity_target": "moderate"},
@@ -214,7 +214,12 @@ class TestCriticControlAlignment:
     def test_frame_rubric_includes_assumption_flag(self):
         from app.nodes.critic import _build_frame_rubric
 
-        frame = {"deliverables": ["Design"], "constraints": [], "negative_constraints": [], "success_criteria": []}
+        frame = {
+            "tasks": [{"description": "Design", "constraints": [], "artifacts": []}],
+            "global_constraints": [],
+            "negative_constraints": [],
+            "evaluation": [],
+        }
         state = {
             "style_contract_locked": {"show_assumptions": True, "verbosity_target": "moderate"},
             "decision_ledger": [],
@@ -225,7 +230,12 @@ class TestCriticControlAlignment:
     def test_frame_rubric_no_control_flags_when_off(self):
         from app.nodes.critic import _build_frame_rubric
 
-        frame = {"deliverables": ["Design"], "constraints": [], "negative_constraints": [], "success_criteria": []}
+        frame = {
+            "tasks": [{"description": "Design", "constraints": [], "artifacts": []}],
+            "global_constraints": [],
+            "negative_constraints": [],
+            "evaluation": [],
+        }
         state = {
             "style_contract_locked": {"verbosity_target": "moderate"},
             "decision_ledger": [],
@@ -245,7 +255,7 @@ class TestConciseTaskRegression:
         from app.nodes.planner_node import _derive_style_contract
 
         sc = _derive_style_contract(
-            {"success_criteria": []},
+            {"evaluation": []},
             difficulty=0.1,
         )
         assert sc["verbosity_target"] == "terse"
@@ -256,7 +266,7 @@ class TestConciseTaskRegression:
         from app.nodes.planner_node import _derive_style_contract
 
         sc = _derive_style_contract(
-            {"success_criteria": []},
+            {"evaluation": []},
             difficulty=0.5,
             taxonomy_metadata={"output_controls": {"precise": True}},
         )

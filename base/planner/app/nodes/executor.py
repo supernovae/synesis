@@ -593,11 +593,11 @@ async def executor_node(state: dict[str, Any]) -> dict[str, Any]:
         if len(touched_files) > 1 and state.get("is_code_task", False):
             plan_block += "\n\n## Multi-File Task\nOutput patch_ops for each file: [{path, op, text}]. Leave code empty or use as entry point. The system bundles patches for execution."
 
-        # UserTask: inject success criteria and output format
+        # TaskFrame: inject evaluation criteria and output format
         frame_block = ""
-        user_task_data = state.get("user_task") or {}
-        frame_meta = user_task_data.get("success_criteria") or []
-        frame_format = user_task_data.get("requested_format", "")
+        frame_data = state.get("task_frame") or {}
+        frame_meta = frame_data.get("evaluation") or []
+        frame_format = frame_data.get("requested_format", "")
         if frame_meta or (frame_format and frame_format != "prose"):
             frame_parts = ["\n\n## Success Criteria (from user request)"]
             for rule in frame_meta:

@@ -68,7 +68,7 @@ async def _run_live_extractor(prompt: str, difficulty: float = 0.7) -> dict[str,
         "explicit_deliverables": 0,
     }
     result = await frame_extractor_node(state)
-    return result.get("user_task", {})
+    return result.get("task_frame", {})
 
 
 @pytest.fixture

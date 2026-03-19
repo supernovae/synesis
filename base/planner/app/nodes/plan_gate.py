@@ -133,7 +133,7 @@ def _check_format_alignment(
     steps: list[dict[str, Any]],
     requested_format: str,
 ) -> list[str]:
-    from .frame_normalizer import STRUCTURED_FORMATS
+    from ..schemas import STRUCTURED_FORMATS
 
     if requested_format not in STRUCTURED_FORMATS:
         return []
@@ -294,11 +294,11 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
 
     plan = state.get("execution_plan") or {}
     steps = plan.get("steps") or []
-    user_task = state.get("user_task") or {}
-    deliverables = user_task.get("deliverables") or []
-    requested_format = user_task.get("requested_format", "prose")
-    output_schema = user_task.get("output_schema") or []
-    constraints = user_task.get("constraints") or []
+    task_frame = state.get("task_frame") or {}
+    deliverables = [t.get("description", "") for t in (task_frame.get("tasks") or [])]
+    requested_format = task_frame.get("requested_format", "prose")
+    output_schema = task_frame.get("output_schema") or []
+    constraints = task_frame.get("global_constraints") or []
     has_evidence = bool(state.get("evidence_packets"))
     difficulty = state.get("difficulty", 0.5)
 
@@ -321,7 +321,10 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
             ],
         }
 
-    deliverable_details = user_task.get("deliverable_details") or []
+    deliverable_details = [
+        {"title": t.get("description", ""), "sub_requirements": t.get("sub_requirements", []), "format_hint": t.get("format_hint", "")}
+        for t in (task_frame.get("tasks") or [])
+    ]
 
     # Collect errors from all deterministic checks
     errors: list[str] = []
@@ -345,7 +348,7 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
     ):
         ran_coherence = True
         checks_run += 1
-        task_desc = state.get("task_description") or user_task.get("main_question") or ""
+        task_desc = state.get("task_description") or task_frame.get("main_question") or ""
         errors.extend(await _shallow_coherence_check(steps, task_desc, deliverables))
 
     passed = not errors

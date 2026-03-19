@@ -1,7 +1,7 @@
 """Frame extractor evaluation harness — deterministic boundary checks.
 
 Parametrizes over dataset.json and runs boundary checks on each frame
-extraction result (now a UserTask dict from the GLiNER2 3-stage pipeline).
+extraction result (now a TaskFrame dict from the frame_extractor pipeline).
 
 Supports snapshot mode (default), live mode, and update mode via
 --frame-live / --frame-update flags.
@@ -30,12 +30,14 @@ import pytest
 from .conftest import get_frame, load_cases
 
 try:
-    from app.nodes.frame_normalizer import needs_second_pass, normalize_frame
-    from app.schemas import FirstPassFrame, MissingFieldReport, RawExtractionCandidate
+    from app.schemas import FirstPassFrame, RawExtractionCandidate
 
     _HAS_APP = True
 except Exception:
     _HAS_APP = False
+
+# TODO: frame_normalizer deleted; TestNormalizer and TestNeedsSecondPass need rework
+# for the new segmenter-based pipeline. normalize_frame/needs_second_pass/MissingFieldReport removed.
 
 _skip_no_app = pytest.mark.skipif(not _HAS_APP, reason="app deps not installed locally")
 
@@ -54,19 +56,19 @@ def _kw_in_any(keyword: str, items: list[str]) -> bool:
 
 
 class _FrameChecker:
-    """Runs boundary checks on a UserTask dict against expected values.
+    """Runs boundary checks on a TaskFrame dict against expected values.
 
     Maps old dataset expected keys (SemanticFrame field names) to new
-    UserTask field names so existing dataset.json stays compatible.
+    TaskFrame field names so existing dataset.json stays compatible.
     """
 
-    # Old expected key -> new UserTask field name
+    # Old expected key -> new TaskFrame field name
     _FIELD_MAP: ClassVar[dict[str, str | None]] = {
-        "deliverables": "deliverables",
-        "constraints": "constraints",
+        "deliverables": "tasks",  # tasks: list[ScopedTask], each has description
+        "constraints": "global_constraints",
         "context_facts": None,  # dropped — skip checks
-        "meta_requirements": "success_criteria",
-        "uncertainties": "ambiguities",
+        "meta_requirements": "evaluation",
+        "uncertainties": None,  # REMOVED
     }
     _SCALAR_MAP: ClassVar[dict[str, str]] = {
         "domain": "domain_tags",
@@ -76,7 +78,7 @@ class _FrameChecker:
 
     # Fields added after initial snapshot generation; skip checks when
     # the snapshot predates them (value is empty/missing).
-    _LATE_FIELDS: ClassVar[set[str]] = {"domain_tags", "requested_format", "success_criteria"}
+    _LATE_FIELDS: ClassVar[set[str]] = {"domain_tags", "requested_format", "evaluation"}
 
     def __init__(self, case_id: str, frame: dict[str, Any], expected: dict[str, Any]):
         self.case_id = case_id
@@ -85,8 +87,13 @@ class _FrameChecker:
         self.failures: list[str] = []
 
     def _get_field(self, old_field: str) -> str | None:
-        """Resolve old field name to new UserTask field name."""
+        """Resolve old field name to new TaskFrame field name."""
         return self._FIELD_MAP.get(old_field, old_field)
+
+    def _get_deliverables_list(self) -> list:
+        """Tasks have description; for deliverable_count/must_include use task descriptions."""
+        tasks = self.frame.get("tasks") or []
+        return [t.get("description", "") for t in tasks if isinstance(t, dict)]
 
     def check_count(self, old_field: str, expected_key: str) -> None:
         field = self._get_field(old_field)
@@ -95,7 +102,10 @@ class _FrameChecker:
         expected_count = self.expected.get(expected_key)
         if expected_count is None:
             return
-        actual = self.frame.get(field, [])
+        if field == "tasks":
+            actual = self._get_deliverables_list()
+        else:
+            actual = self.frame.get(field, [])
         actual_count = len(actual)
         if actual_count != expected_count:
             self.failures.append(f"{field} count: expected {expected_count}, got {actual_count} — items: {actual}")
@@ -107,7 +117,10 @@ class _FrameChecker:
         min_count = self.expected.get(expected_key)
         if min_count is None:
             return
-        actual = self.frame.get(field, [])
+        if field == "tasks":
+            actual = self._get_deliverables_list()
+        else:
+            actual = self.frame.get(field, [])
         if not actual and field in self._LATE_FIELDS:
             return
         actual_count = len(actual)
@@ -119,7 +132,10 @@ class _FrameChecker:
         if field is None:
             return
         keywords = self.expected.get(expected_key, [])
-        items = self.frame.get(field, [])
+        if field == "tasks":
+            items = self._get_deliverables_list()
+        else:
+            items = self.frame.get(field, [])
         if not items and field in self._LATE_FIELDS:
             return
         for kw in keywords:
@@ -131,7 +147,10 @@ class _FrameChecker:
         if field is None:
             return
         keywords = self.expected.get(expected_key, [])
-        items = self.frame.get(field, [])
+        if field == "tasks":
+            items = self._get_deliverables_list()
+        else:
+            items = self.frame.get(field, [])
         for kw in keywords:
             if _kw_in_any(kw, items):
                 matches = [i for i in items if kw.lower() in i.lower()]
@@ -169,13 +188,13 @@ class _FrameChecker:
         self.check_count_min("constraints", "constraint_count_min")
         self.check_must_include("constraints", "constraints_must_include")
 
-        # context_facts checks skipped — field dropped in UserTask
+        # context_facts checks skipped — field dropped in TaskFrame
 
         self.check_count_min("meta_requirements", "meta_requirements_count_min")
         self.check_must_include("meta_requirements", "meta_requirements_must_include")
         self.check_must_not_include("meta_requirements", "meta_requirements_must_not_include")
 
-        self.check_count_min("uncertainties", "uncertainty_count_min")
+        # uncertainties REMOVED in TaskFrame — skip
 
         self.check_scalar("domain", "domain")
         self.check_scalar("output_format", "output_format")
@@ -214,35 +233,41 @@ def test_frame_classification(case: dict[str, Any], frame_mode: str, frame_diffi
 
 @pytest.mark.parametrize("case", _CASES, ids=_id_fn)
 def test_deliverables_not_empty_strings(case: dict[str, Any], frame_mode: str, frame_difficulty: float) -> None:
-    """Each deliverable should be a non-trivial string."""
+    """Each task description should be a non-trivial string."""
     frame = get_frame(case, frame_mode, difficulty=frame_difficulty)
     if frame is None:
         pytest.skip(f"No snapshot for {case['id']}")
 
-    deliverables = frame.get("deliverables", [])
-    for i, d in enumerate(deliverables):
-        assert isinstance(d, str), f"deliverable[{i}] is not a string: {type(d)}"
-        assert len(d.strip()) >= 3, f"deliverable[{i}] too short: '{d}'"
+    tasks = frame.get("tasks") or []
+    for i, t in enumerate(tasks):
+        desc = t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")
+        assert isinstance(desc, str), f"task[{i}] description is not a string: {type(desc)}"
+        assert len(desc.strip()) >= 3, f"task[{i}] description too short: '{desc}'"
 
 
 @pytest.mark.parametrize("case", _CASES, ids=_id_fn)
 def test_no_cross_contamination(case: dict[str, Any], frame_mode: str, frame_difficulty: float) -> None:
-    """Deliverables and success_criteria should not share items verbatim."""
+    """Task descriptions and evaluation should not share items verbatim."""
     frame = get_frame(case, frame_mode, difficulty=frame_difficulty)
     if frame is None:
         pytest.skip(f"No snapshot for {case['id']}")
 
-    deliverables = {d.lower().strip() for d in frame.get("deliverables", [])}
-    success_criteria = {m.lower().strip() for m in frame.get("success_criteria", [])}
-    overlap = deliverables & success_criteria
-    assert not overlap, f"Verbatim overlap between deliverables and success_criteria: {overlap}"
+    task_descriptions = set()
+    for t in frame.get("tasks") or []:
+        d = t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")
+        if d:
+            task_descriptions.add(d.lower().strip())
+    evaluation = {m.lower().strip() for m in frame.get("evaluation", [])}
+    overlap = task_descriptions & evaluation
+    assert not overlap, f"Verbatim overlap between tasks and evaluation: {overlap}"
 
 
 # ---------------------------------------------------------------------------
-# Stage 2 normalizer unit tests
+# Stage 2 normalizer unit tests (frame_normalizer deleted — needs rework)
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(reason="frame_normalizer deleted; segmenter-based pipeline; TODO rework")
 @_skip_no_app
 class TestNormalizer:
     """Unit tests for normalize_frame — no external services needed."""
@@ -327,6 +352,7 @@ class TestNormalizer:
         assert task.needs_web is False
 
 
+@pytest.mark.skip(reason="frame_normalizer deleted; needs_second_pass/MissingFieldReport removed; TODO rework")
 @_skip_no_app
 class TestNeedsSecondPass:
     """Unit tests for the gating function."""

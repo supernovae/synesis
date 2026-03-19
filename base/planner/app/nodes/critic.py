@@ -114,7 +114,7 @@ def _build_evidence_reference_block(state: dict[str, Any], budget: int = 2000) -
 
 
 def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = None) -> str:
-    """Build a unified evaluation rubric from UserTask + planner decisions.
+    """Build a unified evaluation rubric from TaskFrame + planner decisions.
 
     Merges the frame rubric and decision ledger into a single block to
     eliminate duplicate deliverable/decision listings that inflate the prompt.
@@ -124,24 +124,24 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
     """
     parts = ["USER TASK RUBRIC (evaluate each item as met/partial/missing):"]
 
-    requirements = frame.get("explicit_requirements") or []
+    requirements = frame.get("goals") or []
     if requirements:
         parts.append("Requirements:")
         parts.extend(f"  - {g}" for g in requirements)
 
-    deliverables = frame.get("deliverables") or []
+    deliverables = [t.get("description", "") for t in (frame.get("tasks") or [])]
     if deliverables:
         parts.append("Required deliverables:")
         parts.extend(f"  - {d}" for d in deliverables)
 
-    constraints = frame.get("constraints") or []
+    constraints = frame.get("global_constraints") or []
     neg_constraints = frame.get("negative_constraints") or []
     all_constraints = constraints + neg_constraints
     if all_constraints:
         parts.append("Constraints to respect:")
         parts.extend(f"  - {c}" for c in all_constraints)
 
-    success_criteria = frame.get("success_criteria") or []
+    success_criteria = frame.get("evaluation") or []
     if success_criteria:
         parts.append("Success criteria (HOW to write — apply to all sections):")
         parts.extend(f"  - {s}" for s in success_criteria)
@@ -149,7 +149,7 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
     output_format = frame.get("requested_format", "")
     output_schema = frame.get("output_schema") or []
     if output_format and output_format != "prose":
-        from .frame_normalizer import STRUCTURED_FORMATS
+        from ..schemas import STRUCTURED_FORMATS
 
         if output_format in STRUCTURED_FORMATS:
             schema_line = ""
@@ -347,7 +347,7 @@ def _check_format_compliance(
     """
     import json as _json
 
-    from .frame_normalizer import STRUCTURED_FORMATS
+    from ..schemas import STRUCTURED_FORMATS
 
     if requested_format not in STRUCTURED_FORMATS:
         return []
@@ -401,7 +401,7 @@ def _deterministic_depth_checks(
     response: str,
     difficulty: float,
     taxonomy_meta: dict[str, Any],
-    user_task: dict[str, Any] | None = None,
+    task_frame: dict[str, Any] | None = None,
 ) -> list[str]:
     """Run deterministic quality checks that fire before LLM critic scoring.
 
@@ -411,7 +411,7 @@ def _deterministic_depth_checks(
     failures: list[str] = []
 
     # Format compliance: always check for structured formats regardless of difficulty.
-    frame = user_task or {}
+    frame = task_frame or {}
     requested_format = frame.get("requested_format", "prose")
     output_schema = frame.get("output_schema") or []
     failures.extend(_check_format_compliance(response, requested_format, output_schema))
@@ -523,7 +523,7 @@ def _extract_requirement_keywords(requirement: str) -> set[str]:
 
 def _deterministic_requirement_coverage(
     response: str,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
     difficulty: float,
 ) -> list[str]:
     """Check that each explicit_requirement has substantive coverage in the response.
@@ -541,7 +541,7 @@ def _deterministic_requirement_coverage(
     if difficulty < 0.6:
         return []
 
-    requirements = user_task.get("explicit_requirements") or []
+    requirements = task_frame.get("goals") or []
     if not requirements:
         return []
 
@@ -582,14 +582,14 @@ def _deterministic_requirement_coverage(
 
 def _deterministic_technology_coverage(
     response: str,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
     difficulty: float,
 ) -> list[str]:
     """Check that each listed technology has workflow-specific coverage.
 
     Only fires for planning/architecture tasks (intent_class == 'planning'
     or deliverables mentioning 'architecture'). Checks that each technology
-    from user_task.technologies appears in a paragraph of 60+ words —
+    from task_frame.technologies appears in a paragraph of 60+ words —
     beyond a mere mention.
 
     Returns failure-mode strings (non-blocking).
@@ -597,7 +597,7 @@ def _deterministic_technology_coverage(
     if difficulty < 0.7:
         return []
 
-    technologies = user_task.get("technologies") or []
+    technologies = task_frame.get("technologies") or []
     if not technologies:
         return []
 
@@ -746,13 +746,13 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             taxonomy_hints = _build_taxonomy_hints(taxonomy_metadata, difficulty)
 
             # Unified rubric: frame + planner decisions in one block
-            user_task_data = state.get("user_task") or {}
+            task_frame_data = state.get("task_frame") or {}
             frame_rubric = ""
-            if user_task_data:
-                frame_rubric = _build_frame_rubric(user_task_data, state=state)
+            if task_frame_data:
+                frame_rubric = _build_frame_rubric(task_frame_data, state=state)
 
             # Deterministic pre-check: skip LLM critic if all deliverables covered
-            deliverables = user_task_data.get("deliverables") or []
+            deliverables = [t.get("description", "") for t in (task_frame_data.get("tasks") or [])]
             if is_lenient and deliverables and _deliverable_coverage_precheck(generated_code, deliverables):
                 latency = (time.monotonic() - start) * 1000
                 logger.info(
@@ -825,7 +825,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
 
             # Domain-profile-aware compliance section for LLM rubric.
             cohesion_section = ""
-            _profile = user_task_data.get("domain_profile") or {}
+            _profile = task_frame_data.get("domain_profile") or {}
             _coherence = _profile.get("frame_coherence", "")
             _profile_domains = _profile.get("domains") or []
 
@@ -965,7 +965,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 controls_block += f"\nIntent-specific checks (apply when relevant):\n{intent_critic_block}\n"
 
             # Architecture/design rubric: when the answer describes routing or control logic
-            deliverables = user_task_data.get("deliverables") or []
+            deliverables = [t.get("description", "") for t in (task_frame_data.get("tasks") or [])]
             deliverable_text = " ".join(str(d).lower() for d in deliverables)
             if difficulty >= 0.6 and ("architecture" in deliverable_text or "design" in deliverable_text):
                 controls_block += (
@@ -1133,7 +1133,7 @@ Reply with JSON:
                         generated_code,
                         difficulty,
                         state.get("taxonomy_metadata") or {},
-                        user_task=user_task_data,
+                        task_frame=task_frame_data,
                     )
                     for df in _det_failures:
                         if df not in failure_modes:
@@ -1147,10 +1147,10 @@ Reply with JSON:
                 # scores are high — the LLM understands semantic equivalence
                 # (e.g. "risk" ≈ "failure mode") that keyword matching misses.
                 _llm_coverage_high = scores and scores.coverage >= 8.0 and scores.weighted_overall >= 8.0
-                if difficulty >= 0.6 and generated_code and user_task_data:
+                if difficulty >= 0.6 and generated_code and task_frame_data:
                     _req_failures = _deterministic_requirement_coverage(
                         generated_code,
-                        user_task_data,
+                        task_frame_data,
                         difficulty,
                     )
                     for rf in _req_failures:
@@ -1161,7 +1161,7 @@ Reply with JSON:
 
                     _tech_failures = _deterministic_technology_coverage(
                         generated_code,
-                        user_task_data,
+                        task_frame_data,
                         difficulty,
                     )
                     for tf in _tech_failures:
@@ -1169,7 +1169,7 @@ Reply with JSON:
                             failure_modes.append(tf)
 
                 # Domain coverage check: verify response addresses active domains
-                _profile = user_task_data.get("domain_profile") or {}
+                _profile = task_frame_data.get("domain_profile") or {}
                 if _profile and generated_code:
                     _coverage_failures = _domain_coverage_check(generated_code, _profile)
                     for cf in _coverage_failures:
@@ -1310,7 +1310,7 @@ Reply with JSON:
                 if "missing_requirement_coverage" in failure_modes:
                     uncovered = [
                         r
-                        for r in (user_task_data.get("explicit_requirements") or [])
+                        for r in (task_frame_data.get("goals") or [])
                         if len(_extract_requirement_keywords(r)) >= 2
                     ]
                     repair_list.append(
@@ -1325,7 +1325,7 @@ Reply with JSON:
                     )
 
                 if "thin_technology_coverage" in failure_modes:
-                    techs = user_task_data.get("technologies") or []
+                    techs = task_frame_data.get("technologies") or []
                     repair_list.append(
                         {
                             "priority": 3,
@@ -1354,7 +1354,7 @@ Reply with JSON:
                         doc_evidence_requests.append(
                             {
                                 "description": r.get("action", r.get("reason", "")),
-                                "domain_hints": (state.get("user_task") or {}).get("domain_tags", []),
+                                "domain_hints": (state.get("task_frame") or {}).get("domain_tags", []),
                                 "section_id": None,
                             }
                         )
@@ -1716,7 +1716,7 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
             result["evidence_needed"] = evidence_plan
             # Wire query_plan into evidence_requests so the router enters
             # refinement mode instead of falling back to initial mode.
-            domain_tags = list((state.get("user_task") or {}).get("domain_tags") or [])
+            domain_tags = list((state.get("task_frame") or {}).get("domain_tags") or [])
             evidence_requests: list[dict[str, Any]] = []
             for plan_item in evidence_plan.get("query_plan", []):
                 for query in plan_item.get("suggested_queries", []):

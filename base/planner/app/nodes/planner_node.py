@@ -201,7 +201,7 @@ _TRUST_REMINDER = (
 
 def _extract_decisions(
     plan_out: PlannerOut,
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Map plan steps into DecisionEntry objects for the decision ledger."""
     entries: list[dict[str, Any]] = []
@@ -224,17 +224,19 @@ def _extract_decisions(
         )
         entries.append(entry.model_dump())
 
-    frame_deliverables = user_task.get("deliverables") or []
-    for i, deliverable in enumerate(frame_deliverables):
+    frame_tasks = task_frame.get("tasks") or []
+    for i, t in enumerate(frame_tasks):
+        task = t if isinstance(t, dict) else (t.model_dump() if hasattr(t, "model_dump") else {})
+        chosen = task.get("description", "")
         did = f"deliverable_{i + 1}"
         if any(e.get("decision_id") == did for e in entries):
             continue
         entry = DecisionEntry(
             decision_id=did,
             category="scope",
-            chosen=deliverable,
+            chosen=chosen,
             rejected_alternatives=[],
-            rationale="from user_task",
+            rationale="from task_frame",
             decided_by="frame_extractor",
             frozen=True,
         )
@@ -253,13 +255,13 @@ _DECISIVE_TAXONOMY_KEYS = frozenset(
 
 
 def _derive_style_contract(
-    user_task: dict[str, Any],
+    task_frame: dict[str, Any],
     difficulty: float,
     taxonomy_key: str = "",
     output_controls: dict[str, Any] | None = None,
     taxonomy_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a StyleContract from user_task + difficulty + output controls.
+    """Build a StyleContract from task_frame + difficulty + output controls.
 
     verbosity_target is the sole length authority.  Token budgets (scaled
     by difficulty in config) enforce actual length.
@@ -267,7 +269,7 @@ def _derive_style_contract(
     Phase 2 controls (precise, show_assumptions, clarify_first) are resolved
     with precedence: explicit request > user phrasing > taxonomy default > config.
     """
-    meta_reqs = user_task.get("success_criteria") or []
+    meta_reqs = task_frame.get("evaluation") or []
 
     citation_required = any("cite" in r.lower() or "citation" in r.lower() for r in meta_reqs)
     direct_answer_first = not any("introduction" in r.lower() or "preamble" in r.lower() for r in meta_reqs)
@@ -279,8 +281,8 @@ def _derive_style_contract(
     else:
         verbosity = "moderate"
 
-    neg_constraints = user_task.get("negative_constraints") or []
-    decision_signals = user_task.get("decision_signals") or []
+    neg_constraints = task_frame.get("negative_constraints") or []
+    decision_signals = task_frame.get("decision_signals") or []
     decisive = (
         bool(decision_signals)
         or taxonomy_key in _DECISIVE_TAXONOMY_KEYS
@@ -292,7 +294,7 @@ def _derive_style_contract(
     )
 
     oc = output_controls or {}
-    ut_oc = user_task.get("output_controls") or {}
+    ut_oc = task_frame.get("output_controls") or {}
     tax = taxonomy_metadata or {}
     tax_controls = tax.get("output_controls") or {}
 
@@ -408,43 +410,46 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         taxonomy_append = get_planner_system_prompt_append(state.get("taxonomy_metadata") or {})
         difficulty = state.get("difficulty", 0.5)
         explicit_deliverables = state.get("explicit_deliverables", 0)
-        user_task = state.get("user_task") or {}
+        task_frame = state.get("task_frame") or {}
         base_prompt = _build_knowledge_planner_prompt(difficulty)
         system_prompt = base_prompt + taxonomy_append
 
-        # UserTask: inject structured deliverables, constraints, and context
-        frame_deliverables = user_task.get("deliverables") or []
-        frame_details = user_task.get("deliverable_details") or []
-        frame_constraints = user_task.get("constraints") or []
-        frame_neg_constraints = user_task.get("negative_constraints") or []
-        frame_success_criteria = user_task.get("success_criteria") or []
-        if frame_deliverables:
-            # Prefer rich deliverable_details when available
-            if frame_details and len(frame_details) == len(frame_deliverables):
-                detail_lines: list[str] = []
-                for i, dd in enumerate(frame_details):
-                    title = dd.get("title", frame_deliverables[i]) if isinstance(dd, dict) else getattr(dd, "title", frame_deliverables[i])
-                    sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
-                    fmt = (dd.get("format_hint") or "") if isinstance(dd, dict) else getattr(dd, "format_hint", "")
-                    detail_lines.append(f"  [{i}] {title}")
-                    for sr in sub_reqs:
-                        detail_lines.append(f"      - {sr}")
-                    if fmt:
-                        detail_lines.append(f"      Format: {fmt}")
-                deliverable_list = "\n".join(detail_lines)
-            else:
-                deliverable_list = "\n".join(f"  [{i}] {d}" for i, d in enumerate(frame_deliverables))
-
-            n = len(frame_deliverables)
-            min_sections = max(3, (n + 1) // 2)
+        frame_tasks = task_frame.get("tasks") or []
+        frame_constraints = task_frame.get("global_constraints") or []
+        frame_neg_constraints = task_frame.get("negative_constraints") or []
+        frame_success_criteria = task_frame.get("evaluation") or []
+        frame_requirements = task_frame.get("goals") or []
+        if frame_tasks:
+            task_lines: list[str] = []
+            for i, t in enumerate(frame_tasks):
+                task = t if isinstance(t, dict) else (t.model_dump() if hasattr(t, "model_dump") else {})
+                desc = task.get("description", "")
+                constraints = task.get("constraints") or []
+                artifacts = task.get("artifacts") or []
+                sub_reqs = task.get("sub_requirements") or []
+                fmt = task.get("format_hint") or ""
+                task_lines.append(f"  [{i}] {desc}")
+                if constraints:
+                    task_lines.append(f"      Constraints: {'; '.join(constraints)}")
+                else:
+                    task_lines.append(f"      Constraints: (none)")
+                if artifacts:
+                    task_lines.append(f"      Artifacts: {', '.join(artifacts)}")
+                if sub_reqs:
+                    task_lines.append(f"      Sub-requirements: {', '.join(sub_reqs)}")
+                if fmt:
+                    task_lines.append(f"      Format: {fmt}")
+            task_block = "\n".join(task_lines)
+            global_const_str = "; ".join(frame_constraints[:8]) if frame_constraints else "(none)"
             system_prompt += (
-                f"\n\nUSER TASK — the user expects these deliverables (0-based IDs):\n{deliverable_list}\n"
-                f"Create at least {min_sections} cohesive sections — more if needed to give "
-                f"every deliverable proper depth. "
-                f"Every deliverable ID above must appear in at least one step's deliverable_ids.\n"
-                f"Sub-requirements listed under each deliverable MUST be addressed in the "
+                f"\n\nUSER TASK — tasks (0-based IDs):\n{task_block}\n"
+                f"Global constraints: {global_const_str}\n"
+                f"Create at least {max(3, (len(frame_tasks) + 1) // 2)} cohesive sections — more if needed to give "
+                f"every task proper depth. "
+                f"Every task ID above must appear in at least one step's deliverable_ids.\n"
+                f"Sub-requirements and per-task constraints MUST be addressed in the "
                 f"corresponding section(s). Format hints indicate the output format the user "
-                f"expects for that deliverable."
+                f"expects for that task."
             )
         elif explicit_deliverables > 0:
             min_sections = max(3, (explicit_deliverables + 1) // 2)
@@ -453,13 +458,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 f"Create at least {min_sections} cohesive sections — more if needed for full coverage."
             )
 
-        # Capability requirements: inject explicit_requirements that describe
-        # what the proposed system must DO (not quality/style constraints).
-        # Research: ManyIFEval shows LLM compliance follows a power law vs
-        # instruction count — explicit per-requirement tracking is the fix.
-        frame_requirements = user_task.get("explicit_requirements") or []
-        if frame_requirements and frame_deliverables:
-            deliverable_text = " ".join(d.lower() for d in frame_deliverables)
+        if frame_requirements and frame_tasks:
+            deliverable_text = " ".join((t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks)).lower()
             capability_reqs = _filter_capability_requirements(frame_requirements, deliverable_text)
             if capability_reqs:
                 cap_list = "\n".join(f"  - {r}" for r in capability_reqs)
@@ -482,15 +482,15 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Phase 2: hint output control expectations to plan structure
         oc_state = state.get("output_controls") or {}
-        ut_oc = user_task.get("output_controls") or {}
+        ut_oc = task_frame.get("output_controls") or {}
         tax_oc = taxonomy_meta.get("output_controls") or {}
-        if oc_state.get("show_assumptions") or ut_oc.get("show_assumptions") or tax_oc.get("show_assumptions"):
+        if oc_state.get("show_assumptions") or (ut_oc or {}).get("show_assumptions") or tax_oc.get("show_assumptions"):
             system_prompt += (
                 "\n\nASSUMPTION VISIBILITY: The final response must clearly separate "
                 "facts, assumptions, and recommendations. Plan sections that naturally "
                 "surface this distinction (e.g. constraints restatement, risk sections)."
             )
-        if oc_state.get("precise") or ut_oc.get("precise") or tax_oc.get("precise"):
+        if oc_state.get("precise") or (ut_oc or {}).get("precise") or tax_oc.get("precise"):
             system_prompt += (
                 "\n\nPRECISION: Each plan step should target concrete, specific outputs — "
                 "named tools, quantified estimates, committed choices."
@@ -498,10 +498,10 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         # Output format: when the user requests a structured format (json, yaml, etc.),
         # instruct the planner to organize steps around the output structure.
-        from ..nodes.frame_normalizer import STRUCTURED_FORMATS
+        from ..schemas import STRUCTURED_FORMATS
 
-        _req_format = user_task.get("requested_format", "prose")
-        _output_schema = user_task.get("output_schema") or []
+        _req_format = task_frame.get("requested_format", "prose")
+        _output_schema = task_frame.get("output_schema") or []
         if _req_format in STRUCTURED_FORMATS:
             schema_line = ""
             if _output_schema:
@@ -612,7 +612,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "open_questions": len(plan.get("open_questions", [])),
                 "confidence": parsed.confidence,
                 "latency_ms": latency,
-                "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
+                "deliverable_count": len((state.get("task_frame") or {}).get("tasks") or []),
             },
         )
 
@@ -627,7 +627,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                         "open_questions": len(plan.get("open_questions", [])),
                         "confidence": parsed.confidence,
                         "latency_ms": round(latency, 1),
-                        "deliverable_count": len((state.get("user_task") or {}).get("deliverables") or []),
+                        "deliverable_count": len((state.get("task_frame") or {}).get("tasks") or []),
                     },
                 },
             )
@@ -637,19 +637,19 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Deliverable coverage enforcement is handled by the plan_gate node
         # downstream. Log a warning here for observability but do NOT silently
         # patch the plan — the gate will fail-fast and retry with feedback.
-        frame_deliverables = (state.get("user_task") or {}).get("deliverables") or []
-        if frame_deliverables:
+        frame_tasks = (state.get("task_frame") or {}).get("tasks") or []
+        if frame_tasks:
             covered_ids: set[int] = set()
             for s in steps:
                 for x in s.get("deliverable_ids") or []:
                     if isinstance(x, (int, float)):
                         covered_ids.add(int(x))
-            missing_count = len(set(range(len(frame_deliverables))) - covered_ids)
+            missing_count = len(set(range(len(frame_tasks))) - covered_ids)
             if missing_count:
                 logger.info(
                     "planner_coverage_gap_detected",
                     extra={
-                        "deliverables_requested": len(frame_deliverables),
+                        "deliverables_requested": len(frame_tasks),
                         "missing_count": missing_count,
                         "steps_produced": len(steps),
                     },
@@ -676,9 +676,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             )
 
         # Anti-oscillation: emit decision ledger and locked style contract
-        ledger = _extract_decisions(parsed, user_task)
+        ledger = _extract_decisions(parsed, task_frame)
         style_locked = _derive_style_contract(
-            user_task,
+            task_frame,
             difficulty,
             taxonomy_key=taxonomy_key,
             output_controls=state.get("output_controls"),
@@ -722,7 +722,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # When the domain profile shows no clear frame, ask the user to
         # narrow their focus before we retrieve blindly.
         # Ref: Snowden & Boone (2007) — in complexity, probe-sense-respond.
-        _profile = user_task.get("domain_profile") or {}
+        _profile = task_frame.get("domain_profile") or {}
         if (
             _profile.get("frame_coherence") == "diffuse"
             and difficulty >= 0.4
@@ -760,9 +760,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Phase 2a.5: Topic frame ambiguity — if we couldn't derive a clear
         # conceptual entity from the prompt, ask before proceeding with blind search.
         if not clarify_question and not state.get("iteration_count", 0):
-            topic_frame = user_task.get("topic_frame", "")
-            main_q = user_task.get("main_question", "")
-            _has_deliverables = bool(user_task.get("deliverables"))
+            topic_frame = task_frame.get("topic_frame", "")
+            main_q = task_frame.get("main_question", "")
+            _has_deliverables = bool(task_frame.get("tasks"))
             _non_trivial = not state.get("task_is_trivial", False) and difficulty >= 0.4
             if not topic_frame and not main_q and _has_deliverables and _non_trivial:
                 clarify_question = (
@@ -774,12 +774,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 )
                 logger.info(
                     "topic_frame_ambiguity_clarify",
-                    extra={"deliverables": len(user_task.get("deliverables") or []), "difficulty": difficulty},
+                    extra={"deliverables": len(task_frame.get("tasks") or []), "difficulty": difficulty},
                 )
 
         # Phase 2b: General clarify-first gate (existing behavior)
         if not clarify_question and style_locked.get("clarify_first"):
-            ambiguities = user_task.get("ambiguities") or []
+            ambiguities = task_frame.get("ambiguities") or []
             open_qs = plan.get("open_questions") or []
             combined_qs = [q for q in (ambiguities + open_qs) if q and str(q).strip()]
             trivial = state.get("task_is_trivial", False) or difficulty < settings.clarify_first_min_difficulty
@@ -848,8 +848,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # After 2 consecutive failures, produce a minimal fallback plan from
         # deliverables so the graph can proceed to the writer instead of looping
         # back through router→planner indefinitely.
-        user_task = state.get("user_task") or {}
-        deliverables = user_task.get("deliverables") or []
+        task_frame = state.get("task_frame") or {}
+        frame_tasks = task_frame.get("tasks") or []
+        deliverables = [t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks]
         if planner_attempts >= 2 and deliverables:
             fallback_steps = [
                 {"id": i + 1, "action": f"Section: {d}", "dependencies": [], "deliverable_ids": [i]}

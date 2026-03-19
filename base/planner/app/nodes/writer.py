@@ -128,8 +128,8 @@ Cross-domain connections are valuable. Do NOT exclude any active domain.
 
 def _resolve_persona(state: dict[str, Any]) -> str:
     """Resolve persona from state, falling back through sources."""
-    user_task = state.get("user_task") or {}
-    persona = user_task.get("persona", "")
+    task_frame = state.get("task_frame") or {}
+    persona = task_frame.get("persona", "")
     if persona:
         return persona
 
@@ -150,8 +150,8 @@ def _build_domain_context_block(state: dict[str, Any]) -> str:
 
     Ref: Agrawal et al. (2009) — multi-facet queries need diverse coverage.
     """
-    user_task = state.get("user_task") or {}
-    profile = user_task.get("domain_profile") or {}
+    task_frame = state.get("task_frame") or {}
+    profile = task_frame.get("domain_profile") or {}
     coherence = profile.get("frame_coherence", "")
     domains = profile.get("domains") or []
 
@@ -183,9 +183,9 @@ def _build_output_directive(state: dict[str, Any]) -> str:
          response is markdown, but must include fenced code blocks in those formats.
       3. Default prose: standard markdown with section headings.
     """
-    from .frame_normalizer import STRUCTURED_FORMATS
+    from ..schemas import STRUCTURED_FORMATS
 
-    frame = state.get("user_task") or {}
+    frame = state.get("task_frame") or {}
     fmt = frame.get("requested_format", "prose")
     schema_fields = frame.get("output_schema") or []
     embedded = frame.get("embedded_formats") or []
@@ -403,8 +403,8 @@ DECISIVENESS (user explicitly requested committed recommendations):
 
 
 def _build_task_block(state: dict[str, Any]) -> str:
-    """Build user_task context block for the writer prompt."""
-    frame = state.get("user_task") or {}
+    """Build task_frame context block for the writer prompt."""
+    frame = state.get("task_frame") or {}
     if not frame:
         return ""
 
@@ -414,7 +414,7 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if main_q:
         parts.append(f"Main question: {main_q}")
 
-    requirements = frame.get("explicit_requirements") or []
+    requirements = frame.get("goals") or []
     if requirements:
         req_bullets = "\n".join(f"    - {r}" for r in requirements[:10])
         parts.append(
@@ -422,7 +422,7 @@ def _build_task_block(state: dict[str, Any]) -> str:
         )
 
     # Hard constraints get their own block for emphasis
-    constraints = frame.get("constraints") or []
+    constraints = frame.get("global_constraints") or []
     negative = frame.get("negative_constraints") or []
 
     hard_constraints: list[str] = []
@@ -446,25 +446,25 @@ def _build_task_block(state: dict[str, Any]) -> str:
     if negative:
         parts.append("Do NOT: " + "; ".join(negative[:6]))
 
-    deliverables = frame.get("deliverables") or []
-    details = frame.get("deliverable_details") or []
-    if details:
+    tasks = frame.get("tasks") or []
+    if tasks:
         detail_lines: list[str] = []
-        for dd in details:
-            title = dd.get("title", "") if isinstance(dd, dict) else getattr(dd, "title", "")
-            sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
-            fmt = (dd.get("format_hint") or "") if isinstance(dd, dict) else getattr(dd, "format_hint", "")
-            line = title
+        for t in tasks:
+            desc = t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")
+            sub_reqs = (t.get("sub_requirements") or []) if isinstance(t, dict) else getattr(t, "sub_requirements", [])
+            fmt = (t.get("format_hint") or "") if isinstance(t, dict) else getattr(t, "format_hint", "")
+            task_constraints = (t.get("constraints") or []) if isinstance(t, dict) else getattr(t, "constraints", [])
+            line = desc
             if fmt:
                 line += f" [format: {fmt}]"
             detail_lines.append(line)
+            for tc in task_constraints:
+                detail_lines.append(f"      Constraint: {tc}")
             for sr in sub_reqs:
                 detail_lines.append(f"      - {sr}")
-        parts.append("DELIVERABLES (with sub-requirements and format hints):\n" + "\n".join(f"    {l}" for l in detail_lines))
-    elif deliverables:
-        parts.append("Required deliverables: " + "; ".join(deliverables[:10]))
+        parts.append("DELIVERABLES (with constraints and sub-requirements):\n" + "\n".join(f"    {l}" for l in detail_lines))
 
-    success = frame.get("success_criteria") or []
+    success = frame.get("evaluation") or []
     if success:
         parts.append("Success criteria: " + "; ".join(success[:6]))
 
@@ -754,7 +754,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     outline_block = _build_outline_block(state)
 
     # Trivial fast-path: frame_extractor and planner are skipped, so
-    # user_task / execution_plan are empty.  Fall back to the raw user
+    # task_frame / execution_plan are empty.  Fall back to the raw user
     # question so the writer always knows what was asked.
     if not task_block:
         raw_question = (state.get("last_user_content") or state.get("task_description") or "").strip()
@@ -803,7 +803,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if difficulty >= 0.4:
             discovery = (taxonomy_meta.get("discovery_prompt") or "").strip()
             if discovery:
-                _profile = (state.get("user_task") or {}).get("domain_profile") or {}
+                _profile = (state.get("task_frame") or {}).get("domain_profile") or {}
                 _p_domains = _profile.get("domains") or []
                 _dominant = max(_p_domains, key=lambda d: d.get("weight", 0), default={}) if _p_domains else {}
                 _entity = _dominant.get("domain", "")
@@ -997,7 +997,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             logger.warning("writer_output_too_short")
             compiled = "*Response generation produced insufficient output.*"
 
-        user_task_data = state.get("user_task") or {}
+        task_frame_data = state.get("task_frame") or {}
 
         # Replace any LLM-generated Sources section with the controlled
         # provenance-based one (capped, confidence-sorted, collapsible).

@@ -61,7 +61,7 @@ REVISION_CONSTRAINTS: dict[str, dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 MONOTONIC_RULES: dict[str, str] = {
-    "no_section_removal": "Cannot remove a section present in user_task.deliverables",
+    "no_section_removal": "Cannot remove a section present in task_frame.tasks",
     "no_decision_change": "Cannot change a decision_ledger entry without approved override",
     "no_style_drift": "Cannot violate style_contract_locked without approved override",
     "no_citation_drop": "Must preserve citations from previous pass unless critique explicitly removed them",

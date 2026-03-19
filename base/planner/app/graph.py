@@ -388,10 +388,10 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
             http_client=get_llm_http_client(),
         )
 
-        from .nodes.frame_normalizer import STRUCTURED_FORMATS
+        from .schemas import STRUCTURED_FORMATS
 
-        frame = state.get("user_task") or {}
-        frame_deliverables = frame.get("deliverables") or []
+        frame = state.get("task_frame") or {}
+        frame_deliverables = [t.get("description", "") for t in (frame.get("tasks") or [])]
         frame_output_format = frame.get("requested_format", "")
         is_structured = frame_output_format in STRUCTURED_FORMATS
 
@@ -722,13 +722,13 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
     # Structured feedback log: captures full pipeline metadata per request
     # for downstream learning, taxonomy tuning, and cache warm policy.
-    user_task = state.get("user_task") or {}
+    task_frame = state.get("task_frame") or {}
     evidence_packets = state.get("evidence_packets") or []
     critic_scores = state.get("critic_scores") or {}
     _fb_run_id = state.get("run_id", "")
     _fb_difficulty = state.get("difficulty", 0.5)
     _fb_task_type = state.get("task_type", "general")
-    _fb_domain_tags = user_task.get("domain_tags", [])
+    _fb_domain_tags = task_frame.get("domain_tags", [])
     _fb_evidence_count = len(evidence_packets)
     _fb_avg_confidence = round(
         sum(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0) for p in evidence_packets)
@@ -748,7 +748,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "difficulty": _fb_difficulty,
             "task_type": _fb_task_type,
             "domain_tags": _fb_domain_tags,
-            "needs_web": user_task.get("needs_web", False),
+            "needs_web": task_frame.get("needs_web", False),
             "evidence_packet_count": _fb_evidence_count,
             "avg_evidence_confidence": _fb_avg_confidence,
             "critic_weighted_score": _fb_critic_score,

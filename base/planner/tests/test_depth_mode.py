@@ -20,12 +20,12 @@ from app.query_distiller import distill_from_frame, distill_query, distill_web_f
 def _build_section_queries(
     section_action: str,
     task_description: str,
-    user_task: dict,
+    task_frame: dict,
 ) -> tuple[str, str]:
     """Build RAG and web queries — mirrors evidence_gatherer's use of query_distiller."""
-    if user_task and user_task.get("main_question"):
-        rag_query = distill_from_frame(section_action, user_task)
-        web_query = distill_web_from_frame(section_action, user_task)
+    if task_frame and task_frame.get("main_question"):
+        rag_query = distill_from_frame(section_action, task_frame)
+        web_query = distill_web_from_frame(section_action, task_frame)
     else:
         rag_query = distill_query(section_action, task_description)
         web_query = rag_query[:80]
@@ -107,7 +107,7 @@ class TestSectionRagQuery:
     """Verify per-section RAG query formulation (evidence_gatherer uses query_distiller)."""
 
     def test_extracts_topic_from_action_with_frame(self):
-        frame = {"problem": "Design an AI assistant", "deliverables": ["architecture diagram"], "domain": "software"}
+        frame = {"main_question": "Design an AI assistant", "tasks": [{"description": "architecture diagram", "constraints": []}], "domain_tags": ["software"]}
         rag_q, web_q = _build_section_queries(
             "Section: Architecture — Propose a concrete architecture with component diagram",
             "Design an AI assistant",
@@ -132,16 +132,16 @@ class TestSectionRagQuery:
     def test_no_word_echo_in_web_query(self):
         """Web query should not repeat the same word 3+ times (the echo-chamber bug)."""
         frame = {
-            "problem": "Design a production-ready AI assistant for an engineering organization",
-            "deliverables": [
-                "Main design goals",
-                "Concrete architecture proposal",
-                "Explanation of model choices",
-                "Explanation of retrieval mechanism",
-                "Description of failure modes and mitigations",
+            "main_question": "Design a production-ready AI assistant for an engineering organization",
+            "tasks": [
+                {"description": "Main design goals", "constraints": []},
+                {"description": "Concrete architecture proposal", "constraints": []},
+                {"description": "Explanation of model choices", "constraints": []},
+                {"description": "Explanation of retrieval mechanism", "constraints": []},
+                {"description": "Description of failure modes and mitigations", "constraints": []},
             ],
-            "constraints": ["Team size: 80 engineers", "Budget is limited", "Must support Kubernetes and Python"],
-            "domain": "software_architecture",
+            "global_constraints": ["Team size: 80 engineers", "Budget is limited", "Must support Kubernetes and Python"],
+            "domain_tags": ["software_architecture"],
         }
         _rag_q, web_q = _build_section_queries(
             "Section: Explanation of model choices — discuss small vs large models",

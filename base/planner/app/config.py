@@ -368,7 +368,7 @@ class Settings(BaseSettings):
     prompt_cache_ttl_seconds: int = 3600
     prompt_cache_max_entries: int = 256
 
-    # Frame extraction cache — cache full UserTask dict by task_description hash
+    # Frame extraction cache — cache full TaskFrame dict by task_description hash
     frame_cache_enabled: bool = True
     frame_cache_max_entries: int = 128
 
