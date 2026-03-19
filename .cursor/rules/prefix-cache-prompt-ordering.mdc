@@ -1,0 +1,41 @@
+---
+description: Prompt ordering convention for vLLM prefix cache efficiency
+globs:
+  - base/planner/app/nodes/*.py
+---
+
+# Prefix-Cache-Aware Prompt Ordering
+
+When building system prompts for any LLM-calling node, **static content must come first** and **dynamic content must come last**.
+
+## Why
+
+vLLM prefix caching reuses KV states when consecutive requests share the same token prefix. Putting per-request dynamic content (persona, domain, task frame, taxonomy) at the start of the system prompt defeats this: every request gets a different prefix and no KV reuse.
+
+## Rule
+
+```
+SYSTEM MESSAGE
+  1. Static rules (identical across ALL requests)
+  2. Static trust policy
+  3. Static formatting / scoring
+  --- prefix boundary ---
+  4. Dynamic persona / role
+  5. Dynamic domain context
+  6. Dynamic output directive / taxonomy
+  7. Dynamic style overrides
+
+USER MESSAGE
+  1. Task description / user query
+  2. Evidence / RAG chunks
+  3. Planning context (tasks, constraints, deliverables)
+  4. Revision context / gate feedback
+```
+
+## When adding a new node or prompt
+
+- NEVER put `{persona}`, `{domain}`, or any per-request variable in the first line of a system prompt
+- Extract the static portion into a module-level constant (e.g., `_NODE_SYSTEM_STATIC`)
+- Append dynamic content at the end of the system message, or move it to the user message
+- Prefer user message for per-request context (tasks, constraints) over system message
+- See `docs/performance.md` "Prefix-Aware Prompt Structure" for the full convention

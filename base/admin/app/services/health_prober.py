@@ -132,6 +132,43 @@ async def _get_active_vllm_probes() -> list[dict]:
         return STATIC_MODEL_SERVICES
 
 
+async def scrape_vllm_prefix_cache_metrics(
+    client: httpx.AsyncClient,
+    vllm_probes: list[dict],
+    timeout: float = 3.0,
+) -> dict[str, dict]:
+    """Scrape vLLM /metrics for prefix cache hit rates.
+
+    Returns {model_name: {"prefix_cache_hit_rate": float, "prefix_cache_queries": int}}
+    """
+    import re as _re
+
+    _HIT_RE = _re.compile(r"vllm:prefix_cache_hit_rate\s+([\d.]+)")
+    _QUERIES_RE = _re.compile(r"vllm:prefix_cache_queries_total\s+([\d.]+)")
+
+    results: dict[str, dict] = {}
+    for probe in vllm_probes:
+        name = probe["name"]
+        metrics_url = probe["url"].replace("/health", "/metrics")
+        try:
+            resp = await client.get(metrics_url, timeout=timeout)
+            if resp.status_code != 200:
+                continue
+            text = resp.text
+            hit_m = _HIT_RE.search(text)
+            queries_m = _QUERIES_RE.search(text)
+            entry: dict = {}
+            if hit_m:
+                entry["prefix_cache_hit_rate"] = round(float(hit_m.group(1)), 4)
+            if queries_m:
+                entry["prefix_cache_queries"] = int(float(queries_m.group(1)))
+            if entry:
+                results[name] = entry
+        except Exception:
+            logger.debug("vllm_metrics_scrape_failed", extra={"model": name}, exc_info=True)
+    return results
+
+
 async def probe_all() -> list[dict]:
     async with httpx.AsyncClient() as client:
         core_tasks = [probe_service(client, svc, category="infrastructure") for svc in CORE_SERVICES]
@@ -139,12 +176,21 @@ async def probe_all() -> list[dict]:
 
         model_results: list[dict] = []
         litellm_models = await probe_litellm_models(client)
+        vllm_probes = await _get_active_vllm_probes()
+
         if litellm_models:
             model_results = litellm_models
-        else:
-            vllm_probes = await _get_active_vllm_probes()
-            if vllm_probes:
-                model_tasks = [probe_service(client, svc, category="model") for svc in vllm_probes]
-                model_results = await asyncio.gather(*model_tasks)
+        elif vllm_probes:
+            model_tasks = [probe_service(client, svc, category="model") for svc in vllm_probes]
+            model_results = list(await asyncio.gather(*model_tasks))
 
-        return list(core_results) + list(model_results)
+        # Scrape prefix cache metrics from vLLM endpoints
+        cache_metrics: dict[str, dict] = {}
+        if vllm_probes:
+            cache_metrics = await scrape_vllm_prefix_cache_metrics(client, vllm_probes)
+            for result in model_results:
+                cm = cache_metrics.get(result["name"])
+                if cm:
+                    result["prefix_cache"] = cm
+
+        return list(core_results) + model_results

@@ -363,9 +363,9 @@ class Settings(BaseSettings):
     max_evidence_requests_per_round: int = 6  # full-depth evidence requests before light-mode fallback
     max_initial_deliverable_requests: int = 12  # router groups deliverables in pairs beyond this
 
-    # Prompt-level response cache — identical (user + prompt + model) returns cached response
-    prompt_cache_enabled: bool = False  # opt-in; useful for testing/CI
-    prompt_cache_ttl_seconds: int = 3600
+    # Prompt-level response cache — identical (prompt + model) returns cached response
+    prompt_cache_enabled: bool = True
+    prompt_cache_ttl_seconds: int = 300
     prompt_cache_max_entries: int = 256
 
     # Frame extraction cache — cache full TaskFrame dict by task_description hash

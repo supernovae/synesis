@@ -26,12 +26,12 @@ import pytest
 
 
 def _read_writer_system() -> str:
-    """Read the _WRITER_SYSTEM_TEMPLATE constant from writer.py."""
+    """Read the _WRITER_SYSTEM_STATIC constant from writer.py."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM_TEMPLATE = """\\\n'
+    marker_start = '_WRITER_SYSTEM_STATIC = """\\\n'
     marker_end = '"""'
     start = text.index(marker_start) + len(marker_start)
     end = text.index(marker_end, start)
@@ -217,23 +217,25 @@ class TestCriticVocabulary:
 
 
 def _read_planner_prompt_source() -> str:
-    """Read the _build_knowledge_planner_prompt function source."""
+    """Read the _PLANNER_SYSTEM_STATIC constant and _build_knowledge_planner_prompt source."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "planner_node.py"
     text = src.read_text()
-    start = text.index("def _build_knowledge_planner_prompt")
-    end = text.index("+ _PLANNER_TRUST_POLICY", start) + len("+ _PLANNER_TRUST_POLICY")
-    return text[start:end]
+    start = text.index('_PLANNER_SYSTEM_STATIC = """\\\n')
+    end_marker = "def _build_knowledge_planner_prompt"
+    func_start = text.index(end_marker, start)
+    func_end = text.index("\n\n", func_start + len(end_marker))
+    return text[start:func_end]
 
 
 def _read_compiler_system() -> str:
-    """Read the _WRITER_SYSTEM_TEMPLATE prompt from writer.py source."""
+    """Read the _WRITER_SYSTEM_STATIC prompt from writer.py source."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM_TEMPLATE = """\\\n'
+    marker_start = '_WRITER_SYSTEM_STATIC = """\\\n'
     marker_end = '"""'
     start = text.index(marker_start) + len(marker_start)
     end = text.index(marker_end, start)

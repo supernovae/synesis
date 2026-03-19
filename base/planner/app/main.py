@@ -67,20 +67,27 @@ logger = get_logger("synesis.api")
 _background_tasks: set[asyncio.Task] = set()
 
 # ---------------------------------------------------------------------------
-# Prompt-level response cache (identical user+prompt+model → cached response)
+# Prompt-level response cache (identical prompt+model → cached response)
 # ---------------------------------------------------------------------------
 _prompt_cache: dict[str, tuple[float, str]] = {}  # key → (expires_at, response_text)
 
+_WS_RUN = re.compile(r"\s+")
 
-def _prompt_cache_key(user_id: str, prompt: str, model: str) -> str:
-    raw = f"{user_id}\x00{prompt}\x00{model}"
+
+def _normalize_prompt(prompt: str) -> str:
+    """Normalize whitespace so trivial formatting differences don't miss cache."""
+    return _WS_RUN.sub(" ", prompt.strip()).lower()
+
+
+def _prompt_cache_key(prompt: str, model: str) -> str:
+    raw = f"{_normalize_prompt(prompt)}\x00{model}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
     if not settings.prompt_cache_enabled:
         return None
-    key = _prompt_cache_key(user_id, prompt, model)
+    key = _prompt_cache_key(prompt, model)
     entry = _prompt_cache.get(key)
     if entry is None:
         record_prompt_cache_miss()
@@ -101,7 +108,7 @@ def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> N
     if len(_prompt_cache) >= settings.prompt_cache_max_entries:
         oldest_key = next(iter(_prompt_cache))
         _prompt_cache.pop(oldest_key, None)
-    key = _prompt_cache_key(user_id, prompt, model)
+    key = _prompt_cache_key(prompt, model)
     _prompt_cache[key] = (time.monotonic() + settings.prompt_cache_ttl_seconds, response)
     record_prompt_cache_size(len(_prompt_cache))
 

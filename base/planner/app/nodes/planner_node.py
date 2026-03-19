@@ -161,31 +161,13 @@ When sources conflict, prefer higher-authority sources.
 """
 
 
-def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
-    """Build the knowledge planner prompt, scaling depth language with difficulty."""
-    if difficulty >= 0.6:
-        depth_desc = "well-structured, detailed response"
-        section_desc = (
-            "Each section should be 2-4 substantive paragraphs with concrete details, "
-            "specific recommendations, and tradeoff analysis. "
-            "Sections that only name concepts without explaining them are insufficient."
-        )
-    elif difficulty >= 0.3:
-        depth_desc = "clear, structured response"
-        section_desc = "Each section should be clear and well-organized."
-    else:
-        depth_desc = "concise, focused response"
-        section_desc = "Keep sections brief and to the point."
-
-    return (
-        f"""\
-You are the Planner. Create a structured outline for a {depth_desc}. You do NOT write the response itself.
+_PLANNER_SYSTEM_STATIC = """\
+You are the Planner. Create a structured outline for the response. You do NOT write the response itself.
 
 Reply with JSON only:
 {{"plan":{{"steps":[{{"id":1,"action":"Section: title — concrete deliverable description","dependencies":[],"deliverable_ids":[0]}}],"open_questions":[],"assumptions":[]}},"reasoning":"Brief","confidence":0.0-1.0}}
 
 Rules:
-- Each step = one section of the final response. {section_desc}
 - Group related deliverables into cohesive sections. A section can address \
 1-3 related deliverables. Use as few sections as the task allows for simple \
 requests, and as many as needed to give every deliverable proper depth for \
@@ -207,9 +189,46 @@ NOT echoes of the user's imperative phrasing. "Explain how retrieval should work
 - Constraints and context facts are cross-cutting — do NOT create separate sections \
 for them. Instead, each section should weave relevant constraints into its analysis.
 - Keep action descriptions to one sentence. Do not elaborate in reasoning — 1-2 sentences max.
-"""
-        + _PLANNER_TRUST_POLICY
-    )
+
+ASSUMPTION RULES:
+- Do NOT assume specific cloud providers, vendors, databases, or \
+technologies the user did not mention. If the prompt says 'cloud', \
+do not assume AWS, Azure, or GCP — keep it cloud-agnostic.
+- If the user lists specific items (e.g. 'schemas for: X, Y, Z'), \
+every listed item MUST appear as a sub-step or be explicitly addressed \
+in a plan step.
+- The 'assumptions' field should ONLY contain things genuinely \
+ambiguous in the prompt — not technology choices you are inserting.
+- When a deliverable specifies a format (e.g. 'in JSON or YAML'), \
+that format requirement MUST appear in the plan step covering it.
+""" + _PLANNER_TRUST_POLICY
+
+
+def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
+    """Build the planner system prompt.
+
+    Static rules (identical across requests) form the prefix for vLLM
+    KV-cache reuse.  Difficulty-dependent depth hint is appended as a
+    short dynamic suffix.
+    """
+    if difficulty >= 0.6:
+        depth_hint = (
+            "DEPTH TARGET: well-structured, detailed response. "
+            "Each section should be 2-4 substantive paragraphs with concrete details, "
+            "specific recommendations, and tradeoff analysis. "
+            "Sections that only name concepts without explaining them are insufficient."
+        )
+    elif difficulty >= 0.3:
+        depth_hint = (
+            "DEPTH TARGET: clear, structured response. "
+            "Each section should be clear and well-organized."
+        )
+    else:
+        depth_hint = (
+            "DEPTH TARGET: concise, focused response. "
+            "Keep sections brief and to the point."
+        )
+    return _PLANNER_SYSTEM_STATIC + "\n" + depth_hint
 
 
 _planner_extra_body: dict[str, Any] = {}
@@ -497,6 +516,11 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         base_prompt = _build_knowledge_planner_prompt(difficulty)
         system_prompt = base_prompt + taxonomy_append
 
+        # ── Build per-request context for the user message ──
+        # Dynamic content goes in the user message (not system prompt) to
+        # preserve the static system prefix for vLLM KV-cache reuse.
+        task_context_parts: list[str] = []
+
         frame_tasks = task_frame.get("tasks") or []
         frame_constraints = task_frame.get("global_constraints") or []
         frame_neg_constraints = task_frame.get("negative_constraints") or []
@@ -524,8 +548,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     task_lines.append(f"      Format: {fmt}")
             task_block = "\n".join(task_lines)
             global_const_str = "; ".join(frame_constraints[:8]) if frame_constraints else "(none)"
-            system_prompt += (
-                f"\n\nUSER TASK — tasks (0-based IDs):\n{task_block}\n"
+            task_context_parts.append(
+                f"USER TASK — tasks (0-based IDs):\n{task_block}\n"
                 f"Global constraints: {global_const_str}\n"
                 f"Create at least {max(3, (len(frame_tasks) + 1) // 2)} cohesive sections — more if needed to give "
                 f"every task proper depth. "
@@ -536,8 +560,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             )
         elif explicit_deliverables > 0:
             min_sections = max(3, (explicit_deliverables + 1) // 2)
-            system_prompt += (
-                f"\n\nThe user explicitly requested {explicit_deliverables} deliverables. "
+            task_context_parts.append(
+                f"The user explicitly requested {explicit_deliverables} deliverables. "
                 f"Create at least {min_sections} cohesive sections — more if needed for full coverage."
             )
 
@@ -546,8 +570,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             capability_reqs = _filter_capability_requirements(frame_requirements, deliverable_text)
             if capability_reqs:
                 cap_list = "\n".join(f"  - {r}" for r in capability_reqs)
-                system_prompt += (
-                    f"\n\nSYSTEM CAPABILITIES — the proposed system must substantively "
+                task_context_parts.append(
+                    f"SYSTEM CAPABILITIES — the proposed system must substantively "
                     f"address each of these. Ensure at least one section covers each "
                     f"capability in depth (not just a passing mention):\n{cap_list}"
                 )
@@ -555,32 +579,29 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         all_constraints = frame_constraints + frame_neg_constraints
         if all_constraints:
             constraint_list = "; ".join(all_constraints[:8])
-            system_prompt += (
-                f"\nConstraints (cross-cutting — NOT section topics): {constraint_list}\n"
+            task_context_parts.append(
+                f"Constraints (cross-cutting — NOT section topics): {constraint_list}\n"
                 "These are evaluation criteria for recommendations. "
                 "Do NOT create separate sections for constraints."
             )
         if frame_success_criteria:
-            system_prompt += "\nSuccess criteria (apply to ALL sections): " + "; ".join(frame_success_criteria[:6])
+            task_context_parts.append("Success criteria (apply to ALL sections): " + "; ".join(frame_success_criteria[:6]))
 
-        # Phase 2: hint output control expectations to plan structure
         oc_state = state.get("output_controls") or {}
         ut_oc = task_frame.get("output_controls") or {}
         tax_oc = taxonomy_meta.get("output_controls") or {}
         if oc_state.get("show_assumptions") or (ut_oc or {}).get("show_assumptions") or tax_oc.get("show_assumptions"):
-            system_prompt += (
-                "\n\nASSUMPTION VISIBILITY: The final response must clearly separate "
+            task_context_parts.append(
+                "ASSUMPTION VISIBILITY: The final response must clearly separate "
                 "facts, assumptions, and recommendations. Plan sections that naturally "
                 "surface this distinction (e.g. constraints restatement, risk sections)."
             )
         if oc_state.get("precise") or (ut_oc or {}).get("precise") or tax_oc.get("precise"):
-            system_prompt += (
-                "\n\nPRECISION: Each plan step should target concrete, specific outputs — "
+            task_context_parts.append(
+                "PRECISION: Each plan step should target concrete, specific outputs — "
                 "named tools, quantified estimates, committed choices."
             )
 
-        # Output format: when the user requests a structured format (json, yaml, etc.),
-        # instruct the planner to organize steps around the output structure.
         from ..schemas import STRUCTURED_FORMATS
 
         _req_format = task_frame.get("requested_format", "prose")
@@ -589,35 +610,24 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             schema_line = ""
             if _output_schema:
                 schema_line = f"\nRequired top-level keys/fields: {', '.join(_output_schema)}"
-            system_prompt += (
-                f"\n\nOUTPUT FORMAT REQUIREMENT: The final response MUST be valid {_req_format.upper()}."
+            task_context_parts.append(
+                f"OUTPUT FORMAT REQUIREMENT: The final response MUST be valid {_req_format.upper()}."
                 f"{schema_line}"
                 f"\nStructure your plan steps so each step maps to a key or section in the "
                 f"{_req_format} output. The writer will produce {_req_format}, not markdown."
             )
         elif _req_format != "prose":
-            system_prompt += f"\n\nExpected output format: {_req_format}."
+            task_context_parts.append(f"Expected output format: {_req_format}.")
 
-        # Assumption guardrails: prevent technology hallucination
-        system_prompt += (
-            "\n\nASSUMPTION RULES:"
-            "\n- Do NOT assume specific cloud providers, vendors, databases, or "
-            "technologies the user did not mention. If the prompt says 'cloud', "
-            "do not assume AWS, Azure, or GCP — keep it cloud-agnostic."
-            "\n- If the user lists specific items (e.g. 'schemas for: X, Y, Z'), "
-            "every listed item MUST appear as a sub-step or be explicitly addressed "
-            "in a plan step."
-            "\n- The 'assumptions' field should ONLY contain things genuinely "
-            "ambiguous in the prompt — not technology choices you are inserting."
-            "\n- When a deliverable specifies a format (e.g. 'in JSON or YAML'), "
-            "that format requirement MUST appear in the plan step covering it."
-        )
+        task_context_block = "\n\n".join(task_context_parts) if task_context_parts else ""
 
         prompt = (
             f"## Task\n{task_desc}\n"
             f"{context_block}{domain_rules_block}\n\n"
-            f"Produce a structured outline of sections for the response."
         )
+        if task_context_block:
+            prompt += f"## Planning Context\n{task_context_block}\n\n"
+        prompt += "Produce a structured outline of sections for the response."
 
         # Plan gate feedback: on retry, inject specific repair instructions from
         # the fast plan gate so the LLM knows exactly what to fix.

@@ -57,17 +57,44 @@ Living document for performance work: latency reduction, prefill optimization, a
 
 ## Prefix-Aware Prompt Structure
 
-To maximize vLLM prefix caching on the router model, static content comes first:
+vLLM prefix caching reuses KV states when consecutive requests share the
+same token prefix. To maximise cache hits, **every system prompt must place
+static (request-invariant) content first and dynamic (per-request) content
+last**.
+
+### Convention for all LLM-calling nodes
 
 ```
-[STATIC] Tier 1 (Global Policy)
-[STATIC] Tier 2 (Org Standards / Constitution)
-[DYNAMIC] Tier 3 (Project Manifest)
-[DYNAMIC] RAG Chunks (Ranked by score)
-[DYNAMIC] History / Task
+SYSTEM MESSAGE
+  [STATIC]  Core rules, formatting, trust policy, citation   ← cached
+  [STATIC]  CRAG, failure modes, scoring blocks (if constant)
+  --- prefix boundary ---
+  [DYNAMIC] Persona / role
+  [DYNAMIC] Domain context, output directive
+  [DYNAMIC] Taxonomy depth, epistemic, discovery
+  [DYNAMIC] Style contract overrides
+
+USER MESSAGE
+  [DYNAMIC] Task description / user query
+  [DYNAMIC] Evidence / RAG chunks (ranked by score)
+  [DYNAMIC] Planning context (tasks, constraints, deliverables)
+  [DYNAMIC] Revision context / gate feedback
 ```
 
-If Tier 1 and 2 are unchanged across requests, vLLM caches their KV states. Subsequent requests skip processing those tokens.
+If the static prefix is unchanged across requests, vLLM caches those KV
+states. Subsequent requests skip prefill for those tokens (~60-90 ms saved
+per writer call at ~3000 static tokens on L40S).
+
+### Node-specific layouts
+
+| Node | Static prefix (system) | Dynamic suffix |
+|------|----------------------|----------------|
+| **Writer** | Content rules, formatting, headings, constraints, citations, trust policy | Persona, domain block, output directive, taxonomy, style, precision, epistemic |
+| **Critic** | Quality principles, trust policy, section evaluation, reply format | Frame rubric, controls, grounding, cohesion, taxonomy, scoring, failure modes |
+| **Planner** | JSON schema, planning rules, assumption rules, trust policy | Depth target, taxonomy append; task frame content goes in *user message* |
+| **Router** | Static system prompt (already cache-friendly) | User query + evidence in user message |
+| **Frame extractor** | Static segment prompt (already cache-friendly) | User input in user message |
+| **Executor** | Static worker prompt (already cache-friendly) | Task + evidence in user message |
 
 ---
 
