@@ -2,6 +2,10 @@
 
 The Yarn runtime is a fast, stateful agent execution layer for IDE clients. It exposes an OpenAI-compatible API (`/v1/chat/completions`) and handles the hot agentic loop — tool calls, memory management, and streaming — without LangChain. Complex tasks (RAG, multi-step planning) escalate to the existing planner.
 
+## Coder model
+
+Yarn is the **agentic shell around the coder workload**: LLM traffic is intended to use the same **coder** family as the rest of Synesis (`synesis-coder` in `models.yaml`). For **local / in-cluster** inference, the default upstream base URL is the **`synesis-coder`** vLLM service — see `model_url` in [`base/yarn/app/config.py`](../base/yarn/app/config.py) (env `SYNESIS_YARN_MODEL_URL` when using `SYNESIS_YARN_PROVIDER=local`). You may override with **DeepInfra** or another host for testing (`SYNESIS_YARN_PROVIDER`, `SYNESIS_YARN_MODEL`, etc.). The **LiteLLM** route name exposed to clients remains **`synesis-yarn`** (product surface), which is distinct from the direct **`synesis-coder`** gateway route.
+
 ## Architecture
 
 ```
