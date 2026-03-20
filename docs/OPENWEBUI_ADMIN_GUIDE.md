@@ -101,7 +101,7 @@ oc logs -n synesis-admin -l app.kubernetes.io/name=synesis-admin --tail=150
 # Look for keycloak_token_exchange_failed — wrong internal URL/port if connection errors.
 ```
 
-**Keycloak “Invalid scopes: openid profile email”:** The `synesis` realm import must define **Client scopes** named `openid`, `profile`, and `email` (not only `synesis-roles` / `synesis-organization`). Those names are referenced by clients’ `defaultClientScopes`. If the realm was created before this fix, either re-apply the updated `KeycloakRealmImport` (operator-dependent) or in Keycloak Admin: **Client scopes** → create the three built-in-style scopes (or import from a fresh realm template) and assign them to `synesis-admin` / `synesis-webui`.
+**Keycloak “Invalid scopes: openid profile email”:** The live `synesis` realm must have **Client scopes** named `openid`, `profile`, and `email`, and `synesis-admin` / `synesis-webui` must include them as **default** scopes. The one-shot realm import job does not reliably patch an existing realm. **Repair (idempotent):** run **`./scripts/ensure-keycloak-oidc-scopes.sh`** with `oc` logged in, or **`./scripts/deploy.sh …`** (it runs that script after Keycloak is ready). Git manifests (`realm-import.yaml`) include the same definitions for new clusters.
 
 ### Pages
 
