@@ -40,9 +40,28 @@ Cache behavior is **provider- and deployment-specific** (vLLM, OpenShift AI, Ope
 
 ---
 
+## LiteLLM spend logs vs Synesis traces
+
+**LiteLLM** (proxy spend tracking / DB logging): When enabled, LiteLLM can persist the
+**full usage payload** returned by the upstream API. Providers that support prompt caching
+often report **`prompt_tokens_details.cached_tokens`** (OpenAI-style) or analogous fields;
+those appear in spend logs **if** LiteLLM forwards them for your provider version. Use
+LiteLLM’s spend UI or SQL against its tables to measure cache hit rates and discounted
+input tokens. **vLLM** behind LiteLLM may not emit the same shape — validate in your stack.
+
+**Synesis** does **not** currently copy cached-token breakdowns into Postgres `traces`:
+each `LLMCallRecord` stores aggregate `prompt_tokens` / `completion_tokens` / `total_tokens`
+(see `base/planner/app/synesis_tracer.py`). Extending the tracer to persist
+`usage.prompt_tokens_details` (or provider equivalents) would be the path to **admin-native**
+cache dashboards. Until then, rely on **LiteLLM spend logs** or **model-server metrics**
+for cache verification.
+
+See [WORKFLOW.md — LiteLLM, spend logs, and prompt-cache tokens](WORKFLOW.md#litellm-spend-logs-and-prompt-cache-tokens).
+
 ## References
 
 - Planner prompt layout: `base/planner/app/nodes/planner_node.py` — `_build_knowledge_planner_prompt`, task/user message assembly
 - Graph entry point (entry always runs first): `base/planner/app/graph.py` — `set_entry_point("entry_pipeline")`
 - Clarification pending context + plan reuse: `base/planner/app/graph.py` (`store_pending_question`), `base/planner/app/main.py` (pending restore), `base/planner/app/clarification_helpers.py`
-- High-level pipeline: `docs/WORKFLOW.md` — Entry pipeline and planner sections
+- High-level pipeline, routing, retries: `docs/WORKFLOW.md` — graph flow and routing tables
+- Tracer schema: `base/planner/app/synesis_tracer.py` — `LLMCallRecord`

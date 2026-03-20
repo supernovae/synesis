@@ -4,12 +4,14 @@ This document describes the LangGraph orchestration flow, routing logic, and key
 
 ## Overview
 
-Synesis implements a **unified pipeline** with 9 active nodes:
-Entry Classifier, Strategic Advisor, Frame Extractor, Planner,
-Plan Gate, **Router**, Writer, Critic, Final Scrubber, and Respond.
+The compiled LangGraph has **eight nodes**: `entry_pipeline`, `planner`,
+`plan_gate`, `router`, `writer`, `critic`, `final_scrubber`, and `respond`.
+The **entry_pipeline** node runs the Entry Classifier (deterministic scoring),
+Strategic Advisor, and Frame Extractor concurrently (plus optional GLiNER /
+LLM repair) — they are not separate graph vertices.
 
-Every request follows the same canonical path — the Planner scales
-its plan depth based on difficulty and deliverable count, ensuring
+Every request follows the same canonical path through those nodes — the
+Planner scales plan depth based on difficulty and deliverable count, ensuring
 consistent observability and feedback loops across all prompts.
 
 The **Router is the single retrieval orchestrator**. No other node
@@ -75,20 +77,35 @@ lightweight 1-step plan, hard prompts get full multi-step decomposition.
 
 ```mermaid
 flowchart TD
-    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(scales depth by deliverables)"]
+    EP["entry_pipeline\n(classifier + advisor + frame)"] --> PL["planner\n(+ clarification resume)"]
     PL --> PG["plan_gate\n(deterministic validation)"]
     PG -->|"fail, retries left"| PL
+    PG -->|"clarification_question"| RS["respond"]
+    PG -->|"plan_pending_approval"| RS
+    PG -->|"fail exhausted, no plan"| RS
     PG -->|pass| RT["router\n(evidence: disabled/light/normal)"]
-    RT --> WR["writer\n(knowledge synthesis)"]
-    WR -->|"high difficulty"| CR["critic\n(quality gate)"]
-    WR -->|"low difficulty / background"| FS["final_scrubber"]
-    CR -->|approved| FS
-    CR -->|"need evidence"| RT
-    CR -->|revision| WR
-    CR -->|"oscillation or max_iterations"| FS
-    FS --> RS["respond"]
+    RT --> WR["writer\n(+ optional direct stream)"]
+    WR -->|"needs_input_question"| RS
+    WR -->|"critic_background or low difficulty"| FS["final_scrubber"]
+    WR -->|else| CR["critic\n(quality gate)"]
+    CR -->|error| RS
+    CR -->|"oscillation > threshold"| FS
+    CR -->|"approved, no evidence gap"| FS
+    CR -->|"iteration >= max_iterations"| FS
+    CR -->|"need_more_evidence"| RT
+    CR -->|"!approved, writing revision"| WR
+    CR -->|else| RS
+    FS --> RS
     RS --> endNode([END])
 ```
+
+**Clarification / approval (next HTTP request):** When the user answers a
+planner clarification or approves a plan, conversation memory restores
+pending context (`execution_plan`, `task_frame`, etc.). Routing sends
+`planner_clarification` resumes to **planner** (skipping router on that hop);
+other pending continuations may go to **router**. See
+[CONVERSATION_MEMORY.md](CONVERSATION_MEMORY.md) and
+[PLANNER_PREFIX_KV_CACHE.md](PLANNER_PREFIX_KV_CACHE.md).
 
 ### Difficulty-Based Scaling
 
@@ -330,7 +347,8 @@ acknowledgements get 256 tokens.
 
 | Condition | Next Node |
 |-----------|-----------|
-| `pending_question_continue` | `router` |
+| `pending_question_continue` and `pending_question_source == "planner_clarification"` | `planner` |
+| `pending_question_continue` (other sources, e.g. needs_input / router) | `router` |
 | `message_origin == "ui_helper"` | `respond` |
 | else (all requests) | `planner` |
 
@@ -805,7 +823,8 @@ OpenAI-compatible `/v1/chat/completions` endpoint.
 
 | Path | Mechanism | Reasoning |
 |------|-----------|-----------|
-| All requests | Writer returns `direct_stream_request` dict; `main.py` streams via raw OpenAI SDK | Preserves `reasoning_content` (LangChain drops it) |
+| Trivial / easy, no retrieval | Writer returns `direct_stream_request`; `main.py` streams via raw OpenAI SDK | Fast time-to-first-token; preserves `reasoning_content` when the model emits it |
+| Full graph (default hard path) | LangGraph `astream_events` in `main.py`; writer streaming through the graph | Phase status, pipeline trace; final chunk carries usage / `finish_reason` (e.g. `length` if truncated) |
 
 **Phase-based status**: Nodes are grouped into user-facing phases:
 
@@ -1044,14 +1063,38 @@ Web search is abstracted behind a `SearchProvider` protocol
 SearXNG. The `engine_authority_map` in `config.py` lets SearXNG engines
 be tagged with trust tiers.
 
+## LiteLLM, spend logs, and prompt-cache tokens
+
+**LiteLLM Proxy** (when enabled with spend tracking / logging to its database):
+Upstream providers that return **OpenAI-style usage** may include nested fields such as
+`prompt_tokens_details.cached_tokens` (and provider-specific equivalents). Newer LiteLLM
+versions store the **full usage object** in spend logs so you can analyze cache hits and
+billing-tier splits — **if** the provider populates those fields. Self-hosted **vLLM** may
+not expose the same keys as OpenAI/Anthropic; treat cache metrics as **deployment-specific**
+and confirm against your model server and LiteLLM version.
+
+**Synesis Postgres traces** (`SYNESIS_TRACE_DATABASE_URL`, admin UI):
+Each trace stores `full_record` JSON with spans and `llm_calls`. Today each
+`LLMCallRecord` records `prompt_tokens`, `completion_tokens`, `total_tokens`, latency,
+and cost fields — **not** a separate `cached_tokens` column. To track prefix-cache
+effectiveness in-app, you would extend the tracer to copy provider usage details into
+`llm_calls` (or a sidecar JSON field) when present.
+
+**Admin “detailed performance”** (`GET /api/v1/models/performance/detailed`) aggregates
+only those per-call token fields from stored traces.
+
+See also [PLANNER_PREFIX_KV_CACHE.md](PLANNER_PREFIX_KV_CACHE.md).
+
 ## Observability: SynesisTracer
 
-Synesis includes a built-in LLM tracing system (`SynesisTracer`) that persists per-request pipeline traces to Redis. It replaces the previous Opik integration, eliminating 6 infrastructure pods while providing equivalent tracing capability through the admin UI.
+Synesis includes a built-in LLM tracing system (`SynesisTracer`) that persists per-request
+pipeline traces to **Postgres** when `SYNESIS_TRACE_DATABASE_URL` is set (admin UI reads
+the `traces` table). Without that URL, traces are not persisted to the database.
 
 ### What SynesisTracer Captures
 
 - **Per-node span tracing**: entry_pipeline, planner, plan_gate, router, writer, critic — auto-traced via a LangChain `BaseCallbackHandler` attached to every graph invocation.
-- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, and truncated prompt/completion snippets for each LLM call within a node.
+- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, optional actual cost, and truncated prompt/completion snippets for each LLM call within a node.
 - **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record.
 - **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`, `is_code_task`, `has_error`.
 - **Admin UI integration**: Searchable trace list, waterfall timeline, expandable span tree with LLM call drill-down, and critic scores panel.
@@ -1063,14 +1106,13 @@ Synesis includes a built-in LLM tracing system (`SynesisTracer`) that persists p
 | `trace_store_ttl_hours` | `SYNESIS_TRACE_TTL_HOURS` | `168` (7 days) | Trace retention period |
 | `trace_snippet_max_chars` | `SYNESIS_TRACE_SNIPPET_MAX_CHARS` | `500` | Max chars for prompt/completion snippets |
 
-The tracer activates automatically when `SYNESIS_REDIS_URL` is set. No additional infrastructure or toggle required.
+The tracer persists when `SYNESIS_TRACE_DATABASE_URL` points at the admin/trace Postgres
+(see deployment manifests). Redis is still used for other features (e.g. session checkpointer
+when configured); it is **not** the primary trace store.
 
 ### Storage
 
-Traces are stored in the existing Redis instance:
-- `synesis:traces:{trace_id}` — JSON blob (5–20KB per trace)
-- `synesis:traces:index` — sorted set for time-range queries
-- Auto-pruned based on TTL
+- **Postgres** `traces` table — one row per request with `full_record` JSONB (spans, LLM calls, critic scores, metadata). Retention is operational (admin/migrations), not the tracer TTL alone.
 
 ### Future: Prompt Optimization
 
@@ -1099,6 +1141,8 @@ Collected trace data can be used for offline prompt tuning (critic, query genera
 
 ## See Also
 
+- [PLANNER_PREFIX_KV_CACHE.md](PLANNER_PREFIX_KV_CACHE.md) — Static planner prefix, clarification resume, cache testing
+- [CONVERSATION_MEMORY.md](CONVERSATION_MEMORY.md) — Pending clarification / plan / needs_input resume
 - [SECURITY.md](SECURITY.md) — Prompt injection hardening, trust model, authority hierarchy, admin review workflow
 - [TAXONOMY.md](TAXONOMY.md) — Intent taxonomy, output path, critic policy
 - [TAXONOMY_SHAPING.md](TAXONOMY_SHAPING.md) — Taxonomy metadata, Planner deep-dive, depth block injection
