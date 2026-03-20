@@ -111,5 +111,5 @@ else
     log ""
     log "To add content to the queue:"
     log "  - Admin UI: RAG Pipeline > Ingestion Queue"
-    log "  - Bootstrap: curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap -F file=@bootstrap/corpus/docs.yaml"
+    log "  - Bootstrap: curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap -F file=@bootstrap/corpus/docs.yaml"
 fi

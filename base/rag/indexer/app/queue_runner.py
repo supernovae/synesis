@@ -4,7 +4,7 @@ Replaces the YAML-driven pipeline for production use.  The indexer image
 stays DB-free — all queue state is managed via HTTP calls to the admin service.
 
 Usage:
-    python -m app.cli --mode queue --admin-url http://synesis-admin:8000
+    python -m app.cli --mode queue --admin-url http://synesis-admin:8080
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ logger = get_logger("synesis.indexer.queue")
 
 _DEFAULT_ADMIN_URL = os.getenv(
     "SYNESIS_ADMIN_URL",
-    "http://synesis-admin.synesis-admin.svc.cluster.local:8000",
+    "http://synesis-admin.synesis-admin.svc.cluster.local:8080",
 )
 
 

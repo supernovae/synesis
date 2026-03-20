@@ -191,7 +191,7 @@ Add content via the admin UI (RAG Pipeline > Ingestion Queue) or import bootstra
 
 ```bash
 for f in bootstrap/corpus/*.yaml; do
-  curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+  curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
     -F "file=@$f" -H "Authorization: Bearer $TOKEN"
 done
 ```

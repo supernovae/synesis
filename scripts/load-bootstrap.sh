@@ -41,7 +41,7 @@ set -euo pipefail
 #   ./scripts/load-bootstrap.sh -a http://localhost:8000
 #
 #   # In-cluster URL
-#   ./scripts/load-bootstrap.sh -a http://synesis-admin.synesis-admin.svc:8000
+#   ./scripts/load-bootstrap.sh -a http://synesis-admin.synesis-admin.svc:8080
 #
 #   # Only a specific file
 #   echo bootstrap/corpus/code.yaml | ./scripts/load-bootstrap.sh --dir -

@@ -51,7 +51,7 @@ Upload any `corpus/*.yaml` file via the admin UI (RAG Pipeline > Ingestion
 Queue > Upload YAML) or call the API directly:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/ingestion/bootstrap \
+curl -X POST http://localhost:8080/api/v1/ingestion/bootstrap \
   -F file=@bootstrap/corpus/docs.yaml \
   -H "Authorization: Bearer $TOKEN"
 ```
@@ -65,7 +65,7 @@ After deploying the admin service (Alembic migrations run automatically on start
 ```bash
 # 1. Import all bootstrap corpus files into the ingestion queue
 for f in bootstrap/corpus/*.yaml; do
-  curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+  curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
     -F "file=@$f" -H "Authorization: Bearer $TOKEN"
 done
 

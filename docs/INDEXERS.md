@@ -68,7 +68,7 @@ stateDiagram-v2
 
 **Dead letter recovery:** Items in `dead_letter` can be manually revived via the admin UI or API:
 ```bash
-curl -X POST http://synesis-admin:8000/api/v1/ingestion/items/{item_id}/retry?reset_retries=true \
+curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/items/{item_id}/retry?reset_retries=true \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -182,7 +182,7 @@ Navigate to **RAG Pipeline > Ingestion Queue** in the admin dashboard:
 ### Via Bootstrap API
 
 ```bash
-curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
   -F "file=@bootstrap/corpus/docs.yaml" \
   -H "Authorization: Bearer $TOKEN"
 ```
@@ -228,13 +228,23 @@ SYNESIS_INDEXER_OVERLAY="$PWD/overlays/jobs-prod" ./scripts/deploy-indexer.sh --
 oc logs -n synesis-rag -l synesis.io/indexer-group=queue -f
 ```
 
+### Troubleshooting
+
+- **`httpx.ConnectTimeout` when calling the admin API** — The admin `Service` listens on **port `8080`**, not `8000` (`base/admin/service.yaml`). Set `SYNESIS_ADMIN_URL` to `http://synesis-admin.synesis-admin.svc.cluster.local:8080` (or your Route URL with the correct path/port). A wrong port typically hangs until the HTTP client times out; it is not an auth error.
+
+### Indexer ↔ admin authentication
+
+Endpoints used only by the indexer (`POST /ingestion/runs`, `POST /ingestion/items/claim`, `PATCH /ingestion/items/{id}/status`, `POST /ingestion/schema-sync`) are **unauthenticated** by design so CronJobs do not need Keycloak or PATs; the trust boundary is the cluster network (and optional `NetworkPolicy`). Human-facing routes (bootstrap, stats, list runs, etc.) still require a bearer token.
+
+If you need an extra safeguard later, add an optional shared secret header (e.g. `SYNESIS_INDEXER_SHARED_SECRET` on both sides) checked only on those internal routes.
+
 ### Run Locally (development)
 
 ```bash
 cd base/rag/indexer
 
 # Queue mode (needs admin service running)
-python -m app --mode queue --admin-url http://localhost:8000
+python -m app --mode queue --admin-url http://localhost:8080
 
 # YAML mode (legacy, for local testing)
 python -m app --mode yaml --sources sources-docs.yaml
@@ -248,12 +258,12 @@ After deploying the admin service (Alembic migrations run automatically), import
 ```bash
 # Import all bootstrap corpus files (sorted order — or use ./scripts/load-bootstrap.sh)
 while IFS= read -r f; do
-  curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
+  curl -X POST http://synesis-admin.synesis-admin.svc:8080/api/v1/ingestion/bootstrap \
     -F "file=@$f" -H "Authorization: Bearer $TOKEN"
 done < <(find bootstrap/corpus -maxdepth 1 -name '*.yaml' -type f | LC_ALL=C sort)
 
 # Or use the admin UI: RAG Pipeline > Ingestion Queue > Upload YAML
-# Or: ./scripts/load-bootstrap.sh -a http://synesis-admin:8000
+# Or: ./scripts/load-bootstrap.sh -a http://synesis-admin.synesis-admin.svc:8080
 ```
 
 Items enter the queue as `pending`. Run the indexer to process them:
@@ -330,7 +340,7 @@ Approval status flows:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8000` | Admin API for queue mode |
+| `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8080` | Admin API for queue mode (Service port matches deployment) |
 | `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
 | `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) |
 

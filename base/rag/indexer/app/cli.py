@@ -9,7 +9,7 @@ Usage (YAML mode — existing behavior):
 
 Usage (queue mode — DB-driven):
     python -m app.cli --mode queue
-    python -m app.cli --mode queue --admin-url http://synesis-admin:8000
+    python -m app.cli --mode queue --admin-url http://synesis-admin:8080
 
 Utilities:
     python -m app.cli --list-handlers
@@ -35,7 +35,7 @@ def main() -> None:
         epilog=(
             "Examples:\n"
             "  python -m app.cli --sources /data/sources.yaml\n"
-            "  python -m app.cli --mode queue --admin-url http://synesis-admin:8000\n"
+            "  python -m app.cli --mode queue --admin-url http://synesis-admin:8080\n"
             "  python -m app.cli --list-handlers\n"
         ),
     )

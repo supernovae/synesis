@@ -15,7 +15,7 @@ import sys
 
 import httpx
 
-ADMIN_API_URL = os.getenv("SYNESIS_ADMIN_API_URL", "http://synesis-admin.synesis-admin.svc.cluster.local:8000")
+ADMIN_API_URL = os.getenv("SYNESIS_ADMIN_API_URL", "http://synesis-admin.synesis-admin.svc.cluster.local:8080")
 MILVUS_URI = os.getenv("SYNESIS_MILVUS_URI", "http://synesis-milvus.synesis-rag.svc.cluster.local:19530")
 EMBEDDER_URL = os.getenv("SYNESIS_EMBEDDER_URL", "http://embedder.synesis-rag.svc.cluster.local:8080")
 LLM_URL = os.getenv("SYNESIS_LLM_URL", "")

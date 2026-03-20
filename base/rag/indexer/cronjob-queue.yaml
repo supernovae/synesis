@@ -42,7 +42,7 @@ spec:
                 - queue
               env:
                 - name: SYNESIS_ADMIN_URL
-                  value: "http://synesis-admin.synesis-admin.svc.cluster.local:8000"
+                  value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
                 - name: GITHUB_TOKEN
                   valueFrom:
                     secretKeyRef:
