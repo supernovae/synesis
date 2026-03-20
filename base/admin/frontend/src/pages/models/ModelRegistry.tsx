@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import {
@@ -48,24 +48,26 @@ interface EditState {
   model: string;
   endpoint: string;
   api_key_env: string;
-  max_tokens: number;
-  temperature: number;
+  max_tokens: string;
+  temperature: string;
   fallbacks: string;
 }
 
 function emptyEdit(role: string): EditState {
-  return { role, provider: "openrouter", model: "", endpoint: "", api_key_env: "", max_tokens: 8192, temperature: 0.1, fallbacks: "" };
+  return { role, provider: "openrouter", model: "", endpoint: "", api_key_env: "", max_tokens: "8192", temperature: "0.1", fallbacks: "" };
 }
 
 function editFromDeployment(d: ModelDeployment): EditState {
+  const mt = (d.litellm_params?.max_tokens as number) ?? 8192;
+  const temp = (d.litellm_params?.temperature as number) ?? 0.1;
   return {
     role: d.role,
     provider: d.provider || "custom",
     model: d.model,
     endpoint: d.endpoint,
     api_key_env: d.api_key_env || "",
-    max_tokens: (d.litellm_params?.max_tokens as number) ?? 8192,
-    temperature: (d.litellm_params?.temperature as number) ?? 0.1,
+    max_tokens: String(mt),
+    temperature: String(temp),
     fallbacks: (d.fallbacks ?? []).join(", "),
   };
 }
@@ -123,6 +125,8 @@ export default function ModelRegistry() {
       }
     }
     const fbList = editing.fallbacks.split(",").map((s) => s.trim()).filter(Boolean);
+    const parsedMaxTokens = Number(editing.max_tokens);
+    const parsedTemp = Number(editing.temperature);
     assignMut.mutate(
       {
         role: editing.role,
@@ -130,8 +134,8 @@ export default function ModelRegistry() {
         model: editing.model,
         endpoint: editing.endpoint,
         api_key_env: editing.api_key_env,
-        max_tokens: editing.max_tokens,
-        temperature: editing.temperature,
+        max_tokens: parsedMaxTokens > 0 ? parsedMaxTokens : 8192,
+        temperature: !isNaN(parsedTemp) && parsedTemp >= 0 ? parsedTemp : 0.1,
         fallbacks: fbList.length ? fbList : undefined,
       },
       { onSuccess: () => closeEditModal() },
@@ -367,15 +371,19 @@ export default function ModelRegistry() {
 
             <Field
               label="Max Tokens"
-              value={String(editing.max_tokens)}
-              onChange={(v) => setEditing({ ...editing, max_tokens: Number(v) || 8192 })}
+              value={editing.max_tokens}
+              onChange={(v) => setEditing({ ...editing, max_tokens: v })}
+              onBlur={() => { if (!editing.max_tokens.trim() || Number(editing.max_tokens) <= 0) setEditing({ ...editing, max_tokens: "8192" }); }}
               type="number"
+              hint="LiteLLM default — planner overrides per call with its own budget"
             />
             <Field
               label="Temperature"
-              value={String(editing.temperature)}
-              onChange={(v) => setEditing({ ...editing, temperature: Number(v) || 0.1 })}
+              value={editing.temperature}
+              onChange={(v) => setEditing({ ...editing, temperature: v })}
+              onBlur={() => { const n = Number(editing.temperature); if (editing.temperature.trim() === "" || isNaN(n) || n < 0) setEditing({ ...editing, temperature: "0.1" }); }}
               type="number"
+              hint="LiteLLM default — planner sets its own temps per node (0.1 planner, 0.3 writer)"
             />
             <Field
               label="Fallback Models"
@@ -458,9 +466,15 @@ function ProviderBadge({ provider, providers }: { provider: string; providers: R
 }
 
 function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
         <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>
         {children}
       </div>
@@ -469,9 +483,10 @@ function Modal({ children, onClose, title }: { children: React.ReactNode; onClos
 }
 
 function Field({
-  label, value, onChange, placeholder, type = "text",
+  label, value, onChange, onBlur, placeholder, type = "text", hint,
 }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string;
+  label: string; value: string; onChange: (v: string) => void; onBlur?: () => void;
+  placeholder?: string; type?: string; hint?: string;
 }) {
   return (
     <div>
@@ -480,9 +495,11 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
       />
+      {hint && <p className="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">{hint}</p>}
     </div>
   );
 }
