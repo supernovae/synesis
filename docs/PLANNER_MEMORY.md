@@ -8,7 +8,7 @@ Notes on why planner memory can balloon for a single user, instrumentation added
 
 - **State size per request**: Each run carries `evidence_packets` (merged by query/section_id but can grow over critic→router loops), `node_traces` (append-only per node run), `tool_refs`, `messages`, `execution_plan`, and `generated_code`. Long prompts, many deliverables, or multiple critic iterations increase state size.
 - **Streaming accumulator**: The SSE generator keeps `accumulated_state` and builds content (and optionally reasoning buffers) for the whole stream. Large responses increase in-process memory for the duration of the request.
-- **Conversation memory**: L1 in-memory store (`conversation_memory`) holds history per scope; `memory_max_turns_per_user` and `memory_max_users` cap size but long chats still use more.
+- **Conversation memory**: L1 in-memory store (`conversation_memory`) holds history per scope; `memory_max_turns_per_user` and `memory_max_users` cap size but long chats still use more. See [CONVERSATION_MEMORY.md](CONVERSATION_MEMORY.md) for L1 vs optional Redis L2 (pending checkpoints, pivot archive).
 - **Checkpointer**: With Redis checkpointer, full state is in Redis per thread; with in-memory checkpointer (e.g. dev), state is in process.
 - **No per-request state cap**: There are no hard limits on `evidence_packets` length or `node_traces` length; only reducer semantics (merge/dedupe) and `max_iterations` / oscillation termination bound the number of graph steps.
 

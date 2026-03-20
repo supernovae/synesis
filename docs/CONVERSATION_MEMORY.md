@@ -1,77 +1,148 @@
-# Conversation Memory
+# Conversation Memory (L1 / L2)
 
-Synesis maintains per-user conversation history so the system can understand references across chat sessions ("fix that script", "add error handling to it", "the previous one"). It also stores **pending plan** and **pending needs_input** context so the next user message can resume at the right node. See [WORKFLOW.md](WORKFLOW.md) for plan approval and needs_input flows.
+Synesis keeps **per-scope** state in the **planner** so the agent can resolve references (“fix that script”, “the previous one”), resume **plan approval** and **needs_input** flows, and apply **context pivots** (language / code-vs-text / domain) without losing safety. This page describes **what is implemented today** (L1 vs L2), how keys are formed, and **gaps vs typical user expectations** for “saved” conversations.
 
-## How It Works
+**Code:** [`base/planner/app/conversation_memory.py`](../base/planner/app/conversation_memory.py), [`base/planner/app/history_summarizer.py`](../base/planner/app/history_summarizer.py), [`base/planner/app/main.py`](../base/planner/app/main.py) (`_resolve_user_id`, `_memory_scope_key`, pivot + `archive_to_l2`).  
+**Workflow:** [WORKFLOW.md](WORKFLOW.md) (plan approval, needs_input).  
+**OOM / graph state:** [PLANNER_MEMORY.md](PLANNER_MEMORY.md) (separate from conversation turns).
 
-1. **User identification**: Each request is associated with a user via a fallback chain:
-   - The `user` field in the request body (OpenAI standard parameter) — preferred
-   - A SHA256 hash of the `Authorization: Bearer <key>` header (auto-derived)
-   - `"anonymous"` if neither is available
+---
 
-2. **Conversation scope (recommended)**: To avoid context drift across multiple chats, pass a `conversation_id` so memory is isolated per conversation:
-   - Request body: `"conversation_id": "chat-abc123"`
-   - Header: `X-Conversation-Id: chat-abc123` or `X-Chat-Id: chat-abc123`
-   - When present, history, pending plans, and pivot state are scoped per conversation. New chat = no stale context from other chats.
+## Definitions: L1 and L2
 
-3. **L1 in-memory store**: The last 20 turns (configurable) per user (or per user+conversation when scoped) are stored in-memory. When a new request arrives, the conversation history is retrieved and injected into the router prompt so it can resolve references and maintain continuity.
+| Layer | Storage | What it holds | Survives planner pod restart? |
+|-------|---------|----------------|------------------------------|
+| **L1** | In-process (`ConversationMemory`) | Recent turns, `pending_*` maps, last language / last routing context (`is_code_task`, domain refs), unified **pending question** snapshot | **No** — all L1 data is lost on rollout/restart |
+| **L2 (Redis)** | Optional, same Redis URL as pivot archive when configured | (a) **Pending question** write-through: `store_pending_question` mirrors to Redis so a reply can resume after L1 loss; (b) **Pivot archive**: raw history strings archived on context pivot | **Yes**, within TTL — but only for those two mechanisms, not general chat |
 
-4. **Turn storage**: After each request completes, both the user's message and the assistant's response are stored as turns in the memory.
+**Not implemented yet:** The `_on_evict` hook on L1 turn eviction is still a **stub** (debug log only). A future design could summarize evicted turns and upsert to Milvus (`conversation_memory_v1` or similar) for long-horizon memory — see [Future work](#future-work-user-expectations-and-recommended-changes).
 
-5. **Pending plan / needs_input**: When the Planner surfaces a plan for approval or the Worker asks a question (`needs_input`), the context is stored. On the user's next message, it is restored and the Entry node routes directly to the Worker (skipping Router/Planner).
+---
 
-6. **Eviction**: Users are tracked in LRU order. Inactive users (default 4h TTL) are cleaned up lazily. When the max user limit (default 5000) is reached, the least recently active user is evicted.
+## Memory scope key (`memory_scope`)
 
-## Passing the `user` Field
+All L1 operations (history, pivot state, pending questions) use a single string key:
 
-Any OpenAI-compatible client can pass the `user` field:
+- **`user_id` only** — if no conversation id is provided.
+- **`{user_id}:{conversation_id}`** — if `conversation_id` is present (body or header).
 
-```bash
-curl -X POST https://synesis-api.apps.openshiftdemo.dev/v1/chat/completions \
-  -H "Authorization: Bearer YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "synesis-agent",
-    "user": "byron",
-    "messages": [{"role": "user", "content": "Add compression to that script"}]
-  }'
-```
+So **multi-chat clients must send a stable `conversation_id` per chat**; otherwise every chat shares one history bucket for that user.
 
-If you don't pass `user`, the system derives an ID from your API key — so each unique key gets its own conversation history automatically.
+**User id resolution order** (first match wins):
 
-## Conversation Scoping (Open WebUI, Multi-Chat Clients)
+1. Header **`X-OpenWebUI-User-Id`** (trimmed, max 128 chars)
+2. Request body **`user`** (OpenAI standard)
+3. SHA256 of the raw **Bearer token** (no `Bearer ` prefix in the hash input), first **16** hex chars
+4. **`anonymous`**
 
-Clients with multiple conversations per user (e.g. Open WebUI with multiple chats) should pass `conversation_id` so each chat has isolated memory. Without it, pending plans and history from one chat can bleed into another:
+**Conversation id resolution order:**
 
-```bash
-# Body
-curl -X POST .../v1/chat/completions -d '{
-  "model": "synesis-agent",
-  "conversation_id": "chat-xyz789",
-  "messages": [{"role": "user", "content": "What is the speed of light?"}]
-}'
+1. Body **`conversation_id`**
+2. **`X-OpenWebUI-Chat-Id`**
+3. **`X-Conversation-Id`** or **`X-Chat-Id`**
 
-# Or via header (useful when the client proxies and can add headers)
-curl -X POST .../v1/chat/completions \
-  -H "X-Conversation-Id: chat-xyz789" \
-  -d '{"model": "synesis-agent", "messages": [...]}'
-```
+---
 
-Open WebUI users: If your setup forwards requests to Synesis, configure the proxy to add `X-Conversation-Id` from the active chat ID when available.
+## L1: What is stored
+
+1. **Turn deque** (default **20** turns per scope, content truncated for storage/display caps). Injected into the router as **recent history** when memory is enabled.
+2. **Last active language** — for language-change pivot detection.
+3. **Last context** — `(is_code_task, active_domain_refs)` for deliverable/domain pivot detection.
+4. **Pending plan / pending needs_input** — legacy dicts (still on the object); the graph primarily uses the **unified** `pending_questions` path for plan approval, clarification, and needs_input.
+5. **Unified pending question** — written in `respond` when the user must answer (plan, clarification, needs_input). Includes `pending_question_id`, `run_id`, `turn_id`, `expires_at` (TTL from `pending_question_ttl_seconds`, default 24h).
+
+**Eviction / caps:**
+
+- Per-scope turn deque maxlen → oldest turn dropped; `_on_evict` called (stub).
+- Global **max users/scopes** (default **5000**) → LRU entire scope evicted.
+- **TTL** (default **4h** inactivity) → lazy cleanup; expired scope removed and evicted turns passed to `_on_evict`.
+
+---
+
+## L2: Redis (when `L2_ARCHIVE_REDIS_URL` is set)
+
+Configured in [`config.py`](../base/planner/app/config.py) as **`l2_archive_redis_url`** (e.g. `redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2`).
+
+### A) Pending question checkpoint
+
+- **Write:** On `store_pending_question`, L1 is updated and, if Redis is configured, a JSON snapshot is stored under **`synesis:pending:{memory_scope}`** with TTL (default 86400s).
+- **Read:** `get_and_clear_pending_question` reads L1 first; on miss, **GETDEL** from Redis and restores `_full` payload if present.
+
+This is the **only** path that makes “reply to the plan after a pod restart” possible without L1.
+
+### B) Pivot archive (`archive_to_l2`)
+
+On **language or context pivot**, the planner:
+
+1. Optionally summarizes the pre-pivot era (`summarize_pivot_history` — needs **`summarizer_model_url`** for real summaries; otherwise stub text).
+2. Calls **`archive_to_l2(run_id, user_id, conversation_history)`** which, if Redis is set, does **`SETEX synesis:l2:{user_id}:{run_id}`** with TTL **`l2_archive_ttl_seconds`** (default **7 days**).
+
+**Important quirk:** the archive key uses **`user_id` only**, not **`memory_scope`**. Two different `conversation_id`s for the same user could theoretically collide only on `run_id` (UUID — practically rare), but **browsing or replay APIs keyed by user_id** would not separate chats. Prefer scoping archive keys by **`memory_scope`** in a future change (see below).
+
+---
 
 ## Configuration
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEMORY_ENABLED` | `true` | Enable/disable conversation memory |
-| `MEMORY_MAX_TURNS_PER_USER` | `20` | Max turns stored per user |
-| `MEMORY_MAX_USERS` | `5000` | Max concurrent users in memory |
-| `MEMORY_TTL_SECONDS` | `14400` | User inactivity timeout (4 hours) |
+| `MEMORY_ENABLED` | `true` | Master switch for L1 history injection and turn storage |
+| `MEMORY_MAX_TURNS_PER_USER` | `20` | Max turns per **scope** |
+| `MEMORY_MAX_USERS` | `5000` | Max distinct scopes (LRU eviction) |
+| `MEMORY_TTL_SECONDS` | `14400` | Inactivity TTL (4h) for a scope |
+| `L2_ARCHIVE_REDIS_URL` | `""` | If set, enables **pending checkpoint** write-through + **pivot** `archive_to_l2` |
+| `L2_ARCHIVE_TTL_SECONDS` | `604800` | Redis TTL for pivot archives (7 days) |
+| `PENDING_QUESTION_TTL_SECONDS` | `86400` | `expires_at` on pending snapshots; stale detection |
+| `PIVOT_SUMMARY_ENABLED` | `true` | Call summarizer on pivot when history exists |
+| `SUMMARIZER_MODEL_URL` / `SUMMARIZER_MODEL_NAME` | `""` / `synesis-summarizer` | Small LLM for pivot summaries; empty → stub summary |
 
-## Limitations and Future L2
-
-L1 memory is purely in-memory — it does not survive pod restarts. This is intentional for simplicity and speed. The architecture includes an explicit eviction hook (`_on_evict`) in the `ConversationMemory` class that can be wired to a Milvus-backed L2 store in the future. When L2 is added, evicted turns would be summarized and persisted, providing long-term memory across pod restarts without changing any graph nodes or API contracts.
+Planner deployment env vars follow the same names with appropriate prefixing in your overlay (see [`base/planner/deployment.yaml`](../base/planner/deployment.yaml)).
 
 ---
 
-Back to [README](../README.md) | See also: [Workflow](WORKFLOW.md)
+## Client guidance
+
+**Open WebUI / multi-chat:** Send **`conversation_id`** (or **`X-OpenWebUI-Chat-Id`**) so each chat is isolated. Without it, history and pending state **bleed across chats** for the same user id.
+
+**Plan / needs_input resume:** For reliability across pod restarts, set **`L2_ARCHIVE_REDIS_URL`** to the same Redis the cluster already uses for planner/session workloads if applicable.
+
+**API compatibility:** Standard OpenAI clients can pass **`user`**. Synesis-specific headers are optional.
+
+Example:
+
+```bash
+curl -X POST https://synesis-api.example/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "synesis-agent",
+    "user": "byron",
+    "conversation_id": "chat-abc123",
+    "messages": [{"role": "user", "content": "Add compression to that script"}]
+  }'
+```
+
+---
+
+## Future work: user expectations and recommended changes
+
+Users often expect **saved conversations** to:
+
+1. **Survive restarts** — Full turn history today is **L1-only**; after a deploy they see an empty memory unless Redis pending or a new product-level store restores it.
+2. **Stay isolated per chat** — Handled when `conversation_id` is wired end-to-end from the UI/proxy.
+3. **Resume exactly where they left off** — Pending checkpoint + L2 Redis helps for **interrupted plan/question** flows; general “scroll back through last week” needs **durable turn storage**.
+4. **Not lose “old” context when the window slides** — Today, turns beyond maxlen or TTL are dropped with **no retrieval** (eviction hook is a stub).
+
+**Recommended directions (engineering):**
+
+| Change | Why |
+|--------|-----|
+| **Durable L2 for turns** (Postgres per `memory_scope`, or append-only object store) | Matches “saved chat” semantics; optional compaction/summarization |
+| **Implement `_on_evict`** → summary + optional vector store | Long-horizon recall without unbounded L1 |
+| **Scope `archive_to_l2` with `memory_scope`** | Align pivot archives with multi-chat isolation |
+| **Expose `pending_question_id` in API responses** (e.g. response extension) so clients must echo it | Already generated server-side; tighter multi-tab safety if clients cooperate |
+| **Reload path** (optional): hydrate L1 from durable store on first message of a session | Bridges “open saved chat” UX |
+| **Product integration** — if Admin/WebUI stores conversations, define whether planner memory is source of truth or a cache of that store | Avoid two divergent histories |
+
+---
+
+Back to [README](../README.md) | See also: [Workflow](WORKFLOW.md), [Planner memory / OOM](PLANNER_MEMORY.md)
