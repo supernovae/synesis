@@ -2,7 +2,7 @@
 
 Synesis includes a built-in **Open WebUI** instance that provides a polished chat interface for interacting with the AI assistant. In the dev (small) profile, it connects directly to the Synesis planner; in staging/prod it can route through LiteLLM.
 
-Current pinned image in manifests: `ghcr.io/open-webui/open-webui:v0.8.10`.
+Synesis ships a thin child image (`ghcr.io/supernovae/synesis/open-webui`, based on upstream `v0.8.10`) that injects a branded light/dark theme via `/static/custom.css`. The theme is baked into the image — no manual CSS paste is required.
 
 ## Zero-Configuration Setup
 
@@ -87,6 +87,19 @@ Prod scales to 2 replicas. The PVC stores user accounts, chat history, and setti
 ## Network Policy
 
 Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planner (`synesis-planner:8000`), plus DNS. In the dev overlay, traffic goes directly to the planner (bypasses LiteLLM). It has no access to Milvus, sandbox, or external internet.
+
+## Theme
+
+The Synesis theme lives in `base/webui/synesis-theme.css` and is copied into the child image as `/app/build/static/custom.css`. On every pod start, Open WebUI's config module copies frontend static assets (including `custom.css`) from the image into `STATIC_DIR` on the PVC, so the theme survives volume mounts.
+
+To rebuild after editing the theme:
+
+```bash
+./scripts/build-images.sh --only open-webui --push
+oc rollout restart deployment/open-webui -n synesis-webui
+```
+
+The CSS uses `html.dark` / `html.light` classes (set by Open WebUI's theme switcher) to define separate variable palettes. Admins can still apply additional customizations through Open WebUI's admin interface settings; the image-baked theme provides the baseline.
 
 ## Troubleshooting
 

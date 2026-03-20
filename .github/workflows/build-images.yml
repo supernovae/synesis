@@ -17,6 +17,8 @@ on:
       - 'base/rag/indexer/**'
       - 'base/rag/knowledge-base/**'
       - 'base/quality-runner/**'
+      - 'base/webui/Dockerfile'
+      - 'base/webui/synesis-theme.css'
       - 'benchmarks/corpus/**'
       - 'tools/curator/**'
       - '.github/workflows/build-images.yml'
@@ -58,6 +60,7 @@ jobs:
       keyword-service: ${{ steps.filter.outputs.keyword-service }}
       gliner-service: ${{ steps.filter.outputs.gliner-service }}
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
+      open-webui: ${{ steps.filter.outputs.open-webui }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
@@ -99,6 +102,9 @@ jobs:
               - 'base/quality-runner/**'
               - 'benchmarks/corpus/**'
               - 'tools/curator/**'
+            open-webui:
+              - 'base/webui/Dockerfile'
+              - 'base/webui/synesis-theme.css'
 
       - name: Aggregate base changes
         id: aggregate
@@ -330,6 +336,12 @@ jobs:
             base_arg: synesis-base-api
             change_key: quality-runner
             base_change_key: base-api
+          - name: open-webui
+            dockerfile: base/webui/Dockerfile
+            context: base/webui
+            base_arg: ""
+            change_key: open-webui
+            base_change_key: ""
 
     steps:
       - name: Check if build needed

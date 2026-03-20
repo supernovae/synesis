@@ -166,6 +166,14 @@ Use these from scripts, curl, or custom tooling. See [FEEDBACK_API.md](FEEDBACK_
 
 ---
 
+## 5. Theme Customization
+
+Synesis deploys a child Open WebUI image with a branded CSS theme (`base/webui/synesis-theme.css`). The theme is injected as `/static/custom.css` and loaded automatically — no admin action is needed.
+
+To override or extend the theme, edit `synesis-theme.css`, rebuild the image (`./scripts/build-images.sh --only open-webui --push`), and restart the deployment. Admins can also apply per-instance CSS through Open WebUI's admin settings if needed; the image-baked theme provides the default look.
+
+---
+
 ## See also
 
 - [FEEDBACK_API.md](FEEDBACK_API.md) — Feedback API, run context, sync script

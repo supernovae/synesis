@@ -96,6 +96,7 @@ SERVICE_IMAGES=(
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"
     "quality-runner|base/quality-runner/Dockerfile|."
+    "open-webui|base/webui/Dockerfile|base/webui"
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then

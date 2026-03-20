@@ -158,3 +158,6 @@ images:
   - name: quality-runner
     newName: ghcr.io/supernovae/synesis/quality-runner
     newTag: latest
+  - name: ghcr.io/open-webui/open-webui
+    newName: ghcr.io/supernovae/synesis/open-webui
+    newTag: latest

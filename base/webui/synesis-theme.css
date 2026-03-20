@@ -1,0 +1,220 @@
+/*
+ * Synesis Theme for Open WebUI v0.8.10
+ *
+ * Loaded via <link href="/static/custom.css"> in upstream app.html.
+ * Uses html.dark / html.light classes set by Open WebUI's theme switcher.
+ *
+ * Upstream selectors referenced (see src/app.css):
+ *   .markdown-prose          — chat message body
+ *   .font-primary            — Archivo / Vazirmatn
+ *   ::-webkit-scrollbar-*    — scrollbar styling
+ *   .hljs                    — code block highlight container
+ *   .codespan                — inline code
+ *
+ * Design intent: crisp typography, tighter borders, subtle accent,
+ * restrained use of shadows. No Tailwind build required.
+ */
+
+/* ------------------------------------------------------------------ */
+/* 1. Global typography & rendering                                   */
+/* ------------------------------------------------------------------ */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ------------------------------------------------------------------ */
+/* 2. Light mode                                                      */
+/* ------------------------------------------------------------------ */
+
+html.light {
+  --synesis-bg: #ffffff;
+  --synesis-bg-secondary: #f8f9fa;
+  --synesis-bg-tertiary: #f1f3f5;
+  --synesis-border: #e2e5e9;
+  --synesis-border-subtle: #eceef1;
+  --synesis-text: #1a1d21;
+  --synesis-text-secondary: #555d69;
+  --synesis-accent: #2563eb;
+  --synesis-accent-subtle: rgba(37, 99, 235, 0.08);
+  --synesis-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --synesis-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --synesis-code-bg: #f4f5f7;
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Dark mode                                                       */
+/* ------------------------------------------------------------------ */
+
+html.dark {
+  --synesis-bg: #171717;
+  --synesis-bg-secondary: #1e1e1e;
+  --synesis-bg-tertiary: #262626;
+  --synesis-border: #333333;
+  --synesis-border-subtle: #2a2a2a;
+  --synesis-text: #e8eaed;
+  --synesis-text-secondary: #9aa0a8;
+  --synesis-accent: #60a5fa;
+  --synesis-accent-subtle: rgba(96, 165, 250, 0.1);
+  --synesis-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --synesis-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --synesis-code-bg: #1e1e1e;
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Sidebar                                                         */
+/* ------------------------------------------------------------------ */
+
+#sidebar {
+  border-right: 1px solid var(--synesis-border-subtle);
+}
+
+html.dark #sidebar {
+  background-color: #141414;
+}
+
+html.light #sidebar {
+  background-color: var(--synesis-bg-secondary);
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Chat area & message containers                                  */
+/* ------------------------------------------------------------------ */
+
+.message-content {
+  letter-spacing: -0.006em;
+  line-height: 1.65;
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. Inputs & textareas                                              */
+/* ------------------------------------------------------------------ */
+
+textarea,
+input[type="text"],
+input[type="search"],
+input[type="url"],
+input[type="email"] {
+  border: 1px solid var(--synesis-border);
+  border-radius: 0.5rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+textarea:focus,
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="email"]:focus {
+  border-color: var(--synesis-accent);
+  box-shadow: 0 0 0 2px var(--synesis-accent-subtle);
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* 7. Buttons — focus-visible ring for accessibility                  */
+/* ------------------------------------------------------------------ */
+
+button:focus-visible {
+  outline: 2px solid var(--synesis-accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* 8. Code blocks & inline code                                       */
+/* ------------------------------------------------------------------ */
+
+.codespan {
+  border: 1px solid var(--synesis-border-subtle);
+  background-color: var(--synesis-code-bg);
+}
+
+pre:has(> code) {
+  border: 1px solid var(--synesis-border-subtle);
+  box-shadow: var(--synesis-shadow-sm);
+}
+
+/* ------------------------------------------------------------------ */
+/* 9. Markdown prose refinements                                      */
+/* ------------------------------------------------------------------ */
+
+.markdown-prose {
+  line-height: 1.7;
+}
+
+.markdown-prose hr {
+  border-color: var(--synesis-border-subtle);
+}
+
+.markdown-prose blockquote {
+  border-left-color: var(--synesis-accent);
+  background-color: var(--synesis-accent-subtle);
+  padding: 0.5rem 1rem;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.markdown-prose table {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--synesis-border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.markdown-prose th,
+.markdown-prose td {
+  border-color: var(--synesis-border-subtle);
+}
+
+/* ------------------------------------------------------------------ */
+/* 10. Scrollbar refinement (WebKit)                                  */
+/* ------------------------------------------------------------------ */
+
+html.light ::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.15);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* ------------------------------------------------------------------ */
+/* 11. Dialog / modal overlays                                        */
+/* ------------------------------------------------------------------ */
+
+[role="dialog"] > div {
+  border: 1px solid var(--synesis-border);
+  box-shadow: var(--synesis-shadow-md);
+  border-radius: 0.75rem;
+}
+
+/* ------------------------------------------------------------------ */
+/* 12. Dropdown menus                                                 */
+/* ------------------------------------------------------------------ */
+
+[data-menu],
+.tippy-box[data-theme~="dark"] {
+  border: 1px solid var(--synesis-border);
+  box-shadow: var(--synesis-shadow-md);
+}
+
+/* ------------------------------------------------------------------ */
+/* 13. Select elements                                                */
+/* ------------------------------------------------------------------ */
+
+select {
+  border: 1px solid var(--synesis-border);
+  border-radius: 0.375rem;
+  transition: border-color 0.15s ease;
+}
+
+select:focus {
+  border-color: var(--synesis-accent);
+  box-shadow: 0 0 0 2px var(--synesis-accent-subtle);
+  outline: none;
+}
