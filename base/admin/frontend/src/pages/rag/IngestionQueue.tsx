@@ -2,14 +2,12 @@ import { useState, useRef } from "react";
 import {
   useIngestionStats,
   useIngestionItems,
-  useIngestionSources,
   useIngestionRuns,
   useAddIngestionItem,
   useAddIngestionItemsBulk,
   useDeleteIngestionItem,
   useRetryIngestionItem,
   useBootstrapIngestion,
-  useCreateIngestionSource,
   useIngestionHandlers,
   useSchemaSync,
 } from "../../api/hooks";

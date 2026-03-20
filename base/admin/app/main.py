@@ -75,7 +75,16 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="Synesis Admin", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="Synesis Admin",
+    version="1.0.0",
+    lifespan=lifespan,
+    description="Operator API and React SPA. JSON routes are under /api/v1; interactive docs under /api/docs.",
+    # Under /api so the SPA catch-all does not serve index.html for /docs.
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -205,6 +214,7 @@ async def serve_root():
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
+    # Unmatched API paths → 404. OpenAPI UI is registered on the app before this route (see docs_url).
     if full_path.startswith("api/") or full_path.startswith("metrics"):
         return Response(status_code=404)
     index = STATIC_DIR / "index.html"

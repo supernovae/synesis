@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { apiErrorMessage } from "../../api/errorMessage";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { useProviderKeys, useProviderCatalog, useSetProviderKey, useDeleteProviderKey } from "../../api/hooks";
 import type { ProviderInfo } from "../../types";
 import { Key, CheckCircle, XCircle, RotateCw, Trash2, AlertTriangle, Eye, EyeOff } from "lucide-react";
@@ -68,25 +68,13 @@ export default function ProviderKeys() {
         </p>
       </div>
 
-      {(setKeyMut.isError || deleteKeyMut.isError) && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/40">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm text-red-800 dark:text-red-200">
-              {apiErrorMessage(setKeyMut.error ?? deleteKeyMut.error)}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setKeyMut.reset();
-                deleteKeyMut.reset();
-              }}
-              className="shrink-0 text-xs font-medium text-red-700 underline hover:text-red-900 dark:text-red-300"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      <ApiErrorBanner
+        error={setKeyMut.error ?? deleteKeyMut.error}
+        onDismiss={() => {
+          setKeyMut.reset();
+          deleteKeyMut.reset();
+        }}
+      />
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
         <div className="flex items-start gap-2">

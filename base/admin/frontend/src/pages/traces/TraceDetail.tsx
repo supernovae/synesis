@@ -81,13 +81,11 @@ function SpanRow({
   span,
   index,
   traceStart,
-  traceId,
   onSpanAssistant,
 }: {
   span: SpanRecord;
   index: number;
   traceStart: number;
-  traceId: string;
   onSpanAssistant: (spanIndex: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1060,7 +1058,6 @@ export default function TraceDetail() {
               span={span}
               index={i}
               traceStart={traceStart}
-              traceId={traceId || ""}
               onSpanAssistant={(spanIndex) => {
                 setAssistantSpanIndex(spanIndex);
                 setShowTraceAssistant(true);

@@ -1,0 +1,28 @@
+---
+description: Synesis admin UI/API — operator UX, DRY errors, provider catalog alignment, OpenAPI
+globs: base/admin/**/*.tsx,base/admin/**/*.ts,base/admin/app/**/*.py
+alwaysApply: false
+---
+
+# Synesis Admin (UI + API)
+
+## Mental model
+
+- **Model Registry** (`/models`) maps **pipeline roles** → **provider + model + endpoint**. It does **not** store API keys.
+- **Provider API Keys** (`/settings/providers`) writes **catalog env vars** to the cluster secret (`PUT`/`DELETE` allowlisted to [`provider_catalog.py`](base/admin/app/services/provider_catalog.py)). Same catalog drives both screens.
+- Prefer links between those pages when copy refers to “configure the key first.”
+
+## Frontend patterns
+
+- **API errors** — use [`apiErrorMessage`](base/admin/frontend/src/api/errorMessage.ts) and [`ApiErrorBanner`](base/admin/frontend/src/components/common/ApiErrorBanner.tsx); reset mutations when closing modals.
+- **New routes** — register in [`router.tsx`](base/admin/frontend/src/router.tsx), [`Sidebar.tsx`](base/admin/frontend/src/components/layout/Sidebar.tsx), and extend [`TopBar.tsx`](base/admin/frontend/src/components/layout/TopBar.tsx) breadcrumb labels / `breadcrumbSegmentLabel` for IDs.
+- **Styling** — match existing Tailwind + `dark:` usage; reuse `MetricCard`, `EmptyState`, `DataTable` where appropriate.
+
+## Backend
+
+- **FastAPI** — OpenAPI UI at `/api/docs`; schema at `/api/openapi.json`. The SPA catch-all must **not** shadow these (routes registered before `/{full_path:path}`).
+- **Consistency** — Prefer shared Pydantic models, `HTTPException(detail=...)`, and tag routers in OpenAPI when touching `main.py`.
+
+## Backlog
+
+See [docs/admin/TODO.md](docs/admin/TODO.md) (API explorer embed, future admin MCP, unfinished ingestion sources UI).

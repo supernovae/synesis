@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { apiErrorMessage } from "../../api/errorMessage";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import {
   useRoleAssignments,
   useAssignRole,
@@ -273,11 +273,7 @@ export default function ModelRegistry() {
               );
             })()}
 
-            {assignMut.isError && (
-              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-                {apiErrorMessage(assignMut.error)}
-              </div>
-            )}
+            <ApiErrorBanner error={assignMut.error} />
 
             {/* Provider picklist */}
             <div>

@@ -218,6 +218,8 @@ done
 | **synesis-planner** | `https://synesis-planner.<cluster>/v1` | LangGraph pipeline without LiteLLM |
 | **synesis-admin** | `https://synesis-admin.<cluster>/` | Traces, web search log, RAG review, knowledge gaps, AI assistant |
 
+The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs` on the same host; OpenAPI JSON at `/api/openapi.json`. Operator UX conventions and backlog: [base/admin/README.md](base/admin/README.md), [docs/admin/TODO.md](docs/admin/TODO.md).
+
 See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
 
 ## Capabilities
@@ -314,6 +316,7 @@ synesis/
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Design experiments: parallel critic, adaptive depth mode |
 | [docs/COHERENCE_GATE_ARCHIVE.md](docs/COHERENCE_GATE_ARCHIVE.md) | Removed coherence gate: rationale, original implementation, restoration guide |
 | [docs/ARCHITECTURE_AUDIT.md](docs/ARCHITECTURE_AUDIT.md) | Historical architecture audit and remediation log |
+| [docs/admin/TODO.md](docs/admin/TODO.md) | Admin UI backlog: API explorer, MCP roadmap, doc/UX gaps |
 
 ## Changing Models
 

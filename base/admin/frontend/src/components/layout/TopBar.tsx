@@ -12,12 +12,16 @@ const breadcrumbLabels: Record<string, string> = {
   corpus: "Corpus",
   quality: "Quality",
   benchmarks: "Benchmarks",
+  review: "Review Queue",
+  ingestion: "Ingestion Queue",
   taxonomy: "Taxonomy",
   coverage: "Coverage",
   pipeline: "Pipeline",
   graph: "Graph",
   nodes: "Nodes",
   critic: "Critic",
+  "conflict-groups": "Conflict Groups",
+  traces: "Activity Log",
   integrations: "Integrations",
   mcp: "MCP Tools",
   search: "Web Search",
@@ -29,12 +33,26 @@ const breadcrumbLabels: Record<string, string> = {
   cache: "Cache",
   "circuit-breakers": "Circuit Breakers",
   errors: "Errors",
+  "retrieval-gaps": "Retrieval Gaps",
   settings: "Settings",
   providers: "Provider Keys",
+  "infra-costs": "Infrastructure Costs",
+  assistant: "Assistant",
   account: "Account",
   tokens: "API Tokens",
   organization: "Organization",
 };
+
+function isLikelyIdSegment(seg: string): boolean {
+  return seg.length >= 20 && /^[a-f0-9-]+$/i.test(seg);
+}
+
+function breadcrumbSegmentLabel(seg: string, prevSeg: string | undefined): string {
+  if (prevSeg === "traces" && isLikelyIdSegment(seg)) return "Trace detail";
+  if (prevSeg === "errors" && isLikelyIdSegment(seg)) return "Failure detail";
+  if (prevSeg === "quality" && seg.length > 0 && !breadcrumbLabels[seg]) return "Domain";
+  return breadcrumbLabels[seg] || seg;
+}
 
 export default function TopBar() {
   const { user, logout } = useAuth();
@@ -57,7 +75,7 @@ export default function TopBar() {
 
   const segments = pathname.split("/").filter(Boolean);
   const crumbs = segments.map((seg, i) => ({
-    label: breadcrumbLabels[seg] || seg,
+    label: breadcrumbSegmentLabel(seg, i > 0 ? segments[i - 1] : undefined),
     path: "/" + segments.slice(0, i + 1).join("/"),
   }));
 
