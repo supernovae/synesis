@@ -26,3 +26,11 @@ def test_confirm_does_not_diverge():
     assert pending_reply_diverges(pending, "yes") is False
     assert pending_reply_diverges(pending, "ok proceed") is False
     assert pending_reply_diverges(pending, "sounds good") is False
+
+
+def test_quiz_choice_does_not_diverge():
+    """MC letters and short quiz answers should not clear pending context."""
+    pending = {"task_description": "vocabulary quiz with options A–D"}
+    assert pending_reply_diverges(pending, "B") is False
+    assert pending_reply_diverges(pending, "B.") is False
+    assert pending_reply_diverges(pending, "a)") is False

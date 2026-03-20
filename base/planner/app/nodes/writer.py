@@ -30,6 +30,11 @@ from ..prompt_spine import (
     TRUST_UNTRUSTED_CONTEXT,
 )
 from ..state import NodeOutcome, NodeTrace
+from ..short_followup_context import (
+    build_trivial_writer_system_prompt,
+    conversation_history_to_openai_messages,
+    effective_user_query,
+)
 from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.writer")
@@ -688,26 +693,15 @@ def _build_available_sources(packets: list[dict[str, Any] | Any]) -> str:
 
 def _build_conversation_messages(state: dict[str, Any]) -> list[dict[str, str]]:
     """Extract recent conversation history as openai-format message dicts."""
-    conv_history = state.get("conversation_history") or []
-    messages: list[dict[str, str]] = []
-    for entry in conv_history[-6:]:
-        if not isinstance(entry, str):
-            continue
-        if entry.startswith("[user]: "):
-            messages.append({"role": "user", "content": entry[8:]})
-        elif entry.startswith("[assistant]: "):
-            messages.append({"role": "assistant", "content": entry[13:]})
-        elif entry.startswith("[system]: "):
-            messages.append({"role": "system", "content": entry[10:]})
-    return messages
+    return conversation_history_to_openai_messages(state.get("conversation_history") or [])
 
 
-_TRIVIAL_SYSTEM = (
-    "You are a helpful, knowledgeable assistant. Answer the user's question "
-    "directly and concisely. Use markdown formatting where appropriate "
-    "(headings, bold, lists, fenced code blocks). Keep the answer short — "
-    "one to three paragraphs unless the user explicitly asks for more."
-)
+def _effective_user_query(state: dict[str, Any]) -> str:
+    return effective_user_query(state.get("last_user_content"), state.get("task_description"))
+
+
+def _trivial_system_prompt(state: dict[str, Any]) -> str:
+    return build_trivial_writer_system_prompt(bool(state.get("conversation_history")))
 
 
 async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -730,14 +724,14 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     rag_mode = state.get("rag_mode", "normal")
     no_retrieval_easy = rag_mode == "disabled" and difficulty < 0.3
     if task_is_trivial or difficulty < trivial_threshold or no_retrieval_easy:
-        raw_question = (state.get("last_user_content") or state.get("task_description") or "").strip()
+        raw_question = _effective_user_query(state)
         if raw_question:
             writer_url = settings.writer_model_url or settings.general_model_url
             writer_name = settings.writer_model_name or settings.general_model_name
 
             # Conversation history for context continuity
             conv_history = _build_conversation_messages(state)
-            ds_messages = [{"role": "system", "content": _TRIVIAL_SYSTEM}]
+            ds_messages = [{"role": "system", "content": _trivial_system_prompt(state)}]
             ds_messages.extend(conv_history)
             ds_messages.append({"role": "user", "content": raw_question})
 
@@ -813,7 +807,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     # task_frame / execution_plan are empty.  Fall back to the raw user
     # question so the writer always knows what was asked.
     if not task_block:
-        raw_question = (state.get("last_user_content") or state.get("task_description") or "").strip()
+        raw_question = _effective_user_query(state)
         if raw_question:
             task_block = f"User question: {raw_question}"
 

@@ -19,6 +19,7 @@ from ..config import settings
 from ..defaults_policy import get_defaults_policy
 from ..entry_classifier_engine import get_scoring_engine
 from ..query_normalizer import get_normalizer
+from ..short_followup_context import merge_short_followup_for_classification
 from ..taxonomy_prompt_factory import resolve_taxonomy_metadata
 
 logger = logging.getLogger("synesis.entry_classifier")
@@ -139,6 +140,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         orig = (state.get("task_description") or "").strip()[:500]
         if orig:
             text_to_analyze = f"{orig} {last_content or ''}".strip()[:800]
+    elif state.get("conversation_history"):
+        merged = merge_short_followup_for_classification(last_content, state.get("conversation_history"))
+        if merged != last_content:
+            text_to_analyze = merged[:800]
 
     message_origin = _classify_message_origin(last_content)
 
@@ -201,6 +206,10 @@ def entry_classifier_node(state: dict[str, Any]) -> dict[str, Any]:
         )
     else:
         task_description = (last_content or "").strip()[:_DESC_LIMIT] if last_content else ""
+        if state.get("conversation_history"):
+            merged_desc = merge_short_followup_for_classification(last_content, state.get("conversation_history"))
+            if merged_desc != last_content:
+                task_description = merged_desc[:_DESC_LIMIT]
 
     out: dict[str, Any] = {
         "message_origin": message_origin,

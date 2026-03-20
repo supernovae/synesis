@@ -27,6 +27,11 @@ _KNOWLEDGE_STYLE = re.compile(
     r"explain |define |describe |tell me about|why does|why do |how does |how do )",
     re.IGNORECASE,
 )
+# Quiz / interactive: MC letter, numeric choice, yes/no — stay on pending thread
+_QUIZ_OR_SHORT_CHOICE = re.compile(
+    r"^(?:[A-Da-d][\.\)]?\s*|[1-9]\d*\s*|yes|no|yep|nope|true|false|correct|incorrect)\s*[!.]?$",
+    re.IGNORECASE,
+)
 
 
 def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
@@ -40,6 +45,9 @@ def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
     """
     reply = (reply or "").strip()
     if not reply:
+        return False
+
+    if _QUIZ_OR_SHORT_CHOICE.match(reply):
         return False
 
     # Knowledge-style questions are clearly new requests, not plan approval
