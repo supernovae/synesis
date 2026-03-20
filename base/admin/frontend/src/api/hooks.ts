@@ -296,6 +296,58 @@ export function usePerformanceByRole(days: number = 7) {
   });
 }
 
+// --- Active costs (role-first with pricing resolution) ---
+
+export function useActiveCosts() {
+  return useQuery<{ roles: import("../types").ActiveCostEntry[] }>({
+    queryKey: ["models", "costs", "active"],
+    queryFn: () => client.get("/models/costs/active").then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+// --- Infrastructure cost settings ---
+
+export function useInfraCatalog() {
+  return useQuery<{ instances: import("../types").InfraInstanceType[] }>({
+    queryKey: ["settings", "infra-costs", "catalog"],
+    queryFn: () => client.get("/settings/infra-costs/catalog").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useInfraConfigs() {
+  return useQuery<{ configs: import("../types").InfraCostConfig[] }>({
+    queryKey: ["settings", "infra-costs"],
+    queryFn: () => client.get("/settings/infra-costs").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSetInfraCost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ role, ...data }: { role: string } & Partial<import("../types").InfraCostConfig>) =>
+      client.put(`/settings/infra-costs/${role}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs"] });
+    },
+  });
+}
+
+export function useDeleteInfraCost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (role: string) =>
+      client.delete(`/settings/infra-costs/${role}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs"] });
+    },
+  });
+}
+
 // --- Model Performance (detailed, trace-based) ---
 
 export interface DetailedModelPerformance {

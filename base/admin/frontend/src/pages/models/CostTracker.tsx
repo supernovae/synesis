@@ -14,23 +14,47 @@ import {
 import {
   useModelCosts,
   useUpdateModelCost,
+  useActiveCosts,
   useCostsByRole,
   useCostsDaily,
   useCostRateHistory,
-  useProviderCatalog,
 } from "../../api/hooks";
 import type { CostByRoleEntry, DailyCostEntry, CostRateSnapshotEntry } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
-import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown } from "lucide-react";
-import type { ModelCost } from "../../types";
+import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react";
+import type { ModelCost, ActiveCostEntry } from "../../types";
 
 const COLORS = [
   "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
   "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
 ];
+
+const SOURCE_BADGE_STYLES: Record<string, string> = {
+  manual: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+  litellm: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  bundled: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  infra_calc: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
+  unknown: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  manual: "Manual",
+  litellm: "LiteLLM",
+  bundled: "API Pricing",
+  infra_calc: "Infra Calc",
+  unknown: "Unknown",
+};
+
+function PricingSourceBadge({ source }: { source: string }) {
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${SOURCE_BADGE_STYLES[source] || SOURCE_BADGE_STYLES.unknown}`}>
+      {SOURCE_LABELS[source] || source}
+    </span>
+  );
+}
 
 function ProviderBadge({ source }: { source: string }) {
   const isLocal = source === "local" || source === "vllm" || source === "kserve";
@@ -120,14 +144,19 @@ function shortModel(name: string): string {
 
 export default function CostTracker() {
   const [days, setDays] = useState(7);
-  const { data: rateData, isLoading } = useModelCosts();
+  const [showAll, setShowAll] = useState(false);
+  const { data: activeData, isLoading: activeLoading } = useActiveCosts();
+  const { data: allData, isLoading: allLoading } = useModelCosts();
   const { data: roleData } = useCostsByRole(days);
   const { data: dailyData } = useCostsDaily(days);
   const { data: rateHistoryData } = useCostRateHistory(90);
-  const { data: catalogData } = useProviderCatalog();
   const [editing, setEditing] = useState<ModelCost | null>(null);
 
-  const roles = rateData?.roles ?? [];
+  const activeRoles: ActiveCostEntry[] = activeData?.roles ?? [];
+  const allRoles = allData?.roles ?? [];
+  const displayRoles = showAll ? allRoles : activeRoles;
+  const isLoading = showAll ? allLoading : activeLoading;
+
   const byRole: CostByRoleEntry[] = roleData?.roles ?? [];
   const daily: DailyCostEntry[] = dailyData?.daily ?? [];
   const rateHistory: CostRateSnapshotEntry[] = rateHistoryData?.snapshots ?? [];
@@ -181,7 +210,7 @@ export default function CostTracker() {
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
-      ) : roles.length === 0 && byRole.length === 0 ? (
+      ) : displayRoles.length === 0 && byRole.length === 0 ? (
         <EmptyState title="No cost data" description="Cost data populates after requests flow through the pipeline" />
       ) : (
         <>
@@ -245,17 +274,29 @@ export default function CostTracker() {
             </ChartCard>
           )}
 
-          {/* Rate config table (per role) */}
-          {roles.length > 0 && (
+          {/* Rate config table */}
+          {displayRoles.length > 0 && (
             <>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rate Configuration</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rate Configuration</h2>
+                <button
+                  onClick={() => setShowAll(!showAll)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+                >
+                  {showAll ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {showAll ? "Active Only" : "Show All"}
+                </button>
+              </div>
               <DataTable
                 columns={[
                   { key: "role", label: "Role", sortable: true },
                   { key: "model", label: "Model", render: (r) => <span className="text-xs">{shortModel(r.model as string)}</span> },
-                  { key: "source", label: "Provider", render: (r) => <ProviderBadge source={r.source as string} /> },
+                  { key: "source", label: "Provider", render: (r) => <ProviderBadge source={(r as any).provider || (r.source as string)} /> },
                   { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${(r.input_per_million as number).toFixed(2)}` },
                   { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${(r.output_per_million as number).toFixed(2)}` },
+                  ...(!showAll ? [{
+                    key: "pricing_source", label: "Source", render: (r: any) => <PricingSourceBadge source={r.pricing_source || "unknown"} />,
+                  }] : []),
                   { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{(r.cost_formula as string) || "---"}</span> },
                   { key: "actions", label: "", render: (r) => (
                     <button onClick={() => setEditing(r as ModelCost)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800" title="Edit cost">
@@ -263,7 +304,7 @@ export default function CostTracker() {
                     </button>
                   )},
                 ]}
-                data={roles}
+                data={displayRoles}
                 keyField="role"
               />
             </>

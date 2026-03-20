@@ -28,11 +28,17 @@ _reconciler_task: asyncio.Task | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
     from app.services.model_registry import capture_cost_rate_snapshots, seed_model_deployments
 
     # Schema is managed by Alembic migrations (run in entrypoint.sh).
     logger.info("admin_db_ready")
+
+    try:
+        await ensure_infra_table()
+    except Exception:
+        logger.debug("infra_table_ensure_failed", exc_info=True)
 
     try:
         seeded = await seed_model_deployments()
@@ -92,12 +98,12 @@ from app.routers.integrations import router as integrations_router
 from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
 from app.routers.pipeline import router as pipeline_router
+from app.routers.providers import router as providers_router
 from app.routers.rag import router as rag_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
-from app.routers.providers import router as providers_router
 
 app.include_router(assistant_router)
 app.include_router(auth_router)

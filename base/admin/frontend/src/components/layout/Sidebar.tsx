@@ -115,6 +115,7 @@ const navigation: NavItem[] = [
     children: [
       { label: "System Config", path: "/settings" },
       { label: "Provider Keys", path: "/settings/providers" },
+      { label: "Infrastructure Costs", path: "/settings/infra-costs" },
     ],
   },
 ];

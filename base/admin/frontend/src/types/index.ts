@@ -137,12 +137,51 @@ export interface RolePerformance {
   total_actual_cost: number;
 }
 
+export interface ActiveCostEntry {
+  [key: string]: unknown;
+  role: string;
+  model: string;
+  profile: string;
+  source: string;
+  provider: string;
+  input_per_million: number;
+  output_per_million: number;
+  monthly_fixed_cost: number;
+  cost_formula: string;
+  notes: string;
+  pricing_source: "manual" | "litellm" | "bundled" | "infra_calc" | "unknown";
+}
+
+export interface InfraInstanceType {
+  cloud: string;
+  instance_type: string;
+  label: string;
+  gpu_model: string;
+  gpu_count: number;
+  on_demand_hourly: number;
+  estimated_tokens_per_hour: number;
+}
+
+export interface InfraCostConfig {
+  role: string;
+  cloud: string;
+  instance_type: string;
+  gpu_model: string;
+  gpu_count: number;
+  hourly_rate: number;
+  tokens_per_hour: number;
+  input_per_million: number;
+  output_per_million: number;
+  notes: string;
+  updated_at: string | null;
+}
+
 export interface ModelCost {
   [key: string]: unknown;
   role: string;
   model: string;
   profile: string;
-  source: "local" | "openrouter";
+  source: string;
   input_per_million: number;
   output_per_million: number;
   monthly_fixed_cost: number;

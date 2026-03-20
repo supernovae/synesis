@@ -265,6 +265,82 @@ async def set_fallbacks(
 # Costs
 # ---------------------------------------------------------------------------
 
+@router.get("/costs/active")
+async def active_costs(_user: UserInfo = Depends(get_current_user)):
+    """Rate configuration for active role assignments only.
+
+    For each active role, resolves pricing from: manual DB overrides,
+    LiteLLM proxy data, bundled API pricing, or infra cost calculator.
+    """
+    from ..services.infra_pricing import get_infra_config_for_role
+    from ..services.pricing_lookup import resolve_pricing
+
+    assignments = await get_role_assignments()
+    costs = await get_cost_estimates()
+    cost_by_role: dict[str, dict] = {c["role"]: c for c in costs}
+
+    result = []
+    for a in assignments:
+        if not a.get("assigned"):
+            continue
+        role = a["role"]
+        provider = a.get("provider", "")
+        model = a.get("model", "")
+        served_name = a.get("served_name", "")
+
+        # Start with manual DB/YAML cost if it has non-zero rates.
+        manual = cost_by_role.get(role)
+        if manual and (manual.get("input_per_million", 0) > 0 or manual.get("output_per_million", 0) > 0):
+            result.append({**manual, "provider": provider, "pricing_source": "manual"})
+            continue
+
+        # For local providers, check infra cost calculator.
+        if provider in ("vllm", "kserve"):
+            infra = await get_infra_config_for_role(role)
+            if infra and infra.get("input_per_million", 0) > 0:
+                result.append({
+                    "role": role, "model": model, "profile": "",
+                    "source": provider, "provider": provider,
+                    "input_per_million": infra["input_per_million"],
+                    "output_per_million": infra["output_per_million"],
+                    "monthly_fixed_cost": infra.get("hourly_rate", 0) * 730,
+                    "cost_formula": f"{infra.get('cloud', '')} {infra.get('instance_type', '')} @ ${infra.get('hourly_rate', 0):.2f}/hr",
+                    "notes": infra.get("notes", ""),
+                    "pricing_source": "infra_calc",
+                })
+                continue
+
+        # For API providers, try auto-lookup.
+        pricing = await resolve_pricing(provider, model, served_name)
+        if pricing:
+            rates, source = pricing
+            result.append({
+                "role": role, "model": model, "profile": "",
+                "source": provider, "provider": provider,
+                "input_per_million": rates[0],
+                "output_per_million": rates[1],
+                "monthly_fixed_cost": 0.0,
+                "cost_formula": "",
+                "notes": f"auto: {source}",
+                "pricing_source": source,
+            })
+            continue
+
+        # Fallback: zero rates.
+        result.append({
+            "role": role, "model": model, "profile": "",
+            "source": provider, "provider": provider,
+            "input_per_million": 0.0,
+            "output_per_million": 0.0,
+            "monthly_fixed_cost": 0.0,
+            "cost_formula": "",
+            "notes": "",
+            "pricing_source": "unknown",
+        })
+
+    return {"roles": result}
+
+
 @router.get("/costs")
 async def model_costs(_user: UserInfo = Depends(get_current_user)):
     costs = await get_cost_estimates()
