@@ -434,6 +434,8 @@ while preserving flexibility for justified overrides. Controls are deterministic
 
 The `entry_pipeline` node runs classifier, strategic advisor, and frame extractor concurrently. For complex prompts where GLiNER's first pass misses critical fields (e.g. `main_question`), a second-pass LLM repair call runs via `ChatOpenAI(streaming=True)`. The streaming flag ensures that LangChain emits `on_chat_model_stream` events during the LLM call, keeping the SSE event iterator active. This prevents the heartbeat poll from seeing a silent window and allows the pipeline to complete normally.
 
+**Clarification resume** still executes the full entry pipeline before the planner; the draft plan is reused inside the planner (see `docs/PLANNER_PREFIX_KV_CACHE.md`). Inference-side **prefix / KV cache** on static system prompts is the preferred way to keep repeat turns cheap and fast before considering skip-entry optimizations—validate cached-prefill metrics and billing in your deployment.
+
 ### Immutable Frame Lifecycle
 
 `SemanticFrame` is extracted by `frame_extractor` and written to state via the
