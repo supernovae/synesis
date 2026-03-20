@@ -12,7 +12,10 @@ from . import litellm_client
 
 logger = logging.getLogger("synesis.admin.model_reconciler")
 
-PROTECTED_MODELS = {"synesis-agent"}
+# LiteLLM routes defined in base/gateway/litellm-config.yaml but not represented as
+# admin ModelDeployment rows (KNOWN_ROLES). Reconcile must not DELETE these via API —
+# config-backed routes return 500 on /model/delete and should stay for Open WebUI / Yarn.
+PROTECTED_MODELS = frozenset({"synesis-agent", "synesis-thinking", "synesis-yarn"})
 
 
 async def reconcile() -> dict:
