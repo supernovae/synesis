@@ -127,7 +127,7 @@ what was searched and planned (e.g., "Searched: Kubernetes deployment strategies
 "Plan ready: 5 sections").
 
 **Background critic mode** (`SYNESIS_CRITIC_BACKGROUND=true`): The SSE stream closes
-immediately after the writer/executor finishes streaming content. The graph continues
+immediately after the writer finishes streaming content. The graph continues
 running the critic, scrubber, and respond nodes silently. When disabled (default),
 the critic runs inline and the user waits for it to complete before the stream closes.
 
@@ -438,20 +438,20 @@ The `entry_pipeline` node runs classifier, strategic advisor, and frame extracto
 
 `SemanticFrame` is extracted by `frame_extractor` and written to state via the
 `_set_once_dict` reducer. Once set, no downstream node can overwrite it. All
-nodes (planner, executor, writer, critic) read the same immutable frame.
+nodes (planner, writer, critic) read the same immutable frame.
 
 ### Decision Ledger
 
 The planner emits structured `DecisionEntry` objects (append-only via
 `_append_only_ledger` reducer). Each entry records what was chosen, what was
-rejected, and why. The executor and writer consume the ledger directly
+rejected, and why. The writer consumes the ledger directly
 instead of raw planner prose. The critic validates the draft against ledger
 entries and flags contradictions.
 
 ```
 frame_extractor → semantic_frame (set-once)
 planner → decision_ledger (append-only) + style_contract_locked (set-once)
-executor / writer ← reads decision_ledger + style_contract_locked
+writer ← reads decision_ledger + style_contract_locked
 critic ← validates draft against decision_ledger + style_contract_locked
 ```
 
@@ -987,7 +987,7 @@ Full details: [docs/SECURITY.md](SECURITY.md)
 
 **Layer 1 — Pattern Scanning** (`injection_scanner.py`): Tier 1 (core) + Tier 2 (web-extended) regex patterns covering instruction override, role hijacking, chat-template injection, and output control. Applied at every untrusted data entry point: user input, web results (production path in `unified_retrieval.py`), knowledge submission, and RAG chunks at index time.
 
-**Layer 2 — Trust Boundary Delimiters** (Spotlighting + Prompt Fencing): All content injected into prompts is wrapped in XML-style trust boundary tags with provenance metadata (`<context source="..." trust="untrusted">`). Applied consistently in planner, writer, executor, critic, and router summarizer.
+**Layer 2 — Trust Boundary Delimiters** (Spotlighting + Prompt Fencing): All content injected into prompts is wrapped in XML-style trust boundary tags with provenance metadata (`<context source="..." trust="untrusted">`). Applied consistently in planner, writer, critic, and router summarizer.
 
 **Layer 3 — Datamarking** (Spotlighting): Per-token provenance prefixes: `[W]` for web, `[R:canonical]` / `[R:vetted]` / `[R:community]` / `[R:external]` for RAG with authority tiers.
 
@@ -1048,7 +1048,7 @@ Synesis includes a built-in LLM tracing system (`SynesisTracer`) that persists p
 
 ### What SynesisTracer Captures
 
-- **Per-node span tracing**: entry_pipeline, router, planner, executor, writer, critic — auto-traced via a LangChain `BaseCallbackHandler` attached to every graph invocation.
+- **Per-node span tracing**: entry_pipeline, planner, plan_gate, router, writer, critic — auto-traced via a LangChain `BaseCallbackHandler` attached to every graph invocation.
 - **Per-LLM-call detail**: model name, prompt/completion token counts, latency, and truncated prompt/completion snippets for each LLM call within a node.
 - **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record.
 - **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`, `is_code_task`, `has_error`.

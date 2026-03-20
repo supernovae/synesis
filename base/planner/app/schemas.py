@@ -2,7 +2,7 @@
 
 Validates and canonicalizes LLM responses between nodes.
 Schema models align with models.yaml roles: RouterDecision (router),
-PlannerOut (router), ExecutorOut (general), CriticOut (critic).
+PlannerOut (planner), ExecutorOut (legacy general output shape), CriticOut (critic).
 """
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ class RouterDecision(BaseModel):
     EntryClassifier and is passed through via state.
     """
 
-    route: Literal["worker", "planner", "respond"] = "worker"
+    route: Literal["writer", "planner", "respond"] = "writer"
     rag_mode: Literal["disabled", "light", "normal"] = "disabled"
     reasoning: str = ""
     confidence: float = Field(ge=0.0, le=1.0, default=0.7)

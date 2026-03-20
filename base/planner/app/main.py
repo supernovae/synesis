@@ -447,7 +447,7 @@ def _sse_content_delta(chat_id: str, delta: dict, run_id: str = "") -> str:
 
 
 def _sse_debug_chatter_event(node: str, label: str, content: str) -> str:
-    """Format debug_chatter event for plan/router/critic/executor outputs. Open WebUI can render as labeled block."""
+    """Format debug_chatter event for plan/router/critic/writer outputs. Open WebUI can render as labeled block."""
     return f"event: debug_chatter\ndata: {json.dumps({'node': node, 'label': label, 'content': content})}\n\n"
 
 
@@ -487,12 +487,6 @@ def _format_debug_chatter(chunk: dict) -> list[tuple[str, str, str]]:
         steps = exec_plan.get("steps", []) if isinstance(exec_plan, dict) else []
         lines = [f"{i + 1}. {s.get('action', s) if isinstance(s, dict) else s}" for i, s in enumerate(steps)]
         out.append(("planner", "Execution Plan", "\n".join(lines) if lines else "(no steps)"))
-
-    elif node == "executor":
-        code = (chunk.get("generated_code") or "")[:800]
-        expl = (chunk.get("code_explanation") or "")[:200]
-        if code or expl:
-            out.append(("executor", "Executor", f"{expl}\n\n```\n{code}\n```" if code else expl))
 
     elif node == "critic":
         approved = chunk.get("critic_approved", True)
@@ -1276,7 +1270,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             else:
                 pending = memory.get_and_clear_pending_needs_input(memory_scope)
                 if pending:
-                    pending["source_node"] = "executor"
+                    pending["source_node"] = "writer"
 
         if pending:
             logger.info(
@@ -1296,12 +1290,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
                 pending = None
         if pending:
-            source_node = pending.get("source_node", "executor")
+            source_node = pending.get("source_node", "writer")
             context = pending.get("context", pending)
             for key, val in context.items():
                 if key != "source_node" and val is not None:
                     initial_state[key] = val
-            if source_node == "executor":
+            if source_node in ("executor", "writer"):
                 initial_state["user_answer_to_needs_input"] = last_user_content
                 for k in (
                     "task_description",
@@ -1396,7 +1390,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 accumulated_state: dict[str, Any] = dict(initial_state)
                 # When inline critic is active (critic_background=False), suppress
-                # writer/executor content streaming to prevent draft concatenation
+                # writer content streaming to prevent draft concatenation
                 # across critic rejection cycles.  Reasoning tokens still stream so
                 # the thinking UI stays responsive.  Final content is emitted from
                 # accumulated_state after the graph completes.
@@ -1596,9 +1590,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                 yield _flow_phase(f"\u203a {short}")
                                                 await asyncio.sleep(0)
 
-                                # ── Background critic: close stream after writer/executor ──
+                                # ── Background critic: close stream after writer ──
                                 elif (
-                                    node_label in ("writer", "executor")
+                                    node_label == "writer"
                                     and content_streamed
                                     and settings.critic_background
                                 ):
@@ -1641,11 +1635,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     yield "data: [DONE]\n\n"
                                     _stream_closed = True
 
-                        # ── Token streaming from executor / writer LLM ──
+                        # ── Token streaming from writer LLM ──
                         elif kind == "on_chat_model_stream":
                             _meta = event.get("metadata") or {}
                             _lg_node = _meta.get("langgraph_node") or ""
-                            if _lg_node not in ("executor", "writer"):
+                            if _lg_node != "writer":
                                 continue
                             chunk_obj = event.get("data", {}).get("chunk")
                             if not chunk_obj:
@@ -1664,7 +1658,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 _ak = getattr(chunk_obj, "additional_kwargs", {}) or {}
                                 _raw_content = getattr(chunk_obj, "content", None)
                                 logger.info(
-                                    "sse_first_executor_chunk_diag",
+                                    "sse_first_writer_chunk_diag",
                                     extra={
                                         "elapsed_ms": elapsed_now,
                                         "content_sample": (str(_raw_content) or "")[:80],
@@ -1893,7 +1887,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     sent_role = True
 
                 # ── Deferred direct stream for text mode ──
-                # When the writer or executor returns a direct_stream_request
+                # When the writer returns a direct_stream_request
                 # instead of calling langchain (which drops reasoning_content),
                 # we stream directly via the raw openai SDK. This preserves
                 # reasoning_content and gives fast time-to-first-token for
@@ -1949,7 +1943,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 if not _ds_in_reasoning:
                                     _ds_in_reasoning = True
                                     _diag_first_reasoning_ms = int((time.monotonic() - t_start) * 1000)
-                                    _ds_source_node = accumulated_state.get("current_node") or "executor"
+                                    _ds_source_node = accumulated_state.get("current_node") or "writer"
                                     logger.info(
                                         "sse_first_reasoning_token",
                                         extra={
@@ -1975,7 +1969,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         extra={
                                             "elapsed_ms": _diag_first_content_ms,
                                             "reasoning_chunks": _diag_reasoning_chunks,
-                                            "node": accumulated_state.get("current_node") or "executor",
+                                            "node": accumulated_state.get("current_node") or "writer",
                                             "source": "direct_stream",
                                         },
                                     )
@@ -2597,7 +2591,7 @@ async def sse_test():
 
 @app.get("/metrics")
 async def metrics():
-    """Prometheus metrics for retrieval, executor, web search, etc."""
+    """Prometheus metrics for retrieval, writer, web search, etc."""
     return Response(
         content=generate_latest(),
         media_type=CONTENT_TYPE_LATEST,

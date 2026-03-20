@@ -1,10 +1,10 @@
-"""Streaming support — Open WebUI status + Planner topic/plan + Executor debug bullets.
+"""Streaming support — Open WebUI status + Planner topic/plan + Writer phase hints.
 
 - StatusQueueCallback: Custom callback that emits status descriptions as nodes run.
 - emit_sub_phase(): ContextVar-based mechanism for graph nodes to push sub-phase
   status updates that the SSE generator drains alongside heartbeats.
 - Planner: topic (reasoning) + plan steps yielded as 'status' for sidebar/header.
-- Executor: tool-call/debug bullets via callback (lint, etc.).
+- Writer: composing response (unified generation node).
 """
 
 from __future__ import annotations
@@ -47,11 +47,11 @@ KNOWN_NODE_NAMES: frozenset[str] = frozenset(
         "entry_classifier",
         "strategic_advisor",
         "frame_extractor",
+        "entry_pipeline",
         "router",
         "planner",
-        "executor",
+        "plan_gate",
         "writer",
-        "patch_integrity_gate",
         "critic",
         "final_scrubber",
         "respond",
@@ -98,18 +98,16 @@ class StatusQueueCallback(AsyncCallbackHandler):
             self._put("Assessing strategy\u2026")
         elif "frame_extractor" in n:
             self._put("Extracting intent\u2026")
+        elif "plan_gate" in n:
+            self._put("Validating plan\u2026")
         elif "planner" in n:
             self._put("Building plan\u2026")
         elif "router" in n:
             self._put("Gathering evidence\u2026")
-        elif "executor" in n:
-            self._put("Generating code\u2026")
         elif "writer" in n and "scrubber" not in n:
             self._put("Composing response\u2026")
         elif "critic" in n:
             self._put("Evaluating quality\u2026")
-        elif "patch_integrity" in n or "gate" in n:
-            self._put("Validating code\u2026")
         elif "respond" in n:
             self._put("Finalizing\u2026")
 

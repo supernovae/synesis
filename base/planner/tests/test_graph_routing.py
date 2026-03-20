@@ -63,8 +63,12 @@ class TestRouteAfterRouter:
         state = {"next_node": "nonexistent"}
         assert route_after_router(state) == "planner"
 
-    def test_executor_target_remapped_to_planner(self):
+    def test_legacy_executor_next_node_remapped_to_planner(self):
         state = {"next_node": "executor"}
+        assert route_after_router(state) == "planner"
+
+    def test_worker_next_node_remapped_to_planner(self):
+        state = {"next_node": "worker"}
         assert route_after_router(state) == "planner"
 
 
@@ -116,6 +120,12 @@ class TestRouteAfterPlanGate:
 
 
 class TestRouteAfterWriter:
+    @patch("app.graph.settings")
+    def test_needs_input_routes_to_respond(self, mock_settings):
+        mock_settings.critic_background = True
+        state = {"needs_input_question": "What region?"}
+        assert route_after_writer(state) == "respond"
+
     @patch("app.graph.settings")
     def test_background_critic_routes_to_scrubber(self, mock_settings):
         mock_settings.critic_background = True

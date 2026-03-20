@@ -41,7 +41,7 @@ Router → [evidence_packets] → Planner/Executor/Writer → Critic → Respond
 Evidence flows through `state['evidence_packets']` with `_merge_evidence_packets` reducer. No parallel lists.
 
 - **Router** is the sole owner: populates packets from RAG/web retrieval.
-- **Planner, Executor, Writer, Critic** consume packets; they must forward them downstream but must NOT populate or modify them directly.
+- **Planner, Writer, Critic** consume packets; they must forward them downstream but must NOT populate or modify them directly.
 
 ## Routing signals
 
@@ -49,10 +49,10 @@ Nodes set `next_node` (or other routing signals) to steer conditional edges. **I
 
 | Node        | Sets `next_node` | Also sets | Router              | Must check? |
 |-------------|------------------|-----------|---------------------|-------------|
-| Router      | planner, executor, writer, respond | — | route_after_router | ✓ (reads first) |
-| Planner     | — | evidence_requests | route_after_planner | ✓ (reads plan_pending_approval, evidence_requests) |
-| Patch Gate  | critic | — | route_after_patch_integrity_gate | ✓ (uses integrity_passed) |
-| Critic      | respond, router | need_more_evidence | route_after_critic | ✓ (uses critic_approved, iteration, need_more_evidence) |
+| Router      | planner, writer, respond | — | route_after_router | ✓ (reads first) |
+| Planner     | writer, respond, planner | — | route_after_plan_gate | ✓ (uses plan_gate_passed, clarification, approval; graph uses plan_gate not planner `next_node`) |
+| Plan gate   | — | plan_gate_passed | route_after_plan_gate | ✓ |
+| Critic      | respond, writer | need_more_evidence | route_after_critic | ✓ (uses critic_approved, iteration, need_more_evidence) |
 
 **Checklist when adding/changing routing:** When a node starts setting `next_node` (or a new routing field), add a corresponding check at the *top* of the router for that node's outgoing edge. Do not rely on downstream logic to "figure it out."
 

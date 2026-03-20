@@ -1265,7 +1265,7 @@ Reply with JSON:
                 else:
                     doc_approved = doc_parsed.approved
 
-                doc_next = "respond" if doc_approved else "supervisor"
+                doc_next = "respond" if doc_approved else "writer"
 
                 # CRAG: detect sections needing corrective web search
                 residual = getattr(doc_parsed, "residual_risks", []) or []
@@ -1670,7 +1670,7 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
             )
             approved = True
 
-        next_node = "respond" if approved else "supervisor"
+        next_node = "respond" if approved else "writer"
 
         critic_should_continue = not approved
         critic_continue_reason = parsed.continue_reason or (

@@ -8,7 +8,7 @@ The sandbox creates an ephemeral K8s Job in the synesis-sandbox namespace with
 deny-all networking, restricted SCC, and no privilege escalation. The Job runs
 linting, security scanning, and code execution, returning structured JSON.
 
-Previously this was a fixed graph node (executor.py / sandbox_node). Moved to
+Previously this was a fixed graph node (legacy executor / sandbox_node). Moved to
 MCP to decouple execution from the planner pipeline and allow on-demand
 invocation by any MCP-capable client.
 

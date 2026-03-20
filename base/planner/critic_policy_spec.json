@@ -1,11 +1,11 @@
 {
   "version": "2.0",
   "langgraph_topology": {
-    "nodes": ["entry_classifier", "strategic_advisor", "supervisor", "planner", "context_curator", "worker", "evidence_gatherer", "compile_evidence", "structured_writer", "patch_integrity_gate", "critic", "final_scrubber", "respond"],
-    "critic_incoming": ["structured_writer", "patch_integrity_gate"],
-    "critic_outgoing": ["respond", "supervisor", "final_scrubber"],
-    "knowledge_path": "entry_classifier -> strategic_advisor -> planner -> evidence_gatherer(parallel) -> compile_evidence -> structured_writer -> critic -> final_scrubber -> respond",
-    "code_path": "entry_classifier -> strategic_advisor -> supervisor -> context_curator -> worker -> patch_integrity_gate -> critic -> respond",
+    "nodes": ["entry_pipeline", "planner", "plan_gate", "router", "writer", "critic", "final_scrubber", "respond"],
+    "critic_incoming": ["writer"],
+    "critic_outgoing": ["respond", "router", "writer", "final_scrubber"],
+    "knowledge_path": "entry_pipeline -> planner -> plan_gate -> router -> writer -> critic -> final_scrubber -> respond",
+    "code_path": "same unified graph; code tasks use writer with markdown/code fences (no separate executor node)",
     "evidence_sources": ["rag", "web_search"]
   },
   "state_schema": {

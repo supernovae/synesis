@@ -19,6 +19,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from ..code_extractor import detect_needs_input
 from ..config import settings
 from ..contract_validator import fingerprint_draft
 from ..llm_telemetry import get_llm_http_client
@@ -1078,6 +1079,36 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         if not compiled or len(compiled) < 50:
             logger.warning("writer_output_too_short")
             compiled = "*Response generation produced insufficient output.*"
+
+        needs_input_detected, needs_input_question = detect_needs_input(compiled)
+        if needs_input_detected:
+            q = needs_input_question or "I need more information to proceed. Can you provide more details?"
+            logger.info("writer_needs_input", extra={"question": q[:80]})
+            latency = (time.monotonic() - start) * 1000
+            from ..token_utils import track_budget
+
+            new_budget = track_budget(state, result, role="writer")
+            _tok = result.usage_metadata.get("total_tokens", 0) if getattr(result, "usage_metadata", None) else 0
+            return {
+                "generated_code": "",
+                "compiled_answer": "",
+                "needs_input_question": q,
+                "error": None,
+                "current_node": node_name,
+                "next_node": "respond",
+                "token_budget_remaining": new_budget,
+                "node_traces": [
+                    NodeTrace(
+                        node_name=node_name,
+                        reasoning="needs_input detected",
+                        assumptions=[],
+                        confidence=0.5,
+                        outcome=NodeOutcome.SUCCESS,
+                        latency_ms=latency,
+                        tokens_used=_tok,
+                    )
+                ],
+            }
 
         # Replace any LLM-generated Sources section with the controlled
         # provenance-based one (capped, confidence-sorted, collapsible).

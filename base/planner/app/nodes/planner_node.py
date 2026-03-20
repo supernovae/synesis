@@ -427,8 +427,8 @@ def _should_activate_depth_mode(state: dict[str, Any], steps: list) -> bool:
     with 2+ plan steps. Complexity scales section count and token budgets,
     not whether to use the pipeline.
 
-    Only disabled for code tasks (which use the worker pipeline) or when
-    depth_mode config is explicitly "disabled".
+    Only disabled for code tasks when using a separate code graph (not this unified path)
+    or when depth_mode config is explicitly "disabled".
     """
     if settings.depth_mode == "disabled":
         return False
@@ -468,7 +468,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "allowed_tools": ["none"],
             "target_language": "markdown",
             "current_node": node_name,
-            "next_node": "worker",
+            # Telemetry: after plan_gate → router → writer (no legacy "worker" node).
+            "next_node": "writer",
             "node_traces": [],
         }
 
@@ -770,7 +771,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             needs_approval = False
             logger.info("planner_skip_approval_text_mode")
 
-        next_node = "respond" if needs_approval else "worker"
+        next_node = "respond" if needs_approval else "writer"
 
         # Depth mode: parallel per-section generation (Skeleton-of-Thought)
         activate_depth = _should_activate_depth_mode(state, steps)
@@ -988,8 +989,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
         # After 2 consecutive failures, produce a minimal fallback plan from
-        # deliverables so the graph can proceed to the writer instead of looping
-        # back through router→planner indefinitely.
+        # deliverables so plan_gate → router → writer can run instead of looping
+        # on planner alone.
         task_frame = state.get("task_frame") or {}
         frame_tasks = task_frame.get("tasks") or []
         deliverables = [t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks]
@@ -1011,7 +1012,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "planner_error_count": planner_attempts,
                 "error": None,
                 "current_node": node_name,
-                "next_node": "worker",
+                "next_node": "writer",
                 "is_code_task": False,
                 "allowed_tools": ["none"],
                 "target_language": "markdown",
@@ -1024,7 +1025,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "evidence_requests": [],
             "planner_error_count": planner_attempts,
             "current_node": node_name,
-            "next_node": "worker",
+            # Empty plan: plan_gate will fail and route back to planner for retry.
+            "next_node": "planner",
             "error": str(e),
             "node_traces": [trace],
         }

@@ -15,9 +15,9 @@ const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> 
 
 const ROWS: string[][] = [
   ["entry_pipeline"],
+  ["planner", "plan_gate"],
   ["router"],
-  ["planner", "executor"],
-  ["writer", "patch_integrity_gate"],
+  ["writer"],
   ["critic"],
   ["final_scrubber"],
   ["respond"],

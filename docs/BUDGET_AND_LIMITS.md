@@ -31,13 +31,13 @@ Scaling: `scaled_writer_budget(d) = 2048 + d × (32768 − 2048)`
 
 | Setting | Value | File |
 |---|---|---|
-| `_MIN_BUDGET` | 1,024 | `executor.py` (hardcoded) |
-| `_MAX_BUDGET` | 16,384 | `executor.py` (hardcoded) |
-| Plan-required floor (difficulty ≥ 0.6) | 8,192 | `executor.py` |
-| Plan-required floor (difficulty < 0.6) | 4,096 | `executor.py` |
-| Default floor (no plan) | 1,536 | `executor.py` |
-| Brevity cap (low difficulty) | 1,536 | `executor.py` |
-| Social acknowledgment | 256 | `executor.py` |
+| `_MIN_BUDGET` | 1,024 | `writer.py` (hardcoded) |
+| `_MAX_BUDGET` | 16,384 | `writer.py` (hardcoded) |
+| Plan-required floor (difficulty ≥ 0.6) | 8,192 | `writer.py` |
+| Plan-required floor (difficulty < 0.6) | 4,096 | `writer.py` |
+| Default floor (no plan) | 1,536 | `writer.py` |
+| Brevity cap (low difficulty) | 1,536 | `writer.py` |
+| Social acknowledgment | 256 | `writer.py` |
 
 Scaling: `token_budget = 1024 + (16384 − 1024) × difficulty^1.5`
 
@@ -85,7 +85,7 @@ If the planner requests more, LiteLLM silently clamps.
 | `synesis-agent` | 32,768 | Pipeline entry (Open WebUI → planner) |
 | `synesis-router` | 4,096 | Classification, planning, advisor |
 | `synesis-critic` | 4,096 | Evaluation, scoring |
-| `synesis-general` | 32,768 | Writer, executor, synthesis |
+| `synesis-general` | 32,768 | Writer, synthesis |
 | `synesis-coder` | 16,384 | IDE direct (agentic coding) |
 | `synesis-thinking` | 16,384 | R1 thinking model (Open WebUI) |
 
@@ -119,10 +119,10 @@ direct API calls) and the planner code (overrides the gateway for pipeline calls
 | `strategic_advisor.py` — proceed/skip | Router | 0.0 | Binary yes/no |
 | `planner_node.py` — plan decomposition | Router | 0.1 | Plans need reproducibility |
 | `critic.py` — evaluation & scoring | Critic | 0.1 | Consistent quality assessments |
-| `executor.py` — default LLM init | General | 0.2 | Safe default for varied tasks |
-| `executor.py` — thinking mode (complex) | General | 0.6 | Qwen3 recommended for thinking |
-| `executor.py` — direct stream (no plan) | General | 0.2 | Straightforward answers |
-| `executor.py` — direct stream (planned) | General | 0.3 | Planned synthesis |
+| `writer.py` — default LLM init | General | 0.2 | Safe default for varied tasks |
+| `writer.py` — thinking mode (complex) | General | 0.6 | Qwen3 recommended for thinking |
+| `writer.py` — direct stream (no plan) | General | 0.2 | Straightforward answers |
+| `writer.py` — direct stream (planned) | General | 0.3 | Planned synthesis |
 | `writer.py` — trivial fast-stream | General | 0.4 | Casual, conversational |
 | `writer.py` — writer synthesis | General | 0.3 | Balanced fluency + grounding |
 | `graph.py` — _writer_pass | General | 0.3 | Pre-writer formatting |
@@ -138,7 +138,7 @@ These apply when clients call models directly (not through the planner pipeline)
 | `synesis-agent` | 0.2 | Pipeline entry | Planner manages internal temps |
 | `synesis-router` | 0.1 | Classification | Low for deterministic routing |
 | `synesis-critic` | 0.1 | Evaluation | Consistent scoring |
-| `synesis-general` | 0.3 | Writer/executor | Balanced for synthesis |
+| `synesis-general` | 0.3 | Writer | Balanced for synthesis |
 | `synesis-coder` | 0.2 | Code generation | Precision for code |
 | `synesis-thinking` | 0.2 | R1 thinking | R1-Distill's CoT adds its own diversity |
 | `synesis-summarizer` | 0.1 | Compression | Faithful to source |
@@ -202,7 +202,7 @@ Quick lookup for where to change each type of limit:
 | What to change | Primary file | Secondary file |
 |---|---|---|
 | Writer/evidence/section budgets | `base/planner/app/config.py` | — |
-| Executor token budget curve | `base/planner/app/nodes/executor.py` | — |
+| Executor token budget curve | `base/planner/app/nodes/writer.py` | — |
 | LiteLLM max_tokens (self-hosted) | `base/gateway/litellm-config.yaml` | — |
 | LiteLLM max_tokens (OpenRouter) | `overlays/openrouter/litellm-config-openrouter.yaml` | — |
 | Temperature (pipeline nodes) | Each node file in `base/planner/app/nodes/` | `base/planner/app/graph.py` |

@@ -227,7 +227,12 @@ def route_after_writer(state: dict[str, Any]) -> str:
     When critic_background is True, critic is skipped in the graph and
     fired as a background task from respond_node instead.  The user sees
     the response immediately; critic results are logged asynchronously.
+
+    When the writer detects a model-emitted needs_input pattern, skip critic
+    and go straight to respond (same as legacy executor behavior).
     """
+    if state.get("needs_input_question"):
+        return "respond"
     if settings.critic_background:
         return "final_scrubber"
     difficulty = state.get("difficulty", 0.5)
@@ -1040,11 +1045,11 @@ graph_builder.add_conditional_edges(
     {"planner": "planner", "writer": "writer", "respond": "respond"},
 )
 
-# Writer -> critic | final_scrubber
+# Writer -> critic | final_scrubber | respond (needs_input short-circuit)
 graph_builder.add_conditional_edges(
     "writer",
     route_after_writer,
-    {"critic": "critic", "final_scrubber": "final_scrubber"},
+    {"critic": "critic", "final_scrubber": "final_scrubber", "respond": "respond"},
 )
 
 # Critic -> writer (quality revision) | router (evidence gap) | final_scrubber (approved) | respond

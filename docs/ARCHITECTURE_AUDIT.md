@@ -41,7 +41,7 @@ The **previous** header of this file said `model_client.py` wraps **all** LLM ca
 | **Retrieval regression CI** | `.github/workflows/retrieval-regression.yml` exists but is **workflow_dispatch** + needs Milvus/embedder; **no `baseline.json`** is committed under `benchmarks/retrieval/` in this repo snapshot. | Commit a baseline + optional PR trigger; or document “run weekly from ops” and keep dispatch-only. |
 | **Prompt suite in CI** | Adversarial YAML exists; **no workflow** references `tests/prompts/run_test_suite.py`. | Add a small job (subset categories) on planner changes, or keep manual. |
 | **Summarizer** | `summarizer_model_url` defaults empty — pivot summarization **off** until deployed. | Set `SYNESIS_SUMMARIZER_MODEL_URL` per [model alignment](../.cursor/rules/model-alignment.mdc) / LiteLLM. |
-| **Planner `next_node: "worker"`** | Still present in fallbacks; graph routes by structure, not that string — **misleading for readers**. | Remove the key or set to a real node name for logging only. |
+| **Planner `next_node`** | Was `"worker"` (removed graph node); planner now uses **`writer`** when a plan continues to generation, **`planner`** on hard error with empty plan (retry via plan_gate). | Done in code; keep naming aligned with `route_after_router` allowlist (`planner` \| `writer` \| `respond`). |
 | **Fail-fast cache dir** | Default remains `/tmp/...` unless `SYNESIS_CACHE_DIR` is set. | Mount PVC + env in deployment if cross-restart cache matters. |
 | **Redis HA / timeout matrix** | Single-replica Redis and uneven HTTP timeouts across clients were called out as **operational** risks, not code bugs. | Playbook + central timeout constants when you next touch clients. |
 | **Faithfulness / grounding automation** | Critic has **deterministic URL** checks, **knowledge_gap** publishing, and LLM rubrics; no dedicated “must-cite” CI gate in pytest. | Extend prompt suite or add golden tests if you want merge-time enforcement. |
@@ -59,7 +59,6 @@ The detailed severity tables, KPI tables, and phase-2 roadmap lived in git histo
 1. **Decide** gateway-only vs **wire `model_client`** into planner nodes; update docs accordingly.  
 2. **Either** enforce token budget in router/planner **or** document intentional omission.  
 3. **Commit** `benchmarks/retrieval/baseline.json` (or generate in CI first-run) if regression workflow should be reproducible from a fresh clone.  
-4. **Remove** dead `next_node: "worker"` strings from planner fallbacks.  
-5. **Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.
+4. **Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.
 
 When the open list is empty or moved to GitHub Issues, this file can be reduced to a short pointer to WORKFLOW + SECURITY only, or deleted.

@@ -34,7 +34,6 @@ FORBIDDEN_RETRIEVAL_IMPORTS = {
 
 NODES_THAT_MUST_NOT_RETRIEVE = {
     "planner_node.py",
-    "executor.py",
     "writer.py",
     "critic.py",
 }
@@ -235,13 +234,14 @@ class TestRetrievalDiscipline:
         state = {"execution_plan": {}, "is_code_task": False, "task_is_trivial": False}
         assert router._decide_next_node(state) == "planner"
 
-    def test_next_node_executor_for_code(self):
+    def test_next_node_writer_for_code_task(self):
+        """Unified graph: code vs knowledge both use writer after retrieval (no executor node)."""
         from app.nodes.router import RouterNode
 
         router = RouterNode.__new__(RouterNode)
 
         state = {"execution_plan": {"steps": []}, "is_code_task": True, "task_is_trivial": False}
-        assert router._decide_next_node(state) == "executor"
+        assert router._decide_next_node(state) == "writer"
 
     def test_next_node_writer_for_knowledge(self):
         from app.nodes.router import RouterNode

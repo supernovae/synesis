@@ -37,41 +37,36 @@ AVAILABLE_CRITIC_MODELS = {
 
 router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
+# Matches base/planner/app/graph.py (unified knowledge pipeline).
 GRAPH_DEFINITION = {
     "nodes": [
         {"id": "entry_pipeline", "label": "Entry Pipeline", "type": "entry"},
-        {"id": "router", "label": "Router", "type": "retrieval"},
         {"id": "planner", "label": "Planner", "type": "planning"},
-        {"id": "executor", "label": "Executor", "type": "execution"},
+        {"id": "plan_gate", "label": "Plan Gate", "type": "planning"},
+        {"id": "router", "label": "Router", "type": "retrieval"},
         {"id": "writer", "label": "Writer", "type": "generation"},
-        {"id": "patch_integrity_gate", "label": "Patch Integrity", "type": "validation"},
         {"id": "critic", "label": "Critic", "type": "evaluation"},
         {"id": "final_scrubber", "label": "Final Scrubber", "type": "post"},
         {"id": "respond", "label": "Respond", "type": "terminal"},
     ],
     "edges": [
-        {"from": "entry_pipeline", "to": "router", "label": "route"},
-        {"from": "entry_pipeline", "to": "writer", "label": "direct write"},
-        {"from": "entry_pipeline", "to": "executor", "label": "direct exec"},
-        {"from": "entry_pipeline", "to": "respond", "label": "trivial"},
-        {"from": "router", "to": "planner", "label": "plan"},
-        {"from": "router", "to": "executor", "label": "execute"},
-        {"from": "router", "to": "writer", "label": "write"},
-        {"from": "router", "to": "respond", "label": "done"},
-        {"from": "planner", "to": "router", "label": "evidence gap"},
-        {"from": "planner", "to": "writer", "label": "write"},
-        {"from": "planner", "to": "executor", "label": "execute"},
-        {"from": "planner", "to": "respond", "label": "done"},
-        {"from": "executor", "to": "patch_integrity_gate", "label": "verify"},
-        {"from": "executor", "to": "respond", "label": "done"},
-        {"from": "writer", "to": "critic", "label": "evaluate"},
-        {"from": "writer", "to": "final_scrubber", "label": "skip critic"},
-        {"from": "patch_integrity_gate", "to": "router", "label": "retry"},
-        {"from": "patch_integrity_gate", "to": "critic", "label": "evaluate"},
+        {"from": "entry_pipeline", "to": "planner", "label": "default"},
+        {"from": "entry_pipeline", "to": "router", "label": "pending_question"},
+        {"from": "entry_pipeline", "to": "respond", "label": "ui_helper"},
+        {"from": "planner", "to": "plan_gate", "label": "always"},
+        {"from": "plan_gate", "to": "planner", "label": "retry"},
+        {"from": "plan_gate", "to": "router", "label": "evidence"},
+        {"from": "plan_gate", "to": "respond", "label": "clarify/approve/error"},
+        {"from": "router", "to": "planner", "label": "no_plan"},
+        {"from": "router", "to": "writer", "label": "ready"},
+        {"from": "router", "to": "respond", "label": "error"},
+        {"from": "writer", "to": "respond", "label": "needs_input"},
+        {"from": "writer", "to": "critic", "label": "inline_critic"},
+        {"from": "writer", "to": "final_scrubber", "label": "skip_critic/bg"},
         {"from": "critic", "to": "writer", "label": "revise"},
-        {"from": "critic", "to": "router", "label": "evidence gap"},
+        {"from": "critic", "to": "router", "label": "evidence_gap"},
         {"from": "critic", "to": "final_scrubber", "label": "approve"},
-        {"from": "critic", "to": "respond", "label": "done"},
+        {"from": "critic", "to": "respond", "label": "terminal"},
         {"from": "final_scrubber", "to": "respond"},
     ],
 }
@@ -248,7 +243,7 @@ async def run_critic_on_trace(
         user_query = task_frame.get("main_question") or task_frame.get("raw_prompt") or task_frame.get("task_description") or query_snippet
 
         for span in reversed(full_record.get("spans") or []):
-            if span.get("node_name") in ("writer", "final_scrubber", "executor"):
+            if span.get("node_name") in ("writer", "final_scrubber"):
                 for llm_call in reversed(span.get("llm_calls") or []):
                     if llm_call.get("completion_full") or llm_call.get("completion_snippet"):
                         final_output = llm_call.get("completion_full") or llm_call.get("completion_snippet", "")
