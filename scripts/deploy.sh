@@ -597,6 +597,11 @@ ensure_admin_configmaps() {
 }
 
 log ""
+log "Setting up admin → gateway RBAC..."
+oc apply -f "$PROJECT_ROOT/base/admin/rbac-gateway-secrets.yaml"
+log "  Role/RoleBinding synesis-admin-provider-keys applied to synesis-gateway"
+
+log ""
 log "Setting up admin ConfigMaps..."
 ensure_admin_configmaps
 

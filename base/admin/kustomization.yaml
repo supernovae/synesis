@@ -13,7 +13,8 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
-  - rbac-gateway-secrets.yaml
+  # rbac-gateway-secrets.yaml moved to base/gateway/ — it must land in
+  # synesis-gateway namespace, not synesis-admin (kustomize namespace override).
 
 # Match overlays/api so `oc apply -k base/admin` does not revert to docker.io/library/synesis-admin.
 images:
