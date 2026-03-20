@@ -34,6 +34,8 @@ python3 scripts/classify-bootstrap-web-sources.py        # tags `corpus_blog`, c
 python3 scripts/classify-bootstrap-web-sources.py --dry-run
 ```
 
+**Re-loading corpus:** Default bootstrap import skips rows whose `uri` already exists. Use `./scripts/load-bootstrap.sh --upsert` so existing rows are updated: if `handler` or `config` changed, the item is set back to `pending` for re-indexing; if only metadata changed, `status` is left as-is.
+
 ## Normalized Item Schema
 
 Every file in `corpus/` uses the same schema that maps 1:1 to the

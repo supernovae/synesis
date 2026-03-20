@@ -15,6 +15,7 @@ set -euo pipefail
 #   -a, --admin-url  Admin service base URL   (default: $SYNESIS_ADMIN_URL or https://synesis-admin.apps.openshiftdemo.dev)
 #   -d, --dir        Bootstrap corpus dir     (default: bootstrap/corpus)
 #   -s, --status     Status override          (default: pending)
+#   --upsert         Pass upsert=true: update existing rows by uri; requeue if handler/config changed
 #   --dry-run        Print commands without executing
 #   -h, --help       Show this help
 #
@@ -54,6 +55,7 @@ PASSWORD="${SYNESIS_ADMIN_PASSWORD:-admin}"
 ADMIN_TOKEN="${SYNESIS_ADMIN_TOKEN:-}"
 CORPUS_DIR="bootstrap/corpus"
 STATUS_OVERRIDE="pending"
+UPSERT=false
 DRY_RUN=false
 
 usage() {
@@ -84,6 +86,7 @@ while [[ $# -gt 0 ]]; do
     -s|--status)
       [[ $# -lt 2 ]] && { echo "ERROR: $1 requires a status value." >&2; exit 1; }
       STATUS_OVERRIDE="$2"; shift 2 ;;
+    --upsert)        UPSERT=true;          shift   ;;
     --dry-run)       DRY_RUN=true;         shift   ;;
     -h|--help)       usage ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -179,8 +182,11 @@ for f in "${FILES[@]}"; do
 
   printf "Uploading %-40s ... " "$fname"
 
+  BOOTSTRAP_URL="${ADMIN_URL}/api/v1/ingestion/bootstrap?status_override=${STATUS_OVERRIDE}"
+  $UPSERT && BOOTSTRAP_URL="${BOOTSTRAP_URL}&upsert=true"
+
   RESP=$(curl -sf -X POST \
-    "${ADMIN_URL}/api/v1/ingestion/bootstrap?status_override=${STATUS_OVERRIDE}" \
+    "${BOOTSTRAP_URL}" \
     -F "file=@${f}" \
     -H "Authorization: Bearer ${TOKEN}" 2>&1) || {
     echo "FAILED"
@@ -192,7 +198,12 @@ for f in "${FILES[@]}"; do
   ADDED=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('added',0))" 2>/dev/null || echo "?")
   SKIPPED=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin).get('skipped',0))" 2>/dev/null || echo "?")
 
-  echo "added=${ADDED}  skipped=${SKIPPED}"
+  if $UPSERT; then
+    EX=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('requeued',0),d.get('unchanged',0),d.get('updated_meta',0))" 2>/dev/null || echo "? ? ?")
+    echo "added=${ADDED}  skipped=${SKIPPED}  requeued=$(echo "$EX" | awk '{print $1}')  unchanged=$(echo "$EX" | awk '{print $2}')  meta=$(echo "$EX" | awk '{print $3}')"
+  else
+    echo "added=${ADDED}  skipped=${SKIPPED}"
+  fi
   TOTAL_ADDED=$((TOTAL_ADDED + ${ADDED:-0}))
   TOTAL_SKIPPED=$((TOTAL_SKIPPED + ${SKIPPED:-0}))
 done

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -842,15 +843,35 @@ async def list_handler_types():
 # ---------------------------------------------------------------------------
 
 
+def _config_canonical(config: dict | list | None) -> str:
+    """Stable string for comparing handler config JSON."""
+    if config is None:
+        return ""
+    return json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _tags_equal(a: list[str] | None, b: list[str] | None) -> bool:
+    return list(a or []) == list(b or [])
+
+
 @router.post("/bootstrap")
 async def bootstrap_from_yaml(
     file: UploadFile = File(...),
-    status_override: str = Query("pending", description="Status for imported items (pending or indexed)"),
+    status_override: str = Query("pending", description="Status for newly inserted items (pending or indexed)"),
+    upsert: bool = Query(
+        False,
+        description="Update existing rows by uri. Metadata-only changes keep status; handler/config changes requeue as pending.",
+    ),
     _user: UserInfo = Depends(get_current_user),
 ):
     """Import a normalized bootstrap YAML file into the ingestion queue.
 
-    Deduplicates by URI — existing items are skipped.
+    Default: deduplicate by URI — existing items are skipped.
+
+    With ``upsert=true``: update existing rows. If ``handler`` or ``config`` changed,
+    reset to ``pending`` and clear index fields so the indexer picks it up again.
+    If only title/domain/tags/priority/authority/origin_type change, update those
+    columns and leave ``status`` (and Milvus bookkeeping) unchanged.
     """
     content = await file.read()
     try:
@@ -864,38 +885,146 @@ async def bootstrap_from_yaml(
 
     now = datetime.now(UTC)
     added = 0
-    skipped = 0
+    skipped_empty = 0
+    skipped_duplicate = 0
+    unchanged = 0
+    updated_meta = 0
+    requeued = 0
 
     async with async_session() as session:
         for entry in items_list:
             uri = entry.get("uri", "").strip()
             if not uri:
-                skipped += 1
+                skipped_empty += 1
                 continue
 
-            stmt = (
-                pg_insert(IngestionItem)
-                .values(
-                    uri=uri,
-                    handler=entry.get("handler"),
-                    title=entry.get("title", ""),
-                    domain=entry.get("domain", ""),
-                    authority=entry.get("authority", "vetted"),
-                    origin_type=entry.get("origin_type", "curated"),
-                    tags=entry.get("tags"),
-                    priority=entry.get("priority", 0),
-                    config=entry.get("config"),
-                    status=status_override,
-                    queued_at=now if status_override == "pending" else None,
+            handler = entry.get("handler")
+            title = entry.get("title", "") or ""
+            domain = entry.get("domain", "") or ""
+            authority = entry.get("authority", "vetted") or "vetted"
+            origin_type = entry.get("origin_type", "curated") or "curated"
+            raw_tags = entry.get("tags")
+            tags = raw_tags if isinstance(raw_tags, list) else None
+            priority = int(entry.get("priority") or 0)
+            config = entry.get("config")
+
+            if not upsert:
+                stmt_ins = (
+                    pg_insert(IngestionItem)
+                    .values(
+                        uri=uri,
+                        handler=handler,
+                        title=title,
+                        domain=domain,
+                        authority=authority,
+                        origin_type=origin_type,
+                        tags=tags,
+                        priority=priority,
+                        config=config,
+                        status=status_override,
+                        queued_at=now if status_override == "pending" else None,
+                    )
+                    .on_conflict_do_nothing(index_elements=["uri"])
                 )
-                .on_conflict_do_nothing(index_elements=["uri"])
-            )
-            result = await session.execute(stmt)
-            if result.rowcount > 0:  # type: ignore[union-attr]
+                result = await session.execute(stmt_ins)
+                if result.rowcount > 0:  # type: ignore[union-attr]
+                    added += 1
+                else:
+                    skipped_duplicate += 1
+                continue
+
+            q = await session.execute(select(IngestionItem).where(IngestionItem.uri == uri))
+            row = q.scalar_one_or_none()
+
+            if row is None:
+                session.add(
+                    IngestionItem(
+                        uri=uri,
+                        handler=handler,
+                        title=title,
+                        domain=domain,
+                        authority=authority,
+                        origin_type=origin_type,
+                        tags=tags,
+                        priority=priority,
+                        config=config,
+                        status=status_override,
+                        queued_at=now if status_override == "pending" else None,
+                    )
+                )
                 added += 1
-            else:
-                skipped += 1
+                continue
+
+            ingest_unchanged = (row.handler == handler) and (
+                _config_canonical(row.config) == _config_canonical(config)
+            )
+            meta_unchanged = (
+                (row.title or "") == title
+                and (row.domain or "") == domain
+                and (row.authority or "") == authority
+                and (row.origin_type or "") == origin_type
+                and row.priority == priority
+                and _tags_equal(row.tags, tags)
+            )
+
+            if ingest_unchanged and meta_unchanged:
+                unchanged += 1
+                continue
+
+            if ingest_unchanged:
+                row.title = title
+                row.domain = domain
+                row.authority = authority
+                row.origin_type = origin_type
+                row.tags = tags
+                row.priority = priority
+                updated_meta += 1
+                continue
+
+            row.handler = handler
+            row.title = title
+            row.domain = domain
+            row.authority = authority
+            row.origin_type = origin_type
+            row.tags = tags
+            row.priority = priority
+            row.config = config
+            row.status = "pending"
+            row.content_hash = None
+            row.chunk_count = 0
+            row.error_message = ""
+            row.milvus_doc_id = ""
+            row.retry_count = 0
+            row.started_at = None
+            row.completed_at = None
+            row.queued_at = now
+            requeued += 1
+
         await session.commit()
 
-    logger.info("bootstrap_import", extra={"added": added, "skipped": skipped, "file": file.filename})
-    return {"ok": True, "added": added, "skipped": skipped, "total_in_file": len(items_list)}
+    skipped_total = skipped_empty + (skipped_duplicate if not upsert else 0)
+    logger.info(
+        "bootstrap_import",
+        extra={
+            "added": added,
+            "skipped": skipped_total,
+            "upsert": upsert,
+            "unchanged": unchanged if upsert else None,
+            "updated_meta": updated_meta if upsert else None,
+            "requeued": requeued if upsert else None,
+            "file": file.filename,
+        },
+    )
+    payload: dict = {
+        "ok": True,
+        "added": added,
+        "skipped": skipped_total,
+        "total_in_file": len(items_list),
+    }
+    if upsert:
+        payload["unchanged"] = unchanged
+        payload["updated_meta"] = updated_meta
+        payload["requeued"] = requeued
+    else:
+        payload["skipped_duplicates"] = skipped_duplicate
+    return payload
