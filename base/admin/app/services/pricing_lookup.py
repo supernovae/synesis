@@ -30,6 +30,11 @@ _BUNDLED_PRICES: dict[str, tuple[float, float]] = {
     "openrouter/deepseek/deepseek-chat-v3-0324": (0.27, 1.10),
     "openrouter/google/gemini-2.5-pro-preview": (1.25, 10.0),
     "openrouter/anthropic/claude-sonnet-4": (3.0, 15.0),
+    # xAI (Grok) — direct API
+    "xai/grok-4-0709": (3.0, 15.0),
+    "xai/grok-3": (3.0, 15.0),
+    "xai/grok-3-mini": (0.30, 0.50),
+    "xai/grok-3-fast": (5.0, 25.0),
     # Groq
     "groq/llama-3.3-70b-versatile": (0.59, 0.79),
     "groq/llama-3.1-8b-instant": (0.05, 0.08),

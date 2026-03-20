@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 
 const SOURCE_ICON: Record<string, typeof Cloud> = {
-  openrouter: Cloud, groq: Cloud, together: Cloud, deepinfra: Cloud,
+  openrouter: Cloud, xai: Zap, groq: Cloud, together: Cloud, deepinfra: Cloud,
   fireworks: Cloud, openai: Cloud, anthropic: Cloud, mistral: Cloud,
   azure: Cloud, vllm: Server, kserve: Server, custom: Cloud,
 };
