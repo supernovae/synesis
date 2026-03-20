@@ -27,6 +27,10 @@ Version history:
             navigation; symbol_name (function/class/resource name) for
             direct symbol lookup; artifact_kind (code/docs/config/
             api_spec/architecture) for MCP/agent domain-targeted queries.
+  v8 → v9: Semantic ingestion metadata — content_type, calibrated scores
+            (quality_score, technical_depth, domain_relevance), index_decision,
+            spam_score, dedupe/topic fields, crawl_timestamp, entities_json,
+            section_boundaries_json, content hashes, enrichment_profile.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -55,7 +59,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -87,6 +91,23 @@ EXPECTED_FIELDS = frozenset(
         "module_path",
         "symbol_name",
         "artifact_kind",
+        # v9 — semantic ingestion / MCP filters
+        "content_type",
+        "quality_score",
+        "technical_depth",
+        "domain_relevance",
+        "index_decision",
+        "spam_score",
+        "simhash64",
+        "dup_cluster_id",
+        "topic_id",
+        "topic_keywords",
+        "crawl_timestamp",
+        "entities_json",
+        "section_boundaries_json",
+        "raw_content_hash",
+        "clean_content_hash",
+        "enrichment_profile",
         # vectors
         "embedding",
         "sparse_text",
@@ -131,6 +152,23 @@ CATALOG_FIELDS = [
     FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
     FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+    # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
+    FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="quality_score", dtype=DataType.FLOAT),
+    FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
+    FieldSchema(name="domain_relevance", dtype=DataType.FLOAT),
+    FieldSchema(name="index_decision", dtype=DataType.VARCHAR, max_length=16),
+    FieldSchema(name="spam_score", dtype=DataType.FLOAT),
+    FieldSchema(name="simhash64", dtype=DataType.VARCHAR, max_length=24),
+    FieldSchema(name="dup_cluster_id", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="topic_id", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="topic_keywords", dtype=DataType.VARCHAR, max_length=512),
+    FieldSchema(name="crawl_timestamp", dtype=DataType.INT64),
+    FieldSchema(name="entities_json", dtype=DataType.VARCHAR, max_length=4096),
+    FieldSchema(name="section_boundaries_json", dtype=DataType.VARCHAR, max_length=2048),
+    FieldSchema(name="raw_content_hash", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="clean_content_hash", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="enrichment_profile", dtype=DataType.VARCHAR, max_length=64),
     # Vector
     FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     # Sparse BM25 vector (auto-populated by BM25 Function from text field)
@@ -288,6 +326,23 @@ def catalog_entity(
     module_path: str = "",
     symbol_name: str = "",
     artifact_kind: str = "",
+    # v9
+    content_type: str = "",
+    quality_score: float = -1.0,
+    technical_depth: float = -1.0,
+    domain_relevance: float = -1.0,
+    index_decision: str = "index",
+    spam_score: float = -1.0,
+    simhash64: str = "",
+    dup_cluster_id: str = "",
+    topic_id: str = "",
+    topic_keywords: str = "",
+    crawl_timestamp: int = 0,
+    entities_json: str = "",
+    section_boundaries_json: str = "",
+    raw_content_hash: str = "",
+    clean_content_hash: str = "",
+    enrichment_profile: str = "",
 ) -> dict[str, Any]:
     """Build a catalog entity dict for upsert. Truncates fields to schema byte limits."""
     return {
@@ -317,5 +372,21 @@ def catalog_entity(
         "module_path": _trunc_bytes(module_path or "", 256),
         "symbol_name": _trunc_bytes(symbol_name or "", 128),
         "artifact_kind": (artifact_kind or "")[:32],
+        "content_type": _trunc_bytes(content_type or "", 64),
+        "quality_score": float(quality_score),
+        "technical_depth": float(technical_depth),
+        "domain_relevance": float(domain_relevance),
+        "index_decision": (index_decision or "index")[:16],
+        "spam_score": float(spam_score),
+        "simhash64": _trunc_bytes(simhash64 or "", 24),
+        "dup_cluster_id": _trunc_bytes(dup_cluster_id or "", 64),
+        "topic_id": _trunc_bytes(topic_id or "", 64),
+        "topic_keywords": _trunc_bytes(topic_keywords or "", 512),
+        "crawl_timestamp": int(crawl_timestamp),
+        "entities_json": _trunc_bytes(entities_json or "", 4096),
+        "section_boundaries_json": _trunc_bytes(section_boundaries_json or "", 2048),
+        "raw_content_hash": _trunc_bytes(raw_content_hash or "", 64),
+        "clean_content_hash": _trunc_bytes(clean_content_hash or "", 64),
+        "enrichment_profile": _trunc_bytes(enrichment_profile or "", 64),
         "embedding": embedding,
     }

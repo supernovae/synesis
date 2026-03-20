@@ -95,6 +95,8 @@ SERVICE_IMAGES=(
     "indexer|base/rag/indexer/Dockerfile|base"
     "keyword-service|base/rag/keyword-service/Dockerfile|base/rag/keyword-service"
     "gliner-service|base/rag/gliner-service/Dockerfile|base/rag/gliner-service"
+    "preprocess-service|base/rag/preprocess-service/Dockerfile|base/rag/preprocess-service"
+    "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
 )
@@ -178,11 +180,11 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner|admin|keyword-service|quality-runner)
+        planner|admin|keyword-service|preprocess-service|quality-runner)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        gliner-service|bge-reranker)
+        gliner-service|spam-service|bge-reranker)
             local_base="${BASE_TAG_MAP[synesis-base-ml]:-$REGISTRY/synesis-base-ml:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spam-service
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/name: spam-service
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spam-service
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spam-service
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: rag
+    spec:
+      containers:
+        - name: spam-service
+          image: ghcr.io/supernovae/synesis/spam-service:latest
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: SPAM_MODEL
+              value: "mrm8488/distilbert-base-finetuned-sms-spam-detection"
+            - name: HF_HOME
+              value: "/tmp/hf_home"
+            - name: TRANSFORMERS_CACHE
+              value: "/tmp/hf_home"
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-hf-token
+                  key: HF_TOKEN
+                  optional: true
+            - name: OMP_NUM_THREADS
+              value: "4"
+            - name: MKL_NUM_THREADS
+              value: "4"
+            - name: TOKENIZERS_PARALLELISM
+              value: "false"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 3Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+      securityContext:
+        runAsNonRoot: true

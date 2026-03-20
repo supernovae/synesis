@@ -43,6 +43,27 @@ spec:
               env:
                 - name: SYNESIS_ADMIN_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+                # Optional semantic gatekeeper (OpenAI-compatible). See docs/INDEXERS.md
+                # - name: SYNESIS_INDEXER_GATEKEEPER_ENABLE
+                #   value: "true"
+                # - name: SYNESIS_INDEXER_GATEKEEPER_URL
+                #   value: "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
+                # - name: SYNESIS_INDEXER_GATEKEEPER_MODEL
+                #   value: "synesis-general"
+                # - name: SYNESIS_INDEXER_GATEKEEPER_API_KEY
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: litellm-secrets
+                #       key: master-key
+                #       optional: true
+                # Preprocess (simhash; optional jusText clean for html_document) — see docs/INDEXERS.md
+                # - name: SYNESIS_INDEXER_PREPROCESS_URL
+                #   value: "http://preprocess-service.synesis-rag.svc.cluster.local:8080/v1"
+                # - name: SYNESIS_INDEXER_PREPROCESS_CLEAN_HTML
+                #   value: "true"
+                # Spam classifier (DistilBERT microservice)
+                # - name: SYNESIS_INDEXER_SPAM_URL
+                #   value: "http://spam-service.synesis-rag.svc.cluster.local:8080/v1"
                 - name: GITHUB_TOKEN
                   valueFrom:
                     secretKeyRef:

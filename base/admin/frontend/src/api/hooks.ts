@@ -1255,6 +1255,17 @@ export function useSchemaSync() {
   });
 }
 
+export function useResetMilvusCatalog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { confirm: string; reset_queue?: boolean }) =>
+      client.post("/ingestion/milvus/reset-catalog", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
 export function useIngestionSources() {
   return useQuery<{ sources: IngestionSource[] }>({
     queryKey: ["ingestion", "sources"],

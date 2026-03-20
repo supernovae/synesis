@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        package: [planner, indexer, keyword-service, admin, sandbox, lsp-gateway, bge-reranker]
+        package: [planner, indexer, keyword-service, preprocess-service, spam-service, admin, sandbox, lsp-gateway, bge-reranker]
     steps:
       - uses: actions/delete-package-versions@v5
         with:

@@ -20,7 +20,9 @@ flowchart TD
         direction LR
         EnsureCatalog["ensure_catalog\n+ schema-sync"] --> Claim["claim"]
         Claim --> Fetch["fetch"] --> Chunk["chunk"]
-        Chunk --> Enrich["enrich"] --> Embed["embed"]
+        Chunk --> Gatekeeper["gatekeeper\noptional LLM"]
+        Gatekeeper --> Signals["simhash + spam\noptional microservices"]
+        Signals --> Enrich["enrich"] --> Embed["embed"]
         Embed --> Upsert["upsert"] --> Report["report status"]
     end
 
@@ -85,15 +87,20 @@ The admin DB tracks the last-known Milvus schema version in the `milvus_schema_s
 
 This means schema bumps are fully automatic — no manual intervention to re-import. Dead-letter items also get a fresh start since the new handler code may fix the original failure.
 
+**Manual catalog wipe (admin):** `POST /api/v1/ingestion/milvus/reset-catalog` with JSON body `{"confirm":"DELETE_SYNESIS_CATALOG","reset_queue":true}` (admin auth required). Drops `synesis_catalog`, sets `milvus_schema_sync` to uninitialized, and optionally resets all indexed/failed/dead-letter items to `pending`. The **Ingestion Queue** UI includes the same flow under **Danger zone** (admin role).
+
 ```
 base/rag/indexer/
 ├── app/
 │   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
 │   ├── queue_runner.py     # Queue client: claim, process, report, schema-sync
-│   ├── pipeline.py         # Orchestration: fetch → parse → chunk → enrich → embed → upsert
-│   ├── schema.py           # Milvus collection schema v7 (synesis_catalog)
+│   ├── pipeline.py         # Orchestration: fetch → chunk → gatekeeper → enrich → embed → upsert
+│   ├── schema.py           # Milvus collection schema v9 (synesis_catalog)
+│   ├── gatekeeper.py       # Optional document-level LLM labels (structured JSON)
+│   ├── preprocess_client.py # Optional preprocess-service: simhash, jusText HTML clean
+│   ├── spam_client.py      # Optional spam-service: P(spam) per chunk
 │   ├── chunking.py         # Heading-aware split with overlap
-│   ├── enrichment.py       # Keyword extraction, context_prefix, optional LLM summary
+│   ├── enrichment.py       # context_prefix; optional LLM chunk summary (Tier 2)
 │   ├── embed_client.py     # Batch embedding via TEI
 │   ├── milvus_writer.py    # Idempotent upsert with content-hash dedup
 │   └── handlers/           # Handler plugins (auto-discovered)
@@ -313,7 +320,7 @@ Single Milvus collection with `authority` as partition key and HNSW index on emb
 | `handler` | VARCHAR(32) | Handler that produced this chunk |
 | `domain` | VARCHAR(64) | Taxonomy domain ID |
 | `tags` | VARCHAR(512) | Comma-separated tags |
-| `keywords` | VARCHAR(512) | KeyBERT-extracted keywords |
+| `keywords` | VARCHAR(512) | Comma-separated terms (gatekeeper merge when enabled) |
 | `origin_type` | VARCHAR(32) | Provenance: internal, external, curated |
 | `authority` | VARCHAR(32) | Trust tier: canonical, vetted, community, external (partition key) |
 | `source_url` | VARCHAR(512) | Citation URL |
@@ -329,7 +336,7 @@ Every chunk passes through a two-tier enrichment pipeline before embedding:
 
 **Tier 1 (always, zero cost):**
 - `context_prefix`: Template-based from document_name + heading_path
-- `keywords`: KeyBERT extraction via keyword-service (up to 8 terms per chunk)
+- `keywords`: Often empty in queue mode; optional gatekeeper keywords are merged when the semantic gatekeeper is enabled
 
 **Tier 2 (optional, uses synesis-general LLM):**
 - `chunk_summary`: 1-2 sentence neutral description via LLM
@@ -364,7 +371,20 @@ Approval status flows:
 |---------|---------|-------------|
 | `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8080` | Admin API for queue mode (Service port matches deployment) |
 | `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
-| `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) |
+| `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) — YAML/`--llm-url` mode |
+| `SYNESIS_INDEXER_GATEKEEPER_ENABLE` | `false` | Set `true` to run document-level semantic gatekeeper |
+| `SYNESIS_INDEXER_GATEKEEPER_URL` | — | OpenAI-compatible API base URL **including** `/v1` (e.g. `http://litellm-proxy:4000/v1`) |
+| `SYNESIS_INDEXER_GATEKEEPER_MODEL` | `synesis-general` | Model id for `/v1/chat/completions` |
+| `SYNESIS_INDEXER_GATEKEEPER_API_KEY` | — | Optional `Authorization: Bearer` value |
+| `SYNESIS_INDEXER_GATEKEEPER_TIMEOUT` | `120` | HTTP timeout (seconds) |
+| `SYNESIS_INDEXER_GATEKEEPER_SKIP_AUTHORITY` | `canonical,vetted` | Comma-separated `authority` values that skip the gatekeeper (inherit defaults) |
+| `SYNESIS_INDEXER_PREPROCESS_URL` | — | If set (base URL including `/v1`), indexer calls **simhash** for every chunk and fills `simhash64` |
+| `SYNESIS_INDEXER_PREPROCESS_CLEAN_HTML` | `false` | If `true` and URL set, `html_document` sources run **jusText** main-text extraction before chunking (skips trafilatura in the handler) |
+| `SYNESIS_INDEXER_SPAM_URL` | — | If set (base URL including `/v1`), indexer fills `spam_score` (0..1) per chunk via **spam-service** |
+
+**RAG microservices** (namespace `synesis-rag`, ClusterIP): [`preprocess-service`](../base/rag/preprocess-service/) (CPU, `synesis-base-api`) exposes `POST /v1/simhash/batch` and `POST /v1/clean_html`. [`spam-service`](../base/rag/spam-service/) (CPU, `synesis-base-ml` + small DistilBERT) exposes `POST /v1/spam/batch`. Both ship with **NetworkPolicy** allowing ingress only from pods labeled `app.kubernetes.io/name: synesis-indexer`. Mount optional `synesis-hf-token` on spam-service for private models or faster Hub auth.
+
+Design notes: [docs/plans/semantic_rag_ingestion_v9.md](plans/semantic_rag_ingestion_v9.md), cost levers: [docs/RAG_INGESTION_COST.md](RAG_INGESTION_COST.md), eval stub: [docs/RAG_EVAL_GOLDEN.md](RAG_EVAL_GOLDEN.md).
 
 ### Ingestion item defaults
 
@@ -376,11 +396,11 @@ Approval status flows:
 
 ### Schema version
 
-Current Milvus schema: **v8** (defined in `base/rag/indexer/app/schema.py`)
+Current Milvus schema: **v9** (defined in `base/rag/indexer/app/schema.py`). **Planner** and **admin** must stay aligned: `base/planner/app/rag_client.py` (`_EXPECTED_FIELDS`, `_recreate_catalog`), and deploy `SYNESIS_EXPECTED_SCHEMA_VERSION` (default **9** in code).
 
-To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, add/remove fields in `CATALOG_FIELDS` and `catalog_entity()`. On next indexer run, the collection is automatically dropped, recreated, and all ingestion items are reset for re-indexing.
+To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_FIELDS`, `CATALOG_FIELDS`, and `catalog_entity()`. Mirror the same fields in `rag_client.py`. On next indexer run, the collection is automatically dropped, recreated, and ingestion items are reset via schema-sync (or use manual reset above).
 
-#### v8 fields (added over v7)
+#### v8 fields (retained)
 
 | Field | Type | Purpose |
 |-------|------|---------|
@@ -390,7 +410,28 @@ To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, add/remove fields
 | `symbol_name` | VARCHAR(128) | Function/class/resource name |
 | `artifact_kind` | VARCHAR(32) | High-level kind: code, docs, config, api_spec, architecture |
 
-These enable MCP agents and LLM retrieval to target specific languages, repositories, or artifact types via Milvus filter expressions.
+#### v9 fields (semantic ingestion + MCP)
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `content_type` | VARCHAR(64) | tutorial, reference, blog, marketing, changelog, code, … |
+| `quality_score` | FLOAT | 0..1 from gatekeeper; `-1` unset |
+| `technical_depth` | FLOAT | 0..1; `-1` unset |
+| `domain_relevance` | FLOAT | 0..1; `-1` unset |
+| `index_decision` | VARCHAR(16) | `index`, `skip`, `review` — documents with `skip` are not upserted |
+| `spam_score` | FLOAT | `spam-service` when `SYNESIS_INDEXER_SPAM_URL` is set (0..1); `-1` unset / disabled |
+| `simhash64` | VARCHAR(24) | 64-bit simhash as decimal string when preprocess URL set; empty if disabled |
+| `dup_cluster_id` | VARCHAR(64) | Reserved for dedupe |
+| `topic_id` | VARCHAR(64) | Reserved for offline Bertopic |
+| `topic_keywords` | VARCHAR(512) | Reserved for topics |
+| `crawl_timestamp` | INT64 | Unix ms (best-effort from handler metadata) |
+| `entities_json` | VARCHAR(4096) | JSON array of `{name,type}` from gatekeeper |
+| `section_boundaries_json` | VARCHAR(2048) | JSON array of section outline strings |
+| `raw_content_hash` | VARCHAR(64) | Integrity / dedupe helper |
+| `clean_content_hash` | VARCHAR(64) | SHA-256 of chunk text (hex) |
+| `enrichment_profile` | VARCHAR(64) | e.g. `v9_gatekeeper`, `v9_skip_authority`, `v9_default` |
+
+**Gatekeeper (optional):** one structured LLM call **per document** (excerpt built from chunks). Labels apply to all chunks from that document. Keywords from the gatekeeper are merged with keyword-service output. Retrieval can filter on `content_type` and `index_decision` via `build_metadata_filter()` in the planner.
 
 ### Verification runbook (post schema bump / reset)
 
@@ -401,7 +442,7 @@ After a schema version bump or forced corpus reset, follow these steps to confir
 ```bash
 # Via admin API
 curl -s $ADMIN_URL/api/v1/ingestion/schema-sync | jq
-# Expected: schema_version=8, last_reset_at is recent
+# Expected: schema_version=9 (after indexer reports), last_reset_at is recent
 ```
 
 #### 2. Verify ingestion items were reset
@@ -417,7 +458,7 @@ curl -s "$ADMIN_URL/api/v1/ingestion/stats" | jq
 ```bash
 # In synesis-rag namespace logs
 oc logs -f deployment/synesis-indexer -n synesis-rag | grep -E 'schema|indexer_'
-# Expected: "indexer_collection_created" with version=8, then "indexer_fetch_start" messages
+# Expected: "indexer_collection_created" with version=9, then "indexer_fetch_start" messages
 ```
 
 #### 4. Verify Milvus corpus
@@ -441,14 +482,14 @@ oc logs deployment/synesis-planner -n synesis-planner | grep -E 'milvus_reconnec
 
 The review queue should only show chunks from the current collection. After a schema bump, old scan/approval statuses are purged with the collection. New chunks enter as `unscanned` / `auto_approved` and flow through the injection scanner on reindex.
 
-#### 7. Validate v8 metadata in corpus
+#### 7. Validate v8/v9 metadata in corpus
 
 ```bash
-# Query a few chunks to confirm new fields are populated
-curl -s "$ADMIN_URL/api/v1/rag/corpus/sample?fields=language,artifact_kind,repo_path,module_path,symbol_name" | jq
-# Expected: code chunks show language=python, artifact_kind=code, repo_path=owner/repo, etc.
+# Query a few chunks to confirm fields are populated
+curl -s "$ADMIN_URL/api/v1/rag/corpus/sample?fields=language,artifact_kind,content_type,index_decision,quality_score,enrichment_profile" | jq
+# Expected: code chunks show language=python, artifact_kind=code; with gatekeeper enabled, content_type and scores appear
 ```
 
 ---
 
-Back to [README](../README.md) | See also: [RAG Pipeline](RAG.md), [Taxonomy Shaping](TAXONOMY_SHAPING.md), [Bootstrap Data](../bootstrap/README.md)
+Back to [README](../README.md) | See also: [RAG Pipeline](RAG.md), [Semantic ingestion plan](plans/semantic_rag_ingestion_v9.md), [Taxonomy Shaping](TAXONOMY_SHAPING.md), [Bootstrap Data](../bootstrap/README.md)

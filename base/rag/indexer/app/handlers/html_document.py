@@ -57,12 +57,18 @@ class HTMLDocumentHandler:
         from ..extract import html_to_markdown, normalize_doc_markdown
 
         html = doc.content if isinstance(doc.content, str) else doc.content.decode("utf-8", errors="replace")
-        md = html_to_markdown(html)
-        if not md:
-            logger.warning("trafilatura returned empty for %s", doc.name)
-            return []
+        if doc.metadata.get("preprocess_clean") == "justext":
+            md = normalize_doc_markdown(html)
+            if not md:
+                logger.warning("preprocess clean returned empty for %s", doc.name)
+                return []
+        else:
+            md = html_to_markdown(html)
+            if not md:
+                logger.warning("trafilatura returned empty for %s", doc.name)
+                return []
 
-        md = normalize_doc_markdown(md)
+            md = normalize_doc_markdown(md)
         text_chunks = heading_aware_split(md, document_name=doc.name)
 
         return [

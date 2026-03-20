@@ -15,6 +15,8 @@ on:
       - 'base/images/**'
       - 'base/sandbox/image/**'
       - 'base/rag/indexer/**'
+      - 'base/rag/preprocess-service/**'
+      - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
       - 'base/quality-runner/**'
       - 'base/webui/Dockerfile'
@@ -59,6 +61,8 @@ jobs:
       indexer: ${{ steps.filter.outputs.indexer }}
       keyword-service: ${{ steps.filter.outputs.keyword-service }}
       gliner-service: ${{ steps.filter.outputs.gliner-service }}
+      preprocess-service: ${{ steps.filter.outputs.preprocess-service }}
+      spam-service: ${{ steps.filter.outputs.spam-service }}
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
@@ -98,6 +102,10 @@ jobs:
               - 'base/rag/keyword-service/**'
             gliner-service:
               - 'base/rag/gliner-service/**'
+            preprocess-service:
+              - 'base/rag/preprocess-service/**'
+            spam-service:
+              - 'base/rag/spam-service/**'
             quality-runner:
               - 'base/quality-runner/**'
               - 'benchmarks/corpus/**'
@@ -329,6 +337,18 @@ jobs:
             context: base/rag/gliner-service
             base_arg: synesis-base-ml
             change_key: gliner-service
+            base_change_key: base-ml
+          - name: preprocess-service
+            dockerfile: base/rag/preprocess-service/Dockerfile
+            context: base/rag/preprocess-service
+            base_arg: synesis-base-api
+            change_key: preprocess-service
+            base_change_key: base-api
+          - name: spam-service
+            dockerfile: base/rag/spam-service/Dockerfile
+            context: base/rag/spam-service
+            base_arg: synesis-base-ml
+            change_key: spam-service
             base_change_key: base-ml
           - name: quality-runner
             dockerfile: base/quality-runner/Dockerfile

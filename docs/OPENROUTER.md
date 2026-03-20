@@ -153,7 +153,7 @@ The `overlays/openrouter` Kustomize overlay includes everything **except** `base
 |---|---|---|
 | LiteLLM gateway | `synesis-gateway` | Yes (routes to OpenRouter) |
 | Planner (LangGraph pipeline) | `synesis-planner` | Yes |
-| RAG stack (Milvus, embedder, keyword-service, GLiNER) | `synesis-rag` | Yes |
+| RAG stack (Milvus, embedder, keyword-service, preprocess-service, spam-service, GLiNER) | `synesis-rag` | Yes |
 | Supervisor (health monitoring) | `synesis-planner` | Yes (checks LiteLLM, not vLLM) |
 | Open WebUI | `synesis-webui` | Yes |
 | SearXNG (web search) | `synesis-search` | Yes |

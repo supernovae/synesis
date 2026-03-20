@@ -9,14 +9,16 @@ from typing import Any
 from datetime import UTC, datetime
 
 import yaml
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from ..auth import UserInfo, get_current_user
+from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
 from ..db.models import IngestionItem, IngestionRun, IngestionSource, MilvusSchemaSync
+from ..deps import get_milvus
+from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.ingestion")
 
@@ -662,7 +664,100 @@ async def report_schema_version(body: SchemaReport):
         }
 
 
-EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "8"))
+EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "9"))
+
+SYNESIS_CATALOG_NAME = "synesis_catalog"
+
+
+class ResetCatalogRequest(BaseModel):
+    """Dangerous: drops Milvus synesis_catalog. Requires exact confirm phrase."""
+
+    confirm: str = Field(..., description='Must be exactly DELETE_SYNESIS_CATALOG')
+    reset_queue: bool = Field(True, description="Reset ingestion items to pending")
+
+
+@router.post("/milvus/reset-catalog")
+async def reset_milvus_catalog(
+    body: ResetCatalogRequest,
+    user: UserInfo = Depends(require_admin),
+):
+    """Drop the unified RAG collection and optionally reset the ingestion queue.
+
+    Next indexer run will recreate the collection (v9 schema) and re-index.
+    """
+    if body.confirm != "DELETE_SYNESIS_CATALOG":
+        raise HTTPException(
+            status_code=400,
+            detail='confirm must be exactly "DELETE_SYNESIS_CATALOG"',
+        )
+    now = datetime.now(UTC)
+    drop_err = ""
+    try:
+        client = get_milvus().get()
+        if SYNESIS_CATALOG_NAME in client.list_collections():
+            client.drop_collection(collection_name=SYNESIS_CATALOG_NAME)
+    except Exception as e:
+        drop_err = str(e)[:500]
+        logger.warning("milvus_reset_catalog_drop_failed", extra={"error": drop_err})
+
+    from sqlalchemy import update
+
+    async with async_session() as session:
+        row = (
+            await session.execute(
+                select(MilvusSchemaSync).where(MilvusSchemaSync.collection == SYNESIS_CATALOG_NAME)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            session.add(
+                MilvusSchemaSync(
+                    collection=SYNESIS_CATALOG_NAME,
+                    schema_version=0,
+                    last_reported_by="admin_reset",
+                    last_reset_at=now,
+                    updated_at=now,
+                )
+            )
+        else:
+            row.schema_version = 0
+            row.last_reported_by = "admin_reset"
+            row.last_reset_at = now
+            row.updated_at = now
+
+        items_reset: int = 0
+        if body.reset_queue:
+            result = await session.execute(
+                update(IngestionItem)
+                .where(IngestionItem.status.in_(["indexed", "running", "failed", "dead_letter"]))
+                .values(
+                    status="pending",
+                    chunk_count=0,
+                    error_message="",
+                    milvus_doc_id="",
+                    indexer_stats=None,
+                    retry_count=0,
+                    started_at=None,
+                    completed_at=None,
+                    queued_at=now,
+                )
+            )
+            items_reset = result.rowcount  # type: ignore[union-attr]
+        await session.commit()
+
+    await record_admin_audit(
+        user=user,
+        source="api",
+        action="ingestion.milvus.reset_catalog",
+        status="success" if not drop_err else "partial",
+        summary=f"Dropped {SYNESIS_CATALOG_NAME}; queue_reset={body.reset_queue}",
+        detail={"items_reset": items_reset, "drop_error": drop_err or None},
+    )
+    return {
+        "ok": True,
+        "collection": SYNESIS_CATALOG_NAME,
+        "items_reset": items_reset,
+        "drop_error": drop_err or None,
+    }
 
 
 @router.get("/schema-sync")

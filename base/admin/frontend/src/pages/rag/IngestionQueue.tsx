@@ -10,7 +10,10 @@ import {
   useBootstrapIngestion,
   useIngestionHandlers,
   useSchemaSync,
+  useResetMilvusCatalog,
 } from "../../api/hooks";
+import { useAuth } from "../../components/auth/useAuth";
+import { apiErrorMessage } from "../../api/errorMessage";
 import type { HandlerMetadata } from "../../api/hooks";
 import type { IngestionItem, IngestionRun, IndexerIngestionStats } from "../../types";
 
@@ -426,6 +429,92 @@ function ItemsTable() {
   );
 }
 
+function ResetCatalogPanel() {
+  const { isAdmin } = useAuth();
+  const reset = useResetMilvusCatalog();
+  const [open, setOpen] = useState(false);
+  const [phrase, setPhrase] = useState("");
+  const [resetQueue, setResetQueue] = useState(true);
+
+  if (!isAdmin) return null;
+
+  return (
+    <div className="mt-8 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/20 p-4">
+      <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Danger zone — Milvus catalog</h3>
+      <p className="mt-1 text-xs text-red-700 dark:text-red-400">
+        Drop <code className="rounded bg-red-100 dark:bg-red-900/40 px-1">synesis_catalog</code> and optionally reset
+        all ingestion items to pending. The indexer will recreate the collection on its next run (v9 schema).
+      </p>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="mt-3 rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-800 hover:bg-red-50 dark:border-red-800 dark:bg-slate-900 dark:text-red-200"
+        >
+          Open reset flow…
+        </button>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={resetQueue}
+              onChange={(e) => setResetQueue(e.target.checked)}
+            />
+            Also reset indexed/failed items to pending
+          </label>
+          <input
+            type="text"
+            value={phrase}
+            onChange={(e) => setPhrase(e.target.value)}
+            placeholder='Type DELETE_SYNESIS_CATALOG to confirm'
+            className="block w-full max-w-md rounded border border-red-200 px-2 py-1 text-sm dark:border-red-900 dark:bg-slate-900 dark:text-white"
+          />
+          {reset.isError ? (
+            <p className="text-xs text-red-600">{apiErrorMessage(reset.error)}</p>
+          ) : null}
+          {reset.isSuccess ? (
+            <p className="text-xs text-green-700 dark:text-green-400">
+              Catalog dropped. Items reset: {String((reset.data as { items_reset?: number })?.items_reset ?? 0)}.
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={reset.isPending || phrase !== "DELETE_SYNESIS_CATALOG"}
+              onClick={() =>
+                reset.mutate(
+                  { confirm: "DELETE_SYNESIS_CATALOG", reset_queue: resetQueue },
+                  {
+                    onSuccess: () => {
+                      setPhrase("");
+                      setOpen(false);
+                    },
+                  },
+                )
+              }
+              className="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-40"
+            >
+              {reset.isPending ? "Working…" : "Drop catalog"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setPhrase("");
+                reset.reset();
+              }}
+              className="text-xs text-gray-600 dark:text-gray-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RunsHistory() {
   const { data } = useIngestionRuns();
   const runs = data?.runs || [];
@@ -480,6 +569,7 @@ export default function IngestionQueue() {
       <AddItemForm />
       <ItemsTable />
       <RunsHistory />
+      <ResetCatalogPanel />
     </div>
   );
 }

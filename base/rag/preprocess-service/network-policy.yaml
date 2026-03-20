@@ -1,0 +1,22 @@
+# Restrict ingress to indexer jobs/pods in synesis-rag (ClusterIP services are not exposed publicly).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: preprocess-service-ingress
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: preprocess-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: synesis-indexer
+      ports:
+        - protocol: TCP
+          port: 8080

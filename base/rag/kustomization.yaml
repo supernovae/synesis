@@ -17,6 +17,12 @@ resources:
   - keyword-service/service.yaml
   - gliner-service/deployment.yaml
   - gliner-service/service.yaml
+  - preprocess-service/deployment.yaml
+  - preprocess-service/service.yaml
+  - preprocess-service/network-policy.yaml
+  - spam-service/deployment.yaml
+  - spam-service/service.yaml
+  - spam-service/network-policy.yaml
   - redis/pvc.yaml
   - redis/deployment.yaml
   - redis/service.yaml

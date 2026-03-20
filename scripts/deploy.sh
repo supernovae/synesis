@@ -993,6 +993,8 @@ fi
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service
+wait_for_deployment synesis-rag preprocess-service
+wait_for_deployment synesis-rag spam-service
 wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-webui open-webui

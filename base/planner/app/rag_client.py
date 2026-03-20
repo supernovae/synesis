@@ -319,7 +319,7 @@ def _get_milvus_client():
 
 _catalog_ensured = False
 
-# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=8).
+# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=9).
 _EXPECTED_FIELDS = frozenset(
     {
         "chunk_id",
@@ -348,6 +348,22 @@ _EXPECTED_FIELDS = frozenset(
         "module_path",
         "symbol_name",
         "artifact_kind",
+        "content_type",
+        "quality_score",
+        "technical_depth",
+        "domain_relevance",
+        "index_decision",
+        "spam_score",
+        "simhash64",
+        "dup_cluster_id",
+        "topic_id",
+        "topic_keywords",
+        "crawl_timestamp",
+        "entities_json",
+        "section_boundaries_json",
+        "raw_content_hash",
+        "clean_content_hash",
+        "enrichment_profile",
         "embedding",
     }
 )
@@ -381,7 +397,7 @@ def _validate_catalog_schema(client) -> bool:
 
 
 def _recreate_catalog(client) -> bool:
-    """Drop and recreate synesis_catalog with the full v8 schema.
+    """Drop and recreate synesis_catalog with the full v9 schema.
 
     This is the nuclear option for schema drift — it drops all indexed data
     and recreates the collection with the correct schema.  The indexer will
@@ -424,6 +440,22 @@ def _recreate_catalog(client) -> bool:
         FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
         FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="quality_score", dtype=DataType.FLOAT),
+        FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
+        FieldSchema(name="domain_relevance", dtype=DataType.FLOAT),
+        FieldSchema(name="index_decision", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="spam_score", dtype=DataType.FLOAT),
+        FieldSchema(name="simhash64", dtype=DataType.VARCHAR, max_length=24),
+        FieldSchema(name="dup_cluster_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="topic_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="topic_keywords", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="crawl_timestamp", dtype=DataType.INT64),
+        FieldSchema(name="entities_json", dtype=DataType.VARCHAR, max_length=4096),
+        FieldSchema(name="section_boundaries_json", dtype=DataType.VARCHAR, max_length=2048),
+        FieldSchema(name="raw_content_hash", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="clean_content_hash", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="enrichment_profile", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
         FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
     ]
@@ -433,7 +465,7 @@ def _recreate_catalog(client) -> bool:
         output_field_names=["sparse_text"],
         function_type=FunctionType.BM25,
     )
-    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v8")
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v9")
 
     try:
         client.drop_collection(collection_name=SYNESIS_CATALOG)
@@ -452,7 +484,7 @@ def _recreate_catalog(client) -> bool:
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
         client.load_collection(collection_name=SYNESIS_CATALOG)
         logger.warning(
-            "synesis_catalog_recreated_v8",
+            "synesis_catalog_recreated_v9",
             extra={"detail": "Collection is empty — run the indexer to repopulate"},
         )
         return True
@@ -464,7 +496,7 @@ def _recreate_catalog(client) -> bool:
 def _ensure_synesis_catalog() -> None:
     """Validate synesis_catalog exists and is loaded.
 
-    On schema drift, drops and recreates the collection with the v8 schema
+    On schema drift, drops and recreates the collection with the v9 schema
     so searches don't crash on missing fields.  The indexer repopulates data.
     """
     global _catalog_ensured
@@ -477,7 +509,7 @@ def _ensure_synesis_catalog() -> None:
 
         if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "synesis_catalog_not_found — creating with v8 schema",
+                "synesis_catalog_not_found — creating with v9 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -486,7 +518,7 @@ def _ensure_synesis_catalog() -> None:
 
         if not _validate_catalog_schema(client):
             logger.warning(
-                "synesis_catalog_schema_drift — recreating collection with v8 schema",
+                "synesis_catalog_schema_drift — recreating collection with v9 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -543,6 +575,22 @@ async def submit_user_knowledge(
         "module_path": "",
         "symbol_name": "",
         "artifact_kind": "docs",
+        "content_type": "reference",
+        "quality_score": -1.0,
+        "technical_depth": -1.0,
+        "domain_relevance": -1.0,
+        "index_decision": "index",
+        "spam_score": -1.0,
+        "simhash64": "",
+        "dup_cluster_id": "",
+        "topic_id": "",
+        "topic_keywords": "",
+        "crawl_timestamp": 0,
+        "entities_json": "",
+        "section_boundaries_json": "",
+        "raw_content_hash": "",
+        "clean_content_hash": "",
+        "enrichment_profile": "v9_user_submit",
         "embedding": embedding,
     }
 
@@ -575,13 +623,15 @@ def build_metadata_filter(
     domain_filter: str = "",
     tags: str = "",
     content_format: str = "",
+    content_type: str = "",
+    index_decision: str = "",
 ) -> str:
-    """Build a Milvus filter expression from v8 metadata signals.
+    """Build a Milvus filter expression from v8/v9 metadata signals.
 
-    Combines optional language, artifact_kind, repo_path, tags, and
-    content_format filters with an existing domain filter using AND.
+    Combines optional language, artifact_kind, repo_path, tags,
+    content_format, content_type, index_decision with domain filter using AND.
     Returns empty string if no filters apply.
-    Silently skips v8 fields that are missing from the collection schema.
+    Silently skips fields that are missing from the collection schema.
     """
     available = _catalog_fields
     parts: list[str] = []
@@ -602,6 +652,12 @@ def build_metadata_filter(
     if content_format and ("content_format" in available or not available):
         safe = content_format.replace('"', "")[:32]
         parts.append(f'content_format == "{safe}"')
+    if content_type and ("content_type" in available or not available):
+        safe = content_type.replace('"', "")[:64]
+        parts.append(f'content_type == "{safe}"')
+    if index_decision and ("index_decision" in available or not available):
+        safe = index_decision.replace('"', "")[:16]
+        parts.append(f'index_decision == "{safe}"')
     return " and ".join(parts)
 
 
@@ -744,6 +800,14 @@ _OUTPUT_FIELDS = [
     "repo_path",
     "module_path",
     "symbol_name",
+    "content_type",
+    "quality_score",
+    "technical_depth",
+    "domain_relevance",
+    "index_decision",
+    "keywords",
+    "entities_json",
+    "enrichment_profile",
 ]
 
 _V8_FIELDS = {"language", "artifact_kind", "repo_path", "module_path", "symbol_name"}

@@ -172,6 +172,14 @@ jobs:
             dockerfile: base/rag/gliner-service/Dockerfile
             context: base/rag/gliner-service
             base_arg: synesis-base-ml
+          - name: preprocess-service
+            dockerfile: base/rag/preprocess-service/Dockerfile
+            context: base/rag/preprocess-service
+            base_arg: synesis-base-api
+          - name: spam-service
+            dockerfile: base/rag/spam-service/Dockerfile
+            context: base/rag/spam-service
+            base_arg: synesis-base-ml
 
     steps:
       - uses: actions/checkout@v4
@@ -241,6 +249,8 @@ jobs:
           | indexer | \`${REGISTRY}/indexer:${VERSION}\` |
           | keyword-service | \`${REGISTRY}/keyword-service:${VERSION}\` |
           | gliner-service | \`${REGISTRY}/gliner-service:${VERSION}\` |
+          | preprocess-service | \`${REGISTRY}/preprocess-service:${VERSION}\` |
+          | spam-service | \`${REGISTRY}/spam-service:${VERSION}\` |
 
           **Deploy:**
           \`\`\`bash

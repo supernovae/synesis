@@ -13,7 +13,7 @@ The long-form audit below was written against an **older** tree (line-numbered e
 | **Milvus hybrid / sparse / pool** | `rag_client.py` defines `_get_milvus_client()`, `_get_milvus_pool()`, `_sparse_search(..., filter_expr=...)`, and hybrid passes `filter_expr`. |
 | **Taxonomy / domain boost** | `UnifiedResult` includes `domain`; `_rag_to_unified` populates it; `_taxonomy_boost` matches on `domain`. |
 | **`import time` / rerank** | `rag_client.py` imports and uses `time` for rerank paths. |
-| **Catalog schema drift** | `_ensure_synesis_catalog` / `_recreate_catalog` target **v8** unified schema with `sparse_text` + BM25 function (aligned with indexer direction — still validate against [models.yaml](../models.yaml) / indexer `SCHEMA_VERSION` in ops). |
+| **Catalog schema drift** | `_ensure_synesis_catalog` / `_recreate_catalog` target **v9** unified schema with `sparse_text` + BM25 function + semantic metadata fields (align with indexer `SCHEMA_VERSION` and `SYNESIS_EXPECTED_SCHEMA_VERSION` on admin). |
 | **Semantic index TTL** | Redis-backed path uses `expire` on insert (`semantic_index.py`). |
 | **Session checkpointer** | `graph.py` uses `MemorySaver` at compile time; `upgrade_checkpointer_to_redis()` installs `AsyncRedisSaver` when `session_checkpointer_backend=redis` and URL are set (replaces the old `RedisSaver` context-manager bug class). |
 | **Token estimation (writer/compiler)** | `token_utils.estimate_tokens()` (tiktoken when available) is used in `writer.py` and `final_answer_compiler.py`. |

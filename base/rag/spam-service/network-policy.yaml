@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: spam-service-ingress
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spam-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: synesis-indexer
+      ports:
+        - protocol: TCP
+          port: 8080
