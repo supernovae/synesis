@@ -6,6 +6,7 @@ import RequireRole from "./components/auth/RequireRole";
 const Login = lazy(() => import("./pages/Login"));
 const OidcCallback = lazy(() => import("./pages/OidcCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const AccountHome = lazy(() => import("./pages/account/AccountHome"));
 const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
 const Organization = lazy(() => import("./pages/account/Organization"));
 
@@ -105,6 +106,7 @@ export const router = createBrowserRouter([
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
 
+      { path: "account", element: <AccountHome /> },
       { path: "account/tokens", element: <ApiTokens /> },
       { path: "account/organization", element: <Organization /> },
 

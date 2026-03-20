@@ -116,6 +116,8 @@ async def oauth_token_exchange(req: OidcTokenExchangeRequest):
         result["refresh_token"] = data["refresh_token"]
     if data.get("expires_in"):
         result["expires_in"] = data["expires_in"]
+    if data.get("id_token"):
+        result["id_token"] = data["id_token"]
     return result
 
 
@@ -166,4 +168,6 @@ async def oauth_refresh(req: OidcRefreshRequest):
         result["refresh_token"] = data["refresh_token"]
     if data.get("expires_in"):
         result["expires_in"] = data["expires_in"]
+    if data.get("id_token"):
+        result["id_token"] = data["id_token"]
     return result

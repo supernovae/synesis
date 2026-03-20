@@ -49,10 +49,17 @@ export default function ApiTokens() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">API Tokens</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Generate personal access tokens for programmatic API access (Cursor,
-          Claude Code, scripts).
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+          API tokens
+        </h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Tokens are issued by the Synesis Admin API and work as{" "}
+          <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
+            Bearer
+          </code>{" "}
+          for this service (bootstrap scripts, curl, internal tools). Name each
+          token by use case (e.g. &quot;load-bootstrap CI&quot;, IDE) so you can
+          revoke them independently.
         </p>
       </div>
 

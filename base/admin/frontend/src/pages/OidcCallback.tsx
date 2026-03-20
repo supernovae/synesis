@@ -57,6 +57,7 @@ export default function OidcCallback() {
           token_type?: string;
           refresh_token?: string;
           expires_in?: number;
+          id_token?: string;
         }>("/api/v1/auth/oauth/token", {
           code,
           redirect_uri: redirectUri,
@@ -70,6 +71,9 @@ export default function OidcCallback() {
 
         // Persist tokens.
         localStorage.setItem("synesis_token", accessToken);
+        if (data.id_token) {
+          localStorage.setItem("synesis_id_token", data.id_token);
+        }
         if (data.refresh_token) {
           localStorage.setItem("synesis_refresh_token", data.refresh_token);
         }

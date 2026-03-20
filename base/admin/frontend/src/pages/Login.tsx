@@ -16,10 +16,15 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  /** After a failed OIDC flow, require a click so we do not redirect-loop with Keycloak. */
-  const [oidcManual, setOidcManual] = useState(
-    () => sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1",
-  );
+  /** After logout or a failed OIDC flow, require a click so we do not SSO-loop with Keycloak. */
+  const [oidcManual, setOidcManual] = useState(() => {
+    if (sessionStorage.getItem("synesis_post_logout") === "1") {
+      sessionStorage.removeItem("synesis_post_logout");
+      sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
+      return true;
+    }
+    return sessionStorage.getItem(SUPPRESS_AUTO_KEY) === "1";
+  });
 
   const oidcEnabled = oidcConfig?.enabled ?? false;
 
@@ -68,8 +73,9 @@ export default function Login() {
             Sign in with Keycloak
           </h1>
           <p className="mt-2 text-sm text-slate-600">
-            Continue to authenticate. If you were stuck in a loop, use this button
-            instead of an automatic redirect.
+            You are signed out of Synesis Admin. Continue to Keycloak to sign in
+            again. (Automatic redirect is skipped after logout so your session does
+            not immediately restart.)
           </p>
           <button
             type="button"

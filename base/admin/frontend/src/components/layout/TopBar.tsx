@@ -117,9 +117,12 @@ export default function TopBar() {
             ) : (
               <Eye className="h-4 w-4 text-gray-400" />
             )}
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <Link
+              to="/account"
+              className="text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+            >
               {user.username}
-            </span>
+            </Link>
             {user.org_name && (
               <Link
                 to="/account/organization"

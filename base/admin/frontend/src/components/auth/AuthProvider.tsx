@@ -7,6 +7,9 @@ const TOKEN_KEY = "synesis_token";
 const REFRESH_KEY = "synesis_refresh_token";
 const EXPIRES_KEY = "synesis_token_expires_at";
 const USER_KEY = "synesis_user";
+/** OIDC id_token — sent as id_token_hint to Keycloak logout so the SSO session ends. */
+const ID_TOKEN_KEY = "synesis_id_token";
+const POST_LOGOUT_FLAG = "synesis_post_logout";
 
 function loadPersistedAuth(): { user: User | null; token: string | null } {
   try {
@@ -26,13 +29,22 @@ function clearPersistedAuth() {
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(EXPIRES_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(ID_TOKEN_KEY);
 }
 
-function persistTokens(access: string, refresh?: string, expiresIn?: number) {
+function persistTokens(
+  access: string,
+  refresh?: string,
+  expiresIn?: number,
+  idToken?: string | null,
+) {
   localStorage.setItem(TOKEN_KEY, access);
   if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
   if (expiresIn) {
     localStorage.setItem(EXPIRES_KEY, String(Date.now() + expiresIn * 1000));
+  }
+  if (idToken) {
+    localStorage.setItem(ID_TOKEN_KEY, idToken);
   }
 }
 
@@ -75,10 +87,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     refreshTimerRef.current = setTimeout(async () => {
       try {
-        const { data } = await axios.post("/api/v1/auth/oauth/refresh", {
+        const { data } = await axios.post<{
+          access_token: string;
+          refresh_token?: string;
+          expires_in?: number;
+          id_token?: string;
+        }>("/api/v1/auth/oauth/refresh", {
           refresh_token: localStorage.getItem(REFRESH_KEY),
         });
-        persistTokens(data.access_token, data.refresh_token, data.expires_in);
+        persistTokens(
+          data.access_token,
+          data.refresh_token,
+          data.expires_in,
+          data.id_token,
+        );
         setAuth((prev) => ({ ...prev, token: data.access_token }));
         scheduleRefresh();
       } catch {
@@ -142,16 +164,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [oidcConfig]);
 
   const logout = useCallback(() => {
-    const issuer = oidcConfig?.issuer;
+    const issuer = oidcConfig?.issuer?.replace(/\/$/, "");
     const clientId = oidcConfig?.client_id;
+    const oidcEnabled = oidcConfig?.enabled ?? false;
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+
+    const idToken = localStorage.getItem(ID_TOKEN_KEY);
+    if (oidcEnabled) {
+      sessionStorage.setItem(POST_LOGOUT_FLAG, "1");
+    }
     clearPersistedAuth();
     setAuth({ user: null, token: null });
 
-    if (issuer && clientId) {
-      const redirectUri = encodeURIComponent(window.location.origin + "/login");
-      window.location.href = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}&client_id=${clientId}`;
+    const loginUrl = `${window.location.origin}/login`;
+    if (oidcEnabled && issuer && clientId) {
+      const redirectUri = encodeURIComponent(loginUrl);
+      let logoutUrl = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}&client_id=${encodeURIComponent(clientId)}`;
+      if (idToken) {
+        logoutUrl += `&id_token_hint=${encodeURIComponent(idToken)}`;
+      }
+      window.location.assign(logoutUrl);
+      return;
     }
+    window.location.replace(loginUrl);
   }, [oidcConfig]);
 
   return (
