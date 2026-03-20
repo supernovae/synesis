@@ -306,14 +306,28 @@ export interface McpTool {
 
 export interface FeedbackEntry {
   [key: string]: unknown;
+  id: string;
+  source: "planner" | "openwebui";
   message_id: string;
   run_id: string;
-  vote: "up" | "down";
+  vote: "up" | "down" | "";
   user_id: string;
   model: string;
   message_snippet: string;
   response_snippet: string;
   timestamp: string;
+  trace_href?: string | null;
+  feedback_type?: string;
+  reason?: string;
+  user_comment?: string;
+  tags?: string[];
+  review_status?: "pending" | "reviewed" | "closed";
+  internal_note?: string;
+  updated_by?: string;
+  owui_id?: string;
+  chat_id?: string;
+  classification_reasons?: string[];
+  task_size?: string;
 }
 
 export interface KnowledgeGap {

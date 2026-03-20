@@ -878,10 +878,39 @@ export function useIngestWebUrl() {
 
 // --- Feedback ---
 
-export function useFeedback(params?: { vote?: string; limit?: number }) {
+export function useFeedback(params?: {
+  vote?: string;
+  limit?: number;
+  source?: string;
+  review_status?: string;
+  offset?: number;
+}) {
   return useQuery<{ entries: FeedbackEntry[]; total: number }>({
     queryKey: ["feedback", params],
     queryFn: () => client.get("/feedback", { params }).then((r) => r.data),
+  });
+}
+
+export function useSyncOpenWebUIFeedback() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => client.post("/feedback/sync-openwebui").then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback"] }),
+  });
+}
+
+export function useFeedbackWorkspaceUpdate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      source: "planner" | "openwebui";
+      run_id?: string;
+      message_id?: string;
+      owui_id?: string;
+      review_status: "pending" | "reviewed" | "closed";
+      internal_note: string;
+    }) => client.patch("/feedback/workspace", data).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["feedback"] }),
   });
 }
 

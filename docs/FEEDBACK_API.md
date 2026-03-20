@@ -62,11 +62,32 @@ List stored feedback. Query params:
 }
 ```
 
+## Admin UI (`synesis-admin`)
+
+The **Feedback** page calls the planner `GET /v1/feedback` and merges rows with **mirrored Open WebUI evaluation feedback** from Postgres (see below). It expects the planner response shape `{"object":"list","data":[...]}` (not `entries`).
+
+- **Filters:** source (planner / Open WebUI), rating (up/down), review status (pending / reviewed / closed).
+- **Trace link:** When a `run_id` is present (planner rows always; Open WebUI rows if `run_id` appears anywhere in the stored snapshot/meta JSON), the UI links to `/traces/{run_id}` (same id as the planner pipeline trace).
+- **Workspace:** Admins can set review status and an internal note (`PATCH /api/v1/feedback/workspace`).
+
+### Syncing Open WebUI evaluation feedback
+
+Open WebUI stores “Submit feedback” / evaluation data in **its own** SQLite database (`POST /api/v1/evaluations/feedback` — see [Open WebUI evaluations API](https://github.com/open-webui/open-webui/blob/main/src/lib/apis/evaluations/index.ts)). That does **not** call Synesis automatically.
+
+To show it in Synesis Admin:
+
+1. On **synesis-admin**, set:
+   - `SYNESIS_OPENWEBUI_URL` — public or in-cluster base URL (e.g. `https://synesis.apps...` or `http://open-webui.synesis-webui.svc.cluster.local:8080` depending on your Route/Service).
+   - `SYNESIS_OPENWEBUI_ADMIN_TOKEN` — a **Bearer** token for an Open WebUI **admin** user (JWT from login, or a Personal Access Token if your Open WebUI version accepts it on the export route).
+2. In Admin → **Feedback**, click **Sync from Open WebUI**. This calls Open WebUI `GET /api/v1/evaluations/feedbacks/all/export` and upserts into `openwebui_feedback`.
+
+Re-run sync periodically or after bursts of user feedback if you want the admin list to stay current.
+
 ## Open WebUI Integration
 
 ### Feedback dashboard (inside Open WebUI)
 
-A **Pipe plugin** adds a "Synesis Feedback" model. Use it to view stored feedback with classification context:
+A **Pipe plugin** adds a "Synesis Feedback" model. Use it to view **planner** stored thumbs with classification context:
 
 1. Import: **Workspace → Functions → Import Functions** → upload `integrations/openwebui-synesis-feedback/synesis_feedback_export.json`
 2. Configure: Edit the function Valves, set `synesis_planner_url` (e.g. `http://synesis-planner:8000`)
@@ -74,13 +95,10 @@ A **Pipe plugin** adds a "Synesis Feedback" model. Use it to view stored feedbac
 
 See `integrations/openwebui-synesis-feedback/README.md`.
 
-### Storing feedback
+### Storing planner thumbs (`POST /v1/feedback`)
 
-1. **Webhook:** If Open WebUI supports feedback webhooks, configure to POST to `{planner_url}/v1/feedback` with `message_id`, `run_id`, `vote`. Planner must receive `run_id` — include it in the chat response and have the client (or proxy) preserve it for the feedback callback.
-
-2. **Poll Open WebUI API:** Use `scripts/sync-openwebui-feedback.sh` (or cron) to fetch feedback from Open WebUI and POST to Synesis. Requires Open WebUI API key and matching `message_id` → `run_id` (e.g. store mapping when proxying).
-
-3. **Custom client:** Clients that call Synesis directly can read `run_id` from the response and POST to `/v1/feedback` when the user votes.
+1. **Native Open WebUI evaluation UI** does not post to Synesis — use **admin sync** (above) to mirror it, or a custom proxy if you need real-time forwarding.
+2. **Custom client / integration:** Read `run_id` from the chat completion (body or streaming chunks) and POST to `{planner}/v1/feedback` with `message_id`, `run_id`, `vote` when the user votes. Run context is merged from the planner cache when `run_id` is still valid (24h).
 
 ## Run context cache
 

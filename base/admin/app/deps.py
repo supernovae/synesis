@@ -16,6 +16,9 @@ PLANNER_URL = os.getenv(
     "SYNESIS_PLANNER_URL",
     "http://synesis-planner.synesis-planner.svc.cluster.local:8000",
 )
+# Optional: sync evaluation feedback from Open WebUI (admin export API).
+OPENWEBUI_URL = os.getenv("SYNESIS_OPENWEBUI_URL", "").strip()
+OPENWEBUI_ADMIN_TOKEN = os.getenv("SYNESIS_OPENWEBUI_ADMIN_TOKEN", "").strip()
 LITELLM_URL = os.getenv(
     "SYNESIS_LITELLM_URL",
     "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000",

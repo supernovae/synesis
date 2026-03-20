@@ -158,6 +158,8 @@ The dev overlay includes `openwebui-direct-planner.yaml`, which points Open WebU
 
 See [OPENWEBUI_ADMIN_GUIDE.md](OPENWEBUI_ADMIN_GUIDE.md) for admin dashboard import and feedback plugin setup.
 
+**Evaluation / “Submit feedback” in Open WebUI** is stored in Open WebUI’s own database. To see it in **synesis-admin → Feedback**, configure `SYNESIS_OPENWEBUI_URL` and `SYNESIS_OPENWEBUI_ADMIN_TOKEN` on the admin deployment and use **Sync from Open WebUI** (see [FEEDBACK_API.md](FEEDBACK_API.md)).
+
 ---
 
 Back to [README](../README.md) | See also: [Open WebUI Phases](OPENWEBUI_PHASES.md), [Admin Guide](OPENWEBUI_ADMIN_GUIDE.md)

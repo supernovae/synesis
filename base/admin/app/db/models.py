@@ -442,3 +442,37 @@ class AdminAuditEvent(Base):
         Index("ix_admin_audit_events_created_at", "created_at"),
         Index("ix_admin_audit_events_action", "action"),
     )
+
+
+class OpenWebUIFeedback(Base):
+    """Mirrored rows from Open WebUI /api/v1/evaluations/feedbacks/all/export."""
+
+    __tablename__ = "openwebui_feedback"
+
+    owui_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    feedback_type: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    meta: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    updated_at_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    ingested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_openwebui_feedback_created", "created_at_epoch"),)
+
+
+class FeedbackReview(Base):
+    """Admin triage state for planner thumbs or mirrored Open WebUI feedback."""
+
+    __tablename__ = "feedback_review"
+
+    subject_key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    internal_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

@@ -119,6 +119,7 @@ sequenceDiagram
 | Corpus | `/rag/corpus` | `GET /api/v1/rag/corpus` |
 | Review queue | `/rag/review` | `GET/POST /api/v1/rag/review*` ([`rag.py`](../base/admin/app/routers/rag.py)) |
 | Ingestion queue | `/rag/ingestion` | `GET/POST /api/v1/ingestion/*` ([`ingestion.py`](../base/admin/app/routers/ingestion.py)) |
+| User feedback | `/feedback` | `GET /api/v1/feedback` (planner + mirrored Open WebUI), `POST .../sync-openwebui`, `PATCH .../workspace` ([`feedback.py`](../base/admin/app/routers/feedback.py)) |
 | Knowledge gaps (feedback) | `/feedback/knowledge-gaps` | `GET /api/v1/feedback/knowledge-gaps` |
 | Curator proposals | `/feedback/curator` | `GET /api/v1/feedback/curator`, approve/reject |
 | Retrieval gaps + validate | `/observability/retrieval-gaps` | `GET/POST .../observability/knowledge-gaps*` |
