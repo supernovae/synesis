@@ -32,6 +32,8 @@ export default function ProviderKeys() {
   const [keyValue, setKeyValue] = useState("");
   const [showValue, setShowValue] = useState(false);
   const [addPicker, setAddPicker] = useState("");
+  const [addKeyValue, setAddKeyValue] = useState("");
+  const [showAddValue, setShowAddValue] = useState(false);
 
   const handleSave = (name: string) => {
     if (!keyValue.trim()) return;
@@ -41,17 +43,17 @@ export default function ProviderKeys() {
     );
   };
 
+  const handleAddSave = () => {
+    if (!addPicker || !addKeyValue.trim()) return;
+    setKeyMut.mutate(
+      { name: addPicker, value: addKeyValue.trim() },
+      { onSuccess: () => { setAddPicker(""); setAddKeyValue(""); setShowAddValue(false); } },
+    );
+  };
+
   const handleDelete = (name: string) => {
     if (!confirm(`Remove ${name}? Models using this key will stop working until a new key is set.`)) return;
     deleteKeyMut.mutate(name);
-  };
-
-  const startAddFromPicker = () => {
-    if (!addPicker) return;
-    setEditing(addPicker);
-    setAddPicker("");
-    setKeyValue("");
-    setShowValue(false);
   };
 
   return (
@@ -85,7 +87,7 @@ export default function ProviderKeys() {
             </p>
             <p className="text-amber-900/90 dark:text-amber-200/90">
               Assigning a model to a role in the registry does not upload keys — configure the matching env var here first
-              (or the deployment will fail at runtime). A future “split roles” model (e.g. key owners vs. assigners) may
+              (or the deployment will fail at runtime). A future "split roles" model (e.g. key owners vs. assigners) may
               change this; today both flows use the same catalog.
             </p>
           </div>
@@ -131,6 +133,7 @@ export default function ProviderKeys() {
                         type={showValue ? "text" : "password"}
                         value={keyValue}
                         onChange={(e) => setKeyValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSave(k.name); }}
                         placeholder="Paste API key..."
                         className="w-64 rounded border border-gray-300 bg-white px-3 py-1.5 pr-8 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
                         autoFocus
@@ -195,11 +198,11 @@ export default function ProviderKeys() {
           </div>
 
           <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
-            <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">Add or rotate (catalog providers)</p>
-            <div className="flex flex-wrap items-center gap-2">
+            <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">Add or rotate key</p>
+            <div className="space-y-3">
               <select
                 value={addPicker}
-                onChange={(e) => setAddPicker(e.target.value)}
+                onChange={(e) => { setAddPicker(e.target.value); setAddKeyValue(""); setShowAddValue(false); }}
                 className="min-w-[220px] rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
               >
                 <option value="">Select provider…</option>
@@ -209,17 +212,47 @@ export default function ProviderKeys() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={startAddFromPicker}
-                disabled={!addPicker}
-                className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-              >
-                Set or rotate key
-              </button>
+
+              {addPicker && (
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showAddValue ? "text" : "password"}
+                      value={addKeyValue}
+                      onChange={(e) => setAddKeyValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleAddSave(); }}
+                      placeholder={`Paste ${addPicker} value…`}
+                      className="w-full rounded border border-gray-300 bg-white px-3 py-1.5 pr-8 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAddValue(!showAddValue)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showAddValue ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddSave}
+                    disabled={setKeyMut.isPending || !addKeyValue.trim()}
+                    className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {setKeyMut.isPending ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddPicker(""); setAddKeyValue(""); setShowAddValue(false); }}
+                    className="rounded px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
             <p className="mt-2 text-xs text-gray-400">
-              To add a new provider to Synesis, extend the catalog (backend) first; a self-serve “add provider” UI may come later.
+              To add a new provider to Synesis, extend the catalog (backend) first; a self-serve "add provider" UI may come later.
             </p>
           </div>
         </div>
