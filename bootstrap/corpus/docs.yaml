@@ -79,7 +79,7 @@ items:
   - incident-response
   - automation
 - uri: https://12factor.net/
-  handler: html_document
+  handler: web_page
   title: Twelve-Factor App
   domain: architecture
   authority: vetted
@@ -90,6 +90,15 @@ items:
   - cloud-native
   - best-practices
   - software-engineering
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://12factor.net/
 - uri: https://github.com/MicrosoftDocs/architecture-center
   handler: github_markdown
   title: Cloud Design Patterns (Microsoft)
@@ -250,7 +259,7 @@ items:
   config:
     follow_links: true
 - uri: https://12factor.net/config
-  handler: html_document
+  handler: web_page
   title: 'Twelve-Factor App: Config'
   domain: architecture
   authority: vetted
@@ -259,8 +268,17 @@ items:
   - twelve-factor
   - config
   - environment
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://12factor.net/config/
 - uri: https://12factor.net/logs
-  handler: html_document
+  handler: web_page
   title: 'Twelve-Factor App: Logs'
   domain: architecture
   authority: vetted
@@ -269,8 +287,17 @@ items:
   - twelve-factor
   - logs
   - observability
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://12factor.net/logs/
 - uri: https://12factor.net/dev-prod-parity
-  handler: html_document
+  handler: web_page
   title: 'Twelve-Factor App: Dev/Prod Parity'
   domain: architecture
   authority: vetted
@@ -279,6 +306,15 @@ items:
   - twelve-factor
   - dev-prod-parity
   - environments
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://12factor.net/dev-prod-parity/
 - uri: https://c4model.com/
   handler: web_page
   title: C4 Model

@@ -113,6 +113,14 @@ class TestUrlFilter:
         assert not ok
         assert "allowed prefix" in reason
 
+    def test_allowed_prefix_full_url(self):
+        policy = GatePolicy(allowed_prefixes=["https://docs.example.com/v2/guide/"])
+        ok, _ = url_passes_filter("https://docs.example.com/v2/guide/page.html", policy)
+        assert ok
+        ok, reason = url_passes_filter("https://docs.example.com/v1/other/", policy)
+        assert not ok
+        assert "allowed prefix" in reason
+
     def test_blog_blocked_by_default(self, policy):
         ok, _ = url_passes_filter("https://example.com/blog/post-1", policy)
         assert not ok

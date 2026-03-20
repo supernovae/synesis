@@ -1,10 +1,14 @@
-"""Handler: Web page crawler (Crawl4AI) with content gate.
+"""Handler: Web page crawler (Crawl4AI) with sitemap-first discovery, robots.txt, content gate.
 
-Crawls trusted URLs using Crawl4AI for JS-rendered page fetching,
-converts HTML to Markdown via trafilatura, then chunks with
-heading-aware splitting.  Crawl4AI is retained only as a
-browser/fetcher; its built-in markdown converter is bypassed in
-favour of the unified trafilatura pipeline.
+Discovery modes (``config.discovery``):
+- ``sitemap_first`` — expand sitemap(s), then fall back to same-host BFS if empty.
+- ``sitemap_only`` — only URLs from sitemaps (no BFS fallback).
+- ``bfs`` — legacy link following from the seed URL only.
+
+Sitemaps are taken from ``config.sitemap_urls``, then robots.txt ``Sitemap:`` lines,
+then ``/sitemap.xml`` and ``/sitemap_index.xml`` on the seed host.
+
+Respects ``robots.txt`` crawl-delay (and ``config.min_request_interval`` floor) between fetches.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ import asyncio
 import logging
 from collections import deque
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from ..chunking import heading_aware_split
 from ..content_gate import (
@@ -22,12 +26,17 @@ from ..content_gate import (
     normalize_url,
     url_passes_filter,
 )
+from ..robots_cache import (
+    DEFAULT_USER_AGENT,
+    can_fetch,
+    crawl_delay_seconds,
+    fetch_robots_info,
+)
+from ..sitemap_collect import collect_urls_from_sitemaps
 from . import register
 from .base import Chunk, RawDocument
 
 logger = logging.getLogger("synesis.indexer.handler.web_page")
-
-_MAX_PAGES_PER_SOURCE = 50
 
 
 @register
@@ -36,10 +45,8 @@ class WebPageHandler:
     source_type = "web_page"
 
     def fetch(self, source_config: dict[str, Any]) -> list[RawDocument]:
-        config = source_config.get("config", {})
+        config = dict(source_config.get("config", {}))
         url = config.get("url", "")
-        follow_links = config.get("follow_links", False)
-        max_depth = config.get("max_depth", 2)
         name = source_config.get("name", url)
 
         if not url:
@@ -49,7 +56,7 @@ class WebPageHandler:
         policy = self._build_policy(config)
 
         pages = asyncio.get_event_loop().run_until_complete(
-            _crawl_with_gate(url, follow_links, max_depth, policy),
+            _crawl_pages(url, config, policy),
         )
         if not pages:
             logger.warning("No content retrieved from %s", url)
@@ -92,33 +99,205 @@ class WebPageHandler:
             policy.allowed_prefixes = prefixes
         if config.get("allow_blog"):
             policy.allow_blog = True
+        if "max_depth" in config and isinstance(config["max_depth"], int):
+            policy.max_depth = max(0, int(config["max_depth"]))
         return policy
 
 
-async def _crawl_with_gate(
-    seed_url: str,
-    follow_links: bool,
-    max_depth: int,
-    policy: GatePolicy,
-) -> list[dict[str, str]]:
-    """BFS crawl with content gate at each level."""
+async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy) -> list[dict[str, str]]:
     try:
         from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
     except ImportError:
         logger.error("crawl4ai not installed. Run: pip install crawl4ai")
         return []
 
+    max_pages = max(1, int(config.get("max_pages", 80)))
+    discovery = (config.get("discovery") or "sitemap_first").lower()
+    respect_robots = bool(config.get("respect_robots", True))
+    user_agent = (config.get("user_agent") or DEFAULT_USER_AGENT).strip()
+    min_interval = float(config.get("min_request_interval", 0.35))
+
+    rinfo = await asyncio.to_thread(fetch_robots_info, seed_url)
+    robots_delay = crawl_delay_seconds(user_agent, rinfo) if respect_robots else 0.0
+    pause = max(min_interval, robots_delay)
+
+    urls_to_fetch: list[str] = []
+
+    if discovery in ("sitemap_first", "sitemap_only"):
+        sitemap_seeds: list[str] = []
+        raw = config.get("sitemap_urls")
+        if isinstance(raw, list):
+            sitemap_seeds.extend(str(x).strip() for x in raw if x)
+        if respect_robots:
+            sitemap_seeds.extend(u for u in rinfo.sitemap_urls if u not in sitemap_seeds)
+        parsed = urlparse(seed_url)
+        if parsed.scheme and parsed.netloc:
+            base = f"{parsed.scheme}://{parsed.netloc}"
+            for tail in ("sitemap.xml", "sitemap_index.xml", "sitemap-index.xml"):
+                guess = urljoin(base + "/", tail)
+                if guess not in sitemap_seeds:
+                    sitemap_seeds.append(guess)
+
+        max_sm = int(config.get("max_sitemap_expand", 24))
+        urls_to_fetch = await asyncio.to_thread(
+            collect_urls_from_sitemaps,
+            seed_url,
+            sitemap_seeds,
+            policy,
+            max_urls=max_pages * 4,
+            max_sitemap_hops=max_sm,
+        )
+        urls_to_fetch = _dedupe_preserve_order(urls_to_fetch)
+        urls_to_fetch = urls_to_fetch[: max_pages * 2]
+
+        seed_norm = normalize_url(seed_url)
+        if not any(normalize_url(u) == seed_norm for u in urls_to_fetch):
+            urls_to_fetch.insert(0, seed_url)
+        else:
+            urls_to_fetch = [u for u in urls_to_fetch if normalize_url(u) != seed_norm]
+            urls_to_fetch.insert(0, seed_url)
+
+        logger.info(
+            "web_page_sitemap_discovery seed=%s urls=%d discovery=%s",
+            seed_url,
+            len(urls_to_fetch),
+            discovery,
+        )
+
+    if discovery in ("sitemap_first", "sitemap_only") and urls_to_fetch:
+        pages = await _fetch_url_list(
+            urls_to_fetch,
+            seed_url,
+            policy,
+            user_agent,
+            pause,
+            respect_robots,
+            rinfo,
+            max_pages,
+        )
+        if pages:
+            return pages
+        if discovery == "sitemap_only":
+            return []
+
+    follow_links = bool(config.get("follow_links", True))
+    max_depth = max(0, int(config.get("max_depth", 4)))
+    return await _crawl_bfs(
+        seed_url,
+        follow_links,
+        max_depth,
+        policy,
+        user_agent,
+        pause,
+        respect_robots,
+        rinfo,
+        max_pages,
+    )
+
+
+def _dedupe_preserve_order(urls: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for u in urls:
+        c = normalize_url(u)
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(u)
+    return out
+
+
+async def _fetch_url_list(
+    urls: list[str],
+    seed_url: str,
+    policy: GatePolicy,
+    user_agent: str,
+    pause: float,
+    respect_robots: bool,
+    rinfo: Any,
+    max_pages: int,
+) -> list[dict[str, str]]:
+    from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+    from ..extract import html_to_markdown, normalize_doc_markdown
+
+    seed_host = urlparse(seed_url).hostname or ""
+    pages: list[dict[str, str]] = []
+    crawler_config = CrawlerRunConfig()
+
+    async with AsyncWebCrawler() as crawler:
+        for i, url in enumerate(urls):
+            if len(pages) >= max_pages:
+                break
+            if i > 0 and pause > 0:
+                await asyncio.sleep(pause)
+
+            if respect_robots and not can_fetch(url, user_agent, rinfo):
+                logger.debug("robots_disallow url=%s", url)
+                continue
+
+            passes, reason = url_passes_filter(url, policy, seed_host=seed_host)
+            if not passes:
+                logger.debug("url_filtered (%s): %s", reason, url)
+                continue
+
+            try:
+                result = await crawler.arun(url=url, config=crawler_config)
+            except Exception as e:
+                logger.warning("Crawl failed for %s: %s", url, e)
+                continue
+
+            if not result:
+                continue
+            html = getattr(result, "html", "") or ""
+            if not html:
+                continue
+
+            depth = 0 if normalize_url(url) == normalize_url(seed_url) else 1
+            verdict = evaluate_page(url, html, policy, depth=depth)
+            if verdict and not verdict.should_index and depth > 0:
+                logger.info(
+                    "Page rejected (score=%.2f, type=%s): %s — %s",
+                    verdict.quality_score,
+                    verdict.doc_type,
+                    url,
+                    verdict.rejection_reason,
+                )
+                continue
+
+            md = html_to_markdown(html)
+            if not md:
+                logger.debug("trafilatura returned empty for %s", url)
+                continue
+
+            md = normalize_doc_markdown(md)
+            pages.append({"url": url, "markdown": md})
+
+    return pages
+
+
+async def _crawl_bfs(
+    seed_url: str,
+    follow_links: bool,
+    max_depth: int,
+    policy: GatePolicy,
+    user_agent: str,
+    pause: float,
+    respect_robots: bool,
+    rinfo: Any,
+    max_pages: int,
+) -> list[dict[str, str]]:
+    from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
     from ..extract import html_to_markdown, normalize_doc_markdown
 
     pages: list[dict[str, str]] = []
     visited: set[str] = set()
     seed_host = urlparse(seed_url).hostname or ""
     crawler_config = CrawlerRunConfig()
-
     queue: deque[tuple[str, int]] = deque([(seed_url, 0)])
+    request_idx = 0
 
     async with AsyncWebCrawler() as crawler:
-        while queue and len(pages) < _MAX_PAGES_PER_SOURCE:
+        while queue and len(pages) < max_pages:
             url, depth = queue.popleft()
             canonical = normalize_url(url)
 
@@ -130,6 +309,14 @@ async def _crawl_with_gate(
             if not passes and depth > 0:
                 logger.debug("URL filtered (%s): %s", reason, url)
                 continue
+
+            if respect_robots and not can_fetch(url, user_agent, rinfo):
+                logger.debug("robots_disallow bfs url=%s", url)
+                continue
+
+            if request_idx > 0 and pause > 0:
+                await asyncio.sleep(pause)
+            request_idx += 1
 
             try:
                 result = await crawler.arun(url=url, config=crawler_config)
@@ -144,7 +331,7 @@ async def _crawl_with_gate(
             if not html:
                 continue
 
-            verdict = evaluate_page(html, html, policy, depth=depth)
+            verdict = evaluate_page(url, html, policy, depth=depth)
 
             if verdict and not verdict.should_index and depth > 0:
                 logger.info(
@@ -188,8 +375,9 @@ def _extract_child_urls(
 
     internal_links = getattr(result.links, "internal", []) or []
     children: list[str] = []
+    max_per_page = 30
 
-    for link in internal_links[:30]:
+    for link in internal_links[:max_per_page]:
         href = link if isinstance(link, str) else getattr(link, "href", "")
         if not href:
             continue
@@ -208,4 +396,4 @@ def _extract_child_urls(
 
         children.append(href)
 
-    return children[:20]
+    return children[:25]

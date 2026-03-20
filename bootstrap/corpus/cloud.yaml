@@ -3,7 +3,7 @@
 #
 items:
 - uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html
-  handler: html_document
+  handler: web_page
   title: AWS Well-Architected Framework
   domain: cloud
   authority: vetted
@@ -16,8 +16,17 @@ items:
   - cost
   - performance
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.aws.amazon.com/wellarchitected/latest/framework/
 - uri: https://c4model.com/diagrams
-  handler: html_document
+  handler: web_page
   title: C4 Model Diagrams
   domain: cloud
   authority: vetted
@@ -27,8 +36,17 @@ items:
   - diagramming
   - system-views
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://c4model.com/diagrams/
 - uri: https://sre.google/resources/
-  handler: html_document
+  handler: web_page
   title: Google SRE Resource Library
   domain: cloud
   authority: vetted
@@ -40,8 +58,17 @@ items:
   - monitoring
   - incident-response
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://sre.google/resources/
 - uri: https://sre.google/books/
-  handler: html_document
+  handler: web_page
   title: Google SRE Books
   domain: cloud
   authority: vetted
@@ -52,8 +79,17 @@ items:
   - operations
   - secure-systems
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://sre.google/books/
 - uri: https://sre.google/sre-book/table-of-contents/
-  handler: html_document
+  handler: web_page
   title: Google SRE Book TOC
   domain: cloud
   authority: vetted
@@ -65,8 +101,17 @@ items:
   - release-engineering
   - monitoring
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://sre.google/sre-book/table-of-contents/
 - uri: https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning
-  handler: html_document
+  handler: web_page
   title: 'Google Cloud: MLOps Best Practices'
   domain: devops
   authority: vetted
@@ -78,8 +123,17 @@ items:
   - monitoring
   - google-cloud
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning/
 - uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/welcome.html
-  handler: html_document
+  handler: web_page
   title: 'AWS: MLOps Foundation Roadmap'
   domain: devops
   authority: vetted
@@ -91,8 +145,17 @@ items:
   - roadmap
   - production
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/
 - uri: https://huyenchip.com/ml-systems-design.html
-  handler: html_document
+  handler: web_page
   title: 'Chip Huyen: Designing Machine Learning Systems (Monitoring Chapter)'
   domain: devops
   authority: vetted
@@ -104,8 +167,17 @@ items:
   - production
   - system-design
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huyenchip.com/
 - uri: https://launchdarkly.com/solutions/ai/
-  handler: html_document
+  handler: web_page
   title: 'Feature Flagging for ML: LaunchDarkly AI Config'
   domain: devops
   authority: vetted
@@ -117,8 +189,17 @@ items:
   - launchdarkly
   - ml
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://launchdarkly.com/solutions/ai/
 - uri: https://mlflow.org/docs/latest/model-registry.html
-  handler: html_document
+  handler: web_page
   title: 'MLflow: Model Registry and Deployment'
   domain: devops
   authority: vetted
@@ -130,8 +211,17 @@ items:
   - versioning
   - production
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://mlflow.org/docs/latest/
 - uri: https://wandb.ai/site/solutions/llm-monitoring
-  handler: html_document
+  handler: web_page
   title: 'Weights & Biases: LLM Monitoring in Production'
   domain: devops
   authority: vetted
@@ -143,8 +233,17 @@ items:
   - wandb
   - observability
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://wandb.ai/site/solutions/llm-monitoring/
 - uri: https://kserve.github.io/kserve/
-  handler: html_document
+  handler: web_page
   title: 'KServe: Kubernetes InferenceService'
   domain: kubernetes
   authority: vetted
@@ -156,8 +255,17 @@ items:
   - model-serving
   - autoscaling
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://kserve.github.io/kserve/
 - uri: https://kserve.github.io/kserve/master/reference/architecture/
-  handler: html_document
+  handler: web_page
   title: 'KServe: Architecture Overview'
   domain: kubernetes
   authority: vetted
@@ -169,8 +277,17 @@ items:
   - inference-graph
   - serving
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://kserve.github.io/kserve/master/reference/architecture/
 - uri: https://kubernetes.io/docs/concepts/workloads/best-practices/
-  handler: html_document
+  handler: web_page
   title: 'Kubernetes: AI/ML Workload Best Practices'
   domain: kubernetes
   authority: vetted
@@ -182,8 +299,17 @@ items:
   - scheduling
   - best-practices
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://kubernetes.io/docs/concepts/workloads/best-practices/
 - uri: https://docs.ray.io/en/latest/serve/index.html
-  handler: html_document
+  handler: web_page
   title: 'Ray Serve: Scalable Model Serving'
   domain: kubernetes
   authority: vetted
@@ -195,8 +321,17 @@ items:
   - batching
   - kubernetes
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.ray.io/en/latest/serve/
 - uri: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html
-  handler: html_document
+  handler: web_page
   title: NVIDIA Triton Inference Server
   domain: kubernetes
   authority: vetted
@@ -208,6 +343,15 @@ items:
   - model-serving
   - gpu
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/
 - uri: https://vllm.ai/blog/stack-release
   handler: html_document
   title: 'vLLM Production Stack: High Performance Deployment in Kubernetes'
@@ -221,6 +365,7 @@ items:
   - helm
   - autoscaling
   - kv-cache
+  - corpus_blog
   priority: 1
 - uri: https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes
   handler: html_document
@@ -235,9 +380,10 @@ items:
   - red-hat
   - openshift
   - guidellm
+  - corpus_blog
   priority: 1
 - uri: https://docs.docker.com/reference/dockerfile/
-  handler: html_document
+  handler: web_page
   title: Dockerfile Reference
   domain: cloud
   authority: vetted
@@ -248,8 +394,17 @@ items:
   - build
   - reference
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/reference/dockerfile/
 - uri: https://docs.docker.com/build/concepts/dockerfile/
-  handler: html_document
+  handler: web_page
   title: Dockerfile Overview
   domain: cloud
   authority: vetted
@@ -260,8 +415,17 @@ items:
   - overview
   - images
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/build/concepts/dockerfile/
 - uri: https://docs.docker.com/build/building/best-practices/
-  handler: html_document
+  handler: web_page
   title: Building Best Practices
   domain: cloud
   authority: vetted
@@ -272,8 +436,17 @@ items:
   - images
   - security
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/build/building/best-practices/
 - uri: https://docs.docker.com/reference/compose-file/
-  handler: html_document
+  handler: web_page
   title: Compose File Reference
   domain: cloud
   authority: vetted
@@ -284,8 +457,17 @@ items:
   - yaml
   - reference
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/reference/compose-file/
 - uri: https://docs.docker.com/reference/compose-file/build/
-  handler: html_document
+  handler: web_page
   title: Compose Build Specification
   domain: cloud
   authority: vetted
@@ -296,8 +478,17 @@ items:
   - build
   - spec
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/reference/compose-file/build/
 - uri: https://docs.docker.com/compose/gettingstarted/
-  handler: html_document
+  handler: web_page
   title: Docker Compose Quickstart
   domain: cloud
   authority: vetted
@@ -308,8 +499,17 @@ items:
   - quickstart
   - dev-workflow
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/compose/gettingstarted/
 - uri: https://docs.docker.com/compose/intro/compose-application-model/
-  handler: html_document
+  handler: web_page
   title: How Compose Works
   domain: cloud
   authority: vetted
@@ -320,8 +520,17 @@ items:
   - application-model
   - merge-rules
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/compose/intro/compose-application-model/
 - uri: https://docs.docker.com/compose/how-tos/environment-variables/best-practices/
-  handler: html_document
+  handler: web_page
   title: Compose Env Var Best Practices
   domain: cloud
   authority: vetted
@@ -333,8 +542,17 @@ items:
   - secrets
   - best-practices
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.docker.com/compose/how-tos/environment-variables/best-practices/
 - uri: https://docs.aws.amazon.com/cli/
-  handler: html_document
+  handler: web_page
   title: AWS CLI Documentation
   domain: cloud
   authority: vetted
@@ -345,8 +563,17 @@ items:
   - cloud
   - tooling
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.aws.amazon.com/cli/
 - uri: https://docs.aws.amazon.com/cli/latest/reference/
-  handler: html_document
+  handler: web_page
   title: AWS CLI Command Reference
   domain: cloud
   authority: vetted
@@ -357,8 +584,17 @@ items:
   - reference
   - automation
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.aws.amazon.com/cli/latest/reference/
 - uri: https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html
-  handler: html_document
+  handler: web_page
   title: AWS CLI Getting Started
   domain: cloud
   authority: vetted
@@ -369,8 +605,17 @@ items:
   - getting-started
   - automation
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.aws.amazon.com/cli/latest/userguide/
 - uri: https://learn.microsoft.com/en-us/cli/azure/?view=azure-cli-latest
-  handler: html_document
+  handler: web_page
   title: Azure CLI Documentation
   domain: cloud
   authority: vetted
@@ -381,8 +626,17 @@ items:
   - cloud
   - tooling
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://learn.microsoft.com/en-us/cli/azure/
 - uri: https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli?view=azure-cli-latest
-  handler: html_document
+  handler: web_page
   title: Get Started with Azure CLI
   domain: cloud
   authority: vetted
@@ -392,8 +646,17 @@ items:
   - cli
   - getting-started
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli/
 - uri: https://docs.cloud.google.com/sdk/docs
-  handler: html_document
+  handler: web_page
   title: Google Cloud SDK Documentation
   domain: cloud
   authority: vetted
@@ -404,8 +667,17 @@ items:
   - sdk
   - cloud
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.cloud.google.com/sdk/docs/
 - uri: https://docs.cloud.google.com/sdk/gcloud
-  handler: html_document
+  handler: web_page
   title: gcloud CLI Overview
   domain: cloud
   authority: vetted
@@ -416,8 +688,17 @@ items:
   - cli
   - overview
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.cloud.google.com/sdk/gcloud/
 - uri: https://docs.cloud.google.com/sdk/gcloud/reference
-  handler: html_document
+  handler: web_page
   title: gcloud Reference
   domain: cloud
   authority: vetted
@@ -428,8 +709,17 @@ items:
   - reference
   - automation
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.cloud.google.com/sdk/gcloud/reference/
 - uri: https://docs.cloud.google.com/sdk/docs/cheatsheet
-  handler: html_document
+  handler: web_page
   title: gcloud CLI Cheat Sheet
   domain: cloud
   authority: vetted
@@ -440,3 +730,12 @@ items:
   - cheatsheet
   - commands
   priority: 3
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.cloud.google.com/sdk/docs/cheatsheet/

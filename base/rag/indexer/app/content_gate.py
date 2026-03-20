@@ -313,6 +313,25 @@ class ChunkVerdict:
 # ═══════════════════════════════════════════════════════════════════════
 
 
+def _url_matches_any_allowed_prefix(url: str, prefixes: list[str]) -> bool:
+    """Match full URL or path against allowed_prefixes (supports https://… entries)."""
+    u = url.strip()
+    parsed = urlparse(u)
+    path_l = parsed.path.lower()
+    full_l = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".lower().rstrip("/")
+    for raw in prefixes:
+        p = (raw or "").strip()
+        if not p:
+            continue
+        pl = p.lower().rstrip("/")
+        if pl.startswith("http://") or pl.startswith("https://"):
+            if u.lower().startswith(pl) or full_l.startswith(pl):
+                return True
+        elif path_l.startswith(pl.lower()):
+            return True
+    return False
+
+
 def normalize_url(url: str) -> str:
     """Strip fragments, trailing slash, querystring, percent-decode."""
     parsed = urlparse(unquote(url.strip()))
@@ -349,8 +368,9 @@ def url_passes_filter(
         if path.endswith(ext):
             return False, f"blocked extension: {ext}"
 
-    if policy.allowed_prefixes and not any(path.startswith(p) for p in policy.allowed_prefixes):
-        return False, f"path not under allowed prefix: {path}"
+    if policy.allowed_prefixes:
+        if not _url_matches_any_allowed_prefix(url, policy.allowed_prefixes):
+            return False, f"not under allowed prefix: {url[:120]}"
 
     for bp in policy.blocked_prefixes:
         if path.startswith(bp):

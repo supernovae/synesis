@@ -8,7 +8,7 @@
 #
 items:
 - uri: https://arxiv.org/abs/2310.17631
-  handler: html_document
+  handler: web_page
   title: JudgeLM
   domain: llm_evaluation
   authority: vetted
@@ -19,8 +19,17 @@ items:
   - critic
   - rubric
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arxiv.org/abs/
 - uri: https://arxiv.org/abs/2310.08491
-  handler: html_document
+  handler: web_page
   title: Prometheus
   domain: llm_evaluation
   authority: vetted
@@ -31,8 +40,17 @@ items:
   - rubric
   - critic
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arxiv.org/abs/
 - uri: https://arxiv.org/abs/2405.01535
-  handler: html_document
+  handler: web_page
   title: Prometheus 2
   domain: llm_evaluation
   authority: vetted
@@ -43,8 +61,17 @@ items:
   - pairwise-ranking
   - critic
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arxiv.org/abs/
 - uri: https://arxiv.org/abs/2504.00050
-  handler: html_document
+  handler: web_page
   title: JudgeLRM
   domain: llm_evaluation
   authority: vetted
@@ -54,8 +81,17 @@ items:
   - reasoning
   - critic
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arxiv.org/abs/
 - uri: https://arxiv.org/abs/2312.10997
-  handler: html_document
+  handler: web_page
   title: 'Retrieval-Augmented Generation for Large Language Models: A Survey'
   domain: llm_rag
   authority: vetted
@@ -66,8 +102,17 @@ items:
   - generation
   - survey
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arxiv.org/abs/
 - uri: https://developers.openai.com/api/docs/guides/structured-outputs/
-  handler: html_document
+  handler: web_page
   title: OpenAI Structured Outputs Guide
   domain: llm_prompting
   authority: vetted
@@ -77,8 +122,17 @@ items:
   - json-schema
   - validation
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://developers.openai.com/api/docs/guides/structured-outputs/
 - uri: https://developers.openai.com/cookbook/examples/structured_outputs_intro/
-  handler: html_document
+  handler: web_page
   title: Structured Outputs Intro
   domain: llm_prompting
   authority: vetted
@@ -88,8 +142,17 @@ items:
   - examples
   - schemas
   priority: 3
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://developers.openai.com/cookbook/examples/structured_outputs_intro/
 - uri: https://docs.anthropic.com/en/docs/about-claude/use-case-guides/summarization
-  handler: html_document
+  handler: web_page
   title: 'Anthropic: Claude''s Uncertainty and Limitations'
   domain: llm_evaluation
   authority: vetted
@@ -101,8 +164,17 @@ items:
   - limitations
   - guardrails
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.anthropic.com/en/docs/about-claude/use-case-guides/summarization/
 - uri: https://platform.openai.com/docs/guides/safety-best-practices
-  handler: html_document
+  handler: web_page
   title: 'OpenAI: Safety Best Practices'
   domain: llm_evaluation
   authority: vetted
@@ -114,8 +186,17 @@ items:
   - refusal
   - escalation
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://platform.openai.com/docs/guides/safety-best-practices/
 - uri: https://ai.google/responsibility/responsible-ai-practices/
-  handler: html_document
+  handler: web_page
   title: 'Google: Responsible AI Practices'
   domain: llm_evaluation
   authority: vetted
@@ -127,6 +208,15 @@ items:
   - fairness
   - transparency
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://ai.google/responsibility/responsible-ai-practices/
 - uri: https://lilianweng.github.io/posts/2023-06-23-agent/
   handler: html_document
   title: 'Lilian Weng: LLM Powered Autonomous Agents'
@@ -140,6 +230,7 @@ items:
   - tool-use
   - confidence
   - survey
+  - corpus_blog
   priority: 2
 - uri: https://lilianweng.github.io/posts/2024-07-07-hallucination/
   handler: html_document
@@ -153,6 +244,7 @@ items:
   - detection
   - mitigation
   - confidence
+  - corpus_blog
   priority: 2
 - uri: https://www.anthropic.com/news/contextual-retrieval
   handler: web_page
@@ -1308,7 +1400,7 @@ items:
   - deepseek
   - benchmark
 - uri: https://huggingface.co/docs/transformers/training
-  handler: html_document
+  handler: web_page
   title: Hugging Face Transformers — Training
   domain: llm_training
   authority: vetted
@@ -1320,8 +1412,17 @@ items:
   - fine-tuning
   - llm
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/transformers/training/
 - uri: https://huggingface.co/docs/transformers/run_scripts
-  handler: html_document
+  handler: web_page
   title: Hugging Face Transformers — Training scripts
   domain: llm_training
   authority: vetted
@@ -1333,8 +1434,17 @@ items:
   - cli
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/transformers/run_scripts/
 - uri: https://huggingface.co/docs/trl/index
-  handler: html_document
+  handler: web_page
   title: TRL — Transformer Reinforcement Learning
   domain: llm_training
   authority: vetted
@@ -1347,8 +1457,17 @@ items:
   - sft
   - llm
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/trl/index/
 - uri: https://huggingface.co/docs/peft/index
-  handler: html_document
+  handler: web_page
   title: PEFT — Parameter-Efficient Fine-Tuning
   domain: llm_training
   authority: vetted
@@ -1361,8 +1480,17 @@ items:
   - fine-tuning
   - llm
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/peft/index/
 - uri: https://huggingface.co/docs/datasets/index
-  handler: html_document
+  handler: web_page
   title: Hugging Face Datasets
   domain: llm_training
   authority: vetted
@@ -1374,8 +1502,17 @@ items:
   - preprocessing
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/datasets/index/
 - uri: https://huggingface.co/docs/accelerate/index
-  handler: html_document
+  handler: web_page
   title: Hugging Face Accelerate
   domain: llm_training
   authority: vetted
@@ -1387,8 +1524,17 @@ items:
   - gpu
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/accelerate/index/
 - uri: https://docs.ray.io/en/latest/train/train.html
-  handler: html_document
+  handler: web_page
   title: Ray Train — distributed training
   domain: llm_training
   authority: vetted
@@ -1400,8 +1546,17 @@ items:
   - scaling
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.ray.io/en/latest/train/
 - uri: https://www.deepspeed.ai/getting-started/
-  handler: html_document
+  handler: web_page
   title: DeepSpeed — Getting started
   domain: llm_training
   authority: vetted
@@ -1413,8 +1568,17 @@ items:
   - gpu
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.deepspeed.ai/getting-started/
 - uri: https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html
-  handler: html_document
+  handler: web_page
   title: PyTorch FSDP tutorial
   domain: llm_training
   authority: vetted
@@ -1425,6 +1589,15 @@ items:
   - distributed-training
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.pytorch.org/tutorials/intermediate/
 - uri: https://huggingface.co/blog/rlhf
   handler: html_document
   title: Hugging Face — RLHF explained (blog)
@@ -1437,9 +1610,10 @@ items:
   - alignment
   - reward-model
   - llm
+  - corpus_blog
   priority: 2
 - uri: https://unsloth.ai/docs
-  handler: html_document
+  handler: web_page
   title: Unsloth — faster fine-tuning docs
   domain: llm_training
   authority: community
@@ -1451,8 +1625,17 @@ items:
   - gpu
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://unsloth.ai/docs/
 - uri: https://docs.axolotl.ai/docs/getting-started.html
-  handler: html_document
+  handler: web_page
   title: Axolotl — getting started
   domain: llm_training
   authority: community
@@ -1463,8 +1646,17 @@ items:
   - llm
   - open-source
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.axolotl.ai/docs/
 - uri: https://www.sbert.net/docs/sentence_transformer/training_overview.html
-  handler: html_document
+  handler: web_page
   title: Sentence-Transformers — training overview
   domain: llm_rag
   authority: vetted
@@ -1476,8 +1668,17 @@ items:
   - rag
   - retrieval
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sbert.net/docs/sentence_transformer/
 - uri: https://docs.trychroma.com/docs/overview/getting-started
-  handler: html_document
+  handler: web_page
   title: Chroma — getting started
   domain: llm_rag
   authority: vetted
@@ -1489,8 +1690,17 @@ items:
   - rag
   - retrieval
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.trychroma.com/docs/overview/getting-started/
 - uri: https://docs.llamaindex.ai/en/stable/module_guides/deploying/agents/
-  handler: html_document
+  handler: web_page
   title: LlamaIndex — deploying agents
   domain: llm_rag
   authority: vetted
@@ -1501,8 +1711,17 @@ items:
   - rag
   - deployment
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.llamaindex.ai/en/stable/module_guides/deploying/agents/
 - uri: https://docs.llamaindex.ai/en/stable/use_cases/agents/
-  handler: html_document
+  handler: web_page
   title: LlamaIndex — agents use cases
   domain: llm_rag
   authority: vetted
@@ -1513,8 +1732,17 @@ items:
   - rag
   - patterns
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.llamaindex.ai/en/stable/use_cases/agents/
 - uri: https://docs.langchain.com/oss/python/langchain/agents
-  handler: html_document
+  handler: web_page
   title: LangChain — Agents
   domain: generalist
   authority: vetted
@@ -1525,8 +1753,17 @@ items:
   - tool-use
   - orchestration
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.langchain.com/oss/python/langchain/agents/
 - uri: https://docs.langchain.com/oss/python/langgraph/quickstart
-  handler: html_document
+  handler: web_page
   title: LangGraph — Quickstart
   domain: generalist
   authority: vetted
@@ -1537,8 +1774,17 @@ items:
   - agents
   - workflows
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.langchain.com/oss/python/langgraph/quickstart/
 - uri: https://docs.langchain.com/oss/python/langgraph/use-subgraphs
-  handler: html_document
+  handler: web_page
   title: LangGraph — Subgraphs
   domain: generalist
   authority: vetted
@@ -1549,8 +1795,17 @@ items:
   - composition
   - patterns
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.langchain.com/oss/python/langgraph/use-subgraphs/
 - uri: https://docs.langchain.com/oss/python/langgraph/persistence
-  handler: html_document
+  handler: web_page
   title: LangGraph — Persistence
   domain: generalist
   authority: vetted
@@ -1561,8 +1816,17 @@ items:
   - memory
   - checkpoints
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.langchain.com/oss/python/langgraph/persistence/
 - uri: https://langchain-ai.github.io/langgraph/tutorials/introduction/
-  handler: html_document
+  handler: web_page
   title: LangGraph — Introduction tutorial
   domain: generalist
   authority: vetted
@@ -1572,8 +1836,17 @@ items:
   - tutorial
   - agents
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://langchain-ai.github.io/langgraph/tutorials/introduction/
 - uri: https://dspy.ai/learn/
-  handler: html_document
+  handler: web_page
   title: DSPy — Learn
   domain: generalist
   authority: community
@@ -1585,8 +1858,17 @@ items:
   - optimization
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://dspy.ai/learn/
 - uri: https://microsoft.github.io/autogen/stable/
-  handler: html_document
+  handler: web_page
   title: Microsoft AutoGen documentation
   domain: generalist
   authority: vetted
@@ -1597,8 +1879,17 @@ items:
   - microsoft
   - agents
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://microsoft.github.io/autogen/stable/
 - uri: https://learn.microsoft.com/en-us/semantic-kernel/overview/
-  handler: html_document
+  handler: web_page
   title: Semantic Kernel overview
   domain: generalist
   authority: vetted
@@ -1610,8 +1901,17 @@ items:
   - plugins
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://learn.microsoft.com/en-us/semantic-kernel/overview/
 - uri: https://docs.crewai.com/en/introduction
-  handler: html_document
+  handler: web_page
   title: CrewAI — Introduction
   domain: generalist
   authority: community
@@ -1622,8 +1922,17 @@ items:
   - orchestration
   - agents
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.crewai.com/en/introduction/
 - uri: https://modelcontextprotocol.io/specification/2025-11-25
-  handler: html_document
+  handler: web_page
   title: Model Context Protocol specification (2025-11-25)
   domain: generalist
   authority: vetted
@@ -1635,8 +1944,17 @@ items:
   - integration
   - spec
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://modelcontextprotocol.io/specification/2025-11-25/
 - uri: https://e2b.dev/docs
-  handler: html_document
+  handler: web_page
   title: E2B — documentation (code sandboxes for AI)
   domain: generalist
   authority: community
@@ -1648,8 +1966,17 @@ items:
   - code-execution
   - security
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://e2b.dev/docs/
 - uri: https://www.daytona.io/docs/
-  handler: html_document
+  handler: web_page
   title: Daytona — documentation (dev environments / sandboxes)
   domain: generalist
   authority: community
@@ -1661,8 +1988,17 @@ items:
   - development
   - security
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.daytona.io/docs/
 - uri: https://atlas.mitre.org/
-  handler: html_document
+  handler: web_page
   title: MITRE ATLAS — AI threat matrix
   domain: generalist
   authority: vetted
@@ -1674,8 +2010,17 @@ items:
   - mlsec
   - agents
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://atlas.mitre.org/
 - uri: https://protectai.github.io/llm-guard/
-  handler: html_document
+  handler: web_page
   title: LLM Guard documentation
   domain: llm_evaluation
   authority: community
@@ -1687,8 +2032,17 @@ items:
   - red-team
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://protectai.github.io/llm-guard/
 - uri: https://guardrailsai.com/guardrails/docs
-  handler: html_document
+  handler: web_page
   title: Guardrails AI documentation
   domain: llm_evaluation
   authority: community
@@ -1699,8 +2053,17 @@ items:
   - security
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://guardrailsai.com/guardrails/docs/
 - uri: https://ai.google.dev/gemini-api/docs/safety-settings
-  handler: html_document
+  handler: web_page
   title: Gemini API — safety settings
   domain: llm_evaluation
   authority: vetted
@@ -1712,8 +2075,17 @@ items:
   - api
   - guardrails
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://ai.google.dev/gemini-api/docs/safety-settings/
 - uri: https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool
-  handler: html_document
+  handler: web_page
   title: Claude — Computer use tool
   domain: generalist
   authority: vetted
@@ -1725,8 +2097,17 @@ items:
   - agents
   - tool-use
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool/
 - uri: https://platform.claude.com/docs/en/build-with-claude/prompt-caching
-  handler: html_document
+  handler: web_page
   title: Claude — Prompt caching
   domain: generalist
   authority: vetted
@@ -1739,8 +2120,17 @@ items:
   - latency
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://platform.claude.com/docs/en/build-with-claude/prompt-caching/
 - uri: https://docs.ragas.io/en/stable/
-  handler: html_document
+  handler: web_page
   title: RAGAS — RAG evaluation framework
   domain: llm_evaluation
   authority: vetted
@@ -1752,8 +2142,17 @@ items:
   - metrics
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.ragas.io/en/stable/
 - uri: https://docs.litellm.ai/docs/proxy/quick_start
-  handler: html_document
+  handler: web_page
   title: LiteLLM Proxy — quick start
   domain: generalist
   authority: community
@@ -1765,8 +2164,17 @@ items:
   - gateway
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.litellm.ai/docs/proxy/quick_start/
 - uri: https://mlflow.org/docs/latest/genai/index.html
-  handler: html_document
+  handler: web_page
   title: MLflow — GenAI / LLM tracking
   domain: generalist
   authority: vetted
@@ -1778,8 +2186,17 @@ items:
   - llm
   - tracing
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://mlflow.org/docs/latest/genai/
 - uri: https://arize.com/docs/phoenix
-  handler: html_document
+  handler: web_page
   title: Arize Phoenix — LLM observability
   domain: generalist
   authority: community
@@ -1792,8 +2209,17 @@ items:
   - evaluation
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://arize.com/docs/phoenix/
 - uri: https://docs.wandb.ai/weave
-  handler: html_document
+  handler: web_page
   title: Weights & Biases Weave
   domain: generalist
   authority: vetted
@@ -1805,8 +2231,17 @@ items:
   - tracing
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.wandb.ai/weave/
 - uri: https://python.useinstructor.com/
-  handler: html_document
+  handler: web_page
   title: Instructor — structured outputs for LLMs
   domain: generalist
   authority: community
@@ -1817,8 +2252,17 @@ items:
   - pydantic
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://python.useinstructor.com/
 - uri: https://dottxt-ai.github.io/outlines/latest/
-  handler: html_document
+  handler: web_page
   title: Outlines — structured generation
   domain: generalist
   authority: community
@@ -1829,8 +2273,17 @@ items:
   - sampling
   - llm
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://dottxt-ai.github.io/outlines/latest/
 - uri: https://web.stanford.edu/~jurafsky/slp3/
-  handler: html_document
+  handler: web_page
   title: Speech and Language Processing (Jurafsky & Martin, 3rd ed. draft)
   domain: generalist
   authority: vetted
@@ -1842,8 +2295,17 @@ items:
   - speech
   - reference
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://web.stanford.edu/~jurafsky/slp3/
 - uri: https://d2l.ai/chapter_introduction/index.html
-  handler: html_document
+  handler: web_page
   title: Dive into Deep Learning — introduction
   domain: generalist
   authority: vetted
@@ -1855,8 +2317,17 @@ items:
   - tutorial
   - reference
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://d2l.ai/chapter_introduction/
 - uri: https://www.deeplearningbook.org/contents/intro.html
-  handler: html_document
+  handler: web_page
   title: Deep Learning (Goodfellow et al.) — introduction
   domain: generalist
   authority: vetted
@@ -1867,8 +2338,17 @@ items:
   - foundations
   - reference
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.deeplearningbook.org/contents/
 - uri: https://docs.sglang.io/
-  handler: html_document
+  handler: web_page
   title: SGLang documentation
   domain: generalist
   authority: vetted
@@ -1881,9 +2361,17 @@ items:
   - llm
   - throughput
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.sglang.io/
 - uri: https://docs.sglang.io/get_started/install.html
-  handler: html_document
+  handler: web_page
   title: SGLang — installation
   domain: generalist
   authority: vetted
@@ -1895,9 +2383,17 @@ items:
   - install
   - llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://docs.sglang.io/get_started/
 - uri: https://nvidia.github.io/TensorRT-LLM/
-  handler: html_document
+  handler: web_page
   title: TensorRT-LLM documentation
   domain: generalist
   authority: vetted
@@ -1910,9 +2406,17 @@ items:
   - gpu
   - llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://nvidia.github.io/TensorRT-LLM/
 - uri: https://nvidia.github.io/TensorRT-LLM/quick-start-guide.html
-  handler: html_document
+  handler: web_page
   title: TensorRT-LLM — quick start
   domain: generalist
   authority: vetted
@@ -1924,7 +2428,15 @@ items:
   - quickstart
   - llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://nvidia.github.io/TensorRT-LLM/
 - uri: https://github.com/ggml-org/llama.cpp/wiki
   handler: web_page
   title: llama.cpp wiki
@@ -1939,9 +2451,8 @@ items:
   - quantization
   - local-llm
   priority: 2
-
 - uri: https://llama-cpp-python.readthedocs.io/en/latest/
-  handler: html_document
+  handler: web_page
   title: llama-cpp-python documentation
   domain: generalist
   authority: vetted
@@ -1954,9 +2465,17 @@ items:
   - inference
   - local-llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://llama-cpp-python.readthedocs.io/en/latest/
 - uri: https://ml-explore.github.io/mlx/build/html/
-  handler: html_document
+  handler: web_page
   title: MLX documentation (Apple Silicon)
   domain: generalist
   authority: vetted
@@ -1968,7 +2487,15 @@ items:
   - training
   - llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://ml-explore.github.io/mlx/build/html/
 - uri: https://github.com/EleutherAI/lm-evaluation-harness
   handler: web_page
   title: EleutherAI LM Evaluation Harness
@@ -1983,9 +2510,8 @@ items:
   - harness
   - llm
   priority: 2
-
 - uri: https://opencompass.readthedocs.io/en/latest/index.html
-  handler: html_document
+  handler: web_page
   title: OpenCompass documentation
   domain: llm_evaluation
   authority: vetted
@@ -1996,9 +2522,17 @@ items:
   - evaluation
   - llm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://opencompass.readthedocs.io/en/latest/
 - uri: https://opencompass.readthedocs.io/en/latest/get_started/installation.html
-  handler: html_document
+  handler: web_page
   title: OpenCompass — installation
   domain: llm_evaluation
   authority: vetted
@@ -2009,7 +2543,15 @@ items:
   - evaluation
   - install
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://opencompass.readthedocs.io/en/latest/get_started/
 - uri: https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard
   handler: web_page
   title: Hugging Face Open LLM Leaderboard
@@ -2023,9 +2565,8 @@ items:
   - open-source
   - llm
   priority: 2
-
 - uri: https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai
-  handler: html_document
+  handler: web_page
   title: EU regulatory framework for artificial intelligence
   domain: generalist
   authority: vetted
@@ -2037,9 +2578,17 @@ items:
   - regulation
   - policy
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai/
 - uri: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32024R1689
-  handler: html_document
+  handler: web_page
   title: EU Artificial Intelligence Act — consolidated legal text (EUR-Lex)
   domain: generalist
   authority: vetted
@@ -2051,7 +2600,15 @@ items:
   - compliance
   - regulation
   priority: 1
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://eur-lex.europa.eu/legal-content/EN/TXT/
 - uri: https://artificialintelligenceact.eu/the-act/
   handler: web_page
   title: Artificial Intelligence Act — plain-language overview
@@ -2064,9 +2621,8 @@ items:
   - summary
   - compliance
   priority: 3
-
 - uri: https://huggingface.co/docs/transformers/en/model_doc/clip
-  handler: html_document
+  handler: web_page
   title: Transformers — CLIP model documentation
   domain: generalist
   authority: vetted
@@ -2079,9 +2635,17 @@ items:
   - transformers
   - vlm
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/transformers/en/model_doc/clip/
 - uri: https://huggingface.co/docs/transformers/en/model_doc/llava_next
-  handler: html_document
+  handler: web_page
   title: Transformers — LLaVA-NeXT documentation
   domain: generalist
   authority: vetted
@@ -2093,9 +2657,17 @@ items:
   - vlm
   - transformers
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://huggingface.co/docs/transformers/en/model_doc/llava_next/
 - uri: https://llava-vl.github.io/
-  handler: html_document
+  handler: web_page
   title: LLaVA — large language-and-vision assistant
   domain: generalist
   authority: vetted
@@ -2107,9 +2679,17 @@ items:
   - vlm
   - research
   priority: 2
-
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://llava-vl.github.io/
 - uri: https://ai.google.dev/gemini-api/docs/image-understanding
-  handler: html_document
+  handler: web_page
   title: Gemini API — image understanding
   domain: generalist
   authority: vetted
@@ -2121,3 +2701,12 @@ items:
   - api
   - google
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://ai.google.dev/gemini-api/docs/image-understanding/

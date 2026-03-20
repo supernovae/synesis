@@ -3,7 +3,7 @@
 #
 items:
 - uri: https://www.who.int/health-topics
-  handler: html_document
+  handler: web_page
   title: WHO Health Topics
   domain: health
   authority: vetted
@@ -15,8 +15,17 @@ items:
   - wellbeing
   - reference
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.who.int/health-topics/
 - uri: https://www.cdc.gov/healthyweight/index.html/
-  handler: html_document
+  handler: web_page
   title: CDC Healthy Weight, Nutrition, and Physical Activity
   domain: health
   authority: vetted
@@ -29,8 +38,17 @@ items:
   - stress
   - reference
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.cdc.gov/healthyweight/
 - uri: https://www.cdc.gov/physical-activity-basics/about/index.html
-  handler: html_document
+  handler: web_page
   title: CDC Physical Activity Basics and Your Health
   domain: health
   authority: vetted
@@ -41,8 +59,17 @@ items:
   - physical-activity
   - wellbeing
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.cdc.gov/physical-activity-basics/about/
 - uri: https://www.cdc.gov/physical-activity-basics/benefits/index.html
-  handler: html_document
+  handler: web_page
   title: CDC Benefits of Physical Activity
   domain: health
   authority: vetted
@@ -54,8 +81,17 @@ items:
   - sleep
   - function
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.cdc.gov/physical-activity-basics/benefits/
 - uri: https://www.nhlbi.nih.gov/health/sleep-deprivation/health-effects
-  handler: html_document
+  handler: web_page
   title: 'NHLBI: How Sleep Affects Your Health'
   domain: sleep
   authority: vetted
@@ -66,8 +102,17 @@ items:
   - mental-health
   - physical-health
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.nhlbi.nih.gov/health/sleep-deprivation/health-effects/
 - uri: https://www.who.int/health-topics/noncommunicable-diseases
-  handler: html_document
+  handler: web_page
   title: WHO Noncommunicable Diseases
   domain: health
   authority: vetted
@@ -78,8 +123,17 @@ items:
   - risk-factors
   - prevention
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.who.int/health-topics/noncommunicable-diseases/
 - uri: https://www.who.int/health-topics/alcohol
-  handler: html_document
+  handler: web_page
   title: WHO Alcohol
   domain: health
   authority: vetted
@@ -90,8 +144,17 @@ items:
   - risk
   - public-health
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.who.int/health-topics/alcohol/
 - uri: https://www.consumerfinance.gov/consumer-tools/educator-tools/your-money-your-goals/toolkit/
-  handler: html_document
+  handler: web_page
   title: CFPB Your Money, Your Goals Toolkit
   domain: personal_finance
   authority: vetted
@@ -104,8 +167,17 @@ items:
   - savings
   - consumer-finance
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.consumerfinance.gov/consumer-tools/educator-tools/your-money-your-goals/toolkit/
 - uri: https://www.consumerfinance.gov/owning-a-home/prepare/get-your-money-situation-in-order/
-  handler: html_document
+  handler: web_page
   title: CFPB Get Your Money Situation in Order
   domain: personal_finance
   authority: vetted
@@ -117,6 +189,15 @@ items:
   - planning
   - consumer-finance
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.consumerfinance.gov/owning-a-home/prepare/get-your-money-situation-in-order/
 - uri: https://www.consumerfinance.gov/about-us/blog/budgeting-how-to-create-a-budget-and-stick-with-it/
   handler: html_document
   title: 'CFPB Budgeting: How to Create a Budget and Stick With It'
@@ -128,9 +209,10 @@ items:
   - budgeting
   - savings
   - cash-flow
+  - corpus_blog
   priority: 2
 - uri: https://www.irs.gov/individuals/seniors-retirees
-  handler: html_document
+  handler: web_page
   title: IRS Seniors & Retirees
   domain: taxes_personal
   authority: vetted
@@ -142,8 +224,17 @@ items:
   - social-security
   - reference
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.irs.gov/individuals/seniors-retirees/
 - uri: https://www.irs.gov/taxtopics/tc410
-  handler: html_document
+  handler: web_page
   title: IRS Topic No. 410, Pensions and Annuities
   domain: taxes_personal
   authority: vetted
@@ -154,8 +245,17 @@ items:
   - annuities
   - withholding
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.irs.gov/taxtopics/tc410/
 - uri: https://www.irs.gov/forms-pubs/about-form-w-4-p
-  handler: html_document
+  handler: web_page
   title: IRS About Form W-4P
   domain: taxes_personal
   authority: vetted
@@ -166,8 +266,17 @@ items:
   - retirement
   - form
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.irs.gov/forms-pubs/about-form-w-4-p/
 - uri: https://www.irs.gov/retirement-plans/reporting-ira-and-retirement-plan-transactions
-  handler: html_document
+  handler: web_page
   title: IRS Reporting IRA and Retirement Plan Transactions
   domain: taxes_personal
   authority: vetted
@@ -179,8 +288,17 @@ items:
   - forms
   - reference
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.irs.gov/retirement-plans/reporting-ira-and-retirement-plan-transactions/
 - uri: https://www.sba.gov/business-guide/plan-your-business
-  handler: html_document
+  handler: web_page
   title: SBA Plan Your Business
   domain: entrepreneurship
   authority: vetted
@@ -192,8 +310,17 @@ items:
   - operations
   - small-business
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sba.gov/business-guide/plan-your-business/
 - uri: https://www.sba.gov/business-guide/plan-your-business/write-your-business-plan
-  handler: html_document
+  handler: web_page
   title: SBA Write Your Business Plan
   domain: entrepreneurship
   authority: vetted
@@ -204,8 +331,17 @@ items:
   - planning
   - template
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sba.gov/business-guide/plan-your-business/write-your-business-plan/
 - uri: https://www.sba.gov/business-guide/manage-your-business
-  handler: html_document
+  handler: web_page
   title: SBA Manage Your Business
   domain: business
   authority: vetted
@@ -216,8 +352,17 @@ items:
   - compliance
   - operations
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sba.gov/business-guide/manage-your-business/
 - uri: https://www.sba.gov/business-guide/manage-your-business/marketing-sales
-  handler: html_document
+  handler: web_page
   title: SBA Marketing and Sales
   domain: marketing
   authority: vetted
@@ -228,8 +373,17 @@ items:
   - sales
   - planning
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sba.gov/business-guide/manage-your-business/marketing-sales/
 - uri: https://www.sba.gov/document/support-marketing-plan-example
-  handler: html_document
+  handler: web_page
   title: SBA Marketing Plan Example
   domain: marketing
   authority: vetted
@@ -240,8 +394,17 @@ items:
   - template
   - example
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.sba.gov/document/support-marketing-plan-example/
 - uri: https://travel.state.gov/en/international-travel.html
-  handler: html_document
+  handler: web_page
   title: Travel.State.gov International Travel
   domain: travel
   authority: vetted
@@ -253,8 +416,17 @@ items:
   - safety
   - government
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://travel.state.gov/en/
 - uri: https://travel.state.gov/en/international-travel/travel-advisories.html
-  handler: html_document
+  handler: web_page
   title: Travel Advisories
   domain: travel
   authority: vetted
@@ -265,8 +437,17 @@ items:
   - risk
   - advisories
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://travel.state.gov/en/international-travel/
 - uri: https://travel.state.gov/en/international-travel/planning/checklist.html
-  handler: html_document
+  handler: web_page
   title: International Travel Checklist
   domain: travel
   authority: vetted
@@ -277,8 +458,17 @@ items:
   - passport
   - planning
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://travel.state.gov/en/international-travel/planning/
 - uri: https://www.nps.gov/planyourvisit/index.htm
-  handler: html_document
+  handler: web_page
   title: NPS Plan Your Visit
   domain: outdoors
   authority: vetted
@@ -290,8 +480,17 @@ items:
   - planning
   - safety
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.nps.gov/planyourvisit/
 - uri: https://www.nps.gov/subjects/healthandsafety/trip-planning-guide.htm
-  handler: html_document
+  handler: web_page
   title: NPS Trip Planning Guide - Health & Safety
   domain: outdoors
   authority: vetted
@@ -302,6 +501,15 @@ items:
   - trip-planning
   - health
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.nps.gov/subjects/healthandsafety/
 - uri: https://www.nps.gov/articles/hiking-safety.htm
   handler: html_document
   title: NPS Hike Smart
@@ -313,9 +521,10 @@ items:
   - hiking
   - safety
   - preparation
+  - corpus_blog
   priority: 2
 - uri: https://www.nps.gov/subjects/camping/staying-safe.htm
-  handler: html_document
+  handler: web_page
   title: NPS Camping Safety
   domain: outdoors
   authority: vetted
@@ -326,8 +535,17 @@ items:
   - safety
   - trip-planning
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.nps.gov/subjects/camping/
 - uri: https://extension.umn.edu/preserving-and-preparing/safe-food-handling-basics
-  handler: html_document
+  handler: web_page
   title: University of Minnesota Extension Safe Food Handling Basics
   domain: cooking
   authority: vetted
@@ -338,8 +556,17 @@ items:
   - home
   - cooking
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://extension.umn.edu/preserving-and-preparing/safe-food-handling-basics/
 - uri: https://extension.umn.edu/safe-food-production/food-safety-basics
-  handler: html_document
+  handler: web_page
   title: University of Minnesota Extension Food Safety Basics
   domain: cooking
   authority: vetted
@@ -350,8 +577,17 @@ items:
   - temperature
   - cooking
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://extension.umn.edu/safe-food-production/food-safety-basics/
 - uri: https://extension.umn.edu/food-safety-basics/cooking-safely-crowd
-  handler: html_document
+  handler: web_page
   title: University of Minnesota Extension Cooking Safely for a Crowd
   domain: cooking
   authority: vetted
@@ -362,8 +598,17 @@ items:
   - safety
   - events
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://extension.umn.edu/food-safety-basics/cooking-safely-crowd/
 - uri: https://extension.umn.edu/preserving-and-preparing/preparing-food-without-power
-  handler: html_document
+  handler: web_page
   title: University of Minnesota Extension Preparing Food Without Power
   domain: cooking
   authority: vetted
@@ -374,8 +619,17 @@ items:
   - cooking
   - preparedness
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://extension.umn.edu/preserving-and-preparing/preparing-food-without-power/
 - uri: https://www.bls.gov/ooh/
-  handler: html_document
+  handler: web_page
   title: BLS Occupational Outlook Handbook
   domain: career
   authority: vetted
@@ -387,8 +641,17 @@ items:
   - outlook
   - occupations
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.bls.gov/ooh/
 - uri: https://www.bls.gov/ooh/occupation-finder.htm
-  handler: html_document
+  handler: web_page
   title: BLS Occupation Finder
   domain: career
   authority: vetted
@@ -399,8 +662,17 @@ items:
   - matching
   - occupations
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.bls.gov/ooh/
 - uri: https://www.bls.gov/careeroutlook/
-  handler: html_document
+  handler: web_page
   title: BLS Career Outlook
   domain: career
   authority: vetted
@@ -411,8 +683,17 @@ items:
   - planning
   - trends
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.bls.gov/careeroutlook/
 - uri: https://www.bls.gov/ooh/field-of-degree/
-  handler: html_document
+  handler: web_page
   title: BLS Field of Degree
   domain: career
   authority: vetted
@@ -423,8 +704,17 @@ items:
   - majors
   - occupations
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://www.bls.gov/ooh/field-of-degree/
 - uri: https://consumer.ftc.gov/identity-theft-online-security
-  handler: html_document
+  handler: web_page
   title: FTC Identity Theft and Online Security
   domain: consumer_protection
   authority: vetted
@@ -436,6 +726,15 @@ items:
   - privacy
   - scams
   priority: 1
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://consumer.ftc.gov/identity-theft-online-security/
 - uri: https://consumer.ftc.gov/articles/what-know-about-identity-theft
   handler: html_document
   title: FTC What To Know About Identity Theft
@@ -447,6 +746,7 @@ items:
   - identity-theft
   - fraud
   - recovery
+  - corpus_blog
   priority: 1
 - uri: https://consumer.ftc.gov/articles/credit-freezes-and-fraud-alerts
   handler: html_document
@@ -459,6 +759,7 @@ items:
   - credit
   - fraud
   - identity-theft
+  - corpus_blog
   priority: 1
 - uri: https://consumer.ftc.gov/articles/how-recognize-avoid-phishing-scams
   handler: html_document
@@ -471,9 +772,10 @@ items:
   - phishing
   - security
   - fraud
+  - corpus_blog
   priority: 2
 - uri: https://consumer.ftc.gov/identity-theft-can-happen-anyone
-  handler: html_document
+  handler: web_page
   title: FTC Identity Theft Can Happen to Anyone
   domain: consumer_protection
   authority: vetted
@@ -484,3 +786,12 @@ items:
   - prevention
   - awareness
   priority: 2
+  config:
+    discovery: sitemap_first
+    follow_links: true
+    max_depth: 5
+    max_pages: 100
+    respect_robots: true
+    min_request_interval: 0.4
+    allowed_prefixes:
+    - https://consumer.ftc.gov/identity-theft-can-happen-anyone/

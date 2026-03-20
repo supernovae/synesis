@@ -27,6 +27,13 @@ bootstrap/
 
 Corpus YAML is maintained directly in git. Add or edit entries in `corpus/*.yaml` and re-import via the admin bootstrap API (dedupe by `uri`).
 
+**Web docs vs single pages:** Documentation sites should use handler `web_page` with `config` (sitemap-first crawl, `robots.txt`, `allowed_prefixes`). Single articles and blogs stay on `html_document`. To bulk-classify existing corpus files after adding many URLs:
+
+```bash
+python3 scripts/classify-bootstrap-web-sources.py        # tags `corpus_blog`, converts docs → web_page
+python3 scripts/classify-bootstrap-web-sources.py --dry-run
+```
+
 ## Normalized Item Schema
 
 Every file in `corpus/` uses the same schema that maps 1:1 to the

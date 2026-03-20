@@ -238,6 +238,28 @@ Endpoints used only by the indexer (`POST /ingestion/runs`, `POST /ingestion/ite
 
 If you need an extra safeguard later, add an optional shared secret header (e.g. `SYNESIS_INDEXER_SHARED_SECRET` on both sides) checked only on those internal routes.
 
+### `html_document` vs `web_page` (single page vs doc slice)
+
+| Handler | Behaviour |
+|---------|-----------|
+| `html_document` | One HTTP GET on `uri` / `config.url` — best for **blog posts**, release notes, single articles. |
+| `web_page` | Crawl4AI fetch; **sitemap-first** discovery, **`robots.txt`** crawl-delay + `can_fetch`, then same-host **BFS** fallback. Bounded by `max_pages`, `max_depth`, `allowed_prefixes`. |
+
+`web_page` `config` (queue item or `sources.yaml`):
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `discovery` | `sitemap_first` | `sitemap_first` \| `sitemap_only` \| `bfs` |
+| `sitemap_urls` | (from robots + `/sitemap.xml` guesses) | Extra sitemap entry points |
+| `follow_links` | `true` | BFS follow internal links when sitemap path is empty or exhausted |
+| `max_depth` | `5` | BFS depth from seed |
+| `max_pages` | `100` | Cap on successfully indexed pages per queue item |
+| `respect_robots` | `true` | Honor `robots.txt` allow + **Crawl-delay** (and `min_request_interval` floor) |
+| `min_request_interval` | `0.4` | Minimum seconds between fetches |
+| `allowed_prefixes` | `[]` | Full URLs (e.g. `https://docs.python.org/3/tutorial/`) or path prefixes — **must** match for sitemap URLs too (fixed in content gate) |
+
+**Bootstrap corpus:** run `python3 scripts/classify-bootstrap-web-sources.py` to tag likely blogs (`corpus_blog`) and convert documentation seeds from `html_document` → `web_page` with generated `allowed_prefixes`. Re-run when you add many new `html_document` URLs.
+
 ### Run Locally (development)
 
 ```bash
