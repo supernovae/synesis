@@ -1,132 +1,107 @@
-# Synesis Performance Roadmap
+# Synesis Performance Notes
 
-Living document for performance work: latency reduction, prefill optimization, and context trimming. See [WORKFLOW.md](WORKFLOW.md) for implementation details.
+Living document for **latency**, **prefill/context size**, and **observability**. Canonical graph flow is in [WORKFLOW.md](WORKFLOW.md). Model roles and vLLM flags are in [models.yaml](../models.yaml) and [VLLM_RECIPES.md](VLLM_RECIPES.md).
 
 ---
 
 ## Goals
 
-1. **Reduce prefill latency** -- Trim context so prefill stays within target. FP8 KV cache on executor helps reduce memory pressure.
-2. **Maximize prefix cache hits** -- Static content first in router/critic prompts; vLLM caches Tier 1/2 KV states.
-3. **Protect high-value context** -- Never starve Org Standards (Tier 2) for low-signal RAG chunks.
-4. **Rank-and-evict** -- Drop low-score RAG chunks before high-score; use telemetry for analysis.
+1. **Keep prefill predictable** — Bound writer input (evidence + task block), avoid oversized critic inputs, scale retrieval fan-out with difficulty.
+2. **Improve cache reuse** — Static system prompt segments first, per-request content last (vLLM prefix caching where enabled).
+3. **Observe the path** — Structured logs and Prometheus metrics on retrieval, graph nodes, and chat latency.
 
 ---
 
-## Done
+## Implemented (verified in code)
 
-| Item | Description |
+| Area | What exists |
 |------|-------------|
-| **Prefix caching** | Router-critic runtime with `--enable-prefix-caching` for Qwen2.5-14B. Executor uses FP8 KV cache instead (mutually exclusive with prefix caching). |
-| **FP8 quantization (executor)** | DeepSeek R1-Distill-Qwen-32B FP8-dynamic with `--kv-cache-dtype=fp8_e5m2`. Native tensor core ops on L40S. |
-| **Guided JSON decoding** | Router and Critic use `with_structured_output(RouterOut|CriticOut, method="json_schema")`; fallback to raw parse on failure. |
-| **Persistent HTTP client** | `get_llm_http_client()` returns shared `httpx.Client`; reduces connection churn across graph run. |
-| **State refs + cache** | `context_cache`, `rag_context_refs`; Router outputs refs; Executor/Planner resolve via `get_resolved_rag_context`. |
-| **Debug node timers** | `with_debug_node_timing` logs `Node X took Yms` at DEBUG. |
-| **Token budget config** | `curator_tier1_2_max_tokens`, `curator_tier3_max_tokens`, `curator_tier4_max_tokens`, `curator_rag_max_tokens`, `curator_max_total_tokens`, `curator_min_rerank_score`. |
-| **Rank-and-evict** | Retrieved chunks sorted by reranker score; evict when over budget or score < threshold. |
-| **Prefix-aware ordering** | Executor prompt order: [pinned (T1-4), RAG, Task/History]. Pinned injected from context_pack. |
-| **Per-tier caps** | Tier 1+2, Tier 3, Tier 4 token limits enforced; truncate-from-end for T2/T3, LIFO drop for T4. |
-| **Eviction telemetry** | `router_excluded` log with by_reason, scores, doc_ids when chunks excluded. |
-| **Accurate token counting** | Optional tiktoken via `curator_tiktoken_enabled`. Fallback: ~2 tokens/word. |
-| **History summarizer** | Micro model via `summarizer_model_url`. Pivot: summarize old era; fallback to stub. |
-| **Summarizer on CPU** | Qwen2.5-0.5B-Instruct on vllm-cpu (no GPU); 8Gi RAM. |
-| **Streaming (astream_events v2)** | Token streaming via `graph.astream_events(version="v2")`. Real-time SSE to Open WebUI. |
-| **Reasoning content display** | R1-Distill `<think>` tags surface as "Thinking..." status in Open WebUI via `reasoning_content` chunks. |
-| **LangChain 1.x** | `max_completion_tokens`, `use_responses_api=False` throughout. |
-| **Direct streaming** | Explain-only and trivial tasks stream directly without planner overhead. Code tasks go through patch integrity gate. |
+| **Graph telemetry** | `with_telemetry_node` in [`graph.py`](../base/planner/app/graph.py) logs `node_complete` with `node`, `latency_ms`, `outcome`, `next_node`. |
+| **HTTP connection reuse** | `get_llm_http_client()` in [`llm_telemetry.py`](../base/planner/app/llm_telemetry.py) — shared `httpx` client; router/planner/critic can use UDS via `*_model_uds` settings. |
+| **Streaming** | `streaming_events_enabled` → `astream_events(version="v2")` for status; writer can emit `direct_stream_request` for lightweight paths (handled in [`main.py`](../base/planner/app/main.py)). |
+| **Context refs** | When `context_refs_enabled`, state carries `rag_context_refs` + `context_cache`; [`context_resolver.py`](../base/planner/app/context_resolver.py) resolves text for the writer. |
+| **Token estimates** | [`token_utils.estimate_tokens`](../base/planner/app/token_utils.py) uses tiktoken when installed, else `len // 4`. Writer logs `writer_start` / `writer_budget_clamped` ([`writer.py`](../base/planner/app/nodes/writer.py)). |
+| **Difficulty-scaled work** | Retrieval overfetch, web query budget, writer/critic/evidence budgets scale with `difficulty` ([`config.py`](../base/planner/app/config.py) — e.g. `rag_disable_below`, `scaled_web_budget`, `scaled_writer_budget`). |
+| **RAG + rerank** | [`rag_client.py`](../base/planner/app/rag_client.py): merge/rerank (FlashRank / BGE), `rag_retrieval` / `rag_provenance_detail` logs, Prometheus counters/histograms for retrieval source and reranker latency. |
+| **Unified retrieval** | [`unified_retrieval.py`](../base/planner/app/unified_retrieval.py): RAG-first, optional web with short post-RAG grace window (`_WEB_GRACE_MS`). |
+| **Router retrieval cache** | `RouterNode` uses `HybridRetrievalCache` to avoid repeat retrieval work where applicable. |
+| **History summarization** | [`history_summarizer.py`](../base/planner/app/history_summarizer.py) calls `summarizer_model_url` when set; else stub. |
+| **Structured router sub-outputs** | Evidence packet summarizer uses vLLM `guided_json` when `guided_json_enabled` ([`router.py`](../base/planner/app/nodes/router.py)). Main router/critic outputs use free generation + validation/repair (see [`test_performance_changes.py`](../base/planner/tests/test_performance_changes.py)). |
+| **Critic input shaping** | Difficulty-scaled character budget for draft text; optional skeleton extraction for lenient passes; truncation logs `critic_response_truncated` ([`critic.py`](../base/planner/app/nodes/critic.py)). |
+| **API / graph metrics** | [`api_metrics.py`](../base/planner/app/api_metrics.py): chat duration, graph iterations, tokens, critic rejections. [`web_search.py`](../base/planner/app/web_search.py): search latency histogram. [`model_client.py`](../base/planner/app/model_client.py): circuit breaker / fallback counters. |
 
 ---
 
-## Token Budget Partitioning Model
+## Config: curator tier fields (not yet wired)
 
-| Component | Max Tokens | Priority | Strategy |
-|-----------|------------|----------|----------|
-| Tier 1 & 2 (Global/Org) | 2,000 | CRITICAL | Never trim. |
-| Tier 3 (Project Manifest) | 1,000 | HIGH | Summarize if > limit. |
-| Tier 4 (Session/History) | 2,000 | MEDIUM | LIFO trim. |
-| Retrieved RAG Chunks | 3,000 | DYNAMIC | Rank-and-evict by reranker score. |
+[`Settings`](../base/planner/app/config.py) defines `curator_tier1_2_max_tokens`, `curator_tier3_max_tokens`, `curator_tier4_max_tokens`, `curator_rag_max_tokens`, `curator_max_total_tokens`, `curator_min_rerank_score`, `curator_tiktoken_enabled`, plus `curator_knowledge_gap_threshold` and `curator_budget_alert_threshold`. **No planner module reads the tier/RAG token caps today** — they are placeholders for a future context assembly pass. [`ContextPack` / `ExcludedChunk`](../base/planner/app/schemas.py) schema exists for excluded-chunk metadata but is not populated on the live path.
 
-**Config keys:** `curator_tier1_2_max_tokens`, `curator_tier3_max_tokens`, `curator_tier4_max_tokens`, `curator_rag_max_tokens`, `curator_max_total_tokens`, `curator_min_rerank_score`, `curator_tiktoken_enabled`.
-
-**Summarizer:** Qwen2.5-0.5B-Instruct on CPU (`synesis-summarizer`, KServe InferenceService). Set `SYNESIS_SUMMARIZER_MODEL_URL`. 8Gi RAM.
-
-**R1-Distill Thinking:** DeepSeek R1-Distill models always produce `<think>...</think>` reasoning before content. No `enable_thinking` parameter needed (that is Qwen3-specific). The reasoning is surfaced in Open WebUI as a "Thought for X seconds" indicator.
+**Action when implementing:** enforce caps in one place (e.g. evidence → writer assembly), log exclusions with reason + score, and either honor `curator_tiktoken_enabled` in `token_utils` or remove the unused flag.
 
 ---
 
-## Prefix-Aware Prompt Structure
+## Token budget picture (target model)
 
-vLLM prefix caching reuses KV states when consecutive requests share the
-same token prefix. To maximise cache hits, **every system prompt must place
-static (request-invariant) content first and dynamic (per-request) content
-last**.
+Intended split once curator wiring lands (values match current defaults in `config.py`):
 
-### Convention for all LLM-calling nodes
+| Component | Max tokens (default) | Notes |
+|-----------|---------------------|--------|
+| Tier 1 & 2 (global/org) | 2,000 | Policy / standards — highest priority. |
+| Tier 3 (project manifest) | 1,000 | Summarize if over limit. |
+| Tier 4 (session/history) | 2,000 | LIFO-style trim. |
+| Retrieved RAG | 3,000 | Rank by rerank score; evict low score / over budget. |
+| **Total writer context cap** | 8,192 | `curator_max_total_tokens` — prefill sizing target. |
 
-```
-SYSTEM MESSAGE
-  [STATIC]  Core rules, formatting, trust policy, citation   ← cached
-  [STATIC]  CRAG, failure modes, scoring blocks (if constant)
-  --- prefix boundary ---
-  [DYNAMIC] Persona / role
-  [DYNAMIC] Domain context, output directive
-  [DYNAMIC] Taxonomy depth, epistemic, discovery
-  [DYNAMIC] Style contract overrides
-
-USER MESSAGE
-  [DYNAMIC] Task description / user query
-  [DYNAMIC] Evidence / RAG chunks (ranked by score)
-  [DYNAMIC] Planning context (tasks, constraints, deliverables)
-  [DYNAMIC] Revision context / gate feedback
-```
-
-For **L0 / L1 / L2** definitions (universal spine vs taxonomy overlays, regulated domains), see [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md) and [WORKFLOW.md](WORKFLOW.md#prompt-layering-taxonomy-and-regulated-domains).
-
-If the static prefix is unchanged across requests, vLLM caches those KV
-states. Subsequent requests skip prefill for those tokens (~60-90 ms saved
-per writer call at ~3000 static tokens on L40S).
-
-### Node-specific layouts
-
-| Node | Static prefix (system) | Dynamic suffix |
-|------|----------------------|----------------|
-| **Writer** | Content rules, formatting, headings, constraints, citations, trust policy | Persona, domain block, output directive, taxonomy, style, precision, epistemic |
-| **Critic** | Quality principles, trust policy, section evaluation, reply format | Frame rubric, controls, grounding, cohesion, taxonomy, scoring, failure modes |
-| **Planner** | JSON schema, planning rules, assumption rules, trust policy | Depth target, taxonomy append; task frame content goes in *user message* |
-| **Router** | Static system prompt (already cache-friendly) | User query + evidence in user message |
-| **Frame extractor** | Static segment prompt (already cache-friendly) | User input in user message |
-| **Executor** | Static worker prompt (already cache-friendly) | Task + evidence in user message |
+Until wired, actual bounds are **writer `model_context`**, **scaled writer budget**, and **critic input char budget**, not this table.
 
 ---
 
-## Model Serving: Supported Features & Hardware
+## Prefix-aware prompt structure
 
-### Deployed Stack
+vLLM **prefix caching** reuses KV when requests share the same token prefix. Put **request-invariant** system text first and **per-request** system suffix + user messages after the boundary. Layering (L0/L1/L2) is described in [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md).
 
-| Model | Quantization | GPU | Instance | VRAM |
-|-------|-------------|-----|----------|------|
-| DeepSeek R1-Distill-Qwen-32B FP8-dynamic | FP8 | 1x L40S | g6e.4xlarge | ~33 GB |
-| Qwen2.5-14B-Instruct | — | 1x L40S | g6e.4xlarge (shared) | ~14 GB |
-| Qwen2.5-0.5B-Instruct | none | CPU | Any node | 0 |
+### Node-level layout (canonical graph)
 
-### Key Features
+| Node | Static-friendly prefix | Dynamic tail |
+|------|-------------------------|--------------|
+| **Entry / planner** | Rules, JSON shape, trust policy | Taxonomy, depth, task frame in user message |
+| **Plan gate** | Validation rules | Plan content under test |
+| **Router** | Role-specific mini-prompts for query tools | Query, HyDE, refinement inputs |
+| **Writer** | Formatting, citations, trust | Persona, domain, evidence, task block, revisions |
+| **Critic** | Quality rubric, trust | Controls, draft excerpt, taxonomy hints |
+| **Final scrubber** | Mostly deterministic | Light LLM polish when used |
 
-| Feature | Where | Notes |
-|---------|-------|------|
-| **Prefix caching** | Router-Critic | `--enable-prefix-caching`. Incompatible with FP8 KV cache. |
-| **FP8 KV cache** | Executor | `--kv-cache-dtype=fp8_e5m2`. Incompatible with prefix caching. |
-| **Chunked prefill** | Executor | `--enable-chunked-prefill` for better TTFT. |
-| **Reasoning parser** | Executor | `--reasoning-parser=deepseek_r1` parses `<think>` tags. |
-| **Guided JSON decoding** | Router, Critic | `with_structured_output` via vLLM JSON schema. |
+The **general** model (`synesis-general`, writer) and **router** deployment enable `--enable-prefix-caching` and chunked prefill; see manifests under `base/model-serving/`. **Critic** (R1 distill) uses FP8 KV and `--reasoning-parser=deepseek_r1` — see `deployment-vllm-critic.yaml`. Exact args drift with profile; trust [VLLM_RECIPES.md](VLLM_RECIPES.md).
+
+---
+
+## Model roles (summary)
+
+| Role | Registry default | Served name | Notes |
+|------|------------------|-------------|--------|
+| Router | Qwen2.5-14B-Instruct | `synesis-router` | Fast routing + auxiliary LLM calls on same endpoint in many setups. |
+| General / writer | Qwen3-32B FP8-dynamic | `synesis-general` | Main answer synthesis; separate `writer_model_url` can override. |
+| Critic | DeepSeek R1-Distill-Qwen-32B FP8 | `synesis-critic` | Thinking-style evaluation when dedicated pod is up. |
+| Coder | Qwen3-Coder-30B-A3B-Instruct-FP8 | `synesis-coder` | IDE/agent path; separate endpoint. |
+| Summarizer | Qwen2.5-0.5B-Instruct | `synesis-summarizer` | CPU / small footprint for history compression. |
+
+Authoritative list: [models.yaml](../models.yaml).
+
+---
+
+## What to watch in production
+
+- **Logs:** `node_complete`, `writer_start`, `writer_budget_clamped`, `rag_retrieval`, `critic_response_truncated`, `plan_gate_retry_planner`, direct-stream errors in `main.py`.
+- **Metrics:** planner `/metrics` — chat duration histogram, graph iterations, reranker latency (`rag_client`), web search latency, model client circuit breaker trips.
+- **vLLM:** OOM / queue depth on `synesis-general` and `synesis-critic`; align `max-model-len`, `max-num-seqs`, and KV settings with [VLLM_RECIPES.md](VLLM_RECIPES.md).
 
 ---
 
 ## References
 
 - [WORKFLOW.md](WORKFLOW.md)
-- [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md)
 - [VLLM_RECIPES.md](VLLM_RECIPES.md)
-- [models.yaml](../models.yaml) -- single source of truth for deployed models
-- `base/planner/app/config.py` -- `curator_*` settings
-- `base/model-serving/README.md` -- deployment manifests
+- [GPU_TOPOLOGY.md](GPU_TOPOLOGY.md)
+- [models.yaml](../models.yaml)
+- [base/planner/app/config.py](../base/planner/app/config.py) — difficulty thresholds, budgets, `context_refs_enabled`, streaming flags
+- [base/model-serving/README.md](../base/model-serving/README.md)
