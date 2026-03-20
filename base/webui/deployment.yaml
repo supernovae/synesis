@@ -58,8 +58,14 @@ spec:
               value: "synesis-webui"
             - name: OAUTH_CLIENT_SECRET
               value: ""
+            # Required for public OIDC clients: otherwise Open WebUI never registers the OIDC provider.
+            - name: OAUTH_CODE_CHALLENGE_METHOD
+              value: "S256"
+            # Must match Keycloak redirect allow-list; avoid proxy-derived http://internal URLs.
+            - name: OPENID_REDIRECT_URI
+              value: "https://synesis.apps.openshiftdemo.dev/oauth/oidc/callback"
             - name: OAUTH_SCOPES
-              value: "openid profile email"
+              value: "openid email profile"
             - name: ENABLE_OAUTH_ROLE_MANAGEMENT
               value: "true"
             - name: OAUTH_ADMIN_ROLES

@@ -50,7 +50,78 @@ spec:
     defaultRoles:
       - synesis-user
     scopeMappings: []
+    # Built-in OIDC scopes must exist in the realm when clients list them in
+    # defaultClientScopes; otherwise Keycloak returns "Invalid scopes: openid profile email".
     clientScopes:
+      - name: openid
+        description: "OpenID Connect scope for subject identifier"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: sub
+            protocol: openid-connect
+            protocolMapper: oidc-sub-mapper
+            consentRequired: false
+            config:
+              access.token.claim: "true"
+              id.token.claim: "true"
+      - name: profile
+        description: "OpenID Connect built-in scope: profile"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: username
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: username
+              claim.name: preferred_username
+              jsonType.label: "String"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+          - name: full-name
+            protocol: openid-connect
+            protocolMapper: oidc-full-name-mapper
+            consentRequired: false
+            config:
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+      - name: email
+        description: "OpenID Connect built-in scope: email"
+        protocol: openid-connect
+        attributes:
+          include.in.token.scope: "true"
+          display.on.consent.screen: "true"
+        protocolMappers:
+          - name: email
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: email
+              claim.name: email
+              jsonType.label: "String"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
+          - name: email-verified
+            protocol: openid-connect
+            protocolMapper: oidc-usermodel-property-mapper
+            consentRequired: false
+            config:
+              user.attribute: emailVerified
+              claim.name: email_verified
+              jsonType.label: "boolean"
+              id.token.claim: "true"
+              access.token.claim: "true"
+              userinfo.token.claim: "true"
       - name: synesis-roles
         description: "Include realm roles in access and ID tokens"
         protocol: openid-connect
@@ -68,7 +139,7 @@ spec:
               id.token.claim: "true"
               access.token.claim: "true"
               claim.name: realm_access.roles
-              jsonType.label: String
+              jsonType.label: "String"
       - name: synesis-organization
         description: "Include organization membership in access and ID tokens"
         protocol: openid-connect
