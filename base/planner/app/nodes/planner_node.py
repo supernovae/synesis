@@ -6,6 +6,8 @@ Domain-specific decomposition rules come from taxonomy plugins.
 
 from __future__ import annotations
 
+import copy
+import json
 import logging
 import time
 from typing import Any
@@ -13,10 +15,11 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from ..clarification_helpers import is_clarification_proceed_waiver
 from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
 from ..prompt_spine import TRUST_UNTRUSTED_CONTEXT
-from ..schemas import DecisionEntry, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
+from ..schemas import DecisionEntry, PlanBody, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -655,52 +658,117 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 extra={"feedback_length": len(gate_feedback)},
             )
 
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=prompt),
-        ]
+        prior_plan_resume: dict[str, Any] = (state.get("execution_plan") or {}) if clarification_answer else {}
+        prior_steps_resume = prior_plan_resume.get("steps") or []
 
-        response = await planner_llm.ainvoke(messages)
+        skip_planner_llm = bool(
+            clarification_answer
+            and prior_steps_resume
+            and not gate_feedback
+            and is_clarification_proceed_waiver(clarification_answer)
+        )
 
-        try:
-            parsed = parse_and_validate(response.content or "", PlannerOut)
-        except Exception as e:
-            logger.warning("planner_schema_validation_failed", extra={"error": str(e)[:200]})
-            try:
-                data = safe_parse_json(response.content or "")
-                plan = data.get("plan", data)
-                if isinstance(plan, dict):
-                    parsed = PlannerOut(
-                        plan=plan,
-                        open_questions=plan.get("open_questions", data.get("open_questions", [])),
-                        assumptions=plan.get("assumptions", data.get("assumptions", [])),
-                        touched_files=data.get("touched_files", []),
-                        reasoning=data.get("reasoning", ""),
-                        confidence=data.get("confidence", 0.5),
-                    )
-                else:
-                    parsed = PlannerOut(
-                        plan={"steps": [], "open_questions": [], "assumptions": []},
-                        reasoning=str(e),
-                        confidence=0.3,
-                    )
-            except Exception:
-                parsed = PlannerOut(
-                    plan={"steps": [], "open_questions": [], "assumptions": []},
-                    reasoning="Parse failed",
-                    confidence=0.2,
+        if skip_planner_llm:
+            plan = copy.deepcopy(prior_plan_resume)
+            plan["open_questions"] = []
+            body = PlanBody.model_validate(
+                {
+                    "steps": plan.get("steps", []),
+                    "open_questions": plan.get("open_questions", []),
+                    "assumptions": plan.get("assumptions", []),
+                }
+            )
+            plan = body.model_dump()
+            parsed = PlannerOut(
+                plan=body,
+                open_questions=[],
+                assumptions=list(plan.get("assumptions") or []),
+                reasoning=(
+                    "User waived answering clarification details; retained prior plan "
+                    "with open questions cleared."
+                ),
+                confidence=0.78,
+                touched_files=[],
+            )
+            response = None
+            logger.info(
+                "planner_clarification_proceed_skip",
+                extra={"steps": len(plan.get("steps", []))},
+            )
+        else:
+            if clarification_answer and prior_steps_resume and not gate_feedback:
+                draft = json.dumps(prior_plan_resume, ensure_ascii=False)
+                max_draft = 14_000
+                if len(draft) > max_draft:
+                    draft = draft[:max_draft] + "\n… [truncated for context]"
+                system_prompt += (
+                    "\n\nCLARIFICATION RESUME — MINIMAL REVISION:\n"
+                    "You already drafted a plan (JSON below). The user answered your follow-up.\n"
+                    "Revise MINIMALLY: keep step `id` values stable and preserve `action` text for any "
+                    "step that still applies unchanged.\n"
+                    "Only rewrite or add steps where the user's answer requires a structural change.\n"
+                    "Update `assumptions` and `open_questions`: drop items the user resolved; add new "
+                    "gaps only if necessary.\n"
+                    "Return the same JSON schema as usual (plan with steps, open_questions, assumptions).\n"
+                )
+                prompt += (
+                    "\n\n## Prior draft plan (revise — do not restart from scratch)\n"
+                    f"```json\n{draft}\n```\n"
+                )
+                logger.info(
+                    "planner_clarification_resume_prompt",
+                    extra={"prior_steps": len(prior_steps_resume), "draft_chars": len(draft)},
                 )
 
-        plan_obj = parsed.plan
-        plan = plan_obj.model_dump() if hasattr(plan_obj, "model_dump") else dict(plan_obj)
-        if parsed.open_questions:
-            plan["open_questions"] = parsed.open_questions
-        if parsed.assumptions:
-            plan["assumptions"] = parsed.assumptions
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=prompt),
+            ]
+
+            response = await planner_llm.ainvoke(messages)
+
+            try:
+                parsed = parse_and_validate(response.content or "", PlannerOut)
+            except Exception as e:
+                logger.warning("planner_schema_validation_failed", extra={"error": str(e)[:200]})
+                try:
+                    data = safe_parse_json(response.content or "")
+                    plan = data.get("plan", data)
+                    if isinstance(plan, dict):
+                        parsed = PlannerOut(
+                            plan=plan,
+                            open_questions=plan.get("open_questions", data.get("open_questions", [])),
+                            assumptions=plan.get("assumptions", data.get("assumptions", [])),
+                            touched_files=data.get("touched_files", []),
+                            reasoning=data.get("reasoning", ""),
+                            confidence=data.get("confidence", 0.5),
+                        )
+                    else:
+                        parsed = PlannerOut(
+                            plan={"steps": [], "open_questions": [], "assumptions": []},
+                            reasoning=str(e),
+                            confidence=0.3,
+                        )
+                except Exception:
+                    parsed = PlannerOut(
+                        plan={"steps": [], "open_questions": [], "assumptions": []},
+                        reasoning="Parse failed",
+                        confidence=0.2,
+                    )
+
+            plan_obj = parsed.plan
+            plan = plan_obj.model_dump() if hasattr(plan_obj, "model_dump") else dict(plan_obj)
+            if parsed.open_questions:
+                plan["open_questions"] = parsed.open_questions
+            if parsed.assumptions:
+                plan["assumptions"] = parsed.assumptions
 
         touched_files = getattr(parsed, "touched_files", []) or []
 
         latency = (time.monotonic() - start) * 1000
+        _tok = 0
+        if response is not None and getattr(response, "usage_metadata", None):
+            _tok = response.usage_metadata.get("total_tokens", 0) or 0
         trace = NodeTrace(
             node_name=node_name,
             reasoning=parsed.reasoning,
@@ -708,7 +776,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             confidence=parsed.confidence,
             outcome=NodeOutcome.SUCCESS,
             latency_ms=latency,
-            tokens_used=response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0,
+            tokens_used=_tok,
         )
 
         logger.info(
