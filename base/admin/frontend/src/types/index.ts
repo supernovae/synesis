@@ -444,6 +444,16 @@ export interface IngestionSource {
   created_at: string | null;
 }
 
+/** Telemetry from the indexer after fetch (crawl breadth/depth for web_page, etc.). */
+export interface IndexerIngestionStats {
+  handler?: string;
+  source_pages?: number;
+  planned_max_pages?: number;
+  planned_max_depth?: number;
+  discovery?: string;
+  max_depth_reached?: number;
+}
+
 export interface IngestionItem {
   id: number;
   source_id: number | null;
@@ -461,6 +471,7 @@ export interface IngestionItem {
   chunk_count: number;
   error_message: string;
   milvus_doc_id: string;
+  indexer_stats?: IndexerIngestionStats | null;
   retry_count: number;
   max_retries: number;
   queued_at: string | null;

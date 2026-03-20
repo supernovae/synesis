@@ -27,6 +27,31 @@ from .schema import catalog_entity, ensure_synesis_catalog
 
 logger = get_logger("synesis.indexer.pipeline")
 
+
+def _indexer_stats_from_fetch(
+    handler_type: str,
+    source_config: dict[str, Any],
+    documents: list[RawDocument],
+) -> dict[str, Any]:
+    """Telemetry sent to admin ingestion queue after a successful fetch."""
+    meta: dict[str, Any] = {
+        "handler": handler_type,
+        "source_pages": len(documents),
+    }
+    if handler_type != "web_page":
+        return meta
+    cfg = source_config.get("config")
+    if not isinstance(cfg, dict):
+        cfg = {}
+    meta["planned_max_pages"] = max(1, int(cfg.get("max_pages", 80)))
+    meta["planned_max_depth"] = max(0, int(cfg.get("max_depth", 4)))
+    meta["discovery"] = str(cfg.get("discovery") or "sitemap_first").lower()
+    depths = [d.metadata["crawl_depth"] for d in documents if isinstance(d.metadata.get("crawl_depth"), int)]
+    if depths:
+        meta["max_depth_reached"] = max(depths)
+    return meta
+
+
 _CODE_FORMATS = frozenset(
     {
         "python",
@@ -95,10 +120,12 @@ def index_source(
     llm_url: str = "",
     dry_run: bool = False,
     gate_policy: GatePolicy | None = None,
-) -> int:
+) -> tuple[int, dict[str, Any]]:
     """Index a single source from the unified sources.yaml.
 
-    Returns the number of chunks upserted.
+    Returns (chunks upserted, fetch telemetry dict). The second value is empty
+    when fetch failed or produced no documents; otherwise it reflects the fetch
+    even if later stages produced zero chunks.
     """
     name = source_config.get("name", "unknown")
     handler_type = source_config.get("handler", "")
@@ -112,14 +139,14 @@ def index_source(
     if not handler_type:
         logger.error("indexer_source_missing_handler", extra={"source": name})
         progress.log_error(name, "missing handler")
-        return 0
+        return 0, {}
 
     try:
         handler = get_handler(handler_type)
     except ValueError as e:
         logger.error("indexer_handler_lookup_failed", extra={"source": name, "error": str(e)})
         progress.log_error(name, str(e))
-        return 0
+        return 0, {}
 
     source_type = source_type_override or handler.source_type
 
@@ -133,14 +160,15 @@ def index_source(
     except Exception as e:
         logger.error("indexer_fetch_failed", extra={"source": name, "error": str(e)})
         progress.log_error(name, f"fetch: {e}")
-        return 0
+        return 0, {}
 
     if not documents:
         logger.info("indexer_fetch_empty", extra={"source": name})
         progress.log_source(name, 0)
-        return 0
+        return 0, {}
 
     logger.info("indexer_fetched_documents", extra={"count": len(documents), "source": name})
+    fetch_meta = _indexer_stats_from_fetch(handler_type, source_config, documents)
 
     # 2. Parse + Chunk
     all_chunks: list[tuple[RawDocument, Chunk]] = []
@@ -155,7 +183,7 @@ def index_source(
     if not all_chunks:
         logger.info("indexer_no_chunks", extra={"source": name})
         progress.log_source(name, 0)
-        return 0
+        return 0, fetch_meta
 
     # 3. Deduplicate (check both cross-source existing_ids and within-source seen)
     new_chunks: list[tuple[RawDocument, Chunk, str]] = []
@@ -172,7 +200,7 @@ def index_source(
             extra={"skipped": len(all_chunks), "source": name},
         )
         progress.log_source(name, 0)
-        return 0
+        return 0, fetch_meta
 
     # 3.5. Chunk quality gate (Layer 2 — universal)
     skip_gate = str(source_config.get("quality_gate", "")).lower() == "skip"
@@ -227,7 +255,7 @@ def index_source(
     if not new_chunks:
         logger.info("indexer_all_rejected_by_gate", extra={"source": name})
         progress.log_source(name, 0)
-        return 0
+        return 0, fetch_meta
 
     logger.info(
         "indexer_processing_chunks",
@@ -244,7 +272,7 @@ def index_source(
             extra={"chunks": len(new_chunks), "source": name},
         )
         progress.log_source(name, len(new_chunks))
-        return len(new_chunks)
+        return len(new_chunks), fetch_meta
 
     # 4. Enrich (batched keyword extraction for ~5-10x speedup on CPU)
     enrich_items = [(chunk.text, doc.name, chunk.heading_path, chunk.section) for doc, chunk, _cid in new_chunks]
@@ -343,7 +371,7 @@ def index_source(
         existing_ids.add(cid)
 
     progress.log_source(name, count)
-    return count
+    return count, fetch_meta
 
 
 def run_pipeline(
@@ -413,7 +441,7 @@ def run_pipeline(
 
     for source_config in sources:
         try:
-            index_source(
+            _chunks, _stats = index_source(
                 source_config,
                 writer,
                 embedder,

@@ -54,6 +54,7 @@ class QueueClient:
         error_message: str = "",
         content_hash: str = "",
         milvus_doc_id: str = "",
+        indexer_stats: dict[str, Any] | None = None,
     ) -> None:
         payload: dict[str, Any] = {"status": status}
         if chunk_count:
@@ -64,6 +65,8 @@ class QueueClient:
             payload["content_hash"] = content_hash
         if milvus_doc_id:
             payload["milvus_doc_id"] = milvus_doc_id
+        if indexer_stats:
+            payload["indexer_stats"] = indexer_stats
         resp = self._http.patch(f"/api/v1/ingestion/items/{item_id}/status", json=payload)
         resp.raise_for_status()
 
@@ -210,7 +213,7 @@ def run_queue(
 
         try:
             source_config = _build_source_config(item)
-            chunks = index_source(
+            chunks, fetch_meta = index_source(
                 source_config,
                 writer,
                 embedder,
@@ -221,7 +224,12 @@ def run_queue(
                 dry_run=dry_run,
                 gate_policy=gate_policy,
             )
-            client.report_status(item_id, "indexed", chunk_count=chunks)
+            client.report_status(
+                item_id,
+                "indexed",
+                chunk_count=chunks,
+                indexer_stats=fetch_meta or None,
+            )
             items_indexed += 1
             logger.info(
                 "queue_item_indexed",

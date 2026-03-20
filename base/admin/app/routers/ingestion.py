@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import Any
 from datetime import UTC, datetime
 
 import yaml
@@ -60,6 +61,7 @@ class StatusUpdate(BaseModel):
     error_message: str | None = None
     milvus_doc_id: str | None = None
     content_hash: str | None = None
+    indexer_stats: dict[str, Any] | None = None
 
 
 class RunCreate(BaseModel):
@@ -97,6 +99,7 @@ def _item_dict(r: IngestionItem) -> dict:
         "chunk_count": r.chunk_count,
         "error_message": r.error_message[:200] if r.error_message else "",
         "milvus_doc_id": r.milvus_doc_id,
+        "indexer_stats": r.indexer_stats,
         "retry_count": r.retry_count,
         "max_retries": r.max_retries,
         "queued_at": r.queued_at.isoformat() if r.queued_at else None,
@@ -403,6 +406,8 @@ async def update_item_status(
             item.milvus_doc_id = body.milvus_doc_id
         if body.content_hash is not None:
             item.content_hash = body.content_hash
+        if body.indexer_stats is not None:
+            item.indexer_stats = body.indexer_stats
 
         if body.status in ("indexed", "failed", "dead_letter"):
             item.completed_at = now
@@ -446,6 +451,7 @@ async def retry_item(
             item.retry_count = 0
         item.status = "pending"
         item.error_message = ""
+        item.indexer_stats = None
         item.started_at = None
         item.completed_at = None
         item.queued_at = datetime.now(UTC)
@@ -626,6 +632,7 @@ async def report_schema_version(body: SchemaReport):
                 chunk_count=0,
                 error_message="",
                 milvus_doc_id="",
+                indexer_stats=None,
                 retry_count=0,
                 started_at=None,
                 completed_at=None,
@@ -994,6 +1001,7 @@ async def bootstrap_from_yaml(
             row.chunk_count = 0
             row.error_message = ""
             row.milvus_doc_id = ""
+            row.indexer_stats = None
             row.retry_count = 0
             row.started_at = None
             row.completed_at = None

@@ -12,7 +12,75 @@ import {
   useSchemaSync,
 } from "../../api/hooks";
 import type { HandlerMetadata } from "../../api/hooks";
-import type { IngestionItem, IngestionRun } from "../../types";
+import type { IngestionItem, IngestionRun, IndexerIngestionStats } from "../../types";
+
+function numConfig(cfg: Record<string, unknown> | null, key: string, fallback: number): number {
+  if (!cfg) return fallback;
+  const v = cfg[key];
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function CrawlViz({ item }: { item: IngestionItem }) {
+  const handler = item.handler || "";
+  const stats = item.indexer_stats as IndexerIngestionStats | null | undefined;
+  const cfg = item.config;
+
+  if (handler === "web_page") {
+    const pages = typeof stats?.source_pages === "number" ? stats.source_pages : null;
+    const maxPages =
+      typeof stats?.planned_max_pages === "number"
+        ? stats.planned_max_pages
+        : Math.max(1, numConfig(cfg, "max_pages", 80));
+    const maxDepth =
+      typeof stats?.planned_max_depth === "number"
+        ? stats.planned_max_depth
+        : Math.max(0, numConfig(cfg, "max_depth", 4));
+    const reached = typeof stats?.max_depth_reached === "number" ? stats.max_depth_reached : null;
+    const discovery =
+      (typeof stats?.discovery === "string" && stats.discovery) ||
+      (typeof cfg?.discovery === "string" && cfg.discovery) ||
+      "sitemap_first";
+    const pct = pages != null && maxPages > 0 ? Math.min(100, (pages / maxPages) * 100) : 0;
+    const title = `discovery: ${discovery}`;
+
+    return (
+      <div className="min-w-[128px] max-w-[180px]" title={title}>
+        {pages != null ? (
+          <>
+            <div className="h-1.5 w-full rounded bg-gray-200 dark:bg-slate-600 overflow-hidden">
+              <div
+                className="h-full rounded bg-indigo-500 dark:bg-indigo-400 transition-[width]"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400 mt-0.5">
+              {pages}/{maxPages} pages
+              {reached != null
+                ? ` · depth ${reached}/${maxDepth}`
+                : item.status === "pending"
+                  ? ` · cap ${maxDepth}d`
+                  : ""}
+            </div>
+          </>
+        ) : (
+          <div className="text-[10px] leading-tight text-gray-500 dark:text-gray-400">
+            ≤{maxPages} pg · cap {maxDepth}d · {discovery}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (stats && typeof stats.source_pages === "number") {
+    return (
+      <span className="text-xs text-gray-600 dark:text-gray-400" title={stats.handler}>
+        {stats.source_pages} source{stats.source_pages === 1 ? "" : "s"}
+      </span>
+    );
+  }
+  return <span className="text-gray-400 dark:text-gray-500">—</span>;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
@@ -290,6 +358,7 @@ function ItemsTable() {
                 <th className="px-3 py-2">Handler</th>
                 <th className="px-3 py-2">Domain</th>
                 <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Crawl</th>
                 <th className="px-3 py-2 text-right">Chunks</th>
                 <th className="px-3 py-2">Error</th>
                 <th className="px-3 py-2"></th>
@@ -304,6 +373,7 @@ function ItemsTable() {
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">{item.handler || "—"}</td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400 text-xs">{item.domain || "—"}</td>
                   <td className="px-3 py-2"><StatusBadge status={item.status} /></td>
+                  <td className="px-3 py-2 align-top"><CrawlViz item={item} /></td>
                   <td className="px-3 py-2 text-right text-gray-600 dark:text-gray-400">{item.chunk_count || "—"}</td>
                   <td className="px-3 py-2 max-w-[200px] truncate text-red-600 dark:text-red-400 text-xs" title={item.error_message}>
                     {item.error_message || ""}

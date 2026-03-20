@@ -364,6 +364,7 @@ class IngestionItem(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     milvus_doc_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    indexer_stats: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

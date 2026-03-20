@@ -64,12 +64,17 @@ class WebPageHandler:
 
         docs: list[RawDocument] = []
         for page in pages:
+            depth = page.get("crawl_depth")
+            meta: dict[str, Any] = {}
+            if isinstance(depth, int):
+                meta["crawl_depth"] = depth
             docs.append(
                 RawDocument(
                     doc_id=f"web:{name}:{page['url']}",
                     name=name,
                     content=page["markdown"],
                     source_url=page["url"],
+                    metadata=meta,
                 )
             )
 
@@ -270,7 +275,7 @@ async def _fetch_url_list(
                 continue
 
             md = normalize_doc_markdown(md)
-            pages.append({"url": url, "markdown": md})
+            pages.append({"url": url, "markdown": md, "crawl_depth": depth})
 
     return pages
 
@@ -349,7 +354,7 @@ async def _crawl_bfs(
                 continue
 
             md = normalize_doc_markdown(md)
-            pages.append({"url": url, "markdown": md})
+            pages.append({"url": url, "markdown": md, "crawl_depth": depth})
 
             if not follow_links or depth >= max_depth:
                 continue
