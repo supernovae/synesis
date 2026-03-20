@@ -103,11 +103,19 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          # Migrations run before uvicorn binds; without startupProbe, liveness can kill the pod
+          # while alembic is still running (no listener on :8080).
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+            failureThreshold: 60
+            periodSeconds: 5
           readinessProbe:
             httpGet:
               path: /api/v1/health
               port: 8080
-            initialDelaySeconds: 5
+            initialDelaySeconds: 2
             periodSeconds: 10
           livenessProbe:
             httpGet:

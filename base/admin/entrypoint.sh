@@ -53,10 +53,26 @@ async def check():
 asyncio.run(check())
 " 2>&1 || echo "[entrypoint] Baseline check skipped (DB may not be reachable)"
 
-    python -m alembic upgrade head 2>&1 || {
-        echo "[entrypoint] WARNING: migrations failed (DB may not be reachable yet)"
-        echo "[entrypoint] The app will start but some features may be unavailable"
-    }
+    # Retry: Postgres may not accept connections immediately after CNPG failover / pod schedule.
+    # Do not start the API until migrations succeed (avoids half-migrated schema + confusing errors).
+    MAX_ATTEMPTS="${SYNESIS_ADMIN_MIGRATION_MAX_ATTEMPTS:-30}"
+    SLEEP_SEC="${SYNESIS_ADMIN_MIGRATION_RETRY_SLEEP:-2}"
+    attempt=1
+    success=0
+    while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+      if python -m alembic upgrade head; then
+        echo "[entrypoint] Migrations complete."
+        success=1
+        break
+      fi
+      echo "[entrypoint] Migration attempt $attempt/$MAX_ATTEMPTS failed; retrying in ${SLEEP_SEC}s..."
+      attempt=$((attempt + 1))
+      sleep "$SLEEP_SEC"
+    done
+    if [ "$success" != 1 ]; then
+      echo "[entrypoint] FATAL: alembic upgrade head failed after $MAX_ATTEMPTS attempts"
+      exit 1
+    fi
 fi
 
 exec "$@"

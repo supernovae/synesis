@@ -14,3 +14,9 @@ resources:
   - service.yaml
   - route.yaml
   - rbac-gateway-secrets.yaml
+
+# Match overlays/api so `oc apply -k base/admin` does not revert to docker.io/library/synesis-admin.
+images:
+  - name: synesis-admin
+    newName: ghcr.io/supernovae/synesis/admin
+    newTag: latest
