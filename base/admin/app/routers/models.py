@@ -2,7 +2,8 @@
 
 import logging
 import time
-from datetime import date as date_type, datetime, timezone
+from datetime import UTC, datetime
+from datetime import date as date_type
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
@@ -11,18 +12,22 @@ from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..services import prometheus_client_svc as prom
 from ..services.model_registry import (
-    activate_environment,
+    assign_role,
     create_deployment,
+    deactivate_role,
     delete_deployment,
     get_cost_by_model,
     get_cost_estimates,
     get_model_deployments,
     get_model_registry,
+    get_role_assignments,
+    get_role_history,
     seed_model_deployments,
     set_deployment_active,
     update_deployment,
     upsert_model_cost,
 )
+from ..services.provider_catalog import KNOWN_ROLES
 
 logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
@@ -45,7 +50,85 @@ async def model_topology(_user: UserInfo = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
-# DB-first model deployments CRUD
+# Role-first model registry (primary API)
+# ---------------------------------------------------------------------------
+
+@router.get("/roles")
+async def list_role_assignments(_user: UserInfo = Depends(get_current_user)):
+    """Active model assignment per canonical role."""
+    return {"roles": await get_role_assignments()}
+
+
+@router.put("/roles/{role}")
+async def assign_model_to_role(
+    role: str,
+    data: dict = Body(...),
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Assign a provider + model to a role.  Deactivates the previous assignment."""
+    from ..services.model_reconciler import reconcile
+
+    if role not in KNOWN_ROLES:
+        raise HTTPException(400, f"Unknown role: {role}. Valid: {', '.join(KNOWN_ROLES)}")
+    if not data.get("provider") or not data.get("model"):
+        raise HTTPException(400, "provider and model are required")
+
+    try:
+        result = await assign_role(
+            role,
+            data["provider"],
+            data["model"],
+            endpoint=data.get("endpoint", ""),
+            api_key_env=data.get("api_key_env", ""),
+            max_tokens=data.get("max_tokens", 8192),
+            temperature=data.get("temperature", 0.1),
+            fallbacks=data.get("fallbacks"),
+            description=data.get("description", ""),
+            notes=data.get("notes", ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    try:
+        await reconcile()
+    except Exception:
+        logger.warning("reconcile_after_role_assign_failed role=%s", role, exc_info=True)
+
+    return result
+
+
+@router.delete("/roles/{role}")
+async def remove_role_assignment(
+    role: str,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Deactivate the model assignment for a role."""
+    from ..services.model_reconciler import reconcile
+
+    if role not in KNOWN_ROLES:
+        raise HTTPException(400, f"Unknown role: {role}")
+    result = await deactivate_role(role)
+    if result is None:
+        raise HTTPException(404, f"No active assignment for role: {role}")
+    try:
+        await reconcile()
+    except Exception:
+        logger.warning("reconcile_after_role_deactivate_failed role=%s", role, exc_info=True)
+    return result
+
+
+@router.get("/roles/{role}/history")
+async def role_history(
+    role: str,
+    _user: UserInfo = Depends(get_current_user),
+    days: int = Query(90, ge=1, le=365),
+):
+    """Historical model assignments for a role."""
+    return {"history": await get_role_history(role, days=days)}
+
+
+# ---------------------------------------------------------------------------
+# DB-first model deployments CRUD (legacy, kept for backward compat)
 # ---------------------------------------------------------------------------
 
 @router.get("/deployments")
@@ -81,7 +164,6 @@ async def delete_model_deployment(
     deployment_id: int,
     _user: UserInfo = Depends(get_current_user),
 ):
-    from ..services.model_reconciler import reconcile_single
 
     ok = await delete_deployment(deployment_id)
     if not ok:
@@ -129,6 +211,7 @@ async def activate_env(
     _user: UserInfo = Depends(get_current_user),
 ):
     from ..services.model_reconciler import reconcile
+    from ..services.model_registry import activate_environment
 
     env = data.get("environment", "")
     if not env:
@@ -381,7 +464,7 @@ async def cost_rate_history(
     days: int = Query(90, ge=1, le=365),
 ):
     """Cost rate change history from cost_rate_snapshots."""
-    cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+    cutoff = datetime.now(UTC).timestamp() - days * 86400
     try:
         async with async_session() as session:
             result = await session.execute(
@@ -534,3 +617,59 @@ async def latency_trend(
     except Exception:
         logger.warning("latency_trend_failed", exc_info=True)
         return {"trend": [], "period_days": days}
+
+
+# ---------------------------------------------------------------------------
+# Performance by role
+# ---------------------------------------------------------------------------
+
+@router.get("/performance/by-role")
+async def performance_by_role(
+    _user: UserInfo = Depends(get_current_user),
+    days: int = Query(7, ge=1, le=90),
+):
+    """Per-role performance metrics aggregated from trace LLM calls."""
+    cutoff = time.time() - days * 86400
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                text("SELECT full_record FROM traces WHERE timestamp >= :cutoff"),
+                {"cutoff": cutoff},
+            )
+            rows = result.all()
+
+        role_stats: dict[str, dict] = {}
+        for row in rows:
+            full = row[0] or {}
+            for span in full.get("spans", []):
+                node = span.get("node_name", "unknown")
+                for call in span.get("llm_calls", []):
+                    role = _infer_role(node, call.get("model", ""))
+                    if role not in role_stats:
+                        role_stats[role] = {
+                            "role": role, "request_count": 0, "latencies": [],
+                            "total_tokens": 0, "total_actual_cost": 0.0,
+                        }
+                    rs = role_stats[role]
+                    rs["request_count"] += 1
+                    rs["latencies"].append(call.get("latency_ms", 0))
+                    rs["total_tokens"] += call.get("total_tokens", 0)
+                    rs["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
+
+        results = []
+        for rs in role_stats.values():
+            lats = sorted(rs.pop("latencies"))
+            n = len(lats)
+            avg_lat = sum(lats) / n if n else 0
+            p95_idx = int(n * 0.95) if n else 0
+            rs["avg_latency_ms"] = round(avg_lat, 1)
+            rs["p95_latency_ms"] = round(lats[min(p95_idx, n - 1)] if n else 0, 1)
+            rs["total_actual_cost"] = round(rs["total_actual_cost"], 6)
+            results.append(rs)
+
+        results.sort(key=lambda x: x["request_count"], reverse=True)
+        return {"roles": results, "period_days": days}
+
+    except Exception:
+        logger.warning("performance_by_role_failed", exc_info=True)
+        return {"roles": [], "period_days": days}

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import os
 import time
@@ -13,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..auth import get_current_user, require_admin
+from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
 
 logger = logging.getLogger("synesis.admin.providers")
 
@@ -28,13 +28,9 @@ _K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
 _K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
 
 KNOWN_PROVIDERS = {
-    "OPENROUTER_API_KEY": "OpenRouter",
-    "GROQ_API_KEY": "Groq",
-    "TOGETHER_API_KEY": "Together AI",
-    "DEEPINFRA_API_KEY": "DeepInfra",
-    "FIREWORKS_API_KEY": "Fireworks AI",
-    "OPENAI_API_KEY": "OpenAI",
-    "ANTHROPIC_API_KEY": "Anthropic",
+    p.api_key_env: p.label
+    for p in PROVIDER_CATALOG.values()
+    if p.api_key_env
 }
 
 
@@ -149,6 +145,12 @@ async def _restart_litellm() -> None:
             logger.info("litellm_restart_triggered")
     except Exception:
         logger.warning("litellm_restart_failed", exc_info=True)
+
+
+@router.get("/catalog")
+async def provider_catalog(_user=Depends(get_current_user)):
+    """Return the provider catalog and canonical role list for the frontend."""
+    return get_catalog()
 
 
 @router.get("/keys")

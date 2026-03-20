@@ -14,12 +14,12 @@ import {
 import {
   useModelCosts,
   useUpdateModelCost,
-  useCostsByModel,
   useCostsByRole,
   useCostsDaily,
   useCostRateHistory,
+  useProviderCatalog,
 } from "../../api/hooks";
-import type { CostByModelEntry, CostByRoleEntry, DailyCostEntry, CostRateSnapshotEntry } from "../../api/hooks";
+import type { CostByRoleEntry, DailyCostEntry, CostRateSnapshotEntry } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
@@ -32,18 +32,18 @@ const COLORS = [
   "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
 ];
 
-function SourceBadge({ source }: { source: string }) {
-  const isCloud = source === "openrouter";
+function ProviderBadge({ source }: { source: string }) {
+  const isLocal = source === "local" || source === "vllm" || source === "kserve";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${
-        isCloud
-          ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-          : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        isLocal
+          ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+          : "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
       }`}
     >
-      {isCloud ? <Cloud className="h-3 w-3" /> : <Server className="h-3 w-3" />}
-      {isCloud ? "OpenRouter" : "Local"}
+      {isLocal ? <Server className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
+      {source}
     </span>
   );
 }
@@ -81,7 +81,7 @@ function EditCostModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Edit Cost: {cost.role} / {cost.profile}
+          Edit Cost: {cost.role}
         </h3>
         <p className="mt-1 text-sm text-gray-500">{cost.model}</p>
         <div className="mt-4 space-y-3">
@@ -121,34 +121,27 @@ function shortModel(name: string): string {
 export default function CostTracker() {
   const [days, setDays] = useState(7);
   const { data: rateData, isLoading } = useModelCosts();
-  const { data: byModelData } = useCostsByModel(days);
   const { data: roleData } = useCostsByRole(days);
   const { data: dailyData } = useCostsDaily(days);
   const { data: rateHistoryData } = useCostRateHistory(90);
+  const { data: catalogData } = useProviderCatalog();
   const [editing, setEditing] = useState<ModelCost | null>(null);
 
   const roles = rateData?.roles ?? [];
-  const byModel: CostByModelEntry[] = byModelData?.models ?? [];
   const byRole: CostByRoleEntry[] = roleData?.roles ?? [];
   const daily: DailyCostEntry[] = dailyData?.daily ?? [];
   const rateHistory: CostRateSnapshotEntry[] = rateHistoryData?.snapshots ?? [];
 
-  const chartData = roles.map((r) => ({
-    role: r.role,
-    input: r.input_per_million,
-    output: r.output_per_million,
-  }));
-
-  const totalEstimated = byModel.reduce((s, m) => s + m.estimated_cost_usd, 0);
-  const totalActual = byModel.reduce((s, m) => s + m.actual_cost_usd, 0);
-  const totalRequests = byModel.reduce((s, m) => s + m.requests, 0);
+  const totalEstimated = byRole.reduce((s, r) => s + r.estimated_cost_usd, 0);
+  const totalActual = byRole.reduce((s, r) => s + r.actual_cost_usd, 0);
+  const totalRequests = byRole.reduce((s, r) => s + r.requests, 0);
   const costDiff = totalActual > 0 && totalEstimated > 0
     ? ((totalActual - totalEstimated) / totalEstimated) * 100
     : 0;
 
   const rateHistoryModels = useMemo(() => {
     const set = new Set<string>();
-    rateHistory.forEach((s) => set.add(s.model));
+    rateHistory.forEach((s) => set.add(s.role || s.model));
     return Array.from(set);
   }, [rateHistory]);
 
@@ -158,8 +151,9 @@ export default function CostTracker() {
       const d = s.captured_at.split("T")[0];
       if (!byDate[d]) byDate[d] = {} as never;
       (byDate[d] as Record<string, number>)["date"] = d as never;
-      (byDate[d] as Record<string, number>)[`${shortModel(s.model)}_in`] = s.input_per_million;
-      (byDate[d] as Record<string, number>)[`${shortModel(s.model)}_out`] = s.output_per_million;
+      const label = s.role || shortModel(s.model);
+      (byDate[d] as Record<string, number>)[`${label}_in`] = s.input_per_million;
+      (byDate[d] as Record<string, number>)[`${label}_out`] = s.output_per_million;
     }
     return Object.values(byDate).sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }, [rateHistory]);
@@ -170,11 +164,11 @@ export default function CostTracker() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Cost Tracker</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Per-role rates, estimated vs actual usage costs, and price history
+            Cost by pipeline role — estimated vs actual usage, rate config, and price history
           </p>
         </div>
         <select
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm"
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
         >
@@ -186,9 +180,9 @@ export default function CostTracker() {
       </div>
 
       {isLoading ? (
-        <div className="h-64 animate-pulse rounded-lg bg-gray-100" />
-      ) : roles.length === 0 ? (
-        <EmptyState title="No cost data" description="Cost data populates from models.yaml and Postgres overrides" />
+        <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
+      ) : roles.length === 0 && byRole.length === 0 ? (
+        <EmptyState title="No cost data" description="Cost data populates after requests flow through the pipeline" />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-4">
@@ -201,7 +195,7 @@ export default function CostTracker() {
             <MetricCard
               label="Actual Cost"
               value={totalActual > 0 ? `$${totalActual.toFixed(4)}` : "N/A"}
-              subtitle={totalActual > 0 ? "from OpenRouter" : "no data yet"}
+              subtitle={totalActual > 0 ? "from provider" : "no data yet"}
               icon={DollarSign}
             />
             <MetricCard
@@ -217,40 +211,24 @@ export default function CostTracker() {
             />
           </div>
 
-          {/* Rate config table */}
-          <ChartCard title="Cost per Million Tokens" subtitle="Input vs Output by role">
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={chartData}>
-                <XAxis dataKey="role" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} />
-                <Legend />
-                <Bar dataKey="input" name="Input $/M" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="output" name="Output $/M" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartCard>
+          {/* Cost by role (primary chart) */}
+          {byRole.length > 0 && (
+            <ChartCard title={`Cost by Role (${days}d)`} subtitle="Estimated vs Actual per pipeline role">
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={byRole}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="role" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
+                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
+                  <Legend />
+                  <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
 
-          <DataTable
-            columns={[
-              { key: "role", label: "Role", sortable: true },
-              { key: "model", label: "Model" },
-              { key: "profile", label: "Profile", sortable: true },
-              { key: "source", label: "Source", render: (r) => <SourceBadge source={r.source as string} /> },
-              { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${(r.input_per_million as number).toFixed(2)}` },
-              { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${(r.output_per_million as number).toFixed(2)}` },
-              { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{(r.cost_formula as string) || "---"}</span> },
-              { key: "actions", label: "", render: (r) => (
-                <button onClick={() => setEditing(r as ModelCost)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600" title="Edit cost">
-                  <PenLine className="h-4 w-4" />
-                </button>
-              )},
-            ]}
-            data={roles}
-            keyField="role"
-          />
-
-          {/* Daily cost trend: estimated vs actual */}
+          {/* Daily cost trend */}
           {daily.length > 0 && (
             <ChartCard title={`Daily Cost Trend (${days}d)`} subtitle="Estimated vs Actual cost per day">
               <ResponsiveContainer width="100%" height={280}>
@@ -267,47 +245,33 @@ export default function CostTracker() {
             </ChartCard>
           )}
 
-          {/* Cost by role: estimated vs actual */}
-          {byRole.length > 0 && (
-            <ChartCard title={`Cost by Role (${days}d)`} subtitle="Estimated vs Actual per pipeline role">
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={byRole}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="role" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `$${v.toFixed(4)}`} />
-                  <Tooltip formatter={(v: number) => `$${v.toFixed(6)}`} />
-                  <Legend />
-                  <Bar dataKey="estimated_cost_usd" name="Estimated" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="actual_cost_usd" name="Actual" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          )}
-
-          {/* Cost by model: estimated vs actual */}
-          {byModel.length > 0 && (
+          {/* Rate config table (per role) */}
+          {roles.length > 0 && (
             <>
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Cost by Model ({days}d)
-              </h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Rate Configuration</h2>
               <DataTable
                 columns={[
-                  { key: "model", label: "Model", sortable: true, render: (r: CostByModelEntry) => shortModel(r.model) },
-                  { key: "requests", label: "Requests", sortable: true },
-                  { key: "prompt_tokens", label: "Prompt Tokens", sortable: true, render: (r: CostByModelEntry) => r.prompt_tokens.toLocaleString() },
-                  { key: "completion_tokens", label: "Completion Tokens", sortable: true, render: (r: CostByModelEntry) => r.completion_tokens.toLocaleString() },
-                  { key: "estimated_cost_usd", label: "Estimated", sortable: true, render: (r: CostByModelEntry) => `$${r.estimated_cost_usd.toFixed(6)}` },
-                  { key: "actual_cost_usd", label: "Actual", sortable: true, render: (r: CostByModelEntry) => r.actual_cost_usd > 0 ? `$${r.actual_cost_usd.toFixed(6)}` : "-" },
+                  { key: "role", label: "Role", sortable: true },
+                  { key: "model", label: "Model", render: (r) => <span className="text-xs">{shortModel(r.model as string)}</span> },
+                  { key: "source", label: "Provider", render: (r) => <ProviderBadge source={r.source as string} /> },
+                  { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${(r.input_per_million as number).toFixed(2)}` },
+                  { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${(r.output_per_million as number).toFixed(2)}` },
+                  { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{(r.cost_formula as string) || "---"}</span> },
+                  { key: "actions", label: "", render: (r) => (
+                    <button onClick={() => setEditing(r as ModelCost)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800" title="Edit cost">
+                      <PenLine className="h-4 w-4" />
+                    </button>
+                  )},
                 ]}
-                data={byModel}
-                keyField="model"
+                data={roles}
+                keyField="role"
               />
             </>
           )}
 
-          {/* Price history */}
+          {/* Price history by role */}
           {pivotedHistory.length > 1 && (
-            <ChartCard title="Price History (90d)" subtitle="Input rate changes over time">
+            <ChartCard title="Price History (90d)" subtitle="Input rate changes over time by role">
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart data={pivotedHistory}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -319,8 +283,8 @@ export default function CostTracker() {
                     <Line
                       key={m}
                       type="stepAfter"
-                      dataKey={`${shortModel(m)}_in`}
-                      name={`${shortModel(m)} input`}
+                      dataKey={`${m}_in`}
+                      name={`${m} input`}
                       stroke={COLORS[i % COLORS.length]}
                       strokeWidth={2}
                       dot={false}

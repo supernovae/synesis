@@ -78,7 +78,7 @@ export interface ModelEntry {
 }
 
 export interface ModelDeployment {
-  id: number;
+  id: number | null;
   environment: string;
   role: string;
   model: string;
@@ -86,15 +86,55 @@ export interface ModelDeployment {
   served_name: string;
   status: string;
   profile: string;
-  source: "vllm" | "openrouter" | "kserve" | "external" | "local";
+  provider: string;
+  source: string;
+  api_key_env: string;
   litellm_params: Record<string, unknown> | null;
   is_active: boolean;
+  assigned: boolean;
   description: string;
   notes: string;
   gpu_config: Record<string, unknown> | null;
   litellm_model_id: string | null;
   fallbacks: string[] | null;
   updated_at: string | null;
+}
+
+export interface ProviderInfo {
+  key: string;
+  label: string;
+  litellm_prefix: string;
+  api_key_env: string;
+  needs_endpoint: boolean;
+  placeholder: string;
+  is_local: boolean;
+}
+
+export interface RoleInfo {
+  key: string;
+  served_name: string;
+  description: string;
+}
+
+export interface RoleHistoryEntry {
+  id: number;
+  role: string;
+  provider: string;
+  model: string;
+  endpoint: string;
+  input_per_million: number;
+  output_per_million: number;
+  activated_at: string | null;
+  deactivated_at: string | null;
+}
+
+export interface RolePerformance {
+  role: string;
+  request_count: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+  total_tokens: number;
+  total_actual_cost: number;
 }
 
 export interface ModelCost {

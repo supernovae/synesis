@@ -236,6 +236,66 @@ export function useDeleteProviderKey() {
   });
 }
 
+// --- Role-first model registry ---
+
+export function useRoleAssignments() {
+  return useQuery<{ roles: import("../types").ModelDeployment[] }>({
+    queryKey: ["models", "roles"],
+    queryFn: () => client.get("/models/roles").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useAssignRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ role, ...data }: { role: string; provider: string; model: string; endpoint?: string; api_key_env?: string; max_tokens?: number; temperature?: number; fallbacks?: string[]; description?: string; notes?: string }) =>
+      client.put(`/models/roles/${role}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeactivateRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (role: string) =>
+      client.delete(`/models/roles/${role}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useRoleHistory(role: string) {
+  return useQuery<{ history: import("../types").RoleHistoryEntry[] }>({
+    queryKey: ["models", "roles", role, "history"],
+    queryFn: () => client.get(`/models/roles/${role}/history`).then((r) => r.data),
+    enabled: !!role,
+  });
+}
+
+export function useProviderCatalog() {
+  return useQuery<{
+    providers: Record<string, import("../types").ProviderInfo>;
+    roles: import("../types").RoleInfo[];
+  }>({
+    queryKey: ["providers", "catalog"],
+    queryFn: () => client.get("/providers/catalog").then((r) => r.data),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function usePerformanceByRole(days: number = 7) {
+  return useQuery<{ roles: import("../types").RolePerformance[]; period_days: number }>({
+    queryKey: ["models", "performance", "by-role", days],
+    queryFn: () =>
+      client.get("/models/performance/by-role", { params: { days } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
 // --- Model Performance (detailed, trace-based) ---
 
 export interface DetailedModelPerformance {

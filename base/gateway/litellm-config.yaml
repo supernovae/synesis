@@ -65,6 +65,16 @@ data:
           max_tokens: 16384
           temperature: 0.2
 
+      # Summarizer — pivot history summarization (micro model)
+      # Defaults to router pod; admin UI can reassign to any provider.
+      - model_name: synesis-summarizer
+        litellm_params:
+          model: openai/synesis-summarizer
+          api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
+          api_key: "not-needed"
+          max_tokens: 2048
+          temperature: 0.1
+
       # Thinking model — Open WebUI optional "think out loud" model.
       # Small: uses Qwen2.5-14B-Instruct (router pod); medium/large: uses R1 via critic.
       - model_name: synesis-thinking

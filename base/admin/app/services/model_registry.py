@@ -1,9 +1,10 @@
-"""Model registry: seed from models.yaml, DB-first CRUD, cost estimates, topology."""
+"""Model registry: seed from models.yaml, role-first CRUD, cost estimates."""
 
 from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +12,10 @@ import yaml
 from sqlalchemy import delete, func, select
 
 from ..db.engine import async_session
-from ..db.models import CostRateSnapshot, ModelCost as ModelCostRow, ModelDeployment
+from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
+from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
+from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, build_litellm_params
 
 logger = logging.getLogger("synesis.admin.models")
 
@@ -46,17 +49,16 @@ def invalidate_yaml_cache() -> None:
 # ---------------------------------------------------------------------------
 
 async def seed_model_deployments(*, force: bool = False) -> int:
-    """Parse models.yaml and populate model_deployments if the table is empty.
+    """Seed one deployment per canonical role from models.yaml.
 
-    Returns the number of rows inserted.  When force=True, existing rows are
-    deleted first so the unique constraint is not violated.
+    On first start (empty table), creates role assignments from the first
+    OpenRouter profile and activates them.  On subsequent starts, does nothing
+    unless force=True (which clears and re-seeds).
     """
     data = _load_models_yaml()
     if not data:
         logger.info("seed_models_skip reason=no_yaml")
         return 0
-
-    is_first_seed = False
 
     async with async_session() as session:
         count = (await session.execute(select(func.count(ModelDeployment.id)))).scalar() or 0
@@ -70,91 +72,63 @@ async def seed_model_deployments(*, force: bool = False) -> int:
             await session.execute(delete(ModelDeployment))
             logger.info("seed_models_cleared existing=%d", count)
 
-        roles = data.get("roles", {})
+        roles_cfg = data.get("roles", {})
         inserted = 0
-        first_openrouter_env: str = ""
 
-        for profile_name, profile_cfg in data.get("profiles", {}).items():
-            env_name = f"local-{profile_name}"
-            assignments = profile_cfg.get("assignments", {})
-            for role_name, assignment in assignments.items():
-                role_def = roles.get(role_name, {})
-                model = assignment.get("model_override", role_def.get("default_model", ""))
-                served_name = role_def.get("served_model_name", role_name)
+        # Prefer first OpenRouter profile for day-0 (works out-of-the-box with an API key).
+        or_profiles = data.get("openrouter_profiles", {})
+        first_or_profile = next(iter(or_profiles.values()), None) if or_profiles else None
+
+        for role_name in KNOWN_ROLES:
+            role_def = roles_cfg.get(role_name, {})
+            served_name = role_def.get("served_model_name", f"synesis-{role_name}")
+            description = role_def.get("description", "")
+
+            # Try OpenRouter assignment first (lower friction day-0).
+            or_assignment = (first_or_profile or {}).get("assignments", {}).get(role_name)
+            if or_assignment:
+                or_model = or_assignment.get("openrouter_model", "")
+                notes_text = or_assignment.get("notes", "")
+                lp = build_litellm_params("openrouter", or_model)
+                row = ModelDeployment(
+                    role=role_name,
+                    model=or_model,
+                    endpoint="",
+                    served_name=served_name,
+                    status="activating" if is_first_seed else "configured",
+                    source="openrouter",
+                    provider="openrouter",
+                    api_key_env="OPENROUTER_API_KEY",
+                    litellm_params=lp,
+                    is_active=is_first_seed,
+                    description=description,
+                    notes=notes_text.strip() if notes_text else "",
+                )
+            else:
+                # Fallback: local vLLM from role defaults.
+                model = role_def.get("default_model", "")
                 service_name = role_def.get("service_name", role_name)
                 namespace = role_def.get("namespace", "synesis-models")
                 endpoint = f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1"
-                notes_text = assignment.get("notes", "")
-
-                litellm_params = {
-                    "model": f"openai/{served_name}",
-                    "api_base": endpoint,
-                    "api_key": "not-needed",
-                    "max_tokens": 32768,
-                    "temperature": 0.2,
-                }
-
+                lp = build_litellm_params("vllm", served_name, endpoint=endpoint, max_tokens=32768, temperature=0.2)
                 row = ModelDeployment(
-                    environment=env_name,
                     role=role_name,
                     model=model,
                     endpoint=endpoint,
                     served_name=served_name,
                     status="configured",
-                    profile=profile_name,
                     source="vllm",
-                    litellm_params=litellm_params,
+                    provider="vllm",
+                    litellm_params=lp,
                     is_active=False,
-                    description=role_def.get("description", ""),
-                    notes=notes_text.strip() if notes_text else "",
-                    gpu_config={"gpu": assignment.get("gpu", ""), "tp": assignment.get("tp", 1)},
+                    description=description,
+                    notes="",
                 )
-                session.add(row)
-                inserted += 1
-
-        for profile_name, profile_cfg in data.get("openrouter_profiles", {}).items():
-            env_name = f"openrouter-{profile_name}"
-            if not first_openrouter_env:
-                first_openrouter_env = env_name
-            assignments = profile_cfg.get("assignments", {})
-            for role_name, assignment in assignments.items():
-                role_def = roles.get(role_name, {})
-                or_model = assignment.get("openrouter_model", "")
-                served_name = role_def.get("served_model_name", f"synesis-{role_name}")
-                notes_text = assignment.get("notes", "")
-
-                litellm_params = {
-                    "model": f"openrouter/{or_model}",
-                    "api_key": "os.environ/OPENROUTER_API_KEY",
-                    "max_tokens": 8192,
-                    "temperature": 0.1,
-                }
-
-                activate = is_first_seed and env_name == first_openrouter_env
-
-                row = ModelDeployment(
-                    environment=env_name,
-                    role=role_name,
-                    model=or_model,
-                    endpoint="https://openrouter.ai/api/v1",
-                    served_name=served_name,
-                    status="activating" if activate else "configured",
-                    profile=profile_name,
-                    source="openrouter",
-                    litellm_params=litellm_params,
-                    is_active=activate,
-                    description=role_def.get("description", ""),
-                    notes=notes_text.strip() if notes_text else "",
-                )
-                session.add(row)
-                inserted += 1
+            session.add(row)
+            inserted += 1
 
         await session.commit()
-        logger.info(
-            "seed_models_done inserted=%d auto_activated=%s",
-            inserted,
-            first_openrouter_env if is_first_seed else "none",
-        )
+        logger.info("seed_models_done inserted=%d first_seed=%s", inserted, is_first_seed)
         return inserted
 
 
@@ -274,14 +248,16 @@ async def activate_environment(environment: str) -> list[dict]:
 def _deployment_to_dict(row: ModelDeployment) -> dict:
     return {
         "id": row.id,
-        "environment": row.environment,
+        "environment": row.environment or "",
         "role": row.role,
         "model": row.model,
         "endpoint": row.endpoint,
         "served_name": row.served_name,
         "status": row.status,
         "profile": row.profile,
+        "provider": row.provider or row.source,
         "source": row.source,
+        "api_key_env": row.api_key_env or "",
         "litellm_params": row.litellm_params,
         "is_active": row.is_active,
         "description": row.description,
@@ -291,6 +267,162 @@ def _deployment_to_dict(row: ModelDeployment) -> dict:
         "fallbacks": row.fallbacks,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Role-first registry (primary API)
+# ---------------------------------------------------------------------------
+
+async def get_role_assignments() -> list[dict]:
+    """Return one entry per canonical role with the active assignment (or unassigned)."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ModelDeployment).where(ModelDeployment.is_active == True)  # noqa: E712
+        )
+        active = {r.role: r for r in result.scalars().all()}
+
+    assignments = []
+    for role in KNOWN_ROLES:
+        row = active.get(role)
+        if row:
+            d = _deployment_to_dict(row)
+            d["assigned"] = True
+        else:
+            d = {
+                "id": None, "role": role, "model": "", "endpoint": "",
+                "served_name": f"synesis-{role}", "status": "unassigned",
+                "provider": "", "api_key_env": "", "litellm_params": None,
+                "is_active": False, "description": "", "notes": "",
+                "litellm_model_id": None, "fallbacks": None,
+                "updated_at": None, "assigned": False,
+                "environment": "", "profile": "", "source": "", "gpu_config": None,
+            }
+        assignments.append(d)
+    return assignments
+
+
+async def assign_role(
+    role: str,
+    provider: str,
+    model: str,
+    *,
+    endpoint: str = "",
+    api_key_env: str = "",
+    max_tokens: int = 8192,
+    temperature: float = 0.1,
+    fallbacks: list[str] | None = None,
+    description: str = "",
+    notes: str = "",
+) -> dict:
+    """Assign a provider + model to a canonical role.
+
+    Deactivates the previous assignment (writing history), then creates or
+    updates the active deployment for this role.  Returns the new assignment dict.
+    """
+    if role not in KNOWN_ROLES:
+        raise ValueError(f"Unknown role: {role}")
+
+    served_name = f"synesis-{role}"
+    prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    lp = build_litellm_params(
+        provider, model, endpoint=endpoint, api_key_env=api_key_env,
+        max_tokens=max_tokens, temperature=temperature,
+    )
+
+    async with async_session() as session:
+        # Deactivate current active assignment for this role (if any).
+        result = await session.execute(
+            select(ModelDeployment).where(
+                ModelDeployment.role == role,
+                ModelDeployment.is_active == True,  # noqa: E712
+            )
+        )
+        old_row = result.scalar_one_or_none()
+        if old_row is not None:
+            old_row.is_active = False
+            old_row.status = "replaced"
+            old_row.litellm_model_id = None
+            # Write history record for the departing assignment.
+            session.add(ModelRoleHistory(
+                role=role,
+                provider=old_row.provider or old_row.source,
+                model=old_row.model,
+                endpoint=old_row.endpoint,
+                deactivated_at=datetime.now(UTC),
+            ))
+
+        # Create new active deployment.
+        row = ModelDeployment(
+            role=role,
+            model=model,
+            endpoint=endpoint if prov_info.needs_endpoint else "",
+            served_name=served_name,
+            status="activating",
+            source=provider if provider in ("vllm", "kserve", "openrouter") else "external",
+            provider=provider,
+            api_key_env=api_key_env or prov_info.api_key_env,
+            litellm_params=lp,
+            is_active=True,
+            description=description,
+            notes=notes,
+            fallbacks=fallbacks,
+        )
+        session.add(row)
+        await session.commit()
+        await session.refresh(row)
+        d = _deployment_to_dict(row)
+        d["assigned"] = True
+        return d
+
+
+async def deactivate_role(role: str) -> dict | None:
+    """Deactivate the active assignment for a role."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ModelDeployment).where(
+                ModelDeployment.role == role,
+                ModelDeployment.is_active == True,  # noqa: E712
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            return None
+        row.is_active = False
+        row.status = "deactivated"
+        row.litellm_model_id = None
+        session.add(ModelRoleHistory(
+            role=role,
+            provider=row.provider or row.source,
+            model=row.model,
+            endpoint=row.endpoint,
+            deactivated_at=datetime.now(UTC),
+        ))
+        await session.commit()
+        await session.refresh(row)
+        return _deployment_to_dict(row)
+
+
+async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
+    """Return historical assignments for a role."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ModelRoleHistory)
+            .where(ModelRoleHistory.role == role)
+            .order_by(ModelRoleHistory.activated_at.desc())
+            .limit(50)
+        )
+        rows = result.scalars().all()
+        return [
+            {
+                "id": r.id, "role": r.role, "provider": r.provider,
+                "model": r.model, "endpoint": r.endpoint,
+                "input_per_million": r.input_per_million,
+                "output_per_million": r.output_per_million,
+                "activated_at": r.activated_at.isoformat() if r.activated_at else None,
+                "deactivated_at": r.deactivated_at.isoformat() if r.deactivated_at else None,
+            }
+            for r in rows
+        ]
 
 
 # ---------------------------------------------------------------------------

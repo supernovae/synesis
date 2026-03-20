@@ -12,8 +12,9 @@ import {
   CartesianGrid,
 } from "recharts";
 import { Activity, Clock, Zap, DollarSign } from "lucide-react";
-import { useDetailedPerformance, useLatencyTrend } from "../../api/hooks";
-import type { DetailedModelPerformance, LatencyTrendPoint } from "../../api/hooks";
+import { usePerformanceByRole, useLatencyTrend } from "../../api/hooks";
+import type { LatencyTrendPoint } from "../../api/hooks";
+import type { RolePerformance } from "../../types";
 import ChartCard from "../../components/common/ChartCard";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
@@ -24,26 +25,21 @@ const COLORS = [
   "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1",
 ];
 
-function shortModel(name: string): string {
-  const parts = name.split("/");
-  return parts[parts.length - 1].substring(0, 28);
-}
-
 export default function ModelPerformance() {
   const [days, setDays] = useState(7);
-  const { data: perfData, isLoading: perfLoading } = useDetailedPerformance(days);
+  const { data: perfData, isLoading: perfLoading } = usePerformanceByRole(days);
   const { data: trendData, isLoading: trendLoading } = useLatencyTrend(days);
 
-  const models = perfData?.models ?? [];
-  const trend = trendData?.trend ?? [];
+  const roles: RolePerformance[] = perfData?.roles ?? [];
+  const trend: LatencyTrendPoint[] = trendData?.trend ?? [];
 
-  const totalRequests = models.reduce((s, m) => s + m.request_count, 0);
+  const totalRequests = roles.reduce((s, r) => s + r.request_count, 0);
   const avgLatency =
-    models.length > 0
-      ? models.reduce((s, m) => s + m.avg_latency_ms * m.request_count, 0) / (totalRequests || 1)
+    roles.length > 0
+      ? roles.reduce((s, r) => s + r.avg_latency_ms * r.request_count, 0) / (totalRequests || 1)
       : 0;
-  const slowest = models.length > 0 ? models.reduce((a, b) => (a.p95_latency_ms > b.p95_latency_ms ? a : b)) : null;
-  const totalCost = models.reduce((s, m) => s + m.total_actual_cost, 0);
+  const slowest = roles.length > 0 ? roles.reduce((a, b) => (a.p95_latency_ms > b.p95_latency_ms ? a : b)) : null;
+  const totalCost = roles.reduce((s, r) => s + r.total_actual_cost, 0);
 
   const trendModels = useMemo(() => {
     const set = new Set<string>();
@@ -55,15 +51,17 @@ export default function ModelPerformance() {
     const byDate: Record<string, Record<string, number>> = {};
     for (const t of trend) {
       if (!byDate[t.date]) byDate[t.date] = { date: t.date } as never;
-      (byDate[t.date] as Record<string, number>)[shortModel(t.model)] = t.avg_latency_ms;
+      const parts = t.model.split("/");
+      const short = parts[parts.length - 1].substring(0, 28);
+      (byDate[t.date] as Record<string, number>)[short] = t.avg_latency_ms;
     }
     return Object.values(byDate);
   }, [trend]);
 
-  const latencyChartData = models.map((m) => ({
-    model: shortModel(m.model),
-    avg: Math.round(m.avg_latency_ms),
-    p95: Math.round(m.p95_latency_ms),
+  const latencyChartData = roles.map((r) => ({
+    role: r.role,
+    avg: Math.round(r.avg_latency_ms),
+    p95: Math.round(r.p95_latency_ms),
   }));
 
   const isLoading = perfLoading || trendLoading;
@@ -72,13 +70,13 @@ export default function ModelPerformance() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Model Performance</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Performance by Role</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Per-model latency, request volume, and throughput from trace data
+            Per-role latency, request volume, and cost — shows prompt impact on each pipeline stage
           </p>
         </div>
         <select
-          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm"
+          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm shadow-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           value={days}
           onChange={(e) => setDays(Number(e.target.value))}
         >
@@ -92,10 +90,10 @@ export default function ModelPerformance() {
       {isLoading ? (
         <div className="grid grid-cols-4 gap-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-100" />
+            <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
           ))}
         </div>
-      ) : models.length === 0 ? (
+      ) : roles.length === 0 ? (
         <EmptyState
           title="No performance data"
           description="Metrics will populate after requests flow through the pipeline"
@@ -114,9 +112,9 @@ export default function ModelPerformance() {
               icon={Clock}
             />
             <MetricCard
-              label="Slowest (p95)"
+              label="Slowest Role (p95)"
               value={slowest ? `${Math.round(slowest.p95_latency_ms)}ms` : "-"}
-              subtitle={slowest ? shortModel(slowest.model) : undefined}
+              subtitle={slowest ? slowest.role : undefined}
               icon={Zap}
             />
             <MetricCard
@@ -126,18 +124,11 @@ export default function ModelPerformance() {
             />
           </div>
 
-          <ChartCard title="Latency by Model (avg + p95)">
+          <ChartCard title="Latency by Role (avg + p95)">
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={latencyChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="model"
-                  tick={{ fontSize: 10 }}
-                  interval={0}
-                  angle={-20}
-                  textAnchor="end"
-                  height={60}
-                />
+                <XAxis dataKey="role" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 11 }} label={{ value: "ms", angle: -90, position: "insideLeft" }} />
                 <Tooltip formatter={(v: number) => `${v.toLocaleString()}ms`} />
                 <Legend />
@@ -156,16 +147,20 @@ export default function ModelPerformance() {
                   <YAxis tick={{ fontSize: 11 }} label={{ value: "ms", angle: -90, position: "insideLeft" }} />
                   <Tooltip />
                   <Legend />
-                  {trendModels.map((m, i) => (
-                    <Line
-                      key={m}
-                      type="monotone"
-                      dataKey={shortModel(m)}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                    />
-                  ))}
+                  {trendModels.map((m, i) => {
+                    const parts = m.split("/");
+                    const short = parts[parts.length - 1].substring(0, 28);
+                    return (
+                      <Line
+                        key={m}
+                        type="monotone"
+                        dataKey={short}
+                        stroke={COLORS[i % COLORS.length]}
+                        strokeWidth={2}
+                        dot={false}
+                      />
+                    );
+                  })}
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -173,15 +168,15 @@ export default function ModelPerformance() {
 
           <DataTable
             columns={[
-              { key: "model", label: "Model", sortable: true, render: (r: DetailedModelPerformance) => shortModel(r.model) },
-              { key: "request_count", label: "Requests", sortable: true, render: (r: DetailedModelPerformance) => r.request_count.toLocaleString() },
-              { key: "avg_latency_ms", label: "Avg Latency", sortable: true, render: (r: DetailedModelPerformance) => `${r.avg_latency_ms.toFixed(0)}ms` },
-              { key: "p95_latency_ms", label: "p95 Latency", sortable: true, render: (r: DetailedModelPerformance) => `${r.p95_latency_ms.toFixed(0)}ms` },
-              { key: "total_tokens", label: "Total Tokens", sortable: true, render: (r: DetailedModelPerformance) => r.total_tokens.toLocaleString() },
-              { key: "total_actual_cost", label: "Actual Cost", sortable: true, render: (r: DetailedModelPerformance) => `$${r.total_actual_cost.toFixed(4)}` },
+              { key: "role", label: "Role", sortable: true },
+              { key: "request_count", label: "Requests", sortable: true, render: (r: RolePerformance) => r.request_count.toLocaleString() },
+              { key: "avg_latency_ms", label: "Avg Latency", sortable: true, render: (r: RolePerformance) => `${r.avg_latency_ms.toFixed(0)}ms` },
+              { key: "p95_latency_ms", label: "p95 Latency", sortable: true, render: (r: RolePerformance) => `${r.p95_latency_ms.toFixed(0)}ms` },
+              { key: "total_tokens", label: "Total Tokens", sortable: true, render: (r: RolePerformance) => r.total_tokens.toLocaleString() },
+              { key: "total_actual_cost", label: "Actual Cost", sortable: true, render: (r: RolePerformance) => `$${r.total_actual_cost.toFixed(4)}` },
             ]}
-            data={models}
-            keyField="model"
+            data={roles}
+            keyField="role"
           />
         </>
       )}

@@ -192,7 +192,7 @@ class ModelDeployment(Base):
     __tablename__ = "model_deployments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    environment: Mapped[str] = mapped_column(String(32), nullable=False)
+    environment: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     role: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(256), nullable=False)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -201,6 +201,8 @@ class ModelDeployment(Base):
     profile: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     gpu_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
+    provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    api_key_env: Mapped[str | None] = mapped_column(String(128), nullable=True)
     litellm_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -212,10 +214,24 @@ class ModelDeployment(Base):
     )
 
     __table_args__ = (
-        Index("ix_model_deployments_env_role", "environment", "role", unique=True),
+        Index("ix_model_deployments_active_role", "role", unique=True, postgresql_where=(is_active == True)),  # noqa: E712
         Index("ix_model_deployments_is_active", "is_active"),
         Index("ix_model_deployments_source", "source"),
     )
+
+
+class ModelRoleHistory(Base):
+    __tablename__ = "model_role_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    input_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CostRateSnapshot(Base):
