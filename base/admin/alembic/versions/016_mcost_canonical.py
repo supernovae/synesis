@@ -1,12 +1,11 @@
 """Normalize model_costs profile for canonical pipeline roles.
 
-Revision ID: 016
-Revises: 015
+Revision ID must fit alembic_version.version_num (VARCHAR(32)).
 """
 
 from alembic import op
 
-revision = "016_model_costs_canonical_profile"
+revision = "016_mcost_canonical"
 down_revision = "015_traces_session"
 branch_labels = None
 depends_on = None
