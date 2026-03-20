@@ -41,6 +41,10 @@ spec:
                   key: api-key
             - name: HOME
               value: /tmp/home
+            # Default STATIC_DIR is under the image (not writable as non-root on OpenShift).
+            # Open WebUI copies favicon/splash/etc. into STATIC_DIR at startup (see config.py).
+            - name: STATIC_DIR
+              value: "/app/backend/data/static"
             - name: WEBUI_AUTH
               value: "true"
             - name: ENABLE_SIGNUP

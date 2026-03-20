@@ -90,6 +90,10 @@ Open WebUI can reach the LiteLLM gateway (`synesis-gateway:4000`) and the planne
 
 ## Troubleshooting
 
+### `Permission denied: '/app/backend/open_webui/static/...'` in pod logs
+
+The container runs **non-root**; the image’s bundled static directory is not writable. Set **`STATIC_DIR`** to a writable path on the PVC (e.g. `/app/backend/data/static`) — Synesis does this in `base/webui/deployment.yaml`. Open WebUI copies assets from the read-only build into that directory at startup.
+
 ### Auth page shows only “Sign in to Synesis” — no Keycloak button
 
 Open WebUI needs a public **WEBUI_URL** (same origin users use in the browser) so OIDC redirect URIs and the SSO button are built correctly. It is set in `base/webui/deployment.yaml` to match the OpenShift Route host. If you change the Route host, patch `WEBUI_URL` to the same value and restart Open WebUI.
