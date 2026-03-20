@@ -177,7 +177,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner|admin|keyword-service)
+        planner|admin|keyword-service|quality-runner)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

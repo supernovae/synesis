@@ -61,3 +61,6 @@ images:
   - name: synesis-ingestor
     newName: ghcr.io/supernovae/synesis/ingestor
     newTag: latest
+  - name: quality-runner
+    newName: ghcr.io/supernovae/synesis/quality-runner
+    newTag: latest

@@ -17,3 +17,4 @@ resources:
   - ../search
   - ../webui
   - ../keycloak
+  - ../quality-runner

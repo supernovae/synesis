@@ -922,6 +922,7 @@ export function useTraces(params?: {
   task_type?: string;
   domain_tag?: string;
   max_tokens?: number;
+  min_hallucinated_urls?: number;
 }) {
   return useQuery<{ traces: import("../types").TraceRecord[]; total: number }>({
     queryKey: ["traces", params],

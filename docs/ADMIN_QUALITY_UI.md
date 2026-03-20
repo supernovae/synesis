@@ -117,7 +117,8 @@ sequenceDiagram
 | Domain detail | `/rag/quality/:key` | `GET /api/v1/rag/quality/domains/{key}` |
 | Benchmarks | `/rag/benchmarks` | `GET /api/v1/rag/benchmarks`, `POST .../benchmarks/run`, history |
 | Corpus | `/rag/corpus` | `GET /api/v1/rag/corpus` |
-| Review / ingestion queues | `/rag/review`, `/rag/ingestion` | ingestion routers |
+| Review queue | `/rag/review` | `GET/POST /api/v1/rag/review*` ([`rag.py`](../base/admin/app/routers/rag.py)) |
+| Ingestion queue | `/rag/ingestion` | `GET/POST /api/v1/ingestion/*` ([`ingestion.py`](../base/admin/app/routers/ingestion.py)) |
 | Knowledge gaps (feedback) | `/feedback/knowledge-gaps` | `GET /api/v1/feedback/knowledge-gaps` |
 | Curator proposals | `/feedback/curator` | `GET /api/v1/feedback/curator`, approve/reject |
 | Retrieval gaps + validate | `/observability/retrieval-gaps` | `GET/POST .../observability/knowledge-gaps*` |
@@ -152,19 +153,93 @@ So: **rich metrics** (hit rate, MRR, dead-weight samples) require the **offline 
 
 1. **Authenticated HTTP** — Same endpoints as the SPA; use org API tokens from **Account → API Tokens** (if enabled in your deployment).
 2. **Port-forward** Milvus + admin DB + admin service as in [QUALITY_PIPELINE.md](QUALITY_PIPELINE.md) prerequisites.
-3. **Tests** — `base/planner/tests/test_quality_gaps.py` exercises planner-side gap behavior; extend admin with API tests if you add import/trigger endpoints.
+3. **Tests** — `base/admin/tests/test_quality_smoke.py` exercises every admin quality/feedback endpoint. `base/planner/tests/test_quality_gaps.py` exercises planner-side gap behavior.
 
 ---
 
-## Roadmap (fix forward, DRY)
+## Integration runbook (end-to-end verification)
+
+Use these steps to verify the feedback loops work end-to-end in a running cluster:
+
+### 1. Traces flow: planner → admin
+
+```bash
+# Send a test chat and confirm a trace appears
+curl -X POST $ADMIN_URL/api/v1/traces/test \
+  -H "Authorization: Bearer $TOKEN"
+# Should return {"status":"pass","trace_id":"..."}
+```
+
+### 2. Knowledge gaps flow: planner → feedback UI
+
+```bash
+# Trigger a request about a topic not in your corpus
+# Then check for new open gaps:
+curl "$ADMIN_URL/api/v1/feedback/knowledge-gaps?status=open" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### 3. Quality wiring health
+
+```bash
+curl "$ADMIN_URL/api/v1/dashboard/quality-wiring" \
+  -H "Authorization: Bearer $TOKEN"
+# Verify: milvus_ok=true, traces_total > 0, quality_snapshots > 0
+```
+
+### 4. Audit import via quality-runner
+
+```bash
+# Manual: run audit locally, import results
+python benchmarks/corpus/audit_corpus.py --output /tmp/audit.json
+curl -X POST "$ADMIN_URL/api/v1/rag/quality/import-report" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @/tmp/audit.json
+# Confirm: domain detail at /rag/quality/:key now shows MRR/hit-rate
+```
+
+### 5. Hallucination filter
+
+```bash
+curl "$ADMIN_URL/api/v1/traces?min_hallucinated_urls=1" \
+  -H "Authorization: Bearer $TOKEN"
+# Returns only traces where critic flagged hallucinated URLs
+```
+
+---
+
+## Implemented wiring
+
+| Feature | Status |
+|---------|--------|
+| **Single source domain detail** — full audit scorecards persisted in `quality_snapshots.raw_scorecard` (JSONB column) via `POST /api/v1/rag/quality/import-report`. | Done |
+| **Quality-runner CronJob** — `base/quality-runner/cronjob.yaml` runs `audit_corpus.py` nightly, POSTs results to admin import endpoint. | Done |
+| **Hallucination filter** — trace list supports `?min_hallucinated_urls=1` API filter + UI toggle button. | Done |
+| **Benchmark import** — `POST /api/v1/rag/benchmarks/import` accepts full regression results, separate from the inline lightweight probe. | Done |
+| **Quality wiring health** — `GET /api/v1/dashboard/quality-wiring` shows Milvus, DB table counts, file presence, and last-trace age. | Done |
+| **Latest-per-domain SQL** — uses `row_number()` window function instead of SQLAlchemy `distinct()`. | Done |
+| **Smoke tests** — `base/admin/tests/test_quality_smoke.py` hits every quality/feedback endpoint. | Done |
+
+## Roadmap (remaining)
 
 | Priority | Item |
 |----------|------|
-| **P0** | Single source for domain detail: either persist **full audit scorecards** in `quality_snapshots` (JSON column) or always mount audit JSON in admin so list + detail match. |
-| **P1** | **Trigger audit** from admin (K8s Job or subprocess in a sidecar) and poll status — replaces manual file copy. |
-| **P1** | **Hallucination / bad citation** slice: filter traces by `critic_scores.hallucinated_urls_count > 0`, link to knowledge gap / ingestion. |
 | **P2** | Trend charts from **historical** `quality_snapshots` + benchmark rows (schema already exists in migrations). |
 | **P2** | Curator proposals: move from file-only to **DB queue** shared with ingestion for one approval pipeline. |
+
+---
+
+## Database alignment
+
+The planner writes **traces** and **knowledge gaps** to the same Postgres instance the admin reads. The DSNs differ only in driver prefix:
+
+| Service | Env var | Default |
+|---------|---------|---------|
+| Planner | `SYNESIS_TRACE_DATABASE_URL` | `postgresql://app:...@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin` |
+| Admin | `SYNESIS_ADMIN_DATABASE_URL` | `postgresql+asyncpg://app:...@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin` |
+
+Both target `synesis_admin` on the same cluster service. If you change one, change the other — otherwise traces, knowledge gaps, and quality snapshots will diverge and the feedback loops break silently.
 
 ---
 

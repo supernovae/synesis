@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func
 
 from ..auth import UserInfo, get_current_user
 from ..deps import CATALOG_COLLECTION, QUALITY_REPORT_PATH
@@ -108,17 +109,27 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
     """Quality summary — try DB snapshots first, fall back to JSON file."""
     try:
         from sqlalchemy import select
+        from sqlalchemy.orm import aliased
 
         from ..db.engine import async_session
         from ..db.models import QualitySnapshot
 
         async with async_session() as session:
+            # Window-based latest-per-domain: pick the newest scored_at per domain.
+            sub = (
+                select(
+                    QualitySnapshot.id,
+                    func.row_number()
+                    .over(partition_by=QualitySnapshot.domain, order_by=QualitySnapshot.scored_at.desc())
+                    .label("rn"),
+                )
+                .subquery()
+            )
+            qs = aliased(QualitySnapshot)
             rows = (
                 (
                     await session.execute(
-                        select(QualitySnapshot)
-                        .distinct(QualitySnapshot.domain)
-                        .order_by(QualitySnapshot.domain, QualitySnapshot.scored_at.desc())
+                        select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1).order_by(qs.domain)
                     )
                 )
                 .scalars()
@@ -126,7 +137,7 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
             )
             if rows:
                 scorecards = []
-                counts = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
+                counts: dict[str, int] = {"strong": 0, "adequate": 0, "weak": 0, "empty": 0}
                 for r in rows:
                     h = r.health
                     counts[h] = counts.get(h, 0) + 1
@@ -140,6 +151,7 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
                             "authority_mix": r.authority_mix,
                             "dead_weight_count": r.dead_weight_count,
                             "scored_at": r.scored_at.isoformat() if r.scored_at else None,
+                            "raw_scorecard": r.raw_scorecard if hasattr(r, "raw_scorecard") else None,
                         }
                     )
                 return {**counts, "scorecards": scorecards}
@@ -225,6 +237,69 @@ async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     return {"ok": True, "domains": len(snapshots), "summary": counts}
 
 
+@router.post("/quality/import-report")
+async def quality_import_report(
+    body: dict,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Import a corpus audit JSON report into ``quality_snapshots``.
+
+    Accepts the same shape as ``corpus_audit_report.json``:
+    ``{"summary": {...}, "scorecards": [...]}``.  Each scorecard is
+    persisted as a ``QualitySnapshot`` row with the full scorecard
+    stored in ``raw_scorecard`` so that domain-detail pages get
+    MRR / hit-rate / dead-weight data without needing the JSON file.
+    """
+    from datetime import datetime
+
+    from ..db.engine import async_session
+    from ..db.models import QualitySnapshot
+
+    scorecards = body.get("scorecards", [])
+    if not scorecards:
+        return {"ok": False, "error": "no scorecards in payload"}
+
+    now = datetime.now(UTC)
+    snapshots = []
+    for sc in scorecards:
+        domain = sc.get("domain", "")
+        if not domain:
+            continue
+        inv = sc.get("inventory", {})
+        cov = sc.get("coverage", {})
+        dw = sc.get("dead_weight", {})
+
+        health = sc.get("health", "unknown")
+        chunk_count = inv.get("total_chunks", 0)
+        doc_count = inv.get("total_documents", 0)
+        freshness_pct = round(float(cov.get("hit_rate", 0)) * 100, 2)
+        dead_weight_count = dw.get("unretrieved_documents", 0)
+
+        snapshots.append(
+            QualitySnapshot(
+                domain=domain,
+                health=health,
+                chunk_count=chunk_count,
+                doc_count=doc_count,
+                freshness_pct=freshness_pct,
+                authority_mix=sc.get("authority_mix", {}),
+                dead_weight_count=dead_weight_count,
+                raw_scorecard=sc,
+                scored_at=now,
+            )
+        )
+
+    try:
+        async with async_session() as session:
+            session.add_all(snapshots)
+            await session.commit()
+    except Exception:
+        logger.warning("quality_import_report_failed", exc_info=True)
+        return {"ok": False, "error": "persist failed"}
+
+    return {"ok": True, "imported": len(snapshots)}
+
+
 @router.get("/quality/domains")
 async def quality_domains(
     _user: UserInfo = Depends(get_current_user),
@@ -233,6 +308,42 @@ async def quality_domains(
 ):
     report = _load_quality_report()
     scorecards = report.get("scorecards", [])
+
+    if not scorecards:
+        try:
+            from sqlalchemy import select
+            from sqlalchemy.orm import aliased
+
+            from ..db.engine import async_session
+            from ..db.models import QualitySnapshot
+
+            async with async_session() as session:
+                sub = (
+                    select(
+                        QualitySnapshot.id,
+                        func.row_number()
+                        .over(
+                            partition_by=QualitySnapshot.domain,
+                            order_by=QualitySnapshot.scored_at.desc(),
+                        )
+                        .label("rn"),
+                    )
+                    .subquery()
+                )
+                qs = aliased(QualitySnapshot)
+                rows = (
+                    (
+                        await session.execute(
+                            select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                scorecards = [_scorecard_from_snapshot(r) for r in rows]
+        except Exception:
+            logger.debug("quality_domains_db_fallback_failed", exc_info=True)
+
     if health:
         scorecards = [s for s in scorecards if s.get("health") == health]
     with contextlib.suppress(Exception):
@@ -241,8 +352,13 @@ async def quality_domains(
 
 
 def _scorecard_from_snapshot(row: Any) -> dict:
-    """Shape stored Milvus-derived snapshots for the Domain Health React page."""
-    return {
+    """Shape stored Milvus-derived snapshots for the Domain Health React page.
+
+    If the snapshot carries a ``raw_scorecard`` (imported audit JSON), we merge
+    that data so the UI can surface MRR, hit-rate, and dead-weight samples even
+    without the JSON file mounted.
+    """
+    base: dict[str, Any] = {
         "domain": row.domain,
         "path": "",
         "health": row.health,
@@ -259,6 +375,13 @@ def _scorecard_from_snapshot(row: Any) -> dict:
         "scored_at": row.scored_at.isoformat() if getattr(row, "scored_at", None) else None,
         "source": "quality_snapshots",
     }
+    raw = getattr(row, "raw_scorecard", None)
+    if raw and isinstance(raw, dict):
+        base["coverage"] = raw.get("coverage", base["coverage"])
+        base["dead_weight"] = raw.get("dead_weight", base["dead_weight"])
+        if raw.get("inventory"):
+            base["inventory"] = raw["inventory"]
+    return base
 
 
 @router.get("/quality/domains/{key}")
@@ -375,9 +498,52 @@ async def benchmark_history(
         return {"runs": []}
 
 
+@router.post("/benchmarks/import")
+async def benchmark_import(
+    body: dict,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Import a full regression benchmark result (e.g. from ``bench_hybrid.py``).
+
+    Accepts ``{"run_id": "...", "aggregate": {...}, "per_query": [...]}``.
+    """
+    import hashlib
+    import time as _time
+    from datetime import datetime
+
+    from ..db.engine import async_session
+    from ..db.models import BenchmarkResult
+
+    run_id = body.get("run_id") or hashlib.sha256(f"bench-{_time.time()}".encode()).hexdigest()[:16]
+    now = datetime.now(UTC)
+    try:
+        async with async_session() as session:
+            session.add(
+                BenchmarkResult(
+                    run_id=run_id,
+                    benchmark_type="regression",
+                    metrics=body.get("aggregate", {}),
+                    per_query=body.get("per_query", []),
+                    triggered_by=_user.username,
+                    started_at=now,
+                    completed_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.warning("benchmark_import_failed", exc_info=True)
+        return {"ok": False, "error": "persist failed"}
+    return {"ok": True, "run_id": run_id, "benchmark_type": "regression"}
+
+
 @router.post("/benchmarks/run")
 async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
-    """Trigger a lightweight benchmark: retrieve a few test queries and measure quality."""
+    """Trigger a lightweight connectivity benchmark (quick probe).
+
+    This is NOT the full regression benchmark from ``bench_hybrid.py``.
+    For full benchmarks, use ``POST /benchmarks/import`` or run the
+    quality-runner CronJob.
+    """
     import hashlib
     import time as _time
     from datetime import datetime

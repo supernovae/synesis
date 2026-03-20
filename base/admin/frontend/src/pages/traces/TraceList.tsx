@@ -40,6 +40,7 @@ export default function TraceList() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [purgeThreshold, setPurgeThreshold] = useState(100);
   const [maxTokensFilter, setMaxTokensFilter] = useState<number | undefined>(undefined);
+  const [hallucinationFilter, setHallucinationFilter] = useState(false);
   const limit = 30;
 
   const { data, isLoading } = useTraces({
@@ -49,6 +50,7 @@ export default function TraceList() {
     task_type: taskType || undefined,
     org_id: orgFilter || undefined,
     max_tokens: maxTokensFilter,
+    min_hallucinated_urls: hallucinationFilter ? 1 : undefined,
   });
   const { data: stats } = useTraceStats();
   const deleteTrace = useDeleteTrace();
@@ -252,6 +254,19 @@ export default function TraceList() {
             className="rounded-md border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
           />
         </div>
+        <button
+          onClick={() => {
+            setHallucinationFilter((v) => !v);
+            setOffset(0);
+          }}
+          className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+            hallucinationFilter
+              ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
+              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+          }`}
+        >
+          Hallucinated URLs
+        </button>
         <span className="text-xs text-gray-400 dark:text-gray-500">Quick:</span>
         {[
           { label: "All tokens", value: undefined },

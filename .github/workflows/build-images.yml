@@ -16,6 +16,9 @@ on:
       - 'base/sandbox/image/**'
       - 'base/rag/indexer/**'
       - 'base/rag/knowledge-base/**'
+      - 'base/quality-runner/**'
+      - 'benchmarks/corpus/**'
+      - 'tools/curator/**'
       - '.github/workflows/build-images.yml'
   workflow_dispatch:
     inputs:
@@ -54,6 +57,7 @@ jobs:
       indexer: ${{ steps.filter.outputs.indexer }}
       keyword-service: ${{ steps.filter.outputs.keyword-service }}
       gliner-service: ${{ steps.filter.outputs.gliner-service }}
+      quality-runner: ${{ steps.filter.outputs.quality-runner }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
@@ -91,6 +95,10 @@ jobs:
               - 'base/rag/keyword-service/**'
             gliner-service:
               - 'base/rag/gliner-service/**'
+            quality-runner:
+              - 'base/quality-runner/**'
+              - 'benchmarks/corpus/**'
+              - 'tools/curator/**'
 
       - name: Aggregate base changes
         id: aggregate
@@ -316,6 +324,12 @@ jobs:
             base_arg: synesis-base-ml
             change_key: gliner-service
             base_change_key: base-ml
+          - name: quality-runner
+            dockerfile: base/quality-runner/Dockerfile
+            context: .
+            base_arg: synesis-base-api
+            change_key: quality-runner
+            base_change_key: base-api
 
     steps:
       - name: Check if build needed

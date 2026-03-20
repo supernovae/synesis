@@ -31,6 +31,7 @@ async def list_traces(
     since: float = 0,
     until: float = 0,
     max_tokens: int | None = None,
+    min_hallucinated_urls: int | None = Query(None, ge=1, description="Filter traces with at least N hallucinated URLs"),
     _user: UserInfo = Depends(get_current_user),
 ):
     return await trace_store.list_traces(
@@ -47,6 +48,7 @@ async def list_traces(
         since=since,
         until=until,
         max_tokens=max_tokens,
+        min_hallucinated_urls=min_hallucinated_urls,
     )
 
 

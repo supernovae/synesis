@@ -243,6 +243,7 @@ class QualitySnapshot(Base):
     freshness_pct: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     authority_mix: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     dead_weight_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    raw_scorecard: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     scored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

@@ -33,6 +33,7 @@ async def list_traces(
     since: float = 0,
     until: float = 0,
     max_tokens: int | None = None,
+    min_hallucinated_urls: int | None = None,
 ) -> dict[str, Any]:
     """Return paginated trace list from Postgres, newest first."""
     async with async_session() as session:
@@ -61,6 +62,17 @@ async def list_traces(
                 q = q.where(Trace.full_record["domain_tags"].astext.contains(domain_tag))
             if max_tokens is not None:
                 q = q.where(Trace.total_tokens <= max_tokens)
+            if min_hallucinated_urls is not None and min_hallucinated_urls > 0:
+                from sqlalchemy import Integer as SAInt
+                from sqlalchemy import cast
+
+                q = q.where(
+                    cast(
+                        Trace.full_record["critic_scores"]["hallucinated_urls_count"].astext,
+                        SAInt,
+                    )
+                    >= min_hallucinated_urls
+                )
 
             count_q = select(func.count()).select_from(q.subquery())
             total = (await session.execute(count_q)).scalar_one()
