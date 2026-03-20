@@ -42,6 +42,7 @@ from .nodes import (
 )
 from .nodes.plan_gate import plan_gate_node
 from .oscillation_detector import detect_oscillation
+from .run_context import derive_critic_turn_kind
 from .state import GraphState, NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.graph")
@@ -467,6 +468,12 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     from .config import settings
     from .conversation_memory import memory
     from .decision_summary import build_decision_summary
+    from .run_context import build_trace_context
+    from .synesis_tracer import get_synesis_tracer
+
+    _tr_ctx = get_synesis_tracer()
+    if _tr_ctx:
+        _tr_ctx.set_trace_context(build_trace_context(state))
 
     code = state.get("generated_code", "")
     logger.debug(
@@ -493,9 +500,11 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
 
     if plan_pending_approval and execution_plan and not code and not error:
         memory.store_pending_question(
-            user_id,
+            memory_scope,
             {
                 "run_id": state.get("run_id", ""),
+                "origin_run_id": state.get("run_id", ""),
+                "root_trace_id": state.get("trace_root_id") or state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
                 "source_node": "planner",
                 "question": "Reply to proceed or suggest changes.",
@@ -533,6 +542,8 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             memory_scope,
             {
                 "run_id": state.get("run_id", ""),
+                "origin_run_id": state.get("run_id", ""),
+                "root_trace_id": state.get("trace_root_id") or state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
                 "source_node": "planner_clarification",
                 "question": clarification_question,
@@ -585,6 +596,8 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             memory_scope,
             {
                 "run_id": state.get("run_id", ""),
+                "origin_run_id": state.get("run_id", ""),
+                "root_trace_id": state.get("trace_root_id") or state.get("run_id", ""),
                 "turn_id": str(state.get("iteration_count", 0)),
                 "source_node": "planner",
                 "question": needs_input_question,
@@ -797,12 +810,14 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     # Gate on actual content rather than absence of error — recoverable planner
     # errors should not prevent critic evaluation of a delivered response.
     has_content = bool(state.get("scrubbed_answer") or state.get("generated_code"))
+    _ctk = derive_critic_turn_kind(state)
     if (
         settings.critic_background
         and not state.get("critic_approved")
         and not state.get("critic_feedback")
         and state.get("difficulty", 0.5) >= settings.critic_skip_below_difficulty
         and has_content
+        and _ctk not in ("skip", "micro_step")
     ):
         _fire_background_critic(dict(state))
 

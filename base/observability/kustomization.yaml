@@ -11,8 +11,7 @@ resources:
   - service-monitor.yaml
   - service-monitor-models.yaml
   - prometheus-rule-rag.yaml
-  # Perses (COO) - Red Hat's dashboard stack; Grafana deprecated in favor of Perses
-  - perses-namespace.yaml
+  # Perses (COO) — dashboards in synesis-admin (namespace from base/admin)
   - perses-datasource.yaml
   - perses-dashboard-synesis.yaml
   # Grafana - deprecated; kept for clusters still using Grafana Operator

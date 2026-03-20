@@ -224,10 +224,24 @@ def _build_frame_rubric(frame: dict[str, Any], state: dict[str, Any] | None = No
         )
 
     if len(parts) > 1:
-        parts.append(
-            "\nFor requirement_coverage, include one entry per requirement AND deliverable above. "
-            "Mark each as met/partial/missed with evidence from the response."
-        )
+        kind = (state.get("critic_turn_kind") or "final").strip() if state else "final"
+        if kind == "interactive_continue":
+            parts.append(
+                "\nINTERACTIVE TURN: The user continued after clarification or planning. "
+                "Do not require full coverage of every original deliverable; evaluate whether "
+                "this reply addresses the user's latest message coherently and correctly. "
+                "For requirement_coverage, list only requirements relevant to this reply."
+            )
+        else:
+            parts.append(
+                "\nFor requirement_coverage, include one entry per requirement AND deliverable above. "
+                "Mark each as met/partial/missed with evidence from the response."
+            )
+        if state and state.get("is_pivot"):
+            parts.append(
+                "\nSESSION PIVOT: Prior planner decisions are non-binding unless the current task "
+                "description reaffirms them."
+            )
         return "\n".join(parts)
     return ""
 

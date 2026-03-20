@@ -7,12 +7,12 @@
 #   (COO or user workload monitoring). Create in same namespace as this dashboard.
 # - ServiceMonitors for synesis-planner, synesis-health-monitor, synesis-gateway
 #
-# Namespace: Use perses-dev (COO default) or align with your Perses instance.
+# Namespace: synesis-admin (same as admin UI). COO Perses must watch this namespace.
 apiVersion: perses.dev/v1alpha1
 kind: PersesDashboard
 metadata:
   name: synesis-overview
-  namespace: perses-dev
+  namespace: synesis-admin
   labels:
     app.kubernetes.io/component: observability
     app.kubernetes.io/part-of: synesis

@@ -25,6 +25,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+from .trace_redaction import redact_trace_payload
 from langchain_core.outputs import LLMResult
 
 logger = logging.getLogger("synesis.tracer")
@@ -108,6 +110,10 @@ class TraceRecord:
     taxonomy: dict[str, Any] = field(default_factory=dict)
     phase_timings: dict[str, float] = field(default_factory=dict)
     short_circuit_reason: str = ""
+    conversation_id: str = ""
+    parent_trace_id: str = ""
+    root_trace_id: str = ""
+    trace_context: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +255,29 @@ _INSERT_SQL = """
 INSERT INTO traces (
     trace_id, user_id, query_snippet, timestamp, total_duration_ms,
     total_tokens, estimated_cost_usd, actual_cost_usd, difficulty, task_type,
+    is_code_task, has_error, iteration_count, full_record,
+    conversation_id, parent_trace_id, root_trace_id
+) VALUES (
+    %(trace_id)s, %(user_id)s, %(query_snippet)s, %(timestamp)s, %(total_duration_ms)s,
+    %(total_tokens)s, %(estimated_cost_usd)s, %(actual_cost_usd)s, %(difficulty)s, %(task_type)s,
+    %(is_code_task)s, %(has_error)s, %(iteration_count)s, %(full_record)s,
+    %(conversation_id)s, %(parent_trace_id)s, %(root_trace_id)s
+) ON CONFLICT (trace_id) DO UPDATE SET
+    total_duration_ms = EXCLUDED.total_duration_ms,
+    total_tokens = EXCLUDED.total_tokens,
+    estimated_cost_usd = EXCLUDED.estimated_cost_usd,
+    actual_cost_usd = EXCLUDED.actual_cost_usd,
+    has_error = EXCLUDED.has_error,
+    full_record = EXCLUDED.full_record,
+    conversation_id = EXCLUDED.conversation_id,
+    parent_trace_id = EXCLUDED.parent_trace_id,
+    root_trace_id = EXCLUDED.root_trace_id
+"""
+
+_INSERT_SQL_PRE_SESSION = """
+INSERT INTO traces (
+    trace_id, user_id, query_snippet, timestamp, total_duration_ms,
+    total_tokens, estimated_cost_usd, actual_cost_usd, difficulty, task_type,
     is_code_task, has_error, iteration_count, full_record
 ) VALUES (
     %(trace_id)s, %(user_id)s, %(query_snippet)s, %(timestamp)s, %(total_duration_ms)s,
@@ -291,7 +320,9 @@ def _persist_trace(record: TraceRecord) -> None:
     if conn is None:
         return
     try:
-        full = json.dumps(asdict(record), default=str)
+        payload = asdict(record)
+        payload = redact_trace_payload(payload)
+        full = json.dumps(payload, default=str)
         params = {
             "trace_id": record.trace_id,
             "user_id": record.user_id,
@@ -307,14 +338,40 @@ def _persist_trace(record: TraceRecord) -> None:
             "has_error": record.has_error,
             "iteration_count": record.iteration_count,
             "full_record": full,
+            "conversation_id": record.conversation_id or None,
+            "parent_trace_id": record.parent_trace_id or None,
+            "root_trace_id": record.root_trace_id or None,
         }
         with conn.cursor() as cur:
             try:
                 cur.execute(_INSERT_SQL, params)
             except Exception:
                 conn.rollback()
-                cur.execute(_INSERT_SQL_LEGACY, params)
-                logger.info("synesis_tracer_used_legacy_insert (migration 010 pending)")
+                try:
+                    cur.execute(_INSERT_SQL_PRE_SESSION, params)
+                    logger.info("synesis_tracer_used_pre_session_insert (migration 015 pending)")
+                except Exception:
+                    conn.rollback()
+                    legacy_params = {
+                        "trace_id": params["trace_id"],
+                        "user_id": params["user_id"],
+                        "query_snippet": params["query_snippet"],
+                        "timestamp": params["timestamp"],
+                        "total_duration_ms": params["total_duration_ms"],
+                        "total_tokens": params["total_tokens"],
+                        "estimated_cost_usd": params["estimated_cost_usd"],
+                        "difficulty": params["difficulty"],
+                        "task_type": params["task_type"],
+                        "is_code_task": params["is_code_task"],
+                        "has_error": params["has_error"],
+                        "iteration_count": params["iteration_count"],
+                        "full_record": params["full_record"],
+                    }
+                    try:
+                        cur.execute(_INSERT_SQL_LEGACY, legacy_params)
+                        logger.info("synesis_tracer_used_legacy_insert (migration 010 pending)")
+                    except Exception:
+                        logger.warning("synesis_tracer_all_insert_paths_failed", exc_info=True)
     except Exception:
         logger.warning("synesis_tracer_persist_failed", exc_info=True)
 
@@ -366,6 +423,26 @@ class SynesisTracer(BaseCallbackHandler):
         self._trace_start = time.monotonic()
         self._active_spans.clear()
         self._llm_starts.clear()
+
+    def set_session_links(
+        self,
+        *,
+        conversation_id: str = "",
+        parent_trace_id: str = "",
+        root_trace_id: str = "",
+    ) -> None:
+        """Attach session/causal metadata before flush (call after pending merge in main)."""
+        if self._current_trace is None:
+            return
+        self._current_trace.conversation_id = (conversation_id or "").strip()[:128]
+        self._current_trace.parent_trace_id = (parent_trace_id or "").strip()[:64]
+        self._current_trace.root_trace_id = (root_trace_id or "").strip()[:64]
+
+    def set_trace_context(self, ctx: dict[str, Any]) -> None:
+        """Merge pipeline context (critic turn kind, pivot, etc.) into the trace record."""
+        if self._current_trace is None or not ctx:
+            return
+        self._current_trace.trace_context.update(ctx)
 
     def flush(self) -> None:
         """Persist the current trace and reset state.

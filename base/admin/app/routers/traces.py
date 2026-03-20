@@ -28,6 +28,7 @@ async def list_traces(
     min_difficulty: float | None = None,
     max_difficulty: float | None = None,
     domain_tag: str = "",
+    conversation_id: str = "",
     since: float = 0,
     until: float = 0,
     max_tokens: int | None = None,
@@ -41,6 +42,7 @@ async def list_traces(
         user_id=user_id,
         user_email=user_email,
         org_id=org_id,
+        conversation_id=conversation_id,
         task_type=task_type,
         min_difficulty=min_difficulty,
         max_difficulty=max_difficulty,
@@ -163,6 +165,16 @@ async def bulk_delete_traces(
         )
         await session.commit()
     return {"deleted": result.rowcount, "requested": len(trace_ids)}
+
+
+@router.delete("/session/{conversation_id}")
+async def delete_traces_for_session(
+    conversation_id: str,
+    _user: UserInfo = Depends(require_admin),
+):
+    """Delete all traces belonging to one conversation/session."""
+    n = await trace_store.delete_traces_for_conversation(conversation_id)
+    return {"deleted": n, "conversation_id": conversation_id}
 
 
 @router.post("/purge-trivial")

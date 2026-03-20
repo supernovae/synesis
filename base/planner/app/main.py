@@ -27,6 +27,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, model_validator
 
 from .api_metrics import (
+    record_run_critic_turn_kind,
     record_chat_error,
     record_chat_success,
     record_graph_iterations,
@@ -47,6 +48,7 @@ from .injection_scanner import reduce_context_on_injection, scan_model_output, s
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
+from .run_context import compute_trace_links, derive_critic_turn_kind
 from .rag_client import build_metadata_filter, retrieve_context, submit_user_knowledge
 from .state import RetrievalParams
 from .stream_fixer import StreamingBlockFixer
@@ -951,6 +953,7 @@ def _extract_content_and_metrics(
 
     record_graph_iterations(result.get("iteration_count", 1))
     record_tokens(model, total_tokens)
+    record_run_critic_turn_kind(str(result.get("critic_turn_kind") or "final"))
     return content, total_tokens
 
 
@@ -1219,9 +1222,6 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     run_id = str(uuid.uuid4())
     _set_telemetry_ctx(run_id=run_id, user_id=user_id)
-    _tracer = get_synesis_tracer()
-    if _tracer is not None:
-        _tracer.start_trace(trace_id=run_id, user_id=user_id, user_email=user_email, org_id=org_id, org_name=org_name, query=(last_user_content or "")[:500])
     coding_client = _is_coding_client(http_request)
     initial_state: dict[str, Any] = {
         "messages": user_messages,
@@ -1246,6 +1246,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "sandbox_minutes_used": 0.0,
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
+        "conversation_id": conversation_id or "",
     }
     if request.output_controls:
         oc = request.output_controls
@@ -1260,6 +1261,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         }
 
     # Unified pending question: plan approval, needs_input, or clarification (scoped by conversation)
+    pending_used: dict[str, Any] | None = None
     if settings.memory_enabled:
         pending = memory.get_and_clear_pending_question(memory_scope)
         if not pending:
@@ -1290,6 +1292,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
                 pending = None
         if pending:
+            pending_used = pending
             source_node = pending.get("source_node", "writer")
             context = pending.get("context", pending)
             for key, val in context.items():
@@ -1326,6 +1329,30 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             initial_state["pending_question_continue"] = True
             initial_state["pending_question_source"] = source_node
 
+    _parent_tid, _root_tid, _trace_root = compute_trace_links(
+        run_id=run_id,
+        conversation_id=conversation_id,
+        pending=pending_used,
+    )
+    initial_state["trace_root_id"] = _trace_root
+    initial_state["critic_turn_kind"] = derive_critic_turn_kind(initial_state)
+
+    _tracer = get_synesis_tracer()
+    if _tracer is not None:
+        _tracer.start_trace(
+            trace_id=run_id,
+            user_id=user_id,
+            user_email=user_email,
+            org_id=org_id,
+            org_name=org_name,
+            query=(last_user_content or "")[:500],
+        )
+        _tracer.set_session_links(
+            conversation_id=conversation_id or "",
+            parent_trace_id=_parent_tid or "",
+            root_trace_id=_root_tid or run_id,
+        )
+
     # Prompt-level cache: return cached response for identical (user + prompt + model)
     cached_response = _prompt_cache_get(user_id, last_user_content or "", request.model)
     if cached_response is not None:
@@ -1338,6 +1365,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             _tracer.record_phase_timing("prompt_cache", (time.monotonic() - start) * 1000)
         flush_tracer()
         record_chat_success(time.monotonic() - start)
+        record_run_critic_turn_kind(str(initial_state.get("critic_turn_kind") or "final"))
         if request.stream:
             _cache_chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 

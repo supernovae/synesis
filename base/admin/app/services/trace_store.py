@@ -26,6 +26,7 @@ async def list_traces(
     user_id: str = "",
     user_email: str = "",
     org_id: str = "",
+    conversation_id: str = "",
     task_type: str = "",
     min_difficulty: float | None = None,
     max_difficulty: float | None = None,
@@ -44,6 +45,8 @@ async def list_traces(
                 q = q.where(Trace.has_error == has_error)
             if user_id:
                 q = q.where(Trace.user_id == user_id)
+            if conversation_id:
+                q = q.where(Trace.conversation_id == conversation_id)
             if user_email:
                 q = q.where(Trace.full_record["user_email"].astext == user_email)
             if org_id:
@@ -173,6 +176,9 @@ def _row_to_dict(row: Trace) -> dict[str, Any]:
         {
             "trace_id": row.trace_id,
             "user_id": row.user_id,
+            "conversation_id": getattr(row, "conversation_id", None),
+            "parent_trace_id": getattr(row, "parent_trace_id", None),
+            "root_trace_id": getattr(row, "root_trace_id", None),
             "timestamp": row.timestamp,
             "total_duration_ms": row.total_duration_ms,
             "total_tokens": row.total_tokens,
@@ -183,6 +189,23 @@ def _row_to_dict(row: Trace) -> dict[str, Any]:
         }
     )
     return rec
+
+
+async def delete_traces_for_conversation(conversation_id: str) -> int:
+    """Delete all traces for a chat session (admin purge)."""
+    from sqlalchemy import delete
+
+    if not (conversation_id or "").strip():
+        return 0
+    async with async_session() as session:
+        try:
+            r = await session.execute(delete(Trace).where(Trace.conversation_id == conversation_id.strip()[:128]))
+            await session.commit()
+            return r.rowcount or 0
+        except Exception:
+            logger.warning("trace_store_delete_conversation_failed", exc_info=True)
+            await session.rollback()
+            return 0
 
 
 def _empty_stats() -> dict[str, Any]:

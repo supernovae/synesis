@@ -18,6 +18,9 @@ class Trace(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     trace_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    parent_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    root_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     query_snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
     timestamp: Mapped[float] = mapped_column(Float, nullable=False, index=True)

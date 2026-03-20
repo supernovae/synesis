@@ -74,6 +74,13 @@ running the Grafana Operator.
 |-------|--------|-------------|
 | Iteration Distribution | `synesis_graph_iterations_bucket` | How many graph iterations per request |
 | Average Confidence by Node | `synesis_node_confidence` | Per-node confidence scores |
+| Runs by critic turn kind | `sum(rate(synesis_runs_by_critic_turn_kind_total[5m])) by (critic_turn_kind)` | `final` vs `interactive_continue`, etc. (low-cardinality labels only) |
+
+**Traces (Postgres):** `conversation_id`, `parent_trace_id`, and `root_trace_id` link runs in a chat session. Admin: `GET /api/v1/traces?conversation_id=...` or `DELETE /api/v1/traces/session/{conversation_id}` to purge a session. Do not put raw conversation IDs on Prometheus metric labels.
+
+**Perses:** `PersesDashboard` / `PersesDatasource` for Synesis live in **`synesis-admin`**. COO must reconcile Perses CRs in that namespace (Observe → Dashboards).
+
+**Trace redaction:** optional `SYNESIS_TRACE_REDACT_PATTERNS` (pipe-separated regexes) augments default redaction for persisted trace JSON.
 
 ### Model Serving (vLLM)
 

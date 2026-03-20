@@ -20,6 +20,7 @@ _prompt_cache_entries = None
 _frame_cache_hits = None
 _frame_cache_misses = None
 _frame_cache_entries = None
+_runs_by_critic_turn_kind = None
 
 
 def _ensure_metrics():
@@ -29,6 +30,7 @@ def _ensure_metrics():
     global _memory_rss_gauge, _memory_cgroup_gauge
     global _prompt_cache_hits, _prompt_cache_misses, _prompt_cache_entries
     global _frame_cache_hits, _frame_cache_misses, _frame_cache_entries
+    global _runs_by_critic_turn_kind
     if _metrics_registered:
         return
     try:
@@ -94,6 +96,11 @@ def _ensure_metrics():
         _frame_cache_entries = Gauge(
             "synesis_frame_cache_entries",
             "Current frame cache entry count",
+        )
+        _runs_by_critic_turn_kind = Counter(
+            "synesis_runs_by_critic_turn_kind_total",
+            "Completed chat runs by critic turn kind (low-cardinality)",
+            ["critic_turn_kind"],
         )
     except Exception:  # nosec B110
         pass
@@ -183,3 +190,14 @@ def record_frame_cache_size(size: int):
     _ensure_metrics()
     if _frame_cache_entries is not None:
         _frame_cache_entries.set(size)
+
+
+def record_run_critic_turn_kind(kind: str):
+    """Aggregate runs by derived critic turn kind (final, interactive_continue, ...)."""
+    _ensure_metrics()
+    if not _runs_by_critic_turn_kind:
+        return
+    k = (kind or "final").strip().lower() or "final"
+    if k not in ("final", "interactive_continue", "micro_step", "skip"):
+        k = "final"
+    _runs_by_critic_turn_kind.labels(critic_turn_kind=k).inc()

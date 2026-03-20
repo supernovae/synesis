@@ -233,6 +233,9 @@ class GraphState(TypedDict, total=False):
     pivot_summary: str
     pending_question_continue: bool
     pending_question_source: str
+    conversation_id: str
+    trace_root_id: str
+    critic_turn_kind: str
     task_size: str
     complexity_score: int
     difficulty: float
@@ -475,6 +478,10 @@ class SynesisState(BaseModel):
     revision_constraints: dict[str, Any] = Field(default_factory=dict)
 
     user_answer_to_clarification: str = ""
+
+    conversation_id: str = ""
+    trace_root_id: str = ""
+    critic_turn_kind: str = "final"
 
     token_budget_remaining: int = 100000
     sandbox_minutes_used: float = 0.0

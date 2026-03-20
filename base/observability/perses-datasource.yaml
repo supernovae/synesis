@@ -1,7 +1,7 @@
 # Perses datasource for Synesis metrics. COO/Perses uses Thanos Querier for unified metrics.
 #
 # Deploy AFTER enabling Perses in COO (UIPlugin with monitoring.perses.enabled: true).
-# Create namespace first: oc create ns perses-dev
+# Deploy into synesis-admin (same project as synesis-admin app). Ensure COO Perses watches it.
 #
 # For OpenShift with user workload monitoring, Thanos Querier aggregates platform + user metrics.
 # Adjust spec.config.plugin.spec.proxy.spec.url if your Prometheus/Thanos is elsewhere.
@@ -16,7 +16,7 @@ apiVersion: perses.dev/v1alpha1
 kind: PersesDatasource
 metadata:
   name: prometheus-datasource
-  namespace: perses-dev
+  namespace: synesis-admin
   labels:
     app.kubernetes.io/component: observability
     app.kubernetes.io/part-of: synesis

@@ -1,5 +1,5 @@
 {
-  "version": "2.0",
+  "version": "2.1",
   "langgraph_topology": {
     "nodes": ["entry_pipeline", "planner", "plan_gate", "router", "writer", "critic", "final_scrubber", "respond"],
     "critic_incoming": ["writer"],
@@ -14,6 +14,7 @@
       "active_vertical": "resolve_active_vertical(active_domain_refs, platform_context)"
     },
     "critic": {
+      "critic_turn_kind": "final | interactive_continue | micro_step | skip — derived in run_context.derive_critic_turn_kind; softens frame rubric for interactive turns",
       "active_mode": "advisory (easy/medium) | universal_principles (hard) | document_path (knowledge tasks)",
       "approved": "state.critic_approved",
       "should_continue": "state.critic_should_continue",
