@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthProvider";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
 interface Props {
@@ -11,11 +11,13 @@ interface Props {
 export default function RequireRole({ children, role }: Props) {
   const { isAuthenticated, user, oidcConfig, loginWithOidc, loading } = useAuth();
   const location = useLocation();
+  const redirecting = useRef(false);
 
   const oidcEnabled = oidcConfig?.enabled ?? false;
 
   useEffect(() => {
-    if (!loading && !isAuthenticated && oidcEnabled) {
+    if (!loading && !isAuthenticated && oidcEnabled && !redirecting.current) {
+      redirecting.current = true;
       loginWithOidc();
     }
   }, [loading, isAuthenticated, oidcEnabled, loginWithOidc]);

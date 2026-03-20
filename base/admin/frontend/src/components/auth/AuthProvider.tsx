@@ -4,6 +4,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react";
 import axios from "axios";
@@ -23,10 +24,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const TOKEN_KEY = "synesis_token";
+const REFRESH_KEY = "synesis_refresh_token";
+const EXPIRES_KEY = "synesis_token_expires_at";
+const USER_KEY = "synesis_user";
+
 function loadPersistedAuth(): { user: User | null; token: string | null } {
   try {
-    const token = localStorage.getItem("synesis_token");
-    const raw = localStorage.getItem("synesis_user");
+    const token = localStorage.getItem(TOKEN_KEY);
+    const raw = localStorage.getItem(USER_KEY);
     if (token && raw) {
       return { token, user: JSON.parse(raw) };
     }
@@ -34,6 +40,21 @@ function loadPersistedAuth(): { user: User | null; token: string | null } {
     /* corrupted storage */
   }
   return { user: null, token: null };
+}
+
+function clearPersistedAuth() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(EXPIRES_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+function persistTokens(access: string, refresh?: string, expiresIn?: number) {
+  localStorage.setItem(TOKEN_KEY, access);
+  if (refresh) localStorage.setItem(REFRESH_KEY, refresh);
+  if (expiresIn) {
+    localStorage.setItem(EXPIRES_KEY, String(Date.now() + expiresIn * 1000));
+  }
 }
 
 function generateCodeVerifier(): string {
@@ -59,6 +80,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [auth, setAuth] = useState(loadPersistedAuth);
   const [oidcConfig, setOidcConfig] = useState<OidcConfig | null>(null);
   const [loading, setLoading] = useState(true);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Schedule a silent refresh at 75% of token lifetime.
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+
+    const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || "0");
+    const refreshToken = localStorage.getItem(REFRESH_KEY);
+    if (!expiresAt || !refreshToken) return;
+
+    const remaining = expiresAt - Date.now();
+    // Refresh at 75% of remaining lifetime, minimum 30 seconds.
+    const delay = Math.max(remaining * 0.75, 30_000);
+
+    refreshTimerRef.current = setTimeout(async () => {
+      try {
+        const { data } = await axios.post("/api/v1/auth/oauth/refresh", {
+          refresh_token: localStorage.getItem(REFRESH_KEY),
+        });
+        persistTokens(data.access_token, data.refresh_token, data.expires_in);
+        setAuth((prev) => ({ ...prev, token: data.access_token }));
+        scheduleRefresh();
+      } catch {
+        // Refresh failed — user will be redirected on next 401.
+      }
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, []);
+
+  // On mount: start refresh timer if we have a refresh token.
+  useEffect(() => {
+    if (auth.token && localStorage.getItem(REFRESH_KEY)) {
+      scheduleRefresh();
+    }
+  }, [auth.token, scheduleRefresh]);
 
   useEffect(() => {
     axios
@@ -73,8 +134,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       password,
     });
-    localStorage.setItem("synesis_token", data.access_token);
-    localStorage.setItem("synesis_user", JSON.stringify(data.user));
+    persistTokens(data.access_token);
+    localStorage.setItem(USER_KEY, JSON.stringify(data.user));
     setAuth({ user: data.user, token: data.access_token });
   }, []);
 
@@ -103,13 +164,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const issuer = oidcConfig?.issuer;
-    localStorage.removeItem("synesis_token");
-    localStorage.removeItem("synesis_user");
+    const clientId = oidcConfig?.client_id;
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    clearPersistedAuth();
     setAuth({ user: null, token: null });
 
-    if (issuer) {
+    if (issuer && clientId) {
       const redirectUri = encodeURIComponent(window.location.origin + "/login");
-      window.location.href = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}&client_id=${oidcConfig?.client_id}`;
+      window.location.href = `${issuer}/protocol/openid-connect/logout?post_logout_redirect_uri=${redirectUri}&client_id=${clientId}`;
     }
   }, [oidcConfig]);
 

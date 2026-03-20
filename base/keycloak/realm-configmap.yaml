@@ -34,9 +34,9 @@ data:
       "maxDeltaTimeSeconds": 43200,
       "failureFactor": 5,
       "sslRequired": "external",
-      "accessTokenLifespan": 300,
-      "ssoSessionIdleTimeout": 1800,
-      "ssoSessionMaxLifespan": 36000,
+      "accessTokenLifespan": 1800,
+      "ssoSessionIdleTimeout": 14400,
+      "ssoSessionMaxLifespan": 43200,
       "roles": {
         "realm": [
           {

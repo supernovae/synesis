@@ -32,6 +32,10 @@ class OidcTokenExchangeRequest(BaseModel):
     code_verifier: str = Field(..., min_length=1)
 
 
+class OidcRefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest):
     """Local login — disabled when Keycloak is configured."""
@@ -104,7 +108,62 @@ async def oauth_token_exchange(req: OidcTokenExchangeRequest):
     access = data.get("access_token")
     if not access or not isinstance(access, str):
         raise HTTPException(status_code=400, detail="Invalid token response")
-    return {
+    result: dict = {
         "access_token": access,
         "token_type": data.get("token_type", "bearer"),
     }
+    if data.get("refresh_token"):
+        result["refresh_token"] = data["refresh_token"]
+    if data.get("expires_in"):
+        result["expires_in"] = data["expires_in"]
+    return result
+
+
+@router.post("/oauth/refresh")
+async def oauth_refresh(req: OidcRefreshRequest):
+    """Use a refresh token to obtain a new access token without a full redirect."""
+    if not KEYCLOAK_ISSUER:
+        raise HTTPException(status_code=400, detail="OIDC is not configured")
+
+    internal = os.getenv("SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL", "").strip().rstrip("/")
+    token_base = internal or KEYCLOAK_ISSUER.rstrip("/")
+    token_url = f"{token_base}/protocol/openid-connect/token"
+    body = {
+        "grant_type": "refresh_token",
+        "client_id": "synesis-admin",
+        "refresh_token": req.refresh_token,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                token_url,
+                data=body,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+    except httpx.RequestError as exc:
+        logger.debug("keycloak_refresh_transport_error", exc_info=True)
+        raise HTTPException(
+            status_code=502, detail="Could not reach identity provider"
+        ) from exc
+
+    if r.status_code != 200:
+        logger.debug(
+            "keycloak_refresh_failed status=%s body=%s",
+            r.status_code,
+            (r.text or "")[:400],
+        )
+        raise HTTPException(status_code=401, detail="Refresh token expired or revoked")
+
+    data = r.json()
+    access = data.get("access_token")
+    if not access:
+        raise HTTPException(status_code=400, detail="Invalid refresh response")
+    result: dict = {
+        "access_token": access,
+        "token_type": data.get("token_type", "bearer"),
+    }
+    if data.get("refresh_token"):
+        result["refresh_token"] = data["refresh_token"]
+    if data.get("expires_in"):
+        result["expires_in"] = data["expires_in"]
+    return result

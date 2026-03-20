@@ -55,6 +55,8 @@ export default function OidcCallback() {
         const { data } = await axios.post<{
           access_token: string;
           token_type?: string;
+          refresh_token?: string;
+          expires_in?: number;
         }>("/api/v1/auth/oauth/token", {
           code,
           redirect_uri: redirectUri,
@@ -66,11 +68,20 @@ export default function OidcCallback() {
         sessionStorage.removeItem("synesis_pkce_verifier");
         sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
 
+        // Persist tokens.
+        localStorage.setItem("synesis_token", accessToken);
+        if (data.refresh_token) {
+          localStorage.setItem("synesis_refresh_token", data.refresh_token);
+        }
+        if (data.expires_in) {
+          const expiresAt = Date.now() + data.expires_in * 1000;
+          localStorage.setItem("synesis_token_expires_at", String(expiresAt));
+        }
+
         const { data: userInfo } = await axios.get("/api/v1/auth/me", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        localStorage.setItem("synesis_token", accessToken);
         localStorage.setItem("synesis_user", JSON.stringify(userInfo));
 
         window.location.replace("/");
