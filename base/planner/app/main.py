@@ -1625,7 +1625,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     and settings.critic_background
                                 ):
                                     yield _flow_phase("", done=True)
-                                    content, _ = _extract_content_and_metrics(
+                                    content, total_tokens = _extract_content_and_metrics(
                                         accumulated_state,
                                         user_id,
                                         last_user_content,
@@ -1654,7 +1654,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                             "usage": {
                                                 "prompt_tokens": 0,
                                                 "completion_tokens": 0,
-                                                "total_tokens": 0,
+                                                "total_tokens": total_tokens,
                                             },
                                             "run_id": run_id,
                                             "pipeline_trace": pipeline_trace,
@@ -2063,7 +2063,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 # Stop status animation
                 yield _flow_phase("", done=True)
 
-                content, _ = _extract_content_and_metrics(
+                content, total_tokens = _extract_content_and_metrics(
                     accumulated_state,
                     user_id,
                     last_user_content,
@@ -2121,7 +2121,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "id": chat_id,
                         "object": "chat.completion.chunk",
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,
                     }
@@ -2258,7 +2258,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     return
 
                 yield _fb_flow_phase("", done=True)
-                content, _ = _extract_content_and_metrics(
+                content, total_tokens = _extract_content_and_metrics(
                     result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
                 )
                 _prompt_cache_put(user_id, last_user_content or "", request.model, content)
@@ -2276,7 +2276,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "id": chat_id,
                         "object": "chat.completion.chunk",
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,
                     }
