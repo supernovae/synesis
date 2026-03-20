@@ -22,14 +22,15 @@ def _build_info() -> str:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SYNESIS_")
 
-    # Model Endpoints — see models.yaml for profile-specific assignments.
+    # Model endpoints — live routing is configured in admin (registry) + LiteLLM.
+    # models.yaml is for bootstrap and generated manifests, not runtime overrides here.
     #
-    # Role mapping (1:1 with models.yaml roles):
+    # Role mapping (served names):
     #   Router  (synesis-router)  → router node, planner, advisor
     #   General (synesis-general) → executor node, writer node
     #   Critic  (synesis-critic)  → critic node
     #   Coder   (synesis-coder)   → direct IDE endpoint (not used by planner)
-    #   Summarizer (synesis-summarizer) → pivot history summarization
+    #   Summarizer (synesis-summarizer) → evidence packet + pivot history when URL set
 
     # Router model (serves router node, planner, advisor)
     router_model_url: str = "http://synesis-router.synesis-models.svc.cluster.local:8080/v1"

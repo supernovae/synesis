@@ -1,9 +1,8 @@
-"""Model registry: seed from models.yaml, role-first CRUD, cost estimates."""
+"""Model registry: bootstrap from models.yaml, role-first CRUD, cost estimates."""
 
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -140,7 +139,7 @@ async def get_model_deployments() -> list[dict]:
     """Return all model deployments from DB."""
     async with async_session() as session:
         result = await session.execute(
-            select(ModelDeployment).order_by(ModelDeployment.environment, ModelDeployment.role)
+            select(ModelDeployment).order_by(ModelDeployment.role)
         )
         rows = result.scalars().all()
         return [_deployment_to_dict(r) for r in rows]
@@ -163,7 +162,7 @@ async def get_deployment_by_id(deployment_id: int) -> ModelDeployment | None:
 async def create_deployment(data: dict) -> dict:
     async with async_session() as session:
         row = ModelDeployment(
-            environment=data["environment"],
+            environment=(data.get("environment") or "") or "",
             role=data["role"],
             model=data.get("model", ""),
             endpoint=data.get("endpoint", ""),
@@ -224,25 +223,6 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
         await session.commit()
         await session.refresh(row)
         return _deployment_to_dict(row)
-
-
-async def activate_environment(environment: str) -> list[dict]:
-    """Activate all deployments in a given environment, deactivate all others."""
-    async with async_session() as session:
-        result = await session.execute(select(ModelDeployment))
-        rows = result.scalars().all()
-        updated = []
-        for row in rows:
-            was_active = row.is_active
-            row.is_active = row.environment == environment
-            if row.is_active and not was_active:
-                row.status = "activating"
-            elif not row.is_active and was_active:
-                row.status = "configured"
-                row.litellm_model_id = None
-            updated.append(_deployment_to_dict(row))
-        await session.commit()
-        return updated
 
 
 def _deployment_to_dict(row: ModelDeployment) -> dict:
@@ -426,171 +406,56 @@ async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Legacy: YAML-based model registry (kept for backward compat of GET /models)
-# ---------------------------------------------------------------------------
-
-def get_model_registry() -> list[dict]:
-    data = _load_models_yaml()
-    roles = data.get("roles", {})
-    models = []
-    for role_name, role_cfg in roles.items():
-        models.append(
-            {
-                "role": role_name,
-                "model_name": role_cfg.get("default_model", ""),
-                "served_name": role_cfg.get("served_model_name", role_name),
-                "endpoint": f"http://{role_cfg.get('service_name', role_name)}.{role_cfg.get('namespace', 'synesis-models')}.svc.cluster.local:8080/v1",
-                "status": "healthy",
-                "description": role_cfg.get("description", ""),
-            }
-        )
-    return models
-
-
-# ---------------------------------------------------------------------------
-# Topology (DB-first, falls back to YAML for display)
+# Topology (DB deployments — single install, no multi-environment grouping)
 # ---------------------------------------------------------------------------
 
 async def get_model_topology() -> dict:
-    """Build topology from DB deployments, grouped by environment."""
+    """Return all deployments as a flat list. Role names from models.yaml if DB empty."""
     deployments = await get_model_deployments()
-    environments: dict[str, list[dict]] = {}
-
-    for d in deployments:
-        env = d["environment"]
-        if env not in environments:
-            environments[env] = []
-        environments[env].append({
-            "id": d["id"],
-            "role": d["role"],
-            "model": d["model"],
-            "served_name": d["served_name"],
-            "endpoint": d["endpoint"],
-            "status": d["status"],
-            "source": d["source"],
-            "is_active": d["is_active"],
-            "gpu": d.get("gpu_config", {}).get("gpu", "") if d.get("gpu_config") else "",
-            "notes": d["notes"],
-        })
-
-    if not environments:
-        return _topology_from_yaml()
-
+    flat = [{
+        "id": d["id"],
+        "role": d["role"],
+        "model": d["model"],
+        "served_name": d["served_name"],
+        "endpoint": d["endpoint"],
+        "status": d["status"],
+        "source": d["source"],
+        "is_active": d["is_active"],
+        "gpu": d.get("gpu_config", {}).get("gpu", "") if d.get("gpu_config") else "",
+        "notes": d["notes"],
+    } for d in deployments]
+    if flat:
+        return {"deployments": flat, "roles": list(KNOWN_ROLES)}
     data = _load_models_yaml()
-    return {"environments": environments, "roles": list(data.get("roles", {}).keys())}
-
-
-def _topology_from_yaml() -> dict:
-    """Fallback topology from YAML if DB is empty."""
-    data = _load_models_yaml()
-    roles = data.get("roles", {})
-    profiles = data.get("profiles", {})
-    openrouter_profiles = data.get("openrouter_profiles", {})
-    environments: dict[str, list[dict]] = {}
-
-    for profile_name, profile_cfg in profiles.items():
-        env_name = f"local-{profile_name}"
-        entries = []
-        for role_name in roles:
-            assignment = profile_cfg.get("assignments", {}).get(role_name, {})
-            model = assignment.get("model_override", roles[role_name].get("default_model", ""))
-            service_name = roles[role_name].get("service_name", role_name)
-            namespace = roles[role_name].get("namespace", "synesis-models")
-            entries.append({
-                "role": role_name,
-                "model": model,
-                "served_name": roles[role_name].get("served_model_name", role_name),
-                "endpoint": f"http://{service_name}.{namespace}.svc.cluster.local:8080/v1",
-                "status": "configured",
-                "source": "vllm",
-                "is_active": False,
-                "gpu": assignment.get("gpu", ""),
-                "notes": assignment.get("notes", ""),
-            })
-        environments[env_name] = entries
-
-    for profile_name, profile_cfg in openrouter_profiles.items():
-        env_name = f"openrouter-{profile_name}"
-        entries = []
-        for role_name, assignment in profile_cfg.get("assignments", {}).items():
-            entries.append({
-                "role": role_name,
-                "model": assignment.get("openrouter_model", ""),
-                "served_name": role_name,
-                "endpoint": "https://openrouter.ai/api/v1",
-                "status": "configured",
-                "source": "openrouter",
-                "is_active": False,
-                "gpu": "",
-                "notes": assignment.get("notes", ""),
-            })
-        environments[env_name] = entries
-
-    return {"environments": environments, "roles": list(roles.keys())}
+    return {"deployments": [], "roles": list(data.get("roles", {}).keys()) or list(KNOWN_ROLES)}
 
 
 # ---------------------------------------------------------------------------
-# Cost estimates (unchanged logic, YAML + DB merge)
+# Cost estimates (registry + model_costs for canonical roles only)
 # ---------------------------------------------------------------------------
 
-def _parse_dollar_rates(notes: str) -> tuple[float, float]:
-    input_cost = 0.0
-    output_cost = 0.0
-    if "$" not in notes or "/M" not in notes:
-        return input_cost, output_cost
-    try:
-        parts = notes.split("$")
-        for part in parts[1:]:
-            val = part.split("/M")[0].strip()
-            cleaned = re.sub(r"[^0-9.]", "", val)
-            if not cleaned:
-                continue
-            num = float(cleaned)
-            if input_cost == 0:
-                input_cost = num
-            else:
-                output_cost = num
-    except (ValueError, IndexError):
-        pass
-    return input_cost, output_cost
-
-
-def get_cost_estimates_from_yaml() -> list[dict]:
-    data = _load_models_yaml()
-    costs = []
-
-    for profile_name, profile_cfg in data.get("profiles", {}).items():
-        assignments = profile_cfg.get("assignments", {})
-        cost_estimate = profile_cfg.get("cost_estimate", {})
-        for role, assignment in assignments.items():
-            model = assignment.get("model_override", "")
-            notes = assignment.get("notes", "")
-            input_cost, output_cost = _parse_dollar_rates(notes)
-            costs.append({
-                "role": role, "model": model, "profile": profile_name,
-                "source": "local", "input_per_million": input_cost,
-                "output_per_million": output_cost, "monthly_fixed_cost": 0.0,
-                "cost_formula": cost_estimate.get("on_demand", ""), "notes": notes,
-            })
-
-    for profile_name, profile_cfg in data.get("openrouter_profiles", {}).items():
-        assignments = profile_cfg.get("assignments", {})
-        for role, assignment in assignments.items():
-            model = assignment.get("openrouter_model", "")
-            notes = assignment.get("notes", "")
-            input_cost, output_cost = _parse_dollar_rates(notes)
-            costs.append({
-                "role": role, "model": model, "profile": f"openrouter-{profile_name}",
-                "source": "openrouter", "input_per_million": input_cost,
-                "output_per_million": output_cost, "monthly_fixed_cost": 0.0,
-                "cost_formula": "", "notes": notes,
-            })
-
-    return costs
+def _infer_role_for_cost(node_name: str, model_name: str) -> str:
+    """Match trace LLM calls to pipeline roles (same rules as models router)."""
+    node_lower = node_name.lower()
+    model_lower = (model_name or "").lower()
+    if "summarizer" in node_lower or "summar" in node_lower or "synesis-summarizer" in model_lower:
+        return "summarizer"
+    if "router" in node_lower or "router" in model_lower:
+        return "router"
+    if "critic" in node_lower or "critic" in model_lower:
+        return "critic"
+    if "coder" in node_lower or "coder" in model_lower:
+        return "coder"
+    if "writer" in node_lower or "planner" in node_lower:
+        return "general"
+    if "general" in model_lower:
+        return "general"
+    return node_name or "unknown"
 
 
 async def get_cost_estimates() -> list[dict]:
-    yaml_costs = get_cost_estimates_from_yaml()
+    """One row per canonical role: model/provider from active assignment; rates from model_costs (profile empty)."""
+    assignments = await get_role_assignments()
     try:
         async with async_session() as session:
             result = await session.execute(select(ModelCostRow))
@@ -599,47 +464,88 @@ async def get_cost_estimates() -> list[dict]:
         logger.debug("model_costs_db_read_failed", exc_info=True)
         db_rows = []
 
-    db_lookup: dict[tuple[str, str], ModelCostRow] = {}
+    db_by_role: dict[str, ModelCostRow] = {}
     for row in db_rows:
-        db_lookup[(row.role, row.profile)] = row
+        if row.role not in KNOWN_ROLES:
+            continue
+        prof = (row.profile or "").strip()
+        if prof == "":
+            db_by_role[row.role] = row
+        elif row.role not in db_by_role:
+            db_by_role[row.role] = row
 
-    merged = []
-    for cost in yaml_costs:
-        key = (cost["role"], cost["profile"])
-        if key in db_lookup:
-            row = db_lookup.pop(key)
+    merged: list[dict] = []
+    for a in assignments:
+        role = a["role"]
+        if role not in KNOWN_ROLES:
+            continue
+        prof = ""
+        db_row = db_by_role.get(role)
+        model = a.get("model", "") if a.get("assigned") else ""
+        provider = (a.get("provider") or "") if a.get("assigned") else ""
+        src = (a.get("source") or "") if a.get("assigned") else "local"
+        if db_row:
             merged.append({
-                "role": row.role, "model": row.model, "profile": row.profile,
-                "source": row.source, "input_per_million": row.input_per_million,
-                "output_per_million": row.output_per_million,
-                "monthly_fixed_cost": row.monthly_fixed_cost,
-                "cost_formula": row.cost_formula, "notes": row.notes,
+                "role": role,
+                "model": model,
+                "profile": prof,
+                "source": src or db_row.source or "local",
+                "provider": provider,
+                "served_name": a.get("served_name", f"synesis-{role}"),
+                "input_per_million": db_row.input_per_million,
+                "output_per_million": db_row.output_per_million,
+                "monthly_fixed_cost": db_row.monthly_fixed_cost,
+                "cost_formula": db_row.cost_formula,
+                "notes": db_row.notes,
             })
         else:
-            merged.append(cost)
-
-    for row in db_lookup.values():
-        merged.append({
-            "role": row.role, "model": row.model, "profile": row.profile,
-            "source": row.source, "input_per_million": row.input_per_million,
-            "output_per_million": row.output_per_million,
-            "monthly_fixed_cost": row.monthly_fixed_cost,
-            "cost_formula": row.cost_formula, "notes": row.notes,
-        })
-
+            merged.append({
+                "role": role,
+                "model": model,
+                "profile": prof,
+                "source": src or "local",
+                "provider": provider,
+                "served_name": a.get("served_name", f"synesis-{role}"),
+                "input_per_million": 0.0,
+                "output_per_million": 0.0,
+                "monthly_fixed_cost": 0.0,
+                "cost_formula": "",
+                "notes": "",
+            })
     return merged
 
 
 async def upsert_model_cost(data: dict) -> dict:
+    role = data["role"]
+    profile = (data.get("profile") or "").strip()
+    if role in KNOWN_ROLES:
+        profile = ""
     async with async_session() as session:
+        # Registry model for canonical roles (never drift from active assignment).
+        registry_model = ""
+        if role in KNOWN_ROLES:
+            r = await session.execute(
+                select(ModelDeployment).where(
+                    ModelDeployment.role == role,
+                    ModelDeployment.is_active == True,  # noqa: E712
+                )
+            )
+            active = r.scalar_one_or_none()
+            if active is not None:
+                registry_model = active.model or ""
+
         q = select(ModelCostRow).where(
-            ModelCostRow.role == data["role"],
-            ModelCostRow.profile == data.get("profile", ""),
+            ModelCostRow.role == role,
+            ModelCostRow.profile == profile,
         )
         result = await session.execute(q)
         row = result.scalar_one_or_none()
         if row is None:
-            row = ModelCostRow(role=data["role"], model=data.get("model", ""), profile=data.get("profile", ""))
+            row = ModelCostRow(
+                role=role,
+                model=registry_model or data.get("model", ""),
+                profile=profile,
+            )
             session.add(row)
         row.source = data.get("source", row.source or "local")
         row.input_per_million = data.get("input_per_million", row.input_per_million)
@@ -647,7 +553,7 @@ async def upsert_model_cost(data: dict) -> dict:
         row.monthly_fixed_cost = data.get("monthly_fixed_cost", row.monthly_fixed_cost)
         row.cost_formula = data.get("cost_formula", row.cost_formula)
         row.notes = data.get("notes", row.notes)
-        row.model = data.get("model", row.model)
+        row.model = registry_model if registry_model else data.get("model", row.model)
         await session.commit()
         await session.refresh(row)
         return {
@@ -689,23 +595,23 @@ async def get_cost_by_model() -> list[dict]:
                         agg["requests"] += 1
 
             costs = await get_cost_estimates()
-            pricing: dict[str, tuple[float, float]] = {}
-            for c in costs:
-                served = c.get("model", "")
-                if served:
-                    pricing[served] = (c["input_per_million"], c["output_per_million"])
-                role = c.get("role", "")
-                served_name = f"synesis-{role}"
-                if served_name not in pricing:
-                    pricing[served_name] = (c["input_per_million"], c["output_per_million"])
+            pricing_by_role: dict[str, tuple[float, float]] = {
+                c.get("role", ""): (c["input_per_million"], c["output_per_million"]) for c in costs
+            }
+
+            def _first_role_for_model(target: str) -> str:
+                for row in rows:
+                    full = row.full_record or {}
+                    for span in full.get("spans", []):
+                        node = span.get("node_name", "unknown")
+                        for call in span.get("llm_calls", []):
+                            if call.get("model", "unknown") == target:
+                                return _infer_role_for_cost(node, call.get("model", ""))
+                return "unknown"
 
             for model, agg in model_agg.items():
-                rates = pricing.get(model, (0, 0))
-                if rates == (0, 0):
-                    for key in pricing:
-                        if key in model or model in key:
-                            rates = pricing[key]
-                            break
+                role = _first_role_for_model(model)
+                rates = pricing_by_role.get(role, (0.0, 0.0))
                 agg["cost_usd"] = round(
                     (agg["prompt_tokens"] / 1_000_000) * rates[0]
                     + (agg["completion_tokens"] / 1_000_000) * rates[1],
@@ -738,14 +644,16 @@ async def capture_cost_rate_snapshots() -> int:
             select(CostRateSnapshot).order_by(CostRateSnapshot.captured_at.desc())
         )
         all_snaps = result.scalars().all()
-        latest_by_model: dict[str, CostRateSnapshot] = {}
+        latest_by_role_model: dict[tuple[str, str], CostRateSnapshot] = {}
         for s in all_snaps:
-            if s.model not in latest_by_model:
-                latest_by_model[s.model] = s
+            key = (s.role or "", s.model)
+            if key not in latest_by_role_model:
+                latest_by_role_model[key] = s
 
         created = 0
         for cost in costs:
             model = cost.get("model", "")
+            role = cost.get("role", "")
             if not model:
                 continue
             inp = cost.get("input_per_million", 0.0)
@@ -753,13 +661,14 @@ async def capture_cost_rate_snapshots() -> int:
             if inp == 0 and out == 0:
                 continue
 
-            prev = latest_by_model.get(model)
+            key = (role, model)
+            prev = latest_by_role_model.get(key)
             if prev and prev.input_per_million == inp and prev.output_per_million == out:
                 continue
 
             snap = CostRateSnapshot(
                 model=model,
-                role=cost.get("role", ""),
+                role=role,
                 input_per_million=inp,
                 output_per_million=out,
                 source=cost.get("source", "manual"),

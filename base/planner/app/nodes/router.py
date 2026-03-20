@@ -273,7 +273,7 @@ def _get_router_llm() -> ChatOpenAI:
 
 
 def _get_summarizer_llm() -> ChatOpenAI:
-    """Router LLM with guided_json for evidence packet summarization."""
+    """Evidence packet summarization — uses summarizer route (synesis-summarizer) via LiteLLM."""
     global _summarizer_llm
     if _summarizer_llm is None:
         extra_body: dict[str, Any] = {}
@@ -288,10 +288,14 @@ def _get_summarizer_llm() -> ChatOpenAI:
         if extra_body:
             model_kw["extra_body"] = extra_body
 
+        _sum_url = (getattr(settings, "summarizer_model_url", "") or "").strip()
+        _base = _sum_url if _sum_url else settings.router_model_url
+        _name = getattr(settings, "summarizer_model_name", "") or "synesis-summarizer"
+
         _summarizer_llm = ChatOpenAI(
-            base_url=settings.router_model_url,
+            base_url=_base,
             api_key="not-needed",
-            model=settings.router_model_name,
+            model=_name,
             temperature=0.0,
             max_completion_tokens=settings.router_max_summary_tokens,
             streaming=False,

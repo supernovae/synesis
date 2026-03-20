@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import client from "./client";
 import type {
   DashboardSummary,
-  ModelEntry,
   ModelCost,
   CorpusStats,
   QualitySummary,
@@ -38,14 +37,6 @@ export function useDashboardSummary() {
 }
 
 // --- Models ---
-
-export function useModels() {
-  return useQuery<{ models: ModelEntry[] }>({
-    queryKey: ["models"],
-    queryFn: () => client.get("/models").then((r) => r.data),
-    staleTime: 60_000,
-  });
-}
 
 export function useModelCosts() {
   return useQuery<{ roles: ModelCost[] }>({
@@ -157,23 +148,13 @@ export function useDeactivateModel() {
   });
 }
 
-export function useActivateEnvironment() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (environment: string) =>
-      client.post("/models/deployments/activate-environment", { environment }).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["models"] });
-    },
-  });
-}
-
 export function useSyncModelsFromYaml() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => client.post("/models/sync-from-yaml").then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["models", "roles"] });
     },
   });
 }

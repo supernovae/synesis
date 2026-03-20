@@ -5,7 +5,9 @@ alwaysApply: true
 
 # Model Alignment Rule
 
-`models.yaml` is the **reference** for recommended Synesis models. Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML), not by Synesis manifests.
+`models.yaml` is the **reference** for recommended HuggingFace repos, GPU sizing, and generated manifests. **Live** model routing (which provider/model each pipeline role uses) is configured in the **admin Registry** (Postgres) and synced to LiteLLM — not by editing `models.yaml` on a running cluster. Use admin “Seed from YAML” only to re-bootstrap deployments from the file.
+
+Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML), not by Synesis manifests alone.
 
 ## When modifying model references:
 

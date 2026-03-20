@@ -168,6 +168,19 @@ export default function ModelPerformance() {
           <DataTable
             columns={[
               { key: "role", label: "Role", sortable: true },
+              {
+                key: "registry_model",
+                label: "Configured model",
+                sortable: true,
+                render: (r: RolePerformance) =>
+                  r.assigned ? (r.registry_model || r.served_name || "—") : "—",
+              },
+              {
+                key: "registry_provider",
+                label: "Provider",
+                sortable: true,
+                render: (r: RolePerformance) => (r.assigned ? r.registry_provider || "—" : "—"),
+              },
               { key: "request_count", label: "Requests", sortable: true, render: (r: RolePerformance) => r.request_count.toLocaleString() },
               { key: "avg_latency_ms", label: "Avg Latency", sortable: true, render: (r: RolePerformance) => `${r.avg_latency_ms.toFixed(0)}ms` },
               { key: "p95_latency_ms", label: "p95 Latency", sortable: true, render: (r: RolePerformance) => `${r.p95_latency_ms.toFixed(0)}ms` },

@@ -19,7 +19,6 @@ from ..services.model_registry import (
     get_cost_by_model,
     get_cost_estimates,
     get_model_deployments,
-    get_model_registry,
     get_role_assignments,
     get_role_history,
     seed_model_deployments,
@@ -34,12 +33,12 @@ router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
 # ---------------------------------------------------------------------------
-# Legacy YAML-based registry (backward compat)
+# Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
 
 @router.get("/")
 async def list_models(_user: UserInfo = Depends(get_current_user)):
-    return {"models": get_model_registry()}
+    return {"roles": await get_role_assignments()}
 
 
 @router.get("/topology")
@@ -128,7 +127,7 @@ async def role_history(
 
 
 # ---------------------------------------------------------------------------
-# DB-first model deployments CRUD (legacy, kept for backward compat)
+# DB model deployments CRUD (advanced; prefer PUT /roles/{role})
 # ---------------------------------------------------------------------------
 
 @router.get("/deployments")
@@ -142,8 +141,8 @@ async def create_model_deployment(
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
-    if not data.get("environment") or not data.get("role"):
-        raise HTTPException(400, "environment and role are required")
+    if not data.get("role"):
+        raise HTTPException(400, "role is required")
     return await create_deployment(data)
 
 
@@ -205,32 +204,19 @@ async def deactivate_deployment(
     return result
 
 
-@router.post("/deployments/activate-environment")
-async def activate_env(
-    data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
-):
-    from ..services.model_reconciler import reconcile
-    from ..services.model_registry import activate_environment
-
-    env = data.get("environment", "")
-    if not env:
-        raise HTTPException(400, "environment is required")
-    updated = await activate_environment(env)
-    try:
-        await reconcile()
-    except Exception:
-        logger.warning("reconcile_after_env_activate_failed", exc_info=True)
-    return {"environment": env, "deployments": updated}
-
-
 @router.post("/sync-from-yaml")
 async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
     from ..services.model_registry import invalidate_yaml_cache
 
     invalidate_yaml_cache()
     count = await seed_model_deployments(force=True)
-    return {"seeded": count}
+    return {
+        "seeded": count,
+        "warning": (
+            "Re-seeding from models.yaml clears and replaces model_deployments rows from the mounted file. "
+            "For ongoing changes, use Registry role assignments instead."
+        ),
+    }
 
 
 @router.post("/reconcile")
@@ -288,10 +274,22 @@ async def active_costs(_user: UserInfo = Depends(get_current_user)):
         model = a.get("model", "")
         served_name = a.get("served_name", "")
 
-        # Start with manual DB/YAML cost if it has non-zero rates.
+        # Manual DB overrides (rates only); model/provider always from registry assignment.
         manual = cost_by_role.get(role)
         if manual and (manual.get("input_per_million", 0) > 0 or manual.get("output_per_million", 0) > 0):
-            result.append({**manual, "provider": provider, "pricing_source": "manual"})
+            result.append({
+                "role": role,
+                "model": model,
+                "profile": "",
+                "source": manual.get("source", provider),
+                "provider": provider,
+                "input_per_million": manual["input_per_million"],
+                "output_per_million": manual["output_per_million"],
+                "monthly_fixed_cost": manual.get("monthly_fixed_cost", 0.0),
+                "cost_formula": manual.get("cost_formula", ""),
+                "notes": manual.get("notes", ""),
+                "pricing_source": "manual",
+            })
             continue
 
         # For local providers, check infra cost calculator.
@@ -393,12 +391,23 @@ async def costs_by_model(
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         cost_rates = await get_cost_estimates()
-        model_pricing: dict[str, tuple[float, float]] = {}
-        for c in cost_rates:
-            model_pricing[c.get("model", "")] = (c["input_per_million"], c["output_per_million"])
+        pricing_by_role: dict[str, tuple[float, float]] = {
+            c.get("role", ""): (c["input_per_million"], c["output_per_million"]) for c in cost_rates
+        }
+
+        def _role_for_model(target: str) -> str:
+            for row in rows:
+                full = row[0] or {}
+                for span in full.get("spans", []):
+                    node = span.get("node_name", "unknown")
+                    for call in span.get("llm_calls", []):
+                        if call.get("model", "unknown") == target:
+                            return _infer_role(node, call.get("model", ""))
+            return "unknown"
 
         for model, agg in model_agg.items():
-            rates = model_pricing.get(model, (0, 0))
+            role = _role_for_model(model)
+            rates = pricing_by_role.get(role, (0, 0))
             agg["estimated_cost_usd"] = round(
                 (agg["prompt_tokens"] / 1_000_000) * rates[0] + (agg["completion_tokens"] / 1_000_000) * rates[1],
                 6,
@@ -476,6 +485,8 @@ async def costs_by_role(
 def _infer_role(node_name: str, model_name: str) -> str:
     node_lower = node_name.lower()
     model_lower = model_name.lower()
+    if "summarizer" in node_lower or "summar" in node_lower or "synesis-summarizer" in model_lower:
+        return "summarizer"
     if "router" in node_lower or "router" in model_lower:
         return "router"
     if "critic" in node_lower or "critic" in model_lower:
@@ -732,18 +743,33 @@ async def performance_by_role(
                     rs["total_tokens"] += call.get("total_tokens", 0)
                     rs["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
 
+        assignments = await get_role_assignments()
+        reg_by_role = {a["role"]: a for a in assignments}
+
         results = []
-        for rs in role_stats.values():
+        for role in KNOWN_ROLES:
+            rs = role_stats.get(role)
+            if rs is None:
+                rs = {
+                    "role": role, "request_count": 0, "latencies": [],
+                    "total_tokens": 0, "total_actual_cost": 0.0,
+                }
             lats = sorted(rs.pop("latencies"))
             n = len(lats)
             avg_lat = sum(lats) / n if n else 0
             p95_idx = int(n * 0.95) if n else 0
-            rs["avg_latency_ms"] = round(avg_lat, 1)
-            rs["p95_latency_ms"] = round(lats[min(p95_idx, n - 1)] if n else 0, 1)
-            rs["total_actual_cost"] = round(rs["total_actual_cost"], 6)
-            results.append(rs)
+            a = reg_by_role.get(role, {})
+            results.append({
+                **rs,
+                "avg_latency_ms": round(avg_lat, 1),
+                "p95_latency_ms": round(lats[min(p95_idx, n - 1)] if n else 0, 1),
+                "total_actual_cost": round(rs["total_actual_cost"], 6),
+                "registry_model": a.get("model", ""),
+                "registry_provider": a.get("provider", ""),
+                "served_name": a.get("served_name", f"synesis-{role}"),
+                "assigned": bool(a.get("assigned")),
+            })
 
-        results.sort(key=lambda x: x["request_count"], reverse=True)
         return {"roles": results, "period_days": days}
 
     except Exception:

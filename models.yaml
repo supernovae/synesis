@@ -1,6 +1,10 @@
 # ============================================================================
-# Synesis Model Registry — Single Source of Truth
+# Synesis Model Registry — build-time / bootstrap (repo + codegen)
 # ============================================================================
+#
+# Runtime model routing for a deployed cluster is configured in the admin UI
+# (Registry) and synced to LiteLLM — not by editing this file on a live system.
+# Use admin "Seed from YAML" only to re-bootstrap model_deployments from this file.
 #
 # This file defines all model roles, their defaults, and composable deployment
 # profiles. `scripts/generate-model-configs.sh --profile=<name>` reads this

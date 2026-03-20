@@ -135,6 +135,10 @@ export interface RolePerformance {
   p95_latency_ms: number;
   total_tokens: number;
   total_actual_cost: number;
+  registry_model: string;
+  registry_provider: string;
+  served_name: string;
+  assigned: boolean;
 }
 
 export interface ActiveCostEntry {

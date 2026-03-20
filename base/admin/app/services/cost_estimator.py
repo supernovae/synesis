@@ -1,4 +1,4 @@
-"""Cost estimation from models.yaml + Postgres overrides."""
+"""Cost estimation from registry-aligned get_cost_estimates (Postgres)."""
 
 from __future__ import annotations
 

@@ -157,7 +157,17 @@ export default function ModelRegistry() {
             {reconcileMut.isPending ? "Syncing..." : "Force Sync"}
           </button>
           <button
-            onClick={() => syncYaml.mutate()}
+            onClick={() => {
+              if (
+                !window.confirm(
+                  "Re-seed from models.yaml? This clears and replaces model_deployments from the mounted file. " +
+                    "Ongoing changes should be made in Registry (role assignments) instead.",
+                )
+              ) {
+                return;
+              }
+              syncYaml.mutate();
+            }}
             disabled={syncYaml.isPending}
             className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
           >
@@ -170,7 +180,10 @@ export default function ModelRegistry() {
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : roles.length === 0 ? (
-        <EmptyState title="No roles configured" description="Seed from models.yaml to set up role assignments" />
+        <EmptyState
+          title="No roles configured"
+          description="Bootstrap from models.yaml (one-time), then manage live assignments here or via PUT /api/v1/models/roles/{role}."
+        />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-3">
