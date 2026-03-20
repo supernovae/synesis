@@ -1247,6 +1247,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
         "conversation_id": conversation_id or "",
+        "request_max_tokens": request.effective_max_tokens,
     }
     if request.output_controls:
         oc = request.output_controls
@@ -1646,11 +1647,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         },
                                     )
                                     pipeline_trace = _build_pipeline_trace(accumulated_state)
+                                    _early_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
                                     yield _sse_chunk(
                                         {
                                             "id": chat_id,
                                             "object": "chat.completion.chunk",
-                                            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                                            "choices": [{"index": 0, "delta": {}, "finish_reason": _early_finish}],
                                             "usage": {
                                                 "prompt_tokens": 0,
                                                 "completion_tokens": 0,
@@ -1941,6 +1943,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_in_reasoning = False
                         _ds_first_content = False
                         _ds_usage: dict[str, int] | None = None
+                        _ds_finish_reason: str | None = None
                         _ds_fixer = StreamingBlockFixer()
                         _ds_t0 = time.monotonic()
 
@@ -1962,7 +1965,10 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 }
                             if not _ds_chunk.choices:
                                 continue
-                            _ds_delta = _ds_chunk.choices[0].delta
+                            _ds_choice = _ds_chunk.choices[0]
+                            if _ds_choice.finish_reason:
+                                _ds_finish_reason = _ds_choice.finish_reason
+                            _ds_delta = _ds_choice.delta
                             _ds_rc = getattr(_ds_delta, "reasoning_content", None) or ""
                             _ds_ct = getattr(_ds_delta, "content", None) or ""
 
@@ -2016,6 +2022,31 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     yield _sse_content_delta(chat_id, {"content": _ds_fl}, run_id=run_id)
 
                         accumulated_state["generated_code"] = _ds_full_content
+
+                        if _ds_finish_reason == "length":
+                            accumulated_state["writer_truncated"] = True
+                            _trunc_parts = []
+                            if _ds_usage:
+                                _trunc_total = _ds_usage.get("prompt_tokens", 0) + _ds_usage.get("completion_tokens", 0)
+                                if _trunc_total:
+                                    _trunc_parts.append(f"{_trunc_total:,} tokens used")
+                            _trunc_notice = (
+                                "\n\n---\n"
+                                "**Note:** This response was truncated because it reached the "
+                                "output token limit."
+                                + (f" ({', '.join(_trunc_parts)})" if _trunc_parts else "")
+                                + " You can ask me to continue from where I left off."
+                            )
+                            yield _sse_content_delta(chat_id, {"content": _trunc_notice}, run_id=run_id)
+                            _ds_full_content += _trunc_notice
+                            accumulated_state["generated_code"] = _ds_full_content
+                            logger.warning(
+                                "direct_stream_truncated",
+                                extra={
+                                    "finish_reason": "length",
+                                    "completion_tokens": _ds_usage.get("completion_tokens", 0) if _ds_usage else 0,
+                                },
+                            )
 
                         if _ds_usage:
                             _ds_node = accumulated_state.get("current_node") or "writer"
@@ -2077,7 +2108,15 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 record_memory_after_request(rss_mib, cgroup_mib)
 
                 if content_streamed:
-                    pass
+                    if accumulated_state.get("writer_truncated"):
+                        _trunc_note = (
+                            "\n\n---\n"
+                            "**Note:** This response was truncated because it reached the "
+                            "output token limit."
+                            + (f" ({total_tokens:,} tokens used)" if total_tokens else "")
+                            + " You can ask me to continue from where I left off."
+                        )
+                        yield _sse_content_delta(chat_id, {"content": _trunc_note}, run_id=run_id)
                 elif len(content) > 2000:
                     # Progressive streaming for large non-streamed content
                     # (e.g. light-mode compiler). Break on paragraph boundaries
@@ -2116,11 +2155,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
 
                 pipeline_trace = _build_pipeline_trace(accumulated_state)
+                _final_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
                 yield _sse_chunk(
                     {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": _final_finish}],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,
@@ -2271,11 +2311,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     run_id=run_id,
                 )
                 pipeline_trace = _build_pipeline_trace(result)
+                _fb_finish = "length" if (result or {}).get("writer_truncated") else "stop"
                 yield _sse_chunk(
                     {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": _fb_finish}],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,

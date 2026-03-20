@@ -746,6 +746,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 fast_budget = settings.scaled_writer_budget(difficulty)
             else:
                 fast_budget = settings.trivial_writer_budget
+            request_max = state.get("request_max_tokens") or 0
+            if request_max > fast_budget:
+                fast_budget = min(request_max, settings.writer_budget_max)
             latency = (time.monotonic() - start) * 1000
             logger.info(
                 "writer_fast_stream",
@@ -822,6 +825,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         writer_budget = max(512, min(writer_budget, settings.writer_budget_max))
     else:
         writer_budget = max(2048, min(writer_budget, settings.writer_budget_max))
+
+    request_max = state.get("request_max_tokens") or 0
+    if request_max > writer_budget:
+        writer_budget = min(request_max, settings.writer_budget_max)
 
     decisive = style_contract.get("decisive", False)
 
@@ -909,11 +916,22 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         )
 
     if sc_show_assumptions:
+        has_clarification = bool(state.get("user_answer_to_clarification"))
         system_prompt += (
             "\n\nASSUMPTION VISIBILITY:\n"
             "- Separate FACTS (evidence-backed or widely accepted), ASSUMPTIONS "
             "(reasonable but unverified), and RECOMMENDATIONS (your professional judgment).\n"
             "- Inline: tag key assumptions with [Assumption] and estimates with [Estimate].\n"
+        )
+        if has_clarification:
+            system_prompt += (
+                "- The user answered clarifying questions in this conversation. "
+                "Items that were uncertain before but are now resolved by the user's "
+                "clarification MUST be tagged [Clarified] instead of [Assumption]. "
+                "Only tag items [Assumption] if they remain genuinely unverified "
+                "after the clarification.\n"
+            )
+        system_prompt += (
             "- If a recommendation depends on an assumption, state which one.\n"
             "- Do NOT infer constraints the user did not state (team size, budget, "
             "timeline, SLAs, retention). If you must note an architectural assumption, "
@@ -935,10 +953,16 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     if (difficulty >= 0.7 and sc_show_assumptions) or (
         difficulty >= 0.6 and sc_show_assumptions and is_architecture_or_design
     ):
+        clarified_section = ""
+        if has_clarification:
+            clarified_section = (
+                "- **Clarified** — items initially uncertain that the user resolved via clarification.\n"
+            )
         system_prompt += (
             "\n\nEPISTEMIC STRUCTURE (required for high-complexity tasks):\n"
             "Your response MUST include these clearly labeled sections or subsections:\n"
-            "- **Assumptions** — things you believe are true but cannot verify from evidence.\n"
+            + clarified_section
+            + "- **Assumptions** — things you believe are true but cannot verify from evidence.\n"
             "- **Open Questions / Uncertainties** — things you do not know and cannot resolve.\n"
             "These may be standalone sections or clearly labeled subsections within "
             "the main body. Do NOT bury assumptions inside prose without labeling them.\n"
@@ -1049,6 +1073,18 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             logger.warning("writer_output_too_short")
             compiled = "*Response generation produced insufficient output.*"
 
+        # Detect truncation from upstream model (finish_reason: "length")
+        _resp_meta = getattr(result, "response_metadata", {}) or {}
+        writer_truncated = _resp_meta.get("finish_reason") == "length"
+        if writer_truncated:
+            _usage = getattr(result, "usage_metadata", {}) or {}
+            _tok_total = _usage.get("total_tokens", 0)
+            _tok_completion = _usage.get("output_tokens", 0) or _usage.get("completion_tokens", 0)
+            logger.warning(
+                "writer_output_truncated",
+                extra={"finish_reason": "length", "completion_tokens": _tok_completion, "total_tokens": _tok_total},
+            )
+
         needs_input_detected, needs_input_question = detect_needs_input(compiled)
         if needs_input_detected:
             q = needs_input_question or "I need more information to proceed. Can you provide more details?"
@@ -1086,6 +1122,20 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         sources_section = _build_sources_section(state)
         if sources_section:
             compiled = compiled + "\n\n" + sources_section
+
+        if writer_truncated:
+            _usage = getattr(result, "usage_metadata", {}) or {}
+            _tok_total = _usage.get("total_tokens", 0)
+            _tok_note_parts = []
+            if _tok_total:
+                _tok_note_parts.append(f"{_tok_total:,} tokens used")
+            compiled += (
+                "\n\n---\n"
+                "**Note:** This response was truncated because it reached the "
+                "output token limit."
+                + (f" ({', '.join(_tok_note_parts)})" if _tok_note_parts else "")
+                + " You can ask me to continue from where I left off."
+            )
 
         latency = (time.monotonic() - start) * 1000
         available_sources_count = (
@@ -1138,6 +1188,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": node_name,
             "evidence_curation": curation_report,
             "token_budget_remaining": new_budget,
+            "writer_truncated": writer_truncated,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

@@ -1018,11 +1018,20 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                     "name a specific tool, version, or approach.\n"
                 )
             if sc.get("show_assumptions"):
+                has_clarification = bool(state.get("user_answer_to_clarification"))
+                clarified_note = ""
+                if has_clarification:
+                    clarified_note = (
+                        " Items that the user resolved via clarification should be tagged "
+                        "[Clarified], NOT [Assumption]. Flag 'stale_assumption' if a "
+                        "clarified item is still marked [Assumption]."
+                    )
                 controls_block += (
                     "\nASSUMPTION LABELING CHECK: Verify the response distinguishes facts, "
                     "assumptions, and recommendations. Key assumptions should be tagged "
-                    "with [Assumption] or [Assumed Constraint], and estimates with [Estimate]. "
-                    "Flag 'false_certainty' if the response presents assumptions as established "
+                    "with [Assumption] or [Assumed Constraint], and estimates with [Estimate]."
+                    + clarified_note
+                    + " Flag 'false_certainty' if the response presents assumptions as established "
                     "facts without qualification. For difficulty >= 0.6, block (approved=false) "
                     "if the response does not clearly separate or label facts, assumptions, and "
                     "recommendations (e.g. with tags or dedicated sections).\n"

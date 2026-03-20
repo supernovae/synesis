@@ -153,6 +153,7 @@ class GraphState(TypedDict, total=False):
     # --- Executor output ---
     generated_code: str
     code_explanation: str
+    writer_truncated: bool
     patch_ops: list[Any]
 
     # --- Sandbox execution ---
@@ -444,6 +445,7 @@ class SynesisState(BaseModel):
 
     generated_code: str = ""
     code_explanation: str = ""
+    writer_truncated: bool = False
 
     execution_result: str = ""
     execution_exit_code: int | None = None
