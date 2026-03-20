@@ -1,0 +1,2328 @@
+# Bootstrap corpus — Language runtimes, web standards, package ecosystems
+# Imported via scripts/load-bootstrap.sh (all *.yaml here).
+#
+# Tags are chosen for retrieval + future MCP filters (e.g. domain=golang, tags include
+# style-guide, cli, testing, formatter, linter, framework, package-manager, iac, database).
+# Other corpus files (docs.yaml, cloud.yaml, llm.yaml) overlap by topic; ingestion dedupes
+# by uri, so add depth with different paths (e.g. Jest configuration vs getting-started in docs.yaml).
+#
+items:
+- uri: https://docs.python.org/3/tutorial/index.html
+  handler: html_document
+  title: The Python Tutorial
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - tutorial
+  - language
+  - stdlib
+  priority: 1
+- uri: https://docs.python.org/3/library/index.html
+  handler: html_document
+  title: Python Standard Library
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - stdlib
+  - reference
+  priority: 1
+- uri: https://docs.python.org/3/library/pdb.html
+  handler: html_document
+  title: pdb — The Python Debugger
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - debugger
+  - pdb
+  - troubleshooting
+  priority: 1
+- uri: https://docs.python.org/3/library/logging.html
+  handler: html_document
+  title: logging — Logging facility for Python
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - logging
+  - observability
+  - debugging
+  priority: 2
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+  handler: html_document
+  title: JavaScript Reference Overview
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - reference
+  - language
+  priority: 1
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules
+  handler: html_document
+  title: JavaScript Modules
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - modules
+  - esm
+  - imports
+  priority: 1
+- uri: https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Scripting/Debugging_JavaScript
+  handler: html_document
+  title: JavaScript Debugging and Error Handling
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - debugging
+  - errors
+  - tooling
+  priority: 2
+- uri: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html
+  handler: html_document
+  title: What is a tsconfig.json
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - tsconfig
+  - project-config
+  priority: 2
+- uri: https://www.typescriptlang.org/docs/handbook/compiler-options.html
+  handler: html_document
+  title: tsc CLI Options
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - tsc
+  - cli
+  - compiler
+  priority: 2
+- uri: https://www.typescriptlang.org/docs/handbook/project-references.html
+  handler: html_document
+  title: Project References
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - monorepo
+  - project-references
+  - build
+  priority: 2
+- uri: https://www.typescriptlang.org/tsconfig/moduleResolution.html
+  handler: html_document
+  title: moduleResolution
+  domain: typescript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - typescript
+  - module-resolution
+  - esm
+  - build
+  priority: 2
+- uri: https://docs.oracle.com/javase/tutorial/index.html
+  handler: html_document
+  title: The Java Tutorials
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - tutorial
+  - language
+  - core
+  priority: 1
+- uri: https://docs.oracle.com/javase/tutorial/java/index.html
+  handler: html_document
+  title: Learning the Java Language
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - language
+  - oop
+  - basics
+  priority: 2
+- uri: https://docs.oracle.com/javase/tutorial/java/nutsandbolts/index.html
+  handler: html_document
+  title: Language Basics
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - basics
+  - syntax
+  - control-flow
+  priority: 2
+- uri: https://docs.oracle.com/javase/tutorial/jdbc/index.html
+  handler: html_document
+  title: JDBC Database Access
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - jdbc
+  - database
+  - sql
+  priority: 2
+- uri: https://go.dev/doc/tutorial/create-module
+  handler: html_document
+  title: Create a Go Module
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - modules
+  - tutorial
+  - packaging
+  priority: 1
+- uri: https://go.dev/doc/tutorial/add-a-test
+  handler: html_document
+  title: Add a Test
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - testing
+  - go-test
+  - tutorial
+  priority: 2
+- uri: https://go.dev/doc/gdb
+  handler: html_document
+  title: Debugging Go Code with GDB
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - debugging
+  - gdb
+  - delve
+  priority: 2
+- uri: https://github.com/go-delve/delve
+  handler: html_document
+  title: Delve Debugger
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - go
+  - debugger
+  - delve
+  - dap
+  priority: 2
+- uri: https://doc.rust-lang.org/book/appendix-04-useful-development-tools.html
+  handler: html_document
+  title: Useful Development Tools
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - clippy
+  - rustfmt
+  - development-tools
+  priority: 1
+- uri: https://doc.rust-lang.org/cargo/commands/cargo-fmt.html
+  handler: html_document
+  title: cargo fmt
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - cargo
+  - formatting
+  - rustfmt
+  priority: 2
+- uri: https://doc.rust-lang.org/cargo/reference/environment-variables.html
+  handler: html_document
+  title: Cargo Environment Variables
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - cargo
+  - env
+  - build
+  priority: 2
+- uri: https://doc.rust-lang.org/reference/attributes.html
+  handler: html_document
+  title: 'Rust Reference: Attributes'
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - attributes
+  - reference
+  - syntax
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/logging/?view=aspnetcore-10.0
+  handler: html_document
+  title: Logging in .NET and ASP.NET Core
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - logging
+  - aspnet
+  - observability
+  priority: 1
+- uri: https://learn.microsoft.com/en-us/nuget/create-packages/creating-a-package-dotnet-cli
+  handler: html_document
+  title: Create a NuGet package with the dotnet CLI
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - nuget
+  - packaging
+  priority: 1
+- uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-dump
+  handler: html_document
+  title: dotnet-dump
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - dump
+  - debugging
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-counters
+  handler: html_document
+  title: dotnet-counters
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - performance
+  - counters
+  - diagnostics
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/diagnostics/dotnet-debugger-extensions
+  handler: html_document
+  title: dotnet-debugger-extensions
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - debugger
+  - lldb
+  - windbg
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-publish
+  handler: html_document
+  title: dotnet publish
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - publish
+  - build
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-restore
+  handler: html_document
+  title: dotnet restore
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - restore
+  - dependencies
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-package-add
+  handler: html_document
+  title: dotnet package add
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - package
+  - nuget
+  priority: 2
+- uri: https://en.cppreference.com/w/cpp/language
+  handler: html_document
+  title: cppreference C++ Language
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - c++
+  - reference
+  - language
+  priority: 1
+- uri: https://en.cppreference.com/w/c/language
+  handler: html_document
+  title: cppreference C Language
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - reference
+  - language
+  priority: 1
+- uri: https://www.gnu.org/software/gdb/documentation/
+  handler: html_document
+  title: GDB Documentation
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - cpp
+  - gdb
+  - debugging
+  priority: 2
+- uri: https://lldb.llvm.org/
+  handler: html_document
+  title: LLDB Documentation
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - c
+  - cpp
+  - lldb
+  - debugging
+  priority: 2
+- uri: https://www.php.net/manual/en/index.php
+  handler: html_document
+  title: PHP Manual
+  domain: php
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - manual
+  - language
+  - reference
+  priority: 1
+- uri: https://www.php.net/manual/en/language.oop5.autoload.php
+  handler: html_document
+  title: Autoloading Classes
+  domain: php
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - autoload
+  - composer
+  - oop
+  priority: 2
+- uri: https://www.php.net/manual/en/features.commandline.webserver.php
+  handler: html_document
+  title: Built-in Web Server
+  domain: php
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - cli
+  - webserver
+  - dev-server
+  priority: 2
+- uri: https://bundler.io/docs.html
+  handler: html_document
+  title: Bundler Documentation
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - bundler
+  - dependencies
+  - tooling
+  priority: 1
+- uri: https://bundler.io/guides/rubygems.html
+  handler: html_document
+  title: Bundler in Gems
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - bundler
+  - gems
+  - packaging
+  priority: 1
+- uri: https://guides.rubygems.org/make-your-own-gem/
+  handler: html_document
+  title: Make Your Own Gem
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rubygems
+  - packaging
+  - tutorial
+  priority: 2
+- uri: https://rspec.info/
+  handler: html_document
+  title: RSpec
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rspec
+  - testing
+  - bdd
+  priority: 2
+- uri: https://maven.apache.org/guides/getting-started/
+  handler: html_document
+  title: Maven Getting Started Guide
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - build
+  - dependencies
+  priority: 1
+- uri: https://maven.apache.org/guides/getting-started/maven-in-five-minutes.html
+  handler: html_document
+  title: Maven in 5 Minutes
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - quickstart
+  priority: 1
+- uri: https://docs.gradle.org/
+  handler: html_document
+  title: Gradle User Manual
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - build
+  - plugins
+  priority: 1
+- uri: https://docs.gradle.org/current/userguide/getting_started_eng.html
+  handler: html_document
+  title: Gradle Getting Started
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - tutorial
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/gradle_basics.html
+  handler: html_document
+  title: Gradle Core Concepts
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - core-concepts
+  - build
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/plugins.html
+  handler: html_document
+  title: Introduction to Plugins
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - plugins
+  - extension-model
+  priority: 2
+- uri: https://developer.mozilla.org/en-US/docs/Web/HTML
+  handler: html_document
+  title: HTML on MDN
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - html
+  - mdn
+  - reference
+  priority: 1
+- uri: https://datatracker.ietf.org/doc/html/rfc9110
+  handler: html_document
+  title: HTTP Semantics (RFC 9110)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - http
+  - rfc
+  - semantics
+  priority: 1
+- uri: https://fetch.spec.whatwg.org/
+  handler: html_document
+  title: Fetch Standard
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - fetch
+  - standard
+  - cors
+  priority: 1
+- uri: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS
+  handler: html_document
+  title: CORS Guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - cors
+  - http
+  - security
+  priority: 2
+- uri: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Resources_and_specifications
+  handler: html_document
+  title: HTTP Resources and Specifications
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - http
+  - spec-index
+  - reference
+  priority: 2
+- uri: https://developer.mozilla.org/en-US/docs/Learn_web_development/Getting_started/Web_standards/The_web_standards_model
+  handler: html_document
+  title: Web Standards Model
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - standards
+  - html
+  - css
+  - js
+  priority: 2
+- uri: https://www.w3.org/TR/fetch-metadata/
+  handler: html_document
+  title: Fetch Metadata Request Headers
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - web
+  - security
+  - fetch-metadata
+  - headers
+  priority: 2
+- uri: https://spec.openapis.org/arazzo/latest.html
+  handler: html_document
+  title: Arazzo Specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - api
+  - workflow
+  - openapi
+  - orchestration
+  priority: 2
+- uri: https://opentofu.org/docs/
+  handler: html_document
+  title: OpenTofu Documentation
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - opentofu
+  - iac
+  - terraform-compatible
+  - docs
+  priority: 2
+- uri: https://opentofu.org/docs/language/
+  handler: html_document
+  title: OpenTofu Language Documentation
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - opentofu
+  - language
+  - iac
+  - reference
+  priority: 2
+- uri: https://peps.python.org/pep-0008/
+  handler: html_document
+  title: PEP 8 — Style Guide for Python Code
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - style-guide
+  - formatting
+  - reference
+  priority: 1
+- uri: https://docs.python.org/3/howto/typing.html
+  handler: html_document
+  title: Python typing support (how-to)
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - typing
+  - types
+  - guide
+  priority: 2
+- uri: https://docs.python.org/3/library/venv.html
+  handler: html_document
+  title: venv — Creation of virtual environments
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - venv
+  - tooling
+  - package-manager
+  priority: 1
+- uri: https://docs.python.org/3/library/pathlib.html
+  handler: html_document
+  title: pathlib — Object-oriented filesystem paths
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - stdlib
+  - filesystem
+  - reference
+  priority: 2
+- uri: https://docs.python.org/3/library/asyncio.html
+  handler: html_document
+  title: asyncio — Asynchronous I/O
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - async
+  - concurrency
+  - reference
+  priority: 2
+- uri: https://docs.python.org/3/library/unittest.html
+  handler: html_document
+  title: unittest — Unit testing framework
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - testing
+  - stdlib
+  - reference
+  priority: 2
+- uri: https://packaging.python.org/en/latest/tutorials/packaging-projects/
+  handler: html_document
+  title: Packaging Python projects (tutorial)
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - packaging
+  - distribution
+  - tutorial
+  priority: 2
+- uri: https://setuptools.pypa.io/en/latest/
+  handler: html_document
+  title: setuptools documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - packaging
+  - build
+  - reference
+  priority: 2
+- uri: https://python-poetry.org/docs/
+  handler: html_document
+  title: Poetry documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - poetry
+  - package-manager
+  - tooling
+  priority: 2
+- uri: https://docs.astral.sh/uv/
+  handler: html_document
+  title: uv package manager and installer
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - uv
+  - package-manager
+  - tooling
+  priority: 2
+- uri: https://black.readthedocs.io/en/stable/
+  handler: html_document
+  title: Black code formatter
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - black
+  - formatter
+  - tooling
+  priority: 2
+- uri: https://mypy.readthedocs.io/en/stable/
+  handler: html_document
+  title: mypy static type checker
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - mypy
+  - typing
+  - linter
+  priority: 2
+- uri: https://docs.pydantic.dev/latest/
+  handler: html_document
+  title: Pydantic documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pydantic
+  - validation
+  - framework
+  priority: 2
+- uri: https://docs.djangoproject.com/en/stable/
+  handler: html_document
+  title: Django documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - django
+  - web
+  - framework
+  priority: 2
+- uri: https://flask.palletsprojects.com/en/stable/
+  handler: html_document
+  title: Flask documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - flask
+  - web
+  - framework
+  priority: 2
+- uri: https://docs.pytest.org/en/stable/
+  handler: html_document
+  title: pytest documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pytest
+  - testing
+  - tooling
+  priority: 1
+- uri: https://numpy.org/doc/stable/
+  handler: html_document
+  title: NumPy reference documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - numpy
+  - data-science
+  - reference
+  priority: 2
+- uri: https://pandas.pydata.org/docs/
+  handler: html_document
+  title: pandas documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - pandas
+  - data-science
+  - reference
+  priority: 2
+- uri: https://docs.sqlalchemy.org/en/20/
+  handler: html_document
+  title: SQLAlchemy 2.0 documentation
+  domain: python
+  authority: vetted
+  origin_type: curated
+  tags:
+  - python
+  - sqlalchemy
+  - orm
+  - database
+  priority: 2
+- uri: https://google.github.io/styleguide/jsguide.html
+  handler: html_document
+  title: Google JavaScript Style Guide
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - style-guide
+  - conventions
+  priority: 2
+- uri: https://eslint.org/docs/latest/
+  handler: html_document
+  title: ESLint documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - eslint
+  - linter
+  - tooling
+  priority: 2
+- uri: https://prettier.io/docs/en/
+  handler: html_document
+  title: Prettier documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - prettier
+  - formatter
+  - tooling
+  priority: 2
+- uri: https://vitest.dev/guide/
+  handler: html_document
+  title: Vitest guide
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - vitest
+  - testing
+  - tooling
+  priority: 2
+- uri: https://pnpm.io/motivation
+  handler: html_document
+  title: pnpm — fast, disk space efficient package manager
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - pnpm
+  - package-manager
+  - tooling
+  priority: 2
+- uri: https://yarnpkg.com/getting-started
+  handler: html_document
+  title: Yarn getting started
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - yarn
+  - package-manager
+  - tooling
+  priority: 2
+- uri: https://nodejs.org/en/learn/getting-started/introduction-to-nodejs
+  handler: html_document
+  title: Introduction to Node.js
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - runtime
+  - guide
+  priority: 2
+- uri: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions
+  handler: html_document
+  title: JavaScript regular expressions (MDN)
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - regex
+  - reference
+  - guide
+  priority: 2
+- uri: https://react.dev/learn
+  handler: html_document
+  title: React — Learn
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - react
+  - ui
+  - framework
+  priority: 2
+- uri: https://vuejs.org/guide/introduction.html
+  handler: html_document
+  title: Vue.js — Introduction
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - vue
+  - ui
+  - framework
+  priority: 2
+- uri: https://angular.dev/overview
+  handler: html_document
+  title: Angular documentation overview
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - angular
+  - ui
+  - framework
+  priority: 2
+- uri: https://svelte.dev/docs/svelte/overview
+  handler: html_document
+  title: Svelte overview
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - svelte
+  - ui
+  - framework
+  priority: 2
+- uri: https://go.dev/doc/modules/
+  handler: html_document
+  title: Go modules reference
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - golang
+  - modules
+  - dependencies
+  - reference
+  priority: 1
+- uri: https://go.dev/doc/comment
+  handler: html_document
+  title: Go doc comments
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - golang
+  - documentation
+  - conventions
+  - reference
+  priority: 2
+- uri: https://golangci-lint.run/welcome/install/
+  handler: html_document
+  title: golangci-lint
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - golang
+  - golangci-lint
+  - linter
+  - tooling
+  priority: 2
+- uri: https://pkg.go.dev/std
+  handler: html_document
+  title: Go standard library (pkg.go.dev)
+  domain: golang
+  authority: vetted
+  origin_type: curated
+  tags:
+  - golang
+  - stdlib
+  - reference
+  priority: 1
+- uri: https://doc.rust-lang.org/clippy/
+  handler: html_document
+  title: Clippy lint collection
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - clippy
+  - linter
+  - tooling
+  priority: 2
+- uri: https://rust-lang.github.io/rustfmt/
+  handler: html_document
+  title: rustfmt — code formatter
+  domain: rust
+  authority: vetted
+  origin_type: curated
+  tags:
+  - rust
+  - rustfmt
+  - formatter
+  - tooling
+  priority: 2
+- uri: https://google.github.io/styleguide/javaguide.html
+  handler: html_document
+  title: Google Java Style Guide
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - style-guide
+  - conventions
+  priority: 2
+- uri: https://maven.apache.org/guides/introduction/introduction-to-the-pom.html
+  handler: html_document
+  title: Maven — Introduction to the POM
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - build
+  - reference
+  priority: 2
+- uri: https://maven.apache.org/guides/introduction/introduction-to-the-lifecycle.html
+  handler: html_document
+  title: Maven — Build Lifecycle
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - maven
+  - build
+  - reference
+  priority: 2
+- uri: https://spring.io/guides/gs/spring-boot
+  handler: html_document
+  title: Spring Boot getting started
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - spring-boot
+  - framework
+  - guide
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions
+  handler: html_document
+  title: C# coding conventions
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - style-guide
+  - conventions
+  - dotnet
+  priority: 2
+- uri: https://xunit.net/docs/getting-started/netcore/cmdline
+  handler: html_document
+  title: xUnit.net — getting started (.NET CLI)
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - xunit
+  - testing
+  - dotnet
+  priority: 2
+- uri: https://google.github.io/styleguide/cppguide.html
+  handler: html_document
+  title: Google C++ Style Guide
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - style-guide
+  - conventions
+  priority: 2
+- uri: https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+  handler: html_document
+  title: ClangFormat style options
+  domain: cpp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - cpp
+  - clang-format
+  - formatter
+  - tooling
+  priority: 2
+- uri: https://www.php-fig.org/psr/psr-12/
+  handler: html_document
+  title: PSR-12 — Extended Coding Style
+  domain: php
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - psr-12
+  - style-guide
+  - conventions
+  priority: 2
+- uri: https://www.php.net/manual/en/language.oop5.php
+  handler: html_document
+  title: PHP classes and objects
+  domain: php
+  authority: vetted
+  origin_type: curated
+  tags:
+  - php
+  - oop
+  - language
+  - reference
+  priority: 2
+- uri: https://docs.rubocop.org/rubocop/
+  handler: html_document
+  title: RuboCop documentation
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rubocop
+  - linter
+  - style-guide
+  priority: 2
+- uri: https://bundler.io/guides/getting_started.html
+  handler: html_document
+  title: Bundler getting started
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - bundler
+  - package-manager
+  - tooling
+  priority: 2
+- uri: https://guides.rubyonrails.org/
+  handler: html_document
+  title: Ruby on Rails Guides
+  domain: ruby
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ruby
+  - rails
+  - web
+  - framework
+  priority: 2
+- uri: https://jqlang.github.io/jq/manual/
+  handler: html_document
+  title: jq manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - jq
+  - cli
+  - json
+  - tooling
+  - reference
+  priority: 1
+- uri: https://cli.github.com/manual/
+  handler: html_document
+  title: GitHub CLI manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - github
+  - gh
+  - cli
+  - tooling
+  - reference
+  priority: 1
+- uri: https://curl.se/docs/manual.html
+  handler: html_document
+  title: curl manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - curl
+  - cli
+  - http
+  - tooling
+  - reference
+  priority: 1
+- uri: https://git-scm.com/docs/git
+  handler: html_document
+  title: git command reference (overview)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - git
+  - cli
+  - vcs
+  - reference
+  priority: 1
+- uri: https://git-scm.com/docs/git-rebase
+  handler: html_document
+  title: git-rebase
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - git
+  - rebase
+  - cli
+  - vcs
+  - reference
+  priority: 2
+- uri: https://semver.org/lang/en/
+  handler: html_document
+  title: Semantic Versioning specification (English)
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - semver
+  - versioning
+  - reference
+  - conventions
+  priority: 2
+- uri: https://pre-commit.com/
+  handler: html_document
+  title: pre-commit framework
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - pre-commit
+  - hooks
+  - tooling
+  - quality
+  priority: 2
+- uri: https://editorconfig.org/
+  handler: html_document
+  title: EditorConfig
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - editorconfig
+  - formatting
+  - tooling
+  - conventions
+  priority: 2
+- uri: https://www.gnu.org/software/make/manual/make.html
+  handler: html_document
+  title: GNU Make manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - make
+  - build
+  - cli
+  - reference
+  priority: 2
+- uri: https://www.gnu.org/software/sed/manual/sed.html
+  handler: html_document
+  title: GNU sed manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sed
+  - cli
+  - unix
+  - reference
+  priority: 2
+- uri: https://www.gnu.org/software/gawk/manual/gawk.html
+  handler: html_document
+  title: GNU awk manual
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - awk
+  - gawk
+  - cli
+  - unix
+  - reference
+  priority: 2
+- uri: https://protobuf.dev/programming-guides/proto3/
+  handler: html_document
+  title: Protocol Buffers — proto3 language guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - protobuf
+  - serialization
+  - api
+  - reference
+  priority: 2
+- uri: https://kubernetes.io/docs/reference/kubectl/quick-reference/
+  handler: html_document
+  title: kubectl quick reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubectl
+  - kubernetes
+  - cli
+  - reference
+  priority: 2
+- uri: https://helm.sh/docs/intro/using_helm/
+  handler: html_document
+  title: Using Helm
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - helm
+  - kubernetes
+  - cli
+  - package-manager
+  priority: 2
+- uri: https://docs.github.com/en/actions/learn-github-actions/understanding-github-actions
+  handler: html_document
+  title: Understanding GitHub Actions
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - github
+  - github-actions
+  - ci
+  - guide
+  priority: 2
+- uri: https://docs.github.com/en/rest
+  handler: html_document
+  title: GitHub REST API documentation
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - github
+  - rest
+  - api
+  - reference
+  priority: 2
+- uri: https://docs.github.com/en/search-github/searching-on-github
+  handler: html_document
+  title: Searching on GitHub
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - github
+  - search
+  - cli
+  - reference
+  priority: 2
+- uri: https://www.postgresql.org/docs/current/tutorial.html
+  handler: html_document
+  title: PostgreSQL tutorial
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - postgresql
+  - sql
+  - database
+  - tutorial
+  priority: 2
+- uri: https://sqlite.org/lang.html
+  handler: html_document
+  title: SQLite SQL language reference
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sqlite
+  - sql
+  - database
+  - reference
+  priority: 2
+- uri: https://redis.io/docs/latest/develop/connect/cli/
+  handler: html_document
+  title: Redis CLI guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - redis
+  - cli
+  - database
+  - reference
+  priority: 2
+- uri: https://nginx.org/en/docs/beginners_guide.html
+  handler: html_document
+  title: nginx beginners guide
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - nginx
+  - web-server
+  - proxy
+  - guide
+  priority: 2
+- uri: https://developer.hashicorp.com/terraform/cli
+  handler: html_document
+  title: Terraform CLI documentation
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - cli
+  - iac
+  - reference
+  priority: 2
+- uri: https://developer.hashicorp.com/terraform/language/tests
+  handler: html_document
+  title: Terraform tests
+  domain: terraform
+  authority: vetted
+  origin_type: curated
+  tags:
+  - terraform
+  - testing
+  - iac
+  - reference
+  priority: 2
+- uri: https://www.markdownguide.org/basic-syntax/
+  handler: html_document
+  title: Markdown basic syntax
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - markdown
+  - documentation
+  - reference
+  priority: 2
+- uri: https://spec.commonmark.org/0.31.2/
+  handler: html_document
+  title: CommonMark specification 0.31.2
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - markdown
+  - commonmark
+  - spec
+  - reference
+  priority: 2
+- uri: https://yaml.org/spec/1.2.2/
+  handler: html_document
+  title: YAML 1.2.2 specification
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - yaml
+  - config
+  - spec
+  - reference
+  priority: 2
+- uri: https://playwright.dev/docs/intro
+  handler: html_document
+  title: Playwright — Getting started
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  - tooling
+  priority: 1
+- uri: https://playwright.dev/docs/writing-tests
+  handler: html_document
+  title: Playwright — Writing tests
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  priority: 2
+- uri: https://playwright.dev/docs/best-practices
+  handler: html_document
+  title: Playwright — Best practices
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - playwright
+  - e2e
+  - testing
+  - guide
+  priority: 2
+- uri: https://playwright.dev/docs/test-fixtures
+  handler: html_document
+  title: Playwright — Test fixtures
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - playwright
+  - testing
+  - patterns
+  priority: 2
+- uri: https://playwright.dev/docs/ci
+  handler: html_document
+  title: Playwright — CI
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - playwright
+  - ci
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/core-concepts/writing-and-organizing-tests
+  handler: html_document
+  title: Cypress — Writing and organizing tests
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/end-to-end-testing/writing-your-first-end-to-end-test
+  handler: html_document
+  title: Cypress — First end-to-end test
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  - tutorial
+  priority: 2
+- uri: https://docs.cypress.io/app/core-concepts/interacting-with-elements
+  handler: html_document
+  title: Cypress — Interacting with elements
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - e2e
+  - testing
+  - reference
+  priority: 2
+- uri: https://jestjs.io/docs/configuration
+  handler: html_document
+  title: Jest — Configuration
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - jest
+  - testing
+  - configuration
+  priority: 2
+- uri: https://jestjs.io/docs/mock-functions
+  handler: html_document
+  title: Jest — Mock functions
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - jest
+  - testing
+  - mocking
+  priority: 2
+- uri: https://jestjs.io/docs/expect
+  handler: html_document
+  title: Jest — Expect
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - jest
+  - testing
+  - assertions
+  priority: 2
+- uri: https://jestjs.io/docs/jest-object
+  handler: html_document
+  title: Jest — The Jest object
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - jest
+  - testing
+  - reference
+  priority: 2
+- uri: https://jestjs.io/docs/snapshot-testing
+  handler: html_document
+  title: Jest — Snapshot testing
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - jest
+  - testing
+  - snapshots
+  priority: 2
+- uri: https://testing-library.com/docs/guiding-principles/
+  handler: html_document
+  title: Testing Library — Guiding principles
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - testing-library
+  - testing
+  - guide
+  priority: 2
+- uri: https://testing-library.com/docs/react-testing-library/intro/
+  handler: html_document
+  title: React Testing Library — Introduction
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - testing-library
+  - react
+  - testing
+  priority: 2
+- uri: https://testing-library.com/docs/dom-testing-library/intro/
+  handler: html_document
+  title: DOM Testing Library — Introduction
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - testing-library
+  - dom
+  - testing
+  priority: 2
+- uri: https://mswjs.io/docs/
+  handler: html_document
+  title: Mock Service Worker (MSW) documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - msw
+  - mocking
+  - api
+  - testing
+  priority: 2
+- uri: https://vitest.dev/guide/mocking.html
+  handler: html_document
+  title: Vitest — Mocking
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - vitest
+  - testing
+  - mocking
+  priority: 2
+- uri: https://nodejs.org/api/test.html
+  handler: html_document
+  title: Node.js — test runner
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nodejs
+  - testing
+  - tooling
+  priority: 2
+- uri: https://nextjs.org/docs
+  handler: html_document
+  title: Next.js documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - nextjs
+  - react
+  - framework
+  - web
+  priority: 2
+- uri: https://tailwindcss.com/docs/installation
+  handler: html_document
+  title: Tailwind CSS — Installation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - tailwindcss
+  - css
+  - styling
+  - tooling
+  priority: 2
+- uri: https://storybook.js.org/docs
+  handler: html_document
+  title: Storybook documentation
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - storybook
+  - components
+  - ui
+  - tooling
+  priority: 2
+- uri: https://graphql.org/learn/
+  handler: html_document
+  title: GraphQL — Learn
+  domain: generalist
+  authority: vetted
+  origin_type: curated
+  tags:
+  - graphql
+  - api
+  - query
+  - tutorial
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/ef/core/
+  handler: html_document
+  title: Entity Framework Core documentation
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - ef-core
+  - orm
+  - database
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis
+  handler: html_document
+  title: ASP.NET Core — Minimal APIs
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspnet
+  - web
+  - api
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection
+  handler: html_document
+  title: .NET — Dependency injection
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - di
+  - patterns
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/core/extensions/configuration
+  handler: html_document
+  title: .NET — Configuration
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - configuration
+  - patterns
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/csharp/asynchronous-programming/
+  handler: html_document
+  title: C# — Asynchronous programming
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - async
+  - concurrency
+  - guide
+  priority: 2
+- uri: https://docs.nunit.org/articles/nunit/intro.html
+  handler: html_document
+  title: NUnit — Introduction
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - nunit
+  - testing
+  priority: 2
+- uri: https://kotlinlang.org/docs/coding-conventions.html
+  handler: html_document
+  title: Kotlin coding conventions
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - style-guide
+  - conventions
+  priority: 2
+- uri: https://kotlinlang.org/docs/null-safety.html
+  handler: html_document
+  title: Kotlin null safety
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - language
+  - types
+  - reference
+  priority: 2
+- uri: https://kotlinlang.org/docs/serialization.html
+  handler: html_document
+  title: Kotlin serialization
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - serialization
+  - data
+  - reference
+  priority: 2
+- uri: https://kotlinlang.org/docs/multiplatform.html
+  handler: html_document
+  title: Kotlin Multiplatform
+  domain: kotlin
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kotlin
+  - multiplatform
+  - mobile
+  - guide
+  priority: 2
+- uri: https://webdriver.io/docs/gettingstarted
+  handler: html_document
+  title: WebdriverIO — Getting started
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - browser-automation
+  priority: 2
+- uri: https://webdriver.io/docs/configuration
+  handler: html_document
+  title: WebdriverIO — Configuration
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - configuration
+  priority: 2
+- uri: https://webdriver.io/docs/selectors
+  handler: html_document
+  title: WebdriverIO — Selectors
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - reference
+  priority: 2
+- uri: https://webdriver.io/docs/api/browser
+  handler: html_document
+  title: WebdriverIO — Browser API
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - webdriverio
+  - e2e
+  - testing
+  - api
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/get-started
+  handler: html_document
+  title: Cypress — Component testing get started
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/react/overview
+  handler: html_document
+  title: Cypress — Component testing for React
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - react
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/angular/overview
+  handler: html_document
+  title: Cypress — Component testing for Angular
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - angular
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/styling-components
+  handler: html_document
+  title: Cypress — Styling components (component testing)
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - styling
+  - testing
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview
+  handler: html_document
+  title: .NET Aspire — Overview
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - cloud-native
+  - guide
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview
+  handler: html_document
+  title: .NET Aspire — App host
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - app-host
+  - orchestration
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/networking-overview
+  handler: html_document
+  title: .NET Aspire — Networking
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - networking
+  - service-discovery
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/deployment/overview
+  handler: html_document
+  title: .NET Aspire — Deployment overview
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - deployment
+  - kubernetes
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/kotlin_dsl.html
+  handler: html_document
+  title: Gradle Kotlin DSL primer
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - kotlin-dsl
+  - build
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/migrating_from_groovy_to_kotlin_dsl.html
+  handler: html_document
+  title: Gradle — Migrating from Groovy to Kotlin DSL
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - kotlin-dsl
+  - migration
+  - build
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/writing_build_scripts.html
+  handler: html_document
+  title: Gradle — Writing build scripts
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - build
+  - reference
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/vue/overview
+  handler: html_document
+  title: Cypress — Component testing for Vue
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - vue
+  - testing
+  priority: 2
+- uri: https://docs.cypress.io/app/component-testing/vue/examples
+  handler: html_document
+  title: Cypress — Vue component testing examples
+  domain: javascript
+  authority: vetted
+  origin_type: curated
+  tags:
+  - javascript
+  - cypress
+  - component-testing
+  - vue
+  - testing
+  - examples
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/telemetry
+  handler: html_document
+  title: .NET Aspire — Telemetry
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - telemetry
+  - opentelemetry
+  - observability
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard
+  handler: html_document
+  title: .NET Aspire — Dashboard
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - dashboard
+  - observability
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/health-checks
+  handler: html_document
+  title: .NET Aspire — Health checks
+  domain: csharp
+  authority: vetted
+  origin_type: curated
+  tags:
+  - csharp
+  - dotnet
+  - aspire
+  - health-checks
+  - observability
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/dependency_management_for_java_projects.html
+  handler: html_document
+  title: Gradle — Dependency management for Java projects
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - dependencies
+  - build
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/declaring_dependencies.html
+  handler: html_document
+  title: Gradle — Declaring dependencies
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - dependencies
+  - reference
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/dependency_constraints.html
+  handler: html_document
+  title: Gradle — Dependency constraints
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - dependencies
+  - constraints
+  priority: 2
+- uri: https://docs.gradle.org/current/userguide/version_catalogs.html
+  handler: html_document
+  title: Gradle — Version catalogs
+  domain: java
+  authority: vetted
+  origin_type: curated
+  tags:
+  - java
+  - gradle
+  - dependencies
+  - version-catalog
+  priority: 2

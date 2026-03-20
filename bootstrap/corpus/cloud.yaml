@@ -1,0 +1,442 @@
+# Bootstrap corpus — Cloud & platform (Well-Architected, Kubernetes, DevOps)
+# Imported via scripts/load-bootstrap.sh (all *.yaml here).
+#
+items:
+- uri: https://docs.aws.amazon.com/wellarchitected/latest/framework/welcome.html
+  handler: html_document
+  title: AWS Well-Architected Framework
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - tradeoffs
+  - reliability
+  - security
+  - cost
+  - performance
+  priority: 1
+- uri: https://c4model.com/diagrams
+  handler: html_document
+  title: C4 Model Diagrams
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - architecture
+  - diagramming
+  - system-views
+  priority: 2
+- uri: https://sre.google/resources/
+  handler: html_document
+  title: Google SRE Resource Library
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - operations
+  - monitoring
+  - incident-response
+  priority: 1
+- uri: https://sre.google/books/
+  handler: html_document
+  title: Google SRE Books
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - reliability
+  - operations
+  - secure-systems
+  priority: 1
+- uri: https://sre.google/sre-book/table-of-contents/
+  handler: html_document
+  title: Google SRE Book TOC
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - sre
+  - slos
+  - toil
+  - release-engineering
+  - monitoring
+  priority: 2
+- uri: https://cloud.google.com/architecture/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning
+  handler: html_document
+  title: 'Google Cloud: MLOps Best Practices'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - deployment
+  - ci-cd
+  - monitoring
+  - google-cloud
+  priority: 1
+- uri: https://docs.aws.amazon.com/prescriptive-guidance/latest/mlops-planning-framework/welcome.html
+  handler: html_document
+  title: 'AWS: MLOps Foundation Roadmap'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - deployment
+  - aws
+  - roadmap
+  - production
+  priority: 1
+- uri: https://huyenchip.com/ml-systems-design.html
+  handler: html_document
+  title: 'Chip Huyen: Designing Machine Learning Systems (Monitoring Chapter)'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlops
+  - monitoring
+  - evaluation
+  - production
+  - system-design
+  priority: 1
+- uri: https://launchdarkly.com/solutions/ai/
+  handler: html_document
+  title: 'Feature Flagging for ML: LaunchDarkly AI Config'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - feature-flags
+  - a-b-testing
+  - rollout
+  - launchdarkly
+  - ml
+  priority: 2
+- uri: https://mlflow.org/docs/latest/model-registry.html
+  handler: html_document
+  title: 'MLflow: Model Registry and Deployment'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - mlflow
+  - model-registry
+  - deployment
+  - versioning
+  - production
+  priority: 2
+- uri: https://wandb.ai/site/solutions/llm-monitoring
+  handler: html_document
+  title: 'Weights & Biases: LLM Monitoring in Production'
+  domain: devops
+  authority: vetted
+  origin_type: curated
+  tags:
+  - monitoring
+  - llm
+  - production
+  - wandb
+  - observability
+  priority: 2
+- uri: https://kserve.github.io/kserve/
+  handler: html_document
+  title: 'KServe: Kubernetes InferenceService'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kserve
+  - kubernetes
+  - inference
+  - model-serving
+  - autoscaling
+  priority: 1
+- uri: https://kserve.github.io/kserve/master/reference/architecture/
+  handler: html_document
+  title: 'KServe: Architecture Overview'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kserve
+  - architecture
+  - kubernetes
+  - inference-graph
+  - serving
+  priority: 1
+- uri: https://kubernetes.io/docs/concepts/workloads/best-practices/
+  handler: html_document
+  title: 'Kubernetes: AI/ML Workload Best Practices'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - kubernetes
+  - ai-workloads
+  - gpu
+  - scheduling
+  - best-practices
+  priority: 1
+- uri: https://docs.ray.io/en/latest/serve/index.html
+  handler: html_document
+  title: 'Ray Serve: Scalable Model Serving'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - ray-serve
+  - model-serving
+  - scalable
+  - batching
+  - kubernetes
+  priority: 2
+- uri: https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html
+  handler: html_document
+  title: NVIDIA Triton Inference Server
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - triton
+  - nvidia
+  - inference
+  - model-serving
+  - gpu
+  priority: 2
+- uri: https://vllm.ai/blog/stack-release
+  handler: html_document
+  title: 'vLLM Production Stack: High Performance Deployment in Kubernetes'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - kubernetes
+  - production
+  - helm
+  - autoscaling
+  - kv-cache
+  priority: 1
+- uri: https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes
+  handler: html_document
+  title: 'Red Hat: Deploy and Benchmark vLLM with GuideLLM on Kubernetes'
+  domain: kubernetes
+  authority: vetted
+  origin_type: curated
+  tags:
+  - vllm
+  - kubernetes
+  - benchmark
+  - red-hat
+  - openshift
+  - guidellm
+  priority: 1
+- uri: https://docs.docker.com/reference/dockerfile/
+  handler: html_document
+  title: Dockerfile Reference
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - dockerfile
+  - build
+  - reference
+  priority: 1
+- uri: https://docs.docker.com/build/concepts/dockerfile/
+  handler: html_document
+  title: Dockerfile Overview
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - dockerfile
+  - overview
+  - images
+  priority: 1
+- uri: https://docs.docker.com/build/building/best-practices/
+  handler: html_document
+  title: Building Best Practices
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - best-practices
+  - images
+  - security
+  priority: 1
+- uri: https://docs.docker.com/reference/compose-file/
+  handler: html_document
+  title: Compose File Reference
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - compose
+  - yaml
+  - reference
+  priority: 1
+- uri: https://docs.docker.com/reference/compose-file/build/
+  handler: html_document
+  title: Compose Build Specification
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - compose
+  - build
+  - spec
+  priority: 2
+- uri: https://docs.docker.com/compose/gettingstarted/
+  handler: html_document
+  title: Docker Compose Quickstart
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - compose
+  - quickstart
+  - dev-workflow
+  priority: 2
+- uri: https://docs.docker.com/compose/intro/compose-application-model/
+  handler: html_document
+  title: How Compose Works
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - compose
+  - application-model
+  - merge-rules
+  priority: 2
+- uri: https://docs.docker.com/compose/how-tos/environment-variables/best-practices/
+  handler: html_document
+  title: Compose Env Var Best Practices
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - docker
+  - compose
+  - env
+  - secrets
+  - best-practices
+  priority: 2
+- uri: https://docs.aws.amazon.com/cli/
+  handler: html_document
+  title: AWS CLI Documentation
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - cli
+  - cloud
+  - tooling
+  priority: 2
+- uri: https://docs.aws.amazon.com/cli/latest/reference/
+  handler: html_document
+  title: AWS CLI Command Reference
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - cli
+  - reference
+  - automation
+  priority: 2
+- uri: https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html
+  handler: html_document
+  title: AWS CLI Getting Started
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - aws
+  - cli
+  - getting-started
+  - automation
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/cli/azure/?view=azure-cli-latest
+  handler: html_document
+  title: Azure CLI Documentation
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - cli
+  - cloud
+  - tooling
+  priority: 2
+- uri: https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli?view=azure-cli-latest
+  handler: html_document
+  title: Get Started with Azure CLI
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - azure
+  - cli
+  - getting-started
+  priority: 2
+- uri: https://docs.cloud.google.com/sdk/docs
+  handler: html_document
+  title: Google Cloud SDK Documentation
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - gcloud
+  - sdk
+  - cloud
+  priority: 2
+- uri: https://docs.cloud.google.com/sdk/gcloud
+  handler: html_document
+  title: gcloud CLI Overview
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - gcloud
+  - cli
+  - overview
+  priority: 2
+- uri: https://docs.cloud.google.com/sdk/gcloud/reference
+  handler: html_document
+  title: gcloud Reference
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - gcloud
+  - reference
+  - automation
+  priority: 2
+- uri: https://docs.cloud.google.com/sdk/docs/cheatsheet
+  handler: html_document
+  title: gcloud CLI Cheat Sheet
+  domain: cloud
+  authority: vetted
+  origin_type: curated
+  tags:
+  - gcp
+  - gcloud
+  - cheatsheet
+  - commands
+  priority: 3

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -54,6 +54,7 @@ class ModelCost(Base):
     profile: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="local")
     input_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    input_cached_per_million: Mapped[float | None] = mapped_column(Float, nullable=True)
     output_per_million: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     monthly_fixed_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     cost_formula: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -416,3 +417,27 @@ class PersonalAccessToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AdminAuditEvent(Base):
+    """Append-only log of admin UI actions and propagation (e.g. LiteLLM reconcile)."""
+
+    __tablename__ = "admin_audit_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="api")
+    actor_username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    actor_user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    actor_role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_admin_audit_events_created_at", "created_at"),
+        Index("ix_admin_audit_events_action", "action"),
+    )

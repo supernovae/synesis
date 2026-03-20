@@ -1942,7 +1942,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_full_content = ""
                         _ds_in_reasoning = False
                         _ds_first_content = False
-                        _ds_usage: dict[str, int] | None = None
+                        _ds_usage: dict[str, int] | None = None  # prompt_tokens, completion_tokens, cached_prompt_tokens
                         _ds_finish_reason: str | None = None
                         _ds_fixer = StreamingBlockFixer()
                         _ds_t0 = time.monotonic()
@@ -1958,10 +1958,36 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             **_stream_req,
                         )
                         async for _ds_chunk in _ds_stream:
-                            if getattr(_ds_chunk, "usage", None):
+                            _ds_u = getattr(_ds_chunk, "usage", None)
+                            if _ds_u is not None:
+                                from .llm_usage_extract import normalize_usage_dict
+
+                                _raw: dict = {}
+                                if hasattr(_ds_u, "model_dump"):
+                                    _raw = _ds_u.model_dump()
+                                elif isinstance(_ds_u, dict):
+                                    _raw = dict(_ds_u)
+                                else:
+                                    _raw = {
+                                        "prompt_tokens": getattr(_ds_u, "prompt_tokens", None),
+                                        "completion_tokens": getattr(_ds_u, "completion_tokens", None),
+                                        "total_tokens": getattr(_ds_u, "total_tokens", None),
+                                    }
+                                    _ptd = getattr(_ds_u, "prompt_tokens_details", None)
+                                    if _ptd is not None:
+                                        if hasattr(_ptd, "model_dump"):
+                                            _raw["prompt_tokens_details"] = _ptd.model_dump()
+                                        elif isinstance(_ptd, dict):
+                                            _raw["prompt_tokens_details"] = _ptd
+                                        else:
+                                            _raw["prompt_tokens_details"] = {
+                                                "cached_tokens": getattr(_ptd, "cached_tokens", 0),
+                                            }
+                                _ds_norm = normalize_usage_dict(_raw)
                                 _ds_usage = {
-                                    "prompt_tokens": _ds_chunk.usage.prompt_tokens or 0,
-                                    "completion_tokens": _ds_chunk.usage.completion_tokens or 0,
+                                    "prompt_tokens": _ds_norm.prompt_tokens,
+                                    "completion_tokens": _ds_norm.completion_tokens,
+                                    "cached_prompt_tokens": _ds_norm.cached_prompt_tokens,
                                 }
                             if not _ds_chunk.choices:
                                 continue
@@ -2067,6 +2093,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     model=_ds_model,
                                     prompt_tokens=_ds_usage["prompt_tokens"],
                                     completion_tokens=_ds_usage["completion_tokens"],
+                                    cached_prompt_tokens=_ds_usage.get("cached_prompt_tokens", 0),
                                     prompt_text=_ds_prompt_text,
                                     completion_text=_ds_full_content,
                                     latency_ms=_ds_elapsed,

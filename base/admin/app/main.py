@@ -51,12 +51,34 @@ async def lifespan(app: FastAPI):
 
     async def _background_reconciler():
         nonlocal _snapshot_counter
+        from app.services.admin_audit import record_admin_audit
+
         await asyncio.sleep(15)
         while True:
             try:
-                await reconcile()
-            except Exception:
+                summary = await reconcile()
+                if summary and (summary.get("added") or summary.get("removed")):
+                    await record_admin_audit(
+                        user=None,
+                        source="system",
+                        action="models.reconcile.scheduled",
+                        status="success",
+                        summary=(
+                            f"Scheduled LiteLLM reconcile: +{summary.get('added', 0)} added, "
+                            f"-{summary.get('removed', 0)} removed"
+                        ),
+                        detail=summary,
+                    )
+            except Exception as exc:
                 logger.debug("background_reconcile_error", exc_info=True)
+                await record_admin_audit(
+                    user=None,
+                    source="system",
+                    action="models.reconcile.scheduled",
+                    status="error",
+                    summary="Scheduled LiteLLM reconcile raised an exception",
+                    detail={"error": repr(exc)},
+                )
             _snapshot_counter += 1
             if _snapshot_counter % 30 == 0:  # every ~30 min
                 try:
@@ -98,6 +120,7 @@ app.add_middleware(
 )
 
 from app.routers.assistant import router as assistant_router
+from app.routers.audit import router as audit_router
 from app.routers.auth_router import router as auth_router
 from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
@@ -115,6 +138,7 @@ from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 
 app.include_router(assistant_router)
+app.include_router(audit_router)
 app.include_router(auth_router)
 app.include_router(conflict_groups_router)
 app.include_router(dashboard_router)

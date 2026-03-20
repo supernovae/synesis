@@ -1,8 +1,8 @@
 # BM25 Benchmark Query Set
 #
 # Covers the major domains in synesis_catalog: architecture, kubernetes,
-# code (Python/Go/Rust/TypeScript/Java), research (RAG/LLM/agents),
-# runbooks, licenses, and cross-domain epistemic content.
+# code (Python/Go/Rust/TypeScript/Java), arXiv/LLM papers and blogs,
+# runbooks, licenses, and cross-domain foundations / lifestyle bootstrap YAML.
 #
 # Relevance labels are generated via pooling: both retrievers run, top-20
 # results are unioned, and an LLM judge scores relevance (0/1/2).

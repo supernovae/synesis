@@ -206,7 +206,7 @@ items:
     config: {}
 ```
 
-See [bootstrap/README.md](../bootstrap/README.md) for full schema details and the `convert.py` migration tool.
+See [bootstrap/README.md](../bootstrap/README.md) for the corpus file layout (`cloud.yaml`, `arxiv.yaml`, `llm.yaml`, `foundations.yaml`, `lifestyle.yaml`, `developer.yaml`, plus `docs`, `code`, etc.) and normalized item schema.
 
 ## Running the Indexer
 
@@ -241,13 +241,14 @@ python -m app --mode yaml --sources sources-code.yaml --enrich full
 After deploying the admin service (Alembic migrations run automatically), import all bootstrap data:
 
 ```bash
-# Import all bootstrap corpus files
-for f in bootstrap/corpus/*.yaml; do
+# Import all bootstrap corpus files (sorted order — or use ./scripts/load-bootstrap.sh)
+while IFS= read -r f; do
   curl -X POST http://synesis-admin:8000/api/v1/ingestion/bootstrap \
     -F "file=@$f" -H "Authorization: Bearer $TOKEN"
-done
+done < <(find bootstrap/corpus -maxdepth 1 -name '*.yaml' -type f | LC_ALL=C sort)
 
 # Or use the admin UI: RAG Pipeline > Ingestion Queue > Upload YAML
+# Or: ./scripts/load-bootstrap.sh -a http://synesis-admin:8000
 ```
 
 Items enter the queue as `pending`. Run the indexer to process them:

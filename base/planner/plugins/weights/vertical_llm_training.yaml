@@ -1,0 +1,82 @@
+# Synesis LLM Training Vertical
+# Fine-tuning, RLHF/SFT/DPO, distributed training, PEFT. For users adapting foundation models.
+# Critic: data leakage, eval validity, compute realism, checkpoint hygiene.
+
+complexity_weights:
+  fine_tuning:
+    weight: 10
+    keywords:
+      - fine-tune
+      - finetune
+      - sft
+      - supervised fine-tuning
+      - instruction tuning
+  alignment:
+    weight: 10
+    keywords:
+      - rlhf
+      - dpo
+      - preference
+      - reward model
+      - human feedback
+  peft:
+    weight: 9
+    keywords:
+      - lora
+      - qlora
+      - peft
+      - adapter
+      - low-rank
+  distributed_training:
+    weight: 11
+    keywords:
+      - deepspeed
+      - fsdp
+      - distributed
+      - multi-gpu
+      - ray train
+      - accelerate
+
+domain_keywords:
+  llm_training:
+    domain: llm_training
+    keywords:
+      - huggingface
+      - transformers
+      - trl
+      - unsloth
+      - axolotl
+
+pairings:
+  - keywords: [fine-tune, production]
+    extra_weight: 14
+    axis: complexity
+  - keywords: [rlhf, safety]
+    extra_weight: 15
+    axis: risk
+
+
+vertical_prompt:
+  name: llm_training
+  active_domain_refs:
+    - llm_training
+  platform_context_aliases:
+    - training
+    - fine-tuning
+    - finetuning
+  worker_persona_block: |
+    VERTICAL: LLM training & fine-tuning. Reproducible recipes and honest compute assumptions.
+    - Data: Train/val/test separation; no eval leakage into SFT mixes.
+    - Methods: Match objective to goal (SFT vs DPO vs RLHF); PEFT when full FT is unnecessary.
+    - Systems: FSDP/DeepSpeed/Ray trade-offs; checkpoint frequency and storage.
+  planner_decomposition_rules: |
+    Training tasks: Step 1 = dataset + objective. Then model adapter (full vs LoRA), then
+    distributed/optimizer config, then eval cadence. Each step should name concrete artifacts.
+  critic_mode: tiered
+  critic_tiers:
+    basic: |
+      Approve if recipe is runnable. Check non-empty data, defined objective, and eval mention.
+    advanced: |
+      Check: leakage risks, PEFT vs full FT rationale, checkpoint/resume story, metric alignment with deployment task.
+    research: |
+      Full methodology: data provenance, hyperparameter sensitivity, scaling and stability, safety alignment choices.

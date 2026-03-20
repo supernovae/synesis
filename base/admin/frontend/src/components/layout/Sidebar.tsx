@@ -116,6 +116,7 @@ const navigation: NavItem[] = [
       { label: "System Config", path: "/settings" },
       { label: "Provider Keys", path: "/settings/providers" },
       { label: "Infrastructure Costs", path: "/settings/infra-costs" },
+      { label: "Admin audit", path: "/settings/audit" },
     ],
   },
 ];

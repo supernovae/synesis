@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..auth import UserInfo, get_current_user
+from ..services.admin_audit import record_admin_audit
 from ..services.infra_pricing import (
     delete_infra_config,
     get_infra_configs,
@@ -72,6 +73,13 @@ async def set_infra_cost(
     """Create or update infra cost config for a role."""
     data["role"] = role
     result = await upsert_infra_config(data)
+    await record_admin_audit(
+        user=_user,
+        action="settings.infra_cost_upsert",
+        status="success",
+        summary=f"Updated infra cost config for role {role}",
+        detail={"role": role, "config": result},
+    )
     return result
 
 
@@ -84,4 +92,11 @@ async def remove_infra_cost(
     ok = await delete_infra_config(role)
     if not ok:
         raise HTTPException(404, f"No infra config for role: {role}")
+    await record_admin_audit(
+        user=_user,
+        action="settings.infra_cost_delete",
+        status="success",
+        summary=f"Deleted infra cost config for role {role}",
+        detail={"role": role},
+    )
     return {"deleted": role}

@@ -19,6 +19,14 @@ FastAPI backend (`app/`) + Vite React SPA (`frontend/`) for operating Synesis: m
 3. **Navigation** — Sidebar is canonical; breadcrumbs in `TopBar.tsx` should label new segments (including dynamic IDs).
 4. **Dark mode** — New screens use `dark:` Tailwind variants like existing pages.
 
+## Admin audit log — potential follow-ups
+
+The **Settings → Admin audit** page and `admin_audit_events` table cover model registry, reconcile, provider keys, cost rates, and infra cost settings. Possible next steps:
+
+- **SSE / live stream** — Add an audit channel similar to `GET /api/v1/events` (traces) so the UI updates without polling.
+- **Broader instrumentation** — Call `record_admin_audit` from taxonomy, ingestion, integrations, and other routers for a single operator timeline.
+- **Retention / prune** — Scheduled job or CNPG policy to trim old `admin_audit_events` rows so the table does not grow unbounded.
+
 ## Database URL and `oc apply`
 
 `SYNESIS_ADMIN_DATABASE_URL` in the Deployment manifest uses a **dev placeholder** password. **CloudNativePG** puts the real password in secret `synesis-admin-db-app`. **`scripts/deploy.sh`** (`ensure_admin_db`) patches the deployment with a URL-encoded connection string after the cluster is healthy.

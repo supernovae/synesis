@@ -91,10 +91,11 @@ if [[ ! -d "${CORPUS_DIR}" ]]; then
   exit 1
 fi
 
+# Deterministic order (avoid filesystem-dependent glob order)
 FILES=()
-for f in "${CORPUS_DIR}"/*.yaml "${CORPUS_DIR}"/*.yml; do
-  [[ -f "$f" ]] && FILES+=("$f")
-done
+while IFS= read -r line; do
+  [[ -n "$line" && -f "$line" ]] && FILES+=("$line")
+done < <(find "${CORPUS_DIR}" -maxdepth 1 \( -name '*.yaml' -o -name '*.yml' \) -type f 2>/dev/null | LC_ALL=C sort)
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
   echo "No YAML files found in ${CORPUS_DIR}."

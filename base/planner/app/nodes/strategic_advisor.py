@@ -94,6 +94,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
                 "llm_rag": "rag",
                 "llm_prompting": "prompting",
                 "llm_evaluation": "eval",
+                "llm_training": "training",
                 "ai_governance": "llm safety",
             }
             for d in existing_domains:

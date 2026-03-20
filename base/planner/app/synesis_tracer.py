@@ -29,6 +29,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 from .trace_redaction import redact_trace_payload
 from langchain_core.outputs import LLMResult
 
+from .llm_usage_extract import normalize_from_llm_result
+
 logger = logging.getLogger("synesis.tracer")
 
 # Snippet length for list/compact views; full content for debug (stored in prompt_full/completion_full).
@@ -60,6 +62,7 @@ class LLMCallRecord:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_prompt_tokens: int = 0
     latency_ms: float = 0.0
     prompt_snippet: str = ""
     completion_snippet: str = ""
@@ -95,6 +98,7 @@ class TraceRecord:
     timestamp: float = 0.0
     total_duration_ms: float = 0.0
     total_tokens: int = 0
+    total_cached_prompt_tokens: int = 0
     estimated_cost_usd: float = 0.0
     actual_cost_usd: float = 0.0
     difficulty: float = 0.0
@@ -120,13 +124,23 @@ class TraceRecord:
 # Pricing lookup — compute estimated_cost_usd from token counts
 # ---------------------------------------------------------------------------
 
-_pricing_table: dict[str, tuple[float, float]] | None = None
+# Per-model: (input_per_million, input_cached_per_million_or_None, output_per_million).
+# When input_cached is None, SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER * input is used.
+_pricing_table: dict[str, tuple[float, float | None, float]] | None = None
 
 
-def _load_pricing() -> dict[str, tuple[float, float]]:
-    """Build a model->(input_per_million, output_per_million) lookup table.
+def _cached_input_rate(input_rate: float, explicit_cached: float | None) -> float:
+    if explicit_cached is not None and explicit_cached >= 0:
+        return explicit_cached
+    mult = float(os.environ.get("SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER", "0.1"))
+    return input_rate * mult
+
+
+def _load_pricing() -> dict[str, tuple[float, float | None, float]]:
+    """Build a model->(input, optional input_cached, output) lookup table.
 
     Priority: SYNESIS_MODEL_PRICING_PATH JSON > hardcoded defaults for synesis-* served names.
+    JSON values may include optional ``input_cached`` (USD per million cached prompt tokens).
     """
     global _pricing_table
     if _pricing_table is not None:
@@ -137,18 +151,27 @@ def _load_pricing() -> dict[str, tuple[float, float]]:
         try:
             with open(pricing_path) as f:
                 raw = json.load(f)
-            _pricing_table = {k: (v.get("input", 0), v.get("output", 0)) for k, v in raw.items()}
+            out: dict[str, tuple[float, float | None, float]] = {}
+            for k, v in raw.items():
+                if not isinstance(v, dict):
+                    continue
+                inp = float(v.get("input", 0) or 0)
+                outp = float(v.get("output", 0) or 0)
+                ic = v.get("input_cached")
+                ic_f = float(ic) if ic is not None else None
+                out[k] = (inp, ic_f, outp)
+            _pricing_table = out
             logger.info("pricing_table_loaded path=%s models=%d", pricing_path, len(_pricing_table))
             return _pricing_table
         except Exception:
             logger.warning("pricing_table_load_failed", exc_info=True)
 
     _pricing_table = {
-        "synesis-router": (0.20, 0.50),
-        "synesis-general": (0.26, 0.38),
-        "synesis-coder": (0.20, 0.20),
-        "synesis-critic": (0.29, 0.29),
-        "synesis-summarizer": (0.20, 0.50),
+        "synesis-router": (0.20, None, 0.50),
+        "synesis-general": (0.26, None, 0.38),
+        "synesis-coder": (0.20, None, 0.20),
+        "synesis-critic": (0.29, None, 0.29),
+        "synesis-summarizer": (0.20, None, 0.50),
     }
     return _pricing_table
 
@@ -160,14 +183,19 @@ def _compute_cost(record: TraceRecord) -> float:
     for span in record.spans:
         for call in span.llm_calls:
             model = call.model or ""
-            rates = pricing.get(model, (0, 0))
-            if rates == (0, 0):
+            rates = pricing.get(model, (0.0, None, 0.0))
+            if rates == (0.0, None, 0.0):
                 for key in pricing:
                     if key in model or model in key:
                         rates = pricing[key]
                         break
-            input_cost = (call.prompt_tokens / 1_000_000) * rates[0]
-            output_cost = (call.completion_tokens / 1_000_000) * rates[1]
+            inp_r, inp_cached_r, out_r = rates
+            pt = max(0, int(call.prompt_tokens or 0))
+            cached = min(max(0, int(call.cached_prompt_tokens or 0)), pt)
+            uncached = pt - cached
+            ic_rate = _cached_input_rate(inp_r, inp_cached_r)
+            input_cost = (uncached / 1_000_000) * inp_r + (cached / 1_000_000) * ic_rate
+            output_cost = (call.completion_tokens / 1_000_000) * out_r
             total_cost += input_cost + output_cost
     return round(total_cost, 8)
 
@@ -422,6 +450,9 @@ class SynesisTracer(BaseCallbackHandler):
 
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
+        record.total_cached_prompt_tokens = sum(
+            sum(c.cached_prompt_tokens for c in s.llm_calls) for s in record.spans
+        )
         record.estimated_cost_usd = _compute_cost(record)
         record.actual_cost_usd = sum(
             c.actual_cost for s in record.spans for c in s.llm_calls
@@ -547,6 +578,7 @@ class SynesisTracer(BaseCallbackHandler):
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        cached_prompt_tokens: int = 0,
         prompt_text: str = "",
         completion_text: str = "",
         latency_ms: float = 0.0,
@@ -559,12 +591,15 @@ class SynesisTracer(BaseCallbackHandler):
         if self._current_trace is None:
             return
         total = prompt_tokens + completion_tokens
+        pt = max(0, int(prompt_tokens))
+        cached = min(max(0, int(cached_prompt_tokens)), pt) if pt else max(0, int(cached_prompt_tokens))
         call = LLMCallRecord(
             model=model,
             node=node,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total,
+            cached_prompt_tokens=cached,
             latency_ms=latency_ms,
             prompt_snippet=prompt_text[:_MAX_SNIPPET],
             completion_snippet=completion_text[:_MAX_SNIPPET],
@@ -789,6 +824,7 @@ class SynesisTracer(BaseCallbackHandler):
         prompt_tokens: int,
         completion_tokens: int,
         total_tokens: int,
+        cached_prompt_tokens: int,
         completion_text: str,
         actual_cost: float = 0.0,
     ) -> None:
@@ -806,6 +842,7 @@ class SynesisTracer(BaseCallbackHandler):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
             latency_ms=(time.monotonic() - start_time) * 1000,
             prompt_snippet=prompt_snippet,
             completion_snippet=completion_snippet,
@@ -835,11 +872,9 @@ class SynesisTracer(BaseCallbackHandler):
             return
         try:
             completion_text = ""
-            prompt_tokens = 0
-            completion_tokens = 0
-            total_tokens = 0
             model = ""
             actual_cost = 0.0
+            msg = None
 
             if response.generations and response.generations[0]:
                 gen = response.generations[0][0]
@@ -848,30 +883,30 @@ class SynesisTracer(BaseCallbackHandler):
                     msg_content = getattr(gen.message, "content", "")
                     text = msg_content if isinstance(msg_content, str) else str(msg_content)
                 completion_text = text
-
-            if response.llm_output:
-                usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
-                model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
-                actual_cost = float(usage.get("cost", 0.0) or 0.0)
-
-            # ChatOpenAI streaming often puts usage on the AIMessage instead of llm_output
-            if total_tokens == 0 and response.generations and response.generations[0]:
-                gen = response.generations[0][0]
                 msg = getattr(gen, "message", None)
-                if msg:
-                    usage_meta = getattr(msg, "usage_metadata", None) or {}
-                    if isinstance(usage_meta, dict) and usage_meta:
-                        prompt_tokens = usage_meta.get("input_tokens", 0)
-                        completion_tokens = usage_meta.get("output_tokens", 0)
-                        total_tokens = prompt_tokens + completion_tokens
-                    resp_meta = getattr(msg, "response_metadata", None) or {}
-                    if not model:
-                        model = resp_meta.get("model_name", "") or resp_meta.get("model", "")
-                    if actual_cost == 0.0 and resp_meta:
-                        resp_usage = resp_meta.get("usage", {}) or {}
+
+            norm = normalize_from_llm_result(
+                response.llm_output if isinstance(response.llm_output, dict) else None,
+                msg,
+            )
+            prompt_tokens = norm.prompt_tokens
+            completion_tokens = norm.completion_tokens
+            total_tokens = norm.total_tokens or (prompt_tokens + completion_tokens)
+            cached_prompt_tokens = norm.cached_prompt_tokens
+
+            if response.llm_output and isinstance(response.llm_output, dict):
+                model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
+                usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
+                if isinstance(usage, dict):
+                    actual_cost = float(usage.get("cost", 0.0) or 0.0)
+
+            if msg is not None:
+                resp_meta = getattr(msg, "response_metadata", None) or {}
+                if not model and isinstance(resp_meta, dict):
+                    model = resp_meta.get("model_name", "") or resp_meta.get("model", "")
+                if actual_cost == 0.0 and isinstance(resp_meta, dict):
+                    resp_usage = resp_meta.get("usage", {}) or {}
+                    if isinstance(resp_usage, dict):
                         actual_cost = float(resp_usage.get("cost", 0.0) or 0.0)
 
             self._build_llm_call(
@@ -881,6 +916,7 @@ class SynesisTracer(BaseCallbackHandler):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,
+                cached_prompt_tokens=cached_prompt_tokens,
                 completion_text=completion_text,
                 actual_cost=actual_cost,
             )

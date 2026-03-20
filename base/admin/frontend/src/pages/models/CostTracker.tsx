@@ -83,6 +83,11 @@ function EditCostModal({
   const [formula, setFormula] = useState(cost.cost_formula || "");
   const [monthly, setMonthly] = useState(cost.monthly_fixed_cost || 0);
   const [inputRate, setInputRate] = useState(cost.input_per_million || 0);
+  const [cachedInputRate, setCachedInputRate] = useState<number | "">(
+    cost.input_cached_per_million != null && cost.input_cached_per_million !== undefined
+      ? cost.input_cached_per_million
+      : "",
+  );
   const [outputRate, setOutputRate] = useState(cost.output_per_million || 0);
 
   const handleSave = () => {
@@ -93,6 +98,7 @@ function EditCostModal({
         model: cost.model,
         source: cost.source,
         input_per_million: inputRate,
+        input_cached_per_million: cachedInputRate === "" ? null : cachedInputRate,
         output_per_million: outputRate,
         monthly_fixed_cost: monthly,
         cost_formula: formula,
@@ -112,6 +118,20 @@ function EditCostModal({
           <label className="block">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Input $/M tokens</span>
             <input type="number" step="0.01" value={inputRate} onChange={(e) => setInputRate(parseFloat(e.target.value) || 0)} className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Cached input $/M (optional)</span>
+            <input
+              type="number"
+              step="0.01"
+              value={cachedInputRate}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCachedInputRate(v === "" ? "" : parseFloat(v) || 0);
+              }}
+              placeholder="Blank → server uses ~10% of input rate"
+              className="mt-1 block w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+            />
           </label>
           <label className="block">
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Output $/M tokens</span>
@@ -296,6 +316,13 @@ export default function CostTracker() {
                   { key: "model", label: "Model", render: (r) => <span className="text-xs">{shortModel(r.model)}</span> },
                   { key: "source", label: "Provider", render: (r) => <ProviderBadge source={r.provider ?? r.source} /> },
                   { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${r.input_per_million.toFixed(2)}` },
+                  {
+                    key: "input_cached_per_million",
+                    label: "Cached in $/M",
+                    sortable: true,
+                    render: (r: ModelCost) =>
+                      r.input_cached_per_million != null ? `$${Number(r.input_cached_per_million).toFixed(2)}` : "—",
+                  },
                   { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${r.output_per_million.toFixed(2)}` },
                   ...(!showAll ? [{
                     key: "pricing_source", label: "Source", render: (r: ModelCost) => <PricingSourceBadge source={r.pricing_source ?? "unknown"} />,

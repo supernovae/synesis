@@ -11,7 +11,8 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from ..auth import get_current_user, require_admin
+from ..auth import UserInfo, get_current_user, require_admin
+from ..services.admin_audit import record_admin_audit
 from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
 
 logger = logging.getLogger("synesis.admin.providers")
@@ -180,7 +181,7 @@ class SetKeyRequest(BaseModel):
 
 
 @router.put("/keys/{name}")
-async def set_key(name: str, body: SetKeyRequest, _user=Depends(require_admin)):
+async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(require_admin)):
     """Set or rotate a provider API key. Triggers LiteLLM restart."""
     name = name.upper()
     if not body.value.strip():
@@ -201,11 +202,18 @@ async def set_key(name: str, body: SetKeyRequest, _user=Depends(require_admin)):
 
     await _restart_litellm()
     logger.info("provider_key_set name=%s", name)
+    await record_admin_audit(
+        user=user,
+        action="providers.key_set",
+        status="success",
+        summary=f"Set provider key {name} and triggered LiteLLM rollout restart",
+        detail={"env_var": name, "restart": True},
+    )
     return {"ok": True, "name": name, "restart": True}
 
 
 @router.delete("/keys/{name}")
-async def delete_key(name: str, _user=Depends(require_admin)):
+async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
     """Remove a provider API key. Triggers LiteLLM restart."""
     name = name.upper()
     if name not in _ALLOWED_KEY_ENV_NAMES:
@@ -217,4 +225,11 @@ async def delete_key(name: str, _user=Depends(require_admin)):
     await _remove_key_from_secret(name)
     await _restart_litellm()
     logger.info("provider_key_deleted name=%s", name)
+    await record_admin_audit(
+        user=user,
+        action="providers.key_delete",
+        status="success",
+        summary=f"Removed provider key {name} and triggered LiteLLM rollout restart",
+        detail={"env_var": name, "restart": True},
+    )
     return {"ok": True, "name": name, "restart": True}

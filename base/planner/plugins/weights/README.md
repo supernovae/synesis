@@ -86,7 +86,7 @@ When two high-gravity verticals are detected (e.g. HIPAA + K8s), both domains ar
 
 **Technology (7):** vertical_infrastructure, vertical_development, vertical_programming_slc, vertical_iac_automation, vertical_industrial, vertical_aerospace_automotive, vertical_compliance_legal
 
-**AI/ML (3):** vertical_llm_rag, vertical_llm_prompting, vertical_llm_evaluation
+**AI/ML (4):** vertical_llm_rag, vertical_llm_prompting, vertical_llm_evaluation, vertical_llm_training
 
 **Science (1):** vertical_scientific
 

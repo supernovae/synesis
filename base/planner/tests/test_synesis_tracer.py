@@ -262,11 +262,30 @@ class TestCostComputation:
         with patch(
             "app.synesis_tracer._load_pricing",
             return_value={
-                "synesis-router": (0.20, 0.50),
+                "synesis-router": (0.20, None, 0.50),
             },
         ):
             cost = _compute_cost(record)
         assert cost == round(0.20 + 0.25, 8)
+
+    def test_compute_cost_cached_prompt_uses_multiplier(self):
+        record = TraceRecord()
+        span = SpanRecord(node_name="router")
+        span.llm_calls = [
+            LLMCallRecord(
+                model="synesis-router",
+                prompt_tokens=1_000_000,
+                completion_tokens=0,
+                cached_prompt_tokens=1_000_000,
+            ),
+        ]
+        record.spans = [span]
+        with patch(
+            "app.synesis_tracer._load_pricing",
+            return_value={"synesis-router": (1.0, None, 0.0)},
+        ), patch.dict("os.environ", {"SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER": "0.1"}):
+            cost = _compute_cost(record)
+        assert cost == round(0.1, 8)
 
     def test_compute_cost_zero_for_empty_trace(self):
         record = TraceRecord()

@@ -3034,6 +3034,29 @@ llm_prompting:
     variations and their trade-offs. Include evaluation criteria and
     failure modes. Note model-specific behavior.
 
+llm_training:
+  path: "Engineering > LLM Training & Fine-Tuning"
+  complexity: 0.85
+  persona: "ML Training Engineer"
+  worker_explain_tone: >-
+    You are an ML training engineer focused on LLM fine-tuning and distributed training.
+    Prefer reproducible recipes, clear compute/memory trade-offs, and safe data handling.
+  depth_instructions: >-
+    Cover dataset preparation, tokenizer and template choices, objective (SFT, DPO, RLHF),
+    parameter-efficient methods (LoRA/QLoRA), distributed strategies (FSDP, DeepSpeed, Ray),
+    checkpointing, and evaluation during training. Note overfitting, eval leakage, and
+    hardware constraints (VRAM, throughput).
+  required_elements:
+    - "Objective & Recipe"
+    - "Data & Tokenization"
+    - "Compute Strategy"
+    - "Evaluation During Training"
+    - "Tradeoffs"
+  output_style: "architecture_document"
+  output_style_guidance: >-
+    Structure as a training plan: objective and loss, data pipeline, model adaptation
+    method, distributed/optimizer setup, checkpoint and resume strategy, and eval hooks.
+
 llm_rag:
   path: "Engineering > RAG Architecture"
   complexity: 0.8

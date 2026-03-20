@@ -1074,14 +1074,20 @@ not expose the same keys as OpenAI/Anthropic; treat cache metrics as **deploymen
 and confirm against your model server and LiteLLM version.
 
 **Synesis Postgres traces** (`SYNESIS_TRACE_DATABASE_URL`, admin UI):
-Each trace stores `full_record` JSON with spans and `llm_calls`. Today each
-`LLMCallRecord` records `prompt_tokens`, `completion_tokens`, `total_tokens`, latency,
-and cost fields — **not** a separate `cached_tokens` column. To track prefix-cache
-effectiveness in-app, you would extend the tracer to copy provider usage details into
-`llm_calls` (or a sidecar JSON field) when present.
+Each trace stores `full_record` JSON with spans and `llm_calls`. Each `LLMCallRecord`
+includes `cached_prompt_tokens` when the provider returns it (e.g. OpenAI
+`prompt_tokens_details.cached_tokens`, Anthropic `cache_read_input_tokens`, LangChain
+`usage_metadata.input_token_details`). The trace root also has
+`total_cached_prompt_tokens` (rollup). Fields are **0 or omitted** when the provider
+does not report cache usage. Planner-side estimated cost uses uncached vs cached prompt
+tokens when pricing allows (`SYNESIS_MODEL_PRICING_PATH` optional `input_cached`, or
+`SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER` default `0.1` × input rate). Admin **Cost
+Tracker** can set per-role **cached input $/M** (`model_costs.input_cached_per_million`);
+nullable means the same multiplier heuristic.
 
-**Admin “detailed performance”** (`GET /api/v1/models/performance/detailed`) aggregates
-only those per-call token fields from stored traces.
+**Admin performance / costs** aggregate cached tokens and `cache_hit_rate` where prompt
+tokens > 0. LiteLLM spend logs remain the source of truth for proxy-level detail when
+enabled.
 
 See also [PLANNER_PREFIX_KV_CACHE.md](PLANNER_PREFIX_KV_CACHE.md).
 
@@ -1094,7 +1100,7 @@ the `traces` table). Without that URL, traces are not persisted to the database.
 ### What SynesisTracer Captures
 
 - **Per-node span tracing**: entry_pipeline, planner, plan_gate, router, writer, critic — auto-traced via a LangChain `BaseCallbackHandler` attached to every graph invocation.
-- **Per-LLM-call detail**: model name, prompt/completion token counts, latency, optional actual cost, and truncated prompt/completion snippets for each LLM call within a node.
+- **Per-LLM-call detail**: model name, prompt/completion token counts, optional cached prompt tokens (provider-dependent), latency, optional actual cost, and truncated prompt/completion snippets for each LLM call within a node.
 - **Critic score correlation**: `weighted_overall`, `task_faithfulness`, `constraint_compliance`, `coverage`, `judgment_quality` attached to the trace record.
 - **Request-level metadata**: `difficulty`, `task_type`, `domain_tags`, `evidence_packet_count`, `avg_evidence_confidence`, `critic_weighted_score`, `response_length`, `is_code_task`, `has_error`.
 - **Admin UI integration**: Searchable trace list, waterfall timeline, expandable span tree with LLM call drill-down, and critic scores panel.
@@ -1105,6 +1111,7 @@ the `traces` table). Without that URL, traces are not persisted to the database.
 |---------|---------|---------|---------|
 | `trace_store_ttl_hours` | `SYNESIS_TRACE_TTL_HOURS` | `168` (7 days) | Trace retention period |
 | `trace_snippet_max_chars` | `SYNESIS_TRACE_SNIPPET_MAX_CHARS` | `500` | Max chars for prompt/completion snippets |
+| Cached prompt $/M (planner estimate fallback) | `SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER` | `0.1` | Used when pricing JSON has no per-model `input_cached` |
 
 The tracer persists when `SYNESIS_TRACE_DATABASE_URL` points at the admin/trace Postgres
 (see deployment manifests). Redis is still used for other features (e.g. session checkpointer

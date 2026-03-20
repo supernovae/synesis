@@ -15,6 +15,7 @@ from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
 from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
 from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, build_litellm_params
+from .token_cost import estimate_llm_call_cost_usd
 
 logger = logging.getLogger("synesis.admin.models")
 
@@ -493,6 +494,7 @@ async def get_cost_estimates() -> list[dict]:
                 "provider": provider,
                 "served_name": a.get("served_name", f"synesis-{role}"),
                 "input_per_million": db_row.input_per_million,
+                "input_cached_per_million": db_row.input_cached_per_million,
                 "output_per_million": db_row.output_per_million,
                 "monthly_fixed_cost": db_row.monthly_fixed_cost,
                 "cost_formula": db_row.cost_formula,
@@ -507,6 +509,7 @@ async def get_cost_estimates() -> list[dict]:
                 "provider": provider,
                 "served_name": a.get("served_name", f"synesis-{role}"),
                 "input_per_million": 0.0,
+                "input_cached_per_million": None,
                 "output_per_million": 0.0,
                 "monthly_fixed_cost": 0.0,
                 "cost_formula": "",
@@ -549,6 +552,9 @@ async def upsert_model_cost(data: dict) -> dict:
             session.add(row)
         row.source = data.get("source", row.source or "local")
         row.input_per_million = data.get("input_per_million", row.input_per_million)
+        if "input_cached_per_million" in data:
+            ic = data["input_cached_per_million"]
+            row.input_cached_per_million = ic if ic is not None else None
         row.output_per_million = data.get("output_per_million", row.output_per_million)
         row.monthly_fixed_cost = data.get("monthly_fixed_cost", row.monthly_fixed_cost)
         row.cost_formula = data.get("cost_formula", row.cost_formula)
@@ -560,6 +566,7 @@ async def upsert_model_cost(data: dict) -> dict:
             "id": row.id, "role": row.role, "model": row.model,
             "profile": row.profile, "source": row.source,
             "input_per_million": row.input_per_million,
+            "input_cached_per_million": row.input_cached_per_million,
             "output_per_million": row.output_per_million,
             "monthly_fixed_cost": row.monthly_fixed_cost,
             "cost_formula": row.cost_formula, "notes": row.notes,
@@ -585,18 +592,25 @@ async def get_cost_by_model() -> list[dict]:
                         if model not in model_agg:
                             model_agg[model] = {
                                 "model": model, "prompt_tokens": 0,
-                                "completion_tokens": 0, "total_tokens": 0,
+                                "completion_tokens": 0, "cached_prompt_tokens": 0,
+                                "total_tokens": 0,
                                 "requests": 0, "cost_usd": 0.0,
                             }
                         agg = model_agg[model]
                         agg["prompt_tokens"] += call.get("prompt_tokens", 0)
                         agg["completion_tokens"] += call.get("completion_tokens", 0)
+                        agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                         agg["total_tokens"] += call.get("total_tokens", 0)
                         agg["requests"] += 1
 
             costs = await get_cost_estimates()
-            pricing_by_role: dict[str, tuple[float, float]] = {
-                c.get("role", ""): (c["input_per_million"], c["output_per_million"]) for c in costs
+            pricing_by_role: dict[str, tuple[float, float, float | None]] = {
+                c.get("role", ""): (
+                    c["input_per_million"],
+                    c["output_per_million"],
+                    c.get("input_cached_per_million"),
+                )
+                for c in costs
             }
 
             def _first_role_for_model(target: str) -> str:
@@ -611,11 +625,14 @@ async def get_cost_by_model() -> list[dict]:
 
             for model, agg in model_agg.items():
                 role = _first_role_for_model(model)
-                rates = pricing_by_role.get(role, (0.0, 0.0))
-                agg["cost_usd"] = round(
-                    (agg["prompt_tokens"] / 1_000_000) * rates[0]
-                    + (agg["completion_tokens"] / 1_000_000) * rates[1],
-                    6,
+                inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+                agg["cost_usd"] = estimate_llm_call_cost_usd(
+                    agg["prompt_tokens"],
+                    agg["completion_tokens"],
+                    agg["cached_prompt_tokens"],
+                    input_per_million=inp_r,
+                    output_per_million=out_r,
+                    input_cached_per_million=ic_r,
                 )
 
             return sorted(model_agg.values(), key=lambda x: x["cost_usd"], reverse=True)

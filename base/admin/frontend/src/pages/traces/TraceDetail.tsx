@@ -202,7 +202,9 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
         </span>
         <span className="flex-1" />
         <span className="text-xs text-gray-400">
-          {call.prompt_tokens}+{call.completion_tokens} tok
+          {(call.cached_prompt_tokens ?? 0) > 0
+            ? `${call.prompt_tokens} in (${call.cached_prompt_tokens} cached) + ${call.completion_tokens} out`
+            : `${call.prompt_tokens}+${call.completion_tokens} tok`}
         </span>
         <span className="text-xs text-gray-400">
           {fmtDuration(call.latency_ms)}
@@ -365,14 +367,15 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
 }
 
 function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
-  const byModel: Record<string, { tokens: number; prompt: number; completion: number }> = {};
+  const byModel: Record<string, { tokens: number; prompt: number; completion: number; cached: number }> = {};
   for (const span of spans || []) {
     for (const call of span.llm_calls || []) {
       const model = call.model || "unknown";
-      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0 };
+      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0, cached: 0 };
       byModel[model].tokens += call.total_tokens || 0;
       byModel[model].prompt += call.prompt_tokens || 0;
       byModel[model].completion += call.completion_tokens || 0;
+      byModel[model].cached += call.cached_prompt_tokens ?? 0;
     }
   }
   const entries = Object.entries(byModel);
@@ -389,7 +392,8 @@ function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
             <span className="text-gray-500 dark:text-gray-400">
               {v.tokens.toLocaleString()} tok
               <span className="ml-2 text-xs">
-                ({v.prompt.toLocaleString()} in / {v.completion.toLocaleString()} out)
+                ({v.prompt.toLocaleString()} in
+                {v.cached > 0 ? `, ${v.cached.toLocaleString()} cached` : ""} / {v.completion.toLocaleString()} out)
               </span>
             </span>
           </div>
@@ -771,6 +775,11 @@ export default function TraceDetail() {
           <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
             {trace.total_tokens.toLocaleString()}
           </p>
+          {(trace.total_cached_prompt_tokens ?? 0) > 0 && (
+            <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+              {trace.total_cached_prompt_tokens!.toLocaleString()} prompt cached (provider-reported)
+            </p>
+          )}
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500">Cost</p>

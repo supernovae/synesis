@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "description": "Programming languages, web standards, containers, cloud CLIs, and developer tooling corpus. Excludes URLs already covered by docs, research, epistemic, and epistemic-band2 indexer groups.",
+  "description": "Programming languages, web standards, containers, cloud CLIs, and developer tooling corpus. Excludes URLs already covered by docs, arxiv, llm, foundations, lifestyle, and cloud bootstrap YAML (see bootstrap/corpus/).",
   "_mapping_notes": {
     "domain": "Canonical taxonomy domain ID from TAXONOMY_CANONICAL.md — stored in Milvus 'domain' field at index time.",
     "category": "Human-readable grouping for corpus organization. Not stored in Milvus."

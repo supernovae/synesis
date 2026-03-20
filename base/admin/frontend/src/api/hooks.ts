@@ -64,6 +64,8 @@ export function useUpdateModelCost() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs", "by-model"] });
+      qc.invalidateQueries({ queryKey: ["models", "costs", "by-role"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -100,6 +102,7 @@ export function useCreateModelDeployment() {
       client.post("/models/deployments", data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -111,6 +114,7 @@ export function useUpdateModelDeployment() {
       client.put(`/models/deployments/${id}`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -122,6 +126,7 @@ export function useDeleteModelDeployment() {
       client.delete(`/models/deployments/${id}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -133,6 +138,7 @@ export function useActivateModel() {
       client.post(`/models/deployments/${id}/activate`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -144,6 +150,7 @@ export function useDeactivateModel() {
       client.post(`/models/deployments/${id}/deactivate`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -155,6 +162,7 @@ export function useSyncModelsFromYaml() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
       qc.invalidateQueries({ queryKey: ["models", "roles"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -172,6 +180,7 @@ export function useReconcileModels() {
       client.post<ReconcileModelsResult>("/models/reconcile").then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -183,6 +192,7 @@ export function useUpdateFallbacks() {
       client.put(`/models/deployments/${id}/fallbacks`, { fallbacks }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -212,6 +222,7 @@ export function useSetProviderKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["providers", "keys"] });
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -224,6 +235,7 @@ export function useDeleteProviderKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["providers", "keys"] });
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -245,6 +257,7 @@ export function useAssignRole() {
       client.put(`/models/roles/${role}`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -256,6 +269,7 @@ export function useDeactivateRole() {
       client.delete(`/models/roles/${role}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -324,6 +338,7 @@ export function useSetInfraCost() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
@@ -336,7 +351,31 @@ export function useDeleteInfraCost() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "infra-costs"] });
       qc.invalidateQueries({ queryKey: ["models", "costs"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
     },
+  });
+}
+
+// --- Admin audit log ---
+
+export interface AdminAuditEventRow {
+  id: number;
+  created_at: string | null;
+  source: string;
+  actor_username: string;
+  actor_user_id: string;
+  actor_role: string;
+  action: string;
+  status: string;
+  summary: string;
+  detail: Record<string, unknown>;
+}
+
+export function useAdminAuditEvents(limit = 150) {
+  return useQuery<{ events: AdminAuditEventRow[] }>({
+    queryKey: ["audit", "events", limit],
+    queryFn: () => client.get("/audit/events", { params: { limit } }).then((r) => r.data),
+    refetchInterval: 15_000,
   });
 }
 
@@ -350,6 +389,8 @@ export interface DetailedModelPerformance {
   total_tokens: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;
+  total_cached_prompt_tokens: number;
+  cache_hit_rate: number;
   total_actual_cost: number;
 }
 
@@ -384,6 +425,7 @@ export interface CostByModelEntry {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  cached_prompt_tokens?: number;
   requests: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;
@@ -402,6 +444,7 @@ export interface CostByRoleEntry {
   role: string;
   prompt_tokens: number;
   completion_tokens: number;
+  cached_prompt_tokens?: number;
   requests: number;
   estimated_cost_usd: number;
   actual_cost_usd: number;

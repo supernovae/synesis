@@ -27,6 +27,8 @@ from ..services.model_registry import (
     upsert_model_cost,
 )
 from ..services.provider_catalog import KNOWN_ROLES
+from ..services.admin_audit import record_admin_audit
+from ..services.token_cost import estimate_llm_call_cost_usd
 
 logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
@@ -88,11 +90,31 @@ async def assign_model_to_role(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
 
+    rec_err: str | None = None
+    rec_sum: dict | None = None
     try:
-        await reconcile()
-    except Exception:
+        rec_sum = await reconcile()
+    except Exception as exc:
+        rec_err = repr(exc)
         logger.warning("reconcile_after_role_assign_failed role=%s", role, exc_info=True)
 
+    await record_admin_audit(
+        user=_user,
+        action="models.role_assign",
+        status="success" if rec_err is None else "partial",
+        summary=(
+            f"Assigned {role} → {data['provider']}/{data['model']}"
+            + ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+        ),
+        detail={
+            "role": role,
+            "provider": data["provider"],
+            "model": data["model"],
+            "assignment": result,
+            "reconcile": rec_sum,
+            "reconcile_error": rec_err,
+        },
+    )
     return result
 
 
@@ -109,10 +131,23 @@ async def remove_role_assignment(
     result = await deactivate_role(role)
     if result is None:
         raise HTTPException(404, f"No active assignment for role: {role}")
+    rec_err: str | None = None
+    rec_sum: dict | None = None
     try:
-        await reconcile()
-    except Exception:
+        rec_sum = await reconcile()
+    except Exception as exc:
+        rec_err = repr(exc)
         logger.warning("reconcile_after_role_deactivate_failed role=%s", role, exc_info=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.role_deactivate",
+        status="success" if rec_err is None else "partial",
+        summary=(
+            f"Deactivated assignment for {role}"
+            + ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+        ),
+        detail={"role": role, "previous": result, "reconcile": rec_sum, "reconcile_error": rec_err},
+    )
     return result
 
 
@@ -143,7 +178,15 @@ async def create_model_deployment(
 ):
     if not data.get("role"):
         raise HTTPException(400, "role is required")
-    return await create_deployment(data)
+    out = await create_deployment(data)
+    await record_admin_audit(
+        user=_user,
+        action="models.deployment_create",
+        status="success",
+        summary=f"Created deployment role={out.get('role')} id={out.get('id')}",
+        detail={"deployment": out},
+    )
+    return out
 
 
 @router.put("/deployments/{deployment_id}")
@@ -155,6 +198,13 @@ async def update_model_deployment(
     result = await update_deployment(deployment_id, data)
     if result is None:
         raise HTTPException(404, "deployment not found")
+    await record_admin_audit(
+        user=_user,
+        action="models.deployment_update",
+        status="success",
+        summary=f"Updated deployment id={deployment_id}",
+        detail={"deployment_id": deployment_id, "patch_keys": list(data.keys())},
+    )
     return result
 
 
@@ -167,6 +217,13 @@ async def delete_model_deployment(
     ok = await delete_deployment(deployment_id)
     if not ok:
         raise HTTPException(404, "deployment not found")
+    await record_admin_audit(
+        user=_user,
+        action="models.deployment_delete",
+        status="success",
+        summary=f"Deleted deployment id={deployment_id}",
+        detail={"deployment_id": deployment_id},
+    )
     return {"deleted": deployment_id}
 
 
@@ -180,10 +237,24 @@ async def activate_deployment(
     result = await set_deployment_active(deployment_id, True)
     if result is None:
         raise HTTPException(404, "deployment not found")
+    rec_ok = True
+    rec_err: str | None = None
     try:
-        await reconcile_single(deployment_id)
-    except Exception:
+        rec_ok = await reconcile_single(deployment_id)
+    except Exception as exc:
+        rec_err = repr(exc)
+        rec_ok = False
         logger.warning("reconcile_after_activate_failed id=%d", deployment_id, exc_info=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.deployment_activate",
+        status="success" if rec_ok and not rec_err else "partial",
+        summary=(
+            f"Activated deployment {deployment_id} ({result.get('served_name', '')})"
+            + ("; reconcile_single failed" if rec_err or not rec_ok else "; LiteLLM sync ok")
+        ),
+        detail={"deployment_id": deployment_id, "deployment": result, "reconcile_ok": rec_ok, "error": rec_err},
+    )
     return result
 
 
@@ -197,10 +268,24 @@ async def deactivate_deployment(
     result = await set_deployment_active(deployment_id, False)
     if result is None:
         raise HTTPException(404, "deployment not found")
+    rec_ok = True
+    rec_err: str | None = None
     try:
-        await reconcile_single(deployment_id)
-    except Exception:
+        rec_ok = await reconcile_single(deployment_id)
+    except Exception as exc:
+        rec_err = repr(exc)
+        rec_ok = False
         logger.warning("reconcile_after_deactivate_failed id=%d", deployment_id, exc_info=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.deployment_deactivate",
+        status="success" if rec_ok and not rec_err else "partial",
+        summary=(
+            f"Deactivated deployment {deployment_id}"
+            + ("; reconcile_single failed" if rec_err or not rec_ok else "; LiteLLM sync ok")
+        ),
+        detail={"deployment_id": deployment_id, "deployment": result, "reconcile_ok": rec_ok, "error": rec_err},
+    )
     return result
 
 
@@ -210,6 +295,13 @@ async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
 
     invalidate_yaml_cache()
     count = await seed_model_deployments(force=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.sync_from_yaml",
+        status="success",
+        summary=f"Re-seeded model_deployments from models.yaml ({count} rows)",
+        detail={"seeded": count},
+    )
     return {
         "seeded": count,
         "warning": (
@@ -223,7 +315,26 @@ async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
 async def trigger_reconcile(_user: UserInfo = Depends(get_current_user)):
     from ..services.model_reconciler import reconcile
 
-    summary = await reconcile()
+    err: str | None = None
+    summary: dict | None = None
+    try:
+        summary = await reconcile()
+    except Exception as exc:
+        err = repr(exc)
+        logger.warning("manual_reconcile_failed", exc_info=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.reconcile.manual",
+        status="success" if err is None else "error",
+        summary=(
+            "Manual LiteLLM reconcile"
+            if err is None
+            else "Manual LiteLLM reconcile failed"
+        ),
+        detail={"reconcile": summary, "error": err},
+    )
+    if err is not None:
+        raise HTTPException(502, f"Reconcile failed: {err}")
     return summary
 
 
@@ -240,10 +351,25 @@ async def set_fallbacks(
         raise HTTPException(404, "deployment not found")
     from ..services.model_reconciler import reconcile
 
+    rec_err: str | None = None
+    rec_sum: dict | None = None
     try:
-        await reconcile()
-    except Exception:
+        rec_sum = await reconcile()
+    except Exception as exc:
+        rec_err = repr(exc)
         logger.warning("reconcile_after_fallback_update_failed id=%d", deployment_id, exc_info=True)
+    await record_admin_audit(
+        user=_user,
+        action="models.fallbacks_update",
+        status="success" if rec_err is None else "partial",
+        summary=f"Updated fallbacks for deployment {deployment_id}",
+        detail={
+            "deployment_id": deployment_id,
+            "fallbacks": fallbacks,
+            "reconcile": rec_sum,
+            "reconcile_error": rec_err,
+        },
+    )
     return result
 
 
@@ -284,6 +410,7 @@ async def active_costs(_user: UserInfo = Depends(get_current_user)):
                 "source": manual.get("source", provider),
                 "provider": provider,
                 "input_per_million": manual["input_per_million"],
+                "input_cached_per_million": manual.get("input_cached_per_million"),
                 "output_per_million": manual["output_per_million"],
                 "monthly_fixed_cost": manual.get("monthly_fixed_cost", 0.0),
                 "cost_formula": manual.get("cost_formula", ""),
@@ -351,6 +478,13 @@ async def update_model_cost(
     _user: UserInfo = Depends(get_current_user),
 ):
     result = await upsert_model_cost(data)
+    await record_admin_audit(
+        user=_user,
+        action="models.cost_update",
+        status="success",
+        summary=f"Updated cost rates for role={result.get('role', data.get('role'))}",
+        detail={"cost": result},
+    )
     return result
 
 
@@ -380,6 +514,7 @@ async def costs_by_model(
                             "model": model,
                             "prompt_tokens": 0,
                             "completion_tokens": 0,
+                            "cached_prompt_tokens": 0,
                             "requests": 0,
                             "estimated_cost_usd": 0.0,
                             "actual_cost_usd": 0.0,
@@ -387,12 +522,18 @@ async def costs_by_model(
                     agg = model_agg[model]
                     agg["prompt_tokens"] += call.get("prompt_tokens", 0)
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
+                    agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         cost_rates = await get_cost_estimates()
-        pricing_by_role: dict[str, tuple[float, float]] = {
-            c.get("role", ""): (c["input_per_million"], c["output_per_million"]) for c in cost_rates
+        pricing_by_role: dict[str, tuple[float, float, float | None]] = {
+            c.get("role", ""): (
+                c["input_per_million"],
+                c["output_per_million"],
+                c.get("input_cached_per_million"),
+            )
+            for c in cost_rates
         }
 
         def _role_for_model(target: str) -> str:
@@ -407,10 +548,14 @@ async def costs_by_model(
 
         for model, agg in model_agg.items():
             role = _role_for_model(model)
-            rates = pricing_by_role.get(role, (0, 0))
-            agg["estimated_cost_usd"] = round(
-                (agg["prompt_tokens"] / 1_000_000) * rates[0] + (agg["completion_tokens"] / 1_000_000) * rates[1],
-                6,
+            inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+            agg["estimated_cost_usd"] = estimate_llm_call_cost_usd(
+                agg["prompt_tokens"],
+                agg["completion_tokens"],
+                agg["cached_prompt_tokens"],
+                input_per_million=inp_r,
+                output_per_million=out_r,
+                input_cached_per_million=ic_r,
             )
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
@@ -450,6 +595,7 @@ async def costs_by_role(
                             "role": role,
                             "prompt_tokens": 0,
                             "completion_tokens": 0,
+                            "cached_prompt_tokens": 0,
                             "requests": 0,
                             "estimated_cost_usd": 0.0,
                             "actual_cost_usd": 0.0,
@@ -457,19 +603,28 @@ async def costs_by_role(
                     agg = role_agg[role]
                     agg["prompt_tokens"] += call.get("prompt_tokens", 0)
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
+                    agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         cost_rates = await get_cost_estimates()
-        pricing: dict[str, tuple[float, float]] = {}
+        pricing: dict[str, tuple[float, float, float | None]] = {}
         for c in cost_rates:
-            pricing[c.get("role", "")] = (c["input_per_million"], c["output_per_million"])
+            pricing[c.get("role", "")] = (
+                c["input_per_million"],
+                c["output_per_million"],
+                c.get("input_cached_per_million"),
+            )
 
         for role, agg in role_agg.items():
-            rates = pricing.get(role, (0, 0))
-            agg["estimated_cost_usd"] = round(
-                (agg["prompt_tokens"] / 1_000_000) * rates[0] + (agg["completion_tokens"] / 1_000_000) * rates[1],
-                6,
+            inp_r, out_r, ic_r = pricing.get(role, (0.0, 0.0, None))
+            agg["estimated_cost_usd"] = estimate_llm_call_cost_usd(
+                agg["prompt_tokens"],
+                agg["completion_tokens"],
+                agg["cached_prompt_tokens"],
+                input_per_million=inp_r,
+                output_per_million=out_r,
+                input_cached_per_million=ic_r,
             )
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
@@ -629,6 +784,7 @@ async def performance_detailed(
                             "total_tokens": 0,
                             "total_prompt_tokens": 0,
                             "total_completion_tokens": 0,
+                            "total_cached_prompt_tokens": 0,
                             "total_actual_cost": 0.0,
                         }
                     ms = model_stats[model]
@@ -638,6 +794,7 @@ async def performance_detailed(
                     ms["total_tokens"] += call.get("total_tokens", 0)
                     ms["total_prompt_tokens"] += call.get("prompt_tokens", 0)
                     ms["total_completion_tokens"] += call.get("completion_tokens", 0)
+                    ms["total_cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     ms["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         results = []
@@ -647,6 +804,9 @@ async def performance_detailed(
             avg_lat = sum(lats) / n if n else 0
             p95_idx = int(n * 0.95) if n else 0
             p95_lat = lats[min(p95_idx, n - 1)] if n else 0
+            tp = ms["total_prompt_tokens"]
+            tc = ms["total_cached_prompt_tokens"]
+            ms["cache_hit_rate"] = round(tc / tp, 4) if tp > 0 else 0.0
             ms["avg_latency_ms"] = round(avg_lat, 1)
             ms["p95_latency_ms"] = round(p95_lat, 1)
             ms["total_actual_cost"] = round(ms["total_actual_cost"], 6)
@@ -734,13 +894,20 @@ async def performance_by_role(
                     role = _infer_role(node, call.get("model", ""))
                     if role not in role_stats:
                         role_stats[role] = {
-                            "role": role, "request_count": 0, "latencies": [],
-                            "total_tokens": 0, "total_actual_cost": 0.0,
+                            "role": role,
+                            "request_count": 0,
+                            "latencies": [],
+                            "total_tokens": 0,
+                            "total_prompt_tokens": 0,
+                            "total_cached_prompt_tokens": 0,
+                            "total_actual_cost": 0.0,
                         }
                     rs = role_stats[role]
                     rs["request_count"] += 1
                     rs["latencies"].append(call.get("latency_ms", 0))
                     rs["total_tokens"] += call.get("total_tokens", 0)
+                    rs["total_prompt_tokens"] += call.get("prompt_tokens", 0)
+                    rs["total_cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     rs["total_actual_cost"] += float(call.get("actual_cost", 0.0) or 0.0)
 
         assignments = await get_role_assignments()
@@ -751,16 +918,25 @@ async def performance_by_role(
             rs = role_stats.get(role)
             if rs is None:
                 rs = {
-                    "role": role, "request_count": 0, "latencies": [],
-                    "total_tokens": 0, "total_actual_cost": 0.0,
+                    "role": role,
+                    "request_count": 0,
+                    "latencies": [],
+                    "total_tokens": 0,
+                    "total_prompt_tokens": 0,
+                    "total_cached_prompt_tokens": 0,
+                    "total_actual_cost": 0.0,
                 }
             lats = sorted(rs.pop("latencies"))
             n = len(lats)
             avg_lat = sum(lats) / n if n else 0
             p95_idx = int(n * 0.95) if n else 0
+            tp = rs.get("total_prompt_tokens", 0)
+            tc = rs.get("total_cached_prompt_tokens", 0)
+            cache_hit = round(tc / tp, 4) if tp > 0 else 0.0
             a = reg_by_role.get(role, {})
             results.append({
                 **rs,
+                "cache_hit_rate": cache_hit,
                 "avg_latency_ms": round(avg_lat, 1),
                 "p95_latency_ms": round(lats[min(p95_idx, n - 1)] if n else 0, 1),
                 "total_actual_cost": round(rs["total_actual_cost"], 6),

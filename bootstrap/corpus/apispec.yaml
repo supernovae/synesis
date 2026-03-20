@@ -1,3 +1,9 @@
+# Bootstrap corpus — OpenAPI / Swagger specs for RAG (REST shapes operators & integrations use daily).
+# Imported with other bootstrap YAML; dedupe by uri. Complements developer/docs corpora (tutorials) with
+# machine-readable endpoint reference (verbs, paths, parameters).
+# Includes extended Kubernetes groups, Docker Engine, Argo CD, Backstage, Grafana, Harbor, Kong,
+# Jaeger, Argo Workflows/Rollouts, Cilium, and Elasticsearch Serverless OpenAPI (larger file).
+#
 items:
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/api__v1_openapi.json
   handler: openapi_spec
@@ -9,6 +15,8 @@ items:
   - kubernetes
   - api
   - core
+  - pods
+  - services
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apps__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Apps v1 API
@@ -20,6 +28,8 @@ items:
   - api
   - apps
   - deployments
+  - statefulsets
+  - daemonsets
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__batch__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Batch v1 API
@@ -31,6 +41,7 @@ items:
   - api
   - batch
   - jobs
+  - cronjobs
 - uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1_openapi.json
   handler: openapi_spec
   title: Kubernetes Networking v1 API
@@ -42,3 +53,428 @@ items:
   - api
   - networking
   - ingress
+  - network-policies
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__rbac.authorization.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes RBAC v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - rbac
+  - roles
+  - security
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__storage.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Storage v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - storage
+  - pvc
+  - storageclass
+  - csi
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__autoscaling__v2_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Autoscaling v2 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - autoscaling
+  - hpa
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__policy__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Policy v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - policy
+  - pdb
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__admissionregistration.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Admission Registration v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - admission
+  - webhooks
+  - validating
+  - mutating
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apiextensions.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes API Extensions v1 API (CRDs)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - crd
+  - operators
+  - apiextensions
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__scheduling.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Scheduling v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - scheduling
+  - priorityclass
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__certificates.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Certificates v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - certificates
+  - csr
+  - tls
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__coordination.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Coordination v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - coordination
+  - lease
+  - leader-election
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__authorization.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Authorization v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - authorization
+  - subjectaccessreview
+  - selfsubjectrulesreview
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__authentication.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Authentication v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - authentication
+  - tokenreview
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__discovery.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Discovery v1 API (EndpointSlices)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - discovery
+  - endpointslices
+  - services
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__events.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Events v1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - events
+  - observability
+- uri: https://raw.githubusercontent.com/moby/moby/master/api/swagger.yaml
+  handler: openapi_spec
+  title: Docker Engine API (Swagger 2.0)
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - docker
+  - containers
+  - engine-api
+  - devops
+- uri: https://raw.githubusercontent.com/argoproj/argo-cd/master/assets/swagger.json
+  handler: openapi_spec
+  title: Argo CD API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - argocd
+  - gitops
+  - kubernetes
+  - continuous-deployment
+  - api
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__node.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Node v1 API (RuntimeClass)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - node
+  - runtimeclass
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__flowcontrol.apiserver.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes FlowControl v1 API (API Priority and Fairness)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - flowcontrol
+  - apf
+  - apiserver
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__apiregistration.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes API Registration v1 API (APIService)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - apiregistration
+  - apiservice
+  - aggregation
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__resource.k8s.io__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Resource v1 API (resource claims / device classes)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - resource
+  - dra
+  - devices
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__storagemigration.k8s.io__v1beta1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Storage Migration v1beta1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - storage
+  - migration
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__networking.k8s.io__v1beta1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Networking v1beta1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - networking
+  - ingress
+  - beta
+- uri: https://raw.githubusercontent.com/backstage/backstage/master/plugins/catalog-backend/src/schema/openapi.yaml
+  handler: openapi_spec
+  title: Backstage Catalog backend API
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - backstage
+  - developer-portal
+  - catalog
+  - service-catalog
+  - api
+- uri: https://raw.githubusercontent.com/backstage/backstage/master/plugins/scaffolder-backend/src/schema/openapi.yaml
+  handler: openapi_spec
+  title: Backstage Scaffolder backend API
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - backstage
+  - developer-portal
+  - scaffolder
+  - software-templates
+  - api
+- uri: https://raw.githubusercontent.com/grafana/grafana/main/packages/grafana-openapi/src/api/openapi3.json
+  handler: openapi_spec
+  title: Grafana HTTP API (OpenAPI 3)
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - grafana
+  - observability
+  - dashboards
+  - metrics
+  - api
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__certificates.k8s.io__v1alpha1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Certificates v1alpha1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - certificates
+  - alpha
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__coordination.k8s.io__v1beta1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Coordination v1beta1 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - coordination
+  - lease
+  - beta
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__scheduling.k8s.io__v1alpha2_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Scheduling v1alpha2 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - scheduling
+  - alpha
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__resource.k8s.io__v1beta2_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Resource v1beta2 API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - resource
+  - dra
+  - beta
+- uri: https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__autoscaling__v1_openapi.json
+  handler: openapi_spec
+  title: Kubernetes Autoscaling v1 API (legacy Scale)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - kubernetes
+  - api
+  - autoscaling
+  - scale
+- uri: https://raw.githubusercontent.com/goharbor/harbor/main/api/v2.0/swagger.yaml
+  handler: openapi_spec
+  title: Harbor Registry HTTP API v2.0
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - harbor
+  - oci
+  - registry
+  - container
+  - api
+- uri: https://raw.githubusercontent.com/Kong/kong/master/kong-admin-api.yml
+  handler: openapi_spec
+  title: Kong Gateway Admin API
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - kong
+  - api-gateway
+  - ingress
+  - api
+- uri: https://raw.githubusercontent.com/jaegertracing/jaeger-idl/main/swagger/api_v3/query_service.swagger.json
+  handler: openapi_spec
+  title: Jaeger Query gRPC-gateway API (v3)
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - jaeger
+  - tracing
+  - opentelemetry
+  - observability
+  - api
+- uri: https://raw.githubusercontent.com/argoproj/argo-workflows/master/api/openapi-spec/swagger.json
+  handler: openapi_spec
+  title: Argo Workflows API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - argo-workflows
+  - kubernetes
+  - ci-cd
+  - pipelines
+  - api
+- uri: https://raw.githubusercontent.com/argoproj/argo-rollouts/master/pkg/apiclient/rollout/rollout.swagger.json
+  handler: openapi_spec
+  title: Argo Rollouts API
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - argo-rollouts
+  - kubernetes
+  - deployments
+  - canary
+  - gitops
+  - api
+- uri: https://raw.githubusercontent.com/cilium/cilium/main/api/v1/openapi.yaml
+  handler: openapi_spec
+  title: Cilium Hubble / agent API (v1)
+  domain: kubernetes
+  authority: community
+  origin_type: curated
+  tags:
+  - cilium
+  - kubernetes
+  - cni
+  - hubble
+  - networking
+  - api
+- uri: https://raw.githubusercontent.com/elastic/elasticsearch-specification/main/output/openapi/elasticsearch-serverless-openapi.json
+  handler: openapi_spec
+  title: Elasticsearch Serverless OpenAPI
+  domain: devops
+  authority: community
+  origin_type: curated
+  tags:
+  - elasticsearch
+  - search
+  - rest-api
+  - serverless
+  - api

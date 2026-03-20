@@ -35,6 +35,9 @@ domain_keywords:
     keywords:
       - trulens
       - lm-eval
+      - lm-evaluation-harness
+      - opencompass
+      - open-llm-leaderboard
       - ragas
       - deepeval
       - helm

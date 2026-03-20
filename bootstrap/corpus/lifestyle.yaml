@@ -1,3 +1,6 @@
+# Bootstrap corpus — Lifestyle & consumer verticals
+# Imported via scripts/load-bootstrap.sh (all *.yaml here).
+#
 items:
 - uri: https://www.who.int/health-topics
   handler: html_document

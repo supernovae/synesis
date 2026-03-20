@@ -49,6 +49,7 @@ const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
+const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 
 export const router = createBrowserRouter([
   {
@@ -111,6 +112,7 @@ export const router = createBrowserRouter([
       { path: "settings", element: <SystemConfig /> },
       { path: "settings/providers", element: <ProviderKeys /> },
       { path: "settings/infra-costs", element: <InfraCosts /> },
+      { path: "settings/audit", element: <AuditLog /> },
     ],
   },
 ]);

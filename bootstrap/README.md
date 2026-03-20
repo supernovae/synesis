@@ -8,11 +8,24 @@ after a DB wipe, and local development.
 
 ```
 bootstrap/
-├── corpus/          Normalized ingestion items (one YAML per topic)
-├── taxonomy/        Taxonomy seed config
-├── convert.py       One-time migration from legacy sources-*.yaml
+├── corpus/              Normalized ingestion items (one YAML per topic)
+├── taxonomy/            Taxonomy seed config
 └── README.md
 ```
+
+### Corpus files (`corpus/`)
+
+| File | Contents |
+|------|-----------|
+| `apispec.yaml`, `code.yaml`, `docs.yaml`, `license.yaml` | API specs, code repos, product docs, licenses |
+| `cloud.yaml` | Well-Architected, Kubernetes, DevOps, cloud CLIs |
+| `arxiv.yaml` | arXiv papers (RAG, agents, systems) |
+| `llm.yaml` | Vendor LLM research (blogs, PDFs) + `llm_*` vertical doc links |
+| `foundations.yaml` | Cross-domain reference (architecture, security, data, …) |
+| `lifestyle.yaml` | Consumer / lifestyle verticals |
+| `developer.yaml` | Language runtimes, web standards, package ecosystems |
+
+Corpus YAML is maintained directly in git. Add or edit entries in `corpus/*.yaml` and re-import via the admin bootstrap API (dedupe by `uri`).
 
 ## Normalized Item Schema
 
@@ -67,13 +80,3 @@ Items enter the queue as `pending`. The indexer claims and processes them, repor
 status back to the admin API. Track progress in the admin UI under
 **RAG Pipeline > Ingestion Queue**.
 
-## Generating from Legacy Files
-
-If you have old `sources-*.yaml` and `seed-corpus-*.json` files:
-
-```bash
-python bootstrap/convert.py
-```
-
-This reads from `base/rag/indexer/` and writes normalized YAML to
-`bootstrap/corpus/`.

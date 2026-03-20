@@ -134,6 +134,9 @@ export interface RolePerformance {
   avg_latency_ms: number;
   p95_latency_ms: number;
   total_tokens: number;
+  total_prompt_tokens?: number;
+  total_cached_prompt_tokens?: number;
+  cache_hit_rate?: number;
   total_actual_cost: number;
   registry_model: string;
   registry_provider: string;
@@ -149,6 +152,8 @@ export interface ActiveCostEntry {
   source: string;
   provider: string;
   input_per_million: number;
+  /** When set, used for cached prompt tokens; otherwise ~10% of input rate (server default). */
+  input_cached_per_million?: number | null;
   output_per_million: number;
   monthly_fixed_cost: number;
   cost_formula: string;
@@ -189,6 +194,7 @@ export interface ModelCost {
   /** When present (e.g. active rows), preferred over source for display */
   provider?: string;
   input_per_million: number;
+  input_cached_per_million?: number | null;
   output_per_million: number;
   monthly_fixed_cost: number;
   cost_formula: string;
@@ -200,6 +206,7 @@ export interface ModelCostByModel {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  cached_prompt_tokens?: number;
   total_tokens: number;
   requests: number;
   cost_usd: number;
@@ -492,12 +499,15 @@ export interface LLMCallRecord {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  /** Provider-reported cached prompt tokens when available (OpenAI details, Anthropic cache read, etc.). */
+  cached_prompt_tokens?: number;
   latency_ms: number;
   prompt_snippet: string;
   completion_snippet: string;
   prompt_full?: string;
   completion_full?: string;
   timestamp: number;
+  actual_cost?: number;
 }
 
 export interface SpanRecord {
@@ -524,7 +534,10 @@ export interface TraceRecord {
   timestamp: number;
   total_duration_ms: number;
   total_tokens: number;
+  /** Sum of per-call cached prompt tokens when the provider returned them. */
+  total_cached_prompt_tokens?: number;
   estimated_cost_usd: number;
+  actual_cost_usd?: number;
   difficulty: number;
   task_type: string;
   domain_tags: string[];

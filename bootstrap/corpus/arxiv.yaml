@@ -1,3 +1,6 @@
+# Bootstrap corpus — arXiv papers (RAG, agents, systems)
+# Imported via scripts/load-bootstrap.sh (all *.yaml here).
+#
 items:
 - uri: https://arxiv.org/abs/2005.11401
   handler: arxiv_paper
@@ -32,8 +35,7 @@ items:
   tags: *id001
 - uri: https://arxiv.org/abs/2004.12832
   handler: arxiv_paper
-  title: 'ColBERT: Efficient and Effective Passage Search via Contextualized Late
-    Interaction over BERT'
+  title: 'ColBERT: Efficient and Effective Passage Search via Contextualized Late Interaction over BERT'
   domain: generalist
   authority: external
   origin_type: external
@@ -78,8 +80,7 @@ items:
   tags: *id001
 - uri: https://arxiv.org/abs/2403.14403
   handler: arxiv_paper
-  title: 'Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models
-    through Question Complexity'
+  title: 'Adaptive-RAG: Learning to Adapt Retrieval-Augmented Large Language Models through Question Complexity'
   domain: generalist
   authority: external
   origin_type: external
@@ -113,15 +114,6 @@ items:
   config:
     id: '2407.01219'
   tags: *id001
-- uri: https://arxiv.org/abs/2312.10997
-  handler: arxiv_paper
-  title: 'Retrieval-Augmented Generation for Large Language Models: A Survey'
-  domain: generalist
-  authority: external
-  origin_type: external
-  config:
-    id: '2312.10997'
-  tags: *id001
 - uri: https://arxiv.org/abs/2501.09136
   handler: arxiv_paper
   title: 'Agentic Retrieval-Augmented Generation: A Survey on Agentic RAG'
@@ -131,19 +123,9 @@ items:
   config:
     id: '2501.09136'
   tags: *id001
-- uri: https://arxiv.org/abs/2307.03172
-  handler: arxiv_paper
-  title: 'Lost in the Middle: How Language Models Use Long Contexts'
-  domain: generalist
-  authority: external
-  origin_type: external
-  config:
-    id: '2307.03172'
-  tags: *id001
 - uri: https://arxiv.org/abs/2502.14802
   handler: arxiv_paper
-  title: 'Lost in the Middle, and In-Between: How Language Models Use Long Contexts
-    for Key Information Retrieval'
+  title: 'Lost in the Middle, and In-Between: How Language Models Use Long Contexts for Key Information Retrieval'
   domain: generalist
   authority: external
   origin_type: external
@@ -152,8 +134,7 @@ items:
   tags: *id001
 - uri: https://arxiv.org/abs/2309.11447
   handler: arxiv_paper
-  title: 'LLMLingua: Compressing Prompts for Accelerated Inference of Large Language
-    Models'
+  title: 'LLMLingua: Compressing Prompts for Accelerated Inference of Large Language Models'
   domain: generalist
   authority: external
   origin_type: external
@@ -162,8 +143,7 @@ items:
   tags: *id001
 - uri: https://arxiv.org/abs/2310.06839
   handler: arxiv_paper
-  title: 'LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios
-    via Prompt Compression'
+  title: 'LongLLMLingua: Accelerating and Enhancing LLMs in Long Context Scenarios via Prompt Compression'
   domain: generalist
   authority: external
   origin_type: external
@@ -193,15 +173,6 @@ items:
   - chain-of-thought
   - tool-use
   - planning
-- uri: https://arxiv.org/abs/2205.11916
-  handler: arxiv_paper
-  title: Large Language Models are Zero-Shot Reasoners
-  domain: generalist
-  authority: external
-  origin_type: external
-  config:
-    id: '2205.11916'
-  tags: *id002
 - uri: https://arxiv.org/abs/2203.11171
   handler: arxiv_paper
   title: Self-Consistency Improves Chain of Thought Reasoning in Language Models
@@ -222,8 +193,7 @@ items:
   tags: *id002
 - uri: https://arxiv.org/abs/2305.04091
   handler: arxiv_paper
-  title: 'Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning
-    by Large Language Models'
+  title: 'Plan-and-Solve Prompting: Improving Zero-Shot Chain-of-Thought Reasoning by Large Language Models'
   domain: generalist
   authority: external
   origin_type: external
@@ -277,8 +247,7 @@ items:
   tags: *id002
 - uri: https://arxiv.org/abs/2211.12588
   handler: arxiv_paper
-  title: 'Program of Thoughts Prompting: Disentangling Computation from Reasoning
-    for Numerical Reasoning Tasks'
+  title: 'Program of Thoughts Prompting: Disentangling Computation from Reasoning for Numerical Reasoning Tasks'
   domain: generalist
   authority: external
   origin_type: external
@@ -305,8 +274,7 @@ items:
   tags: *id002
 - uri: https://arxiv.org/abs/2310.04406
   handler: arxiv_paper
-  title: Language Agent Tree Search Unifies Reasoning, Acting, and Planning in Language
-    Models
+  title: Language Agent Tree Search Unifies Reasoning, Acting, and Planning in Language Models
   domain: generalist
   authority: external
   origin_type: external
@@ -324,8 +292,7 @@ items:
   tags: *id002
 - uri: https://arxiv.org/abs/2407.03238
   handler: arxiv_paper
-  title: 'LLMCompiler: An Optimizing Compiler for Parallel Function Calling in Large
-    Language Models'
+  title: 'LLMCompiler: An Optimizing Compiler for Parallel Function Calling in Large Language Models'
   domain: generalist
   authority: external
   origin_type: external
@@ -357,8 +324,7 @@ items:
   - safety
 - uri: https://arxiv.org/abs/2311.05232
   handler: arxiv_paper
-  title: 'A Survey on Hallucination in Large Language Models: Principles, Taxonomy,
-    Challenges, and Open Questions'
+  title: 'A Survey on Hallucination in Large Language Models: Principles, Taxonomy, Challenges, and Open Questions'
   domain: generalist
   authority: external
   origin_type: external
@@ -367,8 +333,7 @@ items:
   tags: *id003
 - uri: https://arxiv.org/abs/2309.01219
   handler: arxiv_paper
-  title: 'Siren''s Song in the AI Ocean: A Survey on Hallucination in Large Language
-    Models'
+  title: 'Siren''s Song in the AI Ocean: A Survey on Hallucination in Large Language Models'
   domain: generalist
   authority: external
   origin_type: external
@@ -386,8 +351,7 @@ items:
   tags: *id003
 - uri: https://arxiv.org/abs/2502.08235
   handler: arxiv_paper
-  title: 'Uncertainty Quantification and Confidence Calibration in Large Language
-    Models: A Survey'
+  title: 'Uncertainty Quantification and Confidence Calibration in Large Language Models: A Survey'
   domain: generalist
   authority: external
   origin_type: external
@@ -490,8 +454,7 @@ items:
   tags: *id004
 - uri: https://arxiv.org/abs/2303.12570
   handler: arxiv_paper
-  title: 'RepoCoder: Repository-Level Code Completion Through Iterative Retrieval
-    and Generation'
+  title: 'RepoCoder: Repository-Level Code Completion Through Iterative Retrieval and Generation'
   domain: generalist
   authority: external
   origin_type: external
@@ -527,8 +490,7 @@ items:
   tags: *id004
 - uri: https://arxiv.org/abs/2410.20777
   handler: arxiv_paper
-  title: 'SetupBench: Assessing Software Engineering Agents'' Ability to Bootstrap
-    Development Environments'
+  title: 'SetupBench: Assessing Software Engineering Agents'' Ability to Bootstrap Development Environments'
   domain: generalist
   authority: external
   origin_type: external
@@ -587,8 +549,7 @@ items:
   - config-drift
 - uri: https://arxiv.org/abs/2406.10098
   handler: arxiv_paper
-  title: 'IaC Generation with Large Language Models: An Error Taxonomy and A Study
-    of Injection and Knowledge-Guided Improvement'
+  title: 'IaC Generation with Large Language Models: An Error Taxonomy and A Study of Injection and Knowledge-Guided Improvement'
   domain: generalist
   authority: external
   origin_type: external
@@ -755,8 +716,7 @@ items:
   tags: *id006
 - uri: https://arxiv.org/abs/2101.03961
   handler: arxiv_paper
-  title: 'Switch Transformers: Scaling to Trillion Parameter Models with Simple and
-    Efficient Sparsity'
+  title: 'Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity'
   domain: generalist
   authority: external
   origin_type: external
@@ -765,8 +725,7 @@ items:
   tags: *id006
 - uri: https://arxiv.org/abs/2006.16668
   handler: arxiv_paper
-  title: 'GShard: Scaling Giant Models with Conditional Computation and Automatic
-    Sharding'
+  title: 'GShard: Scaling Giant Models with Conditional Computation and Automatic Sharding'
   domain: generalist
   authority: external
   origin_type: external
@@ -789,8 +748,7 @@ items:
   - flash-attention
 - uri: https://arxiv.org/abs/2108.12409
   handler: arxiv_paper
-  title: 'Train Short, Test Long: Attention with Linear Biases Enables Input Length
-    Extrapolation'
+  title: 'Train Short, Test Long: Attention with Linear Biases Enables Input Length Extrapolation'
   domain: generalist
   authority: external
   origin_type: external
@@ -808,8 +766,7 @@ items:
   tags: *id007
 - uri: https://arxiv.org/abs/2305.13245
   handler: arxiv_paper
-  title: 'GQA: Training Generalized Multi-Query Transformer Models from Multi-Head
-    Checkpoints'
+  title: 'GQA: Training Generalized Multi-Query Transformer Models from Multi-Head Checkpoints'
   domain: generalist
   authority: external
   origin_type: external
@@ -845,8 +802,7 @@ items:
   tags: *id007
 - uri: https://arxiv.org/abs/2405.21060
   handler: arxiv_paper
-  title: 'Transformers are SSMs: Generalized Models and Efficient Algorithms Through
-    Structured State Space Duality'
+  title: 'Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality'
   domain: generalist
   authority: external
   origin_type: external
@@ -871,494 +827,6 @@ items:
   config:
     id: '2405.06018'
   tags: *id007
-- uri: https://www.anthropic.com/news/contextual-retrieval
-  handler: web_page
-  title: 'Anthropic: Contextual Retrieval'
-  domain: generalist
-  authority: external
-  origin_type: external
-  tags:
-  - rag
-  - contextual-retrieval
-  - anthropic
-- uri: https://www.anthropic.com/research/building-effective-agents
-  handler: web_page
-  title: 'Anthropic: Building Effective AI Agents'
-  domain: generalist
-  authority: external
-  origin_type: external
-  tags:
-  - agents
-  - anthropic
-  - multi-agent
-- uri: https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents
-  handler: web_page
-  title: 'Anthropic: Effective Context Engineering for AI Agents'
-  domain: generalist
-  authority: external
-  origin_type: external
-  tags:
-  - context-engineering
-  - agents
-  - anthropic
-- uri: https://help.openai.com/en/articles/6654000-how-to-use-advanced-prompting-techniques
-  handler: web_page
-  title: OpenAI Prompt Engineering Guide
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - prompt-engineering
-  - openai
-- uri: https://help.openai.com/en/articles/4936848-how-do-i-create-a-good-prompt-for-an-ai-model
-  handler: web_page
-  title: OpenAI Prompt Tips
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - prompt-engineering
-  - openai
-- uri: https://langchain-ai.github.io/langgraph/
-  handler: web_page
-  title: LangGraph Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - langgraph
-  - langchain
-  - agents
-  - graph
-  config:
-    follow_links: true
-- uri: https://python.langchain.com/docs/concepts/retrieval/
-  handler: web_page
-  title: LangChain Retrieval Concepts
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - langchain
-  - retrieval
-  - rag
-- uri: https://docs.pinecone.io/guides/index-data/data-modeling
-  handler: web_page
-  title: Pinecone Data Modeling
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pinecone
-  - vector-db
-  - data-modeling
-- uri: https://docs.pinecone.io/guides/optimize/increase-relevance
-  handler: web_page
-  title: Pinecone Increase Relevance
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pinecone
-  - relevance
-  - optimization
-- uri: https://learn.microsoft.com/en-us/azure/developer/ai/advanced-retrieval-augmented-generation
-  handler: web_page
-  title: Azure Advanced RAG
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - azure
-  - rag
-  - microsoft
-- uri: https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-chunking-phase
-  handler: web_page
-  title: Azure RAG Chunking Phase
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - azure
-  - rag
-  - chunking
-- uri: https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/rag/rag-enrichment-phase
-  handler: web_page
-  title: Azure RAG Enrichment Phase
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - azure
-  - rag
-  - enrichment
-- uri: https://learn.microsoft.com/en-us/azure/developer/ai/augment-llm-rag-fine-tuning
-  handler: web_page
-  title: Azure RAG vs Fine-Tuning
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - azure
-  - rag
-  - fine-tuning
-- uri: https://developer.hashicorp.com/terraform/docs
-  handler: web_page
-  title: Terraform Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - terraform
-  - iac
-  - hashicorp
-- uri: https://developer.hashicorp.com/terraform/language
-  handler: web_page
-  title: Terraform Language Docs
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - terraform
-  - hcl
-  - iac
-- uri: https://kubernetes.io/docs/
-  handler: web_page
-  title: Kubernetes Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - kubernetes
-  - k8s
-  - orchestration
-- uri: https://kubernetes.io/docs/reference/kubectl/
-  handler: web_page
-  title: kubectl Reference
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - kubernetes
-  - kubectl
-  - cli
-- uri: https://docs.python.org/3/
-  handler: web_page
-  title: Python Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - python
-  - stdlib
-- uri: https://docs.pydantic.dev/
-  handler: web_page
-  title: Pydantic Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pydantic
-  - validation
-  - python
-- uri: https://fastapi.tiangolo.com/
-  handler: web_page
-  title: FastAPI Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - fastapi
-  - api
-  - python
-- uri: https://github.com/All-Hands-AI/OpenHands
-  handler: web_page
-  title: OpenHands (All-Hands-AI)
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - openhands
-  - coding-agent
-  - open-source
-- uri: https://github.com/Aider-AI/aider
-  handler: web_page
-  title: Aider
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - aider
-  - coding-agent
-  - open-source
-- uri: https://docs.cursor.com/
-  handler: web_page
-  title: Cursor Documentation
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - cursor
-  - ide
-  - coding-agent
-  config:
-    follow_links: true
-- uri: https://arxiv.org/pdf/2501.09223
-  handler: pdf_document
-  title: Foundations of Large Language Models
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - foundational
-  - survey
-- uri: https://arxiv.org/pdf/2601.03624
-  handler: pdf_document
-  title: Architecting Agentic Communities using Design Patterns
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - agents
-  - design-patterns
-  - multi-agent
-  - architecture
-- uri: https://arxiv.org/abs/2501.04682
-  handler: web_page
-  title: Meta Chain-of-Thought (System 2 Reasoning)
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - chain-of-thought
-  - llm
-- uri: https://arxiv.org/abs/2501.07301
-  handler: web_page
-  title: Process Reward Models in Mathematical Reasoning
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - reward-models
-  - reinforcement-learning
-  - math
-- uri: https://arxiv.org/abs/2501.11223
-  handler: web_page
-  title: 'Reasoning Language Models: A Blueprint'
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - blueprint
-  - architecture
-- uri: https://arxiv.org/abs/2501.12599
-  handler: web_page
-  title: 'Kimi k1.5: Scaling RL with LLMs'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - llm
-  - scaling
-- uri: https://arxiv.org/abs/2501.12948
-  handler: web_page
-  title: 'DeepSeek-R1: Incentivizing Reasoning via RL'
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - llm
-  - deepseek
-- uri: https://arxiv.org/abs/2502.06807
-  handler: web_page
-  title: Competitive Programming with Large Reasoning Models
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - code-generation
-  - competitive-programming
-- uri: https://arxiv.org/abs/2502.03387
-  handler: web_page
-  title: 'LIMO: Less is More for Reasoning'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - efficiency
-- uri: https://arxiv.org/abs/2502.03492
-  handler: web_page
-  title: Teaching Language Models to Critique via RL
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - critique
-  - llm
-- uri: https://arxiv.org/abs/2502.04463
-  handler: web_page
-  title: Training Language Models to Reason Efficiently
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - efficiency
-  - llm
-  - training
-- uri: https://arxiv.org/abs/2502.06773
-  handler: web_page
-  title: On the Emergence of Thinking in LLMs
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - emergence
-- uri: https://arxiv.org/abs/2502.07374
-  handler: web_page
-  title: LLMs Learn to Reason from Demonstrations
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - in-context-learning
-- uri: https://arxiv.org/abs/2502.09056
-  handler: web_page
-  title: Adapting LLMs to Reasoning Model via Merging
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - model-merging
-- uri: https://arxiv.org/abs/2502.14768
-  handler: web_page
-  title: 'Logic-RL: Rule-Based RL for Reasoning'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - logic
-  - llm
-- uri: https://arxiv.org/abs/2503.02875
-  handler: web_page
-  title: 'First Few Tokens: Unsupervised Prefix Fine-Tuning'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - fine-tuning
-- uri: https://arxiv.org/abs/2503.05592
-  handler: web_page
-  title: 'R1-Searcher: Incentivizing Search via RL'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - search
-  - rag
-- uri: https://arxiv.org/abs/2503.07536
-  handler: web_page
-  title: 'LMM-R1: 3B LMMs with Strong Reasoning'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - multimodal
-  - llm
-  - small-models
-- uri: https://arxiv.org/abs/2503.16219
-  handler: web_page
-  title: RL for Reasoning in Small LLMs
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - small-models
-  - llm
-- uri: https://arxiv.org/abs/2503.20783
-  handler: web_page
-  title: Understanding R1-Zero-Like Training
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - training
-  - llm
-- uri: https://arxiv.org/abs/2503.24290
-  handler: web_page
-  title: Open-Reasoner-Zero
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - reinforcement-learning
-  - open-source
-  - llm
-- uri: https://arxiv.org/abs/2504.21233
-  handler: web_page
-  title: Phi-4-Mini-Reasoning
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - small-models
-  - llm
-  - microsoft
-- uri: https://arxiv.org/abs/2505.09388
-  handler: web_page
-  title: Qwen3 Technical Report
-  domain: generalist
-  authority: vetted
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - qwen
-  - technical-report
-- uri: https://arxiv.org/abs/2505.14652
-  handler: web_page
-  title: 'General-Reasoner: Advancing LLM Reasoning'
-  domain: generalist
-  authority: community
-  origin_type: curated
-  tags:
-  - reasoning
-  - llm
-  - generalization
 - uri: https://arxiv.org/abs/2602.23374
   handler: arxiv_paper
   title: 'Higress-RAG: Enterprise RAG with Adaptive Routing and CRAG'
@@ -1473,8 +941,7 @@ items:
   tags: *id008
 - uri: https://arxiv.org/abs/2405.04434
   handler: arxiv_paper
-  title: 'DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language
-    Model'
+  title: 'DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model'
   domain: generalist
   authority: external
   origin_type: external
@@ -1574,8 +1041,7 @@ items:
   tags: *id010
 - uri: https://arxiv.org/abs/2211.17192
   handler: arxiv_paper
-  title: 'SmoothQuant: Accurate and Efficient Post-Training Quantization for Large
-    Language Models'
+  title: 'SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models'
   domain: generalist
   authority: external
   origin_type: external
@@ -1618,156 +1084,6 @@ items:
   config:
     id: '2305.09781'
   tags: *id010
-- uri: https://docs.vllm.ai/en/latest/serving/distributed_serving.html
-  handler: web_page
-  title: 'vLLM: Distributed Inference and Serving'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - inference
-  - distributed
-  - serving
-- uri: https://docs.vllm.ai/en/latest/performance/optimization.html
-  handler: web_page
-  title: 'vLLM: Optimization and Tuning'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - optimization
-  - inference
-  - tuning
-- uri: https://docs.vllm.ai/en/stable/serving/engine_args.html
-  handler: web_page
-  title: 'vLLM: Engine Arguments Reference'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - configuration
-  - engine
-  - reference
-- uri: https://docs.vllm.ai/en/stable/serving/parallelism_scaling.html
-  handler: web_page
-  title: 'vLLM: Parallelism and Scaling'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - parallelism
-  - scaling
-  - tensor-parallel
-- uri: https://docs.vllm.ai/en/stable/features/quantization/
-  handler: web_page
-  title: 'vLLM: Quantization Methods'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - quantization
-  - inference
-  - optimization
-- uri: https://docs.vllm.ai/en/stable/features/spec_decode.html
-  handler: web_page
-  title: 'vLLM: Speculative Decoding'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - speculative-decoding
-  - inference
-  - optimization
-- uri: https://docs.vllm.ai/projects/recipes/en/latest/
-  handler: web_page
-  title: 'vLLM: Model-Specific Deployment Recipes'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - recipes
-  - deployment
-  - model-serving
-  config:
-    follow_links: true
-- uri: https://developers.redhat.com/articles/2025/09/10/how-deploy-language-models-red-hat-openshift-ai
-  handler: web_page
-  title: 'Red Hat: Deploy Language Models with OpenShift AI'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - openshift-ai
-  - vllm
-  - model-serving
-  - red-hat
-  - deployment
-- uri: https://developers.redhat.com/articles/2025/10/02/autoscaling-vllm-openshift-ai
-  handler: web_page
-  title: 'Red Hat: Autoscaling vLLM with OpenShift AI'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - openshift-ai
-  - vllm
-  - autoscaling
-  - red-hat
-- uri: https://developers.redhat.com/articles/2025/10/06/optimize-and-deploy-llms-production-openshift-ai
-  handler: web_page
-  title: 'Red Hat: Optimize and Deploy LLMs for Production'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - openshift-ai
-  - vllm
-  - optimization
-  - production
-  - red-hat
-- uri: https://developers.redhat.com/articles/2025/11/26/autoscaling-vllm-openshift-ai-model-serving
-  handler: web_page
-  title: 'Red Hat: Autoscaling vLLM Performance Validation'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - openshift-ai
-  - vllm
-  - autoscaling
-  - benchmarks
-  - red-hat
-- uri: https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.2/html/configuring_your_model-serving_platform/configuring_model_servers
-  handler: web_page
-  title: 'Red Hat: Configuring Model Servers (OpenShift AI 3.2)'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - openshift-ai
-  - model-serving
-  - kserve
-  - configuration
-  - red-hat
-- uri: https://www.redhat.com/en/blog/planning-design-your-production-grade-rag-system
-  handler: web_page
-  title: 'Red Hat: Planning a Production-Grade RAG System'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - rag
-  - production
-  - red-hat
-  - architecture
-  - design
 - uri: https://arxiv.org/abs/2203.02155
   handler: arxiv_paper
   title: Training language models to follow instructions with human feedback
@@ -1786,8 +1102,7 @@ items:
   - preference-optimization
 - uri: https://arxiv.org/abs/2305.18290
   handler: arxiv_paper
-  title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward
-    Model'
+  title: 'Direct Preference Optimization: Your Language Model is Secretly a Reward Model'
   domain: generalist
   authority: external
   origin_type: external
@@ -1850,8 +1165,7 @@ items:
   tags: *id011
 - uri: https://arxiv.org/abs/2510.25445
   handler: arxiv_paper
-  title: 'Agentic AI: A Comprehensive Survey of Architectures, Applications, and Future
-    Directions'
+  title: 'Agentic AI: A Comprehensive Survey of Architectures, Applications, and Future Directions'
   domain: generalist
   authority: external
   origin_type: external
@@ -1891,155 +1205,6 @@ items:
   config:
     id: '2411.10440'
   tags: *id012
-- uri: https://modelcontextprotocol.io/introduction
-  handler: web_page
-  title: Model Context Protocol (MCP) Specification
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - mcp
-  - tool-use
-  - agents
-  - protocol
-  - architecture
-  config:
-    follow_links: true
-- uri: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
-  handler: web_page
-  title: 'Anthropic: Tool Use Guide'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - tool-use
-  - function-calling
-  - anthropic
-  - agents
-- uri: https://platform.openai.com/docs/guides/function-calling
-  handler: web_page
-  title: 'OpenAI: Function Calling Guide'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - function-calling
-  - tool-use
-  - openai
-  - agents
-- uri: https://pytorch.org/tutorials/distributed/home.html
-  handler: web_page
-  title: 'PyTorch: Distributed Training Tutorials'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pytorch
-  - distributed
-  - training
-  - gpu
-  config:
-    follow_links: true
-- uri: https://pytorch.org/tutorials/beginner/basics/intro.html
-  handler: web_page
-  title: 'PyTorch: Fundamentals'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pytorch
-  - fundamentals
-  - training
-- uri: https://pytorch.org/docs/stable/notes/cuda.html
-  handler: web_page
-  title: 'PyTorch: CUDA Semantics'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pytorch
-  - cuda
-  - gpu
-  - optimization
-- uri: https://pytorch.org/tutorials/recipes/recipes/tuning_guide.html
-  handler: web_page
-  title: 'PyTorch: Performance Tuning Guide'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pytorch
-  - performance
-  - tuning
-  - optimization
-- uri: https://pytorch.org/torchao/stable/
-  handler: web_page
-  title: 'TorchAO: Quantization Toolkit'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - pytorch
-  - torchao
-  - quantization
-  - optimization
-- uri: https://www.anthropic.com/research/measuring-model-persuasion
-  handler: web_page
-  title: 'Anthropic: Measuring Model Persuasion'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - evaluation
-  - safety
-  - anthropic
-  - production
-- uri: https://simonwillison.net/tags/llms/
-  handler: web_page
-  title: 'Simon Willison: LLM Notes'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - llm
-  - production
-  - patterns
-  - practitioner
-- uri: https://applied-llms.org/
-  handler: web_page
-  title: Applied LLMs (Chip Huyen et al.)
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - llm
-  - production
-  - system-design
-  - architecture
-  - best-practices
-- uri: https://hamel.dev/blog/posts/llm-judge/
-  handler: web_page
-  title: 'Hamel Husain: LLM-as-Judge Evaluation'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - evaluation
-  - llm-as-judge
-  - production
-  - quality
-- uri: https://eugeneyan.com/writing/llm-patterns/
-  handler: web_page
-  title: 'Eugene Yan: LLM Patterns for Production'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - llm
-  - patterns
-  - production
-  - system-design
-  - architecture
 - uri: https://arxiv.org/abs/2504.20434
   handler: arxiv_paper
   title: 'ARCS: Agentic Retrieval-Augmented Code Synthesis with Iterative Refinement'
@@ -2101,8 +1266,7 @@ items:
   tags: *id013
 - uri: https://arxiv.org/abs/2410.06992
   handler: arxiv_paper
-  title: 'AgentCoder: Multi-Agent-based Code Generation with Iterative Testing and
-    Optimisation'
+  title: 'AgentCoder: Multi-Agent-based Code Generation with Iterative Testing and Optimisation'
   domain: generalist
   authority: external
   origin_type: external
@@ -2124,8 +1288,7 @@ items:
   - benchmark
 - uri: https://arxiv.org/abs/2406.11931
   handler: arxiv_paper
-  title: 'DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source Models in Code
-    Intelligence'
+  title: 'DeepSeek-Coder-V2: Breaking the Barrier of Closed-Source Models in Code Intelligence'
   domain: generalist
   authority: external
   origin_type: external
@@ -2202,8 +1365,7 @@ items:
   tags: *id015
 - uri: https://arxiv.org/abs/2305.05176
   handler: arxiv_paper
-  title: 'FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving
-    Performance'
+  title: 'FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance'
   domain: generalist
   authority: external
   origin_type: external
@@ -2251,379 +1413,3 @@ items:
   config:
     id: '2601.21349'
   tags: *id016
-- uri: https://docs.continue.dev/
-  handler: web_page
-  title: 'Continue.dev: Open Source AI Code Assistant'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - continue
-  - coding-agent
-  - ide
-  - open-source
-  - developer-tools
-  config:
-    follow_links: true
-- uri: https://docs.continue.dev/customize/models
-  handler: web_page
-  title: 'Continue.dev: Model Configuration'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - continue
-  - model-selection
-  - coding-agent
-  - configuration
-- uri: https://github.com/SWE-agent/SWE-agent
-  handler: web_page
-  title: 'SWE-agent: Automated Software Engineering'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - swe-agent
-  - coding-agent
-  - open-source
-  - github-issues
-- uri: https://aider.chat/
-  handler: web_page
-  title: 'Aider: AI Pair Programming Documentation'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - aider
-  - coding-agent
-  - pair-programming
-  - open-source
-  config:
-    follow_links: true
-- uri: https://www.all-hands.dev/blog/sota-on-swe-bench-verified-with-inference-time-scaling-and-critic-model
-  handler: web_page
-  title: 'OpenHands: SOTA on SWE-Bench with Critic Model'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - openhands
-  - swe-bench
-  - critic-model
-  - inference-scaling
-  - coding-agent
-- uri: https://openhands.dev/blog/building-a-provably-versatile-agent
-  handler: web_page
-  title: 'OpenHands: Building a Provably Versatile Agent'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - openhands
-  - coding-agent
-  - versatile-agent
-  - architecture
-- uri: https://bigcode-bench.github.io/
-  handler: web_page
-  title: 'BigCodeBench: Programming Task Evaluation'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - benchmark
-  - code-generation
-  - evaluation
-  - leaderboard
-- uri: https://livecodebench.github.io/
-  handler: web_page
-  title: 'LiveCodeBench: Contamination-Free Code Evaluation'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - benchmark
-  - code-generation
-  - evaluation
-  - leaderboard
-  - contamination-free
-- uri: https://evalplus.github.io/leaderboard.html
-  handler: web_page
-  title: 'EvalPlus: HumanEval and MBPP Enhanced Evaluation'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - benchmark
-  - humaneval
-  - mbpp
-  - code-generation
-  - evaluation
-- uri: https://www.swebench.com/
-  handler: web_page
-  title: SWE-bench Verified Leaderboard
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - benchmark
-  - swe-bench
-  - coding-agent
-  - leaderboard
-  - software-engineering
-- uri: https://cloud.google.com/architecture/choose-design-pattern-agentic-ai-system
-  handler: web_page
-  title: 'Google Cloud: Choose a Design Pattern for Agentic AI'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - agentic
-  - design-patterns
-  - architecture
-  - google-cloud
-  - agents
-- uri: https://www.vellum.ai/blog/agentic-workflows-emerging-architectures-and-design-patterns
-  handler: web_page
-  title: 'Vellum: Agentic Workflows — Architectures and Design Patterns'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - agentic
-  - design-patterns
-  - workflows
-  - architecture
-  - agents
-- uri: https://myengineeringpath.dev/genai-engineer/tool-calling/
-  handler: web_page
-  title: Tool Calling — How AI Agents Use Functions
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - tool-calling
-  - function-calling
-  - agents
-  - architecture
-- uri: https://pub.towardsai.net/agents-arent-magic-the-real-architecture-behind-tool-calling-ai-systems-a21a91470c8b
-  handler: web_page
-  title: 'Agents Aren''t Magic: Architecture Behind Tool-Calling AI'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - agents
-  - tool-calling
-  - architecture
-  - production
-  - design-patterns
-- uri: https://dev.to/shanmukhi_kairuppala/stop-treating-ai-agents-as-web-servers-a-kubernetes-survival-guide-part-1-cal
-  handler: web_page
-  title: AI Agent Development on Kubernetes — Survival Guide
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - kubernetes
-  - agents
-  - production
-  - stateful
-  - architecture
-- uri: https://docs.vllm.ai/en/v0.12.0/features/tool_calling/
-  handler: web_page
-  title: 'vLLM: Tool Calling for Agentic Workloads'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - tool-calling
-  - agents
-  - function-calling
-  - serving
-- uri: https://docs.vllm.ai/en/stable/deployment/integrations/production-stack/
-  handler: web_page
-  title: 'vLLM: Production Stack (Kubernetes)'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - kubernetes
-  - production
-  - deployment
-  - helm
-- uri: https://docs.vllm.ai/en/stable/serving/integrations/claude_code/
-  handler: web_page
-  title: 'vLLM: Claude Code Integration'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - claude-code
-  - coding-agent
-  - anthropic
-  - integration
-- uri: https://docs.vllm.ai/projects/production-stack/en/latest/use_cases/tool-enabled-installation.html
-  handler: web_page
-  title: 'vLLM: Tool-Enabled Installation Guide'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - tool-calling
-  - kubernetes
-  - deployment
-  - tutorial
-- uri: https://docs.vllm.ai/en/latest/getting_started/examples/openai_chat_completion_tool_calls_with_reasoning.html
-  handler: web_page
-  title: 'vLLM: Reasoning Models with Tool Calls'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - vllm
-  - reasoning
-  - tool-calling
-  - deepseek-r1
-  - agents
-- uri: https://docs.nvidia.com/dynamo/latest/kubernetes/grove.html
-  handler: web_page
-  title: 'NVIDIA Grove: Kubernetes API for AI Inference'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - nvidia
-  - grove
-  - kubernetes
-  - inference
-  - gpu-scheduling
-  - disaggregated
-- uri: https://github.com/NVIDIA/KAI-Scheduler
-  handler: web_page
-  title: 'NVIDIA KAI-Scheduler: Kubernetes Native AI Scheduler'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - nvidia
-  - kubernetes
-  - scheduler
-  - gpu
-  - ai-workloads
-- uri: https://github.com/GoogleCloudPlatform/kubectl-ai
-  handler: web_page
-  title: 'kubectl-ai: AI-Powered Kubernetes Assistant'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - kubernetes
-  - kubectl
-  - ai-assistant
-  - google-cloud
-- uri: https://developer.nvidia.com/blog/introducing-nemotron-3-super-an-open-hybrid-mamba-transformer-moe-for-agentic-reasoning/
-  handler: web_page
-  title: 'NVIDIA Nemotron 3 Super: Hybrid Mamba-Transformer MoE'
-  domain: generalist
-  authority: vetted
-  origin_type: external
-  tags:
-  - nvidia
-  - nemotron
-  - moe
-  - mamba
-  - agentic
-  - model-architecture
-- uri: https://huggingface.co/Qwen/Qwen3-Coder-Next
-  handler: web_page
-  title: 'Qwen3-Coder-Next: 80B MoE Coding Model'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - qwen
-  - coding-model
-  - moe
-  - huggingface
-  - model-card
-- uri: https://huggingface.co/bigcode/starcoder2-15b
-  handler: web_page
-  title: StarCoder2-15B Model Card
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - starcoder
-  - coding-model
-  - huggingface
-  - bigcode
-  - model-card
-- uri: https://docs.nvidia.com/nemo-framework/user-guide/25.09/llms/starcoder2.html
-  handler: web_page
-  title: 'NVIDIA NeMo: StarCoder2 Training & Serving'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - nvidia
-  - nemo
-  - starcoder
-  - training
-  - serving
-  - model-serving
-- uri: https://deepseeksr1.com/deepseek-models/
-  handler: web_page
-  title: DeepSeek Models Overview
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - deepseek
-  - model-overview
-  - v3
-  - r1
-  - coder
-  - architecture
-- uri: https://awesomeagents.ai/leaderboards/open-source-llm-leaderboard/
-  handler: web_page
-  title: Open Source LLM Leaderboard (Feb 2026)
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - leaderboard
-  - open-source
-  - llm
-  - benchmark
-  - comparison
-- uri: https://tolearn.blog/blog/llm-coding-benchmark-comparison-2026
-  handler: web_page
-  title: LLM Coding Benchmark Comparison 2026
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - benchmark
-  - coding
-  - comparison
-  - swe-bench
-  - humaneval
-  - model-selection
-- uri: https://vpn07.com/en/blog/2026-best-open-source-coding-ai-qwen35-phi4-deepseek.html
-  handler: web_page
-  title: 'Best Open Source Coding AI 2026: Qwen vs Phi-4 vs DeepSeek'
-  domain: generalist
-  authority: community
-  origin_type: external
-  tags:
-  - comparison
-  - open-source
-  - coding-model
-  - qwen
-  - phi-4
-  - deepseek
-  - benchmark
