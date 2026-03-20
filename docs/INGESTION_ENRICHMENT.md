@@ -1,6 +1,59 @@
 # Ingestion Enrichment and Corporate Corpus Formats
 
-This doc describes how richer extraction (tables, figures, office formats) fits into the pipeline, when an enrichment service pays off, and how to support corporate corpuses (docs, PDFs, ADRs, Google/Microsoft exports) with open-source tooling.
+This doc describes how **richer content extraction** (tables, figures, office formats) fits into the pipeline, when an optional extraction service pays off, and how to support corporate corpuses (docs, PDFs, ADRs, Google/Microsoft exports) with open-source tooling.
+
+It is **not** the primary reference for queue mode, Milvus schema, or the v9 semantic-ingestion upgrade — see the doc map below.
+
+## Doc map: RAG ingestion vs content-format enrichment
+
+| Topic | Document |
+|--------|----------|
+| **Queue mode, lifecycle, handlers, Milvus v9 fields, ops** | [`INDEXERS.md`](INDEXERS.md) — canonical operations guide |
+| **Semantic ingestion design (gatekeeper, economics, microservice split)** | [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md) |
+| **Token/cost levers** | [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md) |
+| **Retrieval / planner side (hybrid search, keyword-service at query time)** | [`RAG.md`](RAG.md) |
+| **This file** | Optional **future** indexer-side services (figure description, office extract, table-in-image) that improve **chunk text** before embedding |
+
+## Current ingestion topology (how services fit the loop)
+
+Production ingestion is **queue-driven**: the indexer CronJob in **`synesis-rag`** claims rows from **PostgreSQL** in **`synesis-admin`**, runs `pipeline.py`, and upserts into **Milvus**. Optional HTTP dependencies are **env-gated** (URLs unset → step skipped).
+
+```mermaid
+flowchart LR
+  subgraph adminNs["synesis-admin"]
+    PG["PostgreSQL\ningestion_items"]
+    API["Admin API\nclaim / status / schema-sync"]
+  end
+  subgraph ragNs["synesis-rag"]
+    IDX["Indexer CronJob"]
+    TEI["embedder\nTEI"]
+    PRE["preprocess-service\noptional"]
+    SPAM["spam-service\noptional"]
+    MV["Milvus\nsynesis_catalog"]
+  end
+  subgraph gwNs["synesis-gateway\noptional"]
+    LLM["OpenAI-compatible\nLiteLLM / gatekeeper"]
+  end
+  PG --> API
+  IDX -->|"claim / report"| API
+  IDX -->|"embeddings"| TEI
+  IDX -->|"simhash / clean_html"| PRE
+  IDX -->|"spam batch"| SPAM
+  IDX -->|"chat/completions"| LLM
+  IDX -->|"upsert"| MV
+```
+
+**Stage order inside the indexer** (see [`INDEXERS.md`](INDEXERS.md) for env vars and field details):
+
+1. Ensure catalog + schema sync → claim item from admin  
+2. Fetch → optional **jusText** HTML clean (`html_document` only, if preprocess URL + `SYNESIS_INDEXER_PREPROCESS_CLEAN_HTML`)  
+3. Parse / chunk → chunk **quality gate**  
+4. Optional **semantic gatekeeper** (document-level LLM → v9 labels, may drop whole docs)  
+5. Optional **simhash** + **spam** HTTP batches → `simhash64`, `spam_score` on each chunk row  
+6. **Enrich** (template `context_prefix`; optional Tier-2 LLM summary in YAML/`--enrich full` paths)  
+7. **Embed** via TEI → **injection scan** → **Milvus upsert**
+
+The **planner** (query path) uses Milvus, **keyword-service**, embedder, etc.; it does not run the ingestion loop above. Corporate **format** enrichment ideas in the rest of this doc would add new `base/rag/*` services the **indexer** calls, same pattern as preprocess/spam.
 
 ## Does enrichment need frontend or prompt changes?
 
@@ -68,6 +121,7 @@ Recommendation: add an **office-extract** microservice when you need to ingest .
 
 ## Summary
 
+- **Operations and v9 ingestion:** use [`INDEXERS.md`](INDEXERS.md) + [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md); this doc focuses on optional **content-format** extractors.
 - **Enrichment pays off without frontend or prompt changes:** better chunk text improves retrieval and answers.
 - **Tables:** HTML via trafilatura; PDF via PyMuPDF `find_tables()` → markdown in pdf_document, seed_corpus, and arxiv handlers.
 - **Charts/diagrams:** Caption + “Figure N” rescue only; optional figure-description microservice for full interpretation.

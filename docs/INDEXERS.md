@@ -2,6 +2,8 @@
 
 Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. The indexer processes whatever is pending — no ConfigMaps or per-handler CronJobs required.
 
+**Related docs:** Semantic ingestion / v9 design bar — [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md). Cost levers — [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md). Optional **future** format extractors (office, figure description) — [`INGESTION_ENRICHMENT.md`](INGESTION_ENRICHMENT.md) (includes a topology diagram aligned with this page).
+
 ## Architecture
 
 ```mermaid
@@ -19,17 +21,77 @@ flowchart TD
     subgraph Indexer["Indexer CronJob (--mode queue)"]
         direction LR
         EnsureCatalog["ensure_catalog\n+ schema-sync"] --> Claim["claim"]
-        Claim --> Fetch["fetch"] --> Chunk["chunk"]
+        Claim --> Fetch["fetch"] --> Chunk["chunk + quality gate"]
         Chunk --> Gatekeeper["gatekeeper\noptional LLM"]
-        Gatekeeper --> Signals["simhash + spam\noptional microservices"]
-        Signals --> Enrich["enrich"] --> Embed["embed"]
-        Embed --> Upsert["upsert"] --> Report["report status"]
+        Gatekeeper --> Signals["simhash + spam\noptional HTTP"]
+        Signals --> Enrich["enrich"] --> Embed["embed TEI"]
+        Embed --> Scan["injection scan"]
+        Scan --> Upsert["upsert"] --> Report["report status"]
     end
 
     Indexer --> Milvus["Milvus (synesis_catalog)"]
 ```
 
 One container image (`base/rag/indexer/`) with handler plugins for each document type. The queue runner (`queue_runner.py`) claims items one at a time via `SELECT ... FOR UPDATE SKIP LOCKED`, processes them through the existing pipeline, and reports status back to the admin API.
+
+### Ingestion topology and dependent services
+
+All of the following run in Kubernetes unless you are doing local YAML mode. **Namespace** is the primary boundary; only the services listed as “indexer” callers are required for a minimal ingest path.
+
+| Service / store | Namespace | Who calls it | Role in the loop |
+|-----------------|-----------|--------------|------------------|
+| Admin API + PostgreSQL | `synesis-admin` | Indexer CronJob | Queue claim, status, run telemetry, `schema-sync`, optional **reset-catalog** |
+| **Indexer** | `synesis-rag` | — | Orchestrates handlers → `pipeline.py` → Milvus upsert |
+| **Milvus** | `synesis-rag` | Indexer | `synesis_catalog` collection (schema **v9**) |
+| **embedder** (TEI) | `synesis-rag` | Indexer | `POST /v1/embeddings` for chunk vectors |
+| **preprocess-service** | `synesis-rag` | Indexer (optional) | `simhash64` + optional `html_document` jusText clean; ClusterIP + NetworkPolicy (indexer pods only) |
+| **spam-service** | `synesis-rag` | Indexer (optional) | `spam_score` per chunk; ClusterIP + NetworkPolicy (indexer pods only) |
+| OpenAI-compatible LLM (e.g. **LiteLLM** in `synesis-gateway`) | `synesis-gateway` (typical) | Indexer (optional) | Semantic **gatekeeper** `chat/completions`; also Tier-2 enrichment in YAML/`--llm-url` flows |
+
+**Not on the indexer hot path (query / other features):** **keyword-service** and **gliner-service** are used by the **planner** and related retrieval tooling, not by `pipeline.py` today. Redis in `synesis-rag` backs planner/session workloads, not the indexer claim loop.
+
+Optional HTTP steps are **off** until you set the corresponding base URL env vars on the indexer (see **Configuration** below).
+
+```mermaid
+flowchart LR
+  subgraph adminNs["synesis-admin"]
+    PG["PostgreSQL"]
+    API["Admin API"]
+  end
+  subgraph ragNs["synesis-rag"]
+    IDX["Indexer"]
+    TEI["embedder"]
+    PRE["preprocess-service"]
+    SPAM["spam-service"]
+    MV["Milvus"]
+  end
+  subgraph gwNs["synesis-gateway"]
+    LLM["LiteLLM / models\noptional"]
+  end
+  PG --- API
+  IDX -->|"claim status schema-sync"| API
+  IDX --> TEI
+  IDX --> PRE
+  IDX --> SPAM
+  IDX --> LLM
+  IDX --> MV
+```
+
+### Pipeline stage order (reference)
+
+Exact implementation: `base/rag/indexer/app/pipeline.py`.
+
+1. **Catalog** — `ensure_synesis_catalog`; report schema version to admin when needed.  
+2. **Claim** — dequeue one `ingestion_items` row.  
+3. **Fetch** — handler-specific (`web_page`, `github_code`, …).  
+4. **Optional HTML clean** — for `html_document` only: preprocess `clean_html` when `SYNESIS_INDEXER_PREPROCESS_URL` + `SYNESIS_INDEXER_PREPROCESS_CLEAN_HTML` (jusText path; handler skips trafilatura when `preprocess_clean=justext`).  
+5. **Chunk** — handler `parse_and_chunk` + **chunk quality gate** (`content_gate`).  
+6. **Semantic gatekeeper** — optional per-document LLM (`gatekeeper.py`); may drop whole documents; fills v9 metadata + merged keywords.  
+7. **Signals** — optional **simhash** + **spam** batches → `simhash64`, `spam_score`.  
+8. **Enrich** — template `context_prefix`; optional LLM chunk summary when enrichment full mode + LLM URL.  
+9. **Embed** — TEI batch embeddings.  
+10. **Injection scan** — `scan_chunk_text`; may set `approval_status` pending.  
+11. **Upsert** — Milvus batch upsert; report **indexed** / **failed** to admin.
 
 ## Item Lifecycle
 
@@ -94,7 +156,7 @@ base/rag/indexer/
 ├── app/
 │   ├── cli.py              # CLI entrypoint (--mode queue | --mode yaml)
 │   ├── queue_runner.py     # Queue client: claim, process, report, schema-sync
-│   ├── pipeline.py         # Orchestration: fetch → chunk → gatekeeper → enrich → embed → upsert
+│   ├── pipeline.py         # fetch → chunk+gate → gatekeeper → simhash/spam → enrich → embed → scan → upsert
 │   ├── schema.py           # Milvus collection schema v9 (synesis_catalog)
 │   ├── gatekeeper.py       # Optional document-level LLM labels (structured JSON)
 │   ├── preprocess_client.py # Optional preprocess-service: simhash, jusText HTML clean
@@ -161,7 +223,7 @@ Format-specific chunking:
 | Handler | Source Type | What It Does |
 |---------|-----------|--------------|
 | `github_markdown` | GitHub repos | Fetches .md files via GitHub API, heading-aware chunking with heading_path tracking |
-| `html_document` | URLs | BeautifulSoup + Markdownify conversion, heading-aware chunking |
+| `html_document` | URLs | Default: trafilatura → markdown + heading-aware chunking; optional **jusText** main text via preprocess-service when `SYNESIS_INDEXER_PREPROCESS_CLEAN_HTML` (see Configuration) |
 | `web_page` | URLs | Crawl4AI-based web crawling, HTML→Markdown conversion, heading-aware chunking |
 | `pdf_document` | URLs | PyMuPDF text extraction plus structured table markdown, section-based splitting |
 | `markdown_file` | Local paths | Reads local .md files, heading-aware chunking |
@@ -332,15 +394,18 @@ Single Milvus collection with `authority` as partition key and HNSW index on emb
 
 ## Enrichment Pipeline
 
-Every chunk passes through a two-tier enrichment pipeline before embedding:
+Every surviving chunk is **enriched** (template context) before embedding. This is separate from the **semantic gatekeeper** (document-level LLM earlier in the pipeline) and from **preprocess/spam** HTTP calls (metadata signals on each chunk row).
 
 **Tier 1 (always, zero cost):**
 - `context_prefix`: Template-based from document_name + heading_path
-- `keywords`: Often empty in queue mode; optional gatekeeper keywords are merged when the semantic gatekeeper is enabled
+- `keywords`: Often empty in queue mode; when the **semantic gatekeeper** is enabled, gatekeeper keywords are merged into the Milvus `keywords` field
 
 **Tier 2 (optional, uses synesis-general LLM):**
 - `chunk_summary`: 1-2 sentence neutral description via LLM
-- Enhanced `context_prefix`: LLM-generated contextual sentence
+- Enhanced `context_prefix`: LLM-generated contextual sentence  
+- Used in YAML / `--enrich full` / `--llm-url` style runs; queue mode typically relies on Tier 1 unless you wire a cluster LLM URL into those paths
+
+**Other metadata written at upsert (v9):** gatekeeper-driven `content_type`, scores, `index_decision`, `entities_json`, etc.; optional `simhash64` / `spam_score` from microservices; `scan_status` from injection scan; hashes and `crawl_timestamp` — see **v9 fields** below.
 
 ## Idempotency
 
