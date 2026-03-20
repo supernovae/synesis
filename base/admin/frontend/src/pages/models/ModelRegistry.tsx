@@ -10,6 +10,7 @@ import {
   useProviderKeys,
   useProviderCatalog,
 } from "../../api/hooks";
+import type { ProviderKeyStatus } from "../../api/hooks";
 import type { ModelDeployment, ProviderInfo } from "../../types";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
@@ -83,7 +84,7 @@ export default function ModelRegistry() {
 
   const providers = catalogData?.providers ?? {};
   const configuredKeys = new Set(
-    (providerKeysData ?? []).filter((k: any) => k.configured).map((k: any) => k.name),
+    (providerKeysData ?? []).filter((k: ProviderKeyStatus) => k.configured).map((k) => k.name),
   );
 
   const roles: ModelDeployment[] = data?.roles ?? [];
@@ -419,7 +420,7 @@ export default function ModelRegistry() {
       {/* Reconcile result toast */}
       {reconcileMut.isSuccess && reconcileMut.data && (
         <div className="fixed bottom-4 right-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 shadow-lg dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-          Sync complete: {(reconcileMut.data as any).added} added, {(reconcileMut.data as any).removed} removed, {(reconcileMut.data as any).unchanged} unchanged
+          Sync complete: {reconcileMut.data.added} added, {reconcileMut.data.removed} removed, {reconcileMut.data.unchanged} unchanged
         </div>
       )}
     </div>

@@ -178,10 +178,17 @@ export function useSyncModelsFromYaml() {
   });
 }
 
+export interface ReconcileModelsResult {
+  added: number;
+  removed: number;
+  unchanged: number;
+}
+
 export function useReconcileModels() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => client.post("/models/reconcile").then((r) => r.data),
+    mutationFn: () =>
+      client.post<ReconcileModelsResult>("/models/reconcile").then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["models"] });
     },
@@ -204,6 +211,8 @@ export function useUpdateFallbacks() {
 export interface ProviderKeyStatus {
   name: string;
   configured: boolean;
+  /** Display label from catalog; optional for legacy keys */
+  provider?: string;
 }
 
 export function useProviderKeys() {

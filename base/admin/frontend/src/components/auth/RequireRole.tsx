@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "./AuthProvider";
+import { useAuth } from "./useAuth";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 

@@ -1,28 +1,7 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import axios from "axios";
 import type { User, AuthResponse, OidcConfig } from "../../types";
-
-interface AuthContextType {
-  user: User | null;
-  token: string | null;
-  login: (username: string, password: string) => Promise<void>;
-  loginWithOidc: () => void;
-  logout: () => void;
-  isAdmin: boolean;
-  isAuthenticated: boolean;
-  oidcConfig: OidcConfig | null;
-  loading: boolean;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
+import { AuthContext } from "./authContext";
 
 const TOKEN_KEY = "synesis_token";
 const REFRESH_KEY = "synesis_refresh_token";
@@ -192,10 +171,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth(): AuthContextType {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
 }

@@ -56,7 +56,7 @@ export default function TraceList() {
   const deleteTrace = useDeleteTrace();
   const purgeMutation = usePurgeTrivialTraces();
   const bulkDelete = useBulkDeleteTraces();
-  const traces = data?.traces ?? [];
+  const traces = useMemo(() => data?.traces ?? [], [data]);
   const total = data?.total ?? 0;
 
   const enriched = useMemo(

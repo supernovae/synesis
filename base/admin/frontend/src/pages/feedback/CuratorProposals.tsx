@@ -1,7 +1,7 @@
 import { useCuratorProposals, useCuratorAction } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
-import { useAuth } from "../../components/auth/AuthProvider";
+import { useAuth } from "../../components/auth/useAuth";
 
 export default function CuratorProposals() {
   const { data, isLoading } = useCuratorProposals();

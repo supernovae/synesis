@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useAuth } from "../components/auth/AuthProvider";
+import { useAuth } from "../components/auth/useAuth";
 import axios from "axios";
 
 const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";

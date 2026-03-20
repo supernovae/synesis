@@ -23,7 +23,7 @@ export default function ErrorLog() {
     page,
     page_size: 20,
   });
-  const failures = data?.failures ?? [];
+  const failures = useMemo(() => data?.failures ?? [], [data]);
 
   const rows = useMemo(
     () =>

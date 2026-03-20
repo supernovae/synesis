@@ -62,8 +62,8 @@ export default function InfraCosts() {
   const deleteMut = useDeleteInfraCost();
   const [editing, setEditing] = useState<EditState | null>(null);
 
-  const catalog: InfraInstanceType[] = catalogData?.instances ?? [];
-  const configs: InfraCostConfig[] = configsData?.configs ?? [];
+  const catalog = useMemo(() => catalogData?.instances ?? [], [catalogData]);
+  const configs = useMemo(() => configsData?.configs ?? [], [configsData]);
   const configByRole = useMemo(() => {
     const m = new Map<string, InfraCostConfig>();
     configs.forEach((c) => m.set(c.role, c));

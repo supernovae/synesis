@@ -20,7 +20,7 @@ export default function ProviderKeys() {
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();
 
-  const providers = catalogData?.providers ?? {};
+  const providers = useMemo(() => catalogData?.providers ?? {}, [catalogData]);
   const allowedNames = useMemo(() => catalogKeyEnvNames(providers), [providers]);
   const keyableProviders = useMemo(() => {
     return Object.entries(providers)
@@ -105,7 +105,7 @@ export default function ProviderKeys() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-medium text-gray-800 dark:text-gray-200">{k.name}</span>
-                    <span className="text-xs text-gray-400">{(k as any).provider ?? ""}</span>
+                    <span className="text-xs text-gray-400">{k.provider ?? ""}</span>
                     {!inCatalog && (
                       <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400">
                         Legacy / manual secret

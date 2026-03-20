@@ -8,7 +8,7 @@ import {
 } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
-import { useAuth } from "../../components/auth/AuthProvider";
+import { useAuth } from "../../components/auth/useAuth";
 
 const STATUS_BADGES: Record<string, { label: string; className: string }> = {
   open: { label: "Open", className: "bg-yellow-100 text-yellow-800" },

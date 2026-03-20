@@ -182,11 +182,14 @@ export interface ModelCost {
   model: string;
   profile: string;
   source: string;
+  /** When present (e.g. active rows), preferred over source for display */
+  provider?: string;
   input_per_million: number;
   output_per_million: number;
   monthly_fixed_cost: number;
   cost_formula: string;
   notes: string;
+  pricing_source?: ActiveCostEntry["pricing_source"];
 }
 
 export interface ModelCostByModel {

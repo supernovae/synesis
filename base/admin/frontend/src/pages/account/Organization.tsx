@@ -1,4 +1,4 @@
-import { useAuth } from "../../components/auth/AuthProvider";
+import { useAuth } from "../../components/auth/useAuth";
 import { Building2, Users, Mail, ExternalLink } from "lucide-react";
 
 export default function Organization() {

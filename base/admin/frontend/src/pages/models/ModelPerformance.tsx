@@ -13,7 +13,6 @@ import {
 } from "recharts";
 import { Activity, Clock, Zap, DollarSign } from "lucide-react";
 import { usePerformanceByRole, useLatencyTrend } from "../../api/hooks";
-import type { LatencyTrendPoint } from "../../api/hooks";
 import type { RolePerformance } from "../../types";
 import ChartCard from "../../components/common/ChartCard";
 import DataTable from "../../components/common/DataTable";
@@ -31,7 +30,7 @@ export default function ModelPerformance() {
   const { data: trendData, isLoading: trendLoading } = useLatencyTrend(days);
 
   const roles: RolePerformance[] = perfData?.roles ?? [];
-  const trend: LatencyTrendPoint[] = trendData?.trend ?? [];
+  const trend = useMemo(() => trendData?.trend ?? [], [trendData]);
 
   const totalRequests = roles.reduce((s, r) => s + r.request_count, 0);
   const avgLatency =

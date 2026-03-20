@@ -1,5 +1,5 @@
 import { useLocation, Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/useAuth";
 import { LogOut, Shield, Eye, Moon, Sun, Key, Building2 } from "lucide-react";
 import { useState, useEffect } from "react";
 

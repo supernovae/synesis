@@ -19,7 +19,7 @@ import {
   useCostsDaily,
   useCostRateHistory,
 } from "../../api/hooks";
-import type { CostByRoleEntry, DailyCostEntry, CostRateSnapshotEntry } from "../../api/hooks";
+import type { CostByRoleEntry, DailyCostEntry } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import ChartCard from "../../components/common/ChartCard";
 import MetricCard from "../../components/common/MetricCard";
@@ -159,7 +159,10 @@ export default function CostTracker() {
 
   const byRole: CostByRoleEntry[] = roleData?.roles ?? [];
   const daily: DailyCostEntry[] = dailyData?.daily ?? [];
-  const rateHistory: CostRateSnapshotEntry[] = rateHistoryData?.snapshots ?? [];
+  const rateHistory = useMemo(
+    () => rateHistoryData?.snapshots ?? [],
+    [rateHistoryData],
+  );
 
   const totalEstimated = byRole.reduce((s, r) => s + r.estimated_cost_usd, 0);
   const totalActual = byRole.reduce((s, r) => s + r.actual_cost_usd, 0);
@@ -290,14 +293,14 @@ export default function CostTracker() {
               <DataTable
                 columns={[
                   { key: "role", label: "Role", sortable: true },
-                  { key: "model", label: "Model", render: (r) => <span className="text-xs">{shortModel(r.model as string)}</span> },
-                  { key: "source", label: "Provider", render: (r) => <ProviderBadge source={(r as any).provider || (r.source as string)} /> },
-                  { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${(r.input_per_million as number).toFixed(2)}` },
-                  { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${(r.output_per_million as number).toFixed(2)}` },
+                  { key: "model", label: "Model", render: (r) => <span className="text-xs">{shortModel(r.model)}</span> },
+                  { key: "source", label: "Provider", render: (r) => <ProviderBadge source={r.provider ?? r.source} /> },
+                  { key: "input_per_million", label: "Input $/M", sortable: true, render: (r) => `$${r.input_per_million.toFixed(2)}` },
+                  { key: "output_per_million", label: "Output $/M", sortable: true, render: (r) => `$${r.output_per_million.toFixed(2)}` },
                   ...(!showAll ? [{
-                    key: "pricing_source", label: "Source", render: (r: any) => <PricingSourceBadge source={r.pricing_source || "unknown"} />,
+                    key: "pricing_source", label: "Source", render: (r: ModelCost) => <PricingSourceBadge source={r.pricing_source ?? "unknown"} />,
                   }] : []),
-                  { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{(r.cost_formula as string) || "---"}</span> },
+                  { key: "cost_formula", label: "Formula", render: (r) => <span className="text-xs text-gray-500">{r.cost_formula || "---"}</span> },
                   { key: "actions", label: "", render: (r) => (
                     <button onClick={() => setEditing(r as ModelCost)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800" title="Edit cost">
                       <PenLine className="h-4 w-4" />

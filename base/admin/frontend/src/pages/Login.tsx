@@ -1,6 +1,6 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useAuth } from "../components/auth/AuthProvider";
+import { useAuth } from "../components/auth/useAuth";
 import { Hexagon, Shield } from "lucide-react";
 
 const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
