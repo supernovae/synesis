@@ -95,6 +95,8 @@ If you use `./scripts/deploy.sh`, it also patches the issuer from the Keycloak R
 
 **OIDC details:** The dashboard exchanges the authorization code via **`POST /api/v1/auth/oauth/token`** on the admin API (server-side), so the browser does not call Keycloak’s token endpoint (avoids CORS). Token exchange uses **`SYNESIS_KEYCLOAK_INTERNAL_ISSUER_URL`** when set (cluster Service URL) so the admin pod does not depend on hairpin access to the public Route.
 
+**Loop: token OK (`POST …/oauth/token` 200) then “Authentication failed”:** Check **`GET /api/v1/auth/me`**: if it returns **401**, the JWT failed validation. A common cause is **`SYNESIS_KEYCLOAK_AUDIENCE=synesis-admin`** — Keycloak access tokens use **`aud=account`**, not the client id. In Git this is **`SYNESIS_KEYCLOAK_AUDIENCE=""`** with **`SYNESIS_KEYCLOAK_EXPECTED_AZP=synesis-admin`**. Apply the current `base/admin/deployment.yaml` (or `oc set env … AUDIENCE=""`) — **`oc rollout restart` alone does not change env vars** from Git.
+
 **“No authorization code” / redirect loop:** Keycloak may return `error` instead of `code` (redirect URI mismatch, cancelled login). After a failure, login uses a **Continue to Keycloak** button instead of an immediate redirect so you are not stuck in a loop. Check:
 
 ```bash

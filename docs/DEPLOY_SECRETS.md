@@ -19,3 +19,15 @@ These credentials are **created or updated by `./scripts/deploy.sh`** (or the Ad
 `base/gateway/provider-api-keys.yaml`, `base/gateway/litellm-secrets.yaml`, `base/webui/webui-api-key-secret.yaml`
 
 **Unused in builds:** `overlays/api/openrouter-api-key` style manifests if present — use `provider-api-keys` / deploy.sh instead.
+
+## Applying manifest changes (env vars, images)
+
+`oc rollout restart deployment/…` only restarts pods with whatever Deployment spec is **already stored in the cluster**. Edits in Git (e.g. `ENABLE_LOGIN_FORM`, `SYNESIS_KEYCLOAK_AUDIENCE`) do nothing until you apply them:
+
+```bash
+kustomize build overlays/api | oc apply -f -   # or your overlay
+# or
+./scripts/deploy.sh api
+```
+
+Then restart if needed so pods pick up new images.

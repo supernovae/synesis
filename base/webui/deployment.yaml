@@ -51,6 +51,9 @@ spec:
             # ── Keycloak OIDC SSO ──
             - name: ENABLE_OAUTH_SIGNUP
               value: "true"
+            # Link Keycloak login to an existing Open WebUI user with the same email (avoids "already registered").
+            - name: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+              value: "true"
             - name: OAUTH_PROVIDER_NAME
               value: "Keycloak"
             - name: OPENID_PROVIDER_URL
