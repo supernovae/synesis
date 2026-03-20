@@ -221,6 +221,7 @@ export function useSetProviderKey() {
       client.put(`/providers/keys/${name}`, { value }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+      qc.invalidateQueries({ queryKey: ["models"] });
     },
   });
 }
@@ -232,6 +233,7 @@ export function useDeleteProviderKey() {
       client.delete(`/providers/keys/${name}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["providers", "keys"] });
+      qc.invalidateQueries({ queryKey: ["models"] });
     },
   });
 }

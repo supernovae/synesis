@@ -33,6 +33,9 @@ KNOWN_PROVIDERS = {
     if p.api_key_env
 }
 
+# Only catalog env var names may be set via PUT /keys/{name} (same list as Model Registry provider picklist).
+_ALLOWED_KEY_ENV_NAMES = frozenset(KNOWN_PROVIDERS.keys())
+
 
 def _k8s_base() -> str:
     return f"https://{_K8S_HOST}:{_K8S_PORT}"
@@ -182,6 +185,13 @@ async def set_key(name: str, body: SetKeyRequest, _user=Depends(require_admin)):
     name = name.upper()
     if not body.value.strip():
         raise HTTPException(400, "Key value cannot be empty")
+    if name not in _ALLOWED_KEY_ENV_NAMES:
+        raise HTTPException(
+            400,
+            "Unknown key name. Only env vars from the provider catalog may be set here "
+            "(same names as Models → Model Registry → Edit role → Provider). "
+            "Custom keys require a cluster secret change until an “add provider” flow exists.",
+        )
 
     secret = await _get_secret()
     if secret is None:
@@ -198,6 +208,12 @@ async def set_key(name: str, body: SetKeyRequest, _user=Depends(require_admin)):
 async def delete_key(name: str, _user=Depends(require_admin)):
     """Remove a provider API key. Triggers LiteLLM restart."""
     name = name.upper()
+    if name not in _ALLOWED_KEY_ENV_NAMES:
+        raise HTTPException(
+            400,
+            "Only catalog provider keys can be removed here. "
+            "Remove other env vars from the cluster secret directly.",
+        )
     await _remove_key_from_secret(name)
     await _restart_litellm()
     logger.info("provider_key_deleted name=%s", name)

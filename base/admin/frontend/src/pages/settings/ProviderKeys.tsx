@@ -1,16 +1,37 @@
-import { useState } from "react";
-import { useProviderKeys, useSetProviderKey, useDeleteProviderKey } from "../../api/hooks";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { apiErrorMessage } from "../../api/errorMessage";
+import { useProviderKeys, useProviderCatalog, useSetProviderKey, useDeleteProviderKey } from "../../api/hooks";
+import type { ProviderInfo } from "../../types";
 import { Key, CheckCircle, XCircle, RotateCw, Trash2, AlertTriangle, Eye, EyeOff } from "lucide-react";
+
+/** Env var names that may be set via this UI (matches backend allowlist = catalog with api_key_env). */
+function catalogKeyEnvNames(providers: Record<string, ProviderInfo>): Set<string> {
+  const s = new Set<string>();
+  for (const p of Object.values(providers)) {
+    if (p.api_key_env) s.add(p.api_key_env);
+  }
+  return s;
+}
 
 export default function ProviderKeys() {
   const { data: keys, isLoading } = useProviderKeys();
+  const { data: catalogData } = useProviderCatalog();
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();
+
+  const providers = catalogData?.providers ?? {};
+  const allowedNames = useMemo(() => catalogKeyEnvNames(providers), [providers]);
+  const keyableProviders = useMemo(() => {
+    return Object.entries(providers)
+      .filter(([, p]) => p.api_key_env)
+      .sort((a, b) => a[1].label.localeCompare(b[1].label));
+  }, [providers]);
 
   const [editing, setEditing] = useState<string | null>(null);
   const [keyValue, setKeyValue] = useState("");
   const [showValue, setShowValue] = useState(false);
-  const [customName, setCustomName] = useState("");
+  const [addPicker, setAddPicker] = useState("");
 
   const handleSave = (name: string) => {
     if (!keyValue.trim()) return;
@@ -25,11 +46,12 @@ export default function ProviderKeys() {
     deleteKeyMut.mutate(name);
   };
 
-  const handleAddCustom = () => {
-    const name = customName.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-    if (!name) return;
-    setEditing(name);
-    setCustomName("");
+  const startAddFromPicker = () => {
+    if (!addPicker) return;
+    setEditing(addPicker);
+    setAddPicker("");
+    setKeyValue("");
+    setShowValue(false);
   };
 
   return (
@@ -38,15 +60,47 @@ export default function ProviderKeys() {
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Provider API Keys</h1>
         <p className="mt-1 text-sm text-gray-500">
           Manage API keys for LLM providers. Keys are stored as Kubernetes secrets and injected into the LiteLLM gateway.
+          The provider list matches{" "}
+          <Link to="/models" className="text-blue-600 underline hover:text-blue-800 dark:text-blue-400">
+            Models → Model Registry
+          </Link>{" "}
+          (edit role → Provider). Only those providers can be configured here for now.
         </p>
       </div>
+
+      {(setKeyMut.isError || deleteKeyMut.isError) && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/40">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-red-800 dark:text-red-200">
+              {apiErrorMessage(setKeyMut.error ?? deleteKeyMut.error)}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setKeyMut.reset();
+                deleteKeyMut.reset();
+              }}
+              className="shrink-0 text-xs font-medium text-red-700 underline hover:text-red-900 dark:text-red-300"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-950/30">
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-sm text-amber-800 dark:text-amber-300">
-            Adding or rotating a key triggers a brief LiteLLM gateway restart (~30s). Active requests may be interrupted.
-          </p>
+          <div className="text-sm text-amber-800 dark:text-amber-300 space-y-1">
+            <p>
+              Adding or rotating a key triggers a brief LiteLLM gateway restart (~30s). Active requests may be interrupted.
+            </p>
+            <p className="text-amber-900/90 dark:text-amber-200/90">
+              Assigning a model to a role in the registry does not upload keys — configure the matching env var here first
+              (or the deployment will fail at runtime). A future “split roles” model (e.g. key owners vs. assigners) may
+              change this; today both flows use the same catalog.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -55,13 +109,20 @@ export default function ProviderKeys() {
       ) : (
         <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
           <div className="divide-y divide-gray-100 dark:divide-gray-800">
-            {(keys ?? []).map((k) => (
+            {(keys ?? []).map((k) => {
+              const inCatalog = allowedNames.has(k.name);
+              return (
               <div key={k.name} className="flex items-center gap-4 px-5 py-4">
                 <Key className="h-4 w-4 flex-shrink-0 text-gray-400" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-medium text-gray-800 dark:text-gray-200">{k.name}</span>
                     <span className="text-xs text-gray-400">{(k as any).provider ?? ""}</span>
+                    {!inCatalog && (
+                      <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                        Legacy / manual secret
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -87,6 +148,7 @@ export default function ProviderKeys() {
                         autoFocus
                       />
                       <button
+                        type="button"
                         onClick={() => setShowValue(!showValue)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
@@ -94,6 +156,7 @@ export default function ProviderKeys() {
                       </button>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleSave(k.name)}
                       disabled={setKeyMut.isPending || !keyValue.trim()}
                       className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
@@ -101,6 +164,7 @@ export default function ProviderKeys() {
                       {setKeyMut.isPending ? "Saving..." : "Save"}
                     </button>
                     <button
+                      type="button"
                       onClick={() => { setEditing(null); setKeyValue(""); setShowValue(false); }}
                       className="rounded px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
                     >
@@ -109,20 +173,28 @@ export default function ProviderKeys() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => { setEditing(k.name); setKeyValue(""); }}
-                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-                      title={k.configured ? "Rotate key" : "Set key"}
-                    >
-                      <RotateCw className="h-3 w-3" />
-                      {k.configured ? "Rotate" : "Set Key"}
-                    </button>
-                    {k.configured && (
+                    {inCatalog ? (
                       <button
+                        type="button"
+                        onClick={() => { setEditing(k.name); setKeyValue(""); }}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                        title={k.configured ? "Rotate key" : "Set key"}
+                      >
+                        <RotateCw className="h-3 w-3" />
+                        {k.configured ? "Rotate" : "Set Key"}
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-gray-400" title="Keys outside the catalog must be changed in the cluster secret">
+                        Set / rotate / remove via cluster secret
+                      </span>
+                    )}
+                    {k.configured && inCatalog && (
+                      <button
+                        type="button"
                         onClick={() => handleDelete(k.name)}
                         disabled={deleteKeyMut.isPending}
                         className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                        title="Remove key"
+                        title="Remove key from secret (catalog providers only)"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -130,30 +202,36 @@ export default function ProviderKeys() {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
-          {/* Add custom provider */}
           <div className="border-t border-gray-100 px-5 py-4 dark:border-gray-800">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="CUSTOM_PROVIDER_API_KEY"
-                className="w-64 rounded border border-gray-300 bg-white px-3 py-1.5 font-mono text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-                onKeyDown={(e) => e.key === "Enter" && handleAddCustom()}
-              />
+            <p className="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">Add or rotate (catalog providers)</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={addPicker}
+                onChange={(e) => setAddPicker(e.target.value)}
+                className="min-w-[220px] rounded border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+              >
+                <option value="">Select provider…</option>
+                {keyableProviders.map(([key, p]) => (
+                  <option key={key} value={p.api_key_env}>
+                    {p.label} ({p.api_key_env})
+                  </option>
+                ))}
+              </select>
               <button
-                onClick={handleAddCustom}
-                disabled={!customName.trim()}
+                type="button"
+                onClick={startAddFromPicker}
+                disabled={!addPicker}
                 className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
               >
-                Add Custom Provider
+                Set or rotate key
               </button>
             </div>
-            <p className="mt-1 text-xs text-gray-400">
-              Use UPPER_SNAKE_CASE. The env var name must match what your model config references (e.g. os.environ/MY_KEY).
+            <p className="mt-2 text-xs text-gray-400">
+              To add a new provider to Synesis, extend the catalog (backend) first; a self-serve “add provider” UI may come later.
             </p>
           </div>
         </div>

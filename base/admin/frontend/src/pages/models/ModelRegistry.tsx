@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { apiErrorMessage } from "../../api/errorMessage";
 import {
   useRoleAssignments,
   useAssignRole,
@@ -21,6 +23,7 @@ import {
   Download,
   Pencil,
   Link2,
+  AlertTriangle,
 } from "lucide-react";
 
 const SOURCE_ICON: Record<string, typeof Cloud> = {
@@ -95,8 +98,29 @@ export default function ModelRegistry() {
     sharedMap.get(key)!.push(r.role);
   }
 
+  const closeEditModal = () => {
+    assignMut.reset();
+    setEditing(null);
+  };
+
   const handleSave = () => {
     if (!editing) return;
+    const prov = providers[editing.provider];
+    const keyEnv = (editing.api_key_env || prov?.api_key_env || "").trim();
+    const keyOk = !keyEnv || configuredKeys.has(keyEnv);
+    if (keyEnv && !keyOk) {
+      if (editing.provider === "custom") {
+        if (
+          !window.confirm(
+            "This API key env var is not set under Settings → Provider API Keys. LiteLLM will fail until the key exists in the cluster secret. Continue saving?",
+          )
+        ) {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
     const fbList = editing.fallbacks.split(",").map((s) => s.trim()).filter(Boolean);
     assignMut.mutate(
       {
@@ -109,7 +133,7 @@ export default function ModelRegistry() {
         temperature: editing.temperature,
         fallbacks: fbList.length ? fbList : undefined,
       },
-      { onSuccess: () => setEditing(null) },
+      { onSuccess: () => closeEditModal() },
     );
   };
 
@@ -221,8 +245,40 @@ export default function ModelRegistry() {
 
       {/* Edit / Assign modal */}
       {editing && (
-        <Modal onClose={() => setEditing(null)} title={`${roles.find((r) => r.role === editing.role)?.assigned ? "Change" : "Assign"} Model — ${editing.role}`}>
+        <Modal
+          onClose={closeEditModal}
+          title={`${roles.find((r) => r.role === editing.role)?.assigned ? "Change" : "Assign"} Model — ${editing.role}`}
+        >
           <div className="space-y-3">
+            {(() => {
+              const prov = providers[editing.provider];
+              const keyEnv = (editing.api_key_env || prov?.api_key_env || "").trim();
+              const catalogKeyBlocked =
+                !!keyEnv && editing.provider !== "custom" && !configuredKeys.has(keyEnv);
+              if (!catalogKeyBlocked) return null;
+              return (
+                <div className="flex gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-950/30">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="space-y-1 text-amber-900 dark:text-amber-200">
+                    <p className="font-medium">Set the provider key before saving</p>
+                    <p className="text-amber-800/95 dark:text-amber-300/95">
+                      Configure <code className="rounded bg-amber-100/80 px-1 font-mono dark:bg-amber-900/50">{keyEnv}</code> under{" "}
+                      <Link to="/settings/providers" className="font-medium underline hover:text-amber-950 dark:hover:text-amber-100">
+                        Settings → Provider API Keys
+                      </Link>
+                      . This dialog only maps roles to models; secrets stay in the cluster secret.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {assignMut.isError && (
+              <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                {apiErrorMessage(assignMut.error)}
+              </div>
+            )}
+
             {/* Provider picklist */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Provider</label>
@@ -278,7 +334,13 @@ export default function ModelRegistry() {
                   {configured ? (
                     <span className="ml-2 text-green-600 dark:text-green-400">(configured)</span>
                   ) : (
-                    <span className="ml-2 text-amber-600 dark:text-amber-400">(not set — add in Settings &gt; Provider Keys)</span>
+                    <span className="ml-2 text-amber-600 dark:text-amber-400">
+                      (not set —{" "}
+                      <Link to="/settings/providers" className="underline hover:text-amber-700 dark:hover:text-amber-300">
+                        add in Provider API Keys
+                      </Link>
+                      )
+                    </span>
                   )}
                 </div>
               );
@@ -317,7 +379,7 @@ export default function ModelRegistry() {
               {roles.find((r) => r.role === editing.role)?.assigned && (
                 <button
                   onClick={() => {
-                    deactivateMut.mutate(editing.role, { onSuccess: () => setEditing(null) });
+                    deactivateMut.mutate(editing.role, { onSuccess: () => closeEditModal() });
                   }}
                   disabled={deactivateMut.isPending}
                   className="rounded px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
@@ -326,12 +388,28 @@ export default function ModelRegistry() {
                 </button>
               )}
               <div className="ml-auto flex gap-2">
-                <button onClick={() => setEditing(null)} className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">
+                <button onClick={closeEditModal} className="rounded px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800">
                   Cancel
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={assignMut.isPending || !editing.model}
+                  disabled={(() => {
+                    const p = providers[editing.provider];
+                    const env = (editing.api_key_env || p?.api_key_env || "").trim();
+                    const needsConfiguredKey = !!env && editing.provider !== "custom";
+                    const blocked = needsConfiguredKey && !configuredKeys.has(env);
+                    return assignMut.isPending || !editing.model.trim() || blocked;
+                  })()}
+                  title={
+                    (() => {
+                      const p = providers[editing.provider];
+                      const env = (editing.api_key_env || p?.api_key_env || "").trim();
+                      if (env && editing.provider !== "custom" && !configuredKeys.has(env)) {
+                        return "Configure this key under Settings → Provider API Keys first";
+                      }
+                      return undefined;
+                    })()
+                  }
                   className="rounded bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {assignMut.isPending ? "Saving..." : "Save"}
