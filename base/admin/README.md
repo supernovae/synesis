@@ -19,6 +19,12 @@ FastAPI backend (`app/`) + Vite React SPA (`frontend/`) for operating Synesis: m
 3. **Navigation** — Sidebar is canonical; breadcrumbs in `TopBar.tsx` should label new segments (including dynamic IDs).
 4. **Dark mode** — New screens use `dark:` Tailwind variants like existing pages.
 
+## Database URL and `oc apply`
+
+`SYNESIS_ADMIN_DATABASE_URL` in the Deployment manifest uses a **dev placeholder** password. **CloudNativePG** puts the real password in secret `synesis-admin-db-app`. **`scripts/deploy.sh`** (`ensure_admin_db`) patches the deployment with a URL-encoded connection string after the cluster is healthy.
+
+If you run **`oc apply -k base/admin`** without going through deploy, the live DB URL can be reset to the placeholder → **migration auth failures** and restarts. Re-run **`./scripts/deploy.sh`** (or patch the env from the secret as in deploy.sh).
+
 ## Related docs
 
 - [docs/admin/TODO.md](../../docs/admin/TODO.md) — backlog, API explorer, future admin MCP.
