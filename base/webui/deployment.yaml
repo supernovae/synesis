@@ -45,8 +45,9 @@ spec:
               value: "true"
             - name: ENABLE_SIGNUP
               value: "false"
+            # Show local email/password as well as Keycloak (signup still off).
             - name: ENABLE_LOGIN_FORM
-              value: "false"
+              value: "true"
             # ── Keycloak OIDC SSO ──
             - name: ENABLE_OAUTH_SIGNUP
               value: "true"

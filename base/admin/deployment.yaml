@@ -67,7 +67,11 @@ spec:
             # re-apply would wipe deploy.sh patches, so the issuer is set in Git.
             - name: SYNESIS_KEYCLOAK_ISSUER_URL
               value: "https://synesis-auth.apps.openshiftdemo.dev/realms/synesis"
+            # Empty: Keycloak tokens use aud=account, not client_id — verifying aud breaks login.
+            # Binding to our OAuth client is done via the azp claim (see auth.py).
             - name: SYNESIS_KEYCLOAK_AUDIENCE
+              value: ""
+            - name: SYNESIS_KEYCLOAK_EXPECTED_AZP
               value: "synesis-admin"
             # Token exchange from the admin pod (avoids hairpin / egress issues to the public Route).
             # JWT issuer in tokens stays the public URL; only the token HTTP call uses this.

@@ -23,7 +23,10 @@ logger = logging.getLogger("synesis.auth")
 # ── Keycloak configuration ───────────────────────────────────────────────────
 
 KEYCLOAK_ISSUER = os.getenv("SYNESIS_KEYCLOAK_ISSUER_URL", "")
+# Keycloak access tokens usually have aud="account", not the OAuth client_id.
+# Leave empty to skip aud verification; use SYNESIS_KEYCLOAK_EXPECTED_AZP instead.
 KEYCLOAK_AUDIENCE = os.getenv("SYNESIS_KEYCLOAK_AUDIENCE", "")
+KEYCLOAK_EXPECTED_AZP = os.getenv("SYNESIS_KEYCLOAK_EXPECTED_AZP", "synesis-admin")
 
 _jwks_client: jwt.PyJWKClient | None = None
 
@@ -98,7 +101,7 @@ def _verify_keycloak_token(token: str) -> UserInfo:
     """Decode and verify a Keycloak-issued JWT using JWKS."""
     client = _get_jwks_client()
     signing_key = client.get_signing_key_from_jwt(token)
-    options = {"verify_aud": bool(KEYCLOAK_AUDIENCE)}
+    verify_aud = bool(KEYCLOAK_AUDIENCE)
     audience = KEYCLOAK_AUDIENCE or None
     payload = jwt.decode(
         token,
@@ -106,8 +109,16 @@ def _verify_keycloak_token(token: str) -> UserInfo:
         algorithms=["RS256"],
         issuer=KEYCLOAK_ISSUER,
         audience=audience,
-        options=options,
+        options={"verify_aud": verify_aud},
     )
+    if not verify_aud:
+        azp = payload.get("azp")
+        if azp and azp != KEYCLOAK_EXPECTED_AZP:
+            logger.warning(
+                "keycloak_azp_mismatch",
+                extra={"azp": azp, "expected": KEYCLOAK_EXPECTED_AZP},
+            )
+            raise jwt.InvalidTokenError("Token not issued for Synesis Admin client")
     roles = payload.get("realm_access", {}).get("roles", [])
     role = "admin" if "synesis-admin" in roles else "user"
     username = payload.get("preferred_username", payload.get("sub", "unknown"))

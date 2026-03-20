@@ -88,6 +88,7 @@ oc port-forward svc/synesis-admin 8080:8080 -n synesis-admin
 
 - **`SYNESIS_KEYCLOAK_ISSUER_URL` set** (default in `base/admin/deployment.yaml`): the UI redirects to Keycloak (`synesis-admin` client). Local username/password (`admin` / `viewer`) is **disabled**. Use a Keycloak user in the `synesis` realm.
 - **Admin API role:** users need the **`synesis-admin`** realm role to get dashboard admin privileges. Without it, they authenticate but get a normal **`user`** role (limited access). Assign the role in Keycloak: *Users → user → Role mapping → Assign role → Filter by realm roles → `synesis-admin`*.
+- **Not the same as Keycloak “admin”:** The Keycloak **master** realm `admin` user is only for the Keycloak Admin Console. Synesis uses the **`synesis`** realm. Open WebUI admin features use **`OAUTH_ADMIN_ROLES`** (default `synesis-admin`) — assign that **realm role** in the `synesis` realm to users who should manage Open WebUI as admins.
 - **Issuer empty / dev without Keycloak:** unset `SYNESIS_KEYCLOAK_ISSUER_URL` on the deployment to fall back to legacy JWT users only (`admin`, `viewer` from env passwords).
 
 If you use `./scripts/deploy.sh`, it also patches the issuer from the Keycloak Route; a plain `kustomize | oc apply` used to wipe that patch — the issuer is now in Git so re-applies stay on Keycloak.
