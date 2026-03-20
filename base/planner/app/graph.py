@@ -753,6 +753,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     _fb_is_code = state.get("is_code_task", False)
     _fb_resp_len = len(content)
     _fb_has_error = bool(error)
+    _ec = state.get("evidence_curation") if isinstance(state.get("evidence_curation"), dict) else {}
     logger.info(
         "request_feedback",
         extra={
@@ -769,6 +770,10 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "is_code_task": _fb_is_code,
             "response_length": _fb_resp_len,
             "has_error": _fb_has_error,
+            "context_curation_utilization": _ec.get("utilization"),
+            "context_curation_budget_alert": bool(_ec.get("budget_alert")),
+            "context_curation_excluded_count": _ec.get("excluded_count"),
+            "context_curation_low_utilization": _ec.get("low_utilization"),
         },
     )
     if _synesis_tracer is not None:

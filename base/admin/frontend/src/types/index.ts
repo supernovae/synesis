@@ -450,6 +450,7 @@ export interface TraceRecord {
   background_critic?: Record<string, unknown>;
   manual_critic?: Record<string, unknown>;
   evidence_summary: Record<string, unknown>;
+  context_curation?: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
   phase_timings?: Record<string, number>;
   short_circuit_reason?: string;

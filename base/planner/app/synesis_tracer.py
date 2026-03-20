@@ -104,6 +104,7 @@ class TraceRecord:
     spans: list[SpanRecord] = field(default_factory=list)
     critic_scores: dict[str, Any] = field(default_factory=dict)
     evidence_summary: dict[str, Any] = field(default_factory=dict)
+    context_curation: dict[str, Any] = field(default_factory=dict)
     taxonomy: dict[str, Any] = field(default_factory=dict)
     phase_timings: dict[str, float] = field(default_factory=dict)
     short_circuit_reason: str = ""
@@ -468,6 +469,28 @@ class SynesisTracer(BaseCallbackHandler):
             "path": taxonomy.get("path", ""),
             "complexity_score": taxonomy.get("complexity_score", 0),
             "persona_instructions": str(taxonomy.get("persona_instructions", ""))[:200],
+        }
+
+    def set_context_curation(self, report: dict[str, Any]) -> None:
+        """Writer evidence budgeting — rank-first pack, exclusions, starvation signals."""
+        if self._current_trace is None:
+            return
+        excl = report.get("excluded") or []
+        if isinstance(excl, list):
+            excl = excl[:20]
+        self._current_trace.context_curation = {
+            "packets_in": report.get("packets_in"),
+            "packets_kept": report.get("packets_kept"),
+            "excluded_count": report.get("excluded_count"),
+            "token_budget": report.get("token_budget"),
+            "tokens_used": report.get("tokens_used"),
+            "char_budget": report.get("char_budget"),
+            "chars_used": report.get("chars_used"),
+            "utilization": report.get("utilization"),
+            "low_utilization": report.get("low_utilization"),
+            "budget_alert": report.get("budget_alert") or "",
+            "packets_truncated": report.get("packets_truncated"),
+            "excluded": excl,
         }
 
     def record_phase_timing(self, phase: str, duration_ms: float) -> None:

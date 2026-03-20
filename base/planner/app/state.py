@@ -127,6 +127,7 @@ class GraphState(TypedDict, total=False):
     # --- Evidence (Router-governed) ---
     evidence_packets: Annotated[list[dict[str, Any]], _merge_evidence_packets]
     evidence_requests: list[dict[str, Any]]
+    evidence_curation: dict[str, Any]  # rank-first budgeting report (writer → trace/admin)
 
     # --- Cohesion Lock (Router-set, consumed by Writer/Critic) ---
     cohesion_lock: Annotated[dict[str, Any], _set_once_dict]
@@ -420,6 +421,7 @@ class SynesisState(BaseModel):
     # Evidence (Router-governed)
     evidence_packets: list[EvidencePacket] = Field(default_factory=list)
     evidence_requests: list[dict[str, Any]] = Field(default_factory=list)
+    evidence_curation: dict[str, Any] = Field(default_factory=dict)
 
     # Cohesion Lock (Router-set, consumed by Writer/Critic)
     cohesion_lock: dict[str, Any] = Field(default_factory=dict)

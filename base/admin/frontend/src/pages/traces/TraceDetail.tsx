@@ -63,12 +63,11 @@ const NODE_COLORS: Record<string, string> = {
   entry_pipeline: "#6366f1",
   router: "#8b5cf6",
   planner: "#3b82f6",
-  executor: "#10b981",
+  plan_gate: "#2563eb",
   writer: "#f59e0b",
   critic: "#ef4444",
   final_scrubber: "#64748b",
   respond: "#06b6d4",
-  patch_integrity_gate: "#8b5cf6",
 };
 
 function spanIntent(span: SpanRecord): string {
@@ -917,6 +916,92 @@ export default function TraceDetail() {
                 </div>
               ))}
           </div>
+        </div>
+      )}
+
+      {/* Writer context budgeting (rank-first evidence pack) */}
+      {trace.context_curation && Object.keys(trace.context_curation).length > 0 && (
+        <div
+          className={`rounded-lg border p-4 dark:border-gray-700 ${
+            trace.context_curation.budget_alert
+              ? "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30"
+              : trace.context_curation.low_utilization
+                ? "border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-900/40"
+                : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+          }`}
+        >
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+            Writer context budgeting
+          </h3>
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            High-confidence evidence is packed first into token and character budgets. Alerts flag
+            starvation of strong evidence; low utilization may mean retrieval over-fetch or easy
+            questions with sparse context needs.
+          </p>
+          {Boolean(trace.context_curation.budget_alert) && (
+            <div className="mb-3 rounded-md border border-amber-200 bg-amber-100/80 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-900/40 dark:text-amber-100">
+              <span className="font-semibold">Budget alert: </span>
+              {String(trace.context_curation.budget_alert)}
+            </div>
+          )}
+          {trace.context_curation.low_utilization === true && !trace.context_curation.budget_alert && (
+            <div className="mb-3 rounded-md border border-slate-200 bg-slate-100/80 px-3 py-2 text-xs text-slate-800 dark:border-slate-600 dark:bg-slate-800/60 dark:text-slate-200">
+              Low utilization of evidence token budget — possible over-fetch or short answer path.
+            </div>
+          )}
+          <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              ["packets_in", "Packets in"],
+              ["packets_kept", "Packets kept"],
+              ["excluded_count", "Excluded"],
+              ["packets_truncated", "Truncated"],
+              ["token_budget", "Token budget"],
+              ["tokens_used", "Tokens used"],
+              ["utilization", "Utilization"],
+              ["char_budget", "Char budget"],
+              ["chars_used", "Chars used"],
+            ].map(([key, label]) => {
+              const v = trace.context_curation![key];
+              if (v === undefined || v === null) return null;
+              const display =
+                key === "utilization" && typeof v === "number"
+                  ? `${(v * 100).toFixed(1)}%`
+                  : typeof v === "number"
+                    ? v.toLocaleString()
+                    : String(v);
+              return (
+                <div key={key} className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+                  <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
+                  <dd className="font-mono font-medium text-gray-900 dark:text-white">{display}</dd>
+                </div>
+              );
+            })}
+          </dl>
+          {Array.isArray(trace.context_curation.excluded) && trace.context_curation.excluded.length > 0 && (
+            <div className="mt-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                Excluded / dropped (sample)
+              </h4>
+              <ul className="space-y-2 text-xs">
+                {(trace.context_curation.excluded as Record<string, unknown>[]).slice(0, 12).map((row, i) => (
+                  <li
+                    key={i}
+                    className="rounded border border-gray-100 bg-gray-50/80 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-800/50"
+                  >
+                    <span className="font-medium text-gray-700 dark:text-gray-200">
+                      {(row.reason as string) || "unknown"}
+                    </span>
+                    {row.score != null && (
+                      <span className="ml-2 font-mono text-gray-500">score {(row.score as number).toFixed(3)}</span>
+                    )}
+                    {row.doc_hint ? (
+                      <span className="ml-2 text-gray-600 dark:text-gray-300">{String(row.doc_hint)}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

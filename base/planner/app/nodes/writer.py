@@ -21,6 +21,7 @@ from langchain_openai import ChatOpenAI
 
 from ..code_extractor import detect_needs_input
 from ..config import settings
+from ..context_curation import curate_evidence_for_writer
 from ..contract_validator import fingerprint_draft
 from ..llm_telemetry import get_llm_http_client
 from ..prompt_spine import (
@@ -782,54 +783,25 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-    # Build evidence from Router's evidence packets (summaries + top snippets).
-    # Group by section_id so each plan section gets proportional budget.
+    writer_url = settings.writer_model_url or settings.general_model_url
+    writer_name = settings.writer_model_name or settings.general_model_name
+
+    # Evidence: rank-first greedy pack (confidence order) into token + char budgets.
     packets = state.get("evidence_packets") or []
     packets = sorted(
         packets,
         key=lambda p: float(p.get("confidence", 0) if isinstance(p, dict) else getattr(p, "confidence", 0)),
         reverse=True,
     )
-
-    max_snips = 5 if difficulty >= 0.7 else 3
-    min_rel = 0.45 if difficulty >= 0.7 else 0.6
-
-    section_groups: dict[int | None, list[str]] = {}
-    for p in packets:
-        summary = p.get("summary", "") if isinstance(p, dict) else getattr(p, "summary", "")
-        if not summary:
-            continue
-        snippets = p.get("snippets", []) if isinstance(p, dict) else getattr(p, "snippets", [])
-        top_snippets = _extract_top_snippets(snippets, max_snippets=max_snips, min_relevance=min_rel)
-        if top_snippets:
-            snippet_block = "\n".join(f"  > {s}" for s in top_snippets)
-            part = f"{summary}\n\nKey excerpts:\n{snippet_block}"
-        else:
-            part = summary
-        sid = p.get("section_id") if isinstance(p, dict) else getattr(p, "section_id", None)
-        section_groups.setdefault(sid, []).append(part)
-
-    evidence_budget = settings.scaled_evidence_budget(difficulty)
-    # Safety guard: evidence must not starve the output budget
-    max_evidence_chars = (settings.compiler_model_context * 4) - (settings.writer_budget_max * 4) - 8000
-    if evidence_budget > max_evidence_chars > 0:
-        evidence_budget = max_evidence_chars
-    num_groups = max(len(section_groups), 1)
-    per_section_budget = evidence_budget // num_groups
-
-    compiled_sections: list[str] = []
-    budget_remaining = evidence_budget
-    for sid, parts in section_groups.items():
-        if settings.long_context_reorder_enabled and len(parts) > 2:
-            parts = _long_context_reorder(parts)
-        section_text = "\n---\n".join(parts)
-        allowed = min(len(section_text), max(per_section_budget, budget_remaining // max(num_groups, 1)))
-        section_text = section_text[:allowed]
-        budget_remaining -= len(section_text)
-        num_groups -= 1
-        compiled_sections.append(section_text)
-
-    compiled_evidence = "\n---\n".join(compiled_sections)
+    compiled_evidence, curation_report = curate_evidence_for_writer(
+        packets,
+        difficulty=difficulty,
+        writer_model_name=writer_name or "",
+        long_context_reorder=settings.long_context_reorder_enabled,
+    )
+    tracer = get_synesis_tracer()
+    if tracer is not None:
+        tracer.set_context_curation(curation_report)
 
     task_block = _build_task_block(state)
     outline_block = _build_outline_block(state)
@@ -850,9 +822,6 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
         writer_budget = max(512, min(writer_budget, settings.writer_budget_max))
     else:
         writer_budget = max(2048, min(writer_budget, settings.writer_budget_max))
-
-    writer_url = settings.writer_model_url or settings.general_model_url
-    writer_name = settings.writer_model_name or settings.general_model_name
 
     decisive = style_contract.get("decisive", False)
 
@@ -1096,6 +1065,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "error": None,
                 "current_node": node_name,
                 "next_node": "respond",
+                "evidence_curation": curation_report,
                 "token_budget_remaining": new_budget,
                 "node_traces": [
                     NodeTrace(
@@ -1149,6 +1119,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                         "available_sources": available_sources_count,
                         "writer_budget": writer_budget,
                         "latency_ms": round(latency, 1),
+                        "evidence_utilization": curation_report.get("utilization"),
+                        "evidence_budget_alert": bool(curation_report.get("budget_alert")),
+                        "evidence_excluded": curation_report.get("excluded_count"),
                     },
                 },
             )
@@ -1163,6 +1136,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "draft_fingerprints": [fingerprint_draft(compiled)],
             "error": None,
             "current_node": node_name,
+            "evidence_curation": curation_report,
             "token_budget_remaining": new_budget,
             "node_traces": [
                 NodeTrace(
@@ -1183,6 +1157,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "generated_code": fallback,
             "compiled_answer": fallback,
             "current_node": node_name,
+            "evidence_curation": curation_report,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

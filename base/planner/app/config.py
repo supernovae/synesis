@@ -458,9 +458,8 @@ class Settings(BaseSettings):
     curator_tier3_max_tokens: int = 1000  # Tier 3 (Project Manifest): summarize if over
     curator_tier4_max_tokens: int = 2000  # Tier 4 (Session/History): LIFO trim
     curator_rag_max_tokens: int = 3000  # Retrieved RAG: rank-and-evict
-    curator_max_total_tokens: int = 8192  # Hard cap for Worker prompt (A10G prefill target)
+    curator_max_total_tokens: int = 8192  # Target cap for full writer prompt (tiers + evidence); evidence uses curator_rag_max_tokens today
     curator_min_rerank_score: float = 0.6  # Drop RAG chunks below this score
-    curator_tiktoken_enabled: bool = False  # Use tiktoken for accurate counts (optional dep)
     curator_knowledge_gap_threshold: float = 0.6  # Max RAG score < this → incomplete_knowledge, backlog
     knowledge_backlog_enabled: bool = True  # Publish knowledge gaps to Postgres
 
