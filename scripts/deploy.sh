@@ -172,6 +172,9 @@ ensure_openrouter_key() {
 
 # After manifest apply: heal OPENROUTER_API_KEY if the secret was wiped.
 # (Older releases applied an empty provider-api-keys Secret via kustomize.)
+# When envFrom used optional:true and the Secret was created after the pod
+# started, the pod never receives OPENROUTER_API_KEY until recreated — OpenRouter
+# then returns 401 and LiteLLM surfaces "No deployments available" / cooldown.
 reconcile_provider_api_keys() {
     [[ "$MODE" != "api" ]] && return 0
     local ns="synesis-gateway"
@@ -185,18 +188,32 @@ reconcile_provider_api_keys() {
     # Trim whitespace / newlines from decoded value
     key=$(printf '%s' "$key" | tr -d '\n\r')
 
-    if [[ -n "$key" ]] && [[ "$key" != "sk-or-v1-REPLACE_ME" ]]; then
+    if [[ -z "$key" ]] || [[ "$key" == "sk-or-v1-REPLACE_ME" ]]; then
+        log ""
+        log "OPENROUTER_API_KEY missing in $ns/$secret_name — LiteLLM will return 401 from OpenRouter."
+        log "  Re-running provider key setup..."
+        ensure_openrouter_key
+
+        if oc get deployment litellm-proxy -n "$ns" &>/dev/null; then
+            log "  Restarting litellm-proxy to reload envFrom..."
+            oc rollout restart deployment/litellm-proxy -n "$ns" 2>/dev/null || true
+        fi
         return 0
     fi
 
-    log ""
-    log "OPENROUTER_API_KEY missing in $ns/$secret_name — LiteLLM will return 401 from OpenRouter."
-    log "  Re-running provider key setup..."
-    ensure_openrouter_key
-
+    # Valid key in cluster — ensure running pods actually have OPENROUTER_API_KEY
+    # (stale pods from optional envFrom + late Secret).
     if oc get deployment litellm-proxy -n "$ns" &>/dev/null; then
-        log "  Restarting litellm-proxy to reload envFrom..."
-        oc rollout restart deployment/litellm-proxy -n "$ns" 2>/dev/null || true
+        local pod
+        pod=$(oc get pod -n "$ns" -l app.kubernetes.io/name=litellm-proxy \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        if [[ -n "$pod" ]]; then
+            if ! oc exec -n "$ns" "$pod" -- sh -c 'test -n "${OPENROUTER_API_KEY:-}"' 2>/dev/null; then
+                log ""
+                log "litellm-proxy pod missing OPENROUTER_API_KEY (stale envFrom) — restarting..."
+                oc rollout restart deployment/litellm-proxy -n "$ns" 2>/dev/null || true
+            fi
+        fi
     fi
 }
 

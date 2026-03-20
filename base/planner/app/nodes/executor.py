@@ -73,7 +73,7 @@ For explanations and discussions:
 - Use mermaid diagrams (```mermaid) when they clarify architecture, data flow, \
 or process relationships. Diagrams are valuable — do not omit them to save space.
 - In mermaid node labels, ALWAYS quote text containing parentheses or special \
-characters: A["Vector DB (FAISS)"] not A[Vector DB (FAISS)].
+characters, e.g. A["Service (detail)"] not A[Service (detail)].
 
 If you cannot proceed (missing info, blocked dependency, safety concern), say so clearly.
 Be concise. Adjust depth to match the task complexity.
@@ -87,6 +87,7 @@ Respond directly in markdown. Use headings, lists, and structure for clarity.
 Be concise and clear. No raw code unless the user explicitly asks.
 Use mermaid diagrams when they clarify architecture, data flow, or process.
 In mermaid nodes, quote labels with special chars: A["Name (detail)"] not A[Name (detail)].
+Do not put markdown list lines (- or *) inside mermaid blocks; use %% comments or notes outside the fence.
 If you are not confident about a specific fact, say so briefly. Do not invent citations.
 """
 

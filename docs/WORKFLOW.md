@@ -32,6 +32,22 @@ The planner can still emit fenced code blocks in its markdown responses.
 It does **not** orchestrate code execution, sandbox runs, or patch-apply
 workflows — those belong to the coder front door.
 
+## Prompt layering, taxonomy, and regulated domains
+
+LLM instructions are composed in **three layers** (full rationale: [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md)):
+
+| Layer | What it is | Who controls it |
+|-------|------------|-----------------|
+| **L0** | Universal trust, joint-cognitive safety, and epistemic principles (calibration, scope, evidence vs inference). Includes a **thin non-bypassable floor** for high-stakes advice (e.g. no personalized medical/legal directives). | Code — not overridable from chat or from taxonomy YAML alone |
+| **L1** | Node contracts: planner JSON shape, critic scoring JSON, router retrieval sub-prompts, writer markdown mechanics. | Code |
+| **L2** | Taxonomy depth, output style, discipline framing, **regulated-industry overlays** (medical, legal, fintech, …), intent/vertical plugins. | Admin / deploy-time (`taxonomy_prompt_config.yaml`, DB `taxonomy_domains`, plugins) — **not** chosen by end-user prompt text |
+
+**Escape prevention:** `taxonomy_metadata` is assigned by the **entry classifier + taxonomy resolver**, not by the user declaring a domain. Users cannot turn off a regulated overlay by asking; injection of “ignore taxonomy” is already constrained by the trust policy on untrusted context.
+
+**Critic vs taxonomy:** The critic loads **L0 → L1** first; taxonomy and intent blocks **append** as L2. Taxonomy **expands** the rubric for matched domains; it does **not** replace universal trust or epistemics. Vertical configs (`critic_mode`, `critic_tiers`) continue to tune strictness per industry.
+
+**Adding new verticals:** Prefer new taxonomy keys / DB rows / plugin entries with optional fields such as `regulated_domain`, `epistemic_guidance`, and regulated writer/critic overlay strings (see [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md)) rather than hardcoding industry rules in `critic.py` / `writer.py`.
+
 ## Models
 
 | Role | Model | Hardware | Notes |

@@ -315,6 +315,7 @@ nutrition:
 health:
   path: "Health > General"
   complexity: 0.5
+  regulated_domain: true
   persona: "Wellness Guide"
   worker_explain_tone: "You are a wellness information guide. Provide evidence-based health information. Always recommend consulting a professional for specific medical concerns."
   depth_instructions: "Use evidence-based sources. Clearly distinguish general wellness information from medical advice. Recommend professional consultation for clinical questions."
@@ -322,16 +323,29 @@ health:
   required_elements:
     - "Evidence-Based Information"
     - "Practical Guidance"
+  writer_regulated_block: >-
+    Stay in general wellness education. For symptoms, diagnosis, or treatment decisions,
+    recommend consulting a qualified clinician. Do not provide personalized medical directives.
+  critic_regulated_block: >-
+    Block or flag responses that give personalized diagnosis, treatment plans, or dosing.
+    General evidence-based wellness information may pass when scope is clear.
 
 mental_health:
   path: "Health > Mental Health"
   complexity: 0.5
+  regulated_domain: true
   persona: "Wellness Guide"
   worker_explain_tone: "You are an empathetic wellness guide. Be supportive and non-judgmental. Recommend professional help for clinical concerns."
   depth_instructions: "Normalize the topic. Provide evidence-based coping strategies. Always recommend professional support for clinical symptoms."
   required_elements:
     - "Supportive Context"
     - "Practical Strategies"
+  writer_regulated_block: >-
+    Do not provide clinical mental-health diagnosis or therapy protocols. Encourage crisis lines
+    and licensed professionals for acute or clinical concerns.
+  critic_regulated_block: >-
+    Flag clinical diagnosis, risk assessment without credentials, or therapy directives.
+    Supportive general coping information is acceptable when not individualized treatment.
 
 sleep:
   path: "Health > Sleep"
@@ -1685,7 +1699,7 @@ software_architecture:
     post-filter), what handles lexical/BM25 search, how hybrid results are
     fused (e.g. RRF, weighted linear), how the index is updated, and how
     access control is enforced. Do not attribute capabilities to a single
-    technology (e.g. "FAISS") that it does not natively provide — name each
+    named product that it does not natively provide — name each
     component separately.
     If the system involves code generation or coding workflows, include a
     dedicated code-path section covering: how code is retrieved from repos
@@ -1718,6 +1732,11 @@ software_architecture:
     Label numeric SLOs and cost claims as [Target], [Estimate], or [Measured]
     where applicable. Avoid malformed numeric expressions (e.g. typos or
     broken formatting in numbers).
+  critic_assistant_systems_block: >-
+    If the response describes routing, escalation, or retrieval for an AI or assistant system,
+    verify it states implementation type and a clear decision matrix (answer / escalate / refuse);
+    that retrieval covers metadata or permission filtering and hybrid fusion where applicable;
+    and that facts, assumptions, and recommendations are separated.
   output_controls:
     precise: true
     show_assumptions: true
@@ -3419,6 +3438,7 @@ ai_governance:
 healthcare_compliance:
   path: "Compliance > Healthcare"
   complexity: 0.85
+  regulated_domain: true
   persona: "Healthcare Compliance Specialist"
   worker_explain_tone: "You are a healthcare compliance specialist. Focus on HIPAA, PHI handling, and patient privacy."
   depth_instructions: >-
@@ -3441,10 +3461,15 @@ healthcare_compliance:
     minimum compliance. Note when guidance depends on entity type
     or state-specific laws. Always flag that this is general
     information, not legal advice.
+  writer_regulated_block: >-
+    Frame as general compliance education, not legal advice. Recommend counsel for entity-specific obligations.
+  critic_regulated_block: >-
+    Flag language that reads as binding legal advice for a specific party. General regulatory mapping may pass.
 
 fintech_compliance:
   path: "Compliance > Financial Technology"
   complexity: 0.85
+  regulated_domain: true
   persona: "Financial Compliance Specialist"
   worker_explain_tone: "You are a fintech compliance specialist. Focus on PCI-DSS, SOX, and AML requirements."
   depth_instructions: >-
@@ -3461,6 +3486,11 @@ fintech_compliance:
     Structure as a compliance guide: applicable regulations, required
     controls by compliance level, implementation steps, and audit/reporting
     requirements.
+  writer_regulated_block: >-
+    General regulatory and controls guidance only; not personalized legal or compliance sign-off.
+    Direct users to qualified counsel for jurisdictional or entity-specific decisions.
+  critic_regulated_block: >-
+    Flag personalized legal or regulatory determinations. Educational framework content may pass.
 
 # ─── Other Engineering ───────────────────────────────────────────────────────
 
@@ -3978,6 +4008,9 @@ generic:
   path: "General"
   complexity: 0.5
   persona: "Helpful Assistant"
+  router_summarizer_tone: >-
+    Be factual and concise. State what retrieved sources support and note gaps or contradictions;
+    avoid policy or compliance framing unless the query asks for it.
   worker_explain_tone: "You are a helpful assistant. Answer clearly and directly. Match depth to the question's complexity."
   depth_instructions: >-
     Answer the question directly and completely. For simple factual questions,

@@ -25,6 +25,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
+from ..prompt_spine import EPISTEMIC_WRITER, REGULATED_FLOOR_UNIVERSAL, TRUST_UNTRUSTED_CONTEXT
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.final_answer_compiler")
@@ -33,17 +34,21 @@ _COMPILER_SYSTEM_TEMPLATE = """\
 You are the Final Answer Writer. You receive approved section text and a \
 structured task specification, and produce a well-formatted response for the user.
 
+{regulated_and_epistemic}
+
+TRUST: {trust_spine}
+
 CONTENT RULES:
 1. Answer the main question FIRST in the opening paragraph.
 2. Satisfy explicit requirements in the order they appear.
-3. COMMIT to one choice per decision point. Present the chosen approach \
-   with reasoning; mention rejected alternatives only to explain why \
-   the chosen path won.
+3. When the task calls for a single recommended approach, commit to one primary \
+   choice per decision point and justify it; when the task is comparative, use \
+   tables and tradeoffs without forcing an arbitrary pick unless the user asked for one.
 4. Weave evidence naturally into prose.
 5. Label assumptions inline only when materially relevant.
 6. Qualify unsupported claims with "roughly" / "approximately" or omit.
 7. Include risks only when they have real mitigation value.
-8. Strip any <think>...</think> blocks, Toulmin labels (CLAIM:/GROUNDS:/etc.), \
+8. Strip any model scratchpad or chain-of-thought blocks, \
    self-narration ("Okay, I need to..."), or section HTML comments.
 9. Do not invent information not present in the section text.
 
@@ -57,7 +62,9 @@ FORMATTING — pick the right element for the content:
   sequences, or component relationships. Diagrams are valuable and \
   do not count against verbosity limits.
   In mermaid nodes, ALWAYS quote labels containing parentheses or special \
-  characters: A["Vector DB (FAISS)"] not A[Vector DB (FAISS)].
+  characters, e.g. A["Storage layer (detail)"] not A[Storage layer (detail)]. Never use \
+  markdown list lines (- or *) inside a mermaid block — use %% comments \
+  or prose outside the fence if you need notes.
 - PROSE when explaining reasoning, tradeoffs, or narrative analysis.
 - Use inline `backticks` for tool, command, and model names.
 - Do NOT bold keywords just to signal coverage.
@@ -86,6 +93,7 @@ HEADING STYLE:
 def _build_compiler_system(state: dict[str, Any]) -> str:
     """Build the compiler system prompt with format-aware output directive."""
     from ..schemas import STRUCTURED_FORMATS
+    from ..taxonomy_prompt_factory import get_epistemic_guidance_block, get_writer_regulated_block
 
     frame = state.get("task_frame") or {}
     fmt = frame.get("requested_format", "prose")
@@ -113,7 +121,21 @@ def _build_compiler_system(state: dict[str, Any]) -> str:
             if schema_fields:
                 directive += f"\nRequired schema fields: {', '.join(schema_fields)}"
 
-    return _COMPILER_SYSTEM_TEMPLATE.format(output_directive=directive)
+    meta = state.get("taxonomy_metadata") or {}
+    l2_parts = [REGULATED_FLOOR_UNIVERSAL.strip(), EPISTEMIC_WRITER.strip()]
+    eg = get_epistemic_guidance_block(meta)
+    if eg:
+        l2_parts.append(f"Taxonomy epistemics: {eg}")
+    wr = get_writer_regulated_block(meta)
+    if wr:
+        l2_parts.append(f"Taxonomy regulated context: {wr}")
+    regulated_and_epistemic = "\n\n".join(l2_parts)
+
+    return _COMPILER_SYSTEM_TEMPLATE.format(
+        output_directive=directive,
+        regulated_and_epistemic=regulated_and_epistemic,
+        trust_spine=TRUST_UNTRUSTED_CONTEXT.strip(),
+    )
 
 
 _LIGHT_COMPILER_SYSTEM = """\

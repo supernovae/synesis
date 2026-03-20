@@ -14,6 +14,7 @@ import time
 from difflib import SequenceMatcher
 from typing import Any
 
+from ..mermaid_postprocess import sanitize_mermaid
 from ..schemas import FinalAnswerAudit
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
@@ -25,7 +26,6 @@ logger = logging.getLogger("synesis.final_scrubber")
 # If this fires, something upstream is broken — log a warning.
 _SAFETY_NET_RE = re.compile(
     r"<think>.*?</think>"  # thinking blocks
-    r"|^(?:CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:.*$"  # Toulmin labels
     r"|(?:Thought|Thinking) for (?:less than )?\w+ seconds?\.?\n*"  # "Thought for X seconds"
     r"|<!--\s*section:.*?-->\s*",  # internal section markers (legacy)
     re.DOTALL | re.MULTILINE | re.IGNORECASE,
@@ -52,10 +52,6 @@ _FALSE_PRECISION_RE = re.compile(
 
 _HEADING_RE = re.compile(r"^#{1,3}\s+.+$", re.MULTILINE)
 _FENCED_BLOCK_RE = re.compile(r"```[^\n]*\n.*?```", re.DOTALL)
-_MERMAID_BLOCK_RE = re.compile(r"(```mermaid\b)(.*?)(```)", re.DOTALL | re.IGNORECASE)
-
-_MERMAID_BRACKET_LABEL_RE = re.compile(r'(\b[A-Za-z]\w*\[)([^\]"]*[(){}|][^\]"]*)(\])')
-_MERMAID_DIAMOND_LABEL_RE = re.compile(r'(\b[A-Za-z]\w*\{)([^}"]*[()|\[\]][^}"]*)(\})')
 
 _SECTION_OVERGROWTH_WORDS = 1200
 
@@ -160,34 +156,6 @@ def _fix_embedded_structured_blocks(text: str) -> tuple[str, int]:
     text = _EMBEDDED_JSON_RE.sub(_fix_json_block, text)
     text = _EMBEDDED_YAML_RE.sub(_fix_yaml_block, text)
     return text, fixes
-
-
-def _sanitize_mermaid(text: str) -> tuple[str, int]:
-    """Quote Mermaid node labels that contain shape-ambiguous characters.
-
-    Unquoted parentheses like ``A[Database (Postgres)]`` are parsed by
-    Mermaid as shape delimiters, causing render failures.  Wrapping the
-    label in double-quotes fixes it: ``A["Database (Postgres)"]``.
-    """
-    fixes = 0
-
-    def _fix_block(block_match: re.Match) -> str:
-        nonlocal fixes
-        opener = block_match.group(1)
-        content = block_match.group(2)
-        closer = block_match.group(3)
-
-        def _quote(m: re.Match) -> str:
-            nonlocal fixes
-            fixes += 1
-            return f'{m.group(1)}"{m.group(2)}"{m.group(3)}'
-
-        content = _MERMAID_BRACKET_LABEL_RE.sub(_quote, content)
-        content = _MERMAID_DIAMOND_LABEL_RE.sub(_quote, content)
-        return f"{opener}{content}{closer}"
-
-    result = _MERMAID_BLOCK_RE.sub(_fix_block, text)
-    return result, fixes
 
 
 def _strip_fenced_blocks(text: str) -> str:
@@ -404,7 +372,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
             "current_node": node_name,
         }
 
-    text, mermaid_fixes = _sanitize_mermaid(text)
+    text, mermaid_fixes, mermaid_replaced = sanitize_mermaid(text)
     text, structured_fixes = _fix_embedded_structured_blocks(text)
     text, artifact_count, artifact_removed = _strip_artifacts(text)
     text, fp_count, fp_labeled = _detect_false_precision(text)
@@ -430,6 +398,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "output_len": len(text),
         "chars_removed": _input_len - len(text),
         "mermaid_labels_fixed": mermaid_fixes,
+        "mermaid_blocks_replaced": mermaid_replaced,
         "structured_blocks_fixed": structured_fixes,
         "artifacts_stripped": artifact_count,
         "false_precision": fp_count,

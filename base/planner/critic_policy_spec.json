@@ -37,9 +37,9 @@
     }
   },
   "critic_policy_engine": {
-    "phases": ["advisory_bypass", "toulmin_eval", "crag_assessment", "retry_decision"],
+    "phases": ["advisory_bypass", "quality_eval", "crag_assessment", "retry_decision"],
     "advisory_bypass": "When difficulty < critic_skip_below_difficulty: skip critic entirely (routed by graph)",
-    "toulmin_eval": "Evaluate claims using Toulmin Model: grounds, warrant, qualifier, rebuttal. 3+ uncommitted X-or-Y decisions = BLOCKING.",
+    "quality_eval": "Evaluate response quality: faithfulness, coverage, grounding, and commitment vs endless option menus. 3+ uncommitted X-or-Y decisions = BLOCKING.",
     "crag_assessment": "Estimate factual grounding confidence per section. Below crag_web_trigger_threshold -> CRAG:section:confidence in residual_risks.",
     "retry_decision": "PASS->respond; CRAG triggers->corrective_web; RETRY->supervisor when not approved and should_continue and attempt < max"
   },
@@ -82,10 +82,10 @@
   "node_specs": {
     "critic": {
       "node_name": "critic",
-      "purpose": "Toulmin-based quality evaluation; CRAG assessment; PASS/RETRY/FAIL; intent+domain aware",
+      "purpose": "Score-based quality evaluation; CRAG assessment; PASS/RETRY/FAIL; intent+domain aware",
       "inputs": ["generated_code", "tool_refs", "intent_class", "active_domain_refs", "platform_context", "iteration_count", "max_iterations", "difficulty", "taxonomy_metadata"],
       "outputs": ["critic_approved", "critic_feedback", "critic_should_continue", "critic_continue_reason", "what_if_analyses", "residual_risks", "crag_triggers", "need_more_evidence", "iteration_count", "next_node"],
-      "decision_logic": "Toulmin rubric for quality; CRAG confidence for factual grounding; difficulty scales strictness",
+      "decision_logic": "Universal principles + taxonomy rubrics for quality; CRAG confidence for factual grounding; difficulty scales strictness",
       "failure_modes": ["critic_approved=false -> append to retry.failures", "need_more_evidence -> append to retry.decisions RETRY", "max_iterations -> force PASS (degraded)", "crag_triggers -> route to corrective_web"]
     }
   },

@@ -29,6 +29,14 @@ patches:
 
   # litellm-secrets is not applied via kustomize (deploy.sh only) — no Secret patch needed.
 
+  # LiteLLM: require provider-api-keys (JSON patch — optional:false).
+  - path: litellm-provider-keys-required.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: litellm-proxy
+
   # LiteLLM: clear master key and DATABASE_URL (API mode — no virtual key
   # auth or Prisma DB needed; removes Prisma startup entirely).
   - target:

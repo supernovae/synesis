@@ -142,6 +142,10 @@ RULES:
    - Do NOT omit, shorten, or fabricate URLs
    - Include "authority" and "document" in sources[].metadata when available
 10. Keep the summary under {max_summary_tokens} tokens. Do not pad with filler. Omit obvious qualifiers.
+11. In retrieval_notes, briefly note what the retrieved material does NOT address relative to the query (coverage gaps), if any.
+12. Lead the summary with the best-supported points; express limits of evidence concretely, not with generic compliance boilerplate.
+
+{summarizer_tone_block}
 
 Output ONLY valid JSON matching this schema (no markdown fences, no prose):
 {{
@@ -522,16 +526,25 @@ class RouterNode:
         results: list[UnifiedResult],
         cohesion_lock: dict[str, Any] | None = None,
         domain_profile: dict[str, Any] | None = None,
+        taxonomy_metadata: dict[str, Any] | None = None,
     ) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
         llm = _get_summarizer_llm()
+        summarizer_tone_block = ""
+        if taxonomy_metadata:
+            from ..taxonomy_prompt_factory import get_router_summarizer_tone
+
+            tone = get_router_summarizer_tone(taxonomy_metadata)
+            if tone:
+                summarizer_tone_block = f"SYNTHESIS TONE (follow when writing summary and notes):\n{tone}\n"
         prompt = SUMMARIZER_PROMPT.format(
             query=query,
             raw_results=results_text,
             max_snippets=MAX_SNIPPETS_PER_PACKET,
             max_summary_tokens=settings.router_max_summary_tokens,
             cohesion_constraint=_build_cohesion_constraint(cohesion_lock, domain_profile),
+            summarizer_tone_block=summarizer_tone_block,
         )
         resp = await llm.ainvoke(
             [
@@ -861,11 +874,14 @@ class RouterNode:
 
         combined_query = " | ".join(q[:80] for q in queries[:4])
         packet = _fallback_packet(combined_query, unified)
-        packet = packet.model_copy(
-            update={
-                "retrieval_notes": f"Consolidated fused retrieval: {len(queries)} queries, {len(unified)} results, {round(retrieve_ms)}ms.",
-            }
-        )
+        _notes = f"Consolidated fused retrieval: {len(queries)} queries, {len(unified)} results, {round(retrieve_ms)}ms."
+        if taxonomy_metadata:
+            from ..taxonomy_prompt_factory import get_router_summarizer_tone
+
+            _tone = get_router_summarizer_tone(taxonomy_metadata)
+            if _tone:
+                _notes = f"{_notes} Synthesis stance: {_tone}"
+        packet = packet.model_copy(update={"retrieval_notes": _notes})
 
         emit_sub_phase(f"Evidence gathered: {len(packet.snippets)} snippet(s), confidence {packet.confidence:.0%}")
 
@@ -1067,11 +1083,14 @@ class RouterNode:
             )
         else:
             try:
+                _dp = evidence_request.get("_domain_profile") or {}
                 packet = await asyncio.wait_for(
                     self.summarize(
                         query,
                         bundle.results[:doc_cap_override] if doc_cap_override else bundle.results,
                         cohesion_lock=cohesion_lock,
+                        domain_profile=_dp if isinstance(_dp, dict) else None,
+                        taxonomy_metadata=taxonomy_metadata,
                     ),
                     timeout=self.summarize_timeout_seconds,
                 )
@@ -1156,8 +1175,15 @@ class RouterNode:
             if cohesion_lock is None and refine_bundle.cohesion_lock:
                 cohesion_lock = refine_bundle.cohesion_lock
             try:
+                _dp2 = evidence_request.get("_domain_profile") or {}
                 packet = await asyncio.wait_for(
-                    self.summarize(refined_query, refine_bundle.results, cohesion_lock=cohesion_lock),
+                    self.summarize(
+                        refined_query,
+                        refine_bundle.results,
+                        cohesion_lock=cohesion_lock,
+                        domain_profile=_dp2 if isinstance(_dp2, dict) else None,
+                        taxonomy_metadata=taxonomy_metadata,
+                    ),
                     timeout=self.summarize_timeout_seconds,
                 )
             except TimeoutError:
@@ -1302,7 +1328,7 @@ class RouterNode:
             _dom_name = _dominant.get("domain", "")
             _dom_weight = _dominant.get("weight", 0)
             if _dom_name and _dom_weight >= settings.focused_threshold:
-                from ..cohesion import CohesionLock, _ENTITY_EXCLUSION_MAP, get_conflict_groups
+                from ..cohesion import _ENTITY_EXCLUSION_MAP, CohesionLock, get_conflict_groups
 
                 for _gname, _gmembers in get_conflict_groups().items():
                     if _dom_name.lower() in _gmembers:
@@ -1324,6 +1350,9 @@ class RouterNode:
         if topic_frame:
             for req in requests:
                 req["_topic_frame"] = topic_frame
+
+        for req in requests:
+            req["_domain_profile"] = _domain_profile
 
         t_dispatch = time.monotonic()
         if requests:

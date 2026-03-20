@@ -13,6 +13,8 @@ Validates:
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -26,15 +28,15 @@ import pytest
 
 
 def _read_writer_system() -> str:
-    """Read the _WRITER_SYSTEM_STATIC constant from writer.py."""
+    """Read the _WRITER_SYSTEM_STATIC constant from writer.py (plain or f-string)."""
     import pathlib
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM_STATIC = """\\\n'
-    marker_end = '"""'
-    start = text.index(marker_start) + len(marker_start)
-    end = text.index(marker_end, start)
+    m = re.search(r'_WRITER_SYSTEM_STATIC = f?"""(?:\\\n|\n)', text)
+    assert m, "_WRITER_SYSTEM_STATIC block not found"
+    start = m.end()
+    end = text.index('"""', start)
     return text[start:end]
 
 
@@ -230,15 +232,15 @@ def _read_planner_prompt_source() -> str:
 
 
 def _read_compiler_system() -> str:
-    """Read the _WRITER_SYSTEM_STATIC prompt from writer.py source."""
+    """Read the _COMPILER_SYSTEM_TEMPLATE from final_answer_compiler.py."""
     import pathlib
 
-    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "writer.py"
+    src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "final_answer_compiler.py"
     text = src.read_text()
-    marker_start = '_WRITER_SYSTEM_STATIC = """\\\n'
-    marker_end = '"""'
-    start = text.index(marker_start) + len(marker_start)
-    end = text.index(marker_end, start)
+    m = re.search(r'_COMPILER_SYSTEM_TEMPLATE = """\\\n', text)
+    assert m, "_COMPILER_SYSTEM_TEMPLATE block not found"
+    start = m.end()
+    end = text.index('"""', start)
     return text[start:end]
 
 

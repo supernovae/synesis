@@ -128,7 +128,7 @@ All model definitions live in [`models.yaml`](models.yaml) — the single source
 | **Router** | Qwen2.5-14B-Instruct | Fast routing, query generation, evidence summarization, planner |
 | **General** | Qwen3-32B FP8 | Executor (code), Writer (knowledge synthesis), Open WebUI default |
 | **Coder** | Qwen3-Coder-30B-A3B FP8 | Agentic coding for IDE clients (direct vLLM endpoint) |
-| **Critic** | DeepSeek R1-Distill-Qwen-32B FP8 | Toulmin-based quality review with configurable thinking budget |
+| **Critic** | DeepSeek R1-Distill-Qwen-32B FP8 | Score-based quality review with configurable thinking budget |
 | **Summarizer** | Qwen2.5-0.5B-Instruct | Conversation history compression (CPU) |
 
 Models are deployed via **OpenShift AI 3** (dashboard or InferenceService YAML). See [`base/model-serving/README.md`](base/model-serving/README.md) for deployment examples.

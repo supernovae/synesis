@@ -81,6 +81,8 @@ USER MESSAGE
   [DYNAMIC] Revision context / gate feedback
 ```
 
+For **L0 / L1 / L2** definitions (universal spine vs taxonomy overlays, regulated domains), see [PROMPT_EPISTEMOLOGY.md](PROMPT_EPISTEMOLOGY.md) and [WORKFLOW.md](WORKFLOW.md#prompt-layering-taxonomy-and-regulated-domains).
+
 If the static prefix is unchanged across requests, vLLM caches those KV
 states. Subsequent requests skip prefill for those tokens (~60-90 ms saved
 per writer call at ~3000 static tokens on L40S).

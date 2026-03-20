@@ -280,7 +280,6 @@ def route_after_critic(state: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-_TOULMIN_LABEL_RE = re.compile(r"^(CLAIM|GROUNDS|WARRANT|REBUTTAL|QUALIFIER)\s*:", re.MULTILINE)
 _SELF_NARRATION_RE = re.compile(
     r"^(Okay,? (?:I need|let me|let's)|Let me (?:start|think|tackle)|"
     r"I think |I should |Wait, |Hmm,? |Now,? I need |"
@@ -306,7 +305,7 @@ _FENCED_CODE_RE = re.compile(r"(```[^\n]*\n.*?```)", re.DOTALL)
 
 
 def _clean_section_artifacts(text: str) -> str:
-    """Strip model thinking blocks, Toulmin scaffolding labels, self-narration, and heading artifacts."""
+    """Strip model thinking blocks, self-narration, and heading artifacts."""
     blocks: list[str] = []
 
     def _stash(m: re.Match) -> str:
@@ -315,7 +314,6 @@ def _clean_section_artifacts(text: str) -> str:
 
     text = _FENCED_CODE_RE.sub(_stash, text)
     text = _THINK_RE.sub("", text)
-    text = _TOULMIN_LABEL_RE.sub("", text)
     text = _SELF_NARRATION_RE.sub("", text)
     text = _HEADING_DELIVERABLE_SUFFIX_RE.sub(r"\1\2", text)
     text = _HEADING_SECTION_PREFIX_RE.sub(r"\1 ", text)

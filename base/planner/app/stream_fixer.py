@@ -27,7 +27,7 @@ _PARTIAL_FENCE_MAX = 10
 class StreamingBlockFixer:
     """Buffer fenced JSON/YAML blocks during SSE streaming, fix inline."""
 
-    __slots__ = ("_buf", "_in_block", "_block_lang", "_fixes")
+    __slots__ = ("_block_lang", "_buf", "_fixes", "_in_block")
 
     def __init__(self) -> None:
         self._buf = ""

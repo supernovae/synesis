@@ -199,6 +199,7 @@ def resolve_taxonomy_metadata(
             "preferred_web_scopes": list(node_cfg.get("preferred_web_scopes") or []),
             "output_style": str(node_cfg.get("output_style", "")).strip(),
             "output_style_guidance": str(node_cfg.get("output_style_guidance", "")).strip(),
+            "regulated_domain": bool(node_cfg.get("regulated_domain")),
         }
     )
     return result
@@ -218,6 +219,9 @@ def get_planner_system_prompt_append(metadata: dict[str, Any]) -> str:
         parts.append(f"Your plan MUST include these sections/steps: {elems}.")
     if complexity > 0.7 and depth_instructions:
         parts.append(depth_instructions)
+    eg = (metadata.get("epistemic_guidance") or "").strip()
+    if complexity > 0.5 and eg:
+        parts.append(f"Epistemic discipline for this domain: {eg}")
     if not parts:
         return ""
     return "\n\n" + " ".join(parts)
@@ -425,3 +429,38 @@ def get_output_style_guidance(metadata: dict[str, Any]) -> str:
     if not metadata or _is_large_model():
         return ""
     return (metadata.get("output_style_guidance") or "").strip()
+
+
+def get_router_summarizer_tone(metadata: dict[str, Any]) -> str:
+    """Optional one-line tone hint for retrieval summarization (L2)."""
+    if not metadata:
+        return ""
+    return (metadata.get("router_summarizer_tone") or "").strip()
+
+
+def get_epistemic_guidance_block(metadata: dict[str, Any]) -> str:
+    """Taxonomy epistemic guidance for writer/compiler dynamic suffix."""
+    if not metadata or _is_large_model():
+        return ""
+    return (metadata.get("epistemic_guidance") or "").strip()
+
+
+def get_writer_regulated_block(metadata: dict[str, Any]) -> str:
+    """Extra writer instructions for regulated taxonomy keys (L2)."""
+    if not metadata:
+        return ""
+    return (metadata.get("writer_regulated_block") or "").strip()
+
+
+def get_critic_regulated_block(metadata: dict[str, Any]) -> str:
+    """Extra critic checks for regulated taxonomy keys (L2)."""
+    if not metadata:
+        return ""
+    return (metadata.get("critic_regulated_block") or "").strip()
+
+
+def get_critic_assistant_systems_block(metadata: dict[str, Any]) -> str:
+    """Critic overlay for assistant/RAG/system-design tasks (L2); empty for most domains."""
+    if not metadata:
+        return ""
+    return (metadata.get("critic_assistant_systems_block") or "").strip()
