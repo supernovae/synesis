@@ -532,9 +532,9 @@ ensure_keycloak() {
     # Realm import runs once; existing clusters may lack openid/profile/email client scopes
     # (Keycloak returns invalid_scope for Synesis Admin + Open WebUI). Idempotent repair.
     if oc get secret synesis-keycloak-initial-admin -n "$ns" &>/dev/null; then
-        log "  Ensuring OIDC client scopes (openid, profile, email) on realm synesis..."
+        log "  Ensuring realm token lifetimes and OIDC client scopes on realm synesis..."
         if ! "$PROJECT_ROOT/scripts/ensure-keycloak-oidc-scopes.sh"; then
-            log "WARNING: ensure-keycloak-oidc-scopes.sh failed — OIDC login may show invalid_scope"
+            log "WARNING: ensure-keycloak-oidc-scopes.sh failed — token lifetimes or OIDC scopes may be stale"
         fi
     fi
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Ensure the synesis realm has standard OIDC client scopes (openid, profile, email)
-# and that synesis-admin + synesis-webui include them as default scopes.
+# Ensure the synesis realm has:
+#   1. Standard OIDC client scopes (openid, profile, email) linked to both clients
+#   2. Correct token/session lifetimes for good SPA UX
 #
-# KeycloakRealmImport only runs once; partial realm JSON that omits these scope
-# definitions leaves the realm with invalid_scope for any OIDC authorization
-# request that asks for openid profile email.
+# KeycloakRealmImport only runs once; this script is an idempotent repair/update
+# that can safely run on every deploy to converge realm state.
 #
 # Usage:
 #   ./scripts/ensure-keycloak-oidc-scopes.sh
@@ -15,6 +15,11 @@ set -euo pipefail
 NS="${KEYCLOAK_NAMESPACE:-synesis-auth}"
 REALM="${KEYCLOAK_REALM:-synesis}"
 ADMIN_SECRET="${KEYCLOAK_ADMIN_SECRET:-synesis-keycloak-initial-admin}"
+
+# Desired realm-level settings (seconds).
+ACCESS_TOKEN_LIFESPAN="${KC_ACCESS_TOKEN_LIFESPAN:-1800}"        # 30 minutes
+SSO_SESSION_IDLE="${KC_SSO_SESSION_IDLE:-14400}"                  # 4 hours
+SSO_SESSION_MAX="${KC_SSO_SESSION_MAX:-43200}"                    # 12 hours
 
 if ! command -v oc &>/dev/null; then
   echo "ERROR: oc not found" >&2
@@ -52,6 +57,36 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 hdr_auth=(-H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json")
+
+# =========================================================================
+# 1. Realm-level token/session lifetimes
+# =========================================================================
+echo "=== Updating realm '$REALM' token lifetimes ($BASE) ==="
+
+REALM_PATCH=$(cat <<EOJSON
+{
+  "accessTokenLifespan": $ACCESS_TOKEN_LIFESPAN,
+  "ssoSessionIdleTimeout": $SSO_SESSION_IDLE,
+  "ssoSessionMaxLifespan": $SSO_SESSION_MAX
+}
+EOJSON
+)
+
+realm_code=$(curl -sk -o /dev/null -w "%{http_code}" -X PUT \
+  "$BASE/admin/realms/$REALM" \
+  "${hdr_auth[@]}" \
+  -d "$REALM_PATCH")
+
+if [[ "$realm_code" == "204" || "$realm_code" == "200" ]]; then
+  echo "  accessTokenLifespan=${ACCESS_TOKEN_LIFESPAN}s  ssoSessionIdle=${SSO_SESSION_IDLE}s  ssoSessionMax=${SSO_SESSION_MAX}s"
+else
+  echo "WARNING: realm update returned HTTP $realm_code (lifetimes may not be updated)" >&2
+fi
+
+# =========================================================================
+# 2. Client scopes (openid, profile, email)
+# =========================================================================
+echo "=== Ensuring OIDC client scopes on realm '$REALM' ==="
 
 scope_id_by_name() {
   local name="$1"
@@ -94,11 +129,13 @@ PROFILE_JSON='{"name":"profile","description":"OpenID Connect built-in scope: pr
 
 EMAIL_JSON='{"name":"email","description":"OpenID Connect built-in scope: email","protocol":"openid-connect","attributes":{"include.in.token.scope":"true","display.on.consent.screen":"true"},"protocolMappers":[{"name":"email","protocol":"openid-connect","protocolMapper":"oidc-usermodel-property-mapper","consentRequired":false,"config":{"user.attribute":"email","claim.name":"email","jsonType.label":"String","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}},{"name":"email-verified","protocol":"openid-connect","protocolMapper":"oidc-usermodel-property-mapper","consentRequired":false,"config":{"user.attribute":"emailVerified","claim.name":"email_verified","jsonType.label":"boolean","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}}]}'
 
-echo "=== Ensuring OIDC client scopes on realm '$REALM' ($BASE) ==="
-
 OID=$(create_scope_if_missing "openid" "$OPENID_JSON")
 PRF=$(create_scope_if_missing "profile" "$PROFILE_JSON")
 EML=$(create_scope_if_missing "email" "$EMAIL_JSON")
+
+# =========================================================================
+# 3. Link default scopes to clients
+# =========================================================================
 
 client_uuid() {
   local cid="$1"
@@ -142,4 +179,4 @@ for CLIENT_ID in synesis-admin synesis-webui; do
   link_default "$CLIENT_ID" "$EML" "email"
 done
 
-echo "=== Done. Retry Synesis Admin / Open WebUI login. ==="
+echo "=== Done. Realm token lifetimes and OIDC scopes are current. ==="
