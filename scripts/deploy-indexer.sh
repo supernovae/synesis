@@ -9,11 +9,17 @@ set -euo pipefail
 # pending — no ConfigMaps or sources.yaml required.
 #
 # Usage:
-#   ./scripts/deploy-indexer.sh            # Apply the CronJob manifest
+#   ./scripts/deploy-indexer.sh            # Apply the CronJob (via Kustomize)
 #   ./scripts/deploy-indexer.sh --run      # One-shot: create a Job now
+#
+# The base manifest uses image name synesis-indexer (placeholder). Kustomize
+# overlays resolve it to a real registry (default: ghcr.io/supernovae/synesis/indexer).
+# Override with:
+#   SYNESIS_INDEXER_OVERLAY=/path/to/overlays/jobs-prod ./scripts/deploy-indexer.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+INDEXER_OVERLAY="${SYNESIS_INDEXER_OVERLAY:-$PROJECT_ROOT/overlays/jobs}"
 
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $*" >&2; }
@@ -25,8 +31,11 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [--run]"
             echo ""
-            echo "  (no args)  Apply the indexer queue CronJob to synesis-rag namespace"
+            echo "  (no args)  Apply the indexer queue CronJob (oc apply -k on Kustomize overlay)"
             echo "  --run      Also create a one-shot Job immediately"
+            echo ""
+            echo "  SYNESIS_INDEXER_OVERLAY  Kustomize dir (default: overlays/jobs)"
+            echo "    Examples: .../overlays/jobs-staging  .../overlays/jobs-prod"
             exit 0
             ;;
         *)
@@ -73,8 +82,14 @@ fi
 log ""
 oc create namespace "$NAMESPACE" 2>/dev/null || true
 
-log "Applying indexer queue CronJob..."
-oc apply -f "$PROJECT_ROOT/base/rag/indexer/cronjob-queue.yaml"
+if [[ ! -f "$INDEXER_OVERLAY/kustomization.yaml" ]]; then
+    warn "Kustomize overlay not found: $INDEXER_OVERLAY"
+    warn "Set SYNESIS_INDEXER_OVERLAY to overlays/jobs, jobs-staging, or jobs-prod."
+    exit 1
+fi
+
+log "Applying indexer queue CronJob (overlay: $INDEXER_OVERLAY)..."
+oc apply -k "$INDEXER_OVERLAY"
 
 log ""
 log "CronJob deployed:"

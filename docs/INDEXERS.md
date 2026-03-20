@@ -109,7 +109,7 @@ base/rag/indexer/
 │       ├── markdown_file.py
 │       ├── seed_corpus.py
 │       └── license_spdx.py
-├── cronjob-queue.yaml      # Single CronJob manifest
+├── cronjob-queue.yaml      # CronJob (image placeholder; use overlays/jobs* via deploy-indexer.sh)
 ├── Dockerfile
 ├── requirements.txt
 └── kustomization.yaml
@@ -212,9 +212,14 @@ See [bootstrap/README.md](../bootstrap/README.md) for the corpus file layout (`c
 
 ### Deploy the CronJob
 
+`deploy-indexer.sh` applies **`oc apply -k`** on a Kustomize overlay so the container image is a real pull spec (default **`overlays/jobs`** → `ghcr.io/supernovae/synesis/indexer:latest`). Applying `base/rag/indexer/cronjob-queue.yaml` alone leaves `synesis-indexer:latest`, which the cluster cannot pull.
+
 ```bash
-./scripts/deploy-indexer.sh            # Apply the CronJob manifest
+./scripts/deploy-indexer.sh            # Apply overlay (default: overlays/jobs)
 ./scripts/deploy-indexer.sh --run      # Also trigger a one-shot run now
+
+# Optional: staging/prod overlays (image tag / schedule differ)
+SYNESIS_INDEXER_OVERLAY="$PWD/overlays/jobs-prod" ./scripts/deploy-indexer.sh --run
 ```
 
 ### Monitor

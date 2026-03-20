@@ -27,6 +27,7 @@ spec:
           serviceAccountName: default
           containers:
             - name: indexer
+              # Resolved by Kustomize (overlays/jobs*). Do not oc apply this file alone.
               image: synesis-indexer:latest
               securityContext:
                 runAsNonRoot: true
