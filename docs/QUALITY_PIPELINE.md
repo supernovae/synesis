@@ -4,28 +4,25 @@ End-to-end corpus quality management: audit, benchmark, curate, and verify.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  subgraph loop [Quality feedback loop]
+    A[Corpus audit] --> G[Gap analysis]
+    G --> C[Curator agent]
+    C --> I[Indexer ingest]
+    I --> V[Re-audit verify]
+    V --> A
+  end
+  subgraph aux [Diagnostics]
+    J[LLM judge labels]
+    CH[Chunking benchmark]
+    R[Retrieval benchmark]
+  end
+  A -.-> J
+  R -.-> A
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Quality Feedback Loop                            │
-│                                                                         │
-│  ┌────────────┐    ┌────────────┐    ┌────────────┐    ┌────────────┐  │
-│  │  Corpus     │───▶│  Gap       │───▶│  Curator   │───▶│  Indexer   │  │
-│  │  Audit      │    │  Analysis  │    │  Agent     │    │  Ingest    │  │
-│  └────────────┘    └────────────┘    └────────────┘    └────────────┘  │
-│        │                                                       │        │
-│        │                                                       │        │
-│        ▼                                                       ▼        │
-│  ┌────────────┐                                        ┌────────────┐  │
-│  │  LLM Judge │                                        │  Re-Audit  │  │
-│  │  Labels    │                                        │  (verify)  │  │
-│  └────────────┘                                        └────────────┘  │
-│                                                                         │
-│  ┌────────────┐    ┌────────────┐                                      │
-│  │  Chunking  │    │  Retrieval │   One-time diagnostics               │
-│  │  Benchmark │    │  Benchmark │   (run when tuning parameters)       │
-│  └────────────┘    └────────────┘                                      │
-└──────────────────────────────────────────────────────────────────────────┘
-```
+
+Admin UI mapping: [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md).
 
 ## Components
 
@@ -37,7 +34,7 @@ End-to-end corpus quality management: audit, benchmark, curate, and verify.
 | **Retrieval Benchmark** | `benchmarks/retrieval/bench_hybrid.py` | Hybrid retrieval regression test (dense + BM25 via Milvus) | `results_hybrid.json` |
 | **Enrichment Benchmark** | `benchmarks/retrieval/bench_enrichment.py` | A/B test for context_prefix impact on dense retrieval | `results_enrichment.json` |
 | **Curator Agent** | `tools/curator/curator_agent.py` | Auto-discover sources for weak domains via SearXNG + LLM | `proposed_sources.yaml` |
-| **Admin Quality UI** | `base/admin/app/quality.py` | Web dashboard for reviewing audit results, approving sources | Live at `/admin/quality` |
+| **Admin Quality UI** | `base/admin/app/routers/rag.py`, `feedback.py`, React SPA | Dashboards, gaps, curator, benchmarks | `/rag/quality`, `/feedback/*` — see [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md) |
 | **Quality CronJob** | `base/quality-runner/` | K8s CronJob that runs audit + curator on schedule | ConfigMap with results |
 
 ## Feedback Loop
@@ -50,7 +47,7 @@ The pipeline forms a closed loop:
 
 3. **Curate** — Run `curator_agent.py` to automatically discover high-quality sources for weak domains. Uses SearXNG for web search and an LLM to evaluate source quality (1-5 scale). Outputs `proposed_sources.yaml` for human review.
 
-4. **Review** — In the admin UI (`/admin/quality/curator`), review proposed sources. Approve or reject each entry. Approved sources are added to the ingestion queue via the admin API.
+4. **Review** — In the admin SPA (**Feedback → Curator**, `/feedback/curator`), review proposed sources. Approve or reject each entry via the admin API.
 
 5. **Ingest** — The queue-driven indexer claims pending items and processes them through the standard pipeline (chunking, enrichment, embedding, Milvus upsert). Trigger with `./scripts/deploy-indexer.sh --run`.
 
@@ -195,23 +192,13 @@ The CronJob runs weekly (Sunday 02:00 UTC by default) and stores results in a Co
 
 ## Admin UI
 
-The admin service provides a web interface for reviewing quality data:
+The **React admin** app is the primary interface. See [ADMIN_QUALITY_UI.md](ADMIN_QUALITY_UI.md) for routes, feedback loops, and JSON APIs (`/api/v1/rag/...`, `/api/v1/feedback/...`).
 
 | Page | Path | Description |
 |------|------|-------------|
-| Quality Dashboard | `/admin/quality` | Overview: domain health summary, sortable table, trend indicators |
-| Domain Detail | `/admin/quality/domain/{key}` | Deep dive: inventory, coverage metrics, dead-weight list |
-| Curator Review | `/admin/quality/curator` | Review proposed sources, approve/reject |
-
-### JSON APIs
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/admin/api/quality/summary` | Domain health summary and counts |
-| GET | `/admin/api/quality/domains` | All domain scorecards |
-| GET | `/admin/api/quality/domain/{key}` | Single domain scorecard |
-| GET | `/admin/api/quality/curator` | Curator proposals |
-| POST | `/admin/api/quality/audit` | Trigger a lightweight audit |
+| Quality Dashboard | `/rag/quality` | Domain health summary (DB snapshots and/or audit JSON) |
+| Domain Detail | `/rag/quality/:key` | Inventory + coverage when audit JSON present; snapshot fallback otherwise |
+| Curator Review | `/feedback/curator` | Proposals from `SYNESIS_CURATOR_PROPOSALS_PATH` |
 
 ## File Layout
 
@@ -240,12 +227,10 @@ synesis/
 │       └── proposed_sources.yaml   # (generated) Proposed sources
 ├── base/
 │   ├── admin/
-│   │   └── app/
-│   │       ├── quality.py          # Quality dashboard routes + helpers
-│   │       └── templates/
-│   │           ├── quality.html            # Dashboard overview
-│   │           ├── quality_domain.html     # Domain detail
-│   │           └── quality_curator.html    # Curator review
+│   │   ├── app/routers/
+│   │   │   ├── rag.py              # Quality, corpus, benchmarks API
+│   │   │   └── feedback.py         # Curator proposals, knowledge gaps
+│   │   └── frontend/               # Vite + React SPA
 │   └── quality-runner/
 │       ├── Dockerfile              # Image for in-cluster quality runs
 │       ├── cronjob.yaml            # Weekly CronJob

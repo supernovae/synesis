@@ -7,6 +7,7 @@ import json
 import logging
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
@@ -239,6 +240,27 @@ async def quality_domains(
     return {"domains": scorecards}
 
 
+def _scorecard_from_snapshot(row: Any) -> dict:
+    """Shape stored Milvus-derived snapshots for the Domain Health React page."""
+    return {
+        "domain": row.domain,
+        "path": "",
+        "health": row.health,
+        "inventory": {
+            "total_chunks": row.chunk_count,
+            "total_documents": row.doc_count,
+        },
+        "coverage": {
+            "hit_rate": (row.freshness_pct or 0.0) / 100.0,
+            "mean_mrr": 0.0,
+        },
+        "dead_weight": {"unretrieved_documents": row.dead_weight_count},
+        "authority_mix": row.authority_mix or {},
+        "scored_at": row.scored_at.isoformat() if getattr(row, "scored_at", None) else None,
+        "source": "quality_snapshots",
+    }
+
+
 @router.get("/quality/domains/{key}")
 async def quality_domain_detail(
     key: str,
@@ -248,6 +270,30 @@ async def quality_domain_detail(
     for sc in report.get("scorecards", []):
         if sc.get("domain") == key:
             return sc
+    try:
+        from sqlalchemy import select
+
+        from ..db.engine import async_session
+        from ..db.models import QualitySnapshot
+
+        async with async_session() as session:
+            row = (
+                (
+                    await session.execute(
+                        select(QualitySnapshot)
+                        .where(QualitySnapshot.domain == key)
+                        .order_by(QualitySnapshot.scored_at.desc())
+                        .limit(1)
+                    )
+                )
+                .scalars()
+                .first()
+            )
+        if row is not None:
+            return _scorecard_from_snapshot(row)
+    except Exception:
+        logger.debug("quality_domain_db_read_failed", exc_info=True)
+
     return {"domain": key, "health": "unknown", "inventory": {}, "coverage": {}, "dead_weight": {}}
 
 
