@@ -90,6 +90,10 @@ const STATUS_COLORS: Record<string, string> = {
   running: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   indexed: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   failed: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  dead_letter: "bg-gray-200 text-gray-800 dark:bg-slate-600 dark:text-gray-200",
+  staged_raw: "bg-cyan-100 text-cyan-900 dark:bg-cyan-900/30 dark:text-cyan-200",
+  staged_norm: "bg-teal-100 text-teal-900 dark:bg-teal-900/30 dark:text-teal-200",
+  enrich_queued: "bg-violet-100 text-violet-900 dark:bg-violet-900/30 dark:text-violet-200",
   complete: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   complete_with_errors: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
 };
@@ -158,10 +162,16 @@ function StatsBar() {
     { label: "Running", value: data.running, color: "text-blue-600 dark:text-blue-400" },
     { label: "Indexed", value: data.indexed, color: "text-green-600 dark:text-green-400" },
     { label: "Failed", value: data.failed, color: "text-red-600 dark:text-red-400" },
+    { label: "Dead letter", value: data.dead_letter ?? 0, color: "text-gray-600 dark:text-gray-400" },
+    { label: "Staged raw", value: data.staged_raw ?? 0, color: "text-cyan-600 dark:text-cyan-400" },
+    { label: "Staged norm", value: data.staged_norm ?? 0, color: "text-teal-600 dark:text-teal-400" },
+    { label: "Enrich queued", value: data.enrich_queued ?? 0, color: "text-violet-600 dark:text-violet-400" },
+    { label: "Doc rows", value: data.staged_documents ?? 0, color: "text-gray-700 dark:text-gray-300" },
+    { label: "Enrich Q", value: data.enrich_queue_pending ?? 0, color: "text-violet-600 dark:text-violet-400" },
     { label: "Total Chunks", value: data.total_chunks.toLocaleString(), color: "text-gray-900 dark:text-white" },
   ];
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 mb-6">
       {cards.map((c) => (
         <div key={c.label} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-3">
           <div className="text-xs text-gray-500 dark:text-gray-400">{c.label}</div>
@@ -336,7 +346,7 @@ function ItemsTable() {
           Items ({total})
         </h3>
         <div className="flex gap-2">
-          {["", "pending", "running", "indexed", "failed"].map((s) => (
+          {["", "pending", "running", "indexed", "failed", "dead_letter", "staged_raw", "staged_norm", "enrich_queued"].map((s) => (
             <button
               key={s}
               onClick={() => { setStatusFilter(s); setPage(1); }}

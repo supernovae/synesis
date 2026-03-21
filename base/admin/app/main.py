@@ -126,6 +126,7 @@ from app.routers.conflict_groups import router as conflict_groups_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.feedback import router as feedback_router
 from app.routers.ingestion import router as ingestion_router
+from app.routers.ingestion_staged import router as ingestion_staged_router
 from app.routers.integrations import router as integrations_router
 from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
@@ -154,6 +155,7 @@ app.include_router(providers_router)
 app.include_router(settings_router)
 app.include_router(tokens_router)
 app.include_router(ingestion_router)
+app.include_router(ingestion_staged_router)
 
 
 @app.get("/api/v1/health")

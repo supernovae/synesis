@@ -1,0 +1,66 @@
+# Staged pipeline — phase 3: normalized S3 → Milvus (+ optional LLM enrich). Mount GPU node via tolerations in overlay.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-indexer-staged-enrich
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer
+    synesis.io/indexer-group: staged-enrich
+spec:
+  schedule: "45 3 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 14400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synesis-indexer
+            synesis.io/indexer-group: staged-enrich
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: default
+          # Example GPU scheduling (OpenShift / NVIDIA): uncomment and match your node taint.
+          # tolerations:
+          #   - key: nvidia.com/gpu
+          #     operator: Exists
+          #     effect: NoSchedule
+          containers:
+            - name: indexer
+              image: synesis-indexer:latest
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                seccompProfile:
+                  type: RuntimeDefault
+                capabilities:
+                  drop:
+                    - ALL
+              args:
+                - --mode
+                - staged-enrich
+                - --staged-batch-limit
+                - "8"
+                # - --enrich
+                # - full
+                # - --llm-url
+                # - http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1
+              env:
+                - name: SYNESIS_ADMIN_URL
+                  value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+                - name: SYNESIS_INGESTION_S3_BUCKET
+                  value: ""
+                # Optional gatekeeper / LLM (same as queue CronJob) — see docs/INDEXERS.md
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 4Gi
+                limits:
+                  cpu: "8"
+                  memory: 16Gi

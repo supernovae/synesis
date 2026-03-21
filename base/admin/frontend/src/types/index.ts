@@ -513,7 +513,13 @@ export interface IngestionStats {
   running: number;
   indexed: number;
   failed: number;
+  dead_letter?: number;
+  staged_raw?: number;
+  staged_norm?: number;
+  enrich_queued?: number;
   total_chunks: number;
+  staged_documents?: number;
+  enrich_queue_pending?: number;
 }
 
 // --- Traces ---

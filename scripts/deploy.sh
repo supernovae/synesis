@@ -18,6 +18,9 @@ set -euo pipefail
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
 #   ./scripts/deploy.sh model                   # self-hosted GPU inference
 #   SYNESIS_REF=pr-456 ./scripts/deploy.sh api  # deploy PR branch images
+#
+# Optional staged ingestion (S3): after the bucket + IRSA exist, pass the bucket to the indexer deploy:
+#   ./scripts/deploy-indexer.sh --s3-bucket your-bucket-name
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -1072,9 +1075,10 @@ if [[ -n "${KEYCLOAK_ADMIN_USER:-}" ]]; then
     log "IMPORTANT: Change the Keycloak admin password after first login!"
     log ""
 fi
-log "Next: deploy the indexer queue CronJob (after Milvus is healthy):"
+log "Next: deploy indexer CronJobs (after Milvus is healthy):"
 log "  ./scripts/deploy-indexer.sh"
-log "  ./scripts/deploy-indexer.sh --run   # process pending items now"
+log "  ./scripts/deploy-indexer.sh --run   # process pending queue items now"
+log "  ./scripts/deploy-indexer.sh --s3-bucket <name>   # staged S3 pipeline (fetch/normalize/enrich CronJobs)"
 log ""
 log "Quality runner (corpus audit + DB import, runs nightly at 04:00 UTC):"
 log "  CronJob:  synesis-quality-runner in synesis-rag namespace"

@@ -25,17 +25,25 @@ log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 warn() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $*" >&2; }
 
 RUN_NOW=false
+S3_BUCKET="${SYNESIS_INGESTION_S3_BUCKET:-}"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --run) RUN_NOW=true; shift ;;
+        --s3-bucket)
+            S3_BUCKET="${2:-}"
+            if [[ -z "$S3_BUCKET" ]]; then echo "ERROR: --s3-bucket requires a value"; exit 1; fi
+            shift 2
+            ;;
         -h|--help)
-            echo "Usage: $0 [--run]"
+            echo "Usage: $0 [--run] [--s3-bucket <name>]"
             echo ""
-            echo "  (no args)  Apply the indexer queue CronJob (oc apply -k on Kustomize overlay)"
-            echo "  --run      Also create a one-shot Job immediately"
+            echo "  (no args)  Apply indexer CronJobs (oc apply -k on Kustomize overlay)"
+            echo "  --run      Also create a one-shot Job for the queue CronJob"
+            echo "  --s3-bucket <name>  Set SYNESIS_INGESTION_S3_BUCKET on staged CronJobs"
             echo ""
             echo "  SYNESIS_INDEXER_OVERLAY  Kustomize dir (default: overlays/jobs)"
-            echo "    Examples: .../overlays/jobs-staging  .../overlays/jobs-prod"
+            echo "  SYNESIS_INGESTION_S3_BUCKET  Same as --s3-bucket if set in environment"
             exit 0
             ;;
         *)
@@ -88,11 +96,22 @@ if [[ ! -f "$INDEXER_OVERLAY/kustomization.yaml" ]]; then
     exit 1
 fi
 
-log "Applying indexer queue CronJob (overlay: $INDEXER_OVERLAY)..."
+log "Applying indexer CronJobs (overlay: $INDEXER_OVERLAY)..."
 oc apply -k "$INDEXER_OVERLAY"
 
+if [[ -n "$S3_BUCKET" ]]; then
+    log "Patching staged CronJobs with SYNESIS_INGESTION_S3_BUCKET=$S3_BUCKET ..."
+    for cj in synesis-indexer-staged-fetch synesis-indexer-staged-normalize synesis-indexer-staged-enrich; do
+        if oc get cronjob "$cj" -n "$NAMESPACE" &>/dev/null; then
+            oc set env "cronjob/$cj" -n "$NAMESPACE" "SYNESIS_INGESTION_S3_BUCKET=$S3_BUCKET" || true
+            log "  Patched $cj"
+        fi
+    done
+fi
+
 log ""
-log "CronJob deployed:"
+log "CronJobs in $NAMESPACE:"
+oc get cronjobs -n "$NAMESPACE" -l 'app.kubernetes.io/part-of=synesis' --no-headers 2>/dev/null || true
 oc get cronjob "$CRONJOB_NAME" -n "$NAMESPACE" --no-headers 2>/dev/null || true
 
 # ── One-shot run ──────────────────────────────────────────────────────

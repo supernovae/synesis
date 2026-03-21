@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -378,6 +378,77 @@ class IngestionItem(Base):
         Index("ix_ingestion_items_source_id", "source_id"),
         Index("ix_ingestion_items_domain", "domain"),
         Index("ix_ingestion_items_handler", "handler"),
+    )
+
+
+class IngestionDocument(Base):
+    """Per-page (or per-logical-doc) artifact row for staged S3 ingestion."""
+
+    __tablename__ = "ingestion_documents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ingestion_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("ingestion_items.id", ondelete="CASCADE"), nullable=False)
+    doc_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    canonical_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    domain: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    handler: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    authority: Mapped[str] = mapped_column(String(32), nullable=False, default="vetted")
+    origin_type: Mapped[str] = mapped_column(String(32), nullable=False, default="curated")
+    tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    config_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    raw_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    raw_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    raw_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    raw_s3_keys: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    norm_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    norm_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    norm_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    norm_s3_md_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    norm_s3_meta_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enrich_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    milvus_doc_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_ingestion_documents_item_id", "ingestion_item_id"),
+        Index("ix_ingestion_documents_canonical_uri", "canonical_uri"),
+        Index("ix_ingestion_documents_raw_norm", "raw_status", "norm_status"),
+    )
+
+
+class IngestionEnrichQueue(Base):
+    """GPU / Milvus enrichment work queue (SKIP LOCKED batch claims)."""
+
+    __tablename__ = "ingestion_enrich_queue"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ingestion_documents.id", ondelete="CASCADE"), nullable=False)
+    norm_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    enrich_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    worker_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    __table_args__ = (
+        Index(
+            "ix_ingestion_enrich_queue_pending",
+            "status",
+            "priority",
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
     )
 
 

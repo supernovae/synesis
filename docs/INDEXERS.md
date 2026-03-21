@@ -34,6 +34,75 @@ flowchart TD
 
 One container image (`base/rag/indexer/`) with handler plugins for each document type. The queue runner (`queue_runner.py`) claims items one at a time via `SELECT ... FOR UPDATE SKIP LOCKED`, processes them through the existing pipeline, and reports status back to the admin API.
 
+### Staged S3 pipeline (optional)
+
+**How it runs:** this path uses **three separate CronJobs** in `synesis-rag`, all using the **same indexer image** with different `--mode` arguments. They are **not** one combined job:
+
+| CronJob (manifest) | Container args | What it does |
+|--------------------|----------------|--------------|
+| `synesis-indexer-staged-fetch` | `--mode staged-fetch` | Claims `ingestion_items` (`pending` → `running` → `staged_raw`), runs handler **fetch only**, writes **raw** objects to S3, registers **`ingestion_documents`**. |
+| `synesis-indexer-staged-normalize` | `--mode staged-normalize` (+ batch flags) | Claims docs with `raw_status=done`, reads S3 raw, writes **normalized** `.md` + `.json` to S3, enqueues **`ingestion_enrich_queue`**, advances parent items toward **`staged_norm`**. |
+| `synesis-indexer-staged-enrich` | `--mode staged-enrich` (+ optional `--enrich full`) | Claims enrich jobs, reads normalized markdown from S3, runs chunk → gate → gatekeeper → enrich → TEI embed → Milvus upsert; marks jobs done and parent **`indexed`** when all child docs finish. |
+
+The **direct** path remains a **fourth** CronJob, `synesis-indexer-queue`, with `--mode queue` (fetch → Milvus in one shot). **Only one of these paths should consume `pending` ingestion items** for a given corpus: either keep **`synesis-indexer-queue` suspended** and use the three staged jobs, or the opposite.
+
+```mermaid
+flowchart LR
+  subgraph jobs [Three CronJobs same image]
+    J1[staged-fetch]
+    J2[staged-normalize]
+    J3[staged-enrich]
+  end
+  J1 --> S3raw[S3 raw]
+  S3raw --> J2
+  J2 --> S3norm[S3 normalized]
+  J2 --> PGq[(ingestion_enrich_queue)]
+  S3norm --> J3
+  PGq --> J3
+  J3 --> Milvus[Milvus]
+```
+
+**Admin API surface (per phase):**
+
+| Phase | CLI mode | Admin API | Writes |
+|-------|-----------|-----------|--------|
+| Fetch | `--mode staged-fetch` | `POST /api/v1/ingestion/staged/items/claim-fetch`, `POST .../documents/register`, `PATCH .../items/{id}/status` | `s3://…/raw/…`, rows in `ingestion_documents` |
+| Normalize | `--mode staged-normalize` | `POST .../documents/claim-normalize`, `PATCH .../documents/{id}/normalize-result` | `s3://…/normalized/{v}/…`, `ingestion_enrich_queue` |
+| Enrich | `--mode staged-enrich` | `POST .../enrich/claim`, `PATCH .../enrich/{job_id}/status` | Milvus upsert (same schema as direct queue) |
+
+#### Switching from direct queue to the three-phase approach
+
+1. **Migrate admin DB** — apply Alembic through **`021_ingestion_staged`** (creates `ingestion_documents`, `ingestion_enrich_queue`).
+2. **Create S3 bucket + IAM/IRSA** — grant the indexer service account `s3:GetObject` / `s3:PutObject` on that bucket (and optional prefix). Out of tree for this repo.
+3. **Suspend the direct indexer** so it does not compete for `pending` items:
+   - `oc patch cronjob synesis-indexer-queue -n synesis-rag -p '{"spec":{"suspend":true}}'`
+   - (Or keep it suspended in your overlay; dev overlay often already suspends it.)
+4. **Deploy / patch staged CronJobs** with bucket env:
+   - `./scripts/deploy-indexer.sh --s3-bucket <your-bucket>`
+   - Optionally set **`SYNESIS_INGESTION_S3_PREFIX`**, **`AWS_REGION`** on each staged CronJob if needed.
+5. **Configure enrich** (optional LLM / gatekeeper / `--enrich full`) on **`synesis-indexer-staged-enrich`** the same way you would on `synesis-indexer-queue` (embedder URL, gatekeeper envs, GPU tolerations — see manifest comments in `cronjob-staged-enrich.yaml`).
+6. **Unsuspend in pipeline order** when you are ready to process work:
+   - First **`synesis-indexer-staged-fetch`** (drains `pending` → `staged_raw`).
+   - Then **`synesis-indexer-staged-normalize`** (raw → normalized + enrich queue).
+   - Then **`synesis-indexer-staged-enrich`** (GPU/Milvus).  
+   All three can stay enabled on a schedule once bootstrapped; normalize and enrich will simply find no work until the prior stage produces rows.
+7. **Monitor** Admin → Ingestion Queue: statuses **`staged_raw`** → **`staged_norm`** → **`indexed`**; stats tiles for doc rows and enrich queue depth.
+
+#### Switching back to direct queue only
+
+1. **Suspend** all three staged CronJobs (`staged-fetch`, `staged-normalize`, `staged-enrich`).
+2. **Unsuspend** `synesis-indexer-queue`.
+3. Ensure **no items** are stuck in `staged_raw` / `staged_norm` / `enrich_queued` if you expect the direct indexer to handle them — otherwise reset or finish the staged pipeline first (or re-queue items as `pending` after cleaning staged rows if you intentionally abandon S3 state).
+
+**Requirements:** **`SYNESIS_INGESTION_S3_BUCKET`** (and optional **`SYNESIS_INGESTION_S3_PREFIX`**) on staged workers; AWS credentials via IRSA or env. **Do not** run **`queue`** and **`staged-fetch`** on the same **`pending`** items concurrently.
+
+**Deploy:** `./scripts/deploy-indexer.sh --s3-bucket <name>` patches the staged CronJobs. Base manifests: `base/rag/indexer/cronjob-staged-*.yaml` (default **`suspend: true`**). GPU tolerations for enrich: uncomment in `cronjob-staged-enrich.yaml` or patch in your overlay.
+
+**Item statuses:** `staged_raw` → `staged_norm` → … → `indexed` (parent item is **`indexed`** when every child document has completed enrich). Intermediate states are visible in Admin → Ingestion Queue.
+
+**Manual one-shot runs (debug):** create a Job from a CronJob, e.g.  
+`oc create job test-fetch --from=cronjob/synesis-indexer-staged-fetch -n synesis-rag` (same pattern for normalize / enrich).
+
 ### Ingestion topology and dependent services
 
 All of the following run in Kubernetes unless you are doing local YAML mode. **Namespace** is the primary boundary; only the services listed as “indexer” callers are required for a minimal ingest path.

@@ -1,0 +1,56 @@
+# Staged pipeline — phase 2: raw S3 → normalized markdown S3 + enrich queue rows.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synesis-indexer-staged-normalize
+  namespace: synesis-rag
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: rag-indexer
+    synesis.io/indexer-group: staged-normalize
+spec:
+  schedule: "30 3 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      ttlSecondsAfterFinished: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synesis-indexer
+            synesis.io/indexer-group: staged-normalize
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: default
+          containers:
+            - name: indexer
+              image: synesis-indexer:latest
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                seccompProfile:
+                  type: RuntimeDefault
+                capabilities:
+                  drop:
+                    - ALL
+              args:
+                - --mode
+                - staged-normalize
+                - --staged-batch-limit
+                - "16"
+              env:
+                - name: SYNESIS_ADMIN_URL
+                  value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+                - name: SYNESIS_INGESTION_S3_BUCKET
+                  value: ""
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: 2Gi
+                limits:
+                  cpu: "2"
+                  memory: 6Gi

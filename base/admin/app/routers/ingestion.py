@@ -16,7 +16,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..db.engine import async_session
-from ..db.models import IngestionItem, IngestionRun, IngestionSource, MilvusSchemaSync
+from ..db.models import (
+    IngestionDocument,
+    IngestionEnrichQueue,
+    IngestionItem,
+    IngestionRun,
+    IngestionSource,
+    MilvusSchemaSync,
+)
 from ..deps import get_milvus
 from ..services.admin_audit import record_admin_audit
 
@@ -547,7 +554,24 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
         dead_letter = (
             await session.execute(select(func.count()).where(IngestionItem.status == "dead_letter"))
         ).scalar() or 0
+        staged_raw = (
+            await session.execute(select(func.count()).where(IngestionItem.status == "staged_raw"))
+        ).scalar() or 0
+        staged_norm = (
+            await session.execute(select(func.count()).where(IngestionItem.status == "staged_norm"))
+        ).scalar() or 0
+        enrich_queued = (
+            await session.execute(select(func.count()).where(IngestionItem.status == "enrich_queued"))
+        ).scalar() or 0
         total_chunks = (await session.execute(select(func.sum(IngestionItem.chunk_count)))).scalar() or 0
+        staged_documents = (
+            await session.execute(select(func.count()).select_from(IngestionDocument))
+        ).scalar() or 0
+        enrich_pending = (
+            await session.execute(
+                select(func.count()).where(IngestionEnrichQueue.status == "pending")
+            )
+        ).scalar() or 0
     return {
         "total_sources": total_sources,
         "total_items": total_items,
@@ -556,7 +580,12 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
         "indexed": indexed,
         "failed": failed,
         "dead_letter": dead_letter,
+        "staged_raw": staged_raw,
+        "staged_norm": staged_norm,
+        "enrich_queued": enrich_queued,
         "total_chunks": total_chunks,
+        "staged_documents": staged_documents,
+        "enrich_queue_pending": enrich_pending,
     }
 
 
@@ -624,11 +653,26 @@ async def report_schema_version(body: SchemaReport):
         row.last_reset_at = now
         row.updated_at = now
 
-        from sqlalchemy import update
+        from sqlalchemy import delete, update
+
+        await session.execute(delete(IngestionEnrichQueue))
+        await session.execute(delete(IngestionDocument))
 
         result = await session.execute(
             update(IngestionItem)
-            .where(IngestionItem.status.in_(["indexed", "running", "failed", "dead_letter"]))
+            .where(
+                IngestionItem.status.in_(
+                    [
+                        "indexed",
+                        "running",
+                        "failed",
+                        "dead_letter",
+                        "staged_raw",
+                        "staged_norm",
+                        "enrich_queued",
+                    ]
+                )
+            )
             .values(
                 status="pending",
                 chunk_count=0,
@@ -700,7 +744,7 @@ async def reset_milvus_catalog(
         drop_err = str(e)[:500]
         logger.warning("milvus_reset_catalog_drop_failed", extra={"error": drop_err})
 
-    from sqlalchemy import update
+    from sqlalchemy import delete, update
 
     async with async_session() as session:
         row = (
@@ -726,9 +770,23 @@ async def reset_milvus_catalog(
 
         items_reset: int = 0
         if body.reset_queue:
+            await session.execute(delete(IngestionEnrichQueue))
+            await session.execute(delete(IngestionDocument))
             result = await session.execute(
                 update(IngestionItem)
-                .where(IngestionItem.status.in_(["indexed", "running", "failed", "dead_letter"]))
+                .where(
+                    IngestionItem.status.in_(
+                        [
+                            "indexed",
+                            "running",
+                            "failed",
+                            "dead_letter",
+                            "staged_raw",
+                            "staged_norm",
+                            "enrich_queued",
+                        ]
+                    )
+                )
                 .values(
                     status="pending",
                     chunk_count=0,

@@ -4,3 +4,6 @@ namespace: synesis-rag
 
 resources:
   - cronjob-queue.yaml
+  - cronjob-staged-fetch.yaml
+  - cronjob-staged-normalize.yaml
+  - cronjob-staged-enrich.yaml

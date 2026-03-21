@@ -41,9 +41,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--mode",
-        choices=["yaml", "queue"],
+        choices=["yaml", "queue", "staged-fetch", "staged-normalize", "staged-enrich"],
         default="yaml",
-        help="yaml: read sources from file (default). queue: claim items from admin API.",
+        help=(
+            "yaml: read sources from file (default). queue: direct Milvus path via admin API. "
+            "staged-*: S3 staged pipeline (see docs/INDEXERS.md)."
+        ),
     )
     parser.add_argument("--sources", help="Path to unified sources.yaml (yaml mode only)")
     parser.add_argument("--admin-url", default="", help="Admin API base URL (queue mode)")
@@ -61,6 +64,15 @@ def main() -> None:
     parser.add_argument("--llm-url", default="", help="LLM endpoint URL for full enrichment")
     parser.add_argument("--milvus-uri", default="", help="Override Milvus URI")
     parser.add_argument("--embedder-url", default="", help="Override embedder URL")
+    parser.add_argument(
+        "--staged-batch-limit",
+        type=int,
+        default=8,
+        help="staged-normalize / staged-enrich: max documents or jobs per claim batch",
+    )
+    parser.add_argument("--staged-worker-id", default="", help="staged-enrich: worker id for claim lease")
+    parser.add_argument("--norm-version", default="v1", help="staged-normalize: normalized/<version>/ prefix")
+    parser.add_argument("--enrich-version", default="v1", help="staged-normalize: enrich queue version label")
     parser.add_argument("--list-handlers", action="store_true", help="List available handler types")
     args = parser.parse_args()
 
@@ -74,8 +86,51 @@ def main() -> None:
 
     if args.mode == "queue":
         _run_queue_mode(args)
+    elif args.mode == "staged-fetch":
+        _run_staged_fetch(args)
+    elif args.mode == "staged-normalize":
+        _run_staged_normalize(args)
+    elif args.mode == "staged-enrich":
+        _run_staged_enrich(args)
     else:
         _run_yaml_mode(args)
+
+
+def _run_staged_fetch(args: argparse.Namespace) -> None:
+    from .staged_runners import run_staged_fetch
+
+    logger.info("indexer_mode_staged_fetch", extra={"admin_url": args.admin_url or "(default)"})
+    run_staged_fetch(admin_url=args.admin_url, dry_run=args.dry_run)
+
+
+def _run_staged_normalize(args: argparse.Namespace) -> None:
+    from .staged_runners import run_staged_normalize
+
+    logger.info("indexer_mode_staged_normalize", extra={"admin_url": args.admin_url or "(default)"})
+    run_staged_normalize(
+        admin_url=args.admin_url,
+        dry_run=args.dry_run,
+        batch_limit=max(1, args.staged_batch_limit),
+        norm_version=args.norm_version,
+        enrich_version=args.enrich_version,
+    )
+
+
+def _run_staged_enrich(args: argparse.Namespace) -> None:
+    from .staged_runners import run_staged_enrich
+
+    logger.info("indexer_mode_staged_enrich", extra={"admin_url": args.admin_url or "(default)"})
+    run_staged_enrich(
+        admin_url=args.admin_url,
+        dry_run=args.dry_run,
+        batch_limit=max(1, args.staged_batch_limit),
+        worker_id=args.staged_worker_id,
+        enrich_full=args.enrich == "full",
+        llm_url=args.llm_url,
+        milvus_uri=args.milvus_uri,
+        embedder_url=args.embedder_url,
+        force=args.force,
+    )
 
 
 def _run_queue_mode(args: argparse.Namespace) -> None:

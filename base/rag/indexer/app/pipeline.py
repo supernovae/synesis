@@ -120,6 +120,366 @@ def _infer_artifact_kind(handler: str, content_format: str, language: str) -> st
     return "docs"
 
 
+def index_parsed_chunk_pairs(
+    source_config: dict[str, Any],
+    parsed_pairs: list[tuple[RawDocument, Chunk]],
+    fetch_meta: dict[str, Any],
+    writer: MilvusWriter,
+    embedder: EmbedClient,
+    progress: ProgressTracker,
+    existing_ids: set[str],
+    *,
+    enrich_full: bool = False,
+    llm_url: str = "",
+    dry_run: bool = False,
+    gate_policy: GatePolicy | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Run dedup → gate → gatekeeper → enrich → embed → upsert for pre-parsed chunks."""
+    name = source_config.get("name", "unknown")
+    handler_type = source_config.get("handler", "")
+    authority = source_config.get("authority", "community")
+    origin_type = source_config.get("origin_type", "external")
+    source_type_override = source_config.get("source_type", "")
+    domain = source_config.get("domain", "generalist")
+    tags_list = source_config.get("config", {}).get("tags", [])
+    tags_str = ",".join(str(t) for t in tags_list)
+
+    try:
+        handler = get_handler(handler_type or "html_document")
+    except ValueError:
+        source_type = source_type_override or "docs"
+    else:
+        source_type = source_type_override or handler.source_type
+
+    parsed_count = len(parsed_pairs)
+
+    # 3. Deduplicate
+    new_chunks: list[tuple[RawDocument, Chunk, str]] = []
+    seen_cids: set[str] = set()
+    for doc, chunk in parsed_pairs:
+        cid = chunk_id_hash(chunk.text, f"{doc.doc_id}:{chunk.section}")
+        if cid not in existing_ids and cid not in seen_cids:
+            new_chunks.append((doc, chunk, cid))
+            seen_cids.add(cid)
+
+    if not new_chunks:
+        logger.info(
+            "indexer_all_chunks_skipped",
+            extra={"skipped": parsed_count, "source": name},
+        )
+        progress.log_source(name, 0)
+        return 0, fetch_meta
+
+    # 3.5. Chunk quality gate
+    skip_gate = str(source_config.get("quality_gate", "")).lower() == "skip"
+    if skip_gate:
+        logger.warning(
+            "indexer_quality_gate_skipped",
+            extra={
+                "source": name,
+                "reason": "Chunk filtering disabled — risks diluting retrieval quality",
+            },
+        )
+
+    if not skip_gate and gate_policy is not None:
+        gated: list[tuple[RawDocument, Chunk, str]] = []
+        reject_reasons: dict[str, int] = {}
+        reject_samples: list[tuple[str, str]] = []
+        for doc, chunk, cid in new_chunks:
+            verdict = score_chunk(
+                chunk.text,
+                section=chunk.section,
+                heading_path=chunk.heading_path,
+                policy=gate_policy,
+            )
+            if verdict.should_index:
+                gated.append((doc, chunk, cid))
+            else:
+                tag = verdict.rejection_reason.split("|")[0].strip()
+                reject_reasons[tag] = reject_reasons.get(tag, 0) + 1
+                if len(reject_samples) < 5:
+                    reject_samples.append((chunk.text[:120].replace("\n", " "), verdict.rejection_reason))
+
+        rejected = len(new_chunks) - len(gated)
+        if rejected:
+            reason_summary = ", ".join(f"{k}:{v}" for k, v in reject_reasons.items())
+            logger.info(
+                "indexer_quality_gate_applied",
+                extra={
+                    "accepted": len(gated),
+                    "total": len(new_chunks),
+                    "rejected": rejected,
+                    "source": name,
+                    "reject_reasons": reason_summary,
+                },
+            )
+            for sample_text, sample_reason in reject_samples:
+                logger.debug(
+                    "indexer_rejected_chunk_sample",
+                    extra={"source": name, "text_preview": sample_text, "reason": sample_reason},
+                )
+        new_chunks = gated
+
+    if not new_chunks:
+        logger.info("indexer_all_rejected_by_gate", extra={"source": name})
+        progress.log_source(name, 0)
+        return 0, fetch_meta
+
+    # 3.7. Gatekeeper
+    by_doc: dict[str, list[tuple[RawDocument, Chunk, str]]] = defaultdict(list)
+    for doc, chunk, cid in new_chunks:
+        by_doc[doc.doc_id].append((doc, chunk, cid))
+
+    doc_labels: dict[str, Any] = {}
+    filtered: list[tuple[RawDocument, Chunk, str]] = []
+    skipped_docs = 0
+    for doc_id, group in by_doc.items():
+        doc0 = group[0][0]
+        texts = [c.text for _, c, _ in group]
+        gk = labels_for_document(
+            document_name=doc0.name,
+            authority=authority,
+            domain=domain,
+            chunk_texts=texts,
+        )
+        doc_labels[doc_id] = gk
+        if gk.index_decision == "skip":
+            skipped_docs += 1
+            logger.info(
+                "indexer_gatekeeper_skip_doc",
+                extra={"source": name, "doc": doc0.name[:80], "doc_id": doc_id[:32]},
+            )
+            continue
+        filtered.extend(group)
+
+    new_chunks = filtered
+    if skipped_docs:
+        logger.info(
+            "indexer_gatekeeper_docs_skipped",
+            extra={"source": name, "skipped_docs": skipped_docs},
+        )
+
+    if not new_chunks:
+        logger.info("indexer_all_skipped_by_gatekeeper", extra={"source": name})
+        progress.log_source(name, 0)
+        return 0, fetch_meta
+
+    chunk_texts_for_signals = [c.text for _, c, _ in new_chunks]
+    simhash_list = (
+        simhash_batch(chunk_texts_for_signals) if preprocess_base_url() else [""] * len(new_chunks)
+    )
+    spam_list = spam_batch(chunk_texts_for_signals) if spam_base_url() else [-1.0] * len(new_chunks)
+
+    logger.info(
+        "indexer_processing_chunks",
+        extra={
+            "new": len(new_chunks),
+            "skipped": parsed_count - len(new_chunks),
+            "source": name,
+        },
+    )
+
+    if dry_run:
+        logger.info(
+            "indexer_dry_run",
+            extra={"chunks": len(new_chunks), "source": name},
+        )
+        progress.log_source(name, len(new_chunks))
+        return len(new_chunks), fetch_meta
+
+    enrich_items = [(chunk.text, doc.name, chunk.heading_path, chunk.section) for doc, chunk, _cid in new_chunks]
+    enrichments = enrich_chunks_bulk(enrich_items, enrich_full=enrich_full, llm_url=llm_url)
+
+    embed_inputs = []
+    for (doc, chunk, cid), enrichment in zip(new_chunks, enrichments):
+        prefix = enrichment.context_prefix
+        if prefix:
+            embed_inputs.append(f"{prefix} {chunk.text}")
+        else:
+            embed_inputs.append(chunk.text)
+
+    logger.info(
+        "indexer_embedding_chunks",
+        extra={"count": len(embed_inputs), "source": name},
+    )
+    embeddings = embedder.embed_texts(embed_inputs)
+
+    scan_statuses: list[str] = []
+    flagged_count = 0
+    for doc, chunk, cid in new_chunks:
+        status = scan_chunk_text(chunk.text)
+        scan_statuses.append(status)
+        if status == "flagged":
+            flagged_count += 1
+    if flagged_count:
+        logger.info(
+            "indexer_injection_scan",
+            extra={"flagged": flagged_count, "total": len(new_chunks), "source": name},
+        )
+
+    entities = []
+    for (doc, chunk, cid), enrichment, emb, chunk_scan, simh, spam_s in zip(
+        new_chunks, enrichments, embeddings, scan_statuses, simhash_list, spam_list
+    ):
+        chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
+        chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
+        chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain
+        chunk_authority = chunk.metadata.get("authority") or doc.metadata.get("authority") or authority
+        gk = doc_labels.get(doc.doc_id)
+        gk_kw = list(gk.doc_keywords) if gk else []
+        base_kw = enrichment.keywords or ""
+        merged_kw = base_kw
+        if gk_kw:
+            existing = {x.strip().lower() for x in base_kw.split(",") if x.strip()}
+            extra = [k for k in gk_kw if k.lower() not in existing]
+            if extra:
+                merged_kw = (base_kw + "," + ",".join(extra)) if base_kw else ",".join(extra)
+                merged_kw = merged_kw[:512]
+
+        chunk_keywords = merged_kw
+        content_format = chunk.metadata.get("content_format", "")
+        symbol_type = chunk.metadata.get("symbol_type", "")
+
+        language = chunk.metadata.get("language", "") or doc.metadata.get("language", "")
+        repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
+        module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
+        symbol_name = chunk.metadata.get("symbol_name", "")
+        artifact_kind = _infer_artifact_kind(handler_type, content_format, language)
+
+        if chunk_scan == "flagged":
+            approval = "pending"
+        elif chunk_authority in ("canonical", "vetted"):
+            approval = "auto_approved"
+        else:
+            approval = "auto_approved"
+
+        chunk_summary_out = enrichment.chunk_summary or (gk.doc_summary if gk else "")
+        crawl_ts = 0
+        if isinstance(doc.metadata.get("crawled_at"), (int, float)):
+            crawl_ts = int(doc.metadata["crawled_at"])
+        elif isinstance(doc.metadata.get("fetched_at"), (int, float)):
+            crawl_ts = int(doc.metadata["fetched_at"])
+        else:
+            crawl_ts = int(time.time() * 1000)
+        clean_h = hashlib.sha256(chunk.text.encode("utf-8", errors="ignore")).hexdigest()[:64]
+        raw_h = hashlib.sha256(f"{doc.doc_id}:{chunk.chunk_index}".encode()).hexdigest()[:64]
+
+        v9_content_type = (gk.content_type if gk else "")[:64]
+        v9_q = gk.quality_score if gk else -1.0
+        v9_td = gk.technical_depth if gk else -1.0
+        v9_dr = gk.domain_relevance if gk else -1.0
+        v9_idx = (gk.index_decision if gk else "index")[:16]
+        if approval == "pending":
+            v9_idx = "review"
+        ent_json = entities_to_json(gk.entities) if gk else ""
+        sec_json = section_outline_to_json(gk.section_outline) if gk else ""
+        enrich_prof = gk.enrichment_profile if gk else "v9_default"
+
+        entities.append(
+            catalog_entity(
+                chunk_id=cid,
+                text=chunk.text,
+                embedding=emb,
+                doc_id=doc.doc_id,
+                chunk_index=chunk.chunk_index,
+                context_prefix=enrichment.context_prefix,
+                chunk_summary=chunk_summary_out,
+                heading_path=chunk.heading_path,
+                section=chunk.section,
+                document_name=doc.name,
+                source_type=source_type,
+                handler=handler_type,
+                domain=chunk_domain,
+                tags=chunk_tags if isinstance(chunk_tags, str) else ",".join(chunk_tags),
+                keywords=chunk_keywords,
+                origin_type=origin_type,
+                authority=chunk_authority,
+                source_url=chunk_source_url,
+                scan_status=chunk_scan,
+                content_format=content_format,
+                symbol_type=symbol_type,
+                approval_status=approval,
+                language=language,
+                repo_path=repo_path,
+                module_path=module_path,
+                symbol_name=symbol_name,
+                artifact_kind=artifact_kind,
+                content_type=v9_content_type,
+                quality_score=v9_q,
+                technical_depth=v9_td,
+                domain_relevance=v9_dr,
+                index_decision=v9_idx,
+                spam_score=float(spam_s),
+                simhash64=simh or "",
+                crawl_timestamp=crawl_ts,
+                entities_json=ent_json,
+                section_boundaries_json=sec_json,
+                raw_content_hash=raw_h,
+                clean_content_hash=clean_h,
+                enrichment_profile=enrich_prof,
+            )
+        )
+
+    count = writer.upsert_batch(entities)
+    for _, _, cid in new_chunks:
+        existing_ids.add(cid)
+
+    progress.log_source(name, count)
+    return count, fetch_meta
+
+
+def index_normalized_markdown_doc(
+    source_config: dict[str, Any],
+    raw_doc: RawDocument,
+    writer: MilvusWriter,
+    embedder: EmbedClient,
+    progress: ProgressTracker,
+    existing_ids: set[str],
+    *,
+    enrich_full: bool = False,
+    llm_url: str = "",
+    dry_run: bool = False,
+    gate_policy: GatePolicy | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Staged path: chunk normalized markdown and index (Milvus + embed)."""
+    from .chunking import heading_aware_split
+
+    md = raw_doc.content if isinstance(raw_doc.content, str) else raw_doc.content.decode("utf-8", errors="replace")
+    doc_label = raw_doc.name or raw_doc.doc_id
+    text_chunks = heading_aware_split(md, doc_label)
+    parsed: list[tuple[RawDocument, Chunk]] = []
+    for tc in text_chunks:
+        parsed.append(
+            (
+                raw_doc,
+                Chunk(
+                    text=tc.text,
+                    section=tc.section,
+                    heading_path=tc.heading_path,
+                    chunk_index=tc.chunk_index,
+                    metadata=dict(raw_doc.metadata),
+                ),
+            )
+        )
+    fetch_meta = {"staged_normalized": True, "handler": source_config.get("handler", "")}
+    if not parsed:
+        progress.log_source(source_config.get("name", "unknown"), 0)
+        return 0, fetch_meta
+    return index_parsed_chunk_pairs(
+        source_config,
+        parsed,
+        fetch_meta,
+        writer,
+        embedder,
+        progress,
+        existing_ids,
+        enrich_full=enrich_full,
+        llm_url=llm_url,
+        dry_run=dry_run,
+        gate_policy=gate_policy,
+    )
+
+
 def index_source(
     source_config: dict[str, Any],
     writer: MilvusWriter,
@@ -211,286 +571,19 @@ def index_source(
         progress.log_source(name, 0)
         return 0, fetch_meta
 
-    # 3. Deduplicate (check both cross-source existing_ids and within-source seen)
-    new_chunks: list[tuple[RawDocument, Chunk, str]] = []
-    seen_cids: set[str] = set()
-    for doc, chunk in all_chunks:
-        cid = chunk_id_hash(chunk.text, f"{doc.doc_id}:{chunk.section}")
-        if cid not in existing_ids and cid not in seen_cids:
-            new_chunks.append((doc, chunk, cid))
-            seen_cids.add(cid)
-
-    if not new_chunks:
-        logger.info(
-            "indexer_all_chunks_skipped",
-            extra={"skipped": len(all_chunks), "source": name},
-        )
-        progress.log_source(name, 0)
-        return 0, fetch_meta
-
-    # 3.5. Chunk quality gate (Layer 2 — universal)
-    skip_gate = str(source_config.get("quality_gate", "")).lower() == "skip"
-    if skip_gate:
-        logger.warning(
-            "indexer_quality_gate_skipped",
-            extra={
-                "source": name,
-                "reason": "Chunk filtering disabled — risks diluting retrieval quality",
-            },
-        )
-
-    if not skip_gate and gate_policy is not None:
-        gated: list[tuple[RawDocument, Chunk, str]] = []
-        reject_reasons: dict[str, int] = {}
-        reject_samples: list[tuple[str, str]] = []
-        for doc, chunk, cid in new_chunks:
-            verdict = score_chunk(
-                chunk.text,
-                section=chunk.section,
-                heading_path=chunk.heading_path,
-                policy=gate_policy,
-            )
-            if verdict.should_index:
-                gated.append((doc, chunk, cid))
-            else:
-                tag = verdict.rejection_reason.split("|")[0].strip()
-                reject_reasons[tag] = reject_reasons.get(tag, 0) + 1
-                if len(reject_samples) < 5:
-                    reject_samples.append((chunk.text[:120].replace("\n", " "), verdict.rejection_reason))
-
-        rejected = len(new_chunks) - len(gated)
-        if rejected:
-            reason_summary = ", ".join(f"{k}:{v}" for k, v in reject_reasons.items())
-            logger.info(
-                "indexer_quality_gate_applied",
-                extra={
-                    "accepted": len(gated),
-                    "total": len(new_chunks),
-                    "rejected": rejected,
-                    "source": name,
-                    "reject_reasons": reason_summary,
-                },
-            )
-            for sample_text, sample_reason in reject_samples:
-                logger.debug(
-                    "indexer_rejected_chunk_sample",
-                    extra={"source": name, "text_preview": sample_text, "reason": sample_reason},
-                )
-        new_chunks = gated
-
-    if not new_chunks:
-        logger.info("indexer_all_rejected_by_gate", extra={"source": name})
-        progress.log_source(name, 0)
-        return 0, fetch_meta
-
-    # 3.7. Document-level semantic gatekeeper (optional) — inherit labels to chunks; drop doc on skip
-    by_doc: dict[str, list[tuple[RawDocument, Chunk, str]]] = defaultdict(list)
-    for doc, chunk, cid in new_chunks:
-        by_doc[doc.doc_id].append((doc, chunk, cid))
-
-    doc_labels: dict[str, Any] = {}
-    filtered: list[tuple[RawDocument, Chunk, str]] = []
-    skipped_docs = 0
-    for doc_id, group in by_doc.items():
-        doc0 = group[0][0]
-        texts = [c.text for _, c, _ in group]
-        gk = labels_for_document(
-            document_name=doc0.name,
-            authority=authority,
-            domain=domain,
-            chunk_texts=texts,
-        )
-        doc_labels[doc_id] = gk
-        if gk.index_decision == "skip":
-            skipped_docs += 1
-            logger.info(
-                "indexer_gatekeeper_skip_doc",
-                extra={"source": name, "doc": doc0.name[:80], "doc_id": doc_id[:32]},
-            )
-            continue
-        filtered.extend(group)
-
-    new_chunks = filtered
-    if skipped_docs:
-        logger.info(
-            "indexer_gatekeeper_docs_skipped",
-            extra={"source": name, "skipped_docs": skipped_docs},
-        )
-
-    if not new_chunks:
-        logger.info("indexer_all_skipped_by_gatekeeper", extra={"source": name})
-        progress.log_source(name, 0)
-        return 0, fetch_meta
-
-    chunk_texts_for_signals = [c.text for _, c, _ in new_chunks]
-    simhash_list = (
-        simhash_batch(chunk_texts_for_signals) if preprocess_base_url() else [""] * len(new_chunks)
+    return index_parsed_chunk_pairs(
+        source_config,
+        all_chunks,
+        fetch_meta,
+        writer,
+        embedder,
+        progress,
+        existing_ids,
+        enrich_full=enrich_full,
+        llm_url=llm_url,
+        dry_run=dry_run,
+        gate_policy=gate_policy,
     )
-    spam_list = spam_batch(chunk_texts_for_signals) if spam_base_url() else [-1.0] * len(new_chunks)
-
-    logger.info(
-        "indexer_processing_chunks",
-        extra={
-            "new": len(new_chunks),
-            "skipped": len(all_chunks) - len(new_chunks),
-            "source": name,
-        },
-    )
-
-    if dry_run:
-        logger.info(
-            "indexer_dry_run",
-            extra={"chunks": len(new_chunks), "source": name},
-        )
-        progress.log_source(name, len(new_chunks))
-        return len(new_chunks), fetch_meta
-
-    # 4. Enrich (batched keyword extraction for ~5-10x speedup on CPU)
-    enrich_items = [(chunk.text, doc.name, chunk.heading_path, chunk.section) for doc, chunk, _cid in new_chunks]
-    enrichments = enrich_chunks_bulk(enrich_items, enrich_full=enrich_full, llm_url=llm_url)
-
-    # 5. Embed (context_prefix + text for Contextual Retrieval)
-    embed_inputs = []
-    for (doc, chunk, cid), enrichment in zip(new_chunks, enrichments):
-        prefix = enrichment.context_prefix
-        if prefix:
-            embed_inputs.append(f"{prefix} {chunk.text}")
-        else:
-            embed_inputs.append(chunk.text)
-
-    logger.info(
-        "indexer_embedding_chunks",
-        extra={"count": len(embed_inputs), "source": name},
-    )
-    embeddings = embedder.embed_texts(embed_inputs)
-
-    # 5.5. Injection scan (index-time; results stored for admin review queue)
-    scan_statuses: list[str] = []
-    flagged_count = 0
-    for doc, chunk, cid in new_chunks:
-        status = scan_chunk_text(chunk.text)
-        scan_statuses.append(status)
-        if status == "flagged":
-            flagged_count += 1
-    if flagged_count:
-        logger.info(
-            "indexer_injection_scan",
-            extra={"flagged": flagged_count, "total": len(new_chunks), "source": name},
-        )
-
-    # 6. Build catalog entities (per-chunk metadata overrides source-level defaults)
-    # approval_status: vetted/canonical sources are auto-approved; flagged chunks are pending
-    entities = []
-    for (doc, chunk, cid), enrichment, emb, chunk_scan, simh, spam_s in zip(
-        new_chunks, enrichments, embeddings, scan_statuses, simhash_list, spam_list
-    ):
-        chunk_tags = chunk.metadata.get("tags") or doc.metadata.get("tags") or tags_str
-        chunk_source_url = chunk.metadata.get("source_url") or doc.source_url
-        chunk_domain = chunk.metadata.get("domain") or doc.metadata.get("domain") or domain
-        chunk_authority = chunk.metadata.get("authority") or doc.metadata.get("authority") or authority
-        gk = doc_labels.get(doc.doc_id)
-        gk_kw = list(gk.doc_keywords) if gk else []
-        base_kw = enrichment.keywords or ""
-        merged_kw = base_kw
-        if gk_kw:
-            existing = {x.strip().lower() for x in base_kw.split(",") if x.strip()}
-            extra = [k for k in gk_kw if k.lower() not in existing]
-            if extra:
-                merged_kw = (base_kw + "," + ",".join(extra)) if base_kw else ",".join(extra)
-                merged_kw = merged_kw[:512]
-
-        chunk_keywords = merged_kw
-        content_format = chunk.metadata.get("content_format", "")
-        symbol_type = chunk.metadata.get("symbol_type", "")
-
-        # v8 metadata
-        language = chunk.metadata.get("language", "") or doc.metadata.get("language", "")
-        repo_path = doc.metadata.get("repo", "") or doc.metadata.get("repo_path", "")
-        module_path = chunk.metadata.get("file_path", "") or doc.metadata.get("module_path", "")
-        symbol_name = chunk.metadata.get("symbol_name", "")
-        artifact_kind = _infer_artifact_kind(handler_type, content_format, language)
-
-        if chunk_scan == "flagged":
-            approval = "pending"
-        elif chunk_authority in ("canonical", "vetted"):
-            approval = "auto_approved"
-        else:
-            approval = "auto_approved"
-
-        chunk_summary_out = enrichment.chunk_summary or (gk.doc_summary if gk else "")
-        crawl_ts = 0
-        if isinstance(doc.metadata.get("crawled_at"), (int, float)):
-            crawl_ts = int(doc.metadata["crawled_at"])
-        elif isinstance(doc.metadata.get("fetched_at"), (int, float)):
-            crawl_ts = int(doc.metadata["fetched_at"])
-        else:
-            crawl_ts = int(time.time() * 1000)
-        clean_h = hashlib.sha256(chunk.text.encode("utf-8", errors="ignore")).hexdigest()[:64]
-        raw_h = hashlib.sha256(f"{doc.doc_id}:{chunk.chunk_index}".encode()).hexdigest()[:64]
-
-        v9_content_type = (gk.content_type if gk else "")[:64]
-        v9_q = gk.quality_score if gk else -1.0
-        v9_td = gk.technical_depth if gk else -1.0
-        v9_dr = gk.domain_relevance if gk else -1.0
-        v9_idx = (gk.index_decision if gk else "index")[:16]
-        if approval == "pending":
-            v9_idx = "review"
-        ent_json = entities_to_json(gk.entities) if gk else ""
-        sec_json = section_outline_to_json(gk.section_outline) if gk else ""
-        enrich_prof = gk.enrichment_profile if gk else "v9_default"
-
-        entities.append(
-            catalog_entity(
-                chunk_id=cid,
-                text=chunk.text,
-                embedding=emb,
-                doc_id=doc.doc_id,
-                chunk_index=chunk.chunk_index,
-                context_prefix=enrichment.context_prefix,
-                chunk_summary=chunk_summary_out,
-                heading_path=chunk.heading_path,
-                section=chunk.section,
-                document_name=doc.name,
-                source_type=source_type,
-                handler=handler_type,
-                domain=chunk_domain,
-                tags=chunk_tags if isinstance(chunk_tags, str) else ",".join(chunk_tags),
-                keywords=chunk_keywords,
-                origin_type=origin_type,
-                authority=chunk_authority,
-                source_url=chunk_source_url,
-                scan_status=chunk_scan,
-                content_format=content_format,
-                symbol_type=symbol_type,
-                approval_status=approval,
-                language=language,
-                repo_path=repo_path,
-                module_path=module_path,
-                symbol_name=symbol_name,
-                artifact_kind=artifact_kind,
-                content_type=v9_content_type,
-                quality_score=v9_q,
-                technical_depth=v9_td,
-                domain_relevance=v9_dr,
-                index_decision=v9_idx,
-                spam_score=float(spam_s),
-                simhash64=simh or "",
-                crawl_timestamp=crawl_ts,
-                entities_json=ent_json,
-                section_boundaries_json=sec_json,
-                raw_content_hash=raw_h,
-                clean_content_hash=clean_h,
-                enrichment_profile=enrich_prof,
-            )
-        )
-
-    # 7. Upsert
-    count = writer.upsert_batch(entities)
-    for _, _, cid in new_chunks:
-        existing_ids.add(cid)
-
-    progress.log_source(name, count)
-    return count, fetch_meta
 
 
 def run_pipeline(
