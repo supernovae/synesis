@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
+from ..rbac import require_platform_admin
 from ..db.engine import async_session
 from ..db.models import (
     IngestionDocument,
@@ -188,6 +189,330 @@ async def create_source(
 
 
 # ---------------------------------------------------------------------------
+# Discovery — URL preflight (heuristic, no LLM)
+# ---------------------------------------------------------------------------
+
+
+class DiscoverRequest(BaseModel):
+    url: str
+    hints: str = ""
+    use_llm: bool = False
+    model_id: str = ""
+
+
+@router.post("/discover")
+async def discover_url(
+    body: DiscoverRequest,
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Analyse a URL and return a suggested ingestion config draft.
+
+    Pure heuristic: URL parsing, optional HEAD probe, robots.txt / sitemap
+    estimation. No heavy deps — runs entirely in the admin pod.
+    """
+    import asyncio
+    from urllib.parse import urlparse
+
+    import httpx
+
+    raw_url = body.url.strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    parsed = urlparse(raw_url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+
+    host = parsed.hostname or ""
+    path = parsed.path.rstrip("/").lower()
+
+    risk_flags: list[str] = []
+    notes_parts: list[str] = []
+
+    # --- Handler detection ---
+    handler = "web_page"
+    if any(raw_url.endswith(ext) for ext in (".pdf",)):
+        handler = "pdf_document"
+    elif any(raw_url.endswith(ext) for ext in (".md", ".rst", ".txt")):
+        handler = "html_document"
+    elif "github.com" in host and "/tree/" in raw_url:
+        handler = "github_repo"
+    elif "github.com" in host:
+        handler = "github_repo"
+
+    # --- Domain guess from host ---
+    domain = ""
+    domain_parts = host.replace("www.", "").split(".")
+    if len(domain_parts) >= 2:
+        domain = domain_parts[-2]
+
+    # --- Title guess from path ---
+    title = ""
+    path_segments = [s for s in parsed.path.strip("/").split("/") if s]
+    if path_segments:
+        title = path_segments[-1].replace("-", " ").replace("_", " ").title()
+
+    # --- Tag inference from URL ---
+    tags: list[str] = []
+    tag_signals = {
+        "/docs": "documentation", "/documentation": "documentation",
+        "/api": "api-reference", "/reference": "reference",
+        "/guide": "guide", "/tutorial": "tutorial",
+        "/blog": "blog", "/changelog": "changelog",
+    }
+    for signal, tag in tag_signals.items():
+        if signal in path:
+            tags.append(tag)
+
+    # --- HEAD probe for content type and redirects ---
+    content_type = ""
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+            resp = await client.head(raw_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
+            content_type = resp.headers.get("content-type", "")
+            if resp.status_code == 401 or resp.status_code == 403:
+                risk_flags.append("likely_login_gated")
+            if resp.status_code >= 400:
+                risk_flags.append(f"http_{resp.status_code}")
+            if "text/html" not in content_type and "application/pdf" not in content_type:
+                if content_type:
+                    risk_flags.append("non_html")
+                    notes_parts.append(f"Content-Type: {content_type}")
+    except Exception as exc:
+        notes_parts.append(f"HEAD probe failed: {type(exc).__name__}")
+
+    # --- Sitemap / page-count estimation ---
+    sitemap_url_count = 0
+    if handler == "web_page":
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+                robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+                robots_resp = await client.get(robots_url, headers={"User-Agent": "SynesisDiscovery/1.0"})
+                if robots_resp.status_code == 200:
+                    for line in robots_resp.text.splitlines():
+                        if line.lower().startswith("sitemap:"):
+                            sitemap_url_count += 1
+                    disallow_count = sum(1 for l in robots_resp.text.splitlines() if l.strip().lower().startswith("disallow"))
+                    if disallow_count > 50:
+                        notes_parts.append(f"robots.txt has {disallow_count} Disallow rules — heavily restricted")
+
+                sm_resp = await client.get(
+                    f"{parsed.scheme}://{parsed.netloc}/sitemap.xml",
+                    headers={"User-Agent": "SynesisDiscovery/1.0"},
+                )
+                if sm_resp.status_code == 200:
+                    loc_count = sm_resp.text.count("<loc>")
+                    if loc_count > 0:
+                        sitemap_url_count = max(sitemap_url_count, loc_count)
+                        notes_parts.append(f"Sitemap lists ~{loc_count} URLs")
+        except Exception:
+            pass
+
+    # --- Config draft ---
+    config: dict[str, Any] = {}
+    if handler == "web_page":
+        config["url"] = raw_url
+        config["discovery"] = "sitemap_first"
+        if sitemap_url_count > 500:
+            config["max_pages"] = 200
+            config["max_depth"] = 2
+            risk_flags.append("high_page_count_estimate")
+            notes_parts.append(f"Estimated {sitemap_url_count}+ pages — capped to 200 for active mode")
+        elif sitemap_url_count > 100:
+            config["max_pages"] = 100
+            config["max_depth"] = 3
+        else:
+            config["max_pages"] = 80
+            config["max_depth"] = 4
+
+    # --- Batch vs active recommendation ---
+    recommended_mode = "active"
+    if sitemap_url_count > 200:
+        recommended_mode = "batch"
+    if "high_page_count_estimate" in risk_flags:
+        recommended_mode = "batch"
+
+    config["execution_mode"] = recommended_mode
+
+    # --- Hints integration ---
+    if body.hints:
+        hints_lower = body.hints.lower()
+        if "docs" in hints_lower or "documentation" in hints_lower:
+            if "documentation" not in tags:
+                tags.append("documentation")
+            config["discovery"] = "sitemap_first"
+        if "api" in hints_lower:
+            if "api-reference" not in tags:
+                tags.append("api-reference")
+
+    # --- Optional LLM enrichment (Phase 3) ---
+    if body.use_llm:
+        from ..deps import LITELLM_URL
+
+        llm_model = body.model_id or os.getenv("SYNESIS_DISCOVER_MODEL", "synesis-general")
+        llm_prompt = (
+            "You are a content classification assistant for a RAG ingestion system.\n"
+            "Given the following URL and heuristic analysis, return a JSON object with:\n"
+            '  "title": a concise human-readable title,\n'
+            '  "domain": the knowledge domain (e.g. "kubernetes", "python", "networking"),\n'
+            '  "tags": array of relevant taxonomy tags,\n'
+            '  "handler": the recommended handler type,\n'
+            '  "config_overrides": any config keys to add/override,\n'
+            '  "risk_notes": any concerns about content quality or RAG suitability.\n'
+            "Return ONLY valid JSON, no markdown fences.\n\n"
+            f"URL: {raw_url}\n"
+            f"Heuristic handler: {handler}\n"
+            f"Heuristic domain: {domain}\n"
+            f"Heuristic tags: {tags}\n"
+            f"Content-Type: {content_type}\n"
+            f"Sitemap URL count: {sitemap_url_count}\n"
+        )
+        if body.hints:
+            llm_prompt += f"User hints: {body.hints}\n"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as llm_client:
+                llm_resp = await llm_client.post(
+                    f"{LITELLM_URL.rstrip('/')}/chat/completions",
+                    json={
+                        "model": llm_model,
+                        "messages": [{"role": "user", "content": llm_prompt}],
+                        "max_tokens": 512,
+                        "temperature": 0.2,
+                    },
+                )
+                llm_resp.raise_for_status()
+                llm_text = llm_resp.json()["choices"][0]["message"]["content"]
+                llm_data = json.loads(llm_text)
+                if isinstance(llm_data.get("title"), str) and llm_data["title"]:
+                    title = llm_data["title"]
+                if isinstance(llm_data.get("domain"), str) and llm_data["domain"]:
+                    domain = llm_data["domain"]
+                if isinstance(llm_data.get("tags"), list):
+                    extra_tags = [t for t in llm_data["tags"] if t not in tags]
+                    tags.extend(extra_tags)
+                if isinstance(llm_data.get("handler"), str) and llm_data["handler"]:
+                    handler = llm_data["handler"]
+                if isinstance(llm_data.get("config_overrides"), dict):
+                    config.update(llm_data["config_overrides"])
+                if isinstance(llm_data.get("risk_notes"), str) and llm_data["risk_notes"]:
+                    notes_parts.append(f"LLM: {llm_data['risk_notes']}")
+        except Exception as exc:
+            notes_parts.append(f"LLM enrichment failed: {type(exc).__name__}: {str(exc)[:200]}")
+            risk_flags.append("llm_enrichment_failed")
+
+    await record_admin_audit(
+        action="ingestion.discover",
+        status="success",
+        summary=f"URL discovery: {raw_url}",
+        detail={
+            "url": raw_url,
+            "handler": handler,
+            "risk_flags": risk_flags,
+            "recommended_mode": recommended_mode,
+            "use_llm": body.use_llm,
+        },
+        user=_user,
+        source="admin_api",
+    )
+
+    return {
+        "url": raw_url,
+        "handler": handler,
+        "title": title,
+        "domain": domain,
+        "tags": tags,
+        "config": config,
+        "risk_flags": risk_flags,
+        "recommended_mode": recommended_mode,
+        "notes": "; ".join(notes_parts) if notes_parts else "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Batch preflight discovery
+# ---------------------------------------------------------------------------
+
+
+class BatchPreflightRequest(BaseModel):
+    status_filter: str = "pending"
+    limit: int = Field(50, ge=1, le=200)
+    use_llm: bool = False
+    model_id: str = ""
+
+
+@router.post("/discover/batch")
+async def batch_preflight(
+    body: BatchPreflightRequest,
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Run heuristic (or LLM) discovery on a batch of pending items.
+
+    Writes ``discovery_report`` into each item's config and optionally
+    tags items with risk flags for review.
+    """
+    import httpx
+
+    async with async_session() as session:
+        q = (
+            select(IngestionItem)
+            .where(IngestionItem.status == body.status_filter)
+            .order_by(IngestionItem.queued_at.asc())
+            .limit(body.limit)
+        )
+        items = list((await session.execute(q)).scalars().all())
+
+    processed = 0
+    flagged = 0
+    errors = 0
+
+    for item in items:
+        try:
+            req = DiscoverRequest(
+                url=item.uri,
+                hints="",
+                use_llm=body.use_llm,
+                model_id=body.model_id,
+            )
+            result = await discover_url(req, _user)
+
+            async with async_session() as session:
+                db_item = await session.get(IngestionItem, item.id)
+                if db_item is None:
+                    continue
+                cfg = dict(db_item.config or {})
+                cfg["discovery_report"] = {
+                    "handler": result["handler"],
+                    "domain": result["domain"],
+                    "title": result["title"],
+                    "tags": result["tags"],
+                    "risk_flags": result["risk_flags"],
+                    "recommended_mode": result["recommended_mode"],
+                    "notes": result["notes"],
+                }
+                cfg["preflight_at"] = datetime.now(UTC).isoformat()
+                db_item.config = cfg
+                if result["risk_flags"]:
+                    flagged += 1
+                processed += 1
+                await session.commit()
+        except Exception:
+            logger.warning("batch_preflight_item_error item=%d", item.id, exc_info=True)
+            errors += 1
+
+    await record_admin_audit(
+        action="ingestion.discover.batch",
+        status="success",
+        summary=f"Batch preflight on {processed} items ({flagged} flagged, {errors} errors)",
+        detail={"status_filter": body.status_filter, "processed": processed, "flagged": flagged, "errors": errors},
+        user=_user,
+        source="admin_api",
+    )
+
+    return {"processed": processed, "flagged": flagged, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
 # Items — CRUD
 # ---------------------------------------------------------------------------
 
@@ -303,6 +628,133 @@ async def delete_item(
         await session.delete(item)
         await session.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Items — Admin edit (authenticated, platform_admin)
+# ---------------------------------------------------------------------------
+
+# Statuses an admin may set directly; excludes 'running' (owned by indexer).
+_ADMIN_SETTABLE_STATUSES = frozenset({"pending", "failed", "dead_letter", "indexed", "staged_raw", "staged_norm", "enrich_queued"})
+
+
+class ItemPatch(BaseModel):
+    title: str | None = None
+    handler: str | None = None
+    domain: str | None = None
+    authority: str | None = None
+    origin_type: str | None = None
+    tags: list[str] | None = None
+    priority: int | None = None
+    config: dict | None = None
+    source_id: int | None = None
+    status: str | None = Field(None, description="Admin-driven status transition")
+
+
+@router.patch("/items/{item_id}")
+async def patch_item(
+    item_id: int,
+    body: ItemPatch,
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Edit item metadata and/or trigger a controlled status transition.
+
+    Requires platform_admin. Does not overlap with the indexer's
+    unauthenticated ``PATCH .../status`` callback.
+    """
+    async with async_session() as session:
+        item = await session.get(IngestionItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        if body.title is not None:
+            item.title = body.title
+        if body.handler is not None:
+            item.handler = body.handler
+        if body.domain is not None:
+            item.domain = body.domain
+        if body.authority is not None:
+            item.authority = body.authority
+        if body.origin_type is not None:
+            item.origin_type = body.origin_type
+        if body.tags is not None:
+            item.tags = body.tags
+        if body.priority is not None:
+            item.priority = body.priority
+        if body.config is not None:
+            item.config = body.config
+        if body.source_id is not None:
+            item.source_id = body.source_id
+
+        if body.status is not None:
+            if body.status not in _ADMIN_SETTABLE_STATUSES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot set status to '{body.status}' — allowed: {sorted(_ADMIN_SETTABLE_STATUSES)}",
+                )
+            old_status = item.status
+            item.status = body.status
+            if body.status == "pending":
+                item.error_message = ""
+                item.started_at = None
+                item.completed_at = None
+                item.queued_at = datetime.now(UTC)
+            logger.info(
+                "admin_item_status_change",
+                extra={"item_id": item_id, "from": old_status, "to": body.status, "user": _user.username},
+            )
+
+        await session.commit()
+        await session.refresh(item)
+
+    await record_admin_audit(
+        action="ingestion.item.patch",
+        status="success",
+        summary=f"Edited ingestion item {item_id}",
+        detail=body.model_dump(exclude_none=True),
+        user=_user,
+        source="admin_api",
+    )
+    return {"ok": True, "item": _item_dict(item)}
+
+
+@router.post("/items/{item_id}/requeue")
+async def requeue_item(
+    item_id: int,
+    reset_retries: bool = Query(False, description="Also reset retry counter"),
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Re-queue any item back to pending regardless of current status.
+
+    Unlike ``/retry`` (which only works on failed/dead_letter), this allows
+    re-running already-indexed or staged items.
+    """
+    async with async_session() as session:
+        item = await session.get(IngestionItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if item.status == "running":
+            raise HTTPException(status_code=409, detail="Item is currently being processed — wait or recover stale leases first")
+        old_status = item.status
+        item.status = "pending"
+        item.error_message = ""
+        item.indexer_stats = None
+        item.started_at = None
+        item.completed_at = None
+        item.queued_at = datetime.now(UTC)
+        if reset_retries:
+            item.retry_count = 0
+        await session.commit()
+
+    await record_admin_audit(
+        action="ingestion.item.requeue",
+        status="success",
+        summary=f"Requeued item {item_id} (was {old_status})",
+        detail={"item_id": item_id, "old_status": old_status, "reset_retries": reset_retries},
+        user=_user,
+        source="admin_api",
+    )
+    return {"ok": True, "old_status": old_status}
 
 
 # ---------------------------------------------------------------------------

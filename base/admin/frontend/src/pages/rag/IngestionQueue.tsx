@@ -7,6 +7,9 @@ import {
   useAddIngestionItemsBulk,
   useDeleteIngestionItem,
   useRetryIngestionItem,
+  usePatchIngestionItem,
+  useRequeueIngestionItem,
+  useDiscoverUrl,
   useBootstrapIngestion,
   useIngestionHandlers,
   useSchemaSync,
@@ -16,6 +19,7 @@ import {
   useStagedItemDocuments,
   useEditStagedDocument,
 } from "../../api/hooks";
+import type { DiscoveryResult } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
 import type { HandlerMetadata } from "../../api/hooks";
@@ -189,10 +193,94 @@ function StatsBar() {
   );
 }
 
+function DiscoveryReview({ result, onEnqueue, onCancel, isPending }: {
+  result: DiscoveryResult;
+  onEnqueue: (data: { uri: string; handler: string; title: string; domain: string; tags: string[]; config: Record<string, unknown> }) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [title, setTitle] = useState(result.title);
+  const [handler, setHandler] = useState(result.handler);
+  const [domain, setDomain] = useState(result.domain);
+  const [tags, setTags] = useState(result.tags.join(", "));
+  const [configText, setConfigText] = useState(JSON.stringify(result.config, null, 2));
+
+  const save = () => {
+    let parsedConfig: Record<string, unknown>;
+    try {
+      parsedConfig = JSON.parse(configText || "{}");
+    } catch {
+      window.alert("Config must be valid JSON.");
+      return;
+    }
+    onEnqueue({
+      uri: result.url,
+      handler,
+      title,
+      domain,
+      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
+      config: parsedConfig,
+    });
+  };
+
+  return (
+    <div className="mt-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/10 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Discovery result</h4>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded ${result.recommended_mode === "batch" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"}`}>
+          {result.recommended_mode}
+        </span>
+      </div>
+
+      {result.risk_flags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {result.risk_flags.map((f) => (
+            <span key={f} className="text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-1.5 py-0.5">{f}</span>
+          ))}
+        </div>
+      )}
+      {result.notes && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{result.notes}</p>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs mb-3">
+        <label className="block">
+          <span className="text-gray-600 dark:text-gray-300">Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-gray-600 dark:text-gray-300">Handler</span>
+          <input value={handler} onChange={(e) => setHandler(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-gray-600 dark:text-gray-300">Domain</span>
+          <input value={domain} onChange={(e) => setDomain(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+        </label>
+        <label className="block">
+          <span className="text-gray-600 dark:text-gray-300">Tags</span>
+          <input value={tags} onChange={(e) => setTags(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+        </label>
+      </div>
+      <label className="block text-xs mb-3">
+        <span className="text-gray-600 dark:text-gray-300">Config (JSON)</span>
+        <textarea value={configText} onChange={(e) => setConfigText(e.target.value)} rows={6} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm font-mono" />
+      </label>
+
+      <div className="flex gap-2 justify-end">
+        <button onClick={onCancel} className="px-3 py-1.5 rounded text-xs text-gray-700 dark:text-gray-300">Cancel</button>
+        <button onClick={save} disabled={isPending} className="px-4 py-1.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50">
+          {isPending ? "Adding…" : "Enqueue"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AddItemForm() {
   const addItem = useAddIngestionItem();
   const addBulk = useAddIngestionItemsBulk();
   const bootstrap = useBootstrapIngestion();
+  const discover = useDiscoverUrl();
   const { data: handlersData } = useIngestionHandlers();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uri, setUri] = useState("");
@@ -200,6 +288,8 @@ function AddItemForm() {
   const [domain, setDomain] = useState("");
   const [bulkText, setBulkText] = useState("");
   const [tab, setTab] = useState<"single" | "bulk" | "file">("single");
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
+  const [useLlm, setUseLlm] = useState(false);
 
   const handlers: HandlerMetadata[] = handlersData?.handlers ?? [];
   const selectedHandler = handlers.find((h) => h.handler_type === handler);
@@ -207,8 +297,25 @@ function AddItemForm() {
 
   const handleSingle = () => {
     if (!uri.trim()) return;
-    addItem.mutate({ uri: uri.trim(), handler, domain: domain || undefined });
-    setUri("");
+    addItem.mutate({ uri: uri.trim(), handler, domain: domain || undefined }, {
+      onSuccess: () => setUri(""),
+    });
+  };
+
+  const handleDiscover = () => {
+    if (!uri.trim()) return;
+    discover.mutate({ url: uri.trim(), use_llm: useLlm }, {
+      onSuccess: (data) => setDiscoveryResult(data),
+    });
+  };
+
+  const handleEnqueue = (data: { uri: string; handler: string; title: string; domain: string; tags: string[]; config: Record<string, unknown> }) => {
+    addItem.mutate(data, {
+      onSuccess: () => {
+        setDiscoveryResult(null);
+        setUri("");
+      },
+    });
   };
 
   const handleBulk = () => {
@@ -232,7 +339,7 @@ function AddItemForm() {
         {(["single", "bulk", "file"] as const).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setDiscoveryResult(null); }}
             className={`px-3 py-1 rounded text-sm font-medium ${tab === t ? "bg-indigo-600 text-white" : "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300"}`}
           >
             {t === "single" ? "Add URI" : t === "bulk" ? "Bulk Paste" : "Upload YAML"}
@@ -276,23 +383,49 @@ function AddItemForm() {
         </div>
       )}
 
-      {tab === "single" && (
-        <div className="flex gap-2">
-          <input
-            value={uri}
-            onChange={(e) => setUri(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSingle()}
-            placeholder={uriHint}
-            className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-1.5 text-sm"
-          />
-          <button
-            onClick={handleSingle}
-            disabled={addItem.isPending}
-            className="px-4 py-1.5 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Add
-          </button>
+      {tab === "single" && !discoveryResult && (
+        <div>
+          <div className="flex gap-2">
+            <input
+              value={uri}
+              onChange={(e) => setUri(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSingle()}
+              placeholder={uriHint}
+              className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-1.5 text-sm"
+            />
+            <button
+              onClick={handleDiscover}
+              disabled={discover.isPending || !uri.trim()}
+              className="px-4 py-1.5 rounded bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+            >
+              {discover.isPending ? "Discovering…" : "Discover"}
+            </button>
+            <button
+              onClick={handleSingle}
+              disabled={addItem.isPending}
+              className="px-4 py-1.5 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+          <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
+            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
+            Use LLM enrichment during discovery
+          </label>
         </div>
+      )}
+
+      {tab === "single" && discover.isError && (
+        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(discover.error)}</p>
+      )}
+
+      {tab === "single" && discoveryResult && (
+        <DiscoveryReview
+          result={discoveryResult}
+          onEnqueue={handleEnqueue}
+          onCancel={() => setDiscoveryResult(null)}
+          isPending={addItem.isPending}
+        />
       )}
 
       {tab === "bulk" && (
@@ -335,13 +468,198 @@ function AddItemForm() {
   );
 }
 
+const ADMIN_STATUSES = ["pending", "failed", "dead_letter", "indexed", "staged_raw", "staged_norm", "enrich_queued"];
+
+function EditItemModal({ item, onClose }: { item: IngestionItem; onClose: () => void }) {
+  const patchItem = usePatchIngestionItem();
+  const [title, setTitle] = useState(item.title || "");
+  const [handler, setHandler] = useState(item.handler || "");
+  const [domain, setDomain] = useState(item.domain || "");
+  const [authority, setAuthority] = useState(item.authority || "vetted");
+  const [originType, setOriginType] = useState(item.origin_type || "curated");
+  const [tags, setTags] = useState((item.tags || []).join(", "));
+  const [priority, setPriority] = useState(item.priority ?? 0);
+  const [configText, setConfigText] = useState(JSON.stringify(item.config || {}, null, 2));
+  const [status, setStatus] = useState(item.status);
+
+  const save = () => {
+    let parsedConfig: Record<string, unknown>;
+    try {
+      parsedConfig = JSON.parse(configText || "{}");
+    } catch {
+      window.alert("Config must be valid JSON.");
+      return;
+    }
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    patchItem.mutate(
+      {
+        itemId: item.id,
+        title,
+        handler: handler || undefined,
+        domain,
+        authority,
+        origin_type: originType,
+        tags: tagList,
+        priority,
+        config: parsedConfig,
+        status: status !== item.status ? status : undefined,
+      },
+      { onSuccess: onClose },
+    );
+  };
+
+  const cfg = item.config as Record<string, unknown> | null;
+  const isWeb = (item.handler || "").includes("web");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-white p-5 shadow-xl dark:bg-slate-900">
+        <h5 className="text-sm font-semibold text-gray-900 dark:text-white">
+          Edit item {item.id}
+        </h5>
+        <p className="text-xs text-gray-400 dark:text-gray-500 font-mono mt-1 truncate" title={item.uri}>
+          {item.uri}
+        </p>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Title</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Handler</span>
+            <input value={handler} onChange={(e) => setHandler(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Domain</span>
+            <input value={domain} onChange={(e) => setDomain(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Priority</span>
+            <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Authority</span>
+            <select value={authority} onChange={(e) => setAuthority(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm">
+              <option value="canonical">canonical</option>
+              <option value="vetted">vetted</option>
+              <option value="community">community</option>
+              <option value="untrusted">untrusted</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Origin type</span>
+            <select value={originType} onChange={(e) => setOriginType(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm">
+              <option value="curated">curated</option>
+              <option value="official">official</option>
+              <option value="community">community</option>
+              <option value="generated">generated</option>
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-gray-600 dark:text-gray-300">Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm">
+              {ADMIN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <label className="block mt-3 text-xs">
+          <span className="text-gray-600 dark:text-gray-300">Tags (comma-separated)</span>
+          <input value={tags} onChange={(e) => setTags(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+        </label>
+
+        {isWeb && (
+          <div className="mt-3 rounded border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-3">
+            <p className="text-xs font-medium text-indigo-700 dark:text-indigo-300 mb-2">Crawl shortcuts</p>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">max_pages</span>
+                <input
+                  type="number"
+                  defaultValue={cfg?.max_pages != null ? Number(cfg.max_pages) : 80}
+                  onChange={(e) => {
+                    try {
+                      const c = JSON.parse(configText || "{}");
+                      c.max_pages = Number(e.target.value);
+                      setConfigText(JSON.stringify(c, null, 2));
+                    } catch { /* user will fix in JSON editor */ }
+                  }}
+                  className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">max_depth</span>
+                <input
+                  type="number"
+                  defaultValue={cfg?.max_depth != null ? Number(cfg.max_depth) : 4}
+                  onChange={(e) => {
+                    try {
+                      const c = JSON.parse(configText || "{}");
+                      c.max_depth = Number(e.target.value);
+                      setConfigText(JSON.stringify(c, null, 2));
+                    } catch { /* user will fix in JSON editor */ }
+                  }}
+                  className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">discovery</span>
+                <select
+                  defaultValue={(cfg?.discovery as string) || "sitemap_first"}
+                  onChange={(e) => {
+                    try {
+                      const c = JSON.parse(configText || "{}");
+                      c.discovery = e.target.value;
+                      setConfigText(JSON.stringify(c, null, 2));
+                    } catch { /* user will fix in JSON editor */ }
+                  }}
+                  className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm"
+                >
+                  <option value="sitemap_first">sitemap_first</option>
+                  <option value="sitemap_only">sitemap_only</option>
+                  <option value="bfs">bfs</option>
+                </select>
+              </label>
+            </div>
+          </div>
+        )}
+
+        <label className="block mt-3 text-xs">
+          <span className="text-gray-600 dark:text-gray-300">Config (JSON)</span>
+          <textarea value={configText} onChange={(e) => setConfigText(e.target.value)} rows={8} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm font-mono" />
+        </label>
+
+        {patchItem.isError && (
+          <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(patchItem.error)}</div>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1.5 rounded text-xs text-gray-700 dark:text-gray-300">
+            Cancel
+          </button>
+          <button
+            disabled={patchItem.isPending}
+            onClick={save}
+            className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs disabled:opacity-50"
+          >
+            {patchItem.isPending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ItemsTable() {
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [editingItem, setEditingItem] = useState<IngestionItem | null>(null);
   const { data, isLoading } = useIngestionItems({ status: statusFilter || undefined, page, page_size: 30 });
   const deleteItem = useDeleteIngestionItem();
   const retryItem = useRetryIngestionItem();
+  const requeueItem = useRequeueIngestionItem();
 
   const items = data?.items || [];
   const total = data?.total || 0;
@@ -401,6 +719,12 @@ function ItemsTable() {
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     <button
+                      onClick={() => setEditingItem(item)}
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mr-2"
+                    >
+                      Edit
+                    </button>
+                    <button
                       onClick={() => setSelectedItemId(item.id)}
                       className="text-xs text-gray-600 dark:text-gray-300 hover:underline mr-2"
                     >
@@ -412,6 +736,26 @@ function ItemsTable() {
                         className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline mr-2"
                       >
                         Retry
+                      </button>
+                    )}
+                    {item.status === "dead_letter" && (
+                      <button
+                        onClick={() => {
+                          if (window.confirm("Reset retry counter and requeue this dead_letter item?")) {
+                            requeueItem.mutate({ itemId: item.id, reset_retries: true });
+                          }
+                        }}
+                        className="text-xs text-amber-600 dark:text-amber-400 hover:underline mr-2"
+                      >
+                        Requeue
+                      </button>
+                    )}
+                    {item.status === "indexed" && (
+                      <button
+                        onClick={() => requeueItem.mutate({ itemId: item.id })}
+                        className="text-xs text-cyan-600 dark:text-cyan-400 hover:underline mr-2"
+                      >
+                        Re-run
                       </button>
                     )}
                     <button
@@ -454,6 +798,13 @@ function ItemsTable() {
         itemId={selectedItemId}
         onClose={() => setSelectedItemId(null)}
       />
+
+      {editingItem && (
+        <EditItemModal
+          item={editingItem}
+          onClose={() => setEditingItem(null)}
+        />
+      )}
     </div>
   );
 }

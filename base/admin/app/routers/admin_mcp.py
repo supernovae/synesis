@@ -131,6 +131,78 @@ _TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "ingestion_list_items",
+        "description": "List ingestion queue items with filters. Admin only.",
+        "min_role": Role.platform_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter by status (pending, running, indexed, failed, dead_letter)"},
+                "handler": {"type": "string", "description": "Filter by handler type"},
+                "limit": {"type": "integer", "default": 20, "description": "Max results"},
+            },
+        },
+    },
+    {
+        "name": "ingestion_patch_item",
+        "description": "Edit an ingestion item's metadata or status. Admin only.",
+        "min_role": Role.platform_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "The item ID"},
+                "title": {"type": "string"},
+                "handler": {"type": "string"},
+                "domain": {"type": "string"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "priority": {"type": "integer"},
+                "status": {"type": "string", "description": "Admin-driven status transition"},
+                "config": {"type": "object"},
+            },
+            "required": ["item_id"],
+        },
+    },
+    {
+        "name": "ingestion_discover_url",
+        "description": "Run discovery on a URL to get a suggested ingestion config. Admin only.",
+        "min_role": Role.platform_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to analyse"},
+                "hints": {"type": "string", "description": "Optional free-text hints"},
+                "use_llm": {"type": "boolean", "default": False, "description": "Use LLM for enrichment"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "ingestion_retry_item",
+        "description": "Retry a failed or dead_letter ingestion item. Admin only.",
+        "min_role": Role.platform_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "The item ID"},
+                "reset_retries": {"type": "boolean", "default": False, "description": "Reset retry counter"},
+            },
+            "required": ["item_id"],
+        },
+    },
+    {
+        "name": "ingestion_requeue_item",
+        "description": "Re-queue any ingestion item back to pending. Admin only.",
+        "min_role": Role.platform_admin,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "integer", "description": "The item ID"},
+                "reset_retries": {"type": "boolean", "default": False},
+            },
+            "required": ["item_id"],
+        },
+    },
 ]
 
 
@@ -344,6 +416,68 @@ async def _purge_trivial_traces(user: UserInfo, args: dict) -> Any:
     return {"deleted": count, "dry_run": False, "min_tokens": min_tokens}
 
 
+async def _ingestion_list_items(user: UserInfo, args: dict) -> Any:
+    from .ingestion import list_items as _list_items_impl
+
+    class _FakeUser:
+        username = user.username
+        sub = user.sub
+        roles = user.roles
+        org_id = getattr(user, "org_id", "")
+
+    return await _list_items_impl(
+        _user=_FakeUser(),  # type: ignore[arg-type]
+        status=args.get("status", ""),
+        handler=args.get("handler", ""),
+        domain="",
+        source_id=None,
+        page=1,
+        page_size=min(args.get("limit", 20), 100),
+    )
+
+
+async def _ingestion_patch_item(user: UserInfo, args: dict) -> Any:
+    from .ingestion import ItemPatch, patch_item
+
+    item_id = args.get("item_id")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id required")
+    body = ItemPatch(**{k: v for k, v in args.items() if k != "item_id"})
+    return await patch_item(item_id, body, user)
+
+
+async def _ingestion_discover_url(user: UserInfo, args: dict) -> Any:
+    from .ingestion import DiscoverRequest, discover_url
+
+    url = args.get("url", "")
+    if not url:
+        raise HTTPException(status_code=400, detail="url required")
+    req = DiscoverRequest(
+        url=url,
+        hints=args.get("hints", ""),
+        use_llm=args.get("use_llm", False),
+    )
+    return await discover_url(req, user)
+
+
+async def _ingestion_retry_item(user: UserInfo, args: dict) -> Any:
+    from .ingestion import retry_item
+
+    item_id = args.get("item_id")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id required")
+    return await retry_item(item_id, reset_retries=args.get("reset_retries", False), _user=user)
+
+
+async def _ingestion_requeue_item(user: UserInfo, args: dict) -> Any:
+    from .ingestion import requeue_item
+
+    item_id = args.get("item_id")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id required")
+    return await requeue_item(item_id, reset_retries=args.get("reset_retries", False), _user=user)
+
+
 _HANDLERS: dict[str, Any] = {
     "list_traces": _list_traces,
     "get_trace": _get_trace,
@@ -357,4 +491,9 @@ _HANDLERS: dict[str, Any] = {
     "trigger_usage_rollup": _trigger_usage_rollup,
     "reconcile_litellm": _reconcile_litellm,
     "purge_trivial_traces": _purge_trivial_traces,
+    "ingestion_list_items": _ingestion_list_items,
+    "ingestion_patch_item": _ingestion_patch_item,
+    "ingestion_discover_url": _ingestion_discover_url,
+    "ingestion_retry_item": _ingestion_retry_item,
+    "ingestion_requeue_item": _ingestion_requeue_item,
 }

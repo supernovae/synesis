@@ -1389,6 +1389,74 @@ export function useRetryIngestionItem() {
   });
 }
 
+export function usePatchIngestionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      itemId: number;
+      title?: string;
+      handler?: string;
+      domain?: string;
+      authority?: string;
+      origin_type?: string;
+      tags?: string[];
+      priority?: number;
+      config?: Record<string, unknown>;
+      source_id?: number;
+      status?: string;
+    }) => {
+      const { itemId, ...body } = data;
+      return client.patch(`/ingestion/items/${itemId}`, body).then((r) => r.data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useRequeueIngestionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { itemId: number; reset_retries?: boolean }) =>
+      client
+        .post(`/ingestion/items/${data.itemId}/requeue?reset_retries=${data.reset_retries ?? false}`)
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export interface DiscoveryResult {
+  url: string;
+  handler: string;
+  title: string;
+  domain: string;
+  tags: string[];
+  config: Record<string, unknown>;
+  risk_flags: string[];
+  recommended_mode: "active" | "batch";
+  notes: string;
+}
+
+export function useBatchPreflight() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { status_filter?: string; limit?: number; use_llm?: boolean }) =>
+      client.post("/ingestion/discover/batch", data).then((r) => r.data as { processed: number; flagged: number; errors: number }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useDiscoverUrl() {
+  return useMutation({
+    mutationFn: (data: { url: string; hints?: string; use_llm?: boolean; model_id?: string }) =>
+      client.post("/ingestion/discover", data).then((r) => r.data as DiscoveryResult),
+  });
+}
+
 export function useRerunStagedItem() {
   const qc = useQueryClient();
   return useMutation({
