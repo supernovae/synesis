@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .short_followup_context import reply_looks_like_quiz_letter_or_word_form
+
 # Strong drift signals: reply changes direction or starts new task
 _DRIFT_PHRASES = re.compile(
     r"\b(forget that|instead,? |actually,? i want|one more thing|wait,? |hold on|"
@@ -48,6 +50,8 @@ def pending_reply_diverges(pending: dict[str, Any], reply: str) -> bool:
         return False
 
     if _QUIZ_OR_SHORT_CHOICE.match(reply):
+        return False
+    if reply_looks_like_quiz_letter_or_word_form(reply):
         return False
 
     # Knowledge-style questions are clearly new requests, not plan approval

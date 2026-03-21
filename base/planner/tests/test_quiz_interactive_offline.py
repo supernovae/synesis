@@ -17,6 +17,8 @@ from app.short_followup_context import (
     merge_short_followup_for_classification,
     pick_richer_conversation_transcript,
     prior_transcript_from_request_messages,
+    reply_looks_like_quiz_letter_or_word_form,
+    should_merge_short_followup_content,
 )
 
 # --- Typical user setup + assistant quiz block (vocabulary / cert style) ---
@@ -170,6 +172,37 @@ def test_pick_richer_prefers_client_when_memory_truncated_or_empty():
     assert pick_richer_conversation_transcript(mem, client) == client
     assert pick_richer_conversation_transcript([], client) == client
     assert pick_richer_conversation_transcript(client, []) == client
+
+
+def test_merge_letter_plus_option_word_over_48_chars():
+    hist = [
+        "[user]: Pick the best answer for TLS default port.",
+        "[assistant]: A) 22 B) 80 C) 443 D) 8080",
+    ]
+    reply = "C) the secure port used for HTTPS traffic on the web (standard port 443)"
+    assert len(reply) > 48
+    merged = merge_short_followup_for_classification(reply, hist)
+    assert "TLS" in merged
+    assert "User follow-up:" in merged
+
+
+def test_merge_option_word_only():
+    hist = [
+        "[user]: Vocabulary: which word fits the blank?",
+        "[assistant]: Options: A) mundane B) eclectic C) dry",
+    ]
+    merged = merge_short_followup_for_classification("eclectic", hist)
+    assert "eclectic" in merged
+    assert "Vocabulary" in merged
+
+
+def test_reply_looks_like_quiz_letter_word_form():
+    assert reply_looks_like_quiz_letter_or_word_form("B) eclectic")
+    assert reply_looks_like_quiz_letter_or_word_form("a) derivative")
+    assert reply_looks_like_quiz_letter_or_word_form("C the narrow one")
+    assert not reply_looks_like_quiz_letter_or_word_form("what is kubernetes")
+    assert should_merge_short_followup_content("eclectic", short_len=48)
+    assert should_merge_short_followup_content("B) something longer than forty-eight characters here", short_len=48)
 
 
 def test_merge_b_with_client_only_transcript():

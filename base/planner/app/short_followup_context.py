@@ -7,6 +7,7 @@ in scope so routing and generation stay on topic.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Match ConversationMemory.store_turn cap so client transcript lines align with server memory.
@@ -20,11 +21,35 @@ TRIVIAL_WRITER_SYSTEM_BASE = (
 )
 
 _TRIVIAL_CONTINUATION_HINT = (
-    "\n\nThe user may send very short replies (a letter, a number, yes/no, or forms like "
-    "\"b)\" / \"A.\") as part of an ongoing exercise, quiz, or role-play. Use the prior turns "
-    "in the conversation; continue that thread. Do not refuse or ask for the \"full question\" "
-    "when a multiple-choice answer is clearly a follow-up to your previous message."
+    "\n\nThe user may send very short replies (a letter, a number, yes/no, forms like "
+    "\"b)\" / \"A.\", \"B) eclectic\", \"A the derivative\", or just the option word) as part "
+    "of an ongoing exercise, quiz, or role-play. Use the prior turns in the conversation; "
+    "continue that thread. Do not refuse or ask for the \"full question\" when the answer is "
+    "clearly a follow-up to your previous message."
 )
+
+
+_LETTER_PAREN_THEN_TEXT = re.compile(r"^[A-Da-d][\.\)]\s*\S", re.IGNORECASE)
+_LETTER_SPACE_THEN_TEXT = re.compile(r"^[A-Da-d][\.\)]?\s+\S", re.IGNORECASE)
+
+
+def reply_looks_like_quiz_letter_or_word_form(text: str, *, max_len: int = 160) -> bool:
+    """Letter + optional punctuation + option wording (e.g. \"B) eclectic\", \"A derivative\")."""
+    t = (text or "").strip()
+    if not t or len(t) > max_len or "\n" in t:
+        return False
+    if _LETTER_PAREN_THEN_TEXT.match(t):
+        return True
+    if _LETTER_SPACE_THEN_TEXT.match(t):
+        return True
+    return False
+
+
+def should_merge_short_followup_content(stripped: str, *, short_len: int = 48) -> bool:
+    """True if this user line should inherit prior context (short or letter+word quiz shape)."""
+    if len(stripped) < short_len:
+        return True
+    return reply_looks_like_quiz_letter_or_word_form(stripped)
 
 
 def merge_short_followup_for_classification(
@@ -41,7 +66,7 @@ def merge_short_followup_for_classification(
     if not last_content or not conversation_history:
         return last_content
     stripped = last_content.strip()
-    if len(stripped) >= short_len:
+    if not should_merge_short_followup_content(stripped, short_len=short_len):
         return last_content
 
     substantive = ""

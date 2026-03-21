@@ -34,3 +34,11 @@ def test_quiz_choice_does_not_diverge():
     assert pending_reply_diverges(pending, "B") is False
     assert pending_reply_diverges(pending, "B.") is False
     assert pending_reply_diverges(pending, "a)") is False
+
+
+def test_quiz_word_or_letter_word_form_does_not_diverge():
+    pending = {"task_description": "vocabulary quiz with options A–D"}
+    assert pending_reply_diverges(pending, "eclectic") is False
+    assert pending_reply_diverges(pending, "B) eclectic") is False
+    assert pending_reply_diverges(pending, "a) the word derivative") is False
+    assert pending_reply_diverges(pending, "C antidisestablishmentarianism") is False
