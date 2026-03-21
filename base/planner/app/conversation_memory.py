@@ -129,7 +129,8 @@ class ConversationMemory:
 
         limit = max_turns or self._max_turns
         recent = turns[-limit:]
-        return [f"[{t.role}]: {t.content[:512]}" for t in recent]
+        # Match store_turn cap (4096) so quiz/options survive L1 replay; 512 was truncating MC stems.
+        return [f"[{t.role}]: {t.content[:4096]}" for t in recent]
 
     def get_summary(self, user_id: str) -> str:
         """Return a compact summary of recent history for prompt injection."""

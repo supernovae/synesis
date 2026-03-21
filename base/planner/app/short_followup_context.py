@@ -7,6 +7,11 @@ in scope so routing and generation stay on topic.
 
 from __future__ import annotations
 
+from typing import Any
+
+# Match ConversationMemory.store_turn cap so client transcript lines align with server memory.
+_HISTORY_CONTENT_CAP = 4096
+
 TRIVIAL_WRITER_SYSTEM_BASE = (
     "You are a helpful, knowledgeable assistant. Answer the user's question "
     "directly and concisely. Use markdown formatting where appropriate "
@@ -15,9 +20,10 @@ TRIVIAL_WRITER_SYSTEM_BASE = (
 )
 
 _TRIVIAL_CONTINUATION_HINT = (
-    "\n\nThe user may send very short replies (a letter, a number, yes/no) as part of an "
-    "ongoing exercise, quiz, or role-play. Use the prior turns in the conversation; "
-    "continue that thread and do not treat the message as a brand-new unrelated question."
+    "\n\nThe user may send very short replies (a letter, a number, yes/no, or forms like "
+    "\"b)\" / \"A.\") as part of an ongoing exercise, quiz, or role-play. Use the prior turns "
+    "in the conversation; continue that thread. Do not refuse or ask for the \"full question\" "
+    "when a multiple-choice answer is clearly a follow-up to your previous message."
 )
 
 
@@ -53,6 +59,65 @@ def merge_short_followup_for_classification(
     if not substantive or substantive == stripped:
         return last_content
     return f"{substantive}\n\n(User follow-up: {stripped})"
+
+
+def prior_transcript_from_request_messages(
+    messages: list[Any],
+    *,
+    content_cap: int = _HISTORY_CONTENT_CAP,
+) -> list[str]:
+    """Build [user]/[assistant] lines from the client request before the latest user message.
+
+    Open WebUI and other clients send the full thread in ``messages`` while L1 memory may be
+    empty or a different scope; this recovers assistant quiz text for short follow-ups.
+    """
+    if not messages:
+        return []
+    last_user_idx: int | None = None
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        role = (getattr(m, "role", None) or "").strip().lower()
+        if role == "user":
+            last_user_idx = i
+            break
+    if last_user_idx is None:
+        return []
+
+    lines: list[str] = []
+    for m in messages[:last_user_idx]:
+        role = (getattr(m, "role", None) or "").strip().lower()
+        raw = getattr(m, "content", None)
+        text = raw.strip() if isinstance(raw, str) else (str(raw) if raw is not None else "")
+        if not text:
+            continue
+        text = text[:content_cap]
+        if role == "user":
+            lines.append(f"[user]: {text}")
+        elif role == "assistant":
+            lines.append(f"[assistant]: {text}")
+        elif role == "system":
+            lines.append(f"[system]: {text}")
+    return lines
+
+
+def pick_richer_conversation_transcript(
+    memory_lines: list[str],
+    client_lines: list[str],
+) -> list[str]:
+    """Prefer client transcript when it carries more text (e.g. full quiz vs truncated memory)."""
+    if not client_lines:
+        return list(memory_lines)
+    if not memory_lines:
+        return list(client_lines)
+    sm = sum(len(x) for x in memory_lines)
+    sc = sum(len(x) for x in client_lines)
+    if sc > sm:
+        return list(client_lines)
+    if sm > sc:
+        return list(memory_lines)
+    if len(client_lines) > len(memory_lines):
+        return list(client_lines)
+    return list(memory_lines)
 
 
 def effective_user_query(

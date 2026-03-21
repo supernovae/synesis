@@ -88,4 +88,5 @@ class TestConversationMemory:
         mem.store_turn("u1", "user", long_msg)
         history = mem.get_history("u1")
         assert len(history) == 1
-        assert len(history[0]) <= 520
+        # store_turn caps at 4096; get_history replays same cap (prefix "[user]: ")
+        assert len(history[0]) <= 8 + 4096

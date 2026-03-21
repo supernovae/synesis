@@ -50,6 +50,7 @@ from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
 from .run_context import compute_trace_links, derive_critic_turn_kind
 from .rag_client import build_metadata_filter, retrieve_context, submit_user_knowledge
+from .short_followup_context import pick_richer_conversation_transcript, prior_transcript_from_request_messages
 from .state import RetrievalParams
 from .stream_fixer import StreamingBlockFixer
 from .streaming_events import StatusQueueCallback, emit_sub_phase, set_sub_phase_queue
@@ -998,10 +999,14 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             usage=Usage(),
         )
 
-    # Retrieve conversation history (scoped by conversation_id when provided)
+    # Retrieve conversation history (scoped by conversation_id when provided), merged with the
+    # client-provided transcript. UIs send full threads in ``messages``; L1 memory may be empty,
+    # wrong scope, or truncated — without assistant lines, quiz answers like "b)" look context-free.
     conversation_history: list[str] = []
     if settings.memory_enabled:
         conversation_history = memory.get_history(memory_scope)
+    client_prior = prior_transcript_from_request_messages(request.messages)
+    conversation_history = pick_richer_conversation_transcript(conversation_history, client_prior)
 
     # Context-stability: detect pivot from language OR user context (documents vs code, domain switch)
     # Only meaningful when there IS prior conversation history to pivot from.

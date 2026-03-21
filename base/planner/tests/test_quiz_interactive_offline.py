@@ -15,6 +15,8 @@ from app.short_followup_context import (
     conversation_history_to_openai_messages,
     effective_user_query,
     merge_short_followup_for_classification,
+    pick_richer_conversation_transcript,
+    prior_transcript_from_request_messages,
 )
 
 # --- Typical user setup + assistant quiz block (vocabulary / cert style) ---
@@ -142,3 +144,42 @@ def test_fast_stream_message_stack_shape(cert_quiz_history: list[str]):
     assert "CKA" in stack[-1]["content"]
     assert "User follow-up: B" in stack[-1]["content"]
     assert any("kubectl" in m["content"] for m in stack if m["role"] == "assistant")
+
+
+class _Msg:
+    def __init__(self, role: str, content: str) -> None:
+        self.role = role
+        self.content = content
+
+
+def test_prior_transcript_includes_assistant_before_last_user():
+    msgs = [
+        _Msg("user", _CERT_STYLE_USER),
+        _Msg("assistant", _QUIZ_ASSISTANT),
+        _Msg("user", "b)"),
+    ]
+    prior = prior_transcript_from_request_messages(msgs)
+    assert len(prior) == 2
+    assert "CKA" in prior[0]
+    assert "kubectl get pods -A" in prior[1]
+
+
+def test_pick_richer_prefers_client_when_memory_truncated_or_empty():
+    mem = ["[user]: short", "[assistant]: " + "x" * 100]
+    client = ["[user]: " + _CERT_STYLE_USER, "[assistant]: " + _QUIZ_ASSISTANT]
+    assert pick_richer_conversation_transcript(mem, client) == client
+    assert pick_richer_conversation_transcript([], client) == client
+    assert pick_richer_conversation_transcript(client, []) == client
+
+
+def test_merge_b_with_client_only_transcript():
+    """When L1 memory is empty, client transcript still enables quiz follow-up merge."""
+    msgs = [
+        _Msg("user", "Quiz me on ports; four options A–D."),
+        _Msg("assistant", "Which is well-known HTTP? A) 22 B) 80 C) 443 D) 8080"),
+        _Msg("user", "b)"),
+    ]
+    prior = prior_transcript_from_request_messages(msgs)
+    merged = merge_short_followup_for_classification("b)", prior)
+    assert "ports" in merged.lower() or "Quiz" in merged
+    assert "User follow-up: b)" in merged
