@@ -1,13 +1,14 @@
-# LiteLLM proxy — pinned release image (not :main-stable).
+# LiteLLM proxy — production-hardened for OpenShift + Prisma/Postgres.
 #
-# Production DB: use a dedicated PostgreSQL *database* for Prisma (e.g. `litellm` on the
-# same CNPG cluster as admin). Do not point DATABASE_URL at `synesis_admin` (Alembic owns it).
-# scripts/deploy.sh creates `litellm` and patches DATABASE_URL when the operator secret exists.
+# DB: dedicated PostgreSQL database `litellm` on the CNPG cluster (not synesis_admin).
+# deploy.sh creates the DB, syncs DATABASE_URL secret, and generates LITELLM_SALT_KEY.
 #
-# OpenShift: writable emptyDirs for migrations, cache, tmp, and /var/lib/litellm (random UID
-# cannot use image-owned /var/lib/litellm). Prisma startup health_check can raise
-# NotConnectedError on Wolfi/OpenShift — DISABLE_PRISMA_HEALTH_CHECK_ON_STARTUP skips that
-# blocking call (connect + DB ops still run); see LiteLLM proxy_server._setup_prisma_client.
+# Prisma: USE_PRISMA_MIGRATE runs schema migrations at startup. Writable emptyDir
+# volumes satisfy the read-only-root-compatible paths documented by LiteLLM.
+# initContainer copies bundled UI/assets into emptyDir so readOnlyRootFilesystem works.
+#
+# Workers: --num_workers matches CPU limit (2 during test phase).
+# Connection pool: general_settings in ConfigMap; total conns = pool_limit * workers * replicas.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,15 +36,67 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-      containers:
-        - name: litellm
-          # Pinned stable proxy image — bump intentionally when upgrading LiteLLM.
-          image: ghcr.io/berriai/litellm:v1.82.3-stable
+      initContainers:
+        - name: setup-ui
+          image: ghcr.io/berriai/litellm:main-stable
+          command:
+            - sh
+            - -c
+            - |
+              cp -r /var/lib/litellm/ui/* /mnt/ui/ 2>/dev/null || true
+              cp -r /var/lib/litellm/assets/* /mnt/assets/ 2>/dev/null || true
           securityContext:
             allowPrivilegeEscalation: false
-            # readOnlyRootFilesystem breaks Prisma's query-engine startup on this image
-            # (NotConnectedError after migrate) and UI population under /var/lib/litellm.
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: litellm-ui
+              mountPath: /mnt/ui
+            - name: litellm-assets
+              mountPath: /mnt/assets
+        - name: fetch-prisma-engine
+          image: ghcr.io/berriai/litellm:main-stable
+          command:
+            - sh
+            - -c
+            - |
+              prisma py fetch 2>&1 || true
+              SRC=$(find /mnt/cache/prisma-python -name "query-engine-debian-openssl-*" -type f 2>/dev/null | head -1)
+              if [ -n "$SRC" ]; then
+                cp "$SRC" /mnt/cache/prisma-python/prisma-query-engine-debian-openssl-3.0.x
+                chmod +x /mnt/cache/prisma-python/prisma-query-engine-debian-openssl-3.0.x
+                echo "Prisma query engine ready at /mnt/cache/prisma-python/prisma-query-engine-debian-openssl-3.0.x"
+              else
+                echo "WARNING: Prisma query engine binary not found; migrations will download it"
+              fi
+          env:
+            - name: PRISMA_BINARY_CACHE_DIR
+              value: "/mnt/cache/prisma-python"
+            - name: HOME
+              value: "/mnt/cache"
+            - name: XDG_CACHE_HOME
+              value: "/mnt/cache"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: litellm-cache
+              mountPath: /mnt/cache
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:main-stable
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -54,6 +107,8 @@ spec:
             - /app/config.yaml
             - --port
             - "4000"
+            - --num_workers
+            - "2"
           ports:
             - name: http
               containerPort: 4000
@@ -68,36 +123,39 @@ spec:
                 secretKeyRef:
                   name: litellm-secrets
                   key: master-key
-            # Populated by deploy.sh → Secret litellm-database-url (apply-safe; not inline).
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: litellm-database-url
                   key: database-url
+            - name: LITELLM_SALT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-secrets
+                  key: salt-key
                   optional: true
             - name: LITELLM_NON_ROOT
               value: "true"
-            # Avoid startup exit when Prisma query engine isn't ready for health_check yet (OpenShift).
+            - name: USE_PRISMA_MIGRATE
+              value: "True"
             - name: DISABLE_PRISMA_HEALTH_CHECK_ON_STARTUP
               value: "true"
             - name: LITELLM_UI_PATH
-              value: "/var/lib/litellm/ui"
-            # Writable mount — Prisma baseline / migrations (OpenShift no local write on root FS).
+              value: "/app/var/litellm/ui"
+            - name: LITELLM_ASSETS_PATH
+              value: "/app/var/litellm/assets"
             - name: LITELLM_MIGRATION_DIR
               value: "/app/migrations"
-            # Prisma/npm cache under the emptyDir-backed HOME (never /root/.cache on OpenShift).
             - name: HOME
-              value: "/.cache"
+              value: "/app/cache"
             - name: XDG_CACHE_HOME
-              value: "/.cache"
+              value: "/app/cache"
             - name: NPM_CONFIG_CACHE
-              value: "/.cache/npm"
+              value: "/app/cache/npm"
             - name: PRISMA_BINARY_CACHE_DIR
-              value: "/.cache/prisma-python"
-            # Watchdog reconnect can race before engines finish unpacking (noisy / spurious errors).
-            - name: PRISMA_HEALTH_WATCHDOG_ENABLED
-              value: "false"
-            # Prisma query engine localhost traffic must not use cluster HTTP proxy.
+              value: "/app/cache/prisma-python"
+            - name: PRISMA_QUERY_ENGINE_BINARY
+              value: "/app/cache/prisma-python/prisma-query-engine-debian-openssl-3.0.x"
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
             - name: no_proxy
@@ -109,13 +167,14 @@ spec:
               readOnly: true
             - name: litellm-migrations
               mountPath: /app/migrations
-            - name: prisma-cache
-              mountPath: /.cache
+            - name: litellm-cache
+              mountPath: /app/cache
+            - name: litellm-ui
+              mountPath: /app/var/litellm/ui
+            - name: litellm-assets
+              mountPath: /app/var/litellm/assets
             - name: tmp
               mountPath: /tmp
-            - name: litellm-var
-              mountPath: /var/lib/litellm
-            # Prisma/node follow /root/.cache; mounting only /.cache fails because /root is 0700.
             - name: root-home
               mountPath: /root
           resources:
@@ -129,25 +188,41 @@ spec:
             httpGet:
               path: /health/liveliness
               port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
             initialDelaySeconds: 30
             periodSeconds: 10
-          readinessProbe:
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
             httpGet:
               path: /health/liveliness
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 15
+            failureThreshold: 30
+            periodSeconds: 5
       volumes:
         - name: config
           configMap:
             name: litellm-config
         - name: litellm-migrations
-          emptyDir: {}
-        - name: prisma-cache
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: litellm-cache
+          emptyDir:
+            sizeLimit: 500Mi
+        - name: litellm-ui
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: litellm-assets
+          emptyDir:
+            sizeLimit: 10Mi
         - name: tmp
-          emptyDir: {}
-        - name: litellm-var
           emptyDir: {}
         - name: root-home
           emptyDir: {}

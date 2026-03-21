@@ -274,7 +274,7 @@ async def _detect_cohesion_lock_llm(
 
         llm = ChatOpenAI(
             base_url=settings.router_model_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=settings.router_model_name,
             temperature=0.0,
             max_completion_tokens=1024,
@@ -394,7 +394,7 @@ async def _micro_critic_llm_single(
 
         llm = ChatOpenAI(
             base_url=settings.router_model_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=settings.router_model_name,
             temperature=0.0,
             max_completion_tokens=1024,

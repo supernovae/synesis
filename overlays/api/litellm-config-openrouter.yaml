@@ -1,12 +1,8 @@
-# LiteLLM config — API mode bootstrap.
+# LiteLLM config — API mode dynamic (Prisma-backed).
 #
-# synesis-agent stays in YAML (planner passthrough). Canonical pipeline roles
-# (router, general, critic, coder, summarizer) are registered via Admin
-# Model Registry → Postgres → POST /model/new (requires STORE_MODEL_IN_DB +
-# DATABASE_URL on litellm-proxy). If those routes also lived here, LiteLLM
-# would keep the static OpenRouter mappings and ignore registry edits.
-#
-# Optional WebUI models not driven by the registry remain below.
+# Keep only bootstrap/non-registry models here. Canonical pipeline roles
+# (router/general/critic/coder/summarizer) are pushed dynamically by Admin
+# via LiteLLM /model/new and persisted in the LiteLLM Postgres database.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,7 +15,7 @@ data:
   config.yaml: |
     model_list:
       # Primary pipeline endpoint (Open WebUI → LangGraph pipeline)
-      # This routes through the planner — no OpenRouter needed here.
+      # This routes through the planner — no provider key needed here.
       - model_name: synesis-agent
         litellm_params:
           model: openai/synesis-agent
@@ -28,7 +24,7 @@ data:
           max_tokens: 65536
           temperature: 0.2
 
-      # Thinking model (Open WebUI optional) — not in Model Registry roles.
+      # Thinking model (Open WebUI optional) — not a pipeline role.
       - model_name: synesis-thinking
         litellm_params:
           model: openrouter/deepseek/deepseek-r1-distill-llama-70b
@@ -45,3 +41,6 @@ data:
     general_settings:
       forward_client_headers_to_llm_api: true
       background_health_checks: false
+      database_connection_pool_limit: 10
+      database_connection_timeout: 60
+      allow_requests_on_db_unavailable: true

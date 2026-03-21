@@ -381,7 +381,7 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
 
         writer_llm = ChatOpenAI(
             base_url=writer_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=writer_name,
             temperature=0.3,
             max_completion_tokens=writer_budget,

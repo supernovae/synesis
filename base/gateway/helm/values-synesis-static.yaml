@@ -1,0 +1,97 @@
+# Synesis LiteLLM Helm values — static fallback override.
+#
+# Layer on top of values-synesis.yaml when Prisma dynamic model registration
+# is unhealthy. Defines all pipeline role routes statically in the ConfigMap
+# so traffic continues to flow without DB dependency.
+#
+# Usage:
+#   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     -n synesis-gateway \
+#     -f values-synesis.yaml \
+#     -f values-synesis-static.yaml \
+#     --wait --timeout 5m
+#
+# Prerequisite: the provider-api-keys secret must contain all three keys:
+#   OPENROUTER_API_KEY, XAI_API_KEY, DEEPINFRA_API_KEY
+#
+# Add missing keys:
+#   oc patch secret provider-api-keys -n synesis-gateway -p \
+#     '{"data":{"XAI_API_KEY":"'$(echo -n "$XAI_API_KEY" | base64)'",
+#              "DEEPINFRA_API_KEY":"'$(echo -n "$DEEPINFRA_API_KEY" | base64)'"}}'
+
+# Override: don't store models in DB when running in static mode
+envVars:
+  STORE_MODEL_IN_DB: "false"
+  LITELLM_NON_ROOT: "true"
+  NO_PROXY: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
+  no_proxy: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
+
+# Override: disable migration job in static mode
+migrationJob:
+  enabled: false
+
+proxy_config:
+  model_list:
+    - model_name: synesis-agent
+      litellm_params:
+        model: openai/synesis-agent
+        api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+        api_key: "not-needed"
+        max_tokens: 65536
+        temperature: 0.2
+
+    - model_name: synesis-router
+      litellm_params:
+        model: xai/grok-4-1-fast-non-reasoning
+        api_key: "os.environ/XAI_API_KEY"
+        max_tokens: 4096
+        temperature: 0.1
+
+    - model_name: synesis-summarizer
+      litellm_params:
+        model: xai/grok-4-1-fast-non-reasoning
+        api_key: "os.environ/XAI_API_KEY"
+        max_tokens: 2048
+        temperature: 0.1
+
+    - model_name: synesis-general
+      litellm_params:
+        model: deepinfra/deepseek-ai/DeepSeek-V3.2
+        api_key: "os.environ/DEEPINFRA_API_KEY"
+        max_tokens: 32768
+        temperature: 0.3
+
+    - model_name: synesis-critic
+      litellm_params:
+        model: openrouter/deepseek/deepseek-r1-distill-qwen-32b
+        api_key: "os.environ/OPENROUTER_API_KEY"
+        max_tokens: 4096
+        temperature: 0.1
+
+    - model_name: synesis-coder
+      litellm_params:
+        model: openrouter/qwen/qwen-2.5-coder-32b-instruct
+        api_key: "os.environ/OPENROUTER_API_KEY"
+        max_tokens: 16384
+        temperature: 0.2
+
+    - model_name: synesis-thinking
+      litellm_params:
+        model: openrouter/deepseek/deepseek-r1-distill-llama-70b
+        api_key: "os.environ/OPENROUTER_API_KEY"
+        max_tokens: 16384
+        temperature: 0.2
+
+  litellm_settings:
+    drop_params: true
+    set_verbose: false
+    num_retries: 2
+    request_timeout: 300
+
+  general_settings:
+    master_key: os.environ/PROXY_MASTER_KEY
+    forward_client_headers_to_llm_api: true
+    background_health_checks: false
+    database_connection_pool_limit: 10
+    database_connection_timeout: 60
+    allow_requests_on_db_unavailable: true

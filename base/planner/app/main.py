@@ -1942,7 +1942,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_model = _stream_req.pop("model", None) or settings.general_model_name
                         _aclient = _openai.AsyncOpenAI(
                             base_url=_ds_base_url,
-                            api_key="not-needed",
+                            api_key=settings.model_api_key,
                         )
                         _ds_full_content = ""
                         _ds_in_reasoning = False

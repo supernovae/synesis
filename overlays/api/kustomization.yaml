@@ -14,48 +14,14 @@ resources:
   - ../../base/core
 
 patches:
-  # LiteLLM config: replace base ConfigMap with OpenRouter-backed model list.
-  # After day-0, model routing is managed via Admin UI (Model Registry).
-  - target:
-      kind: ConfigMap
-      name: litellm-config
-    path: litellm-config-openrouter.yaml
+  # LiteLLM is now managed by Helm (base/gateway/helm/values-synesis.yaml).
+  # ConfigMap, Deployment, Service, and Route are all in the Helm release.
 
   # Supervisor: redirect model health checks through LiteLLM
   - target:
       kind: ConfigMap
       name: synesis-supervisor-config
     path: supervisor-config-patch.yaml
-
-  # litellm-secrets is not applied via kustomize (deploy.sh only) — no Secret patch needed.
-
-  # LiteLLM: require provider-api-keys (JSON patch — optional:false).
-  - path: litellm-provider-keys-required.yaml
-    target:
-      group: apps
-      version: v1
-      kind: Deployment
-      name: litellm-proxy
-
-  # LiteLLM: enable Prisma + /model/new so Admin Model Registry can hot-sync routes.
-  # DATABASE_URL comes from Secret litellm-database-url (scripts/deploy.sh syncs it).
-  # Master key stays (litellm-secrets) so admin reconcile can call management APIs.
-  - target:
-      kind: Deployment
-      name: litellm-proxy
-    patch: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: litellm-proxy
-      spec:
-        template:
-          spec:
-            containers:
-              - name: litellm
-                env:
-                  - name: STORE_MODEL_IN_DB
-                    value: "true"
 
   # WebUI: point directly at the planner so SSE status events pass through
   # without being stripped by LiteLLM's response normalizer.
@@ -122,6 +88,12 @@ patches:
                     value: "low"
                   - name: SYNESIS_SUMMARIZER_MODEL_NAME
                     value: "synesis-summarizer"
+                  - name: SYNESIS_MODEL_API_KEY
+                    valueFrom:
+                      secretKeyRef:
+                        name: litellm-secrets
+                        key: master-key
+                        optional: true
                   - name: SYNESIS_GUIDED_JSON_ENABLED
                     value: "false"
                   - name: SYNESIS_ROUTER_MODEL_UDS

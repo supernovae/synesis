@@ -329,7 +329,7 @@ if _critic_extra_body:
 
 critic_llm = ChatOpenAI(
     base_url=settings.critic_model_url,
-    api_key="not-needed",
+    api_key=settings.model_api_key,
     model=settings.critic_model_name,
     temperature=0.1,
     max_completion_tokens=settings.critic_max_tokens,

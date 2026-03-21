@@ -234,7 +234,7 @@ async def _shallow_coherence_check(
         _pg_kw["extra_body"] = _pg_rb
     llm = ChatOpenAI(
         base_url=settings.router_model_url,
-        api_key="not-needed",
+        api_key=settings.model_api_key,
         model=settings.router_model_name,
         temperature=0,
         max_completion_tokens=1024,

@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     # Summarizer (micro model for pivot history)
     summarizer_model_url: str = ""
     summarizer_model_name: str = "synesis-summarizer"
+    # Shared API key sent to model endpoints (required for LiteLLM virtual-key auth).
+    model_api_key: str = "not-needed"
 
     # UDS paths (bypass HTTP; for co-located vLLM)
     router_model_uds: str = ""

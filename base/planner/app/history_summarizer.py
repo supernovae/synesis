@@ -77,7 +77,7 @@ def _get_summarizer_llm():
             _hs_kw["extra_body"] = _hs_rb
         _summarizer_llm = ChatOpenAI(
             base_url=url.rstrip("/"),
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=getattr(settings, "summarizer_model_name", "synesis-summarizer"),
             temperature=0.1,
             max_completion_tokens=1024,

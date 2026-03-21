@@ -118,7 +118,7 @@ async def _llm_segment(raw_text: str) -> list[FrameUnit]:
 
     llm = ChatOpenAI(
         base_url=settings.router_model_url,
-        api_key="not-needed",
+        api_key=settings.model_api_key,
         model=settings.router_model_name,
         temperature=0,
         max_completion_tokens=settings.frame_repair_max_tokens,

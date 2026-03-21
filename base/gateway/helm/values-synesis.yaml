@@ -1,0 +1,216 @@
+# Synesis LiteLLM Helm values — dynamic (Prisma-backed) mode.
+#
+# Image: litellm-non_root — purpose-built for OpenShift / non-root.
+#   Pre-builds Prisma with debian-openssl-3.0.x target, runs as nobody,
+#   sets group-0 permissions, and enables PRISMA_OFFLINE_MODE=true.
+#
+# Usage:
+#   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     -n synesis-gateway -f values-synesis.yaml --wait --timeout 5m
+#
+# Static fallback (no Prisma model sync):
+#   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     -n synesis-gateway -f values-synesis.yaml -f values-synesis-static.yaml \
+#     --wait --timeout 5m
+#
+# Prerequisites (managed by deploy.sh):
+#   - Namespace synesis-gateway exists
+#   - Secret litellm-secrets (master-key, salt-key) in synesis-gateway
+#   - Secret litellm-db-credentials (username, password) in synesis-gateway
+#   - Secret provider-api-keys (OPENROUTER_API_KEY, etc.) in synesis-gateway
+#   - Database `litellm` exists on CNPG cluster synesis-admin-db
+
+replicaCount: 1
+numWorkers: 2
+
+image:
+  repository: ghcr.io/berriai/litellm-non_root
+  pullPolicy: Always
+  tag: "main-stable"
+
+# Preserve existing service/deployment name so DNS references keep working:
+#   litellm-proxy.synesis-gateway.svc.cluster.local:4000
+fullnameOverride: "litellm-proxy"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "4000"
+  prometheus.io/path: /metrics
+
+podLabels:
+  app.kubernetes.io/part-of: synesis
+  app.kubernetes.io/component: gateway
+
+# OpenShift restricted-v2 SCC compliance.
+# Do NOT set runAsUser or fsGroup — OpenShift assigns from namespace UID range.
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# ---------- Database (existing CNPG Postgres) ----------
+db:
+  useExisting: true
+  endpoint: "synesis-admin-db-rw.synesis-admin.svc"
+  database: litellm
+  url: "postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST)/$(DATABASE_NAME)"
+  secret:
+    name: litellm-db-credentials
+    usernameKey: username
+    passwordKey: password
+  deployStandalone: false
+
+# ---------- Auth ----------
+masterkeySecretName: "litellm-secrets"
+masterkeySecretKey: "master-key"
+
+# ---------- Provider API keys ----------
+environmentSecrets:
+  - provider-api-keys
+
+# ---------- Extra env vars ----------
+# The non_root image already sets PRISMA_BINARY_CACHE_DIR, XDG_CACHE_HOME,
+# PRISMA_CLI_BINARY_TARGETS, PRISMA_OFFLINE_MODE, and HOME=/app.
+# Do NOT override those — they are baked into the image correctly.
+envVars:
+  STORE_MODEL_IN_DB: "true"
+  LITELLM_MIGRATION_DIR: "/tmp/prisma-migrations"
+  NO_PROXY: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
+  no_proxy: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
+
+extraEnvVars:
+  - name: LITELLM_SALT_KEY
+    valueFrom:
+      secretKeyRef:
+        name: litellm-secrets
+        key: salt-key
+        optional: true
+
+# ---------- Proxy config (dynamic mode — bootstrap models only) ----------
+proxy_config:
+  model_list:
+    - model_name: synesis-agent
+      litellm_params:
+        model: openai/synesis-agent
+        api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+        api_key: "not-needed"
+        max_tokens: 65536
+        temperature: 0.2
+    - model_name: synesis-thinking
+      litellm_params:
+        model: openrouter/deepseek/deepseek-r1-distill-llama-70b
+        api_key: "os.environ/OPENROUTER_API_KEY"
+        max_tokens: 16384
+        temperature: 0.2
+  litellm_settings:
+    drop_params: true
+    set_verbose: false
+    num_retries: 2
+    request_timeout: 300
+  general_settings:
+    master_key: os.environ/PROXY_MASTER_KEY
+    forward_client_headers_to_llm_api: true
+    background_health_checks: false
+    database_connection_pool_limit: 10
+    database_connection_timeout: 60
+    allow_requests_on_db_unavailable: true
+
+# ---------- Writable directories ----------
+# Only /tmp is needed. The non_root image handles all other writable paths
+# via group-0 permissions (chgrp 0 + chmod g=u,g+w) baked into the image.
+volumes:
+  - name: writable-tmp
+    emptyDir:
+      sizeLimit: 200Mi
+
+volumeMounts:
+  - name: writable-tmp
+    mountPath: /tmp
+
+# ---------- Resources ----------
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# ---------- Probes ----------
+startupProbe:
+  path: /health/readiness
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 30
+
+livenessProbe:
+  path: /health/liveliness
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 5
+
+readinessProbe:
+  path: /health/readiness
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 6
+
+# ---------- Migration Job ----------
+migrationJob:
+  enabled: true
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 4
+  hooks:
+    argocd:
+      enabled: false
+    helm:
+      enabled: true
+
+# ---------- Service ----------
+service:
+  type: ClusterIP
+  port: 4000
+
+# ---------- Ingress (disabled — we use OpenShift Routes) ----------
+ingress:
+  enabled: false
+
+# ---------- OpenShift Routes ----------
+extraResources:
+  - apiVersion: route.openshift.io/v1
+    kind: Route
+    metadata:
+      name: synesis-api
+      namespace: synesis-gateway
+      labels:
+        app.kubernetes.io/name: litellm-proxy
+        app.kubernetes.io/part-of: synesis
+        app.kubernetes.io/component: gateway
+      annotations:
+        haproxy.router.openshift.io/timeout: 300s
+    spec:
+      host: synesis-api.apps.openshiftdemo.dev
+      tls:
+        termination: edge
+        insecureEdgeTerminationPolicy: Redirect
+      to:
+        kind: Service
+        name: litellm-proxy
+        weight: 100
+      port:
+        targetPort: http
+
+# ---------- Monitoring ----------
+serviceMonitor:
+  enabled: false

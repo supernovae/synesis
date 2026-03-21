@@ -12,6 +12,8 @@ import logging
 import time
 from typing import Any
 
+from .config import settings
+
 logger = logging.getLogger("synesis.model_client")
 
 _metrics_registered = False
@@ -170,7 +172,7 @@ def create_chat_model(
 
     return ChatOpenAI(
         base_url=base_url,
-        api_key="not-needed",
+        api_key=settings.model_api_key,
         model=model,
         temperature=temperature,
         max_completion_tokens=max_completion_tokens,

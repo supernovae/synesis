@@ -435,7 +435,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
     try:
         llm = ChatOpenAI(
             base_url=writer_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=writer_name,
             temperature=0.3,
             max_completion_tokens=writer_budget,
@@ -560,7 +560,7 @@ async def _light_compile(
     try:
         llm = ChatOpenAI(
             base_url=writer_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=writer_name,
             temperature=0.3,
             max_completion_tokens=budget,

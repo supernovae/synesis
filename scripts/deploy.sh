@@ -12,6 +12,9 @@ set -euo pipefail
 #         model — self-hosted GPU inference via vLLM (requires RHOAI)
 #   ref:  (optional) Image tag to deploy. Default: latest.
 #         Use "latest", a branch (main, feature/foo), a tag (v1.0.0), or PR (pr-123).
+#   env:  SYNESIS_LITELLM_STATIC_FALLBACK=true (api mode only)
+#         Force static LiteLLM role mappings from overlays/api/litellm-config-openrouter-static-fallback.yaml
+#         instead of Prisma-backed dynamic registry sync.
 #
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
@@ -57,6 +60,17 @@ fi
 # Normalize ref for image tag (no leading/trailing slash; safe for sed)
 REF_SAFE="${REF//\//-}"
 
+is_true() {
+    local v
+    v="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
+    [[ "$v" =~ ^(1|true|yes|on)$ ]]
+}
+
+LITELLM_STATIC_FALLBACK=false
+if is_true "${SYNESIS_LITELLM_STATIC_FALLBACK:-false}"; then
+    LITELLM_STATIC_FALLBACK=true
+fi
+
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"
 }
@@ -76,28 +90,43 @@ fi
 ensure_litellm_key() {
     local ns="synesis-gateway"
     local secret_name="litellm-secrets"
-    local existing_key=""
+    local existing_key="" existing_salt=""
 
     oc create namespace "$ns" 2>/dev/null || true
 
     if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
         existing_key=$(oc get secret "$secret_name" -n "$ns" \
             -o jsonpath='{.data.master-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+        existing_salt=$(oc get secret "$secret_name" -n "$ns" \
+            -o jsonpath='{.data.salt-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
     fi
+
+    local need_update="false"
 
     if [[ -z "$existing_key" ]] || [[ "$existing_key" == "sk-synesis-change-me" ]]; then
         LITELLM_KEY="sk-synesis-$(openssl rand -hex 24)"
         log "Generating LiteLLM API key..."
-
-        oc create secret generic "$secret_name" \
-            -n "$ns" \
-            --from-literal=master-key="$LITELLM_KEY" \
-            --dry-run=client -o yaml | oc apply -f -
-
-        log "  Key stored in secret $ns/$secret_name"
+        need_update="true"
     else
         LITELLM_KEY="$existing_key"
         log "LiteLLM API key already exists in $ns/$secret_name"
+    fi
+
+    if [[ -z "$existing_salt" ]]; then
+        LITELLM_SALT="sk-salt-$(openssl rand -hex 32)"
+        log "Generating LiteLLM salt key..."
+        need_update="true"
+    else
+        LITELLM_SALT="$existing_salt"
+    fi
+
+    if [[ "$need_update" == "true" ]]; then
+        oc create secret generic "$secret_name" \
+            -n "$ns" \
+            --from-literal=master-key="$LITELLM_KEY" \
+            --from-literal=salt-key="$LITELLM_SALT" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Keys stored in secret $ns/$secret_name"
     fi
 }
 
@@ -111,6 +140,30 @@ ensure_webui_key() {
         --from-literal=api-key="$LITELLM_KEY" \
         --dry-run=client -o yaml | oc apply -f -
     log "  Key synced to $webui_ns/webui-api-key"
+}
+
+ensure_admin_litellm_key() {
+    local admin_ns="synesis-admin"
+    oc create namespace "$admin_ns" 2>/dev/null || true
+
+    log "Syncing LiteLLM master key to admin namespace..."
+    oc create secret generic litellm-secrets \
+        -n "$admin_ns" \
+        --from-literal=master-key="$LITELLM_KEY" \
+        --dry-run=client -o yaml | oc apply -f -
+    log "  Key synced to $admin_ns/litellm-secrets"
+}
+
+ensure_planner_litellm_key() {
+    local planner_ns="synesis-planner"
+    oc create namespace "$planner_ns" 2>/dev/null || true
+
+    log "Syncing LiteLLM master key to planner namespace..."
+    oc create secret generic litellm-secrets \
+        -n "$planner_ns" \
+        --from-literal=master-key="$LITELLM_KEY" \
+        --dry-run=client -o yaml | oc apply -f -
+    log "  Key synced to $planner_ns/litellm-secrets"
 }
 
 # -----------------------------------------------------------------------
@@ -225,10 +278,14 @@ reconcile_provider_api_keys() {
 reconcile_litellm_webui_secrets() {
     local gw="synesis-gateway"
     local wu="synesis-webui"
-    local mk="" wk="" changed="false"
+    local ad="synesis-admin"
+    local pl="synesis-planner"
+    local mk="" wk="" ak="" pk="" changed="false"
 
     oc create namespace "$gw" 2>/dev/null || true
     oc create namespace "$wu" 2>/dev/null || true
+    oc create namespace "$ad" 2>/dev/null || true
+    oc create namespace "$pl" 2>/dev/null || true
 
     if oc get secret litellm-secrets -n "$gw" &>/dev/null; then
         mk=$(oc get secret litellm-secrets -n "$gw" \
@@ -242,6 +299,18 @@ reconcile_litellm_webui_secrets() {
     fi
     wk=$(printf '%s' "$wk" | tr -d '\n\r')
 
+    if oc get secret litellm-secrets -n "$ad" &>/dev/null; then
+        ak=$(oc get secret litellm-secrets -n "$ad" \
+            -o jsonpath='{.data.master-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    ak=$(printf '%s' "$ak" | tr -d '\n\r')
+
+    if oc get secret litellm-secrets -n "$pl" &>/dev/null; then
+        pk=$(oc get secret litellm-secrets -n "$pl" \
+            -o jsonpath='{.data.master-key}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+    pk=$(printf '%s' "$pk" | tr -d '\n\r')
+
     if [[ -n "$mk" ]] && [[ "$mk" != "sk-synesis-change-me" ]]; then
         if [[ "$wk" != "$mk" ]] || [[ -z "$wk" ]] || [[ "$wk" == "sk-synesis-change-me" ]]; then
             oc create secret generic webui-api-key \
@@ -251,12 +320,38 @@ reconcile_litellm_webui_secrets() {
             log "  Synced webui-api-key from litellm-secrets (was missing or out of date)"
             changed="true"
         fi
+        if [[ "$ak" != "$mk" ]] || [[ -z "$ak" ]] || [[ "$ak" == "sk-synesis-change-me" ]]; then
+            oc create secret generic litellm-secrets \
+                -n "$ad" \
+                --from-literal=master-key="$mk" \
+                --dry-run=client -o yaml | oc apply -f -
+            log "  Synced synesis-admin/litellm-secrets from gateway master key"
+            changed="true"
+        fi
+        if [[ "$pk" != "$mk" ]] || [[ -z "$pk" ]] || [[ "$pk" == "sk-synesis-change-me" ]]; then
+            oc create secret generic litellm-secrets \
+                -n "$pl" \
+                --from-literal=master-key="$mk" \
+                --dry-run=client -o yaml | oc apply -f -
+            log "  Synced synesis-planner/litellm-secrets from gateway master key"
+            changed="true"
+        fi
     elif [[ -n "$wk" ]] && [[ "$wk" != "sk-synesis-change-me" ]]; then
         oc create secret generic litellm-secrets \
             -n "$gw" \
             --from-literal=master-key="$wk" \
             --dry-run=client -o yaml | oc apply -f -
         log "  Restored litellm-secrets from existing webui-api-key"
+        oc create secret generic litellm-secrets \
+            -n "$ad" \
+            --from-literal=master-key="$wk" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Restored synesis-admin/litellm-secrets from existing webui-api-key"
+        oc create secret generic litellm-secrets \
+            -n "$pl" \
+            --from-literal=master-key="$wk" \
+            --dry-run=client -o yaml | oc apply -f -
+        log "  Restored synesis-planner/litellm-secrets from existing webui-api-key"
     else
         local newk="sk-synesis-$(openssl rand -hex 24)"
         oc create secret generic litellm-secrets \
@@ -266,6 +361,14 @@ reconcile_litellm_webui_secrets() {
         oc create secret generic webui-api-key \
             -n "$wu" \
             --from-literal=api-key="$newk" \
+            --dry-run=client -o yaml | oc apply -f -
+        oc create secret generic litellm-secrets \
+            -n "$ad" \
+            --from-literal=master-key="$newk" \
+            --dry-run=client -o yaml | oc apply -f -
+        oc create secret generic litellm-secrets \
+            -n "$pl" \
+            --from-literal=master-key="$newk" \
             --dry-run=client -o yaml | oc apply -f -
         log "  Generated new shared litellm/webui client key (both secrets were missing or placeholders)"
         changed="true"
@@ -279,6 +382,21 @@ reconcile_litellm_webui_secrets() {
         log "  Restarting open-webui to pick up api-key / WEBUI_SECRET_KEY..."
         oc rollout restart deployment/open-webui -n "$wu" 2>/dev/null || true
     fi
+    if [[ "$changed" == "true" ]] && oc get deployment synesis-admin -n "$ad" &>/dev/null; then
+        log "  Restarting synesis-admin to pick up SYNESIS_LITELLM_MASTER_KEY..."
+        oc rollout restart deployment/synesis-admin -n "$ad" 2>/dev/null || true
+    fi
+    if [[ "$changed" == "true" ]] && oc get deployment synesis-planner -n "$pl" &>/dev/null; then
+        log "  Restarting synesis-planner to pick up SYNESIS_MODEL_API_KEY..."
+        oc rollout restart deployment/synesis-planner -n "$pl" 2>/dev/null || true
+    fi
+}
+
+# Deprecated: LiteLLM config mode is now managed by Helm (deploy_litellm_helm).
+# Kept for reference only; not called.
+apply_litellm_config_mode() {
+    log "WARNING: apply_litellm_config_mode is deprecated — use deploy_litellm_helm"
+    return 0
 }
 
 
@@ -368,22 +486,105 @@ ensure_admin_db() {
 
     _ensure_litellm_database "$ns" "$cluster_name" || true
     _upsert_litellm_database_secret "$litellm_url"
+    _upsert_litellm_db_credentials
 
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
 }
 
 # Sync LiteLLM DATABASE_URL via Secret so `oc apply -k` does not wipe inline env values.
+# (Legacy — kept for non-Helm fallback. Helm chart uses litellm-db-credentials instead.)
 _upsert_litellm_database_secret() {
     local litellm_url="${1:?}"
     local gw="synesis-gateway"
     oc create namespace "$gw" 2>/dev/null || true
-    if ! oc get deployment litellm-proxy -n "$gw" &>/dev/null; then
-        return 0
-    fi
     oc create secret generic litellm-database-url -n "$gw" \
         --from-literal=database-url="$litellm_url" \
         --dry-run=client -o yaml | oc apply -f - \
         && log "  Secret $gw/litellm-database-url synced (LiteLLM Prisma)"
+}
+
+# Create litellm-db-credentials secret for the Helm chart (db.useExisting).
+# Sources the password from the CNPG operator-generated secret.
+_upsert_litellm_db_credentials() {
+    local gw="synesis-gateway"
+    local admin_ns="synesis-admin"
+    local cnpg_secret="synesis-admin-db-app"
+
+    oc create namespace "$gw" 2>/dev/null || true
+
+    local pg_pass=""
+    if oc get secret "$cnpg_secret" -n "$admin_ns" &>/dev/null; then
+        pg_pass=$(oc get secret "$cnpg_secret" -n "$admin_ns" \
+            -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null || true)
+    fi
+
+    if [[ -z "$pg_pass" ]]; then
+        log "WARNING: Could not read password from $admin_ns/$cnpg_secret — skipping litellm-db-credentials"
+        return
+    fi
+
+    oc create secret generic litellm-db-credentials -n "$gw" \
+        --from-literal=username="app" \
+        --from-literal=password="$pg_pass" \
+        --dry-run=client -o yaml | oc apply -f - \
+        && log "  Secret $gw/litellm-db-credentials synced"
+}
+
+# -----------------------------------------------------------------------
+# Deploy LiteLLM via the official Helm chart.
+# Replaces the Kustomize-managed Deployment/Service/ConfigMap.
+# -----------------------------------------------------------------------
+deploy_litellm_helm() {
+    [[ "$MODE" != "api" ]] && return 0
+
+    local ns="synesis-gateway"
+    local values_dir="$PROJECT_ROOT/base/gateway/helm"
+    local values_file="$values_dir/values-synesis.yaml"
+    local release_name="litellm-proxy"
+
+    if [[ ! -f "$values_file" ]]; then
+        log "WARNING: Helm values file not found: $values_file — skipping LiteLLM Helm deploy"
+        return 1
+    fi
+
+    if ! command -v helm &>/dev/null; then
+        log "ERROR: helm CLI not found. Install Helm 3.x to deploy LiteLLM."
+        log "  https://helm.sh/docs/intro/install/"
+        return 1
+    fi
+
+    local helm_args=(
+        upgrade --install "$release_name"
+        oci://ghcr.io/berriai/litellm-helm
+        -n "$ns"
+        -f "$values_file"
+    )
+
+    if [[ "$LITELLM_STATIC_FALLBACK" == "true" ]]; then
+        local static_file="$values_dir/values-synesis-static.yaml"
+        if [[ -f "$static_file" ]]; then
+            helm_args+=(-f "$static_file")
+            log ""
+            log "Deploying LiteLLM via Helm (static fallback mode)..."
+        else
+            log "WARNING: Static fallback values file not found: $static_file"
+            log "  Falling back to dynamic mode."
+            log ""
+            log "Deploying LiteLLM via Helm (dynamic Prisma mode)..."
+        fi
+    else
+        log ""
+        log "Deploying LiteLLM via Helm (dynamic Prisma mode)..."
+    fi
+
+    helm_args+=(--wait --timeout 5m)
+
+    if helm "${helm_args[@]}"; then
+        log "  LiteLLM Helm release '$release_name' deployed successfully"
+    else
+        log "WARNING: LiteLLM Helm deploy failed. Check: helm status $release_name -n $ns"
+        return 1
+    fi
 }
 
 # Create empty `litellm` DB for LiteLLM Prisma (idempotent). Must not reuse synesis_admin.
@@ -401,6 +602,59 @@ _ensure_litellm_database() {
     oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c "CREATE DATABASE litellm OWNER app;" \
         && log "  Created database litellm on $cluster_name" \
         || log "WARNING: CREATE DATABASE litellm failed (LiteLLM Prisma will not start)"
+}
+
+# Drop and recreate the `litellm` Prisma database for a clean start.
+# Controlled by SYNESIS_RESET_LITELLM_DB=true env var (safety gate).
+reset_litellm_database() {
+    if ! is_true "${SYNESIS_RESET_LITELLM_DB:-false}"; then
+        return 0
+    fi
+
+    local ns="synesis-admin"
+    local cluster_name="synesis-admin-db"
+    local gw="synesis-gateway"
+
+    log ""
+    log "LITELLM DB RESET requested (SYNESIS_RESET_LITELLM_DB=true)"
+
+    # Scale down litellm-proxy to release DB connections
+    if oc get deployment litellm-proxy -n "$gw" &>/dev/null; then
+        log "  Scaling down litellm-proxy..."
+        oc scale deployment litellm-proxy -n "$gw" --replicas=0 2>/dev/null || true
+        sleep 5
+    fi
+
+    local pod
+    pod=$(oc get pods -n "$ns" -l "role=primary,cnpg.io/cluster=${cluster_name}" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || {
+        log "WARNING: Cannot find Postgres primary pod — skipping DB reset"
+        return 1
+    }
+    [[ -n "$pod" ]] || { log "WARNING: No primary pod found"; return 1; }
+
+    # Terminate active connections and drop
+    log "  Dropping litellm database..."
+    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c \
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='litellm' AND pid <> pg_backend_pid();" \
+        2>/dev/null || true
+    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c \
+        "DROP DATABASE IF EXISTS litellm;" 2>/dev/null || true
+
+    # Recreate
+    log "  Recreating litellm database..."
+    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c \
+        "CREATE DATABASE litellm OWNER app;" \
+        && log "  litellm database recreated (clean)" \
+        || { log "ERROR: Failed to recreate litellm database"; return 1; }
+
+    # Scale litellm-proxy back up (migrations run on startup via USE_PRISMA_MIGRATE)
+    if oc get deployment litellm-proxy -n "$gw" &>/dev/null; then
+        log "  Scaling litellm-proxy back up..."
+        oc scale deployment litellm-proxy -n "$gw" --replicas=1 2>/dev/null || true
+    fi
+
+    log "  DB reset complete — Prisma migrations will run on next startup"
 }
 
 # Helper: set a single env var on a deployment, only if it changed.
@@ -600,10 +854,19 @@ ensure_keycloak() {
 
 log "=== Deploying Synesis ($MODE) ==="
 [[ "$REF" != "latest" ]] && log "Image ref: $REF (tag: $REF_SAFE)"
+if [[ "$MODE" == "api" ]]; then
+    if [[ "$LITELLM_STATIC_FALLBACK" == "true" ]]; then
+        log "LiteLLM route mode: static fallback (SYNESIS_LITELLM_STATIC_FALLBACK=true)"
+    else
+        log "LiteLLM route mode: dynamic (Prisma-backed registry sync)"
+    fi
+fi
 log ""
 
 ensure_litellm_key
 ensure_webui_key
+ensure_admin_litellm_key
+ensure_planner_litellm_key
 
 if [[ "$MODE" == "api" ]]; then
     ensure_openrouter_key
@@ -650,6 +913,8 @@ ensure_admin_configmaps
 log ""
 log "Setting up admin Postgres..."
 ensure_admin_db
+
+reset_litellm_database
 
 log ""
 log "Setting up Keycloak auth DB..."
@@ -901,6 +1166,31 @@ if [[ "$APPLY_OK" != "true" && "$ISVC_SKIP" != "true" ]]; then
 fi
 
 # -----------------------------------------------------------------------
+# One-time cleanup: remove Kustomize-managed LiteLLM resources before Helm
+# takes over. Only runs once (detects Deployment not owned by Helm).
+# -----------------------------------------------------------------------
+_cleanup_kustomize_litellm() {
+    local gw="synesis-gateway"
+    if ! oc get deployment litellm-proxy -n "$gw" &>/dev/null 2>&1; then
+        return 0
+    fi
+    local mgr
+    mgr=$(oc get deployment litellm-proxy -n "$gw" \
+        -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' 2>/dev/null || true)
+    if [[ "$mgr" == "Helm" ]]; then
+        return 0
+    fi
+    log ""
+    log "Cleaning up Kustomize-managed LiteLLM resources (migrating to Helm)..."
+    oc delete deployment litellm-proxy -n "$gw" --ignore-not-found 2>/dev/null || true
+    oc delete service litellm-proxy -n "$gw" --ignore-not-found 2>/dev/null || true
+    oc delete configmap litellm-config -n "$gw" --ignore-not-found 2>/dev/null || true
+    oc delete route synesis-api -n "$gw" --ignore-not-found 2>/dev/null || true
+    log "  Kustomize LiteLLM resources removed — Helm will recreate them"
+}
+_cleanup_kustomize_litellm
+
+# -----------------------------------------------------------------------
 # One-time cleanup: admin resources moved from synesis-planner to
 # synesis-admin. Remove the orphaned resources in the old namespace.
 # -----------------------------------------------------------------------
@@ -929,6 +1219,10 @@ reconcile_provider_api_keys
 log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
+
+if [[ "$APPLY_OK" == "true" ]]; then
+    deploy_litellm_helm
+fi
 
 # -----------------------------------------------------------------------
 # Keep Deployments and ReplicaSets under control (idempotent, less cruft).
@@ -992,7 +1286,7 @@ if [[ "$APPLY_OK" == "true" ]]; then
     }
 
     _patch_configmap_hash synesis-search   searxng        searxng-settings
-    _patch_configmap_hash synesis-gateway  litellm-proxy  litellm-config
+    # litellm-proxy is now managed by Helm — chart handles config rollouts.
     _patch_configmap_hash synesis-admin    synesis-admin  synesis-models-config
 fi
 
@@ -1010,7 +1304,7 @@ wait_for_deployment() {
     fi
 }
 
-wait_for_deployment synesis-gateway litellm-proxy
+# litellm-proxy rollout is managed by Helm --wait (deploy_litellm_helm).
 wait_for_deployment synesis-planner synesis-planner
 wait_for_deployment synesis-planner synesis-health-monitor
 # Milvus is managed by the Milvus Operator (kind: Milvus CR).

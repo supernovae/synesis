@@ -40,29 +40,38 @@ spec:
                   key: HF_TOKEN
                   optional: true
             - name: OMP_NUM_THREADS
-              value: "4"
+              value: "6"
             - name: MKL_NUM_THREADS
-              value: "4"
+              value: "6"
             - name: TOKENIZERS_PARALLELISM
               value: "false"
           resources:
             requests:
-              cpu: "500m"
-              memory: 1Gi
+              cpu: "1"
+              memory: 2Gi
             limits:
-              cpu: "4"
-              memory: 3Gi
+              cpu: "6"
+              memory: 4Gi
+          # Model download + load runs in FastAPI lifespan before the server listens.
+          # Without startupProbe, liveness fails (connection refused) and kubelet kills
+          # the container long before HF weights finish loading.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 30
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 15
             failureThreshold: 6
           securityContext:

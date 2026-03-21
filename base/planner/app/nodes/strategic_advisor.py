@@ -45,7 +45,7 @@ if _advisor_rb:
 
 advisor_llm = ChatOpenAI(
     base_url=settings.advisor_model_url,
-    api_key="not-needed",
+    api_key=settings.model_api_key,
     model=settings.advisor_model_name,
     temperature=0.0,
     max_completion_tokens=256,

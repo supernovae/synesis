@@ -240,7 +240,7 @@ def _get_router_query_llm() -> ChatOpenAI:
             _qkw["extra_body"] = _qrb
         _router_query_llm = ChatOpenAI(
             base_url=settings.router_model_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=settings.router_model_name,
             temperature=0.0,
             max_completion_tokens=settings.router_query_max_tokens,
@@ -261,7 +261,7 @@ def _get_router_llm() -> ChatOpenAI:
             _rkw["extra_body"] = _rrb
         _router_llm = ChatOpenAI(
             base_url=settings.router_model_url,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=settings.router_model_name,
             temperature=0.0,
             max_completion_tokens=settings.router_max_summary_tokens,
@@ -294,7 +294,7 @@ def _get_summarizer_llm() -> ChatOpenAI:
 
         _summarizer_llm = ChatOpenAI(
             base_url=_base,
-            api_key="not-needed",
+            api_key=settings.model_api_key,
             model=_name,
             temperature=0.0,
             max_completion_tokens=settings.router_max_summary_tokens,
