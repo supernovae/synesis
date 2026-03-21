@@ -990,6 +990,8 @@ if oc get milvus synesis -n synesis-rag &>/dev/null 2>&1; then
 else
     log "  No Milvus CR found — install Milvus Operator first (see bootstrap.sh)"
 fi
+# RAG data plane: base/core includes base/rag (embedder, keyword, gliner, preprocess, spam, redis, Milvus operator).
+# Indexer CronJob is a separate kustomize overlay — ./scripts/deploy-indexer.sh
 wait_for_deployment synesis-rag embedder
 wait_for_deployment synesis-rag keyword-service
 wait_for_deployment synesis-rag gliner-service

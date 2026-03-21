@@ -487,8 +487,8 @@ To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_
 | `spam_score` | FLOAT | `spam-service` when `SYNESIS_INDEXER_SPAM_URL` is set (0..1); `-1` unset / disabled |
 | `simhash64` | VARCHAR(24) | 64-bit simhash as decimal string when preprocess URL set; empty if disabled |
 | `dup_cluster_id` | VARCHAR(64) | Reserved for dedupe |
-| `topic_id` | VARCHAR(64) | Reserved for offline Bertopic |
-| `topic_keywords` | VARCHAR(512) | Reserved for topics |
+| `topic_id` | VARCHAR(64) | Reserved for offline topic backfill (not populated by indexer today) |
+| `topic_keywords` | VARCHAR(512) | Reserved for offline topic labels (see optional BERTopic below) |
 | `crawl_timestamp` | INT64 | Unix ms (best-effort from handler metadata) |
 | `entities_json` | VARCHAR(4096) | JSON array of `{name,type}` from gatekeeper |
 | `section_boundaries_json` | VARCHAR(2048) | JSON array of section outline strings |
@@ -496,7 +496,15 @@ To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_
 | `clean_content_hash` | VARCHAR(64) | SHA-256 of chunk text (hex) |
 | `enrichment_profile` | VARCHAR(64) | e.g. `v9_gatekeeper`, `v9_skip_authority`, `v9_default` |
 
-**Gatekeeper (optional):** one structured LLM call **per document** (excerpt built from chunks). Labels apply to all chunks from that document. Keywords from the gatekeeper are merged with keyword-service output. Retrieval can filter on `content_type` and `index_decision` via `build_metadata_filter()` in the planner.
+**Gatekeeper (optional):** one structured LLM call **per document** (excerpt built from chunks). Labels apply to all chunks from that document. Gatekeeper **keywords** are merged into the stored `keywords` field when present. Retrieval can filter on `content_type` and `index_decision` via `build_metadata_filter()` in the planner.
+
+### Optional: topic modeling (BERTopic) — deferred
+
+Milvus **v9** includes `topic_id` and `topic_keywords` for future **offline** or **CronJob** workflows. The indexer **does not** run BERTopic on the hot path.
+
+**Intended pattern (when built):** a batch Job in `synesis-rag` reads chunk text from Milvus (or an export), fits a topic model (e.g. BERTopic + UMAP), then **batch upserts** the two fields. Model/version changes imply **re-backfill**, not synchronous ingestion.
+
+Design rationale and checklist: [docs/plans/semantic_rag_ingestion_v9.md](plans/semantic_rag_ingestion_v9.md) (BERTopic section).
 
 ### Verification runbook (post schema bump / reset)
 

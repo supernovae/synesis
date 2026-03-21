@@ -1,6 +1,22 @@
 # Semantic RAG ingestion (v9) — plan and design bar
 
-This document is the canonical design reference for **Milvus v9**, the **semantic gatekeeper**, ingestion economics, and MCP-friendly metadata. It extends the expert-reviewed plan; implementation status lives in code (`SCHEMA_VERSION` in [`base/rag/indexer/app/schema.py`](../INDEXERS.md)) and [`docs/INDEXERS.md`](../INDEXERS.md).
+This document is the canonical design reference for **Milvus v9**, the **semantic gatekeeper**, ingestion economics, and MCP-friendly metadata. It extends the expert-reviewed plan; implementation status lives in code (`SCHEMA_VERSION` in [`base/rag/indexer/app/schema.py`](../../base/rag/indexer/app/schema.py)) and [`docs/INDEXERS.md`](../INDEXERS.md).
+
+## Implementation status (as of this doc)
+
+| Area | Status |
+|------|--------|
+| Milvus **v9** schema, `catalog_entity`, admin/planner alignment | **Shipped** |
+| Semantic **gatekeeper** (optional LLM, per-document) | **Shipped** (`gatekeeper.py`, env vars in INDEXERS) |
+| **preprocess-service** (jusText `clean_html`, **simhash** batch) | **Shipped** — [`base/rag/preprocess-service/`](../../base/rag/preprocess-service/) |
+| **spam-service** (DistilBERT batch scores) | **Shipped** — [`base/rag/spam-service/`](../../base/rag/spam-service/) |
+| Indexer HTTP clients + `pipeline.py` wiring | **Shipped** |
+| **Kustomize** | In [`base/rag/kustomization.yaml`](../../base/rag/kustomization.yaml), pulled by [`base/core/kustomization.yaml`](../../base/core/kustomization.yaml) → `overlays/api` and `overlays/model` via `./scripts/deploy.sh` |
+| **CI images** | [`build-images.yml`](../../.github/workflows/build-images.yml), [`release.yml`](../../.github/workflows/release.yml), [`build-images.sh`](../../scripts/build-images.sh) |
+| **deploy.sh** | Waits for `preprocess-service` and `spam-service` rollouts in `synesis-rag` |
+| Indexer **CronJob** | **Separate** overlay — [`overlays/jobs/`](../../overlays/jobs/) / `deploy-indexer.sh` (not the same resource list as `base/rag/` services) |
+| **BERTopic** batch / `topic_id` backfill | **Not implemented** — schema placeholders + ops note only (see INDEXERS) |
+| Future: **pipeline batching** refactor | Intentionally deferred; microservices expose batch endpoints for later coalescing |
 
 ## Goals
 
@@ -8,15 +24,17 @@ This document is the canonical design reference for **Milvus v9**, the **semanti
 - **Economics**: Cheap steps before LLM; **hierarchical gatekeeper** (document-level labels inherited by chunks) by default.
 - **Retrieval**: Rich metadata for hybrid search + **MCP / agent filters** (`language`, `artifact_kind`, `content_type`, scores, `index_decision`).
 
-## Pipeline order (target)
+## Pipeline order (implemented in `pipeline.py`)
 
-1. Fetch + deterministic HTML cleanup (future preprocess service).
-2. Near-duplicate control (simhash; future preprocess service).
+1. Fetch (handlers).
+2. Optional **HTML main-text** extraction (`preprocess-service` **clean_html**) for `html_document` when env enabled.
 3. Structure-aware chunking (handlers + `chunking.py`).
 4. Chunk quality gate (`content_gate.py`).
-5. **Semantic gatekeeper** (optional LLM, OpenAI-compatible): structured JSON, per-document when enabled.
-6. Keyword-service + TEI embed + Milvus upsert.
-7. Offline analytics (Bertopic, spam microservice) — not on the hot path initially.
+5. **Semantic gatekeeper** (optional LLM): structured JSON, per-document when enabled.
+6. Optional **simhash** + **spam** batches (`preprocess-service`, `spam-service`) → Milvus scalars.
+7. Enrich (template context; optional Tier-2 LLM in non-queue paths) → **TEI embed** → injection scan → **Milvus upsert**.
+
+**Query-time keyword distillation** uses **keyword-service** in the planner, not inside the indexer pipeline.
 
 ## Milvus v9 fields
 
@@ -65,17 +83,18 @@ See [`docs/INDEXERS.md`](../INDEXERS.md) for the authoritative field list and op
 - **`NetworkPolicy`** is applied on `preprocess-service` and `spam-service` (ingress from `app.kubernetes.io/name: synesis-indexer` only). Extend the same pattern if additional internal RAG APIs are added.
 - Optional: **mTLS or shared internal token** header checked in middleware if defense-in-depth beyond network policy is required.
 
-### BERTopic — optional batch / backfill (todo)
+### BERTopic — optional batch / backfill (deferred implementation)
 
 - **Why run at all**: assign **stable `topic_id` / topic labels** for analytics, admin browsing, Milvus **metadata filters**, drift detection after corpus changes, or **re-embedding strategy** experiments — not required for basic retrieval.
 - **Why not online**: cost, RAM, nondeterminism across small batches, and **version skew** when the topic model changes → expect **periodic backfill** jobs rather than synchronous ingestion.
-- **Implementation sketch**: CronJob or Jobs queue in `synesis-rag`, read chunks/docs from Milvus or object store, write topic fields back (batch upsert). Flag in plan/roadmap until implemented.
+- **Implementation sketch**: CronJob or Job in `synesis-rag`, read chunks from Milvus (or export), run offline BERTopic/UMAP, **batch upsert** `topic_id` / `topic_keywords`. No Job manifest in this repo yet.
+- **Documentation**: Ops expectations and field placeholders are described in [`INDEXERS.md`](../INDEXERS.md) (§ optional topic modeling).
 
-### Done criteria (mark roadmap items finished)
+### Done criteria (roadmap)
 
 - [x] `preprocess-service` image + manifests in `base/rag/`, indexer HTTP client + env wiring, docs in [`INDEXERS.md`](../INDEXERS.md).
 - [x] `spam-service` image + manifests, indexer integration, NetworkPolicy + ClusterIP verified.
-- [ ] (Optional) BERTopic batch job documented and linked from [`INDEXERS.md`](../INDEXERS.md); schema backfill path defined.
+- [x] (Optional) BERTopic: **documented** in INDEXERS + this plan; **implementation** intentionally deferred (no CronJob in tree).
 
 **Roadmap items (summary)**
 
