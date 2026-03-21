@@ -38,7 +38,7 @@ patches:
       name: litellm-proxy
 
   # LiteLLM: enable Prisma + /model/new so Admin Model Registry can hot-sync routes.
-  # DATABASE_URL is patched post-apply by scripts/deploy.sh (same Postgres as admin).
+  # DATABASE_URL comes from Secret litellm-database-url (scripts/deploy.sh syncs it).
   # Master key stays (litellm-secrets) so admin reconcile can call management APIs.
   - target:
       kind: Deployment

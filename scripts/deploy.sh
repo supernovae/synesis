@@ -367,9 +367,23 @@ ensure_admin_db() {
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
 
     _ensure_litellm_database "$ns" "$cluster_name" || true
-    _patch_deployment_env "synesis-gateway" "litellm-proxy" "DATABASE_URL" "$litellm_url" "litellm"
+    _upsert_litellm_database_secret "$litellm_url"
 
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
+}
+
+# Sync LiteLLM DATABASE_URL via Secret so `oc apply -k` does not wipe inline env values.
+_upsert_litellm_database_secret() {
+    local litellm_url="${1:?}"
+    local gw="synesis-gateway"
+    oc create namespace "$gw" 2>/dev/null || true
+    if ! oc get deployment litellm-proxy -n "$gw" &>/dev/null; then
+        return 0
+    fi
+    oc create secret generic litellm-database-url -n "$gw" \
+        --from-literal=database-url="$litellm_url" \
+        --dry-run=client -o yaml | oc apply -f - \
+        && log "  Secret $gw/litellm-database-url synced (LiteLLM Prisma)"
 }
 
 # Create empty `litellm` DB for LiteLLM Prisma (idempotent). Must not reuse synesis_admin.
@@ -459,7 +473,7 @@ patch_admin_db_urls() {
     _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
     _ensure_litellm_database "$ns" "$cluster_name" || true
-    _patch_deployment_env "synesis-gateway" "litellm-proxy" "DATABASE_URL" "$litellm_url" "litellm"
+    _upsert_litellm_database_secret "$litellm_url"
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url" "yarn"
 }
 

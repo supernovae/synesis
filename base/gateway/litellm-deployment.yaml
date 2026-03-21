@@ -4,7 +4,10 @@
 # same CNPG cluster as admin). Do not point DATABASE_URL at `synesis_admin` (Alembic owns it).
 # scripts/deploy.sh creates `litellm` and patches DATABASE_URL when the operator secret exists.
 #
-# OpenShift: non-root + read-only root requires writable emptyDirs (migrations, cache, tmp).
+# OpenShift: writable emptyDirs for migrations, cache, tmp, and /var/lib/litellm (random UID
+# cannot use image-owned /var/lib/litellm). Prisma startup health_check can raise
+# NotConnectedError on Wolfi/OpenShift — DISABLE_PRISMA_HEALTH_CHECK_ON_STARTUP skips that
+# blocking call (connect + DB ops still run); see LiteLLM proxy_server._setup_prisma_client.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -65,18 +68,35 @@ spec:
                 secretKeyRef:
                   name: litellm-secrets
                   key: master-key
+            # Populated by deploy.sh → Secret litellm-database-url (apply-safe; not inline).
             - name: DATABASE_URL
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-database-url
+                  key: database-url
+                  optional: true
             - name: LITELLM_NON_ROOT
               value: "true"
+            # Avoid startup exit when Prisma query engine isn't ready for health_check yet (OpenShift).
+            - name: DISABLE_PRISMA_HEALTH_CHECK_ON_STARTUP
+              value: "true"
+            - name: LITELLM_UI_PATH
+              value: "/var/lib/litellm/ui"
             # Writable mount — Prisma baseline / migrations (OpenShift no local write on root FS).
             - name: LITELLM_MIGRATION_DIR
               value: "/app/migrations"
-            # Prisma/npm cache under the emptyDir-backed HOME.
+            # Prisma/npm cache under the emptyDir-backed HOME (never /root/.cache on OpenShift).
             - name: HOME
+              value: "/.cache"
+            - name: XDG_CACHE_HOME
               value: "/.cache"
             - name: NPM_CONFIG_CACHE
               value: "/.cache/npm"
+            - name: PRISMA_BINARY_CACHE_DIR
+              value: "/.cache/prisma-python"
+            # Watchdog reconnect can race before engines finish unpacking (noisy / spurious errors).
+            - name: PRISMA_HEALTH_WATCHDOG_ENABLED
+              value: "false"
             # Prisma query engine localhost traffic must not use cluster HTTP proxy.
             - name: NO_PROXY
               value: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
@@ -93,6 +113,11 @@ spec:
               mountPath: /.cache
             - name: tmp
               mountPath: /tmp
+            - name: litellm-var
+              mountPath: /var/lib/litellm
+            # Prisma/node follow /root/.cache; mounting only /.cache fails because /root is 0700.
+            - name: root-home
+              mountPath: /root
           resources:
             requests:
               cpu: 500m
@@ -121,4 +146,8 @@ spec:
         - name: prisma-cache
           emptyDir: {}
         - name: tmp
+          emptyDir: {}
+        - name: litellm-var
+          emptyDir: {}
+        - name: root-home
           emptyDir: {}
