@@ -103,3 +103,7 @@ This document tracks the research foundations that inform Synesis design decisio
 5. **When uncertain, inquire** — In the Cynefin complex domain, probe before acting. Ask the user a guided question using what you already know, rather than proceeding with low confidence or stalling with no context.
 
 6. **Safety and success are one thing** — Quality, safety, and productivity emerge from the same adaptive processes (taxonomy routing, evidence-gated critique, knowledge retrieval). They are not separate concerns bolted onto each agent.
+
+## Obsolete terminology: “intent anchors”
+
+Older documentation described a separate **two-tier intent anchor** pipeline (`SYNESIS_ANCHOR_*`, dedicated state fields). That subsystem **is not in the codebase** anymore; behavior lives in **frame extraction → `DomainProfile` → focused / composite / diffuse** and **cohesion pre-seeding** for focused frames. If you followed an old link, see [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for a redirect and pointers here and to [WORKFLOW.md](WORKFLOW.md).

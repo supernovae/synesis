@@ -546,99 +546,45 @@ Validators are wired as pre/post checks via the `validated_node()` wrapper in
 Pre-violations are injected into the node's context as warnings. Post-violations
 are written to `critique_register` as open items for the next iteration.
 
-## Intent Anchors (Pre-Retrieval Ambiguity Resolution)
+## Frame extraction, domain profile, and clarification (sensemaking)
 
-Resolves technology ambiguity **before** retrieval to prevent cohesion
-oscillation. When a vague prompt mentions "Kubernetes" but not a cloud
-provider, the anchor resolver detects the gap and either picks a default
-(Tier 1) or asks the user (Tier 2) — before spending tokens on conflicting
-evidence.
+Ambiguity and “what stack are we talking about?” are handled **after frame extraction**, using a **domain profile** and **frame coherence** — not via the retired “intent anchors” env/API (`SYNESIS_ANCHOR_*` does not exist). Overview:
 
-### Two-Tier Strategy
+1. **Frame extractor** produces a structured **semantic frame** (technologies, deliverables, constraints, hints).
+2. **Frame normalizer** builds a **`DomainProfile`**: weighted domains + **`frame_coherence`** = `focused` | `composite` | `diffuse` (see `schemas.py`, `frame_normalizer.py`).
+3. **Focused** — one domain clearly dominates; the router may **pre-seed a cohesion lock** from YAML **conflict groups** (`cohesion_groups.yaml` / `get_conflict_groups()` in `cohesion.py`) so retrieval does not fan out across mutually exclusive vendors for a single-target question.
+4. **Composite** — multiple domains are genuinely in play; **broad, diversified retrieval**; **no** early vendor lock.
+5. **Diffuse** — the frame is unclear (**Cynefin complex**); the planner can run a **guided clarification / probe** (Phase 2a in `planner_node.py`) so the system **asks** instead of assuming.
 
-| Tier | Trigger | Behavior |
-|------|---------|----------|
-| **Tier 1 (Gap)** | One side of a conflict group present (e.g., "Kubernetes" but no cloud provider) | Pick strongest default, record as assumption |
-| **Tier 2 (Conflict)** | Both sides present (e.g., "AWS vs GCP") | Circuit-break, ask clarification (if `anchor_strategy` permits) |
+**Topic frame** (what to search for) is built separately from raw technology keywords so evidence follows **user intent**, not only tool names — see [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md).
 
-Strategy is A/B testable via `SYNESIS_ANCHOR_STRATEGY`:
-`pick_default` (always pick), `ask_on_conflict` (recommended), `always_ask`.
-
-### Conflict Groups
-
-Derived automatically from `_ENTITY_EXCLUSION_MAP` in `cohesion.py` via
-connected-component analysis. No per-category logic. For unknown domains,
-a lightweight LLM fallback (~200ms) detects mutually exclusive technologies.
-Discoveries are persisted to admin Postgres for HITL review; approved groups
-are loaded at startup and merged into the fast path.
-
-### Pipeline Flow
-
-```
-Frame Extractor → Anchor Resolver (deterministic map + LLM fallback)
-  → Tier 1: lock anchors + assumptions
-  → Tier 2: clarification question → user responds → lock anchors
-  → Router: scoped queries with anchor terms + negative filters
-    → Retrieval: pre-seeded CohesionLock (skips Phase 5b detection)
-  → Writer: assumption header ("Assuming AWS/EKS...")
-  → Critic: deterministic anchor compliance pre-check
-```
-
-### State Fields
-
-| Field | Type | Set By | Consumed By |
-|-------|------|--------|-------------|
-| `intent_anchors` | `dict[str, str]` | Frame Normalizer | Router, Writer, Critic |
-| `anchor_exclude_signals` | `list[str]` | Frame Normalizer | Router, Cohesion Filter, Critic |
-| `anchor_assumptions` | `list[str]` | Frame Normalizer | Writer |
-| `unresolved_conflicts` | `list[dict]` | Frame Normalizer | Planner (clarify gate) |
-
-See [INTENT_ANCHORS.md](INTENT_ANCHORS.md) for full research basis, configuration,
-and HITL feedback loop details.
+**Historical / naming:** Older docs referred to “intent anchors” as a separate tiered resolver. That implementation was removed; the **goals** (avoid silent wrong assumptions, reduce mixed-evidence thrash) live in the sensemaking path above. [INTENT_ANCHORS.md](INTENT_ANCHORS.md) is a short **redirect and “what not to configure”** note, not a live config guide.
 
 ## Cohesion Lock Engine
 
-Prevents mixed-topic answers (e.g., combining AWS, GCP, and Azure guidance
-in a single architecture response). The Cohesion Lock operates between retrieval
-and generation to ensure all evidence and output stay grounded to one coherent
-topic.
+Reduces mixed-topic answers (e.g., blending unrelated cloud platforms in one focused architecture reply). The lock can appear **before** or **after** retrieval depending on whether the **domain profile** supplied a **pre-seeded** lock.
 
-When **intent anchors** are present, the Cohesion Lock is pre-seeded from
-the anchor resolver — Phase 5b detection is skipped entirely since the
-dominant entity was determined pre-retrieval. This eliminates the latency
-of post-retrieval lock detection and prevents the "random first winner"
-problem on vague prompts.
+### How it works (current)
 
-### How It Works
+1. **Domain-profile pre-seeding (focused frames only)** — In `router.py`, when `frame_coherence == "focused"` and the dominant domain weight is high enough, the router builds a **`CohesionLock`** from **conflict groups** and attaches **`_preseeded_lock`** to evidence requests. On consolidated retrieve paths, **`cohesion_filter`** may run **before** packet synthesis, dropping off-topic hits early.
+2. **Post-retrieval lock** — When no pre-seeded lock is in play, **Phase 5b-style** detection can still infer a dominant entity from retrieved documents (metadata / LLM fallback), then filter and compress as before.
+3. **Micro-critique** — Evaluates documents against the active lock; non-matching docs are filtered.
+4. **Contextual compression** — Strips off-topic sentences from survivors.
+5. **LongContextReorder** — Places lock-matching material where attention is strongest.
 
-1. **(Pre-retrieval) Intent anchor resolution** identifies technology
-   choices from the user's prompt and resolves conflicts before retrieval.
-   When anchors are present, they pre-seed the Cohesion Lock.
-2. **(Post-retrieval) Cohesion Lock detection** (Phase 5b) — runs only
-   when no pre-seeded lock is available. Detects the dominant entity
-   from top retrieved documents via metadata or LLM fallback.
-3. **Micro-critique** evaluates each retrieved document against the lock.
-   Documents that don't match the cohesion lock are filtered out.
-4. **Contextual compression** strips off-topic sentences from surviving
-   documents, keeping only lock-matching content.
-5. **LongContextReorder** places the most relevant (lock-matching)
-   documents at the edges of the context window where LLM attention
-   is strongest.
+**Composite** and **diffuse** profiles deliberately **avoid** aggressive pre-seeding so the system does not invent a single vendor when the user’s prompt is multi-domain or underspecified.
 
-### State Fields
+### State fields
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `cohesion_lock` | `CohesionLock` | Dominant entity/theory + lock type |
+| `cohesion_lock` | `dict` / `CohesionLock` | Dominant entity + lock metadata |
 | `cohesion_filtered_docs` | `list[Document]` | Documents passing micro-critique |
+| `domain_profile` | `DomainProfile` (in task frame) | Weights + `frame_coherence`; drives pre-seed behavior |
 
 ### Impact
 
-The cohesion lock ensures that when a user asks about "LLM architecture on AWS,"
-the system doesn't mix in GCP VPC peering docs or Azure service mesh guidance.
-Evidence stays grounded; the writer receives only coherent, on-topic material.
-With intent anchors, the lock is determined before retrieval — eliminating
-the 2-4 minute latency penalty from conflicting evidence and re-retrieval cycles.
+For a **clear, single-domain** question, evidence stays on one coherent topic. For **composite** prompts, multiple domains remain in play. For **diffuse** prompts, **clarification** is preferred over guessing — see [DESIGN_THEORY.md](DESIGN_THEORY.md) and [SENSEMAKING_REFERENCES.md](SENSEMAKING_REFERENCES.md).
 
 ## Query Normalization Pipeline
 
