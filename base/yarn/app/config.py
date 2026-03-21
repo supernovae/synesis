@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     log_level: str = "info"
     otel_endpoint: str = ""
     metrics_enabled: bool = True
+    diagnostics_enabled: bool = True
+    diagnostics_base_sample_rate: float = 0.02
+    diagnostics_on_failure: bool = True
+    diagnostics_tool_loop_threshold: int = 8
+    diagnostics_max_tool_events: int = 20
+    diagnostics_snapshot_ttl_seconds: int = 86400
 
     # --- Cost tracking ---
     deepinfra_input_per_m: float = 0.22

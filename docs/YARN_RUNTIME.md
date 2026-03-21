@@ -106,6 +106,11 @@ All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
 | `SYNESIS_YARN_MAX_TOKENS` | `32768` | Max output tokens |
 | `SYNESIS_YARN_TEMPERATURE` | `0.2` | Model temperature |
 | `SYNESIS_YARN_LOG_LEVEL` | `info` | Log level |
+| `SYNESIS_YARN_DIAGNOSTICS_ENABLED` | `true` | Enable adaptive diagnostics capture |
+| `SYNESIS_YARN_DIAGNOSTICS_BASE_SAMPLE_RATE` | `0.02` | Baseline request sampling rate |
+| `SYNESIS_YARN_DIAGNOSTICS_ON_FAILURE` | `true` | Always capture on failure/escalation |
+| `SYNESIS_YARN_DIAGNOSTICS_TOOL_LOOP_THRESHOLD` | `8` | Force capture when tool loops look oscillatory |
+| `SYNESIS_YARN_DIAGNOSTICS_SNAPSHOT_TTL_SECONDS` | `86400` | TTL for Redis diagnostics snapshots |
 
 ## Local Development
 
@@ -187,11 +192,12 @@ Two tables in the admin database (`base/admin/alembic/versions/012_yarn_sessions
 
 - **Prometheus metrics** at `/metrics`: request count, latency histogram, token counters (cached vs uncached), escalation rate, tool call success rate, circuit breaker state
 - **OpenTelemetry traces**: Optional, configure via `SYNESIS_YARN_OTEL_ENDPOINT`
+- **Adaptive diagnostics**: failure/waffling-triggered snapshots with low baseline sampling (see [YARN_SESSION_DEBUGGING.md](YARN_SESSION_DEBUGGING.md))
 
 ## Hardening Roadmap
 
 - **Phase 1 (implemented):** strict PAT/Keycloak auth, removal of permissive token fallback by default, and admin-backed MCP authorization for tool listing/calls.
-- **Phase 2 (planned):** adaptive diagnostics for oscillation/waffling with failure-triggered sampling (targeted traces only, low steady-state overhead).
+- **Phase 2 (implemented):** adaptive diagnostics for oscillation/waffling with failure-triggered sampling and operator snapshots for targeted debugging.
 
 ## Cost Analysis
 

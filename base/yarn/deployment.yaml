@@ -58,6 +58,18 @@ spec:
               value: "false"
             - name: SYNESIS_YARN_ENFORCE_MCP_AUTHZ
               value: "true"
+            - name: SYNESIS_YARN_DIAGNOSTICS_ENABLED
+              value: "true"
+            - name: SYNESIS_YARN_DIAGNOSTICS_BASE_SAMPLE_RATE
+              value: "0.02"
+            - name: SYNESIS_YARN_DIAGNOSTICS_ON_FAILURE
+              value: "true"
+            - name: SYNESIS_YARN_DIAGNOSTICS_TOOL_LOOP_THRESHOLD
+              value: "8"
+            - name: SYNESIS_YARN_DIAGNOSTICS_MAX_TOOL_EVENTS
+              value: "20"
+            - name: SYNESIS_YARN_DIAGNOSTICS_SNAPSHOT_TTL_SECONDS
+              value: "86400"
           envFrom:
             - secretRef:
                 name: provider-api-keys

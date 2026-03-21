@@ -36,6 +36,7 @@ from .model.usage_tracker import UsageAggregator, UsageRecord
 from .session.manager import record_usage, resolve_or_create_session
 from .session.models import AuthUser, SessionState
 from .telemetry.metrics import record_escalation, record_request, record_tokens, record_tool_call
+from .telemetry.diagnostics import SessionDiagnostics, get_snapshot
 from .telemetry.traces import setup_logging, setup_otel
 from .tools.orchestrator import ToolOrchestrator
 
@@ -239,6 +240,17 @@ async def metrics(request: Request):
     )
 
 
+@app.get("/v1/diagnostics/{request_id}")
+async def get_diagnostics_snapshot(request_id: str, request: Request):
+    user = await resolve_auth(request)
+    if user.role not in {"admin", "platform_admin", "org_admin"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    snapshot = await get_snapshot(request_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Not found")
+    return snapshot
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(body: ChatCompletionRequest, request: Request):
     """Main endpoint — the agentic loop."""
@@ -259,6 +271,12 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
         auth_user, conversation_id=conversation_id
     )
     enforce_rate_limit(session)
+    diagnostics = SessionDiagnostics.create(
+        request_id=request_id,
+        session_key=session.session_key,
+        user_id=session.user_id,
+        conversation_id=session.conversation_id,
+    )
 
     # --- Memory buffer ---
     buf = _get_buffer(session.session_key)
@@ -321,6 +339,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
                 start_time=start_time,
                 auth_token=bearer_token,
                 allowed_tool_names=allowed_tool_names,
+                diagnostics=diagnostics,
             ),
             media_type="text/event-stream",
             headers={
@@ -340,6 +359,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
             start_time=start_time,
             auth_token=bearer_token,
             allowed_tool_names=allowed_tool_names,
+            diagnostics=diagnostics,
         )
 
 
@@ -359,135 +379,158 @@ async def _stream_agentic_loop(
     start_time: float,
     auth_token: str,
     allowed_tool_names: set[str],
+    diagnostics: SessionDiagnostics,
 ):
     """The hot loop: model -> tool calls -> model -> ... -> content stream."""
     usage_agg = UsageAggregator()
     tool_loop_count = 0
     accumulated_content = ""
+    escalated = False
+    status = "success"
+    error_message = ""
 
-    while True:
-        context = buf.get_context()
+    try:
+        while True:
+            context = buf.get_context()
 
         # Prefix order validation (debug)
-        warnings = validate_prefix_order(context)
-        if warnings:
-            logger.warning("Prefix order issues: %s", warnings)
+            warnings = validate_prefix_order(context)
+            if warnings:
+                logger.warning("Prefix order issues: %s", warnings)
 
         # Estimate cache tokens for tracking
-        est_cached = estimate_cache_hit_tokens(buf)
+            est_cached = estimate_cache_hit_tokens(buf)
 
         # Stream model response
-        tool_accumulator = ToolCallAccumulator()
-        chunk_content = ""
-        finish_reason = None
-        has_tool_calls = False
+            tool_accumulator = ToolCallAccumulator()
+            chunk_content = ""
+            finish_reason = None
+            has_tool_calls = False
 
-        async for chunk in model_executor.run_model(
-            context, tools,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        ):
-            if chunk.content:
-                chunk_content += chunk.content
-                yield _build_sse_chunk(request_id, model, content=chunk.content)
+            async for chunk in model_executor.run_model(
+                context, tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            ):
+                if chunk.content:
+                    chunk_content += chunk.content
+                    yield _build_sse_chunk(request_id, model, content=chunk.content)
 
-            if chunk.tool_calls:
-                tool_accumulator.feed(chunk.tool_calls)
-                has_tool_calls = True
-
-            if chunk.finish_reason:
-                finish_reason = chunk.finish_reason
-                if chunk.finish_reason == "tool_calls" and tool_accumulator.has_pending:
-                    chunk.tool_calls = tool_accumulator.flush()
+                if chunk.tool_calls:
+                    tool_accumulator.feed(chunk.tool_calls)
                     has_tool_calls = True
 
-            if chunk.raw.get("_usage_record"):
-                usage_agg.add(chunk.raw["_usage_record"])
+                if chunk.finish_reason:
+                    finish_reason = chunk.finish_reason
+                    if chunk.finish_reason == "tool_calls" and tool_accumulator.has_pending:
+                        chunk.tool_calls = tool_accumulator.flush()
+                        has_tool_calls = True
+
+                if chunk.raw.get("_usage_record"):
+                    usage_agg.add(chunk.raw["_usage_record"])
 
         # Process completed tool calls
-        completed_calls = tool_accumulator.flush() if tool_accumulator.has_pending else []
-        if has_tool_calls and completed_calls:
-            buf.append_model("", tool_calls=completed_calls)
+            completed_calls = tool_accumulator.flush() if tool_accumulator.has_pending else []
+            if has_tool_calls and completed_calls:
+                buf.append_model("", tool_calls=completed_calls)
 
-            for call in completed_calls:
-                tool_loop_count += 1
-                result = await _orchestrator.execute_tool_call(
-                    call,
-                    auth_token=auth_token,
-                    allowed_tools=allowed_tool_names,
-                )
-                record_tool_call(result.name, not result.is_error)
-
-                buf.append_tool_result(
-                    result.tool_call_id, result.name, result.content
-                )
-
-                # Check escalation
-                sig = check_escalation(buf, tool_loop_count, result)
-                if sig.should_escalate:
-                    logger.info("Escalating: %s", sig.reason)
-                    record_escalation(sig.reason)
-                    session.escalation_count += 1
-
-                    async for line in escalation_bridge.escalate_to_langchain(
-                        buf.get_context(),
-                        user=session.user_id,
-                        conversation_id=session.conversation_id,
-                    ):
-                        yield line.decode("utf-8", errors="replace")
-
-                    yield "data: [DONE]\n\n"
-                    elapsed = time.monotonic() - start_time
-                    record_request("escalated", settings.provider.value, elapsed)
-                    await record_usage(
-                        session,
-                        usage_agg.total_tokens_in,
-                        usage_agg.total_tokens_out,
-                        usage_agg.total_tokens_cached,
+                for call in completed_calls:
+                    tool_loop_count += 1
+                    result = await _orchestrator.execute_tool_call(
+                        call,
+                        auth_token=auth_token,
+                        allowed_tools=allowed_tool_names,
                     )
-                    return
+                    record_tool_call(result.name, not result.is_error)
+                    diagnostics.record_tool(result.name, not result.is_error)
 
-            continue
+                    buf.append_tool_result(
+                        result.tool_call_id, result.name, result.content
+                    )
+
+                    # Check escalation
+                    sig = check_escalation(buf, tool_loop_count, result)
+                    if sig.should_escalate:
+                        logger.info("Escalating: %s", sig.reason)
+                        diagnostics.add_reason("escalation_signal")
+                        record_escalation(sig.reason)
+                        session.escalation_count += 1
+                        escalated = True
+                        status = "escalated"
+
+                        async for line in escalation_bridge.escalate_to_langchain(
+                            buf.get_context(),
+                            user=session.user_id,
+                            conversation_id=session.conversation_id,
+                        ):
+                            yield line.decode("utf-8", errors="replace")
+
+                        yield "data: [DONE]\n\n"
+                        elapsed = time.monotonic() - start_time
+                        record_request("escalated", settings.provider.value, elapsed)
+                        await record_usage(
+                            session,
+                            usage_agg.total_tokens_in,
+                            usage_agg.total_tokens_out,
+                            usage_agg.total_tokens_cached,
+                        )
+                        return
+
+                continue
 
         # Content response (no tool calls) — we're done
-        if chunk_content:
-            accumulated_content += chunk_content
-            buf.append_model(accumulated_content)
+            if chunk_content:
+                accumulated_content += chunk_content
+                buf.append_model(accumulated_content)
 
-        yield _build_sse_chunk(
-            request_id, model,
-            finish_reason="stop",
-            usage={
-                "prompt_tokens": usage_agg.total_tokens_in,
-                "completion_tokens": usage_agg.total_tokens_out,
-                "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
-            },
+            yield _build_sse_chunk(
+                request_id, model,
+                finish_reason="stop",
+                usage={
+                    "prompt_tokens": usage_agg.total_tokens_in,
+                    "completion_tokens": usage_agg.total_tokens_out,
+                    "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
+                },
+            )
+            yield "data: [DONE]\n\n"
+            break
+
+        # --- Post-request bookkeeping ---
+        elapsed = time.monotonic() - start_time
+        record_request("success", settings.provider.value, elapsed)
+        record_tokens(
+            usage_agg.total_tokens_in,
+            usage_agg.total_tokens_out,
+            usage_agg.total_tokens_cached,
+            settings.provider.value,
         )
-        yield "data: [DONE]\n\n"
-        break
+        await record_usage(
+            session,
+            usage_agg.total_tokens_in,
+            usage_agg.total_tokens_out,
+            usage_agg.total_tokens_cached,
+        )
 
-    # --- Post-request bookkeeping ---
-    elapsed = time.monotonic() - start_time
-    record_request("success", settings.provider.value, elapsed)
-    record_tokens(
-        usage_agg.total_tokens_in,
-        usage_agg.total_tokens_out,
-        usage_agg.total_tokens_cached,
-        settings.provider.value,
-    )
-    await record_usage(
-        session,
-        usage_agg.total_tokens_in,
-        usage_agg.total_tokens_out,
-        usage_agg.total_tokens_cached,
-    )
-
-    # --- Eviction / compression check ---
-    evicted = buf.get_evicted_turns()
-    if evicted:
-        logger.info("Compressing %d evicted turns", len(evicted))
-        # Fire-and-forget compression using a cheap model call
-        _schedule_compression(buf, evicted, session)
+        # --- Eviction / compression check ---
+        evicted = buf.get_evicted_turns()
+        if evicted:
+            logger.info("Compressing %d evicted turns", len(evicted))
+            # Fire-and-forget compression using a cheap model call
+            _schedule_compression(buf, evicted, session)
+    except Exception as exc:
+        status = "error"
+        error_message = str(exc)
+        diagnostics.add_reason("exception")
+        raise
+    finally:
+        await diagnostics.finalize(
+            status=status,
+            usage=usage_agg,
+            tool_loop_count=tool_loop_count,
+            escalated=escalated,
+            context_utilization=buf.utilization,
+            error_message=error_message,
+        )
 
 
 def _schedule_compression(
@@ -535,102 +578,126 @@ async def _non_streaming_loop(
     start_time: float,
     auth_token: str,
     allowed_tool_names: set[str],
+    diagnostics: SessionDiagnostics,
 ) -> JSONResponse:
     """Non-streaming variant of the agentic loop."""
     usage_agg = UsageAggregator()
     tool_loop_count = 0
+    status = "success"
+    escalated = False
+    error_message = ""
 
-    for _ in range(settings.escalation_max_tool_loops + 1):
-        context = buf.get_context()
+    try:
+        for _ in range(settings.escalation_max_tool_loops + 1):
+            context = buf.get_context()
 
-        result = await model_executor.run_model_sync(
-            context, tools,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-
-        if result.get("error"):
-            return JSONResponse(
-                status_code=502,
-                content={"error": {"message": result["error"], "type": "model_error"}},
+            result = await model_executor.run_model_sync(
+                context, tools,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
 
-        choices = result.get("choices", [])
-        if not choices:
-            break
+            if result.get("error"):
+                status = "error"
+                error_message = result["error"]
+                diagnostics.add_reason("model_error")
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": {"message": result["error"], "type": "model_error"}},
+                )
 
-        choice = choices[0]
-        message = choice.get("message", {})
-        finish_reason = choice.get("finish_reason", "stop")
+            choices = result.get("choices", [])
+            if not choices:
+                break
+
+            choice = choices[0]
+            message = choice.get("message", {})
+            finish_reason = choice.get("finish_reason", "stop")
 
         # Track usage
-        if result.get("usage"):
-            u = result["usage"]
-            record = UsageRecord(
-                provider=settings.provider.value,
-                model=model,
-                tokens_in=u.get("prompt_tokens", 0),
-                tokens_out=u.get("completion_tokens", 0),
-                tokens_cached=u.get("prompt_tokens_details", {}).get("cached_tokens", 0),
-            )
-            usage_agg.add(record)
-
-        tool_calls = message.get("tool_calls")
-        if tool_calls and finish_reason == "tool_calls":
-            buf.append_model("", tool_calls=tool_calls)
-
-            for call in tool_calls:
-                tool_loop_count += 1
-                tr = await _orchestrator.execute_tool_call(
-                    call,
-                    auth_token=auth_token,
-                    allowed_tools=allowed_tool_names,
+            if result.get("usage"):
+                u = result["usage"]
+                record = UsageRecord(
+                    provider=settings.provider.value,
+                    model=model,
+                    tokens_in=u.get("prompt_tokens", 0),
+                    tokens_out=u.get("completion_tokens", 0),
+                    tokens_cached=u.get("prompt_tokens_details", {}).get("cached_tokens", 0),
                 )
-                record_tool_call(tr.name, not tr.is_error)
-                buf.append_tool_result(tr.tool_call_id, tr.name, tr.content)
+                usage_agg.add(record)
 
-                sig = check_escalation(buf, tool_loop_count, tr)
-                if sig.should_escalate:
-                    esc_result = await escalation_bridge.escalate_sync(
-                        buf.get_context(),
-                        user=session.user_id,
+            tool_calls = message.get("tool_calls")
+            if tool_calls and finish_reason == "tool_calls":
+                buf.append_model("", tool_calls=tool_calls)
+
+                for call in tool_calls:
+                    tool_loop_count += 1
+                    tr = await _orchestrator.execute_tool_call(
+                        call,
+                        auth_token=auth_token,
+                        allowed_tools=allowed_tool_names,
                     )
-                    session.escalation_count += 1
-                    return JSONResponse(content=esc_result)
+                    record_tool_call(tr.name, not tr.is_error)
+                    diagnostics.record_tool(tr.name, not tr.is_error)
+                    buf.append_tool_result(tr.tool_call_id, tr.name, tr.content)
 
-            continue
+                    sig = check_escalation(buf, tool_loop_count, tr)
+                    if sig.should_escalate:
+                        diagnostics.add_reason("escalation_signal")
+                        esc_result = await escalation_bridge.escalate_sync(
+                            buf.get_context(),
+                            user=session.user_id,
+                        )
+                        session.escalation_count += 1
+                        status = "escalated"
+                        escalated = True
+                        return JSONResponse(content=esc_result)
+
+                continue
 
         # Content response
-        content = message.get("content", "")
-        buf.append_model(content)
+            content = message.get("content", "")
+            buf.append_model(content)
 
-        elapsed = time.monotonic() - start_time
-        record_request("success", settings.provider.value, elapsed)
-        await record_usage(
-            session,
-            usage_agg.total_tokens_in,
-            usage_agg.total_tokens_out,
-            usage_agg.total_tokens_cached,
+            elapsed = time.monotonic() - start_time
+            record_request("success", settings.provider.value, elapsed)
+            await record_usage(
+                session,
+                usage_agg.total_tokens_in,
+                usage_agg.total_tokens_out,
+                usage_agg.total_tokens_cached,
+            )
+
+            return JSONResponse(content={
+                "id": request_id,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": model,
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }],
+                "usage": {
+                    "prompt_tokens": usage_agg.total_tokens_in,
+                    "completion_tokens": usage_agg.total_tokens_out,
+                    "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
+                },
+            })
+
+        status = "error"
+        error_message = "Tool loop limit exceeded"
+        diagnostics.add_reason("tool_loop_limit_exceeded")
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"message": "Tool loop limit exceeded", "type": "server_error"}},
         )
-
-        return JSONResponse(content={
-            "id": request_id,
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": model,
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }],
-            "usage": {
-                "prompt_tokens": usage_agg.total_tokens_in,
-                "completion_tokens": usage_agg.total_tokens_out,
-                "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
-            },
-        })
-
-    return JSONResponse(
-        status_code=500,
-        content={"error": {"message": "Tool loop limit exceeded", "type": "server_error"}},
-    )
+    finally:
+        await diagnostics.finalize(
+            status=status,
+            usage=usage_agg,
+            tool_loop_count=tool_loop_count,
+            escalated=escalated,
+            context_utilization=buf.utilization,
+            error_message=error_message,
+        )
