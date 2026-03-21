@@ -33,7 +33,7 @@ IDE Clients (Cursor, Claude Code, Windsurf, OpenCode)
 ## Modules
 
 ### Session Manager (`app/session/`)
-- Authenticates via Keycloak JWT or `syn-` prefix PATs
+- Authenticates via strict Keycloak JWT or DB-validated `syn-` PATs
 - Per-session state in Redis DB 3 (`yarn:session:{user_id}:{conversation_id}`)
 - Token-bucket rate limiting per session/role
 
@@ -49,7 +49,7 @@ This layout ensures 80-85% prefix cache hits on DeepInfra (10x cheaper cached to
 When turns are evicted from the window, the **compressor** summarizes them into a memory replay message pinned to the first zone, preserving long-session context.
 
 ### Tool Orchestrator (`app/tools/`)
-- Loads tools from the MCP server + built-in local tools
+- Loads caller-authorized tools from admin MCP API + built-in local tools
 - JSON Schema validation for arguments
 - Retries on transient failure
 - The `synesis_escalate` tool triggers LangChain escalation
@@ -95,7 +95,13 @@ All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
 | `SYNESIS_YARN_MEMORY_REDIS_URL` | `redis://localhost:6379/4` | Redis for memory |
 | `SYNESIS_YARN_PLANNER_URL` | `http://synesis-planner...` | Planner for escalation |
 | `SYNESIS_YARN_MCP_URL` | `http://synesis-mcp...` | MCP server for tools |
+| `SYNESIS_YARN_ADMIN_API_URL` | `http://synesis-admin-api...` | Admin API base URL for user-scoped MCP authz |
 | `SYNESIS_YARN_KEYCLOAK_ISSUER_URL` | | Keycloak realm URL |
+| `SYNESIS_YARN_KEYCLOAK_AUDIENCE` | *(empty)* | Optional JWT audience check (when empty, `azp` is validated) |
+| `SYNESIS_YARN_KEYCLOAK_EXPECTED_AZP` | `synesis-admin` | Expected Keycloak client ID when audience check is disabled |
+| `SYNESIS_YARN_ADMIN_DB_URL` | | Admin Postgres DSN for PAT lookup |
+| `SYNESIS_YARN_AUTH_ALLOW_LEGACY_FALLBACK` | `false` | Allow legacy HS256 dev auth fallback |
+| `SYNESIS_YARN_ENFORCE_MCP_AUTHZ` | `true` | Enforce admin-backed MCP authorization on list/call |
 | `SYNESIS_YARN_MEMORY_WINDOW_TOKENS` | `131072` | Memory window size |
 | `SYNESIS_YARN_MAX_TOKENS` | `32768` | Max output tokens |
 | `SYNESIS_YARN_TEMPERATURE` | `0.2` | Model temperature |
@@ -111,7 +117,12 @@ cp .env.example .env
 # 2. Start services
 podman-compose up
 
-# 3. Test with curl
+# 3. Optional local-only fallback auth (for dev without Keycloak/PAT DB)
+export SYNESIS_YARN_AUTH_ALLOW_LEGACY_FALLBACK=true
+export SYNESIS_YARN_ADMIN_DB_URL=""
+export SYNESIS_YARN_KEYCLOAK_ISSUER_URL=""
+
+# 4. Test with curl
 curl http://localhost:8000/v1/chat/completions \
   -H "Authorization: Bearer syn-dev-test" \
   -H "Content-Type: application/json" \
@@ -176,6 +187,11 @@ Two tables in the admin database (`base/admin/alembic/versions/012_yarn_sessions
 
 - **Prometheus metrics** at `/metrics`: request count, latency histogram, token counters (cached vs uncached), escalation rate, tool call success rate, circuit breaker state
 - **OpenTelemetry traces**: Optional, configure via `SYNESIS_YARN_OTEL_ENDPOINT`
+
+## Hardening Roadmap
+
+- **Phase 1 (implemented):** strict PAT/Keycloak auth, removal of permissive token fallback by default, and admin-backed MCP authorization for tool listing/calls.
+- **Phase 2 (planned):** adaptive diagnostics for oscillation/waffling with failure-triggered sampling (targeted traces only, low steady-state overhead).
 
 ## Cost Analysis
 

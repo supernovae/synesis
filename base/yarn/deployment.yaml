@@ -48,10 +48,16 @@ spec:
               value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
             - name: SYNESIS_YARN_MCP_URL
               value: "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
+            - name: SYNESIS_YARN_ADMIN_API_URL
+              value: "http://synesis-admin-api.synesis-admin.svc.cluster.local:8000"
             - name: SYNESIS_YARN_KEYCLOAK_ISSUER_URL
               value: ""
             - name: SYNESIS_YARN_ADMIN_DB_URL
               value: ""
+            - name: SYNESIS_YARN_AUTH_ALLOW_LEGACY_FALLBACK
+              value: "false"
+            - name: SYNESIS_YARN_ENFORCE_MCP_AUTHZ
+              value: "true"
           envFrom:
             - secretRef:
                 name: provider-api-keys

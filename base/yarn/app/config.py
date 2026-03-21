@@ -47,17 +47,22 @@ class Settings(BaseSettings):
 
     # --- Auth ---
     keycloak_issuer_url: str = ""
-    keycloak_audience: str = "synesis-api"
+    keycloak_audience: str = ""
+    keycloak_expected_azp: str = "synesis-admin"
     jwt_secret: str = "synesis-dev-secret"
     admin_db_url: str = ""
+    auth_allow_legacy_fallback: bool = False
+    pat_pepper: str = Field(default="", alias="SYNESIS_PAT_PEPPER")
 
     # --- Rate limits ---
     rate_limit_tokens_per_minute: int = 500_000
     rate_limit_requests_per_minute: int = 60
 
     # --- Upstream services ---
+    admin_api_url: str = "http://synesis-admin-api.synesis-admin.svc.cluster.local:8000"
     planner_url: str = "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
     mcp_url: str = "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
+    enforce_mcp_authz: bool = True
 
     # --- Escalation ---
     escalation_context_threshold: float = 0.9

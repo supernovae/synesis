@@ -27,7 +27,7 @@ from .memory.buffer import MemoryBuffer
 from .memory.compressor import build_summarize_messages, merge_replay
 from .memory.delta_stitcher import estimate_cache_hit_tokens
 from .memory.prefix_optimizer import validate_prefix_order
-from .middleware.auth import resolve_auth
+from .middleware.auth import extract_bearer_token, resolve_auth
 from .middleware.injection_scanner import scan_messages
 from .middleware.rate_limiter import enforce_rate_limit
 from .model import executor as model_executor
@@ -72,10 +72,12 @@ async def lifespan(app: FastAPI):  # type: ignore[override]
     )
     yield
     from .session import redis_store
+    from . import db
     from .tools import mcp_client
     from .model import providers
 
     await redis_store.close()
+    await db.close()
     await mcp_client.close()
     await escalation_bridge.close()
     await providers.close_all()
@@ -197,23 +199,39 @@ async def list_models():
 @app.get("/v1/mcp/tools")
 async def list_mcp_tools(request: Request):
     await resolve_auth(request)
-    return {"tools": _orchestrator.list_tools()}
+    bearer = extract_bearer_token(request)
+    tools = await _orchestrator.load_tools_for_token(bearer)
+    return {"tools": tools}
 
 
 @app.post("/v1/mcp/tools/call")
 async def call_mcp_tool(request: Request):
     await resolve_auth(request)
+    bearer = extract_bearer_token(request)
+    tools = await _orchestrator.load_tools_for_token(bearer)
+    allowed_tools = {
+        t.get("function", {}).get("name", "")
+        for t in tools
+        if isinstance(t, dict)
+    }
     body = await request.json()
     name = body.get("name", "")
     arguments = body.get("arguments", {})
 
     call = {"id": str(uuid.uuid4()), "function": {"name": name, "arguments": json.dumps(arguments)}}
-    result = await _orchestrator.execute_tool_call(call)
+    result = await _orchestrator.execute_tool_call(
+        call,
+        auth_token=bearer,
+        allowed_tools=allowed_tools,
+    )
     return {"content": [{"type": "text", "text": result.content}]}
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(request: Request):
+    user = await resolve_auth(request)
+    if user.role not in {"admin", "platform_admin", "org_admin"}:
+        raise HTTPException(status_code=403, detail="Forbidden")
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
     return JSONResponse(
         content=generate_latest().decode(),
@@ -229,6 +247,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 
     # --- Auth ---
     auth_user = await resolve_auth(request)
+    bearer_token = extract_bearer_token(request)
 
     # --- Session ---
     conversation_id = (
@@ -266,7 +285,25 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
         buf.append_user(user_content)
 
     # --- Tool setup ---
-    tools = body.tools or _orchestrator.list_tools()
+    authorized_tools = await _orchestrator.load_tools_for_token(bearer_token)
+    if body.tools:
+        # Client can narrow the exposed tool set, but cannot expand it.
+        requested = {
+            t.get("function", {}).get("name", "")
+            for t in body.tools
+            if isinstance(t, dict)
+        }
+        tools = [
+            t for t in authorized_tools
+            if t.get("function", {}).get("name", "") in requested
+        ]
+    else:
+        tools = authorized_tools
+    allowed_tool_names = {
+        t.get("function", {}).get("name", "")
+        for t in tools
+        if isinstance(t, dict)
+    }
     if tools and not any(t.get("_yarn_pin") == "tools" for t in buf._pinned):
         buf.set_tool_definitions(tools)
 
@@ -282,6 +319,8 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
                 temperature=body.temperature,
                 max_tokens=body.max_tokens,
                 start_time=start_time,
+                auth_token=bearer_token,
+                allowed_tool_names=allowed_tool_names,
             ),
             media_type="text/event-stream",
             headers={
@@ -299,6 +338,8 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             start_time=start_time,
+            auth_token=bearer_token,
+            allowed_tool_names=allowed_tool_names,
         )
 
 
@@ -316,6 +357,8 @@ async def _stream_agentic_loop(
     temperature: float | None,
     max_tokens: int | None,
     start_time: float,
+    auth_token: str,
+    allowed_tool_names: set[str],
 ):
     """The hot loop: model -> tool calls -> model -> ... -> content stream."""
     usage_agg = UsageAggregator()
@@ -368,7 +411,11 @@ async def _stream_agentic_loop(
 
             for call in completed_calls:
                 tool_loop_count += 1
-                result = await _orchestrator.execute_tool_call(call)
+                result = await _orchestrator.execute_tool_call(
+                    call,
+                    auth_token=auth_token,
+                    allowed_tools=allowed_tool_names,
+                )
                 record_tool_call(result.name, not result.is_error)
 
                 buf.append_tool_result(
@@ -486,6 +533,8 @@ async def _non_streaming_loop(
     temperature: float | None,
     max_tokens: int | None,
     start_time: float,
+    auth_token: str,
+    allowed_tool_names: set[str],
 ) -> JSONResponse:
     """Non-streaming variant of the agentic loop."""
     usage_agg = UsageAggregator()
@@ -532,7 +581,11 @@ async def _non_streaming_loop(
 
             for call in tool_calls:
                 tool_loop_count += 1
-                tr = await _orchestrator.execute_tool_call(call)
+                tr = await _orchestrator.execute_tool_call(
+                    call,
+                    auth_token=auth_token,
+                    allowed_tools=allowed_tool_names,
+                )
                 record_tool_call(tr.name, not tr.is_error)
                 buf.append_tool_result(tr.tool_call_id, tr.name, tr.content)
 
