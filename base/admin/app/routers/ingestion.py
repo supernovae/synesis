@@ -572,6 +572,30 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
                 select(func.count()).where(IngestionEnrichQueue.status == "pending")
             )
         ).scalar() or 0
+        semantic_metrics = (
+            await session.execute(
+                text("""
+                    SELECT
+                        COUNT(*) FILTER (
+                            WHERE indexer_stats IS NOT NULL
+                              AND indexer_stats ? 'semantic_contract'
+                        ) AS semantic_contract_items,
+                        COALESCE(
+                            SUM(
+                                COALESCE(
+                                    NULLIF(indexer_stats->'semantic_contract'->>'chunks_enriched', '')::bigint,
+                                    0
+                                )
+                            ),
+                            0
+                        ) AS semantic_chunks_enriched,
+                        COUNT(*) FILTER (
+                            WHERE COALESCE(indexer_stats->'semantic_contract'->>'enrich_full', 'false') = 'true'
+                        ) AS enrich_full_items
+                    FROM ingestion_items
+                """)
+            )
+        ).mappings().one()
     return {
         "total_sources": total_sources,
         "total_items": total_items,
@@ -586,6 +610,9 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
         "total_chunks": total_chunks,
         "staged_documents": staged_documents,
         "enrich_queue_pending": enrich_pending,
+        "semantic_contract_items": int(semantic_metrics.get("semantic_contract_items") or 0),
+        "semantic_chunks_enriched": int(semantic_metrics.get("semantic_chunks_enriched") or 0),
+        "enrich_full_items": int(semantic_metrics.get("enrich_full_items") or 0),
     }
 
 

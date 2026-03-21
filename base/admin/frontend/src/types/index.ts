@@ -520,6 +520,9 @@ export interface IngestionStats {
   total_chunks: number;
   staged_documents?: number;
   enrich_queue_pending?: number;
+  semantic_contract_items?: number;
+  semantic_chunks_enriched?: number;
+  enrich_full_items?: number;
 }
 
 export interface StagedIngestionDocument {

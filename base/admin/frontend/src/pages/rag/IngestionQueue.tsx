@@ -172,6 +172,9 @@ function StatsBar() {
     { label: "Enrich queued", value: data.enrich_queued ?? 0, color: "text-violet-600 dark:text-violet-400" },
     { label: "Doc rows", value: data.staged_documents ?? 0, color: "text-gray-700 dark:text-gray-300" },
     { label: "Enrich Q", value: data.enrich_queue_pending ?? 0, color: "text-violet-600 dark:text-violet-400" },
+    { label: "Semantic items", value: data.semantic_contract_items ?? 0, color: "text-indigo-600 dark:text-indigo-400" },
+    { label: "Pass-B chunks", value: data.semantic_chunks_enriched ?? 0, color: "text-indigo-600 dark:text-indigo-400" },
+    { label: "Full enrich items", value: data.enrich_full_items ?? 0, color: "text-indigo-600 dark:text-indigo-400" },
     { label: "Total Chunks", value: data.total_chunks.toLocaleString(), color: "text-gray-900 dark:text-white" },
   ];
   return (

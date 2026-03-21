@@ -152,6 +152,15 @@ def index_parsed_chunk_pairs(
         source_type = source_type_override or handler.source_type
 
     parsed_count = len(parsed_pairs)
+    fetch_meta["semantic_contract"] = {
+        "pass_a_version": "v9_gatekeeper",
+        "pass_b_version": "pass_b_v1" if enrich_full else "deterministic_v1",
+        "enrich_full": bool(enrich_full),
+        "docs_total": 0,
+        "docs_skipped": 0,
+        "chunks_total": parsed_count,
+        "chunks_enriched": 0,
+    }
 
     # 3. Deduplicate
     new_chunks: list[tuple[RawDocument, Chunk, str]] = []
@@ -253,6 +262,8 @@ def index_parsed_chunk_pairs(
         filtered.extend(group)
 
     new_chunks = filtered
+    fetch_meta["semantic_contract"]["docs_total"] = len(by_doc)
+    fetch_meta["semantic_contract"]["docs_skipped"] = skipped_docs
     if skipped_docs:
         logger.info(
             "indexer_gatekeeper_docs_skipped",
@@ -289,6 +300,10 @@ def index_parsed_chunk_pairs(
 
     enrich_items = [(chunk.text, doc.name, chunk.heading_path, chunk.section) for doc, chunk, _cid in new_chunks]
     enrichments = enrich_chunks_bulk(enrich_items, enrich_full=enrich_full, llm_url=llm_url)
+    if enrich_full:
+        fetch_meta["semantic_contract"]["chunks_enriched"] = sum(
+            1 for e in enrichments if (e.semantic_profile or e.chunk_summary)
+        )
 
     embed_inputs = []
     for (doc, chunk, cid), enrichment in zip(new_chunks, enrichments):

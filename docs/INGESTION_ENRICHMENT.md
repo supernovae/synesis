@@ -56,6 +56,16 @@ flowchart LR
 
 The **planner** (query path) uses Milvus, **keyword-service**, embedder, etc.; it does not run the ingestion loop above. Corporate **format** enrichment ideas in the rest of this doc would add new `base/rag/*` services the **indexer** calls, same pattern as preprocess/spam.
 
+## Two-pass semantic contract (current)
+
+The staged enrich path now follows an explicit two-pass contract:
+
+- **Pass A (document-level):** `gatekeeper.py` returns strict JSON labels (`content_type`, quality/depth/relevance scores, `index_decision`, entities, section outline) and maps them to Milvus v9 fields.
+- **Pass B (chunk-level, enrich_full):** `enrichment.py` requests JSON per chunk (`summary_one_line`, `context_prefix`, `keywords`, `confidence`) and normalizes to a stable `pass_b_v1` profile.
+- **Staged artifact persistence:** `staged_s3.py` writes `enriched/<enrich_version>/<doc_key>/result.json` and includes semantic-contract metadata in `indexer_stats.semantic_contract`.
+
+This keeps deterministic parse/chunk behavior separate from semantic interpretation while preserving replayable enrichment artifacts.
+
 ## Does enrichment need frontend or prompt changes?
 
 **No.** The planner injects retrieved chunk **text** into the context block (see `context_formatter.format_context_block` and `unified_retrieval.format_unified_context`). Any enrichment that improves chunk text—markdown tables, figure descriptions, office-doc content—is already useful:

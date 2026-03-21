@@ -16,8 +16,10 @@ Research: Anthropic Contextual Retrieval (2024), arxiv 2601.11863.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -31,6 +33,16 @@ class EnrichmentResult:
     context_prefix: str = ""
     keywords: str = ""
     chunk_summary: str = ""
+    semantic_profile: dict[str, Any] | None = None
+
+
+_PASS_B_SYSTEM_PROMPT = """You are a chunk-level semantic enricher for technical corpora.
+Return ONLY valid JSON with keys:
+- summary_one_line: concise neutral summary (<= 200 chars)
+- context_prefix: one sentence that disambiguates chunk context within doc (<= 220 chars)
+- keywords: array of up to 8 short keyword strings
+- confidence: float 0..1
+Do not include markdown or commentary."""
 
 
 def enrich_chunk(
@@ -46,11 +58,17 @@ def enrich_chunk(
     result.context_prefix = _build_context_prefix(document_name, heading_path, section)
 
     if full_mode and llm_url:
-        result.chunk_summary = _generate_chunk_summary(text, document_name, heading_path, llm_url)
-        if result.chunk_summary:
-            result.context_prefix = (
-                _generate_llm_context_prefix(text, document_name, heading_path, llm_url) or result.context_prefix
-            )
+        sem = _generate_chunk_semantics(text, document_name, heading_path, llm_url)
+        if sem:
+            result.semantic_profile = sem
+            result.chunk_summary = str(sem.get("summary_one_line") or "")[:200]
+            cp = str(sem.get("context_prefix") or "")[:220]
+            if cp:
+                result.context_prefix = cp
+            kws = sem.get("keywords")
+            if isinstance(kws, list):
+                clean = [str(k).strip() for k in kws if str(k).strip()]
+                result.keywords = ",".join(clean[:8])[:512]
 
     return result
 
@@ -76,22 +94,18 @@ def enrich_batch(
 
     if full_mode and llm_url:
         for i, c in enumerate(chunks):
-            results[i].chunk_summary = _generate_chunk_summary(
-                c["text"],
-                document_name,
-                c.get("heading_path", ""),
-                llm_url,
-            )
-            if results[i].chunk_summary:
-                results[i].context_prefix = (
-                    _generate_llm_context_prefix(
-                        c["text"],
-                        document_name,
-                        c.get("heading_path", ""),
-                        llm_url,
-                    )
-                    or results[i].context_prefix
-                )
+            sem = _generate_chunk_semantics(c["text"], document_name, c.get("heading_path", ""), llm_url)
+            if not sem:
+                continue
+            results[i].semantic_profile = sem
+            results[i].chunk_summary = str(sem.get("summary_one_line") or "")[:200]
+            cp = str(sem.get("context_prefix") or "")[:220]
+            if cp:
+                results[i].context_prefix = cp
+            kws = sem.get("keywords")
+            if isinstance(kws, list):
+                clean = [str(k).strip() for k in kws if str(k).strip()]
+                results[i].keywords = ",".join(clean[:8])[:512]
 
     return results
 
@@ -115,22 +129,18 @@ def enrich_chunks_bulk(
 
     if enrich_full and llm_url:
         for i, (text, doc_name, heading, _section) in enumerate(items):
-            results[i].chunk_summary = _generate_chunk_summary(
-                text,
-                doc_name,
-                heading,
-                llm_url,
-            )
-            if results[i].chunk_summary:
-                results[i].context_prefix = (
-                    _generate_llm_context_prefix(
-                        text,
-                        doc_name,
-                        heading,
-                        llm_url,
-                    )
-                    or results[i].context_prefix
-                )
+            sem = _generate_chunk_semantics(text, doc_name, heading, llm_url)
+            if not sem:
+                continue
+            results[i].semantic_profile = sem
+            results[i].chunk_summary = str(sem.get("summary_one_line") or "")[:200]
+            cp = str(sem.get("context_prefix") or "")[:220]
+            if cp:
+                results[i].context_prefix = cp
+            kws = sem.get("keywords")
+            if isinstance(kws, list):
+                clean = [str(k).strip() for k in kws if str(k).strip()]
+                results[i].keywords = ",".join(clean[:8])[:512]
 
     return results
 
@@ -193,6 +203,50 @@ def _generate_llm_context_prefix(
     return _llm_complete(prompt, llm_url, max_tokens=80)
 
 
+def _generate_chunk_semantics(
+    text: str,
+    document_name: str,
+    heading_path: str,
+    llm_url: str,
+) -> dict[str, Any] | None:
+    prompt = (
+        f"Document: {document_name}\n"
+        f"Section path: {heading_path}\n\n"
+        f"Chunk:\n{text[:2200]}"
+    )
+    obj = _llm_complete_json(
+        prompt,
+        llm_url,
+        max_tokens=220,
+        system_prompt=_PASS_B_SYSTEM_PROMPT,
+    )
+    if not isinstance(obj, dict):
+        return None
+    summary = str(obj.get("summary_one_line") or "").strip()[:200]
+    context_prefix = str(obj.get("context_prefix") or "").strip()[:220]
+    kw_raw = obj.get("keywords") or []
+    keywords: list[str] = []
+    if isinstance(kw_raw, list):
+        for v in kw_raw[:8]:
+            s = str(v).strip()[:64]
+            if s:
+                keywords.append(s)
+    try:
+        confidence = float(obj.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = 0.5
+    confidence = max(0.0, min(1.0, confidence))
+    if not summary and not context_prefix:
+        return None
+    return {
+        "summary_one_line": summary,
+        "context_prefix": context_prefix,
+        "keywords": keywords,
+        "confidence": confidence,
+        "contract_version": "pass_b_v1",
+    }
+
+
 def _llm_complete(prompt: str, llm_url: str, max_tokens: int = 100) -> str:
     """Call an OpenAI-compatible completion endpoint."""
     try:
@@ -211,3 +265,52 @@ def _llm_complete(prompt: str, llm_url: str, max_tokens: int = 100) -> str:
     except Exception as e:
         logger.warning("LLM enrichment call failed: %s", e)
         return ""
+
+
+def _llm_complete_json(
+    prompt: str,
+    llm_url: str,
+    *,
+    max_tokens: int = 220,
+    system_prompt: str = "",
+) -> dict[str, Any] | None:
+    try:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        resp = httpx.post(
+            f"{llm_url}/chat/completions",
+            json={
+                "model": "synesis-general",
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.1,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        content = str(resp.json()["choices"][0]["message"]["content"]).strip()
+    except Exception as e:
+        logger.warning("LLM enrichment JSON call failed: %s", e)
+        return None
+
+    if content.startswith("```"):
+        content = content.removeprefix("```json").removeprefix("```").strip()
+        if content.endswith("```"):
+            content = content[:-3].strip()
+
+    try:
+        parsed = json.loads(content)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        # Lightweight salvage: parse first JSON object boundaries.
+        s = content.find("{")
+        e = content.rfind("}")
+        if s >= 0 and e > s:
+            try:
+                parsed = json.loads(content[s : e + 1])
+                return parsed if isinstance(parsed, dict) else None
+            except Exception:
+                return None
+        return None
