@@ -38,7 +38,9 @@ spec:
           image: ghcr.io/berriai/litellm:v1.82.3-stable
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem breaks Prisma's query-engine startup on this image
+            # (NotConnectedError after migrate) and UI population under /var/lib/litellm.
+            readOnlyRootFilesystem: false
             capabilities:
               drop:
                 - ALL
