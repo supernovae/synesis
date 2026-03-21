@@ -95,6 +95,38 @@ class CostSnapshot(Base):
     __table_args__ = (Index("ix_cost_snapshots_model_date", "model", "date"),)
 
 
+class UsageRollup(Base):
+    """Pre-aggregated usage buckets for fast dashboard charts.
+
+    Populated by a periodic rollup task; one row per (bucket, model,
+    user_id, org_id) tuple.  Bucket is truncated to 5 minutes by default.
+    """
+
+    __tablename__ = "usage_rollups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    actual_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    avg_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        Index("ix_usage_rollups_bucket", "bucket"),
+        Index("ix_usage_rollups_user_org", "user_id", "org_id"),
+        Index("ix_usage_rollups_model_bucket", "model", "bucket"),
+    )
+
+
 class Failure(Base):
     __tablename__ = "failures"
 
@@ -479,6 +511,7 @@ class PersonalAccessToken(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     username: Mapped[str] = mapped_column(String, nullable=False)
+    org_id: Mapped[str] = mapped_column(String, nullable=False, default="")
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     token_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)

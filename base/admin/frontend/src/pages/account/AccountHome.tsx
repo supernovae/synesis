@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../../components/auth/useAuth";
 import {
   Building2,
+  Coins,
   ExternalLink,
   KeyRound,
   Shield,
@@ -122,6 +123,33 @@ export default function AccountHome() {
             className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
           >
             View organization details →
+          </Link>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+              <Coins className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+                Usage & costs
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Token consumption and spend
+              </p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            View your token usage, estimated costs, and latency broken down by
+            time period. Compares estimated pricing-model costs against
+            provider-reported actuals when available.
+          </p>
+          <Link
+            to="/account/usage"
+            className="mt-4 inline-block text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+          >
+            View usage dashboard →
           </Link>
         </div>
 

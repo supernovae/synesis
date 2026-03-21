@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: admin-network-policy
+  namespace: synesis-admin
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: admin
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-admin
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Accept traffic from the OpenShift router (or any ingress controller)
+    - ports:
+        - port: 8080
+          protocol: TCP
+  egress:
+    # Postgres (CloudNativePG in same namespace)
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: synesis-admin-db
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Planner (synesis-planner namespace) — traces, assistant, pipeline test
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - port: 8000
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+    # LiteLLM gateway — assistant chat, model reconciliation
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-gateway
+      ports:
+        - port: 4000
+          protocol: TCP
+    # Milvus (synesis-rag namespace) — collection stats, knowledge gap validation
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-rag
+      ports:
+        - port: 19530
+          protocol: TCP
+    # Keycloak JWKS endpoint (synesis-auth namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-auth
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+    # DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

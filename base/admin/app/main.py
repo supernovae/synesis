@@ -96,6 +96,12 @@ async def lifespan(app: FastAPI):
                     await capture_cost_rate_snapshots()
                 except Exception:
                     logger.debug("cost_snapshot_error", exc_info=True)
+            if _snapshot_counter % 5 == 0:  # every ~5 min
+                try:
+                    from app.services.usage_rollup import run_rollup
+                    await run_rollup(lookback_minutes=10)
+                except Exception:
+                    logger.debug("usage_rollup_error", exc_info=True)
             await asyncio.sleep(60)
 
     global _reconciler_task
@@ -119,17 +125,24 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+import os as _os
+
+_cors_origins_env = _os.getenv("SYNESIS_CORS_ORIGINS", "")
+_cors_origins = (
+    [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+    if _cors_origins_env
+    else ["http://localhost:5173", "http://localhost:3000"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+from app.routers.admin_mcp import router as admin_mcp_router
 from app.routers.assistant import router as assistant_router
 from app.routers.audit import router as audit_router
 from app.routers.auth_router import router as auth_router
@@ -148,7 +161,9 @@ from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
+from app.routers.usage import router as usage_router
 
+app.include_router(admin_mcp_router)
 app.include_router(assistant_router)
 app.include_router(audit_router)
 app.include_router(auth_router)
@@ -167,6 +182,7 @@ app.include_router(settings_router)
 app.include_router(tokens_router)
 app.include_router(ingestion_router)
 app.include_router(ingestion_staged_router)
+app.include_router(usage_router)
 
 
 @app.get("/api/v1/health")

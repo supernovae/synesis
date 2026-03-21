@@ -13,6 +13,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
+  - network-policy.yaml
   # rbac-gateway-secrets.yaml moved to base/gateway/ — it must land in
   # synesis-gateway namespace, not synesis-admin (kustomize namespace override).
 

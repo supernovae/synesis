@@ -462,6 +462,25 @@ class SynesisTracer(BaseCallbackHandler):
         self._active_spans.clear()
         self._llm_starts.clear()
 
+    def pending_usage(self) -> dict[str, int]:
+        """Return token totals from the in-flight trace (before flush).
+
+        Uses the same aggregation logic as ``flush`` so callers get numbers
+        identical to what ends up in the Postgres trace record.  Returns
+        zeros when no trace is active.
+        """
+        rec = self._current_trace
+        if rec is None:
+            return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cached_prompt_tokens": 0}
+        all_calls = [c for s in rec.spans for c in s.llm_calls]
+        active_calls = [c for s in self._active_spans.values() for c in s.llm_calls]
+        calls = all_calls + active_calls
+        prompt = sum(c.prompt_tokens for c in calls)
+        completion = sum(c.completion_tokens for c in calls)
+        total = sum(c.total_tokens for c in calls)
+        cached = sum(c.cached_prompt_tokens for c in calls)
+        return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total, "cached_prompt_tokens": cached}
+
     # -- Metadata setters (called from graph nodes) ------------------------
 
     def set_request_metadata(
@@ -973,6 +992,16 @@ def get_synesis_tracer() -> SynesisTracer | None:
     _synesis_tracer = SynesisTracer()
     logger.info("synesis_tracer_ready")
     return _synesis_tracer
+
+
+def snapshot_pending_usage() -> dict[str, int]:
+    """Return token breakdown from the active (pre-flush) trace, or zeros."""
+    if _synesis_tracer is not None:
+        try:
+            return _synesis_tracer.pending_usage()
+        except Exception:
+            logger.debug("synesis_tracer_pending_usage_failed", exc_info=True)
+    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cached_prompt_tokens": 0}
 
 
 def flush_synesis_tracer() -> None:

@@ -1,14 +1,12 @@
 """Personal Access Token management — generate, list, revoke.
 
 Users can manage their own tokens.  Admins can list/revoke any user's tokens.
-Tokens start with ``syn-`` and are SHA-256 hashed before storage.
-The plaintext token is returned exactly once at creation time.
+Tokens are HMAC-SHA256 hashed (with server pepper) or SHA-256 hashed before
+storage.  The plaintext token is returned exactly once at creation time.
 """
 
 from __future__ import annotations
 
-import hashlib
-import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -17,23 +15,13 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth import UserInfo, get_current_user, require_admin
+from ..auth import UserInfo, get_current_user
 from ..db.engine import get_session
 from ..db.models import PersonalAccessToken
+from ..pat_crypto import generate as _generate_token
+from ..rbac import require_platform_admin
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
-
-_TOKEN_PREFIX = "syn-"
-_TOKEN_BYTES = 24
-
-
-def _generate_token() -> tuple[str, str, str]:
-    """Generate a PAT.  Returns (plaintext, sha256_hash, display_prefix)."""
-    raw = secrets.token_hex(_TOKEN_BYTES)
-    plaintext = f"{_TOKEN_PREFIX}{raw}"
-    token_hash = hashlib.sha256(plaintext.encode()).hexdigest()
-    display_prefix = plaintext[:12]
-    return plaintext, token_hash, display_prefix
 
 
 # ── Request / response models ────────────────────────────────────────────────
@@ -86,6 +74,7 @@ async def create_token(
         id=pat_id,
         user_id=user.user_id or user.username,
         username=user.username,
+        org_id=user.org_id or "",
         token_hash=token_hash,
         token_prefix=display_prefix,
         name=body.name,
@@ -147,8 +136,10 @@ async def revoke_token(
     if pat is None:
         raise HTTPException(status_code=404, detail="Token not found")
 
+    from ..rbac import Role, resolve_role
+
     owner_id = user.user_id or user.username
-    if pat.user_id != owner_id and user.role != "admin":
+    if pat.user_id != owner_id and resolve_role(user) < Role.platform_admin:
         raise HTTPException(status_code=403, detail="Not authorized to revoke this token")
 
     await session.execute(
@@ -163,7 +154,7 @@ async def revoke_token(
 
 @router.get("/admin/all", response_model=list[TokenInfo])
 async def list_all_tokens(
-    _admin: UserInfo = Depends(require_admin),
+    _admin: UserInfo = Depends(require_platform_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """List all tokens across all users (admin only)."""
@@ -186,7 +177,7 @@ async def list_all_tokens(
 
 @router.delete("/admin/purge-revoked", status_code=204)
 async def purge_revoked(
-    _admin: UserInfo = Depends(require_admin),
+    _admin: UserInfo = Depends(require_platform_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Hard-delete all revoked tokens (admin only)."""

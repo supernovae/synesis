@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends
 
 from ..auth import UserInfo, get_current_user
 from ..deps import ASSISTANT_MODEL, LITELLM_URL
+from ..rbac import can_access_trace
 from ..services import trace_store
 
 logger = logging.getLogger("synesis.admin.assistant")
@@ -79,6 +80,8 @@ async def assistant_chat(
 
     if trace_id:
         record = await trace_store.get_trace(trace_id)
+        if record and not can_access_trace(_user, record):
+            record = None
         if record:
             context = _trace_context_text(record, span_index if span_index is not None else None)
         else:

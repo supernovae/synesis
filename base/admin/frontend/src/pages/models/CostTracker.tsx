@@ -214,9 +214,9 @@ export default function CostTracker() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Cost Tracker</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage Cost Tracker</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Cost by pipeline role — estimated vs actual usage, rate config, and price history
+            Token spend by pipeline role — estimated vs actual usage cost, rate configuration, and price history
           </p>
         </div>
         <select

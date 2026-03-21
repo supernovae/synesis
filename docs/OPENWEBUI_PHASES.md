@@ -139,6 +139,25 @@ For non-code tasks that go through the planner, plan steps are rendered as **vis
 
 ---
 
+## Token Usage on Streaming Responses
+
+The planner's final SSE chunk includes an OpenAI-compatible `usage` object with
+`prompt_tokens`, `completion_tokens`, `total_tokens`, and `cached_prompt_tokens`.
+These values are sourced from the SynesisTracer's span-level LLM call records
+(the same aggregation written to the admin Postgres trace) and should match the
+admin trace record.
+
+**LiteLLM proxy path:** LiteLLM treats the planner as an `openai/*` model and
+forwards SSE chunks as-is.  If Open WebUI reports zero tokens after a streamed
+response, verify the final `data:` line before `[DONE]` by curling the planner
+directly (see debugging section below).
+
+**`stream_options`:** The planner accepts `stream_options.include_usage` on the
+request for OpenAI-spec compliance, but always includes `usage` on the final
+chunk regardless.
+
+---
+
 ## Debugging
 
 1. **Browser console (F12 / Cmd+Opt+I)**

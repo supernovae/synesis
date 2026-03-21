@@ -13,3 +13,4 @@ resources:
   - deployment.yaml
   - service.yaml
   - route.yaml
+  - network-policy.yaml

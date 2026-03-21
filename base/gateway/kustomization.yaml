@@ -10,6 +10,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - network-policy.yaml
   # LiteLLM (Deployment, Service, ConfigMap, Route) is now managed by the
   # official Helm chart — see base/gateway/helm/values-synesis.yaml.
   # deploy.sh calls `helm upgrade --install` for the litellm-proxy release.

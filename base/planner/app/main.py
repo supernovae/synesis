@@ -42,7 +42,7 @@ from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
 from .failure_store import record_error
-from .graph import flush_tracer, get_graph_config, graph, upgrade_checkpointer_to_redis
+from .graph import flush_tracer, get_graph_config, graph, snapshot_tracer_usage, upgrade_checkpointer_to_redis
 from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
@@ -328,6 +328,10 @@ class OutputControlsRequest(BaseModel):
     clarify_first: bool | None = None
 
 
+class StreamOptions(BaseModel):
+    include_usage: bool = False
+
+
 class ChatCompletionRequest(BaseModel):
     model: str = "synesis-agent"
     messages: list[ChatMessage]
@@ -335,6 +339,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
     stream: bool = False
+    stream_options: StreamOptions | None = None
     user: str | None = None
     retrieval: RetrievalOptions | None = None
     conversation_id: str | None = None
@@ -355,9 +360,18 @@ class Choice(BaseModel):
 
 
 class Usage(BaseModel):
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
+    """OpenAI-compatible usage object returned on /v1/chat/completions.
+
+    Token counts are aggregated from span-level LLM calls recorded by the
+    SynesisTracer (same source as admin trace records).  Cost data is *not*
+    included here — use the admin ``/api/v1/usage`` endpoints for estimated
+    vs actual cost breakdowns.
+    """
+
+    prompt_tokens: int = Field(0, description="Sum of prompt tokens across all LLM calls in the pipeline")
+    completion_tokens: int = Field(0, description="Sum of completion tokens across all LLM calls in the pipeline")
+    total_tokens: int = Field(0, description="prompt_tokens + completion_tokens (pipeline total)")
+    cached_prompt_tokens: int = Field(0, description="Tokens served from KV-cache (subset of prompt_tokens)")
 
 
 class ChatCompletionResponse(BaseModel):
@@ -956,6 +970,25 @@ def _extract_content_and_metrics(
     record_tokens(model, total_tokens)
     record_run_critic_turn_kind(str(result.get("critic_turn_kind") or "final"))
     return content, total_tokens
+
+
+def _build_final_usage(tracer_usage: dict[str, int] | None = None, node_traces_total: int = 0) -> dict[str, int]:
+    """Build the OpenAI-compatible usage dict for the final response.
+
+    Prefers tracer-sourced breakdown (same aggregation written to the Postgres
+    trace record).  Falls back to node_traces total when the tracer is
+    unavailable or returned zeros.
+    """
+    u = tracer_usage or snapshot_tracer_usage()
+    total = u.get("total_tokens", 0)
+    if total <= 0:
+        total = node_traces_total
+    return {
+        "prompt_tokens": u.get("prompt_tokens", 0),
+        "completion_tokens": u.get("completion_tokens", 0),
+        "total_tokens": total,
+        "cached_prompt_tokens": u.get("cached_prompt_tokens", 0),
+    }
 
 
 @app.post("/v1/chat/completions")
@@ -1653,16 +1686,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     )
                                     pipeline_trace = _build_pipeline_trace(accumulated_state)
                                     _early_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
+                                    _early_usage = _build_final_usage(None, total_tokens)
                                     yield _sse_chunk(
                                         {
                                             "id": chat_id,
                                             "object": "chat.completion.chunk",
                                             "choices": [{"index": 0, "delta": {}, "finish_reason": _early_finish}],
-                                            "usage": {
-                                                "prompt_tokens": 0,
-                                                "completion_tokens": 0,
-                                                "total_tokens": total_tokens,
-                                            },
+                                            "usage": _early_usage,
                                             "run_id": run_id,
                                             "pipeline_trace": pipeline_trace,
                                         }
@@ -1893,6 +1923,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     set_sub_phase_queue(None)
                     if _pending_next is not None and not _pending_next.done():
                         _pending_next.cancel()
+                    _tracer_usage = snapshot_tracer_usage()
                     flush_tracer()
 
                 # Stream already closed (background critic mode) — skip all post-processing
@@ -2188,12 +2219,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 pipeline_trace = _build_pipeline_trace(accumulated_state)
                 _final_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
+                _final_usage = _build_final_usage(_tracer_usage, total_tokens)
                 yield _sse_chunk(
                     {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
                         "choices": [{"index": 0, "delta": {}, "finish_reason": _final_finish}],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
+                        "usage": _final_usage,
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,
                     }
@@ -2322,6 +2354,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     if heartbeat_task:
                         heartbeat_task.cancel()
                     set_sub_phase_queue(None)
+                    _fb_tracer_usage = snapshot_tracer_usage()
                     flush_tracer()
 
                 if not result:
@@ -2344,12 +2377,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
                 pipeline_trace = _build_pipeline_trace(result)
                 _fb_finish = "length" if (result or {}).get("writer_truncated") else "stop"
+                _fb_final_usage = _build_final_usage(_fb_tracer_usage, total_tokens)
                 yield _sse_chunk(
                     {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
                         "choices": [{"index": 0, "delta": {}, "finish_reason": _fb_finish}],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": total_tokens},
+                        "usage": _fb_final_usage,
                         "run_id": run_id,
                         "pipeline_trace": pipeline_trace,
                     }
@@ -2391,6 +2425,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             detail=f"Graph execution failed ({_error_code}). Check planner logs and admin status page for model health.",
         ) from None
     finally:
+        _ns_tracer_usage = snapshot_tracer_usage()
         flush_tracer()
 
     content, total_tokens = _extract_content_and_metrics(
@@ -2417,6 +2452,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
     pipeline_trace = _build_pipeline_trace(result)
+    _ns_usage = _build_final_usage(_ns_tracer_usage, total_tokens)
 
     return ChatCompletionResponse(
         id=chat_id,
@@ -2426,7 +2462,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 message=ChatMessage(role="assistant", content=content),
             )
         ],
-        usage=Usage(total_tokens=total_tokens),
+        usage=Usage(**_ns_usage),
         run_id=run_id,
         pipeline_trace=pipeline_trace,
     )

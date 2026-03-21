@@ -11,6 +11,7 @@ from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import BenchmarkResult, KnowledgeGap, QualitySnapshot, Trace
 from ..deps import CURATOR_PROPOSALS_PATH, QUALITY_REPORT_PATH
+from ..rbac import Role, resolve_role, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services import trace_store
 from ..services.cost_estimator import get_cost_summary
@@ -33,21 +34,34 @@ async def _safe(coro, label: str, default=None):
 
 @router.get("/summary")
 async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
-    (
-        services,
-        cache,
-        raw,
-        ts,
-        cost_estimate,
-        roles,
-    ) = await asyncio.gather(
-        _safe(probe_all(), "probe_all", []),
-        _safe(prom.get_cache_metrics(), "cache_metrics", {}),
-        _safe(prom.fetch_planner_metrics(), "planner_metrics", {}),
-        _safe(trace_store.get_trace_stats(), "trace_stats", {}),
-        _safe(get_cost_summary(), "cost_summary", {}),
-        _safe(get_role_assignments(), "role_assignments", []),
+    role = resolve_role(_user)
+    scope = trace_scope_filters(_user)
+    is_admin = role >= Role.platform_admin
+
+    ts_coro = trace_store.get_trace_stats(
+        scope_user_id=scope.get("user_id", ""),
+        scope_org_id=scope.get("org_id", ""),
     )
+
+    if is_admin:
+        (
+            services,
+            cache,
+            raw,
+            ts,
+            cost_estimate,
+            roles,
+        ) = await asyncio.gather(
+            _safe(probe_all(), "probe_all", []),
+            _safe(prom.get_cache_metrics(), "cache_metrics", {}),
+            _safe(prom.fetch_planner_metrics(), "planner_metrics", {}),
+            _safe(ts_coro, "trace_stats", {}),
+            _safe(get_cost_summary(), "cost_summary", {}),
+            _safe(get_role_assignments(), "role_assignments", []),
+        )
+    else:
+        services, cache, raw, cost_estimate, roles = [], {}, {}, {}, []
+        ts = await _safe(ts_coro, "trace_stats", {})
 
     assigned = sum(1 for r in (roles or []) if r.get("assigned"))
     healthy = sum(1 for s in (services or []) if isinstance(s, dict) and s.get("status") == "ok")

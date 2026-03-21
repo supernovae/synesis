@@ -1,0 +1,78 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: yarn-network-policy
+  namespace: synesis-yarn
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: yarn
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-yarn
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # WebUI and admin call yarn chat endpoints
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-webui
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    # Planner
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - port: 8000
+          protocol: TCP
+    # LiteLLM gateway
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-gateway
+      ports:
+        - port: 4000
+          protocol: TCP
+    # MCP server (synesis-planner namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Admin DB for PAT verification
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Keycloak JWKS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-auth
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

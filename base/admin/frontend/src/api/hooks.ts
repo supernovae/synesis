@@ -1478,3 +1478,51 @@ export function useBootstrapIngestion() {
     },
   });
 }
+
+// --- Usage Rollups ---
+
+export interface UsageRollupEntry {
+  bucket: string;
+  model: string;
+  role: string;
+  user_id: string;
+  org_id: string;
+  request_count: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+  avg_duration_ms: number;
+  error_count: number;
+}
+
+export interface UsageSummary {
+  period_hours: number;
+  total_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  actual_cost_usd: number;
+  avg_duration_ms: number;
+  error_count: number;
+}
+
+export function useUsageSeries(sinceHours = 24) {
+  return useQuery<UsageRollupEntry[]>({
+    queryKey: ["usage", "series", sinceHours],
+    queryFn: () => client.get(`/usage?since_hours=${sinceHours}`).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useUsageSummary(sinceHours = 24) {
+  return useQuery<UsageSummary>({
+    queryKey: ["usage", "summary", sinceHours],
+    queryFn: () => client.get(`/usage/summary?since_hours=${sinceHours}`).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}

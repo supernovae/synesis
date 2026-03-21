@@ -1,0 +1,89 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: planner-network-policy
+  namespace: synesis-planner
+  labels:
+    app.kubernetes.io/part-of: synesis
+    app.kubernetes.io/component: planner
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-planner
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Admin (trace test, pipeline), yarn (chat), webui (passthrough), MCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-yarn
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-webui
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: synesis-mcp
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    # LiteLLM gateway
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-gateway
+      ports:
+        - port: 4000
+          protocol: TCP
+    # RAG services: embedder, keyword-service, Milvus, redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-rag
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 19530
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+    # Admin DB for trace writes
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Search service
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-search
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Web search egress (HTTPS to external APIs)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    # DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

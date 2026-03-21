@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AccountHome = lazy(() => import("./pages/account/AccountHome"));
 const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
 const Organization = lazy(() => import("./pages/account/Organization"));
+const AccountUsage = lazy(() => import("./pages/account/Usage"));
 
 const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
@@ -108,6 +109,7 @@ export const router = createBrowserRouter([
 
       { path: "account", element: <AccountHome /> },
       { path: "account/tokens", element: <ApiTokens /> },
+      { path: "account/usage", element: <AccountUsage /> },
       { path: "account/organization", element: <Organization /> },
 
       { path: "assistant", element: <AdminAssistant /> },

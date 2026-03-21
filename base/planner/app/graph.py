@@ -1136,9 +1136,14 @@ from langgraph.checkpoint.memory import MemorySaver
 graph = graph_builder.compile(checkpointer=MemorySaver())
 _log_graph_init_memory("after_graph_compile")
 
-from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer
+from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer, snapshot_pending_usage
 
 _synesis_tracer = get_synesis_tracer()
+
+
+def snapshot_tracer_usage() -> dict[str, int]:
+    """Capture token breakdown from the in-flight trace before flush."""
+    return snapshot_pending_usage()
 
 
 def flush_tracer() -> None:

@@ -86,12 +86,13 @@ export default function Dashboard() {
           icon={Activity}
         />
         <MetricCard
-          label="Cost (24h)"
+          label="Usage Spend (24h)"
           value={
             m?.total_cost_24h != null
               ? `$${Number(m.total_cost_24h).toFixed(4)}`
               : "---"
           }
+          subtitle="from trace estimates"
           icon={DollarSign}
         />
       </div>
@@ -172,7 +173,7 @@ export default function Dashboard() {
       </div>
 
       {costData.length > 0 && (
-        <ChartCard title="Cost by Role" subtitle="Monthly estimate (USD)">
+        <ChartCard title="Infra Cost by Role" subtitle="Monthly infrastructure estimate (USD)">
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={costData}>
               <XAxis dataKey="role" tick={{ fontSize: 11 }} />

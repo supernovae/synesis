@@ -35,11 +35,22 @@ async def list_traces(
     until: float = 0,
     max_tokens: int | None = None,
     min_hallucinated_urls: int | None = None,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
 ) -> dict[str, Any]:
-    """Return paginated trace list from Postgres, newest first."""
+    """Return paginated trace list from Postgres, newest first.
+
+    ``scope_user_id`` / ``scope_org_id`` are RBAC-enforced filters injected
+    by the router — they take priority and cannot be widened by query params.
+    """
     async with async_session() as session:
         try:
             q = select(Trace).order_by(desc(Trace.timestamp))
+
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
 
             if has_error is not None:
                 q = q.where(Trace.has_error == has_error)
@@ -105,8 +116,12 @@ async def get_trace(trace_id: str) -> dict[str, Any] | None:
             return None
 
 
-async def get_trace_stats() -> dict[str, Any]:
-    """Aggregate statistics from recent traces (last 24h)."""
+async def get_trace_stats(
+    *,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict[str, Any]:
+    """Aggregate statistics from recent traces (last 24h), respecting RBAC scope."""
     cutoff = time.time() - 86400
     async with async_session() as session:
         try:
@@ -118,6 +133,11 @@ async def get_trace_stats() -> dict[str, Any]:
                 func.avg(Trace.estimated_cost_usd).label("avg_cost"),
                 func.sum(Trace.estimated_cost_usd).label("total_cost"),
             ).where(Trace.timestamp >= cutoff)
+
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
 
             result = await session.execute(q)
             row = result.one()

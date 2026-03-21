@@ -8,7 +8,6 @@ allow development without a running Keycloak instance.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -48,7 +47,7 @@ TOKEN_EXPIRY_HOURS = int(os.getenv("SYNESIS_TOKEN_EXPIRY_HOURS", "24"))
 _LEGACY_USERS: dict[str, dict] = {
     "admin": {
         "password": os.getenv("SYNESIS_ADMIN_PASSWORD", "admin"),
-        "role": "admin",
+        "role": "platform_admin",
     },
     "viewer": {
         "password": os.getenv("SYNESIS_VIEWER_PASSWORD", "viewer"),
@@ -120,9 +119,16 @@ def _verify_keycloak_token(token: str) -> UserInfo:
             )
             raise jwt.InvalidTokenError("Token not issued for Synesis Admin client")
     roles = payload.get("realm_access", {}).get("roles", [])
-    role = "admin" if "synesis-admin" in roles else "user"
     username = payload.get("preferred_username", payload.get("sub", "unknown"))
     org_id, org_name, org_roles = _parse_org_claim(payload)
+
+    if "synesis-admin" in roles:
+        role = "platform_admin"
+    elif "admin" in org_roles:
+        role = "org_admin"
+    else:
+        role = "user"
+
     return UserInfo(
         username=username,
         role=role,
@@ -143,8 +149,9 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
 
     from .db.engine import async_session
     from .db.models import PersonalAccessToken
+    from .pat_crypto import hash_token
 
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_hash = hash_token(token)
 
     from sqlalchemy import select, update
 
@@ -173,6 +180,7 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
             username=pat.username,
             role=pat.role,
             user_id=pat.user_id,
+            org_id=getattr(pat, "org_id", "") or "",
         )
 
 
@@ -227,7 +235,10 @@ async def get_current_user(
 
 
 async def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
-    if user.role != "admin":
+    """Backward-compatible admin gate — delegates to the RBAC module."""
+    from .rbac import Role, resolve_role
+
+    if resolve_role(user) < Role.platform_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 

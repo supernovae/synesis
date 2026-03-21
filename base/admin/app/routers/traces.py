@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user, require_admin
 from ..deps import PLANNER_URL
+from ..rbac import can_access_trace, require_platform_admin, trace_scope_filters
 from ..services import trace_store
 
 logger = logging.getLogger("synesis.admin.traces")
@@ -35,6 +36,7 @@ async def list_traces(
     min_hallucinated_urls: int | None = Query(None, ge=1, description="Filter traces with at least N hallucinated URLs"),
     _user: UserInfo = Depends(get_current_user),
 ):
+    scope = trace_scope_filters(_user)
     return await trace_store.list_traces(
         offset=offset,
         limit=limit,
@@ -51,21 +53,26 @@ async def list_traces(
         until=until,
         max_tokens=max_tokens,
         min_hallucinated_urls=min_hallucinated_urls,
+        scope_user_id=scope.get("user_id", ""),
+        scope_org_id=scope.get("org_id", ""),
     )
 
 
 @router.get("/stats")
 async def trace_stats(_user: UserInfo = Depends(get_current_user)):
-    return await trace_store.get_trace_stats()
+    scope = trace_scope_filters(_user)
+    return await trace_store.get_trace_stats(
+        scope_user_id=scope.get("user_id", ""),
+        scope_org_id=scope.get("org_id", ""),
+    )
 
 
 @router.post("/test")
-async def test_trace_pipeline(_user: UserInfo = Depends(require_admin)):
+async def test_trace_pipeline(_user: UserInfo = Depends(require_platform_admin)):
     """Send a test query to the planner and verify a trace appears in Postgres."""
     test_query = "What is 2+2? (synesis admin trace test)"
     t0 = time.time()
 
-    # Send a minimal chat completion request to the planner
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -96,7 +103,6 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_admin)):
             "elapsed_ms": round((time.time() - t0) * 1000),
         }
 
-    # Poll for the trace in Postgres (planner flushes on request completion)
     trace_found = None
     for _ in range(6):
         await asyncio.sleep(2)
@@ -131,7 +137,7 @@ async def test_trace_pipeline(_user: UserInfo = Depends(require_admin)):
 
 
 @router.delete("/{trace_id}")
-async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_admin)):
+async def delete_trace(trace_id: str, _user: UserInfo = Depends(require_platform_admin)):
     """Delete a single trace by ID."""
     from sqlalchemy import text as sa_text
 
@@ -151,7 +157,7 @@ _BULK_DELETE_MAX = 500
 @router.post("/bulk-delete")
 async def bulk_delete_traces(
     trace_ids: list[str] = Body(..., min_length=1, max_length=_BULK_DELETE_MAX),
-    _user: UserInfo = Depends(require_admin),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete multiple traces by their IDs (max 500 per call)."""
     from sqlalchemy import text as sa_text
@@ -170,7 +176,7 @@ async def bulk_delete_traces(
 @router.delete("/session/{conversation_id}")
 async def delete_traces_for_session(
     conversation_id: str,
-    _user: UserInfo = Depends(require_admin),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete all traces belonging to one conversation/session."""
     n = await trace_store.delete_traces_for_conversation(conversation_id)
@@ -181,7 +187,7 @@ async def delete_traces_for_session(
 async def purge_trivial_traces(
     min_tokens: int = Query(50, ge=1),
     dry_run: bool = Query(True),
-    _user: UserInfo = Depends(require_admin),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Purge traces with very low token counts (test/trivial prompts).
 
@@ -213,4 +219,6 @@ async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
     record = await trace_store.get_trace(trace_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Trace not found")
+    if not can_access_trace(_user, record):
+        raise HTTPException(status_code=403, detail="Not authorized to view this trace")
     return record
