@@ -11,11 +11,15 @@ import {
   useIngestionHandlers,
   useSchemaSync,
   useResetMilvusCatalog,
+  useRerunStagedItem,
+  useRecoverStaleIngestionLeases,
+  useStagedItemDocuments,
+  useEditStagedDocument,
 } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
 import type { HandlerMetadata } from "../../api/hooks";
-import type { IngestionItem, IngestionRun, IndexerIngestionStats } from "../../types";
+import type { IngestionItem, IngestionRun, IndexerIngestionStats, StagedIngestionDocument } from "../../types";
 
 function numConfig(cfg: Record<string, unknown> | null, key: string, fallback: number): number {
   if (!cfg) return fallback;
@@ -331,6 +335,7 @@ function AddItemForm() {
 function ItemsTable() {
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const { data, isLoading } = useIngestionItems({ status: statusFilter || undefined, page, page_size: 30 });
   const deleteItem = useDeleteIngestionItem();
   const retryItem = useRetryIngestionItem();
@@ -392,6 +397,12 @@ function ItemsTable() {
                     {item.error_message || ""}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      onClick={() => setSelectedItemId(item.id)}
+                      className="text-xs text-gray-600 dark:text-gray-300 hover:underline mr-2"
+                    >
+                      Docs
+                    </button>
                     {item.status === "failed" && item.retry_count < item.max_retries && (
                       <button
                         onClick={() => retryItem.mutate(item.id)}
@@ -433,6 +444,229 @@ function ItemsTable() {
           >
             Next
           </button>
+        </div>
+      )}
+
+      <StagedLifecyclePanel
+        itemId={selectedItemId}
+        onClose={() => setSelectedItemId(null)}
+      />
+    </div>
+  );
+}
+
+function StagedLifecyclePanel({ itemId, onClose }: { itemId: number | null; onClose: () => void }) {
+  const rerun = useRerunStagedItem();
+  const recover = useRecoverStaleIngestionLeases();
+  const editDoc = useEditStagedDocument();
+  const { data, isLoading, refetch } = useStagedItemDocuments(itemId);
+  const [editingDoc, setEditingDoc] = useState<StagedIngestionDocument | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftDomain, setDraftDomain] = useState("");
+  const [draftAuthority, setDraftAuthority] = useState("vetted");
+  const [draftOriginType, setDraftOriginType] = useState("curated");
+  const [draftTags, setDraftTags] = useState("");
+  const [draftConfig, setDraftConfig] = useState("{}");
+
+  if (!itemId) return null;
+
+  const docs: StagedIngestionDocument[] = data?.documents ?? [];
+
+  const rerunPhase = (phase: "all" | "fetch" | "normalize" | "enrich") => {
+    rerun.mutate({ itemId, phase, reset_retries: true });
+  };
+
+  const startEdit = (d: StagedIngestionDocument) => {
+    setEditingDoc(d);
+    setDraftTitle(d.title || "");
+    setDraftDomain(d.domain || "");
+    setDraftAuthority(d.authority || "vetted");
+    setDraftOriginType(d.origin_type || "curated");
+    setDraftTags((d.tags || []).join(", "));
+    const cfg = d.config_snapshot && typeof d.config_snapshot === "object" ? d.config_snapshot : {};
+    setDraftConfig(JSON.stringify(cfg, null, 2));
+  };
+
+  const saveEdit = () => {
+    if (!editingDoc) return;
+    let parsedConfig: Record<string, unknown>;
+    try {
+      parsedConfig = JSON.parse(draftConfig || "{}");
+    } catch {
+      window.alert("Config snapshot must be valid JSON.");
+      return;
+    }
+    const tags = draftTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    editDoc.mutate(
+      {
+        documentId: editingDoc.id,
+        title: draftTitle,
+        domain: draftDomain,
+        authority: draftAuthority,
+        origin_type: draftOriginType,
+        tags,
+        config_snapshot: parsedConfig,
+      },
+      {
+        onSuccess: () => {
+          setEditingDoc(null);
+          void refetch();
+        },
+      },
+    );
+  };
+
+  return (
+    <div className="border-t border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-900/30">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
+          Item {itemId} lifecycle controls
+        </h4>
+        <button onClick={onClose} className="text-xs text-gray-600 dark:text-gray-300 hover:underline">
+          Close
+        </button>
+      </div>
+      <div className="flex gap-2 mt-2 flex-wrap">
+        <button disabled={rerun.isPending} onClick={() => rerunPhase("all")} className="px-2 py-1 rounded bg-indigo-600 text-white text-xs disabled:opacity-50">Rerun all</button>
+        <button disabled={rerun.isPending} onClick={() => rerunPhase("fetch")} className="px-2 py-1 rounded bg-cyan-600 text-white text-xs disabled:opacity-50">Rerun fetch</button>
+        <button disabled={rerun.isPending} onClick={() => rerunPhase("normalize")} className="px-2 py-1 rounded bg-teal-600 text-white text-xs disabled:opacity-50">Rerun normalize</button>
+        <button disabled={rerun.isPending} onClick={() => rerunPhase("enrich")} className="px-2 py-1 rounded bg-violet-600 text-white text-xs disabled:opacity-50">Rerun enrich</button>
+        <button
+          disabled={recover.isPending}
+          onClick={() => recover.mutate({ stale_minutes: 30 })}
+          className="px-2 py-1 rounded bg-gray-700 text-white text-xs disabled:opacity-50"
+        >
+          Recover stale leases
+        </button>
+        <button
+          onClick={() => void refetch()}
+          className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-200 text-xs"
+        >
+          Refresh docs
+        </button>
+      </div>
+      {rerun.isError ? (
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(rerun.error)}</div>
+      ) : null}
+      {rerun.isSuccess ? (
+        <div className="mt-2 text-xs text-green-700 dark:text-green-400">Phase rerun request accepted.</div>
+      ) : null}
+      {recover.isError ? (
+        <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(recover.error)}</div>
+      ) : null}
+      {recover.isSuccess ? (
+        <div className="mt-2 text-xs text-green-700 dark:text-green-400">
+          Recovered stale leases:{" "}
+          {String((recover.data as { items_recovered?: number })?.items_recovered ?? 0)} items,{" "}
+          {String((recover.data as { documents_recovered?: number })?.documents_recovered ?? 0)} docs,{" "}
+          {String((recover.data as { enrich_jobs_recovered?: number })?.enrich_jobs_recovered ?? 0)} jobs.
+        </div>
+      ) : null}
+      {isLoading ? (
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-3">Loading staged documents...</div>
+      ) : docs.length === 0 ? (
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-3">No staged documents for this item.</div>
+      ) : (
+        <div className="overflow-x-auto mt-3">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-slate-700">
+                <th className="py-1 pr-2">Doc</th>
+                <th className="py-1 pr-2">Raw</th>
+                <th className="py-1 pr-2">Norm</th>
+                <th className="py-1 pr-2">Enrich</th>
+                <th className="py-1 pr-2 text-right">Chunks</th>
+                <th className="py-1 pr-2">Error</th>
+                <th className="py-1 pr-2"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+              {docs.slice(0, 25).map((d) => (
+                <tr key={d.id}>
+                  <td className="py-1 pr-2 max-w-[360px] truncate" title={d.canonical_uri}>{d.title || d.canonical_uri}</td>
+                  <td className="py-1 pr-2">{d.raw_status}</td>
+                  <td className="py-1 pr-2">{d.norm_status}</td>
+                  <td className="py-1 pr-2">{d.enrich_status}</td>
+                  <td className="py-1 pr-2 text-right">{d.chunk_count || 0}</td>
+                  <td className="py-1 pr-2 max-w-[220px] truncate text-red-600 dark:text-red-400" title={d.error_message}>{d.error_message || "—"}</td>
+                  <td className="py-1 pr-2 text-right">
+                    <button
+                      className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                      onClick={() => startEdit(d)}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {editingDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-4 shadow-xl dark:bg-slate-900">
+            <h5 className="text-sm font-semibold text-gray-900 dark:text-white">
+              Edit document {editingDoc.id}
+            </h5>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">Title</span>
+                <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+              </label>
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">Domain</span>
+                <input value={draftDomain} onChange={(e) => setDraftDomain(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+              </label>
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">Authority</span>
+                <select value={draftAuthority} onChange={(e) => setDraftAuthority(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm">
+                  <option value="canonical">canonical</option>
+                  <option value="vetted">vetted</option>
+                  <option value="community">community</option>
+                  <option value="untrusted">untrusted</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-gray-600 dark:text-gray-300">Origin type</span>
+                <select value={draftOriginType} onChange={(e) => setDraftOriginType(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm">
+                  <option value="curated">curated</option>
+                  <option value="official">official</option>
+                  <option value="community">community</option>
+                  <option value="generated">generated</option>
+                </select>
+              </label>
+            </div>
+            <label className="block mt-3 text-xs">
+              <span className="text-gray-600 dark:text-gray-300">Tags (comma-separated)</span>
+              <input value={draftTags} onChange={(e) => setDraftTags(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
+            </label>
+            <label className="block mt-3 text-xs">
+              <span className="text-gray-600 dark:text-gray-300">Config snapshot (JSON)</span>
+              <textarea value={draftConfig} onChange={(e) => setDraftConfig(e.target.value)} rows={8} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm font-mono" />
+            </label>
+            {editDoc.isError ? (
+              <div className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(editDoc.error)}</div>
+            ) : null}
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                onClick={() => setEditingDoc(null)}
+                className="px-3 py-1.5 rounded text-xs text-gray-700 dark:text-gray-300"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={editDoc.isPending}
+                onClick={saveEdit}
+                className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs disabled:opacity-50"
+              >
+                {editDoc.isPending ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

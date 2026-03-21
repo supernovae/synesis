@@ -299,7 +299,7 @@ def run_staged_enrich(
                         "domain": job.get("effective_domain") or "generalist",
                         "config": job.get("effective_config") or {},
                     }
-                    chunks, _ = index_normalized_markdown_doc(
+                    chunks, stats = index_normalized_markdown_doc(
                         source_config,
                         raw_doc,
                         writer,
@@ -311,6 +311,20 @@ def run_staged_enrich(
                         dry_run=False,
                         gate_policy=gate_policy,
                     )
+                    if store is not None:
+                        store.put_enriched_json(
+                            job.get("enrich_version", "v1"),
+                            doc_key,
+                            {
+                                "doc_key": doc_key,
+                                "job_id": job_id,
+                                "canonical_uri": job.get("canonical_uri", ""),
+                                "chunk_count": chunks,
+                                "enrich_version": job.get("enrich_version", "v1"),
+                                "norm_version": job.get("norm_version", "v1"),
+                                "indexer_stats": stats if isinstance(stats, dict) else {},
+                            },
+                        )
 
                 client.patch_enrich_job(
                     job_id,

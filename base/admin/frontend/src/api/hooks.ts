@@ -23,6 +23,7 @@ import type {
   IngestionItem,
   IngestionRun,
   IngestionStats,
+  StagedIngestionDocument,
 } from "../types";
 
 // --- Dashboard ---
@@ -42,6 +43,24 @@ export function useModelCosts() {
   return useQuery<{ roles: ModelCost[] }>({
     queryKey: ["models", "costs"],
     queryFn: () => client.get("/models/costs").then((r) => r.data),
+  });
+}
+
+export function usePipelineServices() {
+  return useQuery<{
+    services: Array<{
+      name: string;
+      url: string;
+      configured: boolean;
+      reachable: boolean;
+      status_code: number | null;
+      latency_ms: number | null;
+      error: string;
+    }>;
+  }>({
+    queryKey: ["models", "pipeline-services"],
+    queryFn: () => client.get("/models/pipeline-services").then((r) => r.data),
+    refetchInterval: 30_000,
   });
 }
 
@@ -1366,6 +1385,71 @@ export function useRetryIngestionItem() {
       client.post(`/ingestion/items/${id}/retry`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useRerunStagedItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { itemId: number; phase: "all" | "fetch" | "normalize" | "enrich"; reset_retries?: boolean }) =>
+      client
+        .post(`/ingestion/staged/items/${data.itemId}/rerun`, {
+          phase: data.phase,
+          reset_retries: data.reset_retries ?? true,
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useRecoverStaleIngestionLeases() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { stale_minutes: number }) =>
+      client.post("/ingestion/staged/leases/recover", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+    },
+  });
+}
+
+export function useStagedItemDocuments(itemId: number | null) {
+  return useQuery<{ documents: StagedIngestionDocument[] }>({
+    queryKey: ["ingestion", "staged-documents", itemId],
+    queryFn: () => client.get(`/ingestion/staged/items/${itemId}/documents`).then((r) => r.data),
+    enabled: typeof itemId === "number" && itemId > 0,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useEditStagedDocument() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      documentId: number;
+      title?: string;
+      domain?: string;
+      authority?: string;
+      origin_type?: string;
+      tags?: string[];
+      config_snapshot?: Record<string, unknown>;
+    }) =>
+      client
+        .patch(`/ingestion/staged/documents/${data.documentId}`, {
+          title: data.title,
+          domain: data.domain,
+          authority: data.authority,
+          origin_type: data.origin_type,
+          tags: data.tags,
+          config_snapshot: data.config_snapshot,
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ingestion"] });
+      qc.invalidateQueries({ queryKey: ["ingestion", "staged-documents"] });
     },
   });
 }

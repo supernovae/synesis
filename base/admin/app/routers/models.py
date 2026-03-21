@@ -1,10 +1,12 @@
 """Model registry, deployments, cost, and performance endpoints."""
 
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from datetime import date as date_type
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 
@@ -48,6 +50,61 @@ async def model_topology(_user: UserInfo = Depends(get_current_user)):
     from ..services.model_registry import get_model_topology
 
     return await get_model_topology()
+
+
+@router.get("/pipeline-services")
+async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
+    """Operational visibility for ingestion-adjacent model/services."""
+    targets = [
+        ("router_model", os.getenv("SYNESIS_ROUTER_MODEL_URL", "")),
+        ("planner_model", os.getenv("SYNESIS_PLANNER_MODEL_URL", "")),
+        ("general_model", os.getenv("SYNESIS_GENERAL_MODEL_URL", "")),
+        ("critic_model", os.getenv("SYNESIS_CRITIC_MODEL_URL", "")),
+        ("coder_model", os.getenv("SYNESIS_CODER_MODEL_URL", "")),
+        ("embedder", os.getenv("SYNESIS_EMBEDDER_URL", "")),
+        ("keyword_service", os.getenv("SYNESIS_KEYWORD_SERVICE_URL", "")),
+        ("spam_service", os.getenv("SYNESIS_SPAM_SERVICE_URL", "")),
+        ("preprocess_service", os.getenv("SYNESIS_PREPROCESS_SERVICE_URL", "")),
+    ]
+    rows: list[dict] = []
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        for name, raw_url in targets:
+            url = (raw_url or "").strip()
+            if not url:
+                rows.append({
+                    "name": name,
+                    "url": "",
+                    "configured": False,
+                    "reachable": False,
+                    "status_code": None,
+                    "latency_ms": None,
+                    "error": "not_configured",
+                })
+                continue
+            health_url = url.rstrip("/") + "/health"
+            started = time.time()
+            try:
+                resp = await client.get(health_url)
+                rows.append({
+                    "name": name,
+                    "url": url,
+                    "configured": True,
+                    "reachable": 200 <= resp.status_code < 500,
+                    "status_code": resp.status_code,
+                    "latency_ms": int((time.time() - started) * 1000),
+                    "error": "",
+                })
+            except Exception as exc:
+                rows.append({
+                    "name": name,
+                    "url": url,
+                    "configured": True,
+                    "reachable": False,
+                    "status_code": None,
+                    "latency_ms": None,
+                    "error": str(exc)[:180],
+                })
+    return {"services": rows}
 
 
 # ---------------------------------------------------------------------------

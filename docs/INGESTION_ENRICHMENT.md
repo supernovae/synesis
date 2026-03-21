@@ -9,6 +9,7 @@ It is **not** the primary reference for queue mode, Milvus schema, or the v9 sem
 | Topic | Document |
 |--------|----------|
 | **Queue mode, lifecycle, handlers, Milvus v9 fields, ops** | [`INDEXERS.md`](INDEXERS.md) — canonical operations guide |
+| **Tunables, verification, and end-to-end quality loop** | [`INGESTION_TUNING_AND_E2E.md`](INGESTION_TUNING_AND_E2E.md) |
 | **Semantic ingestion design (gatekeeper, economics, microservice split)** | [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md) |
 | **Token/cost levers** | [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md) |
 | **Retrieval / planner side (hybrid search, keyword-service at query time)** | [`RAG.md`](RAG.md) |

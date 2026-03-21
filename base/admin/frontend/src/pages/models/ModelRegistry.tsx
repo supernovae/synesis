@@ -9,6 +9,7 @@ import {
   useReconcileModels,
   useProviderKeys,
   useProviderCatalog,
+  usePipelineServices,
 } from "../../api/hooks";
 import type { ProviderKeyStatus } from "../../api/hooks";
 import type { ModelDeployment, ProviderInfo } from "../../types";
@@ -81,6 +82,7 @@ export default function ModelRegistry() {
 
   const { data: catalogData } = useProviderCatalog();
   const { data: providerKeysData } = useProviderKeys();
+  const { data: pipelineServices } = usePipelineServices();
 
   const [editing, setEditing] = useState<EditState | null>(null);
 
@@ -260,6 +262,40 @@ export default function ModelRegistry() {
           </div>
         </>
       )}
+
+      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Pipeline Services</h2>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          Live reachability for model endpoints and ingestion microservices used by indexing.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {(pipelineServices?.services ?? []).map((svc) => (
+            <div key={svc.name} className="rounded border border-gray-200 p-2 dark:border-gray-700">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{svc.name}</span>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] ${
+                    !svc.configured
+                      ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                      : svc.reachable
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  }`}
+                >
+                  {!svc.configured ? "not set" : svc.reachable ? "ok" : "down"}
+                </span>
+              </div>
+              <div className="mt-1 truncate text-[11px] text-gray-500 dark:text-gray-400" title={svc.url}>
+                {svc.url || "—"}
+              </div>
+              <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                {svc.status_code ? `status ${svc.status_code}` : "no status"}
+                {svc.latency_ms != null ? ` · ${svc.latency_ms}ms` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Edit / Assign modal */}
       {editing && (

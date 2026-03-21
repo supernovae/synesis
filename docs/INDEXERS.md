@@ -2,7 +2,7 @@
 
 Synesis uses a **single queue-driven indexer** that claims work from a PostgreSQL-backed ingestion queue (the admin service's `ingestion_items` table). Content is added via the admin UI, the bootstrap API, or bulk YAML import. The indexer processes whatever is pending — no ConfigMaps or per-handler CronJobs required.
 
-**Related docs:** Semantic ingestion / v9 design bar — [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md). Cost levers — [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md). Optional **future** format extractors (office, figure description) — [`INGESTION_ENRICHMENT.md`](INGESTION_ENRICHMENT.md) (includes a topology diagram aligned with this page).
+**Related docs:** Semantic ingestion / v9 design bar — [`plans/semantic_rag_ingestion_v9.md`](plans/semantic_rag_ingestion_v9.md). Cost levers — [`RAG_INGESTION_COST.md`](RAG_INGESTION_COST.md). Format extractors and enrichment boundaries — [`INGESTION_ENRICHMENT.md`](INGESTION_ENRICHMENT.md). Tuning + end-to-end validation runbook — [`INGESTION_TUNING_AND_E2E.md`](INGESTION_TUNING_AND_E2E.md).
 
 ## Architecture
 

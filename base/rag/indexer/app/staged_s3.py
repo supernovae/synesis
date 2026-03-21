@@ -76,6 +76,21 @@ class StagedS3Store:
         self.put_bytes(js_key, json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
         return md_key, js_key
 
+    def put_enriched_json(
+        self,
+        enrich_version: str,
+        doc_key: str,
+        payload: dict[str, Any],
+    ) -> str:
+        v = enrich_version.strip() or "v1"
+        key = self._key("enriched", v, doc_key, "result.json")
+        self.put_bytes(
+            key,
+            json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+            "application/json",
+        )
+        return key
+
     def get_text(self, key: str) -> str:
         resp = self._client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read().decode("utf-8", errors="replace")

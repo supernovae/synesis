@@ -522,6 +522,28 @@ export interface IngestionStats {
   enrich_queue_pending?: number;
 }
 
+export interface StagedIngestionDocument {
+  id: number;
+  doc_key: string;
+  canonical_uri: string;
+  title: string;
+  domain: string;
+  authority: string;
+  origin_type: string;
+  tags: string[] | null;
+  config_snapshot: Record<string, unknown> | null;
+  raw_status: string;
+  norm_status: string;
+  enrich_status: string;
+  norm_version: string;
+  chunk_count: number;
+  error_message: string;
+  raw_s3_keys: Record<string, unknown> | null;
+  norm_s3_md_key: string | null;
+  norm_s3_meta_key: string | null;
+  updated_at: string | null;
+}
+
 // --- Traces ---
 
 export interface LLMCallRecord {

@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..db.engine import async_session
@@ -77,6 +77,24 @@ class EnrichStatusBody(BaseModel):
     error: str | None = None
     chunk_count: int | None = None
     milvus_doc_id: str | None = None
+
+
+class ItemRerunBody(BaseModel):
+    phase: str = Field(default="all", pattern="^(all|fetch|normalize|enrich)$")
+    reset_retries: bool = True
+
+
+class RecoverLeasesBody(BaseModel):
+    stale_minutes: int = Field(default=30, ge=1, le=1440)
+
+
+class DocumentEditBody(BaseModel):
+    title: str | None = None
+    domain: str | None = None
+    authority: str | None = None
+    origin_type: str | None = None
+    tags: list[str] | None = None
+    config_snapshot: dict[str, Any] | None = None
 
 
 def _item_dict(r: IngestionItem) -> dict[str, Any]:
@@ -210,6 +228,130 @@ async def update_staged_item_status(item_id: int, body: StagedItemStatusBody):
     return {"ok": True, "status": final_status}
 
 
+@router.post("/items/{item_id}/rerun")
+async def rerun_item(item_id: int, body: ItemRerunBody):
+    """Reset an item to rerun all or a specific staged phase."""
+    now = datetime.now(UTC)
+    async with async_session() as session:
+        item = await session.get(IngestionItem, item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="not_found")
+
+        docs = (
+            await session.execute(
+                select(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id)
+            )
+        ).scalars().all()
+        doc_ids = [d.id for d in docs]
+        queue_deleted = 0
+
+        if body.phase in ("all", "fetch"):
+            if doc_ids:
+                qres = await session.execute(
+                    delete(IngestionEnrichQueue).where(IngestionEnrichQueue.document_id.in_(doc_ids))
+                )
+                queue_deleted = int(qres.rowcount or 0)
+                await session.execute(
+                    delete(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id)
+                )
+            item.status = "pending"
+            item.error_message = ""
+            item.indexer_stats = None
+            item.content_hash = None
+            item.milvus_doc_id = ""
+            item.chunk_count = 0
+            item.started_at = None
+            item.completed_at = None
+            item.queued_at = now
+            if body.reset_retries:
+                item.retry_count = 0
+            await session.commit()
+            return {
+                "ok": True,
+                "phase": body.phase,
+                "status": item.status,
+                "documents_deleted": len(doc_ids),
+                "queue_deleted": queue_deleted,
+            }
+
+        if not docs:
+            raise HTTPException(status_code=400, detail="no_documents_for_item")
+
+        if body.phase == "normalize":
+            if doc_ids:
+                qres = await session.execute(
+                    delete(IngestionEnrichQueue).where(IngestionEnrichQueue.document_id.in_(doc_ids))
+                )
+                queue_deleted = int(qres.rowcount or 0)
+            for d in docs:
+                d.norm_status = "pending"
+                d.norm_content_hash = None
+                d.norm_s3_md_key = None
+                d.norm_s3_meta_key = None
+                d.normalized_at = None
+                d.enrich_status = "pending"
+                d.milvus_doc_id = ""
+                d.chunk_count = 0
+                d.error_message = ""
+                d.updated_at = now
+            item.status = "staged_raw"
+            item.error_message = ""
+            item.started_at = None
+            item.completed_at = None
+            item.chunk_count = 0
+            item.milvus_doc_id = ""
+            await session.commit()
+            return {
+                "ok": True,
+                "phase": body.phase,
+                "status": item.status,
+                "documents_reset": len(docs),
+                "queue_deleted": queue_deleted,
+            }
+
+        # phase == enrich
+        if doc_ids:
+            qres = await session.execute(
+                delete(IngestionEnrichQueue).where(IngestionEnrichQueue.document_id.in_(doc_ids))
+            )
+            queue_deleted = int(qres.rowcount or 0)
+        enqueued = 0
+        for d in docs:
+            if d.norm_status != "done":
+                continue
+            d.enrich_status = "pending"
+            d.milvus_doc_id = ""
+            d.chunk_count = 0
+            d.error_message = ""
+            d.updated_at = now
+            await session.execute(
+                pg_insert(IngestionEnrichQueue)
+                .values(
+                    document_id=d.id,
+                    norm_version=d.norm_version or "v1",
+                    enrich_version="v1",
+                    priority=0,
+                    status="pending",
+                )
+                .on_conflict_do_nothing(constraint="uq_ingestion_enrich_doc_version")
+            )
+            enqueued += 1
+        item.status = "enrich_queued" if enqueued > 0 else "staged_norm"
+        item.error_message = ""
+        item.started_at = None
+        item.completed_at = None
+        item.chunk_count = 0
+        item.milvus_doc_id = ""
+        await session.commit()
+        return {
+            "ok": True,
+            "phase": body.phase,
+            "status": item.status,
+            "documents_requeued": enqueued,
+            "queue_deleted": queue_deleted,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Register raw documents (after S3 put)
 # ---------------------------------------------------------------------------
@@ -320,6 +462,68 @@ async def claim_normalize(response: Response, limit: int = 8):
             }
         )
     return {"documents": out}
+
+
+@router.get("/items/{item_id}/documents")
+async def list_item_documents(item_id: int):
+    async with async_session() as session:
+        rows = (
+            await session.execute(
+                select(IngestionDocument)
+                .where(IngestionDocument.ingestion_item_id == item_id)
+                .order_by(IngestionDocument.id)
+            )
+        ).scalars().all()
+    return {
+        "documents": [
+            {
+                "id": d.id,
+                "doc_key": d.doc_key,
+                "canonical_uri": d.canonical_uri,
+                "title": d.title,
+                "domain": d.domain,
+                "authority": d.authority,
+                "origin_type": d.origin_type,
+                "tags": d.tags,
+                "config_snapshot": d.config_snapshot,
+                "raw_status": d.raw_status,
+                "norm_status": d.norm_status,
+                "enrich_status": d.enrich_status,
+                "norm_version": d.norm_version,
+                "chunk_count": d.chunk_count,
+                "error_message": d.error_message,
+                "raw_s3_keys": d.raw_s3_keys,
+                "norm_s3_md_key": d.norm_s3_md_key,
+                "norm_s3_meta_key": d.norm_s3_meta_key,
+                "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+            }
+            for d in rows
+        ]
+    }
+
+
+@router.patch("/documents/{document_id}")
+async def edit_document(document_id: int, body: DocumentEditBody):
+    now = datetime.now(UTC)
+    async with async_session() as session:
+        doc = await session.get(IngestionDocument, document_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="not_found")
+        if body.title is not None:
+            doc.title = body.title
+        if body.domain is not None:
+            doc.domain = body.domain
+        if body.authority is not None:
+            doc.authority = body.authority
+        if body.origin_type is not None:
+            doc.origin_type = body.origin_type
+        if body.tags is not None:
+            doc.tags = body.tags
+        if body.config_snapshot is not None:
+            doc.config_snapshot = body.config_snapshot
+        doc.updated_at = now
+        await session.commit()
+    return {"ok": True, "document_id": document_id}
 
 
 @router.patch("/documents/{document_id}/normalize-result")
@@ -545,3 +749,48 @@ async def enrich_job_status(job_id: int, body: EnrichStatusBody):
         await session.commit()
 
     return {"ok": True, "job_id": job_id, "status": body.status}
+
+
+@router.post("/leases/recover")
+async def recover_stale_leases(body: RecoverLeasesBody):
+    """Recover stale running leases back to pending for normalize/enrich/items."""
+    async with async_session() as session:
+        running_docs_sql = text("""
+            UPDATE ingestion_documents
+            SET norm_status = 'pending',
+                error_message = 'lease_recovered: normalize claim stale',
+                updated_at = NOW()
+            WHERE norm_status = 'running'
+              AND updated_at < NOW() - (:mins::text || ' minutes')::interval
+        """)
+        running_enrich_sql = text("""
+            UPDATE ingestion_enrich_queue
+            SET status = 'pending',
+                worker_id = '',
+                started_at = NULL,
+                error = 'lease_recovered: enrich claim stale'
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+              AND started_at < NOW() - (:mins::text || ' minutes')::interval
+        """)
+        running_items_sql = text("""
+            UPDATE ingestion_items
+            SET status = 'pending',
+                started_at = NULL,
+                queued_at = NOW(),
+                error_message = 'lease_recovered: item claim stale'
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+              AND started_at < NOW() - (:mins::text || ' minutes')::interval
+        """)
+        docs_res = await session.execute(running_docs_sql, {"mins": body.stale_minutes})
+        enrich_res = await session.execute(running_enrich_sql, {"mins": body.stale_minutes})
+        items_res = await session.execute(running_items_sql, {"mins": body.stale_minutes})
+        await session.commit()
+    return {
+        "ok": True,
+        "stale_minutes": body.stale_minutes,
+        "documents_recovered": int(docs_res.rowcount or 0),
+        "enrich_jobs_recovered": int(enrich_res.rowcount or 0),
+        "items_recovered": int(items_res.rowcount or 0),
+    }
