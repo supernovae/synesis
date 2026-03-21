@@ -10,6 +10,7 @@ const USER_KEY = "synesis_user";
 /** OIDC id_token — sent as id_token_hint to Keycloak logout so the SSO session ends. */
 const ID_TOKEN_KEY = "synesis_id_token";
 const POST_LOGOUT_FLAG = "synesis_post_logout";
+const OIDC_STATE_KEY = "synesis_oidc_state";
 
 function loadPersistedAuth(): { user: User | null; token: string | null } {
   try {
@@ -146,8 +147,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const verifier = generateCodeVerifier();
     const challenge = await generateCodeChallenge(verifier);
+    const state = crypto.randomUUID();
 
     sessionStorage.setItem("synesis_pkce_verifier", verifier);
+    sessionStorage.setItem(OIDC_STATE_KEY, state);
 
     const redirectUri = `${window.location.origin}/callback`;
     const params = new URLSearchParams({
@@ -157,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       scope: oidcConfig.scopes || "openid profile email",
       code_challenge: challenge,
       code_challenge_method: "S256",
-      state: crypto.randomUUID(),
+      state,
     });
 
     window.location.href = `${oidcConfig.issuer}/protocol/openid-connect/auth?${params}`;
@@ -197,7 +200,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         loginWithOidc,
         logout,
-        isAdmin: auth.user?.role === "admin",
+        isAdmin:
+          auth.user?.role === "admin" ||
+          auth.user?.role === "platform_admin" ||
+          auth.user?.role === "org_admin",
         isAuthenticated: !!auth.token,
         oidcConfig,
         loading,

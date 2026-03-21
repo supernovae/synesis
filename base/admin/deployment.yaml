@@ -84,6 +84,15 @@ spec:
               value: "http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080/realms/synesis"
             - name: SYNESIS_EXPECTED_SCHEMA_VERSION
               value: "9"
+            - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
+            # Keep OpenAPI/docs disabled by default on public deployments.
+            - name: SYNESIS_ENABLE_OPENAPI
+              value: "false"
           volumeMounts:
             - name: quality-data
               mountPath: /data/quality

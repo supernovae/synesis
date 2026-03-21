@@ -43,6 +43,12 @@ spec:
               env:
                 - name: SYNESIS_ADMIN_URL
                   value: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+                - name: SYNESIS_ADMIN_SERVICE_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: synesis-internal-service-auth
+                      key: token
+                      optional: true
                 # Optional semantic gatekeeper (OpenAI-compatible). See docs/INDEXERS.md
                 # - name: SYNESIS_INDEXER_GATEKEEPER_ENABLE
                 #   value: "true"

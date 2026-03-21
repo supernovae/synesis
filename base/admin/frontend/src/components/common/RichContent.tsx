@@ -39,28 +39,51 @@ function formatJson(text: string): string {
 function JsonHighlight({ text }: { text: string }) {
   const formatted = useMemo(() => formatJson(text), [text]);
 
-  const highlighted = useMemo(() => {
-    return formatted.replace(
-      /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|(true|false|null)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
-      (match, key, str, bool, num) => {
-        if (key)
-          return `<span class="text-purple-600 dark:text-purple-400">${key}</span>:`;
-        if (str)
-          return `<span class="text-green-600 dark:text-green-400">${str}</span>`;
-        if (bool)
-          return `<span class="text-amber-600 dark:text-amber-400">${bool}</span>`;
-        if (num)
-          return `<span class="text-blue-600 dark:text-blue-400">${num}</span>`;
-        return match;
-      },
-    );
+  const parts = useMemo(() => {
+    const tokenRegex =
+      /("(?:\\.|[^"\\])*")\s*:|("(?:\\.|[^"\\])*")|(true|false|null)|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+    const out: Array<{ text: string; cls?: string }> = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+
+    while ((m = tokenRegex.exec(formatted)) !== null) {
+      const [full, key, str, bool, num] = m;
+      if (m.index > last) {
+        out.push({ text: formatted.slice(last, m.index) });
+      }
+      if (key) {
+        out.push({ text: key, cls: "text-purple-600 dark:text-purple-400" });
+        out.push({ text: ":" });
+      } else if (str) {
+        out.push({ text: str, cls: "text-green-600 dark:text-green-400" });
+      } else if (bool) {
+        out.push({ text: bool, cls: "text-amber-600 dark:text-amber-400" });
+      } else if (num) {
+        out.push({ text: num, cls: "text-blue-600 dark:text-blue-400" });
+      } else {
+        out.push({ text: full });
+      }
+      last = m.index + full.length;
+    }
+
+    if (last < formatted.length) {
+      out.push({ text: formatted.slice(last) });
+    }
+    return out;
   }, [formatted]);
 
   return (
-    <pre
-      className="max-h-[32rem] overflow-y-auto overflow-x-auto whitespace-pre rounded border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300"
-      dangerouslySetInnerHTML={{ __html: highlighted }}
-    />
+    <pre className="max-h-[32rem] overflow-y-auto overflow-x-auto whitespace-pre rounded border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300">
+      {parts.map((part, i) =>
+        part.cls ? (
+          <span key={i} className={part.cls}>
+            {part.text}
+          </span>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </pre>
   );
 }
 

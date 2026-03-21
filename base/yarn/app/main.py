@@ -195,12 +195,14 @@ async def list_models():
 
 
 @app.get("/v1/mcp/tools")
-async def list_mcp_tools():
+async def list_mcp_tools(request: Request):
+    await resolve_auth(request)
     return {"tools": _orchestrator.list_tools()}
 
 
 @app.post("/v1/mcp/tools/call")
 async def call_mcp_tool(request: Request):
+    await resolve_auth(request)
     body = await request.json()
     name = body.get("name", "")
     arguments = body.get("arguments", {})

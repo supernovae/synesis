@@ -167,6 +167,177 @@ ensure_planner_litellm_key() {
 }
 
 # -----------------------------------------------------------------------
+# Internal service auth token (defense in depth for control-plane APIs).
+# Idempotent: reuse existing token if present in any managed namespace,
+# otherwise generate and sync to all.
+# -----------------------------------------------------------------------
+ensure_internal_service_auth() {
+    local secret_name="synesis-internal-service-auth"
+    local key_name="token"
+    local existing=""
+    local ns
+    local namespaces=(synesis-admin synesis-rag synesis-planner synesis-yarn synesis-gateway)
+
+    for ns in "${namespaces[@]}"; do
+        oc create namespace "$ns" 2>/dev/null || true
+    done
+
+    for ns in "${namespaces[@]}"; do
+        if oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+            existing=$(oc get secret "$secret_name" -n "$ns" \
+                -o jsonpath="{.data.${key_name}}" 2>/dev/null | base64 -d 2>/dev/null || true)
+            existing=$(printf '%s' "$existing" | tr -d '\n\r')
+            if [[ -n "$existing" ]]; then
+                break
+            fi
+        fi
+    done
+
+    if [[ -z "$existing" ]]; then
+        existing="synesis-internal-$(openssl rand -hex 32)"
+        log "Generating internal service auth token..."
+    else
+        log "Internal service auth token already exists (syncing namespaces)"
+    fi
+
+    INTERNAL_SERVICE_TOKEN="$existing"
+    for ns in "${namespaces[@]}"; do
+        oc create secret generic "$secret_name" \
+            -n "$ns" \
+            --from-literal="$key_name=$INTERNAL_SERVICE_TOKEN" \
+            --dry-run=client -o yaml | oc apply -f - >/dev/null
+    done
+    log "  Internal service auth secret synced to: ${namespaces[*]}"
+}
+
+# -----------------------------------------------------------------------
+# Optional Cloudflare Tunnel deployment (cloudflared).
+# Enabled with SYNESIS_ENABLE_CLOUDFLARED=true.
+# Idempotent: reconciles secret + configmap + deployment.
+# -----------------------------------------------------------------------
+ensure_cloudflared_tunnel() {
+    if ! is_true "${SYNESIS_ENABLE_CLOUDFLARED:-false}"; then
+        return 0
+    fi
+
+    local ns="synesis-edge"
+    local kustomize_dir="$PROJECT_ROOT/base/edge/cloudflared"
+    local secret_name="cloudflared-credentials"
+    local configmap_name="cloudflared-config"
+    local deploy_name="cloudflared"
+    local tunnel_name="${SYNESIS_CF_TUNNEL_NAME:-synesis}"
+    local creds_file="${SYNESIS_CF_TUNNEL_CREDENTIALS_FILE:-}"
+    local creds_json="${SYNESIS_CF_TUNNEL_CREDENTIALS_JSON:-}"
+
+    if [[ ! -d "$kustomize_dir" ]]; then
+        log "WARNING: cloudflared base not found at $kustomize_dir"
+        return 1
+    fi
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    # Credentials secret
+    if [[ -n "$creds_json" ]]; then
+        log "Reconciling cloudflared credentials from SYNESIS_CF_TUNNEL_CREDENTIALS_JSON..."
+        oc create secret generic "$secret_name" \
+            -n "$ns" \
+            --from-literal=credentials.json="$creds_json" \
+            --dry-run=client -o yaml | oc apply -f -
+    elif [[ -n "$creds_file" ]]; then
+        if [[ -f "$creds_file" ]]; then
+            log "Reconciling cloudflared credentials from file: $creds_file"
+            oc create secret generic "$secret_name" \
+                -n "$ns" \
+                --from-file=credentials.json="$creds_file" \
+                --dry-run=client -o yaml | oc apply -f -
+        else
+            log "WARNING: SYNESIS_CF_TUNNEL_CREDENTIALS_FILE not found: $creds_file"
+            return 1
+        fi
+    elif ! oc get secret "$secret_name" -n "$ns" &>/dev/null; then
+        log "WARNING: cloudflared credentials missing."
+        log "  Set one of:"
+        log "    SYNESIS_CF_TUNNEL_CREDENTIALS_JSON='{\"AccountTag\":\"...\",\"TunnelSecret\":\"...\",\"TunnelID\":\"...\"}'"
+        log "    SYNESIS_CF_TUNNEL_CREDENTIALS_FILE=/path/to/credentials.json"
+        log "  Or pre-create secret: $ns/$secret_name"
+        return 1
+    else
+        log "Using existing cloudflared credentials secret: $ns/$secret_name"
+    fi
+
+    local api_host admin_host chat_host auth_host
+    api_host="${SYNESIS_CF_API_HOST:-$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+    admin_host="${SYNESIS_CF_ADMIN_HOST:-$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+    chat_host="${SYNESIS_CF_CHAT_HOST:-$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+    auth_host="${SYNESIS_CF_AUTH_HOST:-$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || true)}"
+
+    api_host="${api_host:-synesis-api.apps.openshiftdemo.dev}"
+    admin_host="${admin_host:-synesis-admin.apps.openshiftdemo.dev}"
+    chat_host="${chat_host:-synesis.apps.openshiftdemo.dev}"
+    auth_host="${auth_host:-synesis-auth.apps.openshiftdemo.dev}"
+
+    local cfg_tmp
+    cfg_tmp="$(mktemp)"
+    cat > "$cfg_tmp" <<EOF
+tunnel: ${tunnel_name}
+credentials-file: /etc/cloudflared/credentials/credentials.json
+ingress:
+  - hostname: ${api_host}
+    service: http://litellm-proxy.synesis-gateway.svc.cluster.local:4000
+  - hostname: ${admin_host}
+    service: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+  - hostname: ${chat_host}
+    service: http://open-webui.synesis-webui.svc.cluster.local:8080
+  - hostname: ${auth_host}
+    service: http://synesis-keycloak-service.synesis-auth.svc.cluster.local:8080
+  - service: http_status:404
+EOF
+
+    oc create configmap "$configmap_name" \
+        -n "$ns" \
+        --from-file=config.yaml="$cfg_tmp" \
+        --dry-run=client -o yaml | oc apply -f -
+    rm -f "$cfg_tmp"
+
+    oc apply -k "$kustomize_dir"
+
+    # Roll cloudflared only when config/secret changed.
+    local cfg_hash sec_hash
+    cfg_hash=$(oc get configmap "$configmap_name" -n "$ns" -o jsonpath='{.data}' 2>/dev/null | (md5sum 2>/dev/null || md5) | cut -c1-8)
+    sec_hash=$(oc get secret "$secret_name" -n "$ns" -o jsonpath='{.data}' 2>/dev/null | (md5sum 2>/dev/null || md5) | cut -c1-8)
+    if [[ -n "$cfg_hash" && -n "$sec_hash" ]]; then
+        oc patch deployment "$deploy_name" -n "$ns" \
+            -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"synesis/configmap-hash\":\"$cfg_hash\",\"synesis/secret-hash\":\"$sec_hash\"}}}}}" \
+            --type=merge >/dev/null 2>&1 || true
+    fi
+
+    log "cloudflared tunnel reconciled:"
+    log "  API:   $api_host"
+    log "  Admin: $admin_host"
+    log "  Chat:  $chat_host"
+    log "  Auth:  $auth_host"
+}
+
+verify_cloudflared_tunnel() {
+    if ! is_true "${SYNESIS_VERIFY_CLOUDFLARED:-false}"; then
+        return 0
+    fi
+    local verifier="$PROJECT_ROOT/scripts/verify-cloudflared.sh"
+    if [[ ! -x "$verifier" ]]; then
+        log "WARNING: cloudflared verifier not found or not executable: $verifier"
+        return 1
+    fi
+
+    log "Running cloudflared verification..."
+    if "$verifier" --check-hosts; then
+        log "cloudflared verification passed"
+        return 0
+    fi
+    log "WARNING: cloudflared verification failed"
+    return 1
+}
+
+# -----------------------------------------------------------------------
 # Provider API keys: prompt for OpenRouter key interactively or read from
 # OPENROUTER_API_KEY.  Writes to the unified provider-api-keys secret in
 # synesis-gateway.  Additional provider keys can be managed via Admin UI
@@ -864,6 +1035,7 @@ fi
 log ""
 
 ensure_litellm_key
+ensure_internal_service_auth
 ensure_webui_key
 ensure_admin_litellm_key
 ensure_planner_litellm_key
@@ -1222,6 +1394,22 @@ reconcile_litellm_webui_secrets
 
 if [[ "$APPLY_OK" == "true" ]]; then
     deploy_litellm_helm
+fi
+
+if [[ "$APPLY_OK" == "true" ]]; then
+    log ""
+    log "Reconciling optional cloudflared tunnel..."
+    ensure_cloudflared_tunnel || true
+fi
+
+if [[ "$APPLY_OK" == "true" ]]; then
+    log ""
+    if ! verify_cloudflared_tunnel; then
+        if is_true "${SYNESIS_VERIFY_CLOUDFLARED:-false}"; then
+            log "ERROR: cloudflared verification failed (SYNESIS_VERIFY_CLOUDFLARED=true)"
+            exit 1
+        fi
+    fi
 fi
 
 # -----------------------------------------------------------------------

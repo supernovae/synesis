@@ -3,6 +3,7 @@ import { useAuth } from "../components/auth/useAuth";
 import axios from "axios";
 
 const SUPPRESS_AUTO_KEY = "synesis_oidc_suppress_auto";
+const OIDC_STATE_KEY = "synesis_oidc_state";
 
 export default function OidcCallback() {
   const { oidcConfig } = useAuth();
@@ -15,6 +16,7 @@ export default function OidcCallback() {
       const oauthError = params.get("error");
       const oauthDesc = params.get("error_description");
       const code = params.get("code");
+      const returnedState = params.get("state");
 
       if (oauthError) {
         sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
@@ -38,9 +40,17 @@ export default function OidcCallback() {
       }
 
       const verifier = sessionStorage.getItem("synesis_pkce_verifier");
+      const expectedState = sessionStorage.getItem(OIDC_STATE_KEY);
       if (!verifier) {
         sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         setError("PKCE verifier missing — please try logging in again");
+        return;
+      }
+      if (!expectedState || !returnedState || expectedState !== returnedState) {
+        sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
+        sessionStorage.removeItem("synesis_pkce_verifier");
+        sessionStorage.removeItem(OIDC_STATE_KEY);
+        setError("Invalid OIDC state — please try logging in again");
         return;
       }
 
@@ -67,6 +77,7 @@ export default function OidcCallback() {
         const accessToken = data.access_token;
 
         sessionStorage.removeItem("synesis_pkce_verifier");
+        sessionStorage.removeItem(OIDC_STATE_KEY);
         sessionStorage.removeItem(SUPPRESS_AUTO_KEY);
 
         // Persist tokens.
@@ -94,6 +105,7 @@ export default function OidcCallback() {
         exchangeStarted.current = false;
         sessionStorage.setItem(SUPPRESS_AUTO_KEY, "1");
         sessionStorage.removeItem("synesis_pkce_verifier");
+        sessionStorage.removeItem(OIDC_STATE_KEY);
         setError("Authentication failed. Please try again.");
       }
     }

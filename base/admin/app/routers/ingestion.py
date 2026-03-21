@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
+from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import require_platform_admin
 from ..db.engine import async_session
 from ..db.models import (
@@ -660,7 +661,7 @@ async def patch_item(
     """Edit item metadata and/or trigger a controlled status transition.
 
     Requires platform_admin. Does not overlap with the indexer's
-    unauthenticated ``PATCH .../status`` callback.
+    service-authenticated ``PATCH .../status`` callback.
     """
     async with async_session() as session:
         item = await session.get(IngestionItem, item_id)
@@ -763,14 +764,17 @@ async def requeue_item(
 
 
 @router.post("/items/claim")
-async def claim_item(response: Response):
+async def claim_item(
+    response: Response,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
     """Atomically claim the next pending or retryable-failed item.
 
     Priority order: pending items first (by priority desc, then age),
     then failed items whose retry_count < max_retries (exponential backoff).
     Uses SELECT ... FOR UPDATE SKIP LOCKED for safe concurrent claiming.
     Returns 204 when nothing is claimable.
-    No auth required — called by indexer pods within the cluster.
+    Requires internal service token or platform_admin token.
     """
     from sqlalchemy import or_, text
 
@@ -847,8 +851,11 @@ async def claim_item(response: Response):
 async def update_item_status(
     item_id: int,
     body: StatusUpdate,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
 ):
-    """Update item status after processing. No auth — called by indexer pods.
+    """Update item status after processing.
+
+    Requires internal service token or platform_admin token.
 
     When status is 'failed' and retry_count reaches max_retries, the item is
     automatically escalated to 'dead_letter' so it won't be retried again.
@@ -953,8 +960,14 @@ async def list_runs(
 
 
 @router.post("/runs")
-async def create_run(body: RunCreate):
-    """Create a new ingestion run record. No auth — called by indexer pods."""
+async def create_run(
+    body: RunCreate,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    """Create a new ingestion run record.
+
+    Requires internal service token or platform_admin token.
+    """
     async with async_session() as session:
         run = IngestionRun(
             source_id=body.source_id,
@@ -968,8 +981,15 @@ async def create_run(body: RunCreate):
 
 
 @router.patch("/runs/{run_id}")
-async def update_run(run_id: int, body: RunUpdate):
-    """Update run progress. No auth — called by indexer pods."""
+async def update_run(
+    run_id: int,
+    body: RunUpdate,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    """Update run progress.
+
+    Requires internal service token or platform_admin token.
+    """
     async with async_session() as session:
         run = await session.get(IngestionRun, run_id)
         if not run:
@@ -1080,14 +1100,17 @@ class SchemaReport(BaseModel):
 
 
 @router.post("/schema-sync")
-async def report_schema_version(body: SchemaReport):
+async def report_schema_version(
+    body: SchemaReport,
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
     """Called by the indexer after ensuring/recreating the Milvus collection.
 
     If the reported version differs from what's stored, all 'indexed' and
     'running' ingestion items are reset to 'pending' (since the old Milvus
     data is gone after a schema bump). This makes re-import automatic.
 
-    No auth required — called by indexer pods within the cluster.
+    Requires internal service token or platform_admin token.
     """
     now = datetime.now(UTC)
     async with async_session() as session:

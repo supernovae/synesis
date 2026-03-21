@@ -6,6 +6,7 @@ import os
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..auth import UserInfo, get_current_user
+from ..rbac import require_platform_admin
 from ..services.admin_audit import record_admin_audit
 from ..services.infra_pricing import (
     delete_infra_config,
@@ -36,7 +37,7 @@ REDACTED_PATTERNS = ("PASSWORD", "SECRET", "TOKEN", "KEY")
 
 
 @router.get("/config")
-async def system_config(_user: UserInfo = Depends(get_current_user)):
+async def system_config(_user: UserInfo = Depends(require_platform_admin)):
     config = {}
     for key, val in sorted(os.environ.items()):
         if not key.startswith("SYNESIS_"):
@@ -68,7 +69,7 @@ async def list_infra_costs(_user: UserInfo = Depends(get_current_user)):
 async def set_infra_cost(
     role: str,
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Create or update infra cost config for a role."""
     data["role"] = role
@@ -86,7 +87,7 @@ async def set_infra_cost(
 @router.delete("/infra-costs/{role}")
 async def remove_infra_cost(
     role: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Delete infra cost config for a role."""
     ok = await delete_infra_config(role)

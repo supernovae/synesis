@@ -2,6 +2,8 @@
 
 This document describes Synesis's defense-in-depth strategy against prompt injection, the trust model that governs how data flows through the LangGraph pipeline, and the administrative workflows for content vetting.
 
+For internet exposure and edge controls, see [`docs/CLOUDFLARE_EDGE_HARDENING.md`](./CLOUDFLARE_EDGE_HARDENING.md).
+
 ## Threat Model
 
 Synesis processes untrusted content from three sources:

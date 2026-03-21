@@ -6,17 +6,22 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..db.engine import async_session
 from ..db.models import IngestionDocument, IngestionEnrichQueue, IngestionItem, IngestionSource
+from ..internal_auth import require_service_or_platform_admin
 
 logger = logging.getLogger("synesis.admin.ingestion_staged")
 
-router = APIRouter(prefix="/api/v1/ingestion/staged", tags=["ingestion-staged"])
+router = APIRouter(
+    prefix="/api/v1/ingestion/staged",
+    tags=["ingestion-staged"],
+    dependencies=[Depends(require_service_or_platform_admin)],
+)
 
 
 # ---------------------------------------------------------------------------

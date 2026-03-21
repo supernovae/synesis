@@ -36,7 +36,15 @@ class QueueClient:
 
     def __init__(self, admin_url: str, timeout: float = 30.0):
         self._base = admin_url.rstrip("/")
-        self._http = httpx.Client(base_url=self._base, timeout=timeout)
+        service_token = (
+            os.getenv("SYNESIS_ADMIN_SERVICE_TOKEN", "").strip()
+            or os.getenv("SYNESIS_API_TOKEN", "").strip()
+        )
+        headers: dict[str, str] = {}
+        if service_token:
+            headers["Authorization"] = f"Bearer {service_token}"
+            headers["x-synesis-service-name"] = "indexer-queue"
+        self._http = httpx.Client(base_url=self._base, timeout=timeout, headers=headers)
 
     def claim_item(self) -> dict[str, Any] | None:
         resp = self._http.post("/api/v1/ingestion/items/claim")

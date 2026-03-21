@@ -372,9 +372,11 @@ oc logs -n synesis-rag -l synesis.io/indexer-group=queue -f
 
 ### Indexer ↔ admin authentication
 
-Endpoints used only by the indexer (`POST /ingestion/runs`, `POST /ingestion/items/claim`, `PATCH /ingestion/items/{id}/status`, `POST /ingestion/schema-sync`) are **unauthenticated** by design so CronJobs do not need Keycloak or PATs; the trust boundary is the cluster network (and optional `NetworkPolicy`). Human-facing routes (bootstrap, stats, list runs, etc.) still require a bearer token.
+Control-plane endpoints used by indexer workers now require **either**:
+- a valid `platform_admin` bearer token, or
+- a shared internal service token (`SYNESIS_INTERNAL_SERVICE_TOKEN` on admin, `SYNESIS_ADMIN_SERVICE_TOKEN` on workers).
 
-If you need an extra safeguard later, add an optional shared secret header (e.g. `SYNESIS_INDEXER_SHARED_SECRET` on both sides) checked only on those internal routes.
+Keep `NetworkPolicy` restrictions in place; token auth is defense in depth, not a replacement for network isolation.
 
 ### `html_document` vs `web_page` (single page vs doc slice)
 
@@ -504,6 +506,7 @@ Approval status flows:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `SYNESIS_ADMIN_URL` | `http://synesis-admin.synesis-admin.svc.cluster.local:8080` | Admin API for queue mode (Service port matches deployment) |
+| `SYNESIS_ADMIN_SERVICE_TOKEN` | — | Shared internal service token for worker control-plane calls to admin (`Authorization: Bearer ...`) |
 | `GITHUB_TOKEN` | (secret) | GitHub PAT for private repos and higher API rate limits |
 | `SYNESIS_GENERAL_URL` | cluster-internal | LLM endpoint for Tier 2 enrichment (chunk_summary) — YAML/`--llm-url` mode |
 | `SYNESIS_INDEXER_GATEKEEPER_ENABLE` | `false` | Set `true` to run document-level semantic gatekeeper |

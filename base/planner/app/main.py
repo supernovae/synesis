@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import hashlib
 import json
 import os
@@ -396,42 +397,107 @@ def _is_coding_client(http_request: Request) -> bool:
     return False
 
 
-def _resolve_user_id(request_body: ChatCompletionRequest, http_request: Request) -> str:
+def _service_tokens() -> list[str]:
+    out: list[str] = []
+    one = settings.internal_service_token.strip()
+    if one:
+        out.append(one)
+    many = settings.internal_service_tokens.strip()
+    if many:
+        out.extend([t.strip() for t in many.split(",") if t.strip()])
+    return out
+
+
+def _extract_bearer_token(http_request: Request) -> str:
+    auth = (http_request.headers.get("authorization") or "").strip()
+    if auth.startswith("Bearer ") and len(auth) > 7:
+        return auth[7:].strip()
+    return ""
+
+
+def _is_trusted_service_bearer(token: str) -> bool:
+    if not token:
+        return False
+    for candidate in _service_tokens():
+        if hmac.compare_digest(token, candidate):
+            return True
+    if (
+        settings.trust_model_api_key_for_forwarded_identity
+        and not settings.strict_forwarded_identity_mode
+        and settings.model_api_key
+    ):
+        if hmac.compare_digest(token, settings.model_api_key):
+            return True
+    return False
+
+
+def _enforce_auth_and_header_trust(http_request: Request) -> tuple[str, bool]:
+    bearer = _extract_bearer_token(http_request)
+    if settings.planner_require_bearer_auth and not bearer:
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    trust_forwarded = bool(settings.trust_forwarded_identity_headers and _is_trusted_service_bearer(bearer))
+    if settings.strict_forwarded_identity_mode and settings.trust_forwarded_identity_headers:
+        has_forwarded = bool(
+            http_request.headers.get("x-openwebui-user-id")
+            or http_request.headers.get("x-openwebui-user-email")
+            or http_request.headers.get("x-synesis-org-id")
+            or http_request.headers.get("x-synesis-org-name")
+            or http_request.headers.get("x-openwebui-chat-id")
+        )
+        if has_forwarded and not trust_forwarded:
+            raise HTTPException(status_code=403, detail="Untrusted forwarded identity headers")
+    return bearer, trust_forwarded
+
+
+def _resolve_user_id(
+    request_body: ChatCompletionRequest,
+    http_request: Request,
+    *,
+    bearer_token: str,
+    trust_forwarded_identity: bool,
+) -> str:
     """Resolve user identity: Open WebUI header > request body > API key hash > anonymous."""
     owui_user = (http_request.headers.get("x-openwebui-user-id") or "").strip()
-    if owui_user:
+    if trust_forwarded_identity and owui_user:
         return owui_user[:128]
     if request_body.user:
         return request_body.user.strip()[:128]
-    auth = http_request.headers.get("authorization", "")
-    if auth.startswith("Bearer ") and len(auth) > 7:
-        token = auth[7:]
-        return hashlib.sha256(token.encode()).hexdigest()[:16]
+    if bearer_token:
+        return hashlib.sha256(bearer_token.encode()).hexdigest()[:16]
     return "anonymous"
 
 
-def _resolve_user_email(http_request: Request) -> str:
+def _resolve_user_email(http_request: Request, *, trust_forwarded_identity: bool) -> str:
     """Extract user email from Open WebUI forwarded headers (shared with Keycloak)."""
+    if not trust_forwarded_identity:
+        return ""
     return (http_request.headers.get("x-openwebui-user-email") or "").strip()[:256]
 
 
-def _resolve_user_org(http_request: Request) -> tuple[str, str]:
+def _resolve_user_org(http_request: Request, *, trust_forwarded_identity: bool) -> tuple[str, str]:
     """Extract organization id/name from forwarded headers.
 
     Returns (org_id, org_name). Both empty when user has no org membership.
     """
+    if not trust_forwarded_identity:
+        return "", ""
     org_id = (http_request.headers.get("x-synesis-org-id") or "").strip()[:128]
     org_name = (http_request.headers.get("x-synesis-org-name") or "").strip()[:256]
     return org_id, org_name
 
 
-def _resolve_conversation_id(request_body: ChatCompletionRequest, http_request: Request) -> str | None:
+def _resolve_conversation_id(
+    request_body: ChatCompletionRequest,
+    http_request: Request,
+    *,
+    trust_forwarded_identity: bool,
+) -> str | None:
     """Resolve conversation scope: body > Open WebUI header > generic headers > None.
     When present, memory (history, pending plans) is scoped per conversation — avoids drift across chats."""
     if request_body.conversation_id and request_body.conversation_id.strip():
         return request_body.conversation_id.strip()[:128]
     header = (
-        http_request.headers.get("x-openwebui-chat-id")
+        (http_request.headers.get("x-openwebui-chat-id") if trust_forwarded_identity else "")
         or http_request.headers.get("x-conversation-id")
         or http_request.headers.get("x-chat-id")
         or ""
@@ -996,10 +1062,27 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     start = time.monotonic()
     _sample_memory_and_log("request_start")
 
-    user_id = _resolve_user_id(request, http_request)
-    user_email = _resolve_user_email(http_request)
-    org_id, org_name = _resolve_user_org(http_request)
-    conversation_id = _resolve_conversation_id(request, http_request)
+    bearer_token, trust_forwarded_identity = _enforce_auth_and_header_trust(http_request)
+    if not trust_forwarded_identity and (
+        http_request.headers.get("x-openwebui-user-id")
+        or http_request.headers.get("x-openwebui-user-email")
+        or http_request.headers.get("x-synesis-org-id")
+        or http_request.headers.get("x-synesis-org-name")
+    ):
+        logger.warning("ignored_untrusted_forwarded_identity_headers")
+    user_id = _resolve_user_id(
+        request,
+        http_request,
+        bearer_token=bearer_token,
+        trust_forwarded_identity=trust_forwarded_identity,
+    )
+    user_email = _resolve_user_email(http_request, trust_forwarded_identity=trust_forwarded_identity)
+    org_id, org_name = _resolve_user_org(http_request, trust_forwarded_identity=trust_forwarded_identity)
+    conversation_id = _resolve_conversation_id(
+        request,
+        http_request,
+        trust_forwarded_identity=trust_forwarded_identity,
+    )
     memory_scope = _memory_scope_key(user_id, conversation_id)
 
     user_messages = [HumanMessage(content=m.content) for m in request.messages if m.role == "user"]

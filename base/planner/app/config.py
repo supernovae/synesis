@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     summarizer_model_name: str = "synesis-summarizer"
     # Shared API key sent to model endpoints (required for LiteLLM virtual-key auth).
     model_api_key: str = "not-needed"
+    # Request auth / trusted upstream identity headers.
+    planner_require_bearer_auth: bool = True
+    internal_service_token: str = ""
+    internal_service_tokens: str = ""
+    trust_forwarded_identity_headers: bool = True
+    trust_model_api_key_for_forwarded_identity: bool = True
+    strict_forwarded_identity_mode: bool = False
 
     # UDS paths (bypass HTTP; for co-located vLLM)
     router_model_uds: str = ""

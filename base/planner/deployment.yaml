@@ -188,6 +188,20 @@ spec:
             # Trace persistence — writes directly to admin Postgres
             - name: SYNESIS_TRACE_DATABASE_URL
               value: "postgresql://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
+            - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
+            - name: SYNESIS_PLANNER_REQUIRE_BEARER_AUTH
+              value: "true"
+            - name: SYNESIS_TRUST_FORWARDED_IDENTITY_HEADERS
+              value: "true"
+            # Optional hardening: when true, forwarded user/org headers are accepted
+            # only for internal-service-token callers, and untrusted forwarded headers are rejected.
+            - name: SYNESIS_STRICT_FORWARDED_IDENTITY_MODE
+              value: "false"
           volumeMounts:
             - name: search-sources
               mountPath: /etc/synesis/search_sources.yaml

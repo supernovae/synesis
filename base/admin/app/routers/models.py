@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import UserInfo, get_current_user
+from ..rbac import require_platform_admin
 from ..db.engine import async_session
 from ..services import prometheus_client_svc as prom
 from ..services.model_registry import (
@@ -121,7 +122,7 @@ async def list_role_assignments(_user: UserInfo = Depends(get_current_user)):
 async def assign_model_to_role(
     role: str,
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Assign a provider + model to a role.  Deactivates the previous assignment."""
     from ..services.model_reconciler import reconcile
@@ -178,7 +179,7 @@ async def assign_model_to_role(
 @router.delete("/roles/{role}")
 async def remove_role_assignment(
     role: str,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Deactivate the model assignment for a role."""
     from ..services.model_reconciler import reconcile
@@ -231,7 +232,7 @@ async def list_deployments(_user: UserInfo = Depends(get_current_user)):
 @router.post("/deployments")
 async def create_model_deployment(
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     if not data.get("role"):
         raise HTTPException(400, "role is required")
@@ -250,7 +251,7 @@ async def create_model_deployment(
 async def update_model_deployment(
     deployment_id: int,
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     from ..services.model_reconciler import reconcile
 
@@ -293,7 +294,7 @@ async def update_model_deployment(
 @router.delete("/deployments/{deployment_id}")
 async def delete_model_deployment(
     deployment_id: int,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
 
     ok = await delete_deployment(deployment_id)
@@ -312,7 +313,7 @@ async def delete_model_deployment(
 @router.post("/deployments/{deployment_id}/activate")
 async def activate_deployment(
     deployment_id: int,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     from ..services.model_reconciler import reconcile_single
 
@@ -343,7 +344,7 @@ async def activate_deployment(
 @router.post("/deployments/{deployment_id}/deactivate")
 async def deactivate_deployment(
     deployment_id: int,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     from ..services.model_reconciler import reconcile_single
 
@@ -372,7 +373,7 @@ async def deactivate_deployment(
 
 
 @router.post("/sync-from-yaml")
-async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
+async def sync_from_yaml(_user: UserInfo = Depends(require_platform_admin)):
     from ..services.model_registry import invalidate_yaml_cache
 
     invalidate_yaml_cache()
@@ -394,7 +395,7 @@ async def sync_from_yaml(_user: UserInfo = Depends(get_current_user)):
 
 
 @router.post("/reconcile")
-async def trigger_reconcile(_user: UserInfo = Depends(get_current_user)):
+async def trigger_reconcile(_user: UserInfo = Depends(require_platform_admin)):
     from ..services.model_reconciler import reconcile
 
     err: str | None = None
@@ -424,7 +425,7 @@ async def trigger_reconcile(_user: UserInfo = Depends(get_current_user)):
 async def set_fallbacks(
     deployment_id: int,
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     """Set fallback model names for a deployment. Body: {"fallbacks": ["model-a", "model-b"]}."""
     fallbacks = data.get("fallbacks", [])
@@ -557,7 +558,7 @@ async def model_costs(_user: UserInfo = Depends(get_current_user)):
 @router.put("/costs")
 async def update_model_cost(
     data: dict = Body(...),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_platform_admin),
 ):
     result = await upsert_model_cost(data)
     await record_admin_audit(

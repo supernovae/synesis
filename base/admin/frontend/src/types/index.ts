@@ -1,6 +1,6 @@
 export interface User {
   username: string;
-  role: "admin" | "readonly" | "user";
+  role: "admin" | "platform_admin" | "org_admin" | "readonly" | "user";
   user_id?: string;
   org_id?: string;
   org_name?: string;

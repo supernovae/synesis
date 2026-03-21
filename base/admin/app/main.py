@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os as _os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,6 +18,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_latest
+from app.auth import UserInfo, get_current_user
+from fastapi import Depends
+from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
 
 configure_logging(service="synesis-admin")
 
@@ -114,18 +118,18 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+_openapi_enabled = _os.getenv("SYNESIS_ENABLE_OPENAPI", "false").lower() in {"1", "true", "yes"}
+
 app = FastAPI(
     title="Synesis Admin",
     version="1.0.0",
     lifespan=lifespan,
     description="Operator API and React SPA. JSON routes are under /api/v1; interactive docs under /api/docs.",
     # Under /api so the SPA catch-all does not serve index.html for /docs.
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    docs_url="/api/docs" if _openapi_enabled else None,
+    redoc_url="/api/redoc" if _openapi_enabled else None,
+    openapi_url="/api/openapi.json" if _openapi_enabled else None,
 )
-
-import os as _os
 
 _cors_origins_env = _os.getenv("SYNESIS_CORS_ORIGINS", "")
 _cors_origins = (
@@ -191,7 +195,7 @@ async def health():
 
 
 @app.get("/api/v1/events")
-async def sse_events():
+async def sse_events(_user: UserInfo = Depends(get_current_user)):
     """SSE endpoint for real-time admin dashboard notifications.
 
     Polls the traces table for new arrivals and emits events. Clients
@@ -233,7 +237,7 @@ async def sse_events():
 
 
 @app.get("/metrics")
-async def metrics():
+async def metrics(_principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin)):
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

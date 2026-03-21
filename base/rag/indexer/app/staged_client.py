@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import httpx
@@ -10,7 +11,15 @@ import httpx
 class StagedIngestionClient:
     def __init__(self, admin_url: str, timeout: float = 120.0):
         self._base = admin_url.rstrip("/")
-        self._http = httpx.Client(base_url=self._base, timeout=timeout)
+        service_token = (
+            os.getenv("SYNESIS_ADMIN_SERVICE_TOKEN", "").strip()
+            or os.getenv("SYNESIS_API_TOKEN", "").strip()
+        )
+        headers: dict[str, str] = {}
+        if service_token:
+            headers["Authorization"] = f"Bearer {service_token}"
+            headers["x-synesis-service-name"] = "indexer-staged"
+        self._http = httpx.Client(base_url=self._base, timeout=timeout, headers=headers)
 
     def claim_fetch(self) -> dict[str, Any] | None:
         r = self._http.post("/api/v1/ingestion/staged/items/claim-fetch")
