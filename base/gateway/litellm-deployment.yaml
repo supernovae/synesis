@@ -1,3 +1,10 @@
+# LiteLLM proxy — pinned release image (not :main-stable).
+#
+# Production DB: use a dedicated PostgreSQL *database* for Prisma (e.g. `litellm` on the
+# same CNPG cluster as admin). Do not point DATABASE_URL at `synesis_admin` (Alembic owns it).
+# scripts/deploy.sh creates `litellm` and patches DATABASE_URL when the operator secret exists.
+#
+# OpenShift: non-root + read-only root requires writable emptyDirs (migrations, cache, tmp).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,9 +34,11 @@ spec:
         runAsNonRoot: true
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:main-stable
+          # Pinned stable proxy image — bump intentionally when upgrading LiteLLM.
+          image: ghcr.io/berriai/litellm:v1.82.3-stable
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -56,35 +65,58 @@ spec:
                   key: master-key
             - name: DATABASE_URL
               value: ""
+            - name: LITELLM_NON_ROOT
+              value: "true"
+            # Writable mount — Prisma baseline / migrations (OpenShift no local write on root FS).
+            - name: LITELLM_MIGRATION_DIR
+              value: "/app/migrations"
+            # Prisma/npm cache under the emptyDir-backed HOME.
+            - name: HOME
+              value: "/.cache"
+            - name: NPM_CONFIG_CACHE
+              value: "/.cache/npm"
+            # Prisma query engine localhost traffic must not use cluster HTTP proxy.
+            - name: NO_PROXY
+              value: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
+            - name: no_proxy
+              value: "localhost,127.0.0.1,10.0.0.0/8,.svc,.cluster.local"
           volumeMounts:
             - name: config
               mountPath: /app/config.yaml
               subPath: config.yaml
               readOnly: true
+            - name: litellm-migrations
+              mountPath: /app/migrations
             - name: prisma-cache
               mountPath: /.cache
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
-              cpu: 250m
-              memory: 512Mi
+              cpu: 500m
+              memory: 2Gi
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: "2"
+              memory: 4Gi
           livenessProbe:
             httpGet:
               path: /health/liveliness
               port: http
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
             httpGet:
               path: /health/liveliness
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
             periodSeconds: 15
       volumes:
         - name: config
           configMap:
             name: litellm-config
+        - name: litellm-migrations
+          emptyDir: {}
         - name: prisma-cache
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}

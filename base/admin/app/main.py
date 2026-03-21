@@ -47,6 +47,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("model_seed_failed", exc_info=True)
 
+    try:
+        boot = await reconcile()
+        logger.info("model_reconcile_bootstrap %s", boot)
+    except Exception:
+        logger.warning("model_reconcile_bootstrap_failed", exc_info=True)
+
     _snapshot_counter = 0
 
     async def _background_reconciler():
@@ -57,7 +63,11 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 summary = await reconcile()
-                if summary and (summary.get("added") or summary.get("removed")):
+                if summary and (
+                    summary.get("added")
+                    or summary.get("removed")
+                    or summary.get("updated")
+                ):
                     await record_admin_audit(
                         user=None,
                         source="system",
@@ -65,6 +75,7 @@ async def lifespan(app: FastAPI):
                         status="success",
                         summary=(
                             f"Scheduled LiteLLM reconcile: +{summary.get('added', 0)} added, "
+                            f"~{summary.get('updated', 0)} updated, "
                             f"-{summary.get('removed', 0)} removed"
                         ),
                         detail=summary,

@@ -56,6 +56,15 @@ async def add_model(
             )
             resp.raise_for_status()
             return resp.json()
+    except httpx.HTTPStatusError as e:
+        body = (e.response.text or "")[:800]
+        logger.warning(
+            "litellm_add_model_http model=%s status=%s body=%s",
+            model_name,
+            e.response.status_code,
+            body,
+        )
+        return None
     except Exception:
         logger.warning("litellm_add_model_failed model=%s", model_name, exc_info=True)
         return None
@@ -73,6 +82,15 @@ async def delete_model(model_id: str, timeout: float = 10.0) -> bool:
             )
             resp.raise_for_status()
             return True
+    except httpx.HTTPStatusError as e:
+        body = (e.response.text or "")[:800]
+        logger.warning(
+            "litellm_delete_model_http id=%s status=%s body=%s",
+            model_id,
+            e.response.status_code,
+            body,
+        )
+        return False
     except Exception:
         logger.warning("litellm_delete_model_failed id=%s", model_id, exc_info=True)
         return False

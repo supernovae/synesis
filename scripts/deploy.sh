@@ -357,6 +357,8 @@ ensure_admin_db() {
     local svc_host="${cluster_name}-rw.${ns}.svc"
     local admin_url="postgresql+asyncpg://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
     local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+    # LiteLLM Prisma must use its own database (empty at first migrate) — not synesis_admin (Alembic).
+    local litellm_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/litellm"
 
     # Patch admin deployment (only if value differs)
     _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
@@ -364,7 +366,27 @@ ensure_admin_db() {
     # Patch planner deployment (explicit container — not always containers[0])
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
 
+    _ensure_litellm_database "$ns" "$cluster_name" || true
+    _patch_deployment_env "synesis-gateway" "litellm-proxy" "DATABASE_URL" "$litellm_url" "litellm"
+
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
+}
+
+# Create empty `litellm` DB for LiteLLM Prisma (idempotent). Must not reuse synesis_admin.
+_ensure_litellm_database() {
+    local ns="${1:?}"
+    local cluster_name="${2:?}"
+    local pod
+    pod=$(oc get pods -n "$ns" -l "role=primary,cnpg.io/cluster=${cluster_name}" \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || return 1
+    [[ -n "$pod" ]] || return 1
+    if oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -tAc \
+        "SELECT 1 FROM pg_database WHERE datname='litellm'" 2>/dev/null | grep -q 1; then
+        return 0
+    fi
+    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c "CREATE DATABASE litellm OWNER app;" \
+        && log "  Created database litellm on $cluster_name" \
+        || log "WARNING: CREATE DATABASE litellm failed (LiteLLM Prisma will not start)"
 }
 
 # Helper: set a single env var on a deployment, only if it changed.
@@ -432,9 +454,12 @@ patch_admin_db_urls() {
     local svc_host="${cluster_name}-rw.${ns}.svc"
     local admin_url="postgresql+asyncpg://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
     local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
+    local litellm_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/litellm"
 
     _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
     _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
+    _ensure_litellm_database "$ns" "$cluster_name" || true
+    _patch_deployment_env "synesis-gateway" "litellm-proxy" "DATABASE_URL" "$litellm_url" "litellm"
     _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url" "yarn"
 }
 
@@ -1015,7 +1040,7 @@ log ""
 if [[ "$MODE" == "api" ]]; then
     log "Model serving: API providers (no local GPU hardware)"
     log "  All LLM traffic routes through LiteLLM → external API providers"
-    log "  Configure model endpoints via Admin UI or overlays/api/litellm-config-openrouter.yaml"
+    log "  Configure model endpoints via Admin UI (LiteLLM /model/new + deploy.sh DATABASE_URL on litellm-proxy)"
 else
     log "Model serving status (synesis-models namespace):"
     if [[ "$ISVC_SKIP" == "true" ]]; then

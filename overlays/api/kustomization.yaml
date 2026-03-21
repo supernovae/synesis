@@ -37,8 +37,9 @@ patches:
       kind: Deployment
       name: litellm-proxy
 
-  # LiteLLM: clear master key and DATABASE_URL (API mode — no virtual key
-  # auth or Prisma DB needed; removes Prisma startup entirely).
+  # LiteLLM: enable Prisma + /model/new so Admin Model Registry can hot-sync routes.
+  # DATABASE_URL is patched post-apply by scripts/deploy.sh (same Postgres as admin).
+  # Master key stays (litellm-secrets) so admin reconcile can call management APIs.
   - target:
       kind: Deployment
       name: litellm-proxy
@@ -53,10 +54,8 @@ patches:
             containers:
               - name: litellm
                 env:
-                  - name: LITELLM_MASTER_KEY
-                    $patch: delete
-                  - name: DATABASE_URL
-                    $patch: delete
+                  - name: STORE_MODEL_IN_DB
+                    value: "true"
 
   # WebUI: point directly at the planner so SSE status events pass through
   # without being stripped by LiteLLM's response normalizer.
@@ -77,8 +76,8 @@ patches:
                   - name: OPENAI_API_BASE_URL
                     value: "http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1"
 
-  # Planner: all model URLs through LiteLLM (which proxies to OpenRouter).
-  # Model names stay the same — LiteLLM resolves the routing.
+  # Planner: all model URLs through LiteLLM. Registry-backed routes are pushed
+  # to LiteLLM via Prisma (/model/new); the OpenRouter ConfigMap is bootstrap only.
   - target:
       kind: Deployment
       name: synesis-planner

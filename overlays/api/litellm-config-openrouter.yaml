@@ -1,11 +1,12 @@
-# LiteLLM config — OpenRouter backend (replaces self-hosted vLLM endpoints).
+# LiteLLM config — API mode bootstrap.
 #
-# All synesis-* model names are preserved so the planner, Open WebUI, and
-# Cursor/IDE clients work without code changes. LiteLLM proxies to
-# OpenRouter using the API key from the openrouter-api-key Secret.
+# synesis-agent stays in YAML (planner passthrough). Canonical pipeline roles
+# (router, general, critic, coder, summarizer) are registered via Admin
+# Model Registry → Postgres → POST /model/new (requires STORE_MODEL_IN_DB +
+# DATABASE_URL on litellm-proxy). If those routes also lived here, LiteLLM
+# would keep the static OpenRouter mappings and ignore registry edits.
 #
-# To switch between budget/quality profiles, change the openrouter/ model
-# paths below.  See models.yaml openrouter_profiles for recommended mappings.
+# Optional WebUI models not driven by the registry remain below.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,59 +28,13 @@ data:
           max_tokens: 65536
           temperature: 0.2
 
-      # Router (classification, planning, advisor) — Grok 4 Fast:
-      # $0.20/M in / $0.50/M out, 2M context
-      # Reasoning models spend tokens on thinking; budget must cover both
-      # reasoning and output so JSON payloads are never truncated.
-      - model_name: synesis-router
-        litellm_params:
-          model: openrouter/x-ai/grok-4-fast
-          api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 8192
-          temperature: 0.1
-
-      # General (executor, writer, synthesis) — DeepSeek V3.2:
-      # GPT-5 class reasoning, $0.26/M in / $0.38/M out, 163K context.
-      # Strong first-pass quality reduces critic retries and effective cost.
-      - model_name: synesis-general
-        litellm_params:
-          model: openrouter/deepseek/deepseek-v3.2:nitro
-          api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 65536
-          temperature: 0.3
-
-      # Critic (quality gate, R1 distill — DeepSeek-R1-Distill-Llama-70B: $0.70/M in, $0.80/M out)
-      # R1 uses heavy reasoning tokens; 8192 gives room for thinking + structured output.
-      - model_name: synesis-critic
-        litellm_params:
-          model: openrouter/deepseek/deepseek-r1-distill-llama-70b
-          api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 8192
-          temperature: 0.1
-
-      # Coder (IDE direct endpoint, agentic coding)
-      - model_name: synesis-coder
-        litellm_params:
-          model: openrouter/qwen/qwen-2.5-coder-32b-instruct
-          api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 16384
-          temperature: 0.2
-
-      # Thinking model (Open WebUI optional "think out loud"; same as critic for consistency)
+      # Thinking model (Open WebUI optional) — not in Model Registry roles.
       - model_name: synesis-thinking
         litellm_params:
           model: openrouter/deepseek/deepseek-r1-distill-llama-70b
           api_key: "os.environ/OPENROUTER_API_KEY"
           max_tokens: 16384
           temperature: 0.2
-
-      # Summarizer (pivot history compression)
-      - model_name: synesis-summarizer
-        litellm_params:
-          model: openrouter/x-ai/grok-4-fast
-          api_key: "os.environ/OPENROUTER_API_KEY"
-          max_tokens: 4096
-          temperature: 0.1
 
     litellm_settings:
       drop_params: true

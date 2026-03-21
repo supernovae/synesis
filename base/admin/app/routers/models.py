@@ -195,15 +195,40 @@ async def update_model_deployment(
     data: dict = Body(...),
     _user: UserInfo = Depends(get_current_user),
 ):
+    from ..services.model_reconciler import reconcile
+
     result = await update_deployment(deployment_id, data)
     if result is None:
         raise HTTPException(404, "deployment not found")
+    rec_err: str | None = None
+    rec_sum: dict | None = None
+    if any(
+        k in data
+        for k in ("litellm_params", "is_active", "served_name", "fallbacks")
+    ):
+        try:
+            rec_sum = await reconcile()
+        except Exception as exc:
+            rec_err = repr(exc)
+            logger.warning("reconcile_after_deployment_update_failed id=%d", deployment_id, exc_info=True)
     await record_admin_audit(
         user=_user,
         action="models.deployment_update",
-        status="success",
-        summary=f"Updated deployment id={deployment_id}",
-        detail={"deployment_id": deployment_id, "patch_keys": list(data.keys())},
+        status="success" if rec_err is None else "partial",
+        summary=(
+            f"Updated deployment id={deployment_id}"
+            + (
+                ""
+                if rec_sum is None and rec_err is None
+                else ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+            )
+        ),
+        detail={
+            "deployment_id": deployment_id,
+            "patch_keys": list(data.keys()),
+            "reconcile": rec_sum,
+            "reconcile_error": rec_err,
+        },
     )
     return result
 

@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## Mental model
 
-- **Model Registry** (`/models`) maps **pipeline roles** → **provider + model + endpoint**. It does **not** store API keys.
+- **Model Registry** (`/models`) maps **pipeline roles** → **provider + model + endpoint**. It does **not** store API keys. In **API overlay** (`overlays/api`), LiteLLM must run with **Prisma** (`DATABASE_URL` + `STORE_MODEL_IN_DB`) so `POST /model/new` works; [`scripts/deploy.sh`](scripts/deploy.sh) patches `litellm-proxy` with the same Postgres URL as admin. Static `litellm-config` entries for `synesis-router` / `synesis-general` / … would otherwise override registry edits.
 - **Provider API Keys** (`/settings/providers`) writes **catalog env vars** to the cluster secret (`PUT`/`DELETE` allowlisted to [`provider_catalog.py`](base/admin/app/services/provider_catalog.py)). Same catalog drives both screens.
 - Prefer links between those pages when copy refers to “configure the key first.”
 
