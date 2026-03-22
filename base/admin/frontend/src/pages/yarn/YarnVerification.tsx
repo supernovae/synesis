@@ -96,7 +96,8 @@ export default function YarnVerification() {
         onDismiss={() => setDismissVerifyErr(true)}
       />
 
-      {(verifyMutation.isSuccess || verifyMutation.isPending) && (
+      {/* Include isError: otherwise a failed POST hides the panel and checks never appear. */}
+      {(verifyMutation.isSuccess || verifyMutation.isPending || verifyMutation.isError) && (
         <div className="rounded-lg border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-sm font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
@@ -111,7 +112,18 @@ export default function YarnVerification() {
             {verifyMutation.isPending && (
               <span className="text-sm text-gray-500 dark:text-gray-400">Running checks…</span>
             )}
+            {verifyMutation.isError && (
+              <StatusBadge status="error" label="Request failed" />
+            )}
           </div>
+
+          {verifyMutation.isError && checks.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">
+              The admin API could not run verification (see error above). If Yarn pods are down or{" "}
+              <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">SYNESIS_YARN_URL</code> is wrong,
+              fix the deployment and try again.
+            </p>
+          ) : null}
 
           {checks.length > 0 && (
             <ul className="mt-4 divide-y divide-gray-100 dark:divide-gray-800">

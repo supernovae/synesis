@@ -18,7 +18,9 @@ ENV PATH="/opt/app-root/venv/bin:${PATH}"
 ENV VIRTUAL_ENV=/opt/app-root/venv
 
 EXPOSE 8000
+# Use venv interpreter explicitly — some runtimes reset PATH so `python` resolves to
+# /opt/app-root/bin/python (no deps) instead of the venv (see CrashLoop: No module named uvicorn).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+  CMD ["/opt/app-root/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/opt/app-root/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
