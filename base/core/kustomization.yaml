@@ -2,8 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Core services shared by all deployment modes (api + model).
-# Does NOT include model-serving or yarn — those are added by
-# overlays that need self-hosted GPU inference.
+# Does NOT include model-serving, MCP agent, or Yarn — overlays add those
+# (model: GPU + yarn + mcp; api: mcp + yarn for IDE path).
 
 resources:
   - ../gateway

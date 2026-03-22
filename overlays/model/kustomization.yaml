@@ -15,6 +15,7 @@ kind: Kustomization
 resources:
   - ../../base/core
   - ../../base/model-serving
+  - ../../base/mcp
   - ../../base/yarn
 
 patches:
@@ -66,4 +67,10 @@ images:
     newTag: latest
   - name: ghcr.io/open-webui/open-webui
     newName: ghcr.io/supernovae/synesis/open-webui
+    newTag: latest
+  - name: ghcr.io/supernovae/synesis/mcp
+    newName: ghcr.io/supernovae/synesis/mcp
+    newTag: latest
+  - name: ghcr.io/supernovae/synesis/yarn
+    newName: ghcr.io/supernovae/synesis/yarn
     newTag: latest

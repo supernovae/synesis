@@ -19,6 +19,7 @@ on:
       - 'base/rag/spam-service/**'
       - 'base/rag/knowledge-base/**'
       - 'base/mcp/**'
+      - 'base/yarn/**'
       - 'base/quality-runner/**'
       - 'base/webui/Dockerfile'
       - 'base/webui/synesis-theme.css'
@@ -67,6 +68,7 @@ jobs:
       quality-runner: ${{ steps.filter.outputs.quality-runner }}
       open-webui: ${{ steps.filter.outputs.open-webui }}
       mcp: ${{ steps.filter.outputs.mcp }}
+      yarn: ${{ steps.filter.outputs.yarn }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
@@ -117,6 +119,8 @@ jobs:
               - 'base/webui/synesis-theme.css'
             mcp:
               - 'base/mcp/**'
+            yarn:
+              - 'base/yarn/**'
 
       - name: Aggregate base changes
         id: aggregate
@@ -371,6 +375,12 @@ jobs:
             context: base/mcp
             base_arg: ""
             change_key: mcp
+            base_change_key: ""
+          - name: yarn
+            dockerfile: base/yarn/Containerfile
+            context: base/yarn
+            base_arg: ""
+            change_key: yarn
             base_change_key: ""
 
     steps:

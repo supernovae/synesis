@@ -211,6 +211,40 @@ ensure_internal_service_auth() {
 }
 
 # -----------------------------------------------------------------------
+# Yarn (synesis-yarn): clone gateway secrets so envFrom provider-api-keys /
+# litellm-secrets resolve in the Yarn namespace (DeepInfra + optional LiteLLM).
+# -----------------------------------------------------------------------
+ensure_yarn_secrets_from_gateway() {
+    local gw="synesis-gateway"
+    local yn="synesis-yarn"
+
+    oc create namespace "$yn" 2>/dev/null || true
+
+    _yarn_clone_secret() {
+        local sname="$1"
+        if ! oc get secret "$sname" -n "$gw" &>/dev/null; then
+            return 0
+        fi
+        log "  Cloning secret $gw/$sname -> $yn/$sname"
+        SRC_NS="$gw" DEST_NS="$yn" SNAME="$sname" "$PYTHON" -c '
+import json, os, subprocess
+
+gw = os.environ["SRC_NS"]
+yn = os.environ["DEST_NS"]
+name = os.environ["SNAME"]
+raw = subprocess.check_output(["oc", "get", "secret", name, "-n", gw, "-o", "json"])
+d = json.loads(raw)
+d.pop("status", None)
+d["metadata"] = {"name": name, "namespace": yn}
+subprocess.run(["oc", "apply", "-f", "-"], input=json.dumps(d).encode(), check=True)
+'
+    }
+
+    _yarn_clone_secret provider-api-keys
+    _yarn_clone_secret litellm-secrets
+}
+
+# -----------------------------------------------------------------------
 # Optional Cloudflare Tunnel deployment (cloudflared).
 # Enabled with SYNESIS_ENABLE_CLOUDFLARED=true.
 # Idempotent: reconciles secret + configmap + deployment.
@@ -1044,6 +1078,10 @@ if [[ "$MODE" == "api" ]]; then
     ensure_openrouter_key
 fi
 
+log ""
+log "Syncing gateway secrets to Yarn namespace (synesis-yarn)..."
+ensure_yarn_secrets_from_gateway
+
 # -----------------------------------------------------------------------
 # Admin ConfigMaps: models.yaml and taxonomy config mounted into the pod.
 # Created from repo-root files so the admin service can read model registry
@@ -1389,6 +1427,10 @@ log "Reconciling provider API keys (post-apply)..."
 reconcile_provider_api_keys
 
 log ""
+log "Refreshing Yarn secrets from gateway (post-apply)..."
+ensure_yarn_secrets_from_gateway
+
+log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
 
@@ -1417,7 +1459,7 @@ fi
 # - Set revisionHistoryLimit=2 on Synesis Deployments so new rollouts don't pile up.
 # - Delete old ReplicaSets with 0 replicas so failed or superseded rollouts don't linger.
 # -----------------------------------------------------------------------
-SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-models synesis-lsp synesis-sandbox synesis-search)
+SYNESIS_NAMESPACES=(synesis-gateway synesis-planner synesis-rag synesis-webui synesis-admin synesis-yarn synesis-models synesis-lsp synesis-sandbox synesis-search)
 
 set_revision_history_limit() {
     local ns name
@@ -1523,6 +1565,8 @@ wait_for_deployment synesis-rag preprocess-service
 wait_for_deployment synesis-rag spam-service
 wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
+wait_for_deployment synesis-planner synesis-mcp
+wait_for_deployment synesis-yarn synesis-yarn
 wait_for_deployment synesis-webui open-webui
 
 # Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.
@@ -1577,6 +1621,7 @@ ROUTE_HOST=$(oc get route synesis-api -n synesis-gateway -o jsonpath='{.spec.hos
 WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 ADMIN_HOST=$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 KC_HOST=$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
+YARN_HOST=$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 
 log ""
 log "============================================================"
@@ -1584,6 +1629,7 @@ log "  API endpoint:  https://$ROUTE_HOST"
 log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
 log "  Admin UI:      https://$ADMIN_HOST"
+log "  Yarn (IDE):    https://$YARN_HOST"
 log "  Keycloak:      https://$KC_HOST"
 log "============================================================"
 log ""

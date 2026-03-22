@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     rate_limit_requests_per_minute: int = 60
 
     # --- Upstream services ---
-    admin_api_url: str = "http://synesis-admin-api.synesis-admin.svc.cluster.local:8000"
+    admin_api_url: str = "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
     planner_url: str = "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
     mcp_url: str = "http://synesis-mcp.synesis-planner.svc.cluster.local:8100"
     enforce_mcp_authz: bool = True

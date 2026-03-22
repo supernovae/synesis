@@ -99,6 +99,8 @@ SERVICE_IMAGES=(
     "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
+    "mcp|base/mcp/Containerfile|base/mcp"
+    "yarn|base/yarn/Containerfile|base/yarn"
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then
