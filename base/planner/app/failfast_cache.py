@@ -22,7 +22,7 @@ from typing import Literal
 
 logger = logging.getLogger("synesis.failfast_cache")
 
-_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNESIS_CACHE_DIR", "/tmp/synesis-cache"))  # nosec B108
+_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNESIS_CACHE_DIR", str(Path(tempfile.gettempdir()) / "synesis-cache")))
 
 
 @dataclass

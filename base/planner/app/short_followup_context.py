@@ -22,9 +22,9 @@ TRIVIAL_WRITER_SYSTEM_BASE = (
 
 _TRIVIAL_CONTINUATION_HINT = (
     "\n\nThe user may send very short replies (a letter, a number, yes/no, forms like "
-    "\"b)\" / \"A.\", \"B) eclectic\", \"A the derivative\", or just the option word) as part "
+    '"b)" / "A.", "B) eclectic", "A the derivative", or just the option word) as part '
     "of an ongoing exercise, quiz, or role-play. Use the prior turns in the conversation; "
-    "continue that thread. Do not refuse or ask for the \"full question\" when the answer is "
+    'continue that thread. Do not refuse or ask for the "full question" when the answer is '
     "clearly a follow-up to your previous message."
 )
 

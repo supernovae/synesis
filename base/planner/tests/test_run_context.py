@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.run_context import compute_trace_links, derive_critic_turn_kind
 
 

@@ -10,7 +10,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import Role, require_org_admin, resolve_role, trace_scope_filters
+from ..rbac import Role, require_org_admin, resolve_role
 from ..services import yarn_service
 from ..services.health_prober import probe_service
 
@@ -34,6 +34,7 @@ def _scope(user: UserInfo) -> str:
 
 # ── Overview ──────────────────────────────────────────────────────────────────
 
+
 @router.get("/overview")
 async def yarn_overview(
     since_hours: int = Query(24, ge=1, le=720),
@@ -46,6 +47,7 @@ async def yarn_overview(
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
+
 
 @router.get("/sessions")
 async def yarn_sessions(
@@ -75,6 +77,7 @@ async def yarn_session_detail(
 
 # ── Events & Errors ───────────────────────────────────────────────────────────
 
+
 @router.get("/events")
 async def yarn_events(
     page: int = Query(1, ge=1),
@@ -94,6 +97,7 @@ async def yarn_events(
 
 # ── Performance ───────────────────────────────────────────────────────────────
 
+
 @router.get("/performance")
 async def yarn_performance(
     since_hours: int = Query(24, ge=1, le=720),
@@ -109,6 +113,7 @@ async def yarn_performance(
 
 # ── Diagnostics passthrough ──────────────────────────────────────────────────
 
+
 @router.get("/diagnostics/{request_id}")
 async def yarn_diagnostics(
     request_id: str,
@@ -119,7 +124,7 @@ async def yarn_diagnostics(
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"{_YARN_URL.rstrip('/')}/v1/diagnostics/{request_id}",
-                headers={"Authorization": f"Bearer admin-internal"},
+                headers={"Authorization": "Bearer admin-internal"},
             )
             if resp.status_code == 404:
                 raise HTTPException(status_code=404, detail="Diagnostics snapshot not found or expired")
@@ -133,6 +138,7 @@ async def yarn_diagnostics(
 
 
 # ── Verification / Health ────────────────────────────────────────────────────
+
 
 @router.get("/health")
 async def yarn_health(
@@ -157,21 +163,25 @@ async def yarn_verify(
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             resp = await client.get(f"{_YARN_URL.rstrip('/')}/health")
-            checks.append({
-                "check": "health",
-                "status": "pass" if resp.status_code == 200 else "fail",
-                "status_code": resp.status_code,
-            })
+            checks.append(
+                {
+                    "check": "health",
+                    "status": "pass" if resp.status_code == 200 else "fail",
+                    "status_code": resp.status_code,
+                }
+            )
         except Exception as exc:
             checks.append({"check": "health", "status": "fail", "error": str(exc)[:120]})
 
         try:
             resp = await client.get(f"{_YARN_URL.rstrip('/')}/v1/models")
-            checks.append({
-                "check": "models_endpoint",
-                "status": "pass" if resp.status_code == 200 else "fail",
-                "status_code": resp.status_code,
-            })
+            checks.append(
+                {
+                    "check": "models_endpoint",
+                    "status": "pass" if resp.status_code == 200 else "fail",
+                    "status_code": resp.status_code,
+                }
+            )
         except Exception as exc:
             checks.append({"check": "models_endpoint", "status": "fail", "error": str(exc)[:120]})
 
@@ -180,6 +190,7 @@ async def yarn_verify(
 
 
 # ── User-scoped usage (for account page) ─────────────────────────────────────
+
 
 @router.get("/user-usage")
 async def yarn_user_usage(

@@ -30,10 +30,7 @@ def validate_prefix_order(messages: list[dict[str, Any]]) -> list[str]:
         role = msg.get("role", "")
         if role == "system":
             if seen_non_system:
-                warnings.append(
-                    f"Message {i}: system message after non-system message "
-                    "will break prefix cache"
-                )
+                warnings.append(f"Message {i}: system message after non-system message will break prefix cache")
         else:
             seen_non_system = True
 

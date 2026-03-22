@@ -1,7 +1,7 @@
 """Admin audit event log for operator actions and propagation outcomes."""
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "018_admin_audit"

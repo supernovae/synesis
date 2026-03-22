@@ -6,7 +6,7 @@ import {
   useProviderKeys,
 } from "../../api/hooks";
 import type { ProviderKeyStatus } from "../../api/hooks";
-import type { VendorInfo } from "../../types";
+import type { VendorConfig, VendorInfo } from "../../types";
 import {
   Cloud,
   Server,
@@ -51,14 +51,15 @@ export default function VendorManagement() {
 
   const handleSave = () => {
     if (!editingKey || !editForm) return;
+    const payload: { providerKey: string } & Partial<VendorConfig> = {
+      providerKey: editingKey,
+      enabled: editForm.enabled,
+      default_max_tokens: Number(editForm.default_max_tokens) || 8192,
+      default_temperature: Number(editForm.default_temperature) || 0.1,
+      notes: editForm.notes,
+    };
     updateMut.mutate(
-      {
-        providerKey: editingKey,
-        enabled: editForm.enabled,
-        default_max_tokens: Number(editForm.default_max_tokens) || 8192,
-        default_temperature: Number(editForm.default_temperature) || 0.1,
-        notes: editForm.notes,
-      } as any,
+      payload,
       {
         onSuccess: () => {
           setEditingKey(null);

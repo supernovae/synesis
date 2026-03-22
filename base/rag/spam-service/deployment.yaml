@@ -29,6 +29,9 @@ spec:
           env:
             - name: SPAM_MODEL
               value: "mariagrandury/distilbert-base-uncased-finetuned-sms-spam-detection"
+            # HF Hub revision (git ref / tag); pin to a commit in production if required.
+            - name: SPAM_MODEL_REVISION
+              value: "main"
             - name: HF_HOME
               value: "/tmp/hf_home"
             - name: TRANSFORMERS_CACHE

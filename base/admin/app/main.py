@@ -12,15 +12,14 @@ import os as _os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from app.auth import UserInfo, get_current_user
 from app.db.engine import engine
-from fastapi import FastAPI
+from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from synesis_telemetry import CONTENT_TYPE_LATEST, configure_logging, generate_latest
-from app.auth import UserInfo, get_current_user
-from fastapi import Depends
-from app.internal_auth import ServicePrincipal, require_service_or_platform_admin
 
 configure_logging(service="synesis-admin")
 
@@ -68,10 +67,7 @@ async def lifespan(app: FastAPI):
             try:
                 summary = await reconcile()
                 if summary and (
-                    summary.get("added")
-                    or summary.get("removed")
-                    or summary.get("updated")
-                    or summary.get("failed")
+                    summary.get("added") or summary.get("removed") or summary.get("updated") or summary.get("failed")
                 ):
                     failed = int(summary.get("failed", 0) or 0)
                     await record_admin_audit(
@@ -82,8 +78,7 @@ async def lifespan(app: FastAPI):
                         summary=(
                             f"Scheduled LiteLLM reconcile: +{summary.get('added', 0)} added, "
                             f"~{summary.get('updated', 0)} updated, "
-                            f"-{summary.get('removed', 0)} removed"
-                            + (f", !{failed} failed" if failed > 0 else "")
+                            f"-{summary.get('removed', 0)} removed" + (f", !{failed} failed" if failed > 0 else "")
                         ),
                         detail=summary,
                     )
@@ -106,6 +101,7 @@ async def lifespan(app: FastAPI):
             if _snapshot_counter % 5 == 0:  # every ~5 min
                 try:
                     from app.services.usage_rollup import run_rollup
+
                     await run_rollup(lookback_minutes=10)
                 except Exception:
                     logger.debug("usage_rollup_error", exc_info=True)
@@ -164,13 +160,13 @@ from app.routers.observability import router as observability_router
 from app.routers.pipeline import router as pipeline_router
 from app.routers.providers import router as providers_router
 from app.routers.rag import router as rag_router
+from app.routers.serving import router as serving_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
 from app.routers.vendors import router as vendors_router
-from app.routers.serving import router as serving_router
 from app.routers.yarn import router as yarn_router
 
 app.include_router(admin_mcp_router)

@@ -38,7 +38,6 @@ def compute_trace_links(
     When continuing a pending question, parent = origin run; root from pending chain.
     Otherwise this run starts a new root chain.
     """
-    cid = (conversation_id or "").strip() or None
     if pending:
         origin = (pending.get("origin_run_id") or pending.get("run_id") or "").strip()
         parent = origin if origin else None

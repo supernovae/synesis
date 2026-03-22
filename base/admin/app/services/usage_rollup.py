@@ -8,10 +8,10 @@ inserts one ``UsageRollup`` row per (5-min bucket, model, user_id, org_id).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 
 from ..db.engine import async_session
 from ..db.models import Trace, UsageRollup
@@ -23,7 +23,7 @@ _BUCKET_MINUTES = 5
 
 def _truncate_bucket(ts: float) -> datetime:
     """Truncate a unix timestamp to the nearest 5-minute bucket."""
-    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    dt = datetime.fromtimestamp(ts, tz=UTC)
     minute = (dt.minute // _BUCKET_MINUTES) * _BUCKET_MINUTES
     return dt.replace(minute=minute, second=0, microsecond=0)
 
@@ -35,15 +35,11 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
     window small.  Duplicate buckets are handled via upsert (ON CONFLICT
     DO UPDATE) in a raw SQL statement for efficiency.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)).timestamp()
+    cutoff = (datetime.now(UTC) - timedelta(minutes=lookback_minutes)).timestamp()
 
     async with async_session() as session:
         try:
-            rows = (
-                await session.execute(
-                    select(Trace).where(Trace.timestamp >= cutoff)
-                )
-            ).scalars().all()
+            rows = (await session.execute(select(Trace).where(Trace.timestamp >= cutoff))).scalars().all()
 
             if not rows:
                 return {"buckets_written": 0, "traces_processed": 0}
@@ -93,20 +89,6 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                         b["completion_tokens"] += call.get("completion_tokens", 0)
                         b["cached_tokens"] += call.get("cached_tokens", 0)
 
-            upsert_sql = text("""
-                INSERT INTO usage_rollups
-                    (bucket, model, role, user_id, org_id,
-                     request_count, prompt_tokens, completion_tokens,
-                     cached_tokens, total_tokens, estimated_cost_usd,
-                     actual_cost_usd, avg_duration_ms, error_count)
-                VALUES
-                    (:bucket, :model, :role, :user_id, :org_id,
-                     :request_count, :prompt_tokens, :completion_tokens,
-                     :cached_tokens, :total_tokens, :estimated_cost_usd,
-                     :actual_cost_usd, :avg_duration_ms, :error_count)
-                ON CONFLICT (id) DO NOTHING
-            """)
-
             written = 0
             for b in buckets.values():
                 avg_dur = b["total_duration_ms"] / b["request_count"] if b["request_count"] else 0
@@ -147,7 +129,7 @@ async def get_usage(
     group_by: str = "bucket",
 ) -> list[dict[str, Any]]:
     """Read pre-aggregated usage data, respecting RBAC scope."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
 
     async with async_session() as session:
         try:
@@ -193,7 +175,7 @@ async def get_usage_summary(
     scope_org_id: str = "",
 ) -> dict[str, Any]:
     """Return aggregated totals over the period, respecting RBAC scope."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
 
     async with async_session() as session:
         try:

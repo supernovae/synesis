@@ -12,9 +12,9 @@ from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
 from ..rbac import Role, resolve_role
+from ..routers import admin_mcp
 from ..services import prometheus_client_svc as prom
 from ..services.mcp_client import get_mcp_tools, probe_mcp_health
-from ..routers import admin_mcp
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 

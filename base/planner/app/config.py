@@ -136,9 +136,9 @@ class Settings(BaseSettings):
     # DomainProfile that classifies frame coherence as focused / composite / diffuse.
     # Ref: Klein et al. (2007) Data-Frame theory; Snowden & Boone (2007) Cynefin.
     domain_profiling_enabled: bool = True
-    focused_threshold: float = 0.6      # domain weight at/above → dominant (focused frame)
-    composite_threshold: float = 0.25   # 2+ domains at/above → composite frame
-    diffuse_max_weight: float = 0.25    # no domain above → diffuse (probe/clarify)
+    focused_threshold: float = 0.6  # domain weight at/above → dominant (focused frame)
+    composite_threshold: float = 0.25  # 2+ domains at/above → composite frame
+    diffuse_max_weight: float = 0.25  # no domain above → diffuse (probe/clarify)
     domain_profile_min_technologies: int = 3  # need this many extracted techs to profile
 
     # Plan Gate: fast deterministic validation after planner, before evidence retrieval.
@@ -468,7 +468,9 @@ class Settings(BaseSettings):
     curator_tier3_max_tokens: int = 1000  # Tier 3 (Project Manifest): summarize if over
     curator_tier4_max_tokens: int = 2000  # Tier 4 (Session/History): LIFO trim
     curator_rag_max_tokens: int = 3000  # Retrieved RAG: rank-and-evict
-    curator_max_total_tokens: int = 8192  # Target cap for full writer prompt (tiers + evidence); evidence uses curator_rag_max_tokens today
+    curator_max_total_tokens: int = (
+        8192  # Target cap for full writer prompt (tiers + evidence); evidence uses curator_rag_max_tokens today
+    )
     curator_min_rerank_score: float = 0.6  # Drop RAG chunks below this score
     curator_knowledge_gap_threshold: float = 0.6  # Max RAG score < this → incomplete_knowledge, backlog
     knowledge_backlog_enabled: bool = True  # Publish knowledge gaps to Postgres

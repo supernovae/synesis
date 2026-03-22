@@ -8,9 +8,6 @@ set -euo pipefail
 #   ./scripts/verify-cloudflared.sh --namespace synesis-edge
 #   ./scripts/verify-cloudflared.sh --check-hosts
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
 NAMESPACE="synesis-edge"
 DEPLOYMENT="cloudflared"
 SECRET_NAME="cloudflared-credentials"

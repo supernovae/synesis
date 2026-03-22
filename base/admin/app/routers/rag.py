@@ -116,15 +116,12 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 
         async with async_session() as session:
             # Window-based latest-per-domain: pick the newest scored_at per domain.
-            sub = (
-                select(
-                    QualitySnapshot.id,
-                    func.row_number()
-                    .over(partition_by=QualitySnapshot.domain, order_by=QualitySnapshot.scored_at.desc())
-                    .label("rn"),
-                )
-                .subquery()
-            )
+            sub = select(
+                QualitySnapshot.id,
+                func.row_number()
+                .over(partition_by=QualitySnapshot.domain, order_by=QualitySnapshot.scored_at.desc())
+                .label("rn"),
+            ).subquery()
             qs = aliased(QualitySnapshot)
             rows = (
                 (
@@ -318,25 +315,18 @@ async def quality_domains(
             from ..db.models import QualitySnapshot
 
             async with async_session() as session:
-                sub = (
-                    select(
-                        QualitySnapshot.id,
-                        func.row_number()
-                        .over(
-                            partition_by=QualitySnapshot.domain,
-                            order_by=QualitySnapshot.scored_at.desc(),
-                        )
-                        .label("rn"),
+                sub = select(
+                    QualitySnapshot.id,
+                    func.row_number()
+                    .over(
+                        partition_by=QualitySnapshot.domain,
+                        order_by=QualitySnapshot.scored_at.desc(),
                     )
-                    .subquery()
-                )
+                    .label("rn"),
+                ).subquery()
                 qs = aliased(QualitySnapshot)
                 rows = (
-                    (
-                        await session.execute(
-                            select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1)
-                        )
-                    )
+                    (await session.execute(select(qs).join(sub, qs.id == sub.c.id).where(sub.c.rn == 1)))
                     .scalars()
                     .all()
                 )

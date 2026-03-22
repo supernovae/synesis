@@ -24,7 +24,7 @@ class _FakeClient:
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
 
-    def __enter__(self) -> "_FakeClient":
+    def __enter__(self) -> _FakeClient:
         return self
 
     def __exit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
@@ -81,4 +81,3 @@ def test_run_document_gatekeeper_parses_and_clamps(monkeypatch):
     assert out.doc_keywords[:2] == ["auth", "token"]
     assert out.entities and out.entities[0]["name"] == "OAuth2"
     assert out.section_outline == ["Overview", "API", "Errors"]
-

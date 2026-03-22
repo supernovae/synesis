@@ -74,9 +74,7 @@ def scan_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
             scan = scan_text(msg["content"])
             if scan.detected:
                 injection_detected = True
-                logger.warning(
-                    "Injection patterns found: %s", scan.patterns_found
-                )
+                logger.warning("Injection patterns found: %s", scan.patterns_found)
                 result.append({**msg, "content": scan.sanitized_text})
             else:
                 result.append(msg)

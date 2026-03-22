@@ -543,7 +543,9 @@ def _recreate_catalog(client) -> bool:
         from pymilvus import MilvusClient as _MC
 
         idx = _MC.prepare_index_params()
-        idx.add_index(field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 256})
+        idx.add_index(
+            field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 256}
+        )
         idx.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
         client.load_collection(collection_name=SYNESIS_CATALOG)

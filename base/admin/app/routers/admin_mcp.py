@@ -153,7 +153,10 @@ _TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "status": {"type": "string", "description": "Filter by status (pending, running, indexed, failed, dead_letter)"},
+                "status": {
+                    "type": "string",
+                    "description": "Filter by status (pending, running, indexed, failed, dead_letter)",
+                },
                 "handler": {"type": "string", "description": "Filter by handler type"},
                 "limit": {"type": "integer", "default": 20, "description": "Max results"},
             },
@@ -223,11 +226,7 @@ _TOOLS: list[dict[str, Any]] = [
 
 def _visible_tools(role: Role) -> list[dict[str, Any]]:
     """Return tool definitions the caller is allowed to see."""
-    return [
-        {k: v for k, v in t.items() if k != "min_role"}
-        for t in _TOOLS
-        if role >= t["min_role"]
-    ]
+    return [{k: v for k, v in t.items() if k != "min_role"} for t in _TOOLS if role >= t["min_role"]]
 
 
 def catalog_all_tools() -> list[dict[str, Any]]:
@@ -363,6 +362,7 @@ async def invoke_mcp_tool_for_chat(
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 @router.get("/tools")
 async def list_tools(user: UserInfo = Depends(get_current_user)):
@@ -514,9 +514,7 @@ async def _knowledge_gap_stats(user: UserInfo, args: dict) -> Any:
         total = (await session.execute(select(func.count()).select_from(KnowledgeGap))).scalar() or 0
         open_count = (
             await session.execute(
-                select(func.count())
-                .select_from(KnowledgeGap)
-                .where(KnowledgeGap.status.in_(["open", "reopened"]))
+                select(func.count()).select_from(KnowledgeGap).where(KnowledgeGap.status.in_(["open", "reopened"]))
             )
         ).scalar() or 0
     return {"total_gaps": total, "open": open_count, "resolved": total - open_count}

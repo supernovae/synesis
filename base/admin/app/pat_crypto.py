@@ -56,9 +56,7 @@ def hash_token(plaintext: str) -> str:
     SHA-256 for backward compatibility with existing tokens.
     """
     if _PAT_PEPPER:
-        return hmac.new(
-            _PAT_PEPPER.encode(), plaintext.encode(), hashlib.sha256
-        ).hexdigest()
+        return hmac.new(_PAT_PEPPER.encode(), plaintext.encode(), hashlib.sha256).hexdigest()
     return hashlib.sha256(plaintext.encode()).hexdigest()
 
 

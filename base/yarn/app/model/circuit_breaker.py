@@ -18,8 +18,14 @@ HALF_OPEN = "half_open"
 
 class CircuitBreaker:
     __slots__ = (
-        "name", "failure_threshold", "recovery_timeout", "half_open_max",
-        "_state", "_failure_count", "_last_failure_time", "_half_open_calls",
+        "_failure_count",
+        "_half_open_calls",
+        "_last_failure_time",
+        "_state",
+        "failure_threshold",
+        "half_open_max",
+        "name",
+        "recovery_timeout",
     )
 
     def __init__(
@@ -74,5 +80,6 @@ class CircuitBreaker:
             self._state = OPEN
             logger.warning(
                 "Circuit breaker %s: CLOSED -> OPEN (failures=%d)",
-                self.name, self._failure_count,
+                self.name,
+                self._failure_count,
             )

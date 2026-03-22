@@ -40,9 +40,7 @@ def _row_to_dict(row: ServingEndpoint) -> dict:
 async def list_endpoints(_user: UserInfo = Depends(get_current_user)):
     """List all curated serving endpoints."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ServingEndpoint).order_by(ServingEndpoint.name)
-        )
+        result = await session.execute(select(ServingEndpoint).order_by(ServingEndpoint.name))
         rows = result.scalars().all()
     return {"endpoints": [_row_to_dict(r) for r in rows]}
 
@@ -51,9 +49,7 @@ async def list_endpoints(_user: UserInfo = Depends(get_current_user)):
 async def get_endpoint(endpoint_id: int, _user: UserInfo = Depends(get_current_user)):
     """Get a single serving endpoint by ID."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id)
-        )
+        result = await session.execute(select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id))
         row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(404, "Serving endpoint not found")
@@ -75,9 +71,7 @@ async def create_endpoint(
         raise HTTPException(400, "provider and model are required")
 
     async with async_session() as session:
-        existing = await session.execute(
-            select(ServingEndpoint).where(ServingEndpoint.name == name)
-        )
+        existing = await session.execute(select(ServingEndpoint).where(ServingEndpoint.name == name))
         if existing.scalar_one_or_none():
             raise HTTPException(409, f"Serving endpoint '{name}' already exists")
 
@@ -114,9 +108,7 @@ async def update_endpoint(
 ):
     """Update a curated serving endpoint."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id)
-        )
+        result = await session.execute(select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id))
         row = result.scalar_one_or_none()
         if row is None:
             raise HTTPException(404, "Serving endpoint not found")
@@ -150,9 +142,7 @@ async def delete_endpoint(
 ):
     """Delete a curated serving endpoint."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id)
-        )
+        result = await session.execute(select(ServingEndpoint).where(ServingEndpoint.id == endpoint_id))
         row = result.scalar_one_or_none()
         if row is None:
             raise HTTPException(404, "Serving endpoint not found")
@@ -174,9 +164,7 @@ async def delete_endpoint(
 async def serving_health(_user: UserInfo = Depends(get_current_user)):
     """Probe health of all active serving endpoints."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ServingEndpoint).where(ServingEndpoint.is_active == True)  # noqa: E712
-        )
+        result = await session.execute(select(ServingEndpoint).where(ServingEndpoint.is_active == True))
         rows = result.scalars().all()
 
     checks: list[dict] = []
@@ -184,40 +172,46 @@ async def serving_health(_user: UserInfo = Depends(get_current_user)):
         for row in rows:
             url = (row.endpoint_url or "").strip()
             if not url:
-                checks.append({
-                    "id": row.id,
-                    "name": row.name,
-                    "provider": row.provider,
-                    "model": row.model,
-                    "reachable": False,
-                    "status_code": None,
-                    "latency_ms": None,
-                    "error": "no endpoint URL configured",
-                })
+                checks.append(
+                    {
+                        "id": row.id,
+                        "name": row.name,
+                        "provider": row.provider,
+                        "model": row.model,
+                        "reachable": False,
+                        "status_code": None,
+                        "latency_ms": None,
+                        "error": "no endpoint URL configured",
+                    }
+                )
                 continue
             health_url = url.rstrip("/") + "/health"
             started = time.time()
             try:
                 resp = await client.get(health_url)
-                checks.append({
-                    "id": row.id,
-                    "name": row.name,
-                    "provider": row.provider,
-                    "model": row.model,
-                    "reachable": 200 <= resp.status_code < 500,
-                    "status_code": resp.status_code,
-                    "latency_ms": int((time.time() - started) * 1000),
-                    "error": "",
-                })
+                checks.append(
+                    {
+                        "id": row.id,
+                        "name": row.name,
+                        "provider": row.provider,
+                        "model": row.model,
+                        "reachable": 200 <= resp.status_code < 500,
+                        "status_code": resp.status_code,
+                        "latency_ms": int((time.time() - started) * 1000),
+                        "error": "",
+                    }
+                )
             except Exception as exc:
-                checks.append({
-                    "id": row.id,
-                    "name": row.name,
-                    "provider": row.provider,
-                    "model": row.model,
-                    "reachable": False,
-                    "status_code": None,
-                    "latency_ms": None,
-                    "error": str(exc)[:180],
-                })
+                checks.append(
+                    {
+                        "id": row.id,
+                        "name": row.name,
+                        "provider": row.provider,
+                        "model": row.model,
+                        "reachable": False,
+                        "status_code": None,
+                        "latency_ms": None,
+                        "error": str(exc)[:180],
+                    }
+                )
     return {"endpoints": checks}

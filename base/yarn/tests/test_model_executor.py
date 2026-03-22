@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.model.circuit_breaker import CLOSED, HALF_OPEN, OPEN, CircuitBreaker
 from app.model.stream_handler import (
-    StreamChunk,
     ToolCallAccumulator,
     extract_chunk,
     parse_sse_line,
@@ -70,12 +67,14 @@ class TestStreamHandler:
 
     def test_extract_chunk_tool_calls(self):
         data = {
-            "choices": [{
-                "delta": {
-                    "tool_calls": [{"index": 0, "id": "tc_1", "function": {"name": "test", "arguments": '{"a":'}}]
-                },
-                "finish_reason": None,
-            }]
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [{"index": 0, "id": "tc_1", "function": {"name": "test", "arguments": '{"a":'}}]
+                    },
+                    "finish_reason": None,
+                }
+            ]
         }
         chunk = extract_chunk(data)
         assert len(chunk.tool_calls) == 1

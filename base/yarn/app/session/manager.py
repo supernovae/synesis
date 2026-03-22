@@ -10,9 +10,9 @@ from typing import Any
 
 from ..config import settings
 from ..model.usage_tracker import UsageAggregator
+from . import redis_store
 from .db_writer import persist_session_upsert, persist_usage_log
 from .models import AuthUser, RateLimits, SessionState
-from . import redis_store
 
 logger = logging.getLogger("yarn.session")
 

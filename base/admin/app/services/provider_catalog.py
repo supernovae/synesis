@@ -21,21 +21,28 @@ class ProviderInfo:
     is_local: bool = False
 
 
-PROVIDER_CATALOG: dict[str, ProviderInfo] = {p.key: p for p in [
-    ProviderInfo("vllm", "Local vLLM", "openai/", "", True, "synesis-router", is_local=True),
-    ProviderInfo("kserve", "OpenShift AI (KServe)", "openai/", "", True, "synesis-router", is_local=True),
-    ProviderInfo("openrouter", "OpenRouter", "openrouter/", "OPENROUTER_API_KEY", False, "x-ai/grok-4-fast"),
-    ProviderInfo("xai", "xAI (Grok)", "xai/", "XAI_API_KEY", False, "grok-4-0709"),
-    ProviderInfo("groq", "Groq", "groq/", "GROQ_API_KEY", False, "llama-3.3-70b-versatile"),
-    ProviderInfo("deepinfra", "DeepInfra", "deepinfra/", "DEEPINFRA_API_KEY", False, "meta-llama/Meta-Llama-3.1-70B"),
-    ProviderInfo("together", "Together AI", "together_ai/", "TOGETHER_API_KEY", False, "meta-llama/Llama-3-70b"),
-    ProviderInfo("fireworks", "Fireworks AI", "fireworks_ai/", "FIREWORKS_API_KEY", False, "llama-v3p1-70b-instruct"),
-    ProviderInfo("openai", "OpenAI", "openai/", "OPENAI_API_KEY", False, "gpt-4o"),
-    ProviderInfo("anthropic", "Anthropic", "anthropic/", "ANTHROPIC_API_KEY", False, "claude-sonnet-4-20250514"),
-    ProviderInfo("mistral", "Mistral AI", "mistral/", "MISTRAL_API_KEY", False, "mistral-large-latest"),
-    ProviderInfo("azure", "Azure OpenAI", "azure/", "AZURE_API_KEY", True, "gpt-4o"),
-    ProviderInfo("custom", "Custom OpenAI-compatible", "openai/", "", True, "model-name"),
-]}
+PROVIDER_CATALOG: dict[str, ProviderInfo] = {
+    p.key: p
+    for p in [
+        ProviderInfo("vllm", "Local vLLM", "openai/", "", True, "synesis-router", is_local=True),
+        ProviderInfo("kserve", "OpenShift AI (KServe)", "openai/", "", True, "synesis-router", is_local=True),
+        ProviderInfo("openrouter", "OpenRouter", "openrouter/", "OPENROUTER_API_KEY", False, "x-ai/grok-4-fast"),
+        ProviderInfo("xai", "xAI (Grok)", "xai/", "XAI_API_KEY", False, "grok-4-0709"),
+        ProviderInfo("groq", "Groq", "groq/", "GROQ_API_KEY", False, "llama-3.3-70b-versatile"),
+        ProviderInfo(
+            "deepinfra", "DeepInfra", "deepinfra/", "DEEPINFRA_API_KEY", False, "meta-llama/Meta-Llama-3.1-70B"
+        ),
+        ProviderInfo("together", "Together AI", "together_ai/", "TOGETHER_API_KEY", False, "meta-llama/Llama-3-70b"),
+        ProviderInfo(
+            "fireworks", "Fireworks AI", "fireworks_ai/", "FIREWORKS_API_KEY", False, "llama-v3p1-70b-instruct"
+        ),
+        ProviderInfo("openai", "OpenAI", "openai/", "OPENAI_API_KEY", False, "gpt-4o"),
+        ProviderInfo("anthropic", "Anthropic", "anthropic/", "ANTHROPIC_API_KEY", False, "claude-sonnet-4-20250514"),
+        ProviderInfo("mistral", "Mistral AI", "mistral/", "MISTRAL_API_KEY", False, "mistral-large-latest"),
+        ProviderInfo("azure", "Azure OpenAI", "azure/", "AZURE_API_KEY", True, "gpt-4o"),
+        ProviderInfo("custom", "Custom OpenAI-compatible", "openai/", "", True, "model-name"),
+    ]
+}
 
 KNOWN_ROLES = ("router", "general", "critic", "coder", "summarizer")
 
@@ -48,10 +55,19 @@ ROLE_DESCRIPTIONS = {
 }
 
 
-_DISCOVERY_PROVIDERS = frozenset([
-    "openrouter", "deepinfra", "groq", "together", "fireworks",
-    "openai", "xai", "mistral", "anthropic",
-])
+_DISCOVERY_PROVIDERS = frozenset(
+    [
+        "openrouter",
+        "deepinfra",
+        "groq",
+        "together",
+        "fireworks",
+        "openai",
+        "xai",
+        "mistral",
+        "anthropic",
+    ]
+)
 
 
 def get_catalog() -> dict:
@@ -64,8 +80,7 @@ def get_catalog() -> dict:
     return {
         "providers": providers_out,
         "roles": [
-            {"key": r, "served_name": f"synesis-{r}", "description": ROLE_DESCRIPTIONS.get(r, "")}
-            for r in KNOWN_ROLES
+            {"key": r, "served_name": f"synesis-{r}", "description": ROLE_DESCRIPTIONS.get(r, "")} for r in KNOWN_ROLES
         ],
     }
 

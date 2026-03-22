@@ -39,10 +39,7 @@ def build_summarize_messages(
         role = turn.get("role", "unknown")
         text = turn.get("content", "")
         if turn.get("tool_calls"):
-            calls = ", ".join(
-                tc.get("function", {}).get("name", "?")
-                for tc in turn["tool_calls"]
-            )
+            calls = ", ".join(tc.get("function", {}).get("name", "?") for tc in turn["tool_calls"])
             text += f" [tool_calls: {calls}]"
         content_parts.append(f"  [{role}]: {text[:500]}")
 

@@ -243,10 +243,10 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
             raise HTTPException(status_code=404, detail="not_found")
 
         docs = (
-            await session.execute(
-                select(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id)))
+            .scalars()
+            .all()
+        )
         doc_ids = [d.id for d in docs]
         queue_deleted = 0
 
@@ -256,9 +256,7 @@ async def rerun_item(item_id: int, body: ItemRerunBody):
                     delete(IngestionEnrichQueue).where(IngestionEnrichQueue.document_id.in_(doc_ids))
                 )
                 queue_deleted = int(qres.rowcount or 0)
-                await session.execute(
-                    delete(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id)
-                )
+                await session.execute(delete(IngestionDocument).where(IngestionDocument.ingestion_item_id == item_id))
             item.status = "pending"
             item.error_message = ""
             item.indexer_stats = None
@@ -395,11 +393,7 @@ async def register_documents(body: DocumentsRegisterBody):
                         "raw_s3_keys": row.raw_s3_keys,
                         "raw_content_hash": row.raw_content_hash,
                         "raw_status": row.raw_status,
-                        **(
-                            {"raw_fetched_at": now}
-                            if row.raw_status == "done"
-                            else {}
-                        ),
+                        **({"raw_fetched_at": now} if row.raw_status == "done" else {}),
                         "updated_at": now,
                     },
                 )
@@ -473,12 +467,16 @@ async def claim_normalize(response: Response, limit: int = 8):
 async def list_item_documents(item_id: int):
     async with async_session() as session:
         rows = (
-            await session.execute(
-                select(IngestionDocument)
-                .where(IngestionDocument.ingestion_item_id == item_id)
-                .order_by(IngestionDocument.id)
+            (
+                await session.execute(
+                    select(IngestionDocument)
+                    .where(IngestionDocument.ingestion_item_id == item_id)
+                    .order_by(IngestionDocument.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     return {
         "documents": [
             {
@@ -570,7 +568,9 @@ async def normalize_result(document_id: int, body: NormalizeResultBody):
         item_id = doc.ingestion_item_id
         total = (
             await session.execute(
-                select(func.count()).select_from(IngestionDocument).where(
+                select(func.count())
+                .select_from(IngestionDocument)
+                .where(
                     IngestionDocument.ingestion_item_id == item_id,
                     IngestionDocument.raw_status == "done",
                 )
@@ -578,7 +578,9 @@ async def normalize_result(document_id: int, body: NormalizeResultBody):
         ).scalar() or 0
         done_norm = (
             await session.execute(
-                select(func.count()).select_from(IngestionDocument).where(
+                select(func.count())
+                .select_from(IngestionDocument)
+                .where(
                     IngestionDocument.ingestion_item_id == item_id,
                     IngestionDocument.norm_status == "done",
                     IngestionDocument.norm_version == body.norm_version,
@@ -634,7 +636,9 @@ async def claim_enrich(response: Response, body: EnrichClaimBody):
     jobs = [dict(r) for r in rows]
     doc_ids = list({j["document_id"] for j in jobs})
     async with async_session() as session:
-        docs = (await session.execute(select(IngestionDocument).where(IngestionDocument.id.in_(doc_ids)))).scalars().all()
+        docs = (
+            (await session.execute(select(IngestionDocument).where(IngestionDocument.id.in_(doc_ids)))).scalars().all()
+        )
         by_id = {d.id: d for d in docs}
         item_ids = {d.ingestion_item_id for d in docs}
 
@@ -712,7 +716,9 @@ async def enrich_job_status(job_id: int, body: EnrichStatusBody):
         item_id = doc.ingestion_item_id
         total_docs = (
             await session.execute(
-                select(func.count()).select_from(IngestionDocument).where(
+                select(func.count())
+                .select_from(IngestionDocument)
+                .where(
                     IngestionDocument.ingestion_item_id == item_id,
                     IngestionDocument.norm_status == "done",
                 )
@@ -720,7 +726,9 @@ async def enrich_job_status(job_id: int, body: EnrichStatusBody):
         ).scalar() or 0
         done_enrich = (
             await session.execute(
-                select(func.count()).select_from(IngestionDocument).where(
+                select(func.count())
+                .select_from(IngestionDocument)
+                .where(
                     IngestionDocument.ingestion_item_id == item_id,
                     IngestionDocument.enrich_status == "done",
                 )

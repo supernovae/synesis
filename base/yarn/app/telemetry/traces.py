@@ -48,10 +48,6 @@ def setup_otel() -> None:
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
 
-        logging.getLogger("yarn.telemetry").info(
-            "OpenTelemetry initialized, exporting to %s", settings.otel_endpoint
-        )
+        logging.getLogger("yarn.telemetry").info("OpenTelemetry initialized, exporting to %s", settings.otel_endpoint)
     except ImportError:
-        logging.getLogger("yarn.telemetry").warning(
-            "OpenTelemetry SDK not available, tracing disabled"
-        )
+        logging.getLogger("yarn.telemetry").warning("OpenTelemetry SDK not available, tracing disabled")

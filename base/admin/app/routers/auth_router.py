@@ -88,14 +88,12 @@ async def oauth_token_exchange(req: OidcTokenExchangeRequest):
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
     except httpx.RequestError as exc:
-        logger.warning("keycloak_token_exchange_transport_error", exc_info=True)
-        raise HTTPException(
-            status_code=502, detail="Could not reach identity provider"
-        ) from exc
+        logger.warning("identity_provider_transport_error", exc_info=True)
+        raise HTTPException(status_code=502, detail="Could not reach identity provider") from exc
 
     if r.status_code != 200:
         logger.warning(
-            "keycloak_token_exchange_failed status=%s body=%s",
+            "identity_provider_http_error status=%s response_snippet=%s",
             r.status_code,
             (r.text or "")[:800],
         )
@@ -144,9 +142,7 @@ async def oauth_refresh(req: OidcRefreshRequest):
             )
     except httpx.RequestError as exc:
         logger.debug("keycloak_refresh_transport_error", exc_info=True)
-        raise HTTPException(
-            status_code=502, detail="Could not reach identity provider"
-        ) from exc
+        raise HTTPException(status_code=502, detail="Could not reach identity provider") from exc
 
     if r.status_code != 200:
         logger.debug(

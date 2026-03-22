@@ -23,12 +23,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -265,10 +264,7 @@ def main() -> None:
     buckets = set(args.buckets.split(","))
     selected_ids = set(args.ids.split(",")) if args.ids else set()
 
-    prompts = [
-        p for p in all_prompts
-        if p["bucket"] in buckets and (not selected_ids or p["id"] in selected_ids)
-    ]
+    prompts = [p for p in all_prompts if p["bucket"] in buckets and (not selected_ids or p["id"] in selected_ids)]
 
     print(f"Running {len(prompts)} prompts across modes: full, selective")
     print(f"Planner URL: {args.planner_url}")
@@ -278,7 +274,7 @@ def main() -> None:
     out_dir = Path(args.output)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     results: list[dict[str, Any]] = []
     det_checks_config = rubric.get("deterministic_checks", {}) if rubric else {}
     dimensions = rubric.get("dimensions", {}) if rubric else {}
@@ -289,7 +285,7 @@ def main() -> None:
         pid = prompt_meta["id"]
         bucket = prompt_meta["bucket"]
         prompt_text = prompt_meta["prompt"]
-        print(f"[{i+1}/{len(prompts)}] {pid} ({bucket})")
+        print(f"[{i + 1}/{len(prompts)}] {pid} ({bucket})")
 
         # Run both modes
         modes = {}
@@ -304,9 +300,7 @@ def main() -> None:
         # Deterministic checks
         det_results = {}
         for mode in ("full", "selective"):
-            det_results[mode] = run_deterministic_checks(
-                modes[mode]["content"], prompt_meta, det_checks_config
-            )
+            det_results[mode] = run_deterministic_checks(modes[mode]["content"], prompt_meta, det_checks_config)
 
         # External judge (blinded)
         judge_result = None
@@ -343,9 +337,7 @@ def main() -> None:
                 # Compute weighted scores
                 for label in ("response_a", "response_b"):
                     scores = judge_result.get(label, {})
-                    judge_result.setdefault(label, {})["weighted_score"] = compute_weighted_score(
-                        scores, dimensions
-                    )
+                    judge_result.setdefault(label, {})["weighted_score"] = compute_weighted_score(scores, dimensions)
 
                 print(f" preferred={judge_result['preferred_mode']}")
             else:
@@ -419,22 +411,15 @@ def main() -> None:
 
         # Judge preferences
         if any(r["judge"] for r in bucket_results):
-            full_wins = sum(
-                1 for r in bucket_results
-                if r["judge"] and r["judge"].get("preferred_mode") == "full"
-            )
+            full_wins = sum(1 for r in bucket_results if r["judge"] and r["judge"].get("preferred_mode") == "full")
             selective_wins = sum(
-                1 for r in bucket_results
-                if r["judge"] and r["judge"].get("preferred_mode") == "selective"
+                1 for r in bucket_results if r["judge"] and r["judge"].get("preferred_mode") == "selective"
             )
-            ties = sum(
-                1 for r in bucket_results
-                if r["judge"] and r["judge"].get("preferred_mode") == "tie"
-            )
+            ties = sum(1 for r in bucket_results if r["judge"] and r["judge"].get("preferred_mode") == "tie")
             print(f"  Judge: full={full_wins}  selective={selective_wins}  tie={ties}")
 
     # Deterministic check summary
-    print(f"\n### DETERMINISTIC CHECKS")
+    print("\n### DETERMINISTIC CHECKS")
     for mode in ("full", "selective"):
         all_checks: dict[str, list[bool]] = {}
         for r in results:

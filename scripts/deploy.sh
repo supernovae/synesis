@@ -564,7 +564,8 @@ reconcile_litellm_webui_secrets() {
             --dry-run=client -o yaml | oc apply -f -
         log "  Restored synesis-planner/litellm-secrets from existing webui-api-key"
     else
-        local newk="sk-synesis-$(openssl rand -hex 24)"
+        local newk
+        newk="sk-synesis-$(openssl rand -hex 24)"
         oc create secret generic litellm-secrets \
             -n "$gw" \
             --from-literal=master-key="$newk" \
@@ -862,9 +863,11 @@ _ensure_litellm_database() {
         "SELECT 1 FROM pg_database WHERE datname='litellm'" 2>/dev/null | grep -q 1; then
         return 0
     fi
-    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c "CREATE DATABASE litellm OWNER app;" \
-        && log "  Created database litellm on $cluster_name" \
-        || log "WARNING: CREATE DATABASE litellm failed (LiteLLM Prisma will not start)"
+    if oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c "CREATE DATABASE litellm OWNER app;"; then
+        log "  Created database litellm on $cluster_name"
+    else
+        log "WARNING: CREATE DATABASE litellm failed (LiteLLM Prisma will not start)"
+    fi
 }
 
 # Drop and recreate the `litellm` Prisma database for a clean start.
@@ -906,10 +909,13 @@ reset_litellm_database() {
 
     # Recreate
     log "  Recreating litellm database..."
-    oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c \
-        "CREATE DATABASE litellm OWNER app;" \
-        && log "  litellm database recreated (clean)" \
-        || { log "ERROR: Failed to recreate litellm database"; return 1; }
+    if oc exec -n "$ns" "$pod" -c postgres -- psql -U postgres -c \
+        "CREATE DATABASE litellm OWNER app;"; then
+        log "  litellm database recreated (clean)"
+    else
+        log "ERROR: Failed to recreate litellm database"
+        return 1
+    fi
 
     # Scale litellm-proxy back up (migrations run on startup via USE_PRISMA_MIGRATE)
     if oc get deployment litellm-proxy -n "$gw" &>/dev/null; then
@@ -1214,6 +1220,8 @@ check_custom_images() {
     log "Checking custom image availability..."
     local built
     built=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
+    # sed regex replacement; ${var//} cannot express capture groups
+    # shellcheck disable=SC2001
     [[ "$REF_SAFE" != "latest" ]] && built=$(echo "$built" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
     local sample_image
     sample_image=$(echo "$built" | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
@@ -1347,6 +1355,7 @@ for doc in docs:
     fi
     # Deploy a specific ref (branch/tag/PR) instead of latest
     if [[ "$REF_SAFE" != "latest" ]]; then
+        # shellcheck disable=SC2001
         output=$(echo "$output" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
     fi
     echo "$output"

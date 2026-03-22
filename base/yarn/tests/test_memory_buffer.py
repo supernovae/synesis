@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-
-from app.memory.buffer import MemoryBuffer, count_tokens, count_message_tokens
-from app.memory.delta_stitcher import estimate_cache_hit_tokens, stitch_delta
-from app.memory.prefix_optimizer import validate_prefix_order, compute_prefix_stability
+from app.memory.buffer import MemoryBuffer, count_message_tokens, count_tokens
 from app.memory.compressor import build_summarize_messages, merge_replay
+from app.memory.delta_stitcher import estimate_cache_hit_tokens, stitch_delta
+from app.memory.prefix_optimizer import compute_prefix_stability, validate_prefix_order
 
 
 class TestMemoryBuffer:
@@ -33,11 +31,16 @@ class TestMemoryBuffer:
 
     def test_tool_result_appended(self, memory_buffer: MemoryBuffer):
         memory_buffer.append_user("Run a tool")
-        memory_buffer.append_model("", tool_calls=[{
-            "id": "tc_1",
-            "type": "function",
-            "function": {"name": "test_tool", "arguments": "{}"},
-        }])
+        memory_buffer.append_model(
+            "",
+            tool_calls=[
+                {
+                    "id": "tc_1",
+                    "type": "function",
+                    "function": {"name": "test_tool", "arguments": "{}"},
+                }
+            ],
+        )
         memory_buffer.append_tool_result("tc_1", "test_tool", "result data")
         ctx = memory_buffer.get_context()
         assert any(m["role"] == "tool" for m in ctx)
@@ -53,10 +56,12 @@ class TestMemoryBuffer:
         assert len(evicted) > 0
 
     def test_three_zone_layout(self, memory_buffer: MemoryBuffer):
-        memory_buffer.set_tool_definitions([
-            {"function": {"name": "tool_a"}},
-            {"function": {"name": "tool_b"}},
-        ])
+        memory_buffer.set_tool_definitions(
+            [
+                {"function": {"name": "tool_a"}},
+                {"function": {"name": "tool_b"}},
+            ]
+        )
         memory_buffer.set_memory_replay("Previous session summary")
         memory_buffer.append_user("Hello")
         memory_buffer.append_model("Hi!")

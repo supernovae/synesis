@@ -99,7 +99,9 @@ def run_staged_fetch(
                         "authority": source_config.get("authority") or item.get("effective_authority") or "vetted",
                         "origin_type": item.get("origin_type", "curated"),
                         "tags": item.get("effective_tags") or item.get("tags"),
-                        "config_snapshot": source_config.get("config") if isinstance(source_config.get("config"), dict) else {},
+                        "config_snapshot": source_config.get("config")
+                        if isinstance(source_config.get("config"), dict)
+                        else {},
                         "raw_s3_keys": raw_keys,
                         "raw_content_hash": raw_hash,
                         "raw_status": "done",

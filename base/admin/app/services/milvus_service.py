@@ -92,8 +92,6 @@ def safe_delete(collection: str, chunk_id: str) -> bool:
         return False
 
 
-
-
 def safe_vector_search(
     collection: str,
     vector: list[float],

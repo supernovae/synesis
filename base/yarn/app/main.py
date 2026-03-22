@@ -15,28 +15,27 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .config import settings
 from .escalation import bridge as escalation_bridge
-from .escalation.detector import EscalationSignal, check_all as check_escalation
+from .escalation.detector import check_all as check_escalation
 from .memory.buffer import MemoryBuffer
 from .memory.compressor import build_summarize_messages, merge_replay
-from .memory.delta_stitcher import estimate_cache_hit_tokens
 from .memory.prefix_optimizer import validate_prefix_order
 from .middleware.auth import extract_bearer_token, resolve_auth
 from .middleware.injection_scanner import scan_messages
 from .middleware.rate_limiter import enforce_rate_limit
 from .model import executor as model_executor
-from .model.stream_handler import StreamChunk, ToolCallAccumulator, extract_chunk, parse_sse_line
+from .model.stream_handler import ToolCallAccumulator
 from .model.usage_tracker import UsageAggregator, UsageRecord
 from .session.manager import record_request_usage, record_usage, resolve_or_create_session
-from .session.models import AuthUser, SessionState
-from .telemetry.metrics import record_escalation, record_request, record_tokens, record_tool_call
+from .session.models import SessionState
 from .telemetry.diagnostics import SessionDiagnostics, get_snapshot
+from .telemetry.metrics import record_escalation, record_request, record_tokens, record_tool_call
 from .telemetry.traces import setup_logging, setup_otel
 from .tools.orchestrator import ToolOrchestrator
 
@@ -72,10 +71,10 @@ async def lifespan(app: FastAPI):  # type: ignore[override]
         settings.model,
     )
     yield
-    from .session import redis_store
     from . import db
-    from .tools import mcp_client
     from .model import providers
+    from .session import redis_store
+    from .tools import mcp_client
 
     await redis_store.close()
     await db.close()
@@ -210,11 +209,7 @@ async def call_mcp_tool(request: Request):
     await resolve_auth(request)
     bearer = extract_bearer_token(request)
     tools = await _orchestrator.load_tools_for_token(bearer)
-    allowed_tools = {
-        t.get("function", {}).get("name", "")
-        for t in tools
-        if isinstance(t, dict)
-    }
+    allowed_tools = {t.get("function", {}).get("name", "") for t in tools if isinstance(t, dict)}
     body = await request.json()
     name = body.get("name", "")
     arguments = body.get("arguments", {})
@@ -234,6 +229,7 @@ async def metrics(request: Request):
     if user.role not in {"admin", "platform_admin", "org_admin"}:
         raise HTTPException(status_code=403, detail="Forbidden")
     from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
     return JSONResponse(
         content=generate_latest().decode(),
         media_type=CONTENT_TYPE_LATEST,
@@ -263,13 +259,9 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 
     # --- Session ---
     conversation_id = (
-        body.conversation_id
-        or request.headers.get("x-conversation-id", "")
-        or request.headers.get("x-chat-id", "")
+        body.conversation_id or request.headers.get("x-conversation-id", "") or request.headers.get("x-chat-id", "")
     )
-    session = await resolve_or_create_session(
-        auth_user, conversation_id=conversation_id
-    )
+    session = await resolve_or_create_session(auth_user, conversation_id=conversation_id)
     enforce_rate_limit(session)
     diagnostics = SessionDiagnostics.create(
         request_id=request_id,
@@ -306,22 +298,11 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     authorized_tools = await _orchestrator.load_tools_for_token(bearer_token)
     if body.tools:
         # Client can narrow the exposed tool set, but cannot expand it.
-        requested = {
-            t.get("function", {}).get("name", "")
-            for t in body.tools
-            if isinstance(t, dict)
-        }
-        tools = [
-            t for t in authorized_tools
-            if t.get("function", {}).get("name", "") in requested
-        ]
+        requested = {t.get("function", {}).get("name", "") for t in body.tools if isinstance(t, dict)}
+        tools = [t for t in authorized_tools if t.get("function", {}).get("name", "") in requested]
     else:
         tools = authorized_tools
-    allowed_tool_names = {
-        t.get("function", {}).get("name", "")
-        for t in tools
-        if isinstance(t, dict)
-    }
+    allowed_tool_names = {t.get("function", {}).get("name", "") for t in tools if isinstance(t, dict)}
     if tools and not any(t.get("_yarn_pin") == "tools" for t in buf._pinned):
         buf.set_tool_definitions(tools)
 
@@ -393,22 +374,19 @@ async def _stream_agentic_loop(
         while True:
             context = buf.get_context()
 
-        # Prefix order validation (debug)
+            # Prefix order validation (debug)
             warnings = validate_prefix_order(context)
             if warnings:
                 logger.warning("Prefix order issues: %s", warnings)
 
-        # Estimate cache tokens for tracking
-            est_cached = estimate_cache_hit_tokens(buf)
-
-        # Stream model response
+            # Stream model response
             tool_accumulator = ToolCallAccumulator()
             chunk_content = ""
-            finish_reason = None
             has_tool_calls = False
 
             async for chunk in model_executor.run_model(
-                context, tools,
+                context,
+                tools,
                 temperature=temperature,
                 max_tokens=max_tokens,
             ):
@@ -421,7 +399,6 @@ async def _stream_agentic_loop(
                     has_tool_calls = True
 
                 if chunk.finish_reason:
-                    finish_reason = chunk.finish_reason
                     if chunk.finish_reason == "tool_calls" and tool_accumulator.has_pending:
                         chunk.tool_calls = tool_accumulator.flush()
                         has_tool_calls = True
@@ -429,7 +406,7 @@ async def _stream_agentic_loop(
                 if chunk.raw.get("_usage_record"):
                     usage_agg.add(chunk.raw["_usage_record"])
 
-        # Process completed tool calls
+            # Process completed tool calls
             completed_calls = tool_accumulator.flush() if tool_accumulator.has_pending else []
             if has_tool_calls and completed_calls:
                 buf.append_model("", tool_calls=completed_calls)
@@ -444,9 +421,7 @@ async def _stream_agentic_loop(
                     record_tool_call(result.name, not result.is_error)
                     diagnostics.record_tool(result.name, not result.is_error)
 
-                    buf.append_tool_result(
-                        result.tool_call_id, result.name, result.content
-                    )
+                    buf.append_tool_result(result.tool_call_id, result.name, result.content)
 
                     # Check escalation
                     sig = check_escalation(buf, tool_loop_count, result)
@@ -475,20 +450,26 @@ async def _stream_agentic_loop(
                             usage_agg.total_tokens_cached,
                         )
                         await record_request_usage(
-                            session, request_id, usage_agg,
-                            elapsed * 1000, True, tool_loop_count, "escalated",
+                            session,
+                            request_id,
+                            usage_agg,
+                            elapsed * 1000,
+                            True,
+                            tool_loop_count,
+                            "escalated",
                         )
                         return
 
                 continue
 
-        # Content response (no tool calls) — we're done
+            # Content response (no tool calls) — we're done
             if chunk_content:
                 accumulated_content += chunk_content
                 buf.append_model(accumulated_content)
 
             yield _build_sse_chunk(
-                request_id, model,
+                request_id,
+                model,
                 finish_reason="stop",
                 usage={
                     "prompt_tokens": usage_agg.total_tokens_in,
@@ -515,8 +496,13 @@ async def _stream_agentic_loop(
             usage_agg.total_tokens_cached,
         )
         await record_request_usage(
-            session, request_id, usage_agg,
-            elapsed * 1000, False, tool_loop_count, "stop",
+            session,
+            request_id,
+            usage_agg,
+            elapsed * 1000,
+            False,
+            tool_loop_count,
+            "stop",
         )
 
         # --- Eviction / compression check ---
@@ -558,9 +544,7 @@ def _schedule_compression(
                     break
 
             messages = build_summarize_messages(evicted, existing)
-            result = await model_executor.run_model_sync(
-                messages, temperature=0.1, max_tokens=1024
-            )
+            result = await model_executor.run_model_sync(messages, temperature=0.1, max_tokens=1024)
 
             choices = result.get("choices", [])
             if choices:
@@ -600,7 +584,8 @@ async def _non_streaming_loop(
             context = buf.get_context()
 
             result = await model_executor.run_model_sync(
-                context, tools,
+                context,
+                tools,
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
@@ -622,7 +607,7 @@ async def _non_streaming_loop(
             message = choice.get("message", {})
             finish_reason = choice.get("finish_reason", "stop")
 
-        # Track usage
+            # Track usage
             if result.get("usage"):
                 u = result["usage"]
                 record = UsageRecord(
@@ -663,7 +648,7 @@ async def _non_streaming_loop(
 
                 continue
 
-        # Content response
+            # Content response
             content = message.get("content", "")
             buf.append_model(content)
 
@@ -676,26 +661,35 @@ async def _non_streaming_loop(
                 usage_agg.total_tokens_cached,
             )
             await record_request_usage(
-                session, request_id, usage_agg,
-                elapsed * 1000, False, tool_loop_count, "stop",
+                session,
+                request_id,
+                usage_agg,
+                elapsed * 1000,
+                False,
+                tool_loop_count,
+                "stop",
             )
 
-            return JSONResponse(content={
-                "id": request_id,
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": model,
-                "choices": [{
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }],
-                "usage": {
-                    "prompt_tokens": usage_agg.total_tokens_in,
-                    "completion_tokens": usage_agg.total_tokens_out,
-                    "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
-                },
-            })
+            return JSONResponse(
+                content={
+                    "id": request_id,
+                    "object": "chat.completion",
+                    "created": int(time.time()),
+                    "model": model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": content},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": usage_agg.total_tokens_in,
+                        "completion_tokens": usage_agg.total_tokens_out,
+                        "total_tokens": usage_agg.total_tokens_in + usage_agg.total_tokens_out,
+                    },
+                }
+            )
 
         status = "error"
         error_message = "Tool loop limit exceeded"

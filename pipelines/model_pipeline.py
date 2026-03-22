@@ -124,7 +124,7 @@ def model_download_pipeline(
     download_task.set_memory_limit("8Gi")
     kubernetes.use_secret_as_env(
         download_task,
-        secret_name="hf-hub-secret",  # noqa: S106
+        secret_name="hf-hub-secret",
         secret_key_to_env={"HF_TOKEN": "HF_TOKEN"},
         optional=True,
     )

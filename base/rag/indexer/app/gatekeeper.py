@@ -119,12 +119,7 @@ def run_document_gatekeeper(
     excerpt = _build_excerpt(chunk_texts)
     if len(excerpt) < 80:
         logger.debug("gatekeeper_excerpt_short", extra={"doc": document_name[:80]})
-    user_msg = (
-        f"document_name: {document_name}\n"
-        f"authority: {authority}\n"
-        f"domain: {domain}\n\n"
-        f"excerpt:\n{excerpt}"
-    )
+    user_msg = f"document_name: {document_name}\nauthority: {authority}\ndomain: {domain}\n\nexcerpt:\n{excerpt}"
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"

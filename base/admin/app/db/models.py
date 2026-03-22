@@ -250,7 +250,7 @@ class ModelDeployment(Base):
     )
 
     __table_args__ = (
-        Index("ix_model_deployments_active_role", "role", unique=True, postgresql_where=(is_active == True)),  # noqa: E712
+        Index("ix_model_deployments_active_role", "role", unique=True, postgresql_where=(is_active == True)),
         Index("ix_model_deployments_is_active", "is_active"),
         Index("ix_model_deployments_source", "source"),
     )
@@ -419,7 +419,9 @@ class IngestionDocument(Base):
     __tablename__ = "ingestion_documents"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    ingestion_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("ingestion_items.id", ondelete="CASCADE"), nullable=False)
+    ingestion_item_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("ingestion_items.id", ondelete="CASCADE"), nullable=False
+    )
     doc_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     canonical_uri: Mapped[str] = mapped_column(Text, nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -461,7 +463,9 @@ class IngestionEnrichQueue(Base):
     __tablename__ = "ingestion_enrich_queue"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("ingestion_documents.id", ondelete="CASCADE"), nullable=False)
+    document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("ingestion_documents.id", ondelete="CASCADE"), nullable=False
+    )
     norm_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
     enrich_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v1")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -570,9 +574,7 @@ class PersonalAccessToken(Base):
     token_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -584,9 +586,7 @@ class AdminAuditEvent(Base):
     __tablename__ = "admin_audit_events"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     source: Mapped[str] = mapped_column(String(32), nullable=False, default="api")
     actor_username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     actor_user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
@@ -615,9 +615,7 @@ class OpenWebUIFeedback(Base):
     snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     created_at_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     updated_at_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    ingested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_openwebui_feedback_created", "created_at_epoch"),)
 

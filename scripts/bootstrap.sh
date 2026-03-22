@@ -522,8 +522,6 @@ install_milvus_operator() {
         | grep -o '"chart":"milvus-operator-[^"]*"' \
         | head -1 | sed 's/.*milvus-operator-//' | sed 's/"//' || true)
 
-    local need_post_install=true
-
     if [[ -n "$installed_version" ]]; then
         # Already installed — check if upgrade is actually needed
         helm repo update milvus-operator 2>&1 | while read -r line; do log "  $line"; done

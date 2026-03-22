@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
-from starlette.requests import Request
-
 from app.middleware import auth
 from app.tools.orchestrator import ToolOrchestrator
+from fastapi import HTTPException
+from starlette.requests import Request
 
 
 def _request_with_auth(value: str | None) -> Request:

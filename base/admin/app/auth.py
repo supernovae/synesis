@@ -58,6 +58,7 @@ _LEGACY_USERS: dict[str, dict] = {
 
 # ── Data models ──────────────────────────────────────────────────────────────
 
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -74,11 +75,12 @@ class UserInfo(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"  # noqa: S105 — standard OAuth2 field
+    token_type: str = "bearer"
     user: UserInfo
 
 
 # ── Token verification ───────────────────────────────────────────────────────
+
 
 def _parse_org_claim(payload: dict) -> tuple[str, str, list[str]]:
     """Extract primary organization from Keycloak's ``organization`` JWT claim.
@@ -170,9 +172,7 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
             return None
 
         await session.execute(
-            update(PersonalAccessToken)
-            .where(PersonalAccessToken.id == pat.id)
-            .values(last_used_at=datetime.now(UTC))
+            update(PersonalAccessToken).where(PersonalAccessToken.id == pat.id).values(last_used_at=datetime.now(UTC))
         )
         await session.commit()
 
@@ -244,6 +244,7 @@ async def require_admin(user: UserInfo = Depends(get_current_user)) -> UserInfo:
 
 
 # ── Legacy login (only available when Keycloak is NOT configured) ────────────
+
 
 def create_token(username: str, role: str) -> str:
     payload = {

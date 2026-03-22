@@ -7,10 +7,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
+from app.middleware.injection_scanner import scan_messages, scan_text
 from fastapi.testclient import TestClient
-
-from app.middleware.injection_scanner import scan_text, scan_messages
 
 
 class TestInjectionScanner:
@@ -49,6 +47,7 @@ class TestHealthEndpoints:
             mock_orch.initialize = AsyncMock()
             mock_orch.list_tools.return_value = []
             from app.main import app
+
             client = TestClient(app, raise_server_exceptions=False)
             resp = client.get("/health")
             assert resp.status_code == 200
@@ -59,6 +58,7 @@ class TestHealthEndpoints:
             mock_orch.initialize = AsyncMock()
             mock_orch.list_tools.return_value = []
             from app.main import app
+
             client = TestClient(app, raise_server_exceptions=False)
             resp = client.get("/health/readiness")
             assert resp.status_code == 200
@@ -68,6 +68,7 @@ class TestHealthEndpoints:
             mock_orch.initialize = AsyncMock()
             mock_orch.list_tools.return_value = []
             from app.main import app
+
             client = TestClient(app, raise_server_exceptions=False)
             resp = client.get("/v1/models")
             assert resp.status_code == 200

@@ -44,9 +44,15 @@ INSTANCE_CATALOG: list[InstanceType] = [
     InstanceType("gcp", "a3-highgpu-8g", "GCP a3-highgpu-8g (8x H100)", "H100", 8, 101.22, 600_000_000),
     InstanceType("gcp", "g2-standard-48", "GCP g2-standard-48 (4x L4)", "L4", 4, 4.34, 22_000_000),
     # Azure
-    InstanceType("azure", "Standard_NC24ads_A100_v4", "Azure NC24ads A100 (1x A100 80GB)", "A100-80GB", 1, 3.67, 40_000_000),
-    InstanceType("azure", "Standard_NC96ads_A100_v4", "Azure NC96ads A100 (4x A100 80GB)", "A100-80GB", 4, 14.69, 160_000_000),
-    InstanceType("azure", "Standard_ND96amsr_A100_v4", "Azure ND96amsr (8x A100 80GB)", "A100-80GB", 8, 27.20, 280_000_000),
+    InstanceType(
+        "azure", "Standard_NC24ads_A100_v4", "Azure NC24ads A100 (1x A100 80GB)", "A100-80GB", 1, 3.67, 40_000_000
+    ),
+    InstanceType(
+        "azure", "Standard_NC96ads_A100_v4", "Azure NC96ads A100 (4x A100 80GB)", "A100-80GB", 4, 14.69, 160_000_000
+    ),
+    InstanceType(
+        "azure", "Standard_ND96amsr_A100_v4", "Azure ND96amsr (8x A100 80GB)", "A100-80GB", 8, 27.20, 280_000_000
+    ),
     # Generic / bare metal
     InstanceType("other", "custom", "Custom / Bare Metal", "custom", 0, 0.0, 10_000_000),
 ]
@@ -125,9 +131,7 @@ async def get_infra_configs() -> list[dict[str, Any]]:
     """Return all infra cost configs."""
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT * FROM infra_cost_config ORDER BY role")
-            )
+            result = await session.execute(text("SELECT * FROM infra_cost_config ORDER BY role"))
             rows = result.mappings().all()
             return [dict(r) for r in rows]
     except Exception:

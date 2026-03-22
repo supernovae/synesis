@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 
 import pytest
-
-from app.tools.orchestrator import ToolOrchestrator, ToolResult
+from app.tools.local_tools import handle_local_tool
+from app.tools.orchestrator import ToolOrchestrator
 from app.tools.schema_validator import ToolValidationError, validate_tool_args
-from app.tools.local_tools import LOCAL_TOOL_NAMES, handle_local_tool
 
 
 class TestSchemaValidator:

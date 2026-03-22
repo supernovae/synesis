@@ -713,10 +713,7 @@ class TestDeliverableExtraction:
             f"Expected >= 7 deliverables for 7-section prompt, got {len(deliverables)}: {deliverables}"
         )
         for kw in case["expected"]["deliverables_must_include"]:
-            assert _kw_in_deliverables(kw, deliverables), (
-                f"'{kw}' not found in deliverables: {deliverables}"
-            )
-
+            assert _kw_in_deliverables(kw, deliverables), f"'{kw}' not found in deliverables: {deliverables}"
 
     def test_format_hints_detected(self) -> None:
         """Per-deliverable format hints are extracted from section children."""
@@ -751,6 +748,5 @@ class TestNoDeliverableTruncation:
                 continue
             deliverables, _sub, _con, _neg, _fmt = _extract_deliverables_from_text(case["prompt"])
             assert len(deliverables) >= expected_count, (
-                f"[{case['id']}] Expected >= {expected_count} deliverables, "
-                f"got {len(deliverables)}: {deliverables}"
+                f"[{case['id']}] Expected >= {expected_count} deliverables, got {len(deliverables)}: {deliverables}"
             )

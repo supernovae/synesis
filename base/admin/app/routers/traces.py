@@ -7,7 +7,7 @@ import time
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
-from ..auth import UserInfo, get_current_user, require_admin
+from ..auth import UserInfo, get_current_user
 from ..deps import PLANNER_URL
 from ..rbac import can_access_trace, require_platform_admin, trace_scope_filters
 from ..services import trace_store
@@ -33,7 +33,9 @@ async def list_traces(
     since: float = 0,
     until: float = 0,
     max_tokens: int | None = None,
-    min_hallucinated_urls: int | None = Query(None, ge=1, description="Filter traces with at least N hallucinated URLs"),
+    min_hallucinated_urls: int | None = Query(
+        None, ge=1, description="Filter traces with at least N hallucinated URLs"
+    ),
     _user: UserInfo = Depends(get_current_user),
 ):
     scope = trace_scope_filters(_user)

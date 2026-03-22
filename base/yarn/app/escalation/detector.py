@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from ..config import settings
 from ..memory.buffer import MemoryBuffer
@@ -13,7 +12,7 @@ logger = logging.getLogger("yarn.escalation.detector")
 
 
 class EscalationSignal:
-    __slots__ = ("should_escalate", "reason", "query")
+    __slots__ = ("query", "reason", "should_escalate")
 
     def __init__(self, should_escalate: bool = False, reason: str = "", query: str = ""):
         self.should_escalate = should_escalate

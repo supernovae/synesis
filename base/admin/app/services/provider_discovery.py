@@ -26,6 +26,7 @@ _HTTP_TIMEOUT = 12
 # Shared types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredModel:
     id: str
@@ -44,6 +45,7 @@ class DiscoveredModel:
 @dataclass(slots=True)
 class ProviderDefaults:
     """Recommended LiteLLM parameters for a provider + model pair."""
+
     max_tokens: int = 8192
     temperature: float = 0.1
     supports_streaming: bool = True
@@ -95,10 +97,7 @@ async def _read_api_key(env_name: str) -> str | None:
         token_path = _SA_TOKEN_PATH
         with open(token_path) as f:
             token = f.read().strip()
-        url = (
-            f"https://{_K8S_HOST}:{_K8S_PORT}"
-            f"/api/v1/namespaces/{_SECRET_NAMESPACE}/secrets/{_SECRET_NAME}"
-        )
+        url = f"https://{_K8S_HOST}:{_K8S_PORT}/api/v1/namespaces/{_SECRET_NAMESPACE}/secrets/{_SECRET_NAME}"
         verify: str | bool = _SA_CA_PATH if os.path.exists(_SA_CA_PATH) else False
         async with httpx.AsyncClient(verify=verify) as client:
             resp = await client.get(
@@ -113,13 +112,14 @@ async def _read_api_key(env_name: str) -> str | None:
             if encoded:
                 return base64.b64decode(encoded).decode()
     except Exception:
-        logger.debug("k8s_secret_read_failed env=%s", env_name, exc_info=True)
+        logger.debug("k8s_api_env_lookup_failed env=%s", env_name, exc_info=True)
     return None
 
 
 # ---------------------------------------------------------------------------
 # Per-provider adapters
 # ---------------------------------------------------------------------------
+
 
 def _pick(obj: dict, *keys: str) -> Any:
     for k in keys:
@@ -146,12 +146,14 @@ async def _openai_compat_models(
         if not mid:
             continue
         ctx = _pick(m, "context_window", "context_length", "max_model_len")
-        models.append(DiscoveredModel(
-            id=mid,
-            name=m.get("name", mid),
-            context_window=int(ctx) if ctx else None,
-            supports_tools=bool(_pick(m, "supports_tool_calls", "tool_use")),
-        ))
+        models.append(
+            DiscoveredModel(
+                id=mid,
+                name=m.get("name", mid),
+                context_window=int(ctx) if ctx else None,
+                supports_tools=bool(_pick(m, "supports_tool_calls", "tool_use")),
+            )
+        )
     models.sort(key=lambda m: m.id)
     return models
 
@@ -171,14 +173,16 @@ async def _discover_openrouter() -> DiscoveryResult:
             pricing = m.get("pricing", {})
             inp = _safe_float(pricing.get("prompt"))
             out = _safe_float(pricing.get("completion"))
-            models.append(DiscoveredModel(
-                id=mid,
-                name=m.get("name", mid),
-                context_window=_safe_int(m.get("context_length")),
-                supports_tools=bool(m.get("supports_tool_calls")),
-                pricing_input_per_million=inp * 1_000_000 if inp is not None else None,
-                pricing_output_per_million=out * 1_000_000 if out is not None else None,
-            ))
+            models.append(
+                DiscoveredModel(
+                    id=mid,
+                    name=m.get("name", mid),
+                    context_window=_safe_int(m.get("context_length")),
+                    supports_tools=bool(m.get("supports_tool_calls")),
+                    pricing_input_per_million=inp * 1_000_000 if inp is not None else None,
+                    pricing_output_per_million=out * 1_000_000 if out is not None else None,
+                )
+            )
         models.sort(key=lambda m: m.id)
         return DiscoveryResult(provider="openrouter", models=models)
     except Exception as exc:
@@ -191,7 +195,9 @@ async def _discover_deepinfra() -> DiscoveryResult:
         return DiscoveryResult(provider="deepinfra", error="DEEPINFRA_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.deepinfra.com", key, provider_name="deepinfra",
+            "https://api.deepinfra.com",
+            key,
+            provider_name="deepinfra",
         )
         return DiscoveryResult(provider="deepinfra", models=models)
     except Exception as exc:
@@ -204,7 +210,9 @@ async def _discover_groq() -> DiscoveryResult:
         return DiscoveryResult(provider="groq", error="GROQ_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.groq.com/openai", key, provider_name="groq",
+            "https://api.groq.com/openai",
+            key,
+            provider_name="groq",
         )
         return DiscoveryResult(provider="groq", models=models)
     except Exception as exc:
@@ -217,7 +225,9 @@ async def _discover_together() -> DiscoveryResult:
         return DiscoveryResult(provider="together", error="TOGETHER_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.together.xyz", key, provider_name="together",
+            "https://api.together.xyz",
+            key,
+            provider_name="together",
         )
         return DiscoveryResult(provider="together", models=models)
     except Exception as exc:
@@ -230,7 +240,9 @@ async def _discover_fireworks() -> DiscoveryResult:
         return DiscoveryResult(provider="fireworks", error="FIREWORKS_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.fireworks.ai/inference", key, provider_name="fireworks",
+            "https://api.fireworks.ai/inference",
+            key,
+            provider_name="fireworks",
         )
         return DiscoveryResult(provider="fireworks", models=models)
     except Exception as exc:
@@ -243,7 +255,9 @@ async def _discover_openai() -> DiscoveryResult:
         return DiscoveryResult(provider="openai", error="OPENAI_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.openai.com", key, provider_name="openai",
+            "https://api.openai.com",
+            key,
+            provider_name="openai",
         )
         return DiscoveryResult(provider="openai", models=models)
     except Exception as exc:
@@ -256,7 +270,9 @@ async def _discover_xai() -> DiscoveryResult:
         return DiscoveryResult(provider="xai", error="XAI_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.x.ai", key, provider_name="xai",
+            "https://api.x.ai",
+            key,
+            provider_name="xai",
         )
         return DiscoveryResult(provider="xai", models=models)
     except Exception as exc:
@@ -269,7 +285,9 @@ async def _discover_mistral() -> DiscoveryResult:
         return DiscoveryResult(provider="mistral", error="MISTRAL_API_KEY not configured")
     try:
         models = await _openai_compat_models(
-            "https://api.mistral.ai", key, provider_name="mistral",
+            "https://api.mistral.ai",
+            key,
+            provider_name="mistral",
         )
         return DiscoveryResult(provider="mistral", models=models)
     except Exception as exc:
@@ -294,12 +312,14 @@ async def _discover_anthropic() -> DiscoveryResult:
             mid = m.get("id", "")
             if not mid:
                 continue
-            models.append(DiscoveredModel(
-                id=mid,
-                name=m.get("display_name", mid),
-                context_window=_safe_int(m.get("context_window")),
-                supports_tools=True,
-            ))
+            models.append(
+                DiscoveredModel(
+                    id=mid,
+                    name=m.get("display_name", mid),
+                    context_window=_safe_int(m.get("context_window")),
+                    supports_tools=True,
+                )
+            )
         models.sort(key=lambda m: m.id)
         return DiscoveryResult(provider="anthropic", models=models)
     except Exception as exc:
@@ -346,6 +366,7 @@ def _set_cached(provider: str, result: DiscoveryResult) -> None:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 async def discover_models(provider_key: str, *, bypass_cache: bool = False) -> DiscoveryResult:
     """Fetch the model list for a single provider."""
@@ -433,7 +454,7 @@ def validate_model_id(provider_key: str, model_id: str) -> dict:
         return {
             "valid": False,
             "reason": f"Do not include the LiteLLM prefix '{prefix}' — it is added automatically",
-            "suggestion": model_id[len(prefix):],
+            "suggestion": model_id[len(prefix) :],
         }
 
     return {"valid": True}
@@ -447,6 +468,7 @@ def supported_discovery_providers() -> list[str]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_int(v: Any) -> int | None:
     if v is None:

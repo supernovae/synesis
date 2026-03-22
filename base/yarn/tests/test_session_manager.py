@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
-from app.session.models import AuthUser, RateLimits, SessionState
 from app.session.manager import check_rate_limit
+from app.session.models import AuthUser, RateLimits, SessionState
 
 
 class TestSessionState:

@@ -162,7 +162,8 @@ Each chunk shows [R:authority] (heading_path | "document_name") metadata.
 """
 
 
-_PLANNER_SYSTEM_STATIC = """\
+_PLANNER_SYSTEM_STATIC = (
+    """\
 You are the Planner. Create a structured outline for the response. You do NOT write the response itself.
 
 Reply with JSON only:
@@ -202,7 +203,9 @@ in a plan step.
 ambiguous in the prompt — not technology choices you are inserting.
 - When a deliverable specifies a format (e.g. 'in JSON or YAML'), \
 that format requirement MUST appear in the plan step covering it.
-""" + _PLANNER_TRUST_POLICY
+"""
+    + _PLANNER_TRUST_POLICY
+)
 
 
 def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
@@ -220,15 +223,9 @@ def _build_knowledge_planner_prompt(difficulty: float = 0.5) -> str:
             "Sections that only name concepts without explaining them are insufficient."
         )
     elif difficulty >= 0.3:
-        depth_hint = (
-            "DEPTH TARGET: clear, structured response. "
-            "Each section should be clear and well-organized."
-        )
+        depth_hint = "DEPTH TARGET: clear, structured response. Each section should be clear and well-organized."
     else:
-        depth_hint = (
-            "DEPTH TARGET: concise, focused response. "
-            "Keep sections brief and to the point."
-        )
+        depth_hint = "DEPTH TARGET: concise, focused response. Keep sections brief and to the point."
     return _PLANNER_SYSTEM_STATIC + "\n" + depth_hint
 
 
@@ -483,11 +480,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # sees the original task + the answers to our follow-up questions.
         clarification_answer = (state.get("user_answer_to_clarification") or "").strip()
         if clarification_answer:
-            task_desc = (
-                f"{task_desc}\n\n"
-                f"[User clarification — answers to follow-up questions]\n"
-                f"{clarification_answer}"
-            )
+            task_desc = f"{task_desc}\n\n[User clarification — answers to follow-up questions]\n{clarification_answer}"
             logger.info(
                 "planner_clarification_merged",
                 extra={"answer_len": len(clarification_answer)},
@@ -582,7 +575,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             )
 
         if frame_requirements and frame_tasks:
-            deliverable_text = " ".join(t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks).lower()
+            deliverable_text = " ".join(
+                t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks
+            ).lower()
             capability_reqs = _filter_capability_requirements(frame_requirements, deliverable_text)
             if capability_reqs:
                 cap_list = "\n".join(f"  - {r}" for r in capability_reqs)
@@ -601,7 +596,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 "Do NOT create separate sections for constraints."
             )
         if frame_success_criteria:
-            task_context_parts.append("Success criteria (apply to ALL sections): " + "; ".join(frame_success_criteria[:6]))
+            task_context_parts.append(
+                "Success criteria (apply to ALL sections): " + "; ".join(frame_success_criteria[:6])
+            )
 
         oc_state = state.get("output_controls") or {}
         ut_oc = task_frame.get("output_controls") or {}
@@ -637,10 +634,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
 
         task_context_block = "\n\n".join(task_context_parts) if task_context_parts else ""
 
-        prompt = (
-            f"## Task\n{task_desc}\n"
-            f"{context_block}{domain_rules_block}\n\n"
-        )
+        prompt = f"## Task\n{task_desc}\n{context_block}{domain_rules_block}\n\n"
         if task_context_block:
             prompt += f"## Planning Context\n{task_context_block}\n\n"
         prompt += "Produce a structured outline of sections for the response."
@@ -684,8 +678,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 open_questions=[],
                 assumptions=list(plan.get("assumptions") or []),
                 reasoning=(
-                    "User waived answering clarification details; retained prior plan "
-                    "with open questions cleared."
+                    "User waived answering clarification details; retained prior plan with open questions cleared."
                 ),
                 confidence=0.78,
                 touched_files=[],
@@ -711,10 +704,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                     "gaps only if necessary.\n"
                     "Return the same JSON schema as usual (plan with steps, open_questions, assumptions).\n"
                 )
-                prompt += (
-                    "\n\n## Prior draft plan (revise — do not restart from scratch)\n"
-                    f"```json\n{draft}\n```\n"
-                )
+                prompt += f"\n\n## Prior draft plan (revise — do not restart from scratch)\n```json\n{draft}\n```\n"
                 logger.info(
                     "planner_clarification_resume_prompt",
                     extra={"prior_steps": len(prior_steps_resume), "draft_chars": len(draft)},
@@ -870,10 +860,23 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # Label-scoped retrieval: propagate language and artifact_kind hints
         # so the router's consolidated_retrieve path filters at the Milvus
         # level (pre-filter, not post-reject).
-        _CODE_DOMAINS = frozenset({
-            "python", "javascript", "typescript", "java", "golang", "rust",
-            "csharp", "cpp", "c", "php", "ruby", "web_frontend", "web_backend",
-        })
+        _CODE_DOMAINS = frozenset(
+            {
+                "python",
+                "javascript",
+                "typescript",
+                "java",
+                "golang",
+                "rust",
+                "csharp",
+                "cpp",
+                "c",
+                "php",
+                "ruby",
+                "web_frontend",
+                "web_backend",
+            }
+        )
         _language_hint = state.get("detected_language_hint", "")
         _domain_set = set(domain_tags)
         _has_code_domain = bool(_domain_set & _CODE_DOMAINS)
@@ -915,16 +918,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # narrow their focus before we retrieve blindly.
         # Ref: Snowden & Boone (2007) — in complexity, probe-sense-respond.
         _profile = task_frame.get("domain_profile") or {}
-        if (
-            _profile.get("frame_coherence") == "diffuse"
-            and difficulty >= 0.4
-            and not state.get("iteration_count", 0)
-        ):
-            _domain_names = [
-                d["domain"]
-                for d in (_profile.get("domains") or [])
-                if d.get("weight", 0) > 0.1
-            ]
+        if _profile.get("frame_coherence") == "diffuse" and difficulty >= 0.4 and not state.get("iteration_count", 0):
+            _domain_names = [d["domain"] for d in (_profile.get("domains") or []) if d.get("weight", 0) > 0.1]
             if _domain_names:
                 clarify_question = (
                     "Your request touches several areas but I want to make sure "
@@ -1061,7 +1056,9 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         # on planner alone.
         task_frame = state.get("task_frame") or {}
         frame_tasks = task_frame.get("tasks") or []
-        deliverables = [t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks]
+        deliverables = [
+            t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "") for t in frame_tasks
+        ]
         if planner_attempts >= 2 and deliverables:
             fallback_steps = [
                 {"id": i + 1, "action": f"Section: {d}", "dependencies": [], "deliverable_ids": [i]}

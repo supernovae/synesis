@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 import httpx
 
@@ -21,19 +22,25 @@ EMBEDDER_URL = os.getenv("SYNESIS_EMBEDDER_URL", "http://embedder.synesis-rag.sv
 LLM_URL = os.getenv("SYNESIS_LLM_URL", "")
 LLM_MODEL = os.getenv("SYNESIS_LLM_MODEL", "synesis-general")
 TAXONOMY_PATH = os.getenv("SYNESIS_TAXONOMY_PATH", "/app/taxonomy_prompt_config.yaml")
-AUDIT_OUTPUT = "/tmp/corpus_audit_report.json"
-CURATOR_OUTPUT = "/tmp/proposed_sources.yaml"
+_tmp = tempfile.gettempdir()
+AUDIT_OUTPUT = os.path.join(_tmp, "corpus_audit_report.json")
+CURATOR_OUTPUT = os.path.join(_tmp, "proposed_sources.yaml")
 RUN_CURATOR = os.getenv("SYNESIS_RUN_CURATOR", "false").lower() in ("1", "true", "yes")
 API_TOKEN = os.getenv("SYNESIS_API_TOKEN", "")
 
 
 def run_audit() -> bool:
     cmd = [
-        sys.executable, "benchmarks/corpus/audit_corpus.py",
-        "--milvus-uri", MILVUS_URI,
-        "--embedder-url", EMBEDDER_URL,
-        "--taxonomy", TAXONOMY_PATH,
-        "--output", AUDIT_OUTPUT,
+        sys.executable,
+        "benchmarks/corpus/audit_corpus.py",
+        "--milvus-uri",
+        MILVUS_URI,
+        "--embedder-url",
+        EMBEDDER_URL,
+        "--taxonomy",
+        TAXONOMY_PATH,
+        "--output",
+        AUDIT_OUTPUT,
     ]
     if LLM_URL:
         cmd += ["--llm-url", LLM_URL, "--model", LLM_MODEL]
@@ -51,10 +58,14 @@ def run_curator() -> bool:
         print("[quality-runner] No audit report; skipping curator.")
         return False
     cmd = [
-        sys.executable, "tools/curator/curator_agent.py",
-        "--audit-report", AUDIT_OUTPUT,
-        "--taxonomy", TAXONOMY_PATH,
-        "--output", CURATOR_OUTPUT,
+        sys.executable,
+        "tools/curator/curator_agent.py",
+        "--audit-report",
+        AUDIT_OUTPUT,
+        "--taxonomy",
+        TAXONOMY_PATH,
+        "--output",
+        CURATOR_OUTPUT,
     ]
     if LLM_URL:
         cmd += ["--llm-url", LLM_URL, "--model", LLM_MODEL]

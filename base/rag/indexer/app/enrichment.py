@@ -209,11 +209,7 @@ def _generate_chunk_semantics(
     heading_path: str,
     llm_url: str,
 ) -> dict[str, Any] | None:
-    prompt = (
-        f"Document: {document_name}\n"
-        f"Section path: {heading_path}\n\n"
-        f"Chunk:\n{text[:2200]}"
-    )
+    prompt = f"Document: {document_name}\nSection path: {heading_path}\n\nChunk:\n{text[:2200]}"
     obj = _llm_complete_json(
         prompt,
         llm_url,

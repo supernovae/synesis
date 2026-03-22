@@ -3,7 +3,7 @@ import { useUsageSummary, useUsageSeries, useYarnUserUsage } from "../../api/hoo
 import type { UsageRollupEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
-import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles, ArrowUpRight } from "lucide-react";
+import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 

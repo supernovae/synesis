@@ -276,9 +276,7 @@ def index_parsed_chunk_pairs(
         return 0, fetch_meta
 
     chunk_texts_for_signals = [c.text for _, c, _ in new_chunks]
-    simhash_list = (
-        simhash_batch(chunk_texts_for_signals) if preprocess_base_url() else [""] * len(new_chunks)
-    )
+    simhash_list = simhash_batch(chunk_texts_for_signals) if preprocess_base_url() else [""] * len(new_chunks)
     spam_list = spam_batch(chunk_texts_for_signals) if spam_base_url() else [-1.0] * len(new_chunks)
 
     logger.info(
@@ -516,11 +514,6 @@ def index_source(
     name = source_config.get("name", "unknown")
     handler_type = source_config.get("handler", "")
     authority = source_config.get("authority", "community")
-    origin_type = source_config.get("origin_type", "external")
-    source_type_override = source_config.get("source_type", "")
-    domain = source_config.get("domain", "generalist")
-    tags_list = source_config.get("config", {}).get("tags", [])
-    tags_str = ",".join(str(t) for t in tags_list)
 
     if not handler_type:
         logger.error("indexer_source_missing_handler", extra={"source": name})
@@ -533,8 +526,6 @@ def index_source(
         logger.error("indexer_handler_lookup_failed", extra={"source": name, "error": str(e)})
         progress.log_error(name, str(e))
         return 0, {}
-
-    source_type = source_type_override or handler.source_type
 
     # 1. Fetch
     logger.info(
@@ -557,11 +548,7 @@ def index_source(
     fetch_meta = _indexer_stats_from_fetch(handler_type, source_config, documents)
 
     # Optional: jusText main-text extraction for HTML before chunking (html_document only)
-    if (
-        handler_type == "html_document"
-        and preprocess_clean_html_enabled()
-        and preprocess_base_url()
-    ):
+    if handler_type == "html_document" and preprocess_clean_html_enabled() and preprocess_base_url():
         for doc in documents:
             raw = doc.content if isinstance(doc.content, str) else doc.content.decode("utf-8", errors="replace")
             if "<" not in raw[:1200]:

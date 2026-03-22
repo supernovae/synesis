@@ -70,6 +70,7 @@ def effective_role(user: UserInfo) -> Role:
 
 # ── FastAPI dependency helpers ───────────────────────────────────────────────
 
+
 def _require(minimum: Role):
     """Factory that returns a FastAPI dependency enforcing *minimum* role."""
 
@@ -91,6 +92,7 @@ require_readonly = _require(Role.readonly)
 
 
 # ── Data-scoping helpers ─────────────────────────────────────────────────────
+
 
 def can_access_trace(user: UserInfo, trace: dict[str, Any]) -> bool:
     """Return True when *user* is allowed to view *trace*."""

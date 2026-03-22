@@ -71,10 +71,12 @@ class SessionDiagnostics:
     def record_tool(self, tool_name: str, success: bool) -> None:
         if len(self.tool_events) >= settings.diagnostics_max_tool_events:
             return
-        self.tool_events.append({
-            "name": tool_name,
-            "status": "success" if success else "error",
-        })
+        self.tool_events.append(
+            {
+                "name": tool_name,
+                "status": "success" if success else "error",
+            }
+        )
 
     async def finalize(
         self,
@@ -97,9 +99,7 @@ class SessionDiagnostics:
             self.reasons.add("error")
 
         should_capture = (
-            self.sampled
-            or bool(self.reasons)
-            or (settings.diagnostics_on_failure and status in {"error", "escalated"})
+            self.sampled or bool(self.reasons) or (settings.diagnostics_on_failure and status in {"error", "escalated"})
         )
         if not should_capture:
             return

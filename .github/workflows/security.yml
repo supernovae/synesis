@@ -78,14 +78,16 @@ jobs:
 
       - name: Run Bandit (report)
         run: |
-          uvx "bandit[toml]" -r base/ \
+          uvx "bandit[toml]" -c pyproject.toml -r base/ \
+            -x "**/.test-venv/**,**/.venv/**" \
             --severity-level medium \
             --confidence-level medium \
             -f json -o bandit-report.json || true
 
       - name: Run Bandit (gate)
         run: |
-          uvx "bandit[toml]" -r base/ \
+          uvx "bandit[toml]" -c pyproject.toml -r base/ \
+            -x "**/.test-venv/**,**/.venv/**" \
             --severity-level medium \
             --confidence-level medium
 

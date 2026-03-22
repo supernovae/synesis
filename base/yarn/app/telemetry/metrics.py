@@ -85,19 +85,18 @@ def record_request(status: str, provider: str, latency_s: float) -> None:
 
 
 def record_tokens(
-    tokens_in: int, tokens_out: int, tokens_cached: int, provider: str,
+    tokens_in: int,
+    tokens_out: int,
+    tokens_cached: int,
+    provider: str,
 ) -> None:
     ensure_metrics()
     if token_counter:
         token_counter.labels(direction="in", cache_status="uncached", provider=provider).inc(
             max(0, tokens_in - tokens_cached)
         )
-        token_counter.labels(direction="in", cache_status="cached", provider=provider).inc(
-            tokens_cached
-        )
-        token_counter.labels(direction="out", cache_status="n/a", provider=provider).inc(
-            tokens_out
-        )
+        token_counter.labels(direction="in", cache_status="cached", provider=provider).inc(tokens_cached)
+        token_counter.labels(direction="out", cache_status="n/a", provider=provider).inc(tokens_out)
 
 
 def record_escalation(reason: str) -> None:
@@ -109,6 +108,4 @@ def record_escalation(reason: str) -> None:
 def record_tool_call(tool_name: str, success: bool) -> None:
     ensure_metrics()
     if tool_call_counter:
-        tool_call_counter.labels(
-            tool_name=tool_name, status="success" if success else "error"
-        ).inc()
+        tool_call_counter.labels(tool_name=tool_name, status="success" if success else "error").inc()

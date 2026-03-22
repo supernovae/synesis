@@ -26,6 +26,7 @@ router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
 
 # ── Request / response models ────────────────────────────────────────────────
 
+
 class TokenCreate(BaseModel):
     name: str
     expires_in_days: int | None = None
@@ -53,6 +54,7 @@ class TokenInfo(BaseModel):
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
+
 @router.post("", response_model=TokenCreated, status_code=201)
 async def create_token(
     body: TokenCreate,
@@ -64,11 +66,7 @@ async def create_token(
     The plaintext token is returned in the response and is never stored.
     """
     plaintext, token_hash, display_prefix = _generate_token()
-    expires_at = (
-        datetime.now(UTC) + timedelta(days=body.expires_in_days)
-        if body.expires_in_days
-        else None
-    )
+    expires_at = datetime.now(UTC) + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     pat_id = str(uuid.uuid4())
     pat = PersonalAccessToken(
         id=pat_id,
@@ -142,15 +140,12 @@ async def revoke_token(
     if pat.user_id != owner_id and resolve_role(user) < Role.platform_admin:
         raise HTTPException(status_code=403, detail="Not authorized to revoke this token")
 
-    await session.execute(
-        update(PersonalAccessToken)
-        .where(PersonalAccessToken.id == token_id)
-        .values(revoked=True)
-    )
+    await session.execute(update(PersonalAccessToken).where(PersonalAccessToken.id == token_id).values(revoked=True))
     await session.commit()
 
 
 # ── Admin-only endpoints ─────────────────────────────────────────────────────
+
 
 @router.get("/admin/all", response_model=list[TokenInfo])
 async def list_all_tokens(
@@ -181,7 +176,5 @@ async def purge_revoked(
     session: AsyncSession = Depends(get_session),
 ):
     """Hard-delete all revoked tokens (admin only)."""
-    await session.execute(
-        delete(PersonalAccessToken).where(PersonalAccessToken.revoked.is_(True))
-    )
+    await session.execute(delete(PersonalAccessToken).where(PersonalAccessToken.revoked.is_(True)))
     await session.commit()

@@ -107,7 +107,11 @@ class TestSectionRagQuery:
     """Verify per-section RAG query formulation (evidence_gatherer uses query_distiller)."""
 
     def test_extracts_topic_from_action_with_frame(self):
-        frame = {"main_question": "Design an AI assistant", "tasks": [{"description": "architecture diagram", "constraints": []}], "domain_tags": ["software"]}
+        frame = {
+            "main_question": "Design an AI assistant",
+            "tasks": [{"description": "architecture diagram", "constraints": []}],
+            "domain_tags": ["software"],
+        }
         rag_q, web_q = _build_section_queries(
             "Section: Architecture — Propose a concrete architecture with component diagram",
             "Design an AI assistant",
@@ -140,7 +144,11 @@ class TestSectionRagQuery:
                 {"description": "Explanation of retrieval mechanism", "constraints": []},
                 {"description": "Description of failure modes and mitigations", "constraints": []},
             ],
-            "global_constraints": ["Team size: 80 engineers", "Budget is limited", "Must support Kubernetes and Python"],
+            "global_constraints": [
+                "Team size: 80 engineers",
+                "Budget is limited",
+                "Must support Kubernetes and Python",
+            ],
             "domain_tags": ["software_architecture"],
         }
         _rag_q, web_q = _build_section_queries(

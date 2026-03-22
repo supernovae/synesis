@@ -107,7 +107,9 @@ def _check_deliverable_coverage(
         for i, dd in enumerate(deliverable_details):
             if i not in step_actions_by_deliverable:
                 continue
-            sub_reqs = (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
+            sub_reqs = (
+                (dd.get("sub_requirements") or []) if isinstance(dd, dict) else getattr(dd, "sub_requirements", [])
+            )
             if len(sub_reqs) < 2:
                 continue
             action_text = step_actions_by_deliverable[i]
@@ -119,7 +121,9 @@ def _check_deliverable_coverage(
                 hits = sum(1 for w in words if w in action_text)
                 if hits / len(words) < 0.3:
                     missed_reqs.append(sr)
-            title = (dd.get("title") or deliverables[i]) if isinstance(dd, dict) else getattr(dd, "title", deliverables[i])
+            title = (
+                (dd.get("title") or deliverables[i]) if isinstance(dd, dict) else getattr(dd, "title", deliverables[i])
+            )
             if len(missed_reqs) > len(sub_reqs) * 0.5:
                 errors.append(
                     f"subreq_gap: deliverable '{title}' has {len(missed_reqs)}/{len(sub_reqs)} "
@@ -322,7 +326,11 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     deliverable_details = [
-        {"title": t.get("description", ""), "sub_requirements": t.get("sub_requirements", []), "format_hint": t.get("format_hint", "")}
+        {
+            "title": t.get("description", ""),
+            "sub_requirements": t.get("sub_requirements", []),
+            "format_hint": t.get("format_hint", ""),
+        }
         for t in (task_frame.get("tasks") or [])
     ]
 

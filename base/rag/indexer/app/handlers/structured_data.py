@@ -344,7 +344,7 @@ def _chunk_xml(content: str, file_path: str, document_name: str) -> list[Chunk]:
     try:
         import xml.etree.ElementTree as ET
 
-        root = ET.fromstring(content)  # noqa: S314  # nosec B314
+        root = ET.fromstring(content)  # nosec B314
     except Exception:
         return _chunk_generic(content, file_path, document_name, "xml")
 

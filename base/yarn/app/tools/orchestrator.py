@@ -19,7 +19,7 @@ logger = logging.getLogger("yarn.tools.orchestrator")
 
 
 class ToolResult:
-    __slots__ = ("tool_call_id", "name", "content", "is_error", "escalate", "escalate_query")
+    __slots__ = ("content", "escalate", "escalate_query", "is_error", "name", "tool_call_id")
 
     def __init__(
         self,
@@ -62,14 +62,16 @@ class ToolOrchestrator:
         tools: list[dict[str, Any]] = []
 
         for tool in mcp_tools.values():
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                    "parameters": tool.get("inputSchema", {}),
-                },
-            })
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool.get("description", ""),
+                        "parameters": tool.get("inputSchema", {}),
+                    },
+                }
+            )
 
         tools.extend(LOCAL_TOOL_DEFINITIONS)
         return tools
@@ -151,14 +153,14 @@ class ToolOrchestrator:
 
         return ToolResult(call_id, name, f"Unknown tool: {name}", is_error=True)
 
-    async def _execute_local(
-        self, call_id: str, name: str, args: dict[str, Any]
-    ) -> ToolResult:
+    async def _execute_local(self, call_id: str, name: str, args: dict[str, Any]) -> ToolResult:
         try:
             result = await handle_local_tool(name, args)
             if result.get("_escalate"):
                 return ToolResult(
-                    call_id, name, "Escalation requested",
+                    call_id,
+                    name,
+                    "Escalation requested",
                     escalate=True,
                     escalate_query=result.get("query", ""),
                 )
@@ -167,9 +169,7 @@ class ToolOrchestrator:
             logger.exception("Local tool %s failed", name)
             return ToolResult(call_id, name, f"Error: {e}", is_error=True)
 
-    async def _execute_mcp(
-        self, call_id: str, name: str, args: dict[str, Any], *, auth_token: str = ""
-    ) -> ToolResult:
+    async def _execute_mcp(self, call_id: str, name: str, args: dict[str, Any], *, auth_token: str = "") -> ToolResult:
         last_error = ""
         for attempt in range(self._max_retries + 1):
             try:
@@ -178,16 +178,16 @@ class ToolOrchestrator:
                 else:
                     result = await mcp_client.call_tool(name, args)
                 content_parts = result.get("content", [])
-                text = "\n".join(
-                    p.get("text", str(p)) for p in content_parts
-                ) if isinstance(content_parts, list) else str(content_parts)
+                text = (
+                    "\n".join(p.get("text", str(p)) for p in content_parts)
+                    if isinstance(content_parts, list)
+                    else str(content_parts)
+                )
                 return ToolResult(call_id, name, text)
             except Exception as e:
                 last_error = str(e)
                 if attempt < self._max_retries:
-                    logger.warning(
-                        "MCP tool %s attempt %d failed: %s", name, attempt + 1, e
-                    )
+                    logger.warning("MCP tool %s attempt %d failed: %s", name, attempt + 1, e)
                     continue
                 break
 

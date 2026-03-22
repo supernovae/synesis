@@ -128,10 +128,12 @@ async def _llm_segment(raw_text: str) -> list[FrameUnit]:
         http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
     )
 
-    result = await llm.ainvoke([
-        SystemMessage(content=_SEGMENT_SYSTEM),
-        HumanMessage(content=raw_text),
-    ])
+    result = await llm.ainvoke(
+        [
+            SystemMessage(content=_SEGMENT_SYSTEM),
+            HumanMessage(content=raw_text),
+        ]
+    )
 
     try:
         raw = safe_parse_json(result.content or "")
@@ -248,11 +250,36 @@ _PERSONA_PATTERNS: list[tuple[re.Pattern[str], str, bool]] = [
     ),
 ]
 
-_PERSONA_STOPWORDS = frozenset({
-    "the", "a", "an", "it", "this", "that", "my", "your", "me", "way",
-    "much", "more", "well", "also", "very", "how", "what", "why", "can",
-    "do", "should", "would", "could", "will", "following", "possible",
-})
+_PERSONA_STOPWORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "it",
+        "this",
+        "that",
+        "my",
+        "your",
+        "me",
+        "way",
+        "much",
+        "more",
+        "well",
+        "also",
+        "very",
+        "how",
+        "what",
+        "why",
+        "can",
+        "do",
+        "should",
+        "would",
+        "could",
+        "will",
+        "following",
+        "possible",
+    }
+)
 
 
 def _detect_persona(raw_text: str) -> str:
@@ -401,7 +428,7 @@ def link_units_to_frame(
 
     domain_tags = list(dict.fromkeys(gliner_domain_tags))
     if not domain_tags and (domain_ref_counts or active_domain_refs):
-        for tag in (active_domain_refs or []):
+        for tag in active_domain_refs or []:
             if tag and tag not in ("generic", "general"):
                 domain_tags.append(tag)
 
@@ -772,10 +799,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
 
         _tracer = get_synesis_tracer()
         if _tracer:
-            _units_snapshot = [
-                {"text": u.text[:100], "type": u.unit_type}
-                for u in units[:30]
-            ]
+            _units_snapshot = [{"text": u.text[:100], "type": u.unit_type} for u in units[:30]]
             _tasks_snapshot = [
                 {
                     "id": t.id,

@@ -51,9 +51,7 @@ async def add_model(
         payload["model_info"] = model_info
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{_base()}/model/new", json=payload, headers=_headers(), timeout=timeout
-            )
+            resp = await client.post(f"{_base()}/model/new", json=payload, headers=_headers(), timeout=timeout)
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPStatusError as e:

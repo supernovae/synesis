@@ -110,9 +110,9 @@ class WebPageHandler:
 
 
 async def _crawl_pages(seed_url: str, config: dict[str, Any], policy: GatePolicy) -> list[dict[str, str]]:
-    try:
-        from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
-    except ImportError:
+    import importlib.util
+
+    if importlib.util.find_spec("crawl4ai") is None:
         logger.error("crawl4ai not installed. Run: pip install crawl4ai")
         return []
 
@@ -223,6 +223,7 @@ async def _fetch_url_list(
     max_pages: int,
 ) -> list[dict[str, str]]:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+
     from ..extract import html_to_markdown, normalize_doc_markdown
 
     seed_host = urlparse(seed_url).hostname or ""
@@ -292,6 +293,7 @@ async def _crawl_bfs(
     max_pages: int,
 ) -> list[dict[str, str]]:
     from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+
     from ..extract import html_to_markdown, normalize_doc_markdown
 
     pages: list[dict[str, str]] = []

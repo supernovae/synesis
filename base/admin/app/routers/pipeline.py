@@ -240,7 +240,12 @@ async def run_critic_on_trace(
 
     if isinstance(full_record, dict):
         task_frame = full_record.get("task_frame") or full_record.get("user_task") or {}
-        user_query = task_frame.get("main_question") or task_frame.get("raw_prompt") or task_frame.get("task_description") or query_snippet
+        user_query = (
+            task_frame.get("main_question")
+            or task_frame.get("raw_prompt")
+            or task_frame.get("task_description")
+            or query_snippet
+        )
 
         for span in reversed(full_record.get("spans") or []):
             if span.get("node_name") in ("writer", "final_scrubber"):

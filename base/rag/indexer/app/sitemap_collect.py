@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import gzip
 import logging
-import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+import defusedxml.ElementTree as ET
 import httpx
 
 from .content_gate import GatePolicy, normalize_url, url_passes_filter

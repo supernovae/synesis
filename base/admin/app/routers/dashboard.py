@@ -112,18 +112,14 @@ async def _db_counts() -> dict:
         async with async_session() as session:
             trace_total = (await session.execute(select(func.count()).select_from(Trace))).scalar() or 0
             trace_recent = (
-                await session.execute(
-                    select(func.count()).select_from(Trace).where(Trace.timestamp >= cutoff_24h)
-                )
+                await session.execute(select(func.count()).select_from(Trace).where(Trace.timestamp >= cutoff_24h))
             ).scalar() or 0
             last_trace_ts = (await session.execute(select(func.max(Trace.timestamp)))).scalar()
 
             gap_total = (await session.execute(select(func.count()).select_from(KnowledgeGap))).scalar() or 0
             gap_open = (
                 await session.execute(
-                    select(func.count())
-                    .select_from(KnowledgeGap)
-                    .where(KnowledgeGap.status.in_(["open", "reopened"]))
+                    select(func.count()).select_from(KnowledgeGap).where(KnowledgeGap.status.in_(["open", "reopened"]))
                 )
             ).scalar() or 0
 

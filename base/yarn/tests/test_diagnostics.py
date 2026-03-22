@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.telemetry.diagnostics import _deterministic_sample, _hash_id, SessionDiagnostics
+from app.telemetry.diagnostics import SessionDiagnostics, _deterministic_sample, _hash_id
 
 
 def test_hash_id_is_stable_and_truncated():

@@ -220,8 +220,7 @@ def curate_evidence_for_writer(
                 _excluded_counter.labels(reason="budget_exceeded").inc()
             if c.score >= thr:
                 budget_alert = (
-                    f"High-score evidence (confidence={c.score:.2f}) could not fit "
-                    f"({c.doc_hint or 'unknown doc'})"
+                    f"High-score evidence (confidence={c.score:.2f}) could not fit ({c.doc_hint or 'unknown doc'})"
                 )
                 if _budget_alert_counter:
                     _budget_alert_counter.inc()
@@ -274,8 +273,7 @@ def curate_evidence_for_writer(
             _excluded_counter.labels(reason="truncated").inc()
         if c.score >= thr:
             budget_alert = (
-                f"High-score evidence (confidence={c.score:.2f}) was truncated "
-                f"({c.doc_hint or 'unknown doc'})"
+                f"High-score evidence (confidence={c.score:.2f}) was truncated ({c.doc_hint or 'unknown doc'})"
             )
             if _budget_alert_counter:
                 _budget_alert_counter.inc()

@@ -7,7 +7,6 @@ serialization, and pending drift for multiple-choice and short answers.
 from __future__ import annotations
 
 import pytest
-
 from app.pending_drift import pending_reply_diverges
 from app.short_followup_context import (
     TRIVIAL_WRITER_SYSTEM_BASE,
@@ -104,9 +103,7 @@ def test_merge_vocab_style_matches_user_scenario():
 
 def test_effective_user_query_prefers_merged_task_description():
     lu = "B"
-    td = (
-        "Help me study vocabulary: fill in the blank.\n\n(User follow-up: B)"
-    )
+    td = "Help me study vocabulary: fill in the blank.\n\n(User follow-up: B)"
     assert effective_user_query(lu, td) == td
 
 

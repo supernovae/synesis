@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from app.auth import UserInfo
 from app.rbac import Role
 from app.routers.admin_mcp import invoke_mcp_tool_for_chat, openai_function_tools_for_role

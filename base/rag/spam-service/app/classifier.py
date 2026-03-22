@@ -31,18 +31,18 @@ def load_model() -> None:
         return
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
-    model_id = (
-        os.getenv("SPAM_MODEL") or "mariagrandury/distilbert-base-uncased-finetuned-sms-spam-detection"
-    ).strip()
+    model_id = (os.getenv("SPAM_MODEL") or "mariagrandury/distilbert-base-uncased-finetuned-sms-spam-detection").strip()
+    revision = (os.getenv("SPAM_MODEL_REVISION") or "main").strip()
     token = (os.getenv("HF_TOKEN") or "").strip() or None
-    logger.info("loading spam model %s", model_id)
+    logger.info("loading spam model %s@%s", model_id, revision)
     tok_kw: dict[str, Any] = {}
     model_kw: dict[str, Any] = {}
     if token:
         tok_kw["token"] = token
         model_kw["token"] = token
-    tokenizer = AutoTokenizer.from_pretrained(model_id, **tok_kw)
-    model = AutoModelForSequenceClassification.from_pretrained(model_id, **model_kw)
+    # revision= must be explicit for supply-chain pinning (Bandit B615).
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision, **tok_kw)
+    model = AutoModelForSequenceClassification.from_pretrained(model_id, revision=revision, **model_kw)
     _spam_label_upper = _resolve_spam_label(model.config.id2label)
     logger.info("using spam label %s (id2label=%s)", _spam_label_upper, model.config.id2label)
     _pipe = pipeline(

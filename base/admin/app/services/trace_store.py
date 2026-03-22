@@ -127,7 +127,7 @@ async def get_trace_stats(
         try:
             q = select(
                 func.count().label("total"),
-                func.sum(case((Trace.has_error == True, 1), else_=0)).label("errors"),  # noqa: E712
+                func.sum(case((Trace.has_error == True, 1), else_=0)).label("errors"),
                 func.avg(Trace.total_duration_ms).label("avg_duration"),
                 func.avg(Trace.total_tokens).label("avg_tokens"),
                 func.avg(Trace.estimated_cost_usd).label("avg_cost"),
@@ -173,17 +173,12 @@ async def aggregate_traces_period(
     cutoff = time.time() - since_hours * 3600
     async with async_session() as session:
         try:
-            q = (
-                select(
-                    func.count().label("n"),
-                    func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
-                    func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label(
-                        "estimated_cost_usd"
-                    ),
-                    func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
-                )
-                .where(Trace.timestamp >= cutoff)
-            )
+            q = select(
+                func.count().label("n"),
+                func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label("estimated_cost_usd"),
+                func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
+            ).where(Trace.timestamp >= cutoff)
             if scope_user_id:
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:

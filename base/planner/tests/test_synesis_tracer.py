@@ -280,10 +280,13 @@ class TestCostComputation:
             ),
         ]
         record.spans = [span]
-        with patch(
-            "app.synesis_tracer._load_pricing",
-            return_value={"synesis-router": (1.0, None, 0.0)},
-        ), patch.dict("os.environ", {"SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER": "0.1"}):
+        with (
+            patch(
+                "app.synesis_tracer._load_pricing",
+                return_value={"synesis-router": (1.0, None, 0.0)},
+            ),
+            patch.dict("os.environ", {"SYNESIS_CACHED_INPUT_PRICE_MULTIPLIER": "0.1"}),
+        ):
             cost = _compute_cost(record)
         assert cost == round(0.1, 8)
 

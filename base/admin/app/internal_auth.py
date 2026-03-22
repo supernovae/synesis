@@ -73,4 +73,3 @@ async def require_service_or_platform_admin(
         raise HTTPException(status_code=403, detail="Requires platform_admin or internal service token")
 
     raise HTTPException(status_code=401, detail="Missing internal service token")
-

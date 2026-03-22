@@ -29,12 +29,12 @@ from ..prompt_spine import (
     REGULATED_FLOOR_UNIVERSAL,
     TRUST_UNTRUSTED_CONTEXT,
 )
-from ..state import NodeOutcome, NodeTrace
 from ..short_followup_context import (
     build_trivial_writer_system_prompt,
     conversation_history_to_openai_messages,
     effective_user_query,
 )
+from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.writer")
@@ -549,7 +549,9 @@ def _build_task_block(state: dict[str, Any]) -> str:
                 detail_lines.append(f"      Constraint: {tc}")
             for sr in sub_reqs:
                 detail_lines.append(f"      - {sr}")
-        parts.append("DELIVERABLES (with constraints and sub-requirements):\n" + "\n".join(f"    {l}" for l in detail_lines))
+        parts.append(
+            "DELIVERABLES (with constraints and sub-requirements):\n" + "\n".join(f"    {l}" for l in detail_lines)
+        )
 
     success = frame.get("evaluation") or []
     if success:
@@ -566,9 +568,7 @@ def _build_task_block(state: dict[str, Any]) -> str:
     profile_domains = profile.get("domains") or []
     if profile_domains:
         domain_summary = ", ".join(
-            f"{d['domain']}({d.get('role', 'context')})"
-            for d in profile_domains
-            if d.get("weight", 0) > 0.15
+            f"{d['domain']}({d.get('role', 'context')})" for d in profile_domains if d.get("weight", 0) > 0.15
         )
         if domain_summary:
             parts.append(f"Active domains: {domain_summary}")

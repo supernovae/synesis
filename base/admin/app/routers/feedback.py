@@ -62,12 +62,7 @@ def _extract_run_id(obj: Any) -> str | None:
 def _owui_snippets(meta: dict[str, Any], snapshot: dict[str, Any]) -> tuple[str, str]:
     """Best-effort prompt/response text from Open WebUI snapshot (see FeedbackModal.svelte)."""
     try:
-        messages = (
-            snapshot.get("chat", {})
-            .get("chat", {})
-            .get("history", {})
-            .get("messages", {})
-        )
+        messages = snapshot.get("chat", {}).get("chat", {}).get("history", {}).get("messages", {})
         mid = meta.get("message_id")
         if not isinstance(messages, dict) or not mid:
             return "", ""
@@ -129,9 +124,7 @@ async def _fetch_planner_feedback(vote: str, limit: int) -> list[dict[str, Any]]
 
 async def _load_openwebui_rows(limit: int) -> list[OpenWebUIFeedback]:
     async with async_session() as session:
-        stmt = (
-            select(OpenWebUIFeedback).order_by(OpenWebUIFeedback.created_at_epoch.desc()).limit(limit)
-        )
+        stmt = select(OpenWebUIFeedback).order_by(OpenWebUIFeedback.created_at_epoch.desc()).limit(limit)
         result = await session.execute(stmt)
         return list(result.scalars().all())
 
@@ -279,9 +272,7 @@ async def list_feedback(
 
 @router.get("/stats")
 async def feedback_stats(_user: UserInfo = Depends(get_current_user)):
-    result = await list_feedback(
-        _user=_user, vote="", source="all", review_status="", limit=500, offset=0
-    )
+    result = await list_feedback(_user=_user, vote="", source="all", review_status="", limit=500, offset=0)
     entries = result["entries"]
     up = sum(1 for e in entries if e.get("vote") == "up")
     down = sum(1 for e in entries if e.get("vote") == "down")

@@ -57,19 +57,23 @@ async def _resolve_pat(token: str) -> AuthUser:
     now = datetime.now(UTC)
     async with session_factory() as session:
         row = (
-            await session.execute(
-                text(
-                    """
+            (
+                await session.execute(
+                    text(
+                        """
                     SELECT id, user_id, username, role, expires_at
                     FROM personal_access_tokens
                     WHERE token_hash = :token_hash
                       AND revoked = false
                     LIMIT 1
                     """
-                ),
-                {"token_hash": token_hash},
+                    ),
+                    {"token_hash": token_hash},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if row is None:
             raise HTTPException(status_code=401, detail="Invalid token")
 

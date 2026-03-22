@@ -10,26 +10,24 @@ down_revision = "015_traces_session"
 branch_labels = None
 depends_on = None
 
-_CANONICAL = ("router", "general", "critic", "coder", "summarizer")
-
 
 def upgrade() -> None:
-    roles = ", ".join(f"'{r}'" for r in _CANONICAL)
+    # Literal SQL (fixed role list) — avoids string-interpolation SQL lint (B608/S608).
     op.execute(
-        f"""
+        """
         UPDATE model_costs SET profile = ''
-        WHERE role IN ({roles})
+        WHERE role IN ('router', 'general', 'critic', 'coder', 'summarizer')
         """
     )
     op.execute(
-        f"""
+        """
         DELETE FROM model_costs a
         USING (
             SELECT id FROM (
                 SELECT id,
                        ROW_NUMBER() OVER (PARTITION BY role ORDER BY id) AS rn
                 FROM model_costs
-                WHERE role IN ({roles})
+                WHERE role IN ('router', 'general', 'critic', 'coder', 'summarizer')
             ) t WHERE rn > 1
         ) d
         WHERE a.id = d.id

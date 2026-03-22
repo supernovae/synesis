@@ -36,11 +36,7 @@ _K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
 _K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
 _HTTP_TIMEOUT_SECONDS = 10
 
-KNOWN_PROVIDERS = {
-    p.api_key_env: p.label
-    for p in PROVIDER_CATALOG.values()
-    if p.api_key_env
-}
+KNOWN_PROVIDERS = {p.api_key_env: p.label for p in PROVIDER_CATALOG.values() if p.api_key_env}
 
 # Only catalog env var names may be set via PUT /keys/{name} (same list as Model Registry provider picklist).
 _ALLOWED_KEY_ENV_NAMES = frozenset(KNOWN_PROVIDERS.keys())
@@ -179,21 +175,8 @@ async def _remove_key_from_secret(key: str) -> None:
 
 async def _restart_litellm() -> None:
     """Trigger a rollout restart by patching a pod template annotation."""
-    url = (
-        f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}"
-        f"/deployments/{_LITELLM_DEPLOYMENT}"
-    )
-    body = {
-        "spec": {
-            "template": {
-                "metadata": {
-                    "annotations": {
-                        "synesis.io/restart-trigger": str(int(time.time()))
-                    }
-                }
-            }
-        }
-    }
+    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}/deployments/{_LITELLM_DEPLOYMENT}"
+    body = {"spec": {"template": {"metadata": {"annotations": {"synesis.io/restart-trigger": str(int(time.time()))}}}}}
     headers = {**_k8s_headers(), "Content-Type": "application/strategic-merge-patch+json"}
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
@@ -229,10 +212,7 @@ async def _assert_key_state(name: str, *, should_exist: bool) -> None:
 
 
 async def _get_litellm_deployment() -> dict:
-    url = (
-        f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}"
-        f"/deployments/{_LITELLM_DEPLOYMENT}"
-    )
+    url = f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}/deployments/{_LITELLM_DEPLOYMENT}"
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
             resp = await client.get(url, headers=_k8s_headers(), timeout=_HTTP_TIMEOUT_SECONDS)
@@ -315,11 +295,13 @@ async def list_keys(_user=Depends(get_current_user)):
     keys = []
     all_names = set(KNOWN_PROVIDERS.keys()) | configured_keys
     for name in sorted(all_names):
-        keys.append({
-            "name": name,
-            "provider": KNOWN_PROVIDERS.get(name, "Custom"),
-            "configured": name in configured_keys,
-        })
+        keys.append(
+            {
+                "name": name,
+                "provider": KNOWN_PROVIDERS.get(name, "Custom"),
+                "configured": name in configured_keys,
+            }
+        )
     return {"keys": keys}
 
 
@@ -329,15 +311,11 @@ async def litellm_restart_status(_user=Depends(get_current_user)):
     md = dep.get("metadata", {})
     spec = dep.get("spec", {})
     status = dep.get("status", {})
-    tmpl_md = ((spec.get("template") or {}).get("metadata") or {})
+    tmpl_md = (spec.get("template") or {}).get("metadata") or {}
     anns = tmpl_md.get("annotations") or {}
 
     restart_epoch = _coerce_int(anns.get("synesis.io/restart-trigger"))
-    restart_at = (
-        datetime.fromtimestamp(restart_epoch, tz=UTC).isoformat()
-        if restart_epoch is not None
-        else None
-    )
+    restart_at = datetime.fromtimestamp(restart_epoch, tz=UTC).isoformat() if restart_epoch is not None else None
     generation = _coerce_int(md.get("generation")) or 0
     observed_generation = _coerce_int(status.get("observedGeneration")) or 0
     desired = _coerce_int(spec.get("replicas")) or 0
@@ -414,8 +392,7 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
     if name not in _ALLOWED_KEY_ENV_NAMES:
         raise HTTPException(
             400,
-            "Only catalog provider keys can be removed here. "
-            "Remove other env vars from the cluster secret directly.",
+            "Only catalog provider keys can be removed here. Remove other env vars from the cluster secret directly.",
         )
     try:
         await _remove_key_from_secret(name)

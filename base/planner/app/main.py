@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hmac
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -28,7 +28,6 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, Field, model_validator
 
 from .api_metrics import (
-    record_run_critic_turn_kind,
     record_chat_error,
     record_chat_success,
     record_graph_iterations,
@@ -37,6 +36,7 @@ from .api_metrics import (
     record_prompt_cache_hit,
     record_prompt_cache_miss,
     record_prompt_cache_size,
+    record_run_critic_turn_kind,
     record_tokens,
 )
 from .config import settings
@@ -49,8 +49,8 @@ from .injection_scanner import reduce_context_on_injection, scan_model_output, s
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pending_drift import pending_reply_diverges
-from .run_context import compute_trace_links, derive_critic_turn_kind
 from .rag_client import build_metadata_filter, retrieve_context, submit_user_knowledge
+from .run_context import compute_trace_links, derive_critic_turn_kind
 from .short_followup_context import pick_richer_conversation_transcript, prior_transcript_from_request_messages
 from .state import RetrievalParams
 from .stream_fixer import StreamingBlockFixer
@@ -1741,11 +1741,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                                 await asyncio.sleep(0)
 
                                 # ── Background critic: close stream after writer ──
-                                elif (
-                                    node_label == "writer"
-                                    and content_streamed
-                                    and settings.critic_background
-                                ):
+                                elif node_label == "writer" and content_streamed and settings.critic_background:
                                     yield _flow_phase("", done=True)
                                     content, total_tokens = _extract_content_and_metrics(
                                         accumulated_state,
@@ -2061,7 +2057,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         _ds_full_content = ""
                         _ds_in_reasoning = False
                         _ds_first_content = False
-                        _ds_usage: dict[str, int] | None = None  # prompt_tokens, completion_tokens, cached_prompt_tokens
+                        _ds_usage: dict[str, int] | None = (
+                            None  # prompt_tokens, completion_tokens, cached_prompt_tokens
+                        )
                         _ds_finish_reason: str | None = None
                         _ds_fixer = StreamingBlockFixer()
                         _ds_t0 = time.monotonic()

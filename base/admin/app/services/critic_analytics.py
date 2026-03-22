@@ -71,7 +71,7 @@ _Q_MAIN = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-
     FROM traces
     WHERE timestamp >= :cutoff
       AND {_HAS_CRITIC}
-    """  # noqa: S608
+    """
 )
 
 _Q_BUCKETS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
@@ -90,7 +90,7 @@ _Q_BUCKETS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalche
         COALESCE(SUM(CASE WHEN score >= 7 AND score < 8 THEN 1 ELSE 0 END), 0)::int AS b78,
         COALESCE(SUM(CASE WHEN score >= 8 AND score <= 10 THEN 1 ELSE 0 END), 0)::int AS b810
     FROM scored
-    """  # noqa: S608
+    """
 )
 
 _FAILURE_MODES_EXPR = f"""COALESCE(
@@ -116,7 +116,7 @@ _Q_MODES = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy
     GROUP BY mode
     ORDER BY cnt DESC
     LIMIT 10
-    """  # noqa: S608
+    """
 )
 
 _Q_REJECTIONS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
@@ -138,7 +138,7 @@ _Q_REJECTIONS = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlal
       AND NOT {_APPROVED_EXPR}
     ORDER BY timestamp DESC
     LIMIT 20
-    """  # noqa: S608
+    """
 )
 
 
@@ -168,7 +168,7 @@ _Q_EVALUATIONS = text(  # nosemgrep
       AND {_HAS_CRITIC}
     ORDER BY timestamp DESC
     LIMIT :lim OFFSET :off
-    """  # noqa: S608
+    """
 )
 
 _Q_EVAL_COUNT = text(  # nosemgrep
@@ -177,7 +177,7 @@ _Q_EVAL_COUNT = text(  # nosemgrep
     FROM traces
     WHERE timestamp >= :cutoff
       AND {_HAS_CRITIC}
-    """  # noqa: S608
+    """
 )
 
 

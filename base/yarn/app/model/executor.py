@@ -9,7 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from ..config import Provider, settings
 from . import providers
@@ -56,9 +57,12 @@ async def run_model(
             start = time.monotonic()
 
             async for raw_line in providers.stream_chat_completion(
-                messages, tools,
-                provider=prov, model=model,
-                temperature=temperature, max_tokens=max_tokens,
+                messages,
+                tools,
+                provider=prov,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
             ):
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 data = parse_sse_line(line)
@@ -101,10 +105,12 @@ async def run_model(
         except Exception as e:
             breaker.record_failure()
             if attempt < settings.model_retries:
-                wait = 2 ** attempt
+                wait = 2**attempt
                 logger.warning(
                     "Model call attempt %d failed (%s), retrying in %ds",
-                    attempt + 1, e, wait,
+                    attempt + 1,
+                    e,
+                    wait,
                 )
                 await asyncio.sleep(wait)
             else:
@@ -134,7 +140,7 @@ async def run_model_sync(
         except Exception as e:
             breaker.record_failure()
             if attempt < settings.model_retries:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
             else:
                 return {"error": str(e)}
     return {"error": "Exhausted retries"}

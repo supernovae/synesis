@@ -49,17 +49,19 @@ async def list_vendors(_user: UserInfo = Depends(get_current_user)):
     vendors = []
     for key, info in catalog["providers"].items():
         cfg = configs.get(key, {})
-        vendors.append({
-            **info,
-            "config": cfg if cfg else None,
-            "enabled": cfg.get("enabled", True),
-            "default_max_tokens": cfg.get("default_max_tokens", 8192),
-            "default_temperature": cfg.get("default_temperature", 0.1),
-            "allowed_roles": cfg.get("allowed_roles"),
-            "policies": cfg.get("policies"),
-            "notes": cfg.get("notes", ""),
-            "config_updated_at": cfg.get("updated_at"),
-        })
+        vendors.append(
+            {
+                **info,
+                "config": cfg if cfg else None,
+                "enabled": cfg.get("enabled", True),
+                "default_max_tokens": cfg.get("default_max_tokens", 8192),
+                "default_temperature": cfg.get("default_temperature", 0.1),
+                "allowed_roles": cfg.get("allowed_roles"),
+                "policies": cfg.get("policies"),
+                "notes": cfg.get("notes", ""),
+                "config_updated_at": cfg.get("updated_at"),
+            }
+        )
     return {"vendors": vendors}
 
 
@@ -95,9 +97,7 @@ async def update_vendor(
         raise HTTPException(404, f"Unknown provider: {provider_key}")
 
     async with async_session() as session:
-        result = await session.execute(
-            select(ProviderConfig).where(ProviderConfig.provider_key == provider_key)
-        )
+        result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider_key == provider_key))
         row = result.scalar_one_or_none()
         if row is None:
             row = ProviderConfig(provider_key=provider_key)
@@ -148,9 +148,7 @@ async def reset_vendor(
 ):
     """Reset vendor config to catalog defaults (remove governance override)."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ProviderConfig).where(ProviderConfig.provider_key == provider_key)
-        )
+        result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider_key == provider_key))
         row = result.scalar_one_or_none()
         if row is None:
             raise HTTPException(404, "No custom config exists for this provider")

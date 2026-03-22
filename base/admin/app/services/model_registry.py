@@ -48,6 +48,7 @@ def invalidate_yaml_cache() -> None:
 # Seed model_deployments from models.yaml (bootstrap-only)
 # ---------------------------------------------------------------------------
 
+
 async def seed_model_deployments(*, force: bool = False) -> int:
     """Seed one deployment per canonical role from models.yaml.
 
@@ -136,12 +137,11 @@ async def seed_model_deployments(*, force: bool = False) -> int:
 # DB-first model registry queries
 # ---------------------------------------------------------------------------
 
+
 async def get_model_deployments() -> list[dict]:
     """Return all model deployments from DB."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ModelDeployment).order_by(ModelDeployment.role)
-        )
+        result = await session.execute(select(ModelDeployment).order_by(ModelDeployment.role))
         rows = result.scalars().all()
         return [_deployment_to_dict(r) for r in rows]
 
@@ -149,9 +149,7 @@ async def get_model_deployments() -> list[dict]:
 async def get_active_deployments() -> list[ModelDeployment]:
     """Return ORM rows for all active deployments."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ModelDeployment).where(ModelDeployment.is_active == True)  # noqa: E712
-        )
+        result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         return list(result.scalars().all())
 
 
@@ -189,9 +187,20 @@ async def update_deployment(deployment_id: int, data: dict) -> dict | None:
         if row is None:
             return None
         for field in (
-            "model", "endpoint", "served_name", "status", "profile",
-            "source", "litellm_params", "is_active", "description",
-            "notes", "gpu_config", "environment", "role", "fallbacks",
+            "model",
+            "endpoint",
+            "served_name",
+            "status",
+            "profile",
+            "source",
+            "litellm_params",
+            "is_active",
+            "description",
+            "notes",
+            "gpu_config",
+            "environment",
+            "role",
+            "fallbacks",
         ):
             if field in data:
                 setattr(row, field, data[field])
@@ -254,12 +263,11 @@ def _deployment_to_dict(row: ModelDeployment) -> dict:
 # Role-first registry (primary API)
 # ---------------------------------------------------------------------------
 
+
 async def get_role_assignments() -> list[dict]:
     """Return one entry per canonical role with the active assignment (or unassigned)."""
     async with async_session() as session:
-        result = await session.execute(
-            select(ModelDeployment).where(ModelDeployment.is_active == True)  # noqa: E712
-        )
+        result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         active = {r.role: r for r in result.scalars().all()}
 
     assignments = []
@@ -270,13 +278,26 @@ async def get_role_assignments() -> list[dict]:
             d["assigned"] = True
         else:
             d = {
-                "id": None, "role": role, "model": "", "endpoint": "",
-                "served_name": f"synesis-{role}", "status": "unassigned",
-                "provider": "", "api_key_env": "", "litellm_params": None,
-                "is_active": False, "description": "", "notes": "",
-                "litellm_model_id": None, "fallbacks": None,
-                "updated_at": None, "assigned": False,
-                "environment": "", "profile": "", "source": "", "gpu_config": None,
+                "id": None,
+                "role": role,
+                "model": "",
+                "endpoint": "",
+                "served_name": f"synesis-{role}",
+                "status": "unassigned",
+                "provider": "",
+                "api_key_env": "",
+                "litellm_params": None,
+                "is_active": False,
+                "description": "",
+                "notes": "",
+                "litellm_model_id": None,
+                "fallbacks": None,
+                "updated_at": None,
+                "assigned": False,
+                "environment": "",
+                "profile": "",
+                "source": "",
+                "gpu_config": None,
             }
         assignments.append(d)
     return assignments
@@ -306,8 +327,12 @@ async def assign_role(
     served_name = f"synesis-{role}"
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
     lp = build_litellm_params(
-        provider, model, endpoint=endpoint, api_key_env=api_key_env,
-        max_tokens=max_tokens, temperature=temperature,
+        provider,
+        model,
+        endpoint=endpoint,
+        api_key_env=api_key_env,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
 
     async with async_session() as session:
@@ -315,7 +340,7 @@ async def assign_role(
         result = await session.execute(
             select(ModelDeployment).where(
                 ModelDeployment.role == role,
-                ModelDeployment.is_active == True,  # noqa: E712
+                ModelDeployment.is_active == True,
             )
         )
         old_row = result.scalar_one_or_none()
@@ -324,13 +349,15 @@ async def assign_role(
             old_row.status = "replaced"
             old_row.litellm_model_id = None
             # Write history record for the departing assignment.
-            session.add(ModelRoleHistory(
-                role=role,
-                provider=old_row.provider or old_row.source,
-                model=old_row.model,
-                endpoint=old_row.endpoint,
-                deactivated_at=datetime.now(UTC),
-            ))
+            session.add(
+                ModelRoleHistory(
+                    role=role,
+                    provider=old_row.provider or old_row.source,
+                    model=old_row.model,
+                    endpoint=old_row.endpoint,
+                    deactivated_at=datetime.now(UTC),
+                )
+            )
 
         # Create new active deployment.
         row = ModelDeployment(
@@ -362,7 +389,7 @@ async def deactivate_role(role: str) -> dict | None:
         result = await session.execute(
             select(ModelDeployment).where(
                 ModelDeployment.role == role,
-                ModelDeployment.is_active == True,  # noqa: E712
+                ModelDeployment.is_active == True,
             )
         )
         row = result.scalar_one_or_none()
@@ -371,13 +398,15 @@ async def deactivate_role(role: str) -> dict | None:
         row.is_active = False
         row.status = "deactivated"
         row.litellm_model_id = None
-        session.add(ModelRoleHistory(
-            role=role,
-            provider=row.provider or row.source,
-            model=row.model,
-            endpoint=row.endpoint,
-            deactivated_at=datetime.now(UTC),
-        ))
+        session.add(
+            ModelRoleHistory(
+                role=role,
+                provider=row.provider or row.source,
+                model=row.model,
+                endpoint=row.endpoint,
+                deactivated_at=datetime.now(UTC),
+            )
+        )
         await session.commit()
         await session.refresh(row)
         return _deployment_to_dict(row)
@@ -395,8 +424,11 @@ async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
         rows = result.scalars().all()
         return [
             {
-                "id": r.id, "role": r.role, "provider": r.provider,
-                "model": r.model, "endpoint": r.endpoint,
+                "id": r.id,
+                "role": r.role,
+                "provider": r.provider,
+                "model": r.model,
+                "endpoint": r.endpoint,
                 "input_per_million": r.input_per_million,
                 "output_per_million": r.output_per_million,
                 "activated_at": r.activated_at.isoformat() if r.activated_at else None,
@@ -410,21 +442,25 @@ async def get_role_history(role: str, *, days: int = 90) -> list[dict]:
 # Topology (DB deployments — single install, no multi-environment grouping)
 # ---------------------------------------------------------------------------
 
+
 async def get_model_topology() -> dict:
     """Return all deployments as a flat list. Role names from models.yaml if DB empty."""
     deployments = await get_model_deployments()
-    flat = [{
-        "id": d["id"],
-        "role": d["role"],
-        "model": d["model"],
-        "served_name": d["served_name"],
-        "endpoint": d["endpoint"],
-        "status": d["status"],
-        "source": d["source"],
-        "is_active": d["is_active"],
-        "gpu": d.get("gpu_config", {}).get("gpu", "") if d.get("gpu_config") else "",
-        "notes": d["notes"],
-    } for d in deployments]
+    flat = [
+        {
+            "id": d["id"],
+            "role": d["role"],
+            "model": d["model"],
+            "served_name": d["served_name"],
+            "endpoint": d["endpoint"],
+            "status": d["status"],
+            "source": d["source"],
+            "is_active": d["is_active"],
+            "gpu": d.get("gpu_config", {}).get("gpu", "") if d.get("gpu_config") else "",
+            "notes": d["notes"],
+        }
+        for d in deployments
+    ]
     if flat:
         return {"deployments": flat, "roles": list(KNOWN_ROLES)}
     data = _load_models_yaml()
@@ -434,6 +470,7 @@ async def get_model_topology() -> dict:
 # ---------------------------------------------------------------------------
 # Cost estimates (registry + model_costs for canonical roles only)
 # ---------------------------------------------------------------------------
+
 
 def _infer_role_for_cost(node_name: str, model_name: str) -> str:
     """Match trace LLM calls to pipeline roles (same rules as models router)."""
@@ -470,9 +507,7 @@ async def get_cost_estimates() -> list[dict]:
         if row.role not in KNOWN_ROLES:
             continue
         prof = (row.profile or "").strip()
-        if prof == "":
-            db_by_role[row.role] = row
-        elif row.role not in db_by_role:
+        if prof == "" or row.role not in db_by_role:
             db_by_role[row.role] = row
 
     merged: list[dict] = []
@@ -486,35 +521,39 @@ async def get_cost_estimates() -> list[dict]:
         provider = (a.get("provider") or "") if a.get("assigned") else ""
         src = (a.get("source") or "") if a.get("assigned") else "local"
         if db_row:
-            merged.append({
-                "role": role,
-                "model": model,
-                "profile": prof,
-                "source": src or db_row.source or "local",
-                "provider": provider,
-                "served_name": a.get("served_name", f"synesis-{role}"),
-                "input_per_million": db_row.input_per_million,
-                "input_cached_per_million": db_row.input_cached_per_million,
-                "output_per_million": db_row.output_per_million,
-                "monthly_fixed_cost": db_row.monthly_fixed_cost,
-                "cost_formula": db_row.cost_formula,
-                "notes": db_row.notes,
-            })
+            merged.append(
+                {
+                    "role": role,
+                    "model": model,
+                    "profile": prof,
+                    "source": src or db_row.source or "local",
+                    "provider": provider,
+                    "served_name": a.get("served_name", f"synesis-{role}"),
+                    "input_per_million": db_row.input_per_million,
+                    "input_cached_per_million": db_row.input_cached_per_million,
+                    "output_per_million": db_row.output_per_million,
+                    "monthly_fixed_cost": db_row.monthly_fixed_cost,
+                    "cost_formula": db_row.cost_formula,
+                    "notes": db_row.notes,
+                }
+            )
         else:
-            merged.append({
-                "role": role,
-                "model": model,
-                "profile": prof,
-                "source": src or "local",
-                "provider": provider,
-                "served_name": a.get("served_name", f"synesis-{role}"),
-                "input_per_million": 0.0,
-                "input_cached_per_million": None,
-                "output_per_million": 0.0,
-                "monthly_fixed_cost": 0.0,
-                "cost_formula": "",
-                "notes": "",
-            })
+            merged.append(
+                {
+                    "role": role,
+                    "model": model,
+                    "profile": prof,
+                    "source": src or "local",
+                    "provider": provider,
+                    "served_name": a.get("served_name", f"synesis-{role}"),
+                    "input_per_million": 0.0,
+                    "input_cached_per_million": None,
+                    "output_per_million": 0.0,
+                    "monthly_fixed_cost": 0.0,
+                    "cost_formula": "",
+                    "notes": "",
+                }
+            )
     return merged
 
 
@@ -530,7 +569,7 @@ async def upsert_model_cost(data: dict) -> dict:
             r = await session.execute(
                 select(ModelDeployment).where(
                     ModelDeployment.role == role,
-                    ModelDeployment.is_active == True,  # noqa: E712
+                    ModelDeployment.is_active == True,
                 )
             )
             active = r.scalar_one_or_none()
@@ -563,13 +602,17 @@ async def upsert_model_cost(data: dict) -> dict:
         await session.commit()
         await session.refresh(row)
         return {
-            "id": row.id, "role": row.role, "model": row.model,
-            "profile": row.profile, "source": row.source,
+            "id": row.id,
+            "role": row.role,
+            "model": row.model,
+            "profile": row.profile,
+            "source": row.source,
             "input_per_million": row.input_per_million,
             "input_cached_per_million": row.input_cached_per_million,
             "output_per_million": row.output_per_million,
             "monthly_fixed_cost": row.monthly_fixed_cost,
-            "cost_formula": row.cost_formula, "notes": row.notes,
+            "cost_formula": row.cost_formula,
+            "notes": row.notes,
         }
 
 
@@ -591,10 +634,13 @@ async def get_cost_by_model() -> list[dict]:
                         model = call.get("model", "unknown")
                         if model not in model_agg:
                             model_agg[model] = {
-                                "model": model, "prompt_tokens": 0,
-                                "completion_tokens": 0, "cached_prompt_tokens": 0,
+                                "model": model,
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "cached_prompt_tokens": 0,
                                 "total_tokens": 0,
-                                "requests": 0, "cost_usd": 0.0,
+                                "requests": 0,
+                                "cost_usd": 0.0,
                             }
                         agg = model_agg[model]
                         agg["prompt_tokens"] += call.get("prompt_tokens", 0)
@@ -645,6 +691,7 @@ async def get_cost_by_model() -> list[dict]:
 # Cost rate snapshots — detect and record pricing changes
 # ---------------------------------------------------------------------------
 
+
 async def capture_cost_rate_snapshots() -> int:
     """Compare current model_costs rates with the most recent snapshot.
 
@@ -657,9 +704,7 @@ async def capture_cost_rate_snapshots() -> int:
 
     async with async_session() as session:
         # Fetch the latest snapshot per model
-        result = await session.execute(
-            select(CostRateSnapshot).order_by(CostRateSnapshot.captured_at.desc())
-        )
+        result = await session.execute(select(CostRateSnapshot).order_by(CostRateSnapshot.captured_at.desc()))
         all_snaps = result.scalars().all()
         latest_by_role_model: dict[tuple[str, str], CostRateSnapshot] = {}
         for s in all_snaps:

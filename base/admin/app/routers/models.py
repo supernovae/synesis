@@ -11,9 +11,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import text
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import require_platform_admin
 from ..db.engine import async_session
+from ..rbac import require_platform_admin
 from ..services import prometheus_client_svc as prom
+from ..services.admin_audit import record_admin_audit
 from ..services.model_registry import (
     assign_role,
     create_deployment,
@@ -30,7 +31,6 @@ from ..services.model_registry import (
     upsert_model_cost,
 )
 from ..services.provider_catalog import KNOWN_ROLES
-from ..services.admin_audit import record_admin_audit
 from ..services.token_cost import estimate_llm_call_cost_usd
 
 logger = logging.getLogger("synesis.admin.models_router")
@@ -49,6 +49,7 @@ def _reconcile_audit_status(rec_sum: dict | None, rec_err: str | None) -> tuple[
 # ---------------------------------------------------------------------------
 # Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/")
 async def list_models(_user: UserInfo = Depends(get_current_user)):
@@ -81,45 +82,52 @@ async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
         for name, raw_url in targets:
             url = (raw_url or "").strip()
             if not url:
-                rows.append({
-                    "name": name,
-                    "url": "",
-                    "configured": False,
-                    "reachable": False,
-                    "status_code": None,
-                    "latency_ms": None,
-                    "error": "not_configured",
-                })
+                rows.append(
+                    {
+                        "name": name,
+                        "url": "",
+                        "configured": False,
+                        "reachable": False,
+                        "status_code": None,
+                        "latency_ms": None,
+                        "error": "not_configured",
+                    }
+                )
                 continue
             health_url = url.rstrip("/") + "/health"
             started = time.time()
             try:
                 resp = await client.get(health_url)
-                rows.append({
-                    "name": name,
-                    "url": url,
-                    "configured": True,
-                    "reachable": 200 <= resp.status_code < 500,
-                    "status_code": resp.status_code,
-                    "latency_ms": int((time.time() - started) * 1000),
-                    "error": "",
-                })
+                rows.append(
+                    {
+                        "name": name,
+                        "url": url,
+                        "configured": True,
+                        "reachable": 200 <= resp.status_code < 500,
+                        "status_code": resp.status_code,
+                        "latency_ms": int((time.time() - started) * 1000),
+                        "error": "",
+                    }
+                )
             except Exception as exc:
-                rows.append({
-                    "name": name,
-                    "url": url,
-                    "configured": True,
-                    "reachable": False,
-                    "status_code": None,
-                    "latency_ms": None,
-                    "error": str(exc)[:180],
-                })
+                rows.append(
+                    {
+                        "name": name,
+                        "url": url,
+                        "configured": True,
+                        "reachable": False,
+                        "status_code": None,
+                        "latency_ms": None,
+                        "error": str(exc)[:180],
+                    }
+                )
     return {"services": rows}
 
 
 # ---------------------------------------------------------------------------
 # Role-first model registry (primary API)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/roles")
 async def list_role_assignments(_user: UserInfo = Depends(get_current_user)):
@@ -172,7 +180,11 @@ async def assign_model_to_role(
         status=audit_status,
         summary=(
             f"Assigned {role} → {data['provider']}/{data['model']}"
-            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
+            + (
+                "; LiteLLM reconcile failed"
+                if reconcile_state == "failed"
+                else f"; LiteLLM reconcile {reconcile_state}"
+            )
         ),
         detail={
             "role": role,
@@ -213,7 +225,11 @@ async def remove_role_assignment(
         status=audit_status,
         summary=(
             f"Deactivated assignment for {role}"
-            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
+            + (
+                "; LiteLLM reconcile failed"
+                if reconcile_state == "failed"
+                else f"; LiteLLM reconcile {reconcile_state}"
+            )
         ),
         detail={"role": role, "previous": result, "reconcile": rec_sum, "reconcile_error": rec_err},
     )
@@ -233,6 +249,7 @@ async def role_history(
 # ---------------------------------------------------------------------------
 # DB model deployments CRUD (advanced; prefer PUT /roles/{role})
 # ---------------------------------------------------------------------------
+
 
 @router.get("/deployments")
 async def list_deployments(_user: UserInfo = Depends(get_current_user)):
@@ -271,10 +288,7 @@ async def update_model_deployment(
         raise HTTPException(404, "deployment not found")
     rec_err: str | None = None
     rec_sum: dict | None = None
-    if any(
-        k in data
-        for k in ("litellm_params", "is_active", "served_name", "fallbacks")
-    ):
+    if any(k in data for k in ("litellm_params", "is_active", "served_name", "fallbacks")):
         try:
             rec_sum = await reconcile()
         except Exception as exc:
@@ -290,7 +304,11 @@ async def update_model_deployment(
             + (
                 ""
                 if rec_sum is None and rec_err is None
-                else ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
+                else (
+                    "; LiteLLM reconcile failed"
+                    if reconcile_state == "failed"
+                    else f"; LiteLLM reconcile {reconcile_state}"
+                )
             )
         ),
         detail={
@@ -425,7 +443,9 @@ async def trigger_reconcile(_user: UserInfo = Depends(require_platform_admin)):
         summary=(
             "Manual LiteLLM reconcile"
             if err is None and reconcile_state == "completed"
-            else ("Manual LiteLLM reconcile failed" if err is not None else f"Manual LiteLLM reconcile {reconcile_state}")
+            else (
+                "Manual LiteLLM reconcile failed" if err is not None else f"Manual LiteLLM reconcile {reconcile_state}"
+            )
         ),
         detail={"reconcile": summary, "error": err},
     )
@@ -461,7 +481,11 @@ async def set_fallbacks(
         status=audit_status,
         summary=(
             f"Updated fallbacks for deployment {deployment_id}"
-            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
+            + (
+                "; LiteLLM reconcile failed"
+                if reconcile_state == "failed"
+                else f"; LiteLLM reconcile {reconcile_state}"
+            )
         ),
         detail={
             "deployment_id": deployment_id,
@@ -476,6 +500,7 @@ async def set_fallbacks(
 # ---------------------------------------------------------------------------
 # Costs
 # ---------------------------------------------------------------------------
+
 
 @router.get("/costs/active")
 async def active_costs(_user: UserInfo = Depends(get_current_user)):
@@ -503,65 +528,82 @@ async def active_costs(_user: UserInfo = Depends(get_current_user)):
         # Manual DB overrides (rates only); model/provider always from registry assignment.
         manual = cost_by_role.get(role)
         if manual and (manual.get("input_per_million", 0) > 0 or manual.get("output_per_million", 0) > 0):
-            result.append({
-                "role": role,
-                "model": model,
-                "profile": "",
-                "source": manual.get("source", provider),
-                "provider": provider,
-                "input_per_million": manual["input_per_million"],
-                "input_cached_per_million": manual.get("input_cached_per_million"),
-                "output_per_million": manual["output_per_million"],
-                "monthly_fixed_cost": manual.get("monthly_fixed_cost", 0.0),
-                "cost_formula": manual.get("cost_formula", ""),
-                "notes": manual.get("notes", ""),
-                "pricing_source": "manual",
-            })
+            result.append(
+                {
+                    "role": role,
+                    "model": model,
+                    "profile": "",
+                    "source": manual.get("source", provider),
+                    "provider": provider,
+                    "input_per_million": manual["input_per_million"],
+                    "input_cached_per_million": manual.get("input_cached_per_million"),
+                    "output_per_million": manual["output_per_million"],
+                    "monthly_fixed_cost": manual.get("monthly_fixed_cost", 0.0),
+                    "cost_formula": manual.get("cost_formula", ""),
+                    "notes": manual.get("notes", ""),
+                    "pricing_source": "manual",
+                }
+            )
             continue
 
         # For local providers, check infra cost calculator.
         if provider in ("vllm", "kserve"):
             infra = await get_infra_config_for_role(role)
             if infra and infra.get("input_per_million", 0) > 0:
-                result.append({
-                    "role": role, "model": model, "profile": "",
-                    "source": provider, "provider": provider,
-                    "input_per_million": infra["input_per_million"],
-                    "output_per_million": infra["output_per_million"],
-                    "monthly_fixed_cost": infra.get("hourly_rate", 0) * 730,
-                    "cost_formula": f"{infra.get('cloud', '')} {infra.get('instance_type', '')} @ ${infra.get('hourly_rate', 0):.2f}/hr",
-                    "notes": infra.get("notes", ""),
-                    "pricing_source": "infra_calc",
-                })
+                result.append(
+                    {
+                        "role": role,
+                        "model": model,
+                        "profile": "",
+                        "source": provider,
+                        "provider": provider,
+                        "input_per_million": infra["input_per_million"],
+                        "output_per_million": infra["output_per_million"],
+                        "monthly_fixed_cost": infra.get("hourly_rate", 0) * 730,
+                        "cost_formula": f"{infra.get('cloud', '')} {infra.get('instance_type', '')} @ ${infra.get('hourly_rate', 0):.2f}/hr",
+                        "notes": infra.get("notes", ""),
+                        "pricing_source": "infra_calc",
+                    }
+                )
                 continue
 
         # For API providers, try auto-lookup.
         pricing = await resolve_pricing(provider, model, served_name)
         if pricing:
             rates, source = pricing
-            result.append({
-                "role": role, "model": model, "profile": "",
-                "source": provider, "provider": provider,
-                "input_per_million": rates[0],
-                "output_per_million": rates[1],
-                "monthly_fixed_cost": 0.0,
-                "cost_formula": "",
-                "notes": f"auto: {source}",
-                "pricing_source": source,
-            })
+            result.append(
+                {
+                    "role": role,
+                    "model": model,
+                    "profile": "",
+                    "source": provider,
+                    "provider": provider,
+                    "input_per_million": rates[0],
+                    "output_per_million": rates[1],
+                    "monthly_fixed_cost": 0.0,
+                    "cost_formula": "",
+                    "notes": f"auto: {source}",
+                    "pricing_source": source,
+                }
+            )
             continue
 
         # Fallback: zero rates.
-        result.append({
-            "role": role, "model": model, "profile": "",
-            "source": provider, "provider": provider,
-            "input_per_million": 0.0,
-            "output_per_million": 0.0,
-            "monthly_fixed_cost": 0.0,
-            "cost_formula": "",
-            "notes": "",
-            "pricing_source": "unknown",
-        })
+        result.append(
+            {
+                "role": role,
+                "model": model,
+                "profile": "",
+                "source": provider,
+                "provider": provider,
+                "input_per_million": 0.0,
+                "output_per_million": 0.0,
+                "monthly_fixed_cost": 0.0,
+                "cost_formula": "",
+                "notes": "",
+                "pricing_source": "unknown",
+            }
+        )
 
     return {"roles": result}
 
@@ -660,7 +702,9 @@ async def costs_by_model(
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
         return {
-            "models": sorted(model_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True),
+            "models": sorted(
+                model_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True
+            ),
             "period_days": days,
         }
     except Exception:
@@ -729,7 +773,9 @@ async def costs_by_role(
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
         return {
-            "roles": sorted(role_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True),
+            "roles": sorted(
+                role_agg.values(), key=lambda x: x["actual_cost_usd"] or x["estimated_cost_usd"], reverse=True
+            ),
             "period_days": days,
         }
     except Exception:
@@ -845,6 +891,7 @@ async def cost_rate_history(
 # Performance (legacy Prometheus)
 # ---------------------------------------------------------------------------
 
+
 @router.get("/performance")
 async def model_performance(_user: UserInfo = Depends(get_current_user)):
     models = await prom.get_model_performance()
@@ -854,6 +901,7 @@ async def model_performance(_user: UserInfo = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Performance (trace-based detailed)
 # ---------------------------------------------------------------------------
+
 
 @router.get("/performance/detailed")
 async def performance_detailed(
@@ -970,6 +1018,7 @@ async def latency_trend(
 # Performance by role
 # ---------------------------------------------------------------------------
 
+
 @router.get("/performance/by-role")
 async def performance_by_role(
     _user: UserInfo = Depends(get_current_user),
@@ -1034,17 +1083,19 @@ async def performance_by_role(
             tc = rs.get("total_cached_prompt_tokens", 0)
             cache_hit = round(tc / tp, 4) if tp > 0 else 0.0
             a = reg_by_role.get(role, {})
-            results.append({
-                **rs,
-                "cache_hit_rate": cache_hit,
-                "avg_latency_ms": round(avg_lat, 1),
-                "p95_latency_ms": round(lats[min(p95_idx, n - 1)] if n else 0, 1),
-                "total_actual_cost": round(rs["total_actual_cost"], 6),
-                "registry_model": a.get("model", ""),
-                "registry_provider": a.get("provider", ""),
-                "served_name": a.get("served_name", f"synesis-{role}"),
-                "assigned": bool(a.get("assigned")),
-            })
+            results.append(
+                {
+                    **rs,
+                    "cache_hit_rate": cache_hit,
+                    "avg_latency_ms": round(avg_lat, 1),
+                    "p95_latency_ms": round(lats[min(p95_idx, n - 1)] if n else 0, 1),
+                    "total_actual_cost": round(rs["total_actual_cost"], 6),
+                    "registry_model": a.get("model", ""),
+                    "registry_provider": a.get("provider", ""),
+                    "served_name": a.get("served_name", f"synesis-{role}"),
+                    "assigned": bool(a.get("assigned")),
+                }
+            )
 
         return {"roles": results, "period_days": days}
 

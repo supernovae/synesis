@@ -5,18 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any
 from datetime import UTC, datetime
+from typing import Any
 
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
-from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
-from ..rbac import require_platform_admin
 from ..db.engine import async_session
 from ..db.models import (
     IngestionDocument,
@@ -27,6 +25,8 @@ from ..db.models import (
     MilvusSchemaSync,
 )
 from ..deps import get_milvus
+from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
+from ..rbac import require_platform_admin
 from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.ingestion")
@@ -211,7 +211,6 @@ async def discover_url(
     Pure heuristic: URL parsing, optional HEAD probe, robots.txt / sitemap
     estimation. No heavy deps — runs entirely in the admin pod.
     """
-    import asyncio
     from urllib.parse import urlparse
 
     import httpx
@@ -236,9 +235,7 @@ async def discover_url(
         handler = "pdf_document"
     elif any(raw_url.endswith(ext) for ext in (".md", ".rst", ".txt")):
         handler = "html_document"
-    elif "github.com" in host and "/tree/" in raw_url:
-        handler = "github_repo"
-    elif "github.com" in host:
+    elif ("github.com" in host and "/tree/" in raw_url) or "github.com" in host:
         handler = "github_repo"
 
     # --- Domain guess from host ---
@@ -256,10 +253,14 @@ async def discover_url(
     # --- Tag inference from URL ---
     tags: list[str] = []
     tag_signals = {
-        "/docs": "documentation", "/documentation": "documentation",
-        "/api": "api-reference", "/reference": "reference",
-        "/guide": "guide", "/tutorial": "tutorial",
-        "/blog": "blog", "/changelog": "changelog",
+        "/docs": "documentation",
+        "/documentation": "documentation",
+        "/api": "api-reference",
+        "/reference": "reference",
+        "/guide": "guide",
+        "/tutorial": "tutorial",
+        "/blog": "blog",
+        "/changelog": "changelog",
     }
     for signal, tag in tag_signals.items():
         if signal in path:
@@ -293,7 +294,9 @@ async def discover_url(
                     for line in robots_resp.text.splitlines():
                         if line.lower().startswith("sitemap:"):
                             sitemap_url_count += 1
-                    disallow_count = sum(1 for l in robots_resp.text.splitlines() if l.strip().lower().startswith("disallow"))
+                    disallow_count = sum(
+                        1 for l in robots_resp.text.splitlines() if l.strip().lower().startswith("disallow")
+                    )
                     if disallow_count > 50:
                         notes_parts.append(f"robots.txt has {disallow_count} Disallow rules — heavily restricted")
 
@@ -452,7 +455,6 @@ async def batch_preflight(
     Writes ``discovery_report`` into each item's config and optionally
     tags items with risk flags for review.
     """
-    import httpx
 
     async with async_session() as session:
         q = (
@@ -636,7 +638,9 @@ async def delete_item(
 # ---------------------------------------------------------------------------
 
 # Statuses an admin may set directly; excludes 'running' (owned by indexer).
-_ADMIN_SETTABLE_STATUSES = frozenset({"pending", "failed", "dead_letter", "indexed", "staged_raw", "staged_norm", "enrich_queued"})
+_ADMIN_SETTABLE_STATUSES = frozenset(
+    {"pending", "failed", "dead_letter", "indexed", "staged_raw", "staged_norm", "enrich_queued"}
+)
 
 
 class ItemPatch(BaseModel):
@@ -735,7 +739,9 @@ async def requeue_item(
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
         if item.status == "running":
-            raise HTTPException(status_code=409, detail="Item is currently being processed — wait or recover stale leases first")
+            raise HTTPException(
+                status_code=409, detail="Item is currently being processed — wait or recover stale leases first"
+            )
         old_status = item.status
         item.status = "pending"
         item.error_message = ""
@@ -1036,17 +1042,14 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
             await session.execute(select(func.count()).where(IngestionItem.status == "enrich_queued"))
         ).scalar() or 0
         total_chunks = (await session.execute(select(func.sum(IngestionItem.chunk_count)))).scalar() or 0
-        staged_documents = (
-            await session.execute(select(func.count()).select_from(IngestionDocument))
-        ).scalar() or 0
+        staged_documents = (await session.execute(select(func.count()).select_from(IngestionDocument))).scalar() or 0
         enrich_pending = (
-            await session.execute(
-                select(func.count()).where(IngestionEnrichQueue.status == "pending")
-            )
+            await session.execute(select(func.count()).where(IngestionEnrichQueue.status == "pending"))
         ).scalar() or 0
         semantic_metrics = (
-            await session.execute(
-                text("""
+            (
+                await session.execute(
+                    text("""
                     SELECT
                         COUNT(*) FILTER (
                             WHERE indexer_stats IS NOT NULL
@@ -1066,8 +1069,11 @@ async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
                         ) AS enrich_full_items
                     FROM ingestion_items
                 """)
+                )
             )
-        ).mappings().one()
+            .mappings()
+            .one()
+        )
     return {
         "total_sources": total_sources,
         "total_items": total_items,
@@ -1218,7 +1224,7 @@ SYNESIS_CATALOG_NAME = "synesis_catalog"
 class ResetCatalogRequest(BaseModel):
     """Dangerous: drops Milvus synesis_catalog. Requires exact confirm phrase."""
 
-    confirm: str = Field(..., description='Must be exactly DELETE_SYNESIS_CATALOG')
+    confirm: str = Field(..., description="Must be exactly DELETE_SYNESIS_CATALOG")
     reset_queue: bool = Field(True, description="Reset ingestion items to pending")
 
 
@@ -1250,9 +1256,7 @@ async def reset_milvus_catalog(
 
     async with async_session() as session:
         row = (
-            await session.execute(
-                select(MilvusSchemaSync).where(MilvusSchemaSync.collection == SYNESIS_CATALOG_NAME)
-            )
+            await session.execute(select(MilvusSchemaSync).where(MilvusSchemaSync.collection == SYNESIS_CATALOG_NAME))
         ).scalar_one_or_none()
         if row is None:
             session.add(
@@ -1617,9 +1621,7 @@ async def bootstrap_from_yaml(
                 added += 1
                 continue
 
-            ingest_unchanged = (row.handler == handler) and (
-                _config_canonical(row.config) == _config_canonical(config)
-            )
+            ingest_unchanged = (row.handler == handler) and (_config_canonical(row.config) == _config_canonical(config))
             meta_unchanged = (
                 (row.title or "") == title
                 and (row.domain or "") == domain

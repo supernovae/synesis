@@ -12,8 +12,7 @@ class StagedIngestionClient:
     def __init__(self, admin_url: str, timeout: float = 120.0):
         self._base = admin_url.rstrip("/")
         service_token = (
-            os.getenv("SYNESIS_ADMIN_SERVICE_TOKEN", "").strip()
-            or os.getenv("SYNESIS_API_TOKEN", "").strip()
+            os.getenv("SYNESIS_ADMIN_SERVICE_TOKEN", "").strip() or os.getenv("SYNESIS_API_TOKEN", "").strip()
         )
         headers: dict[str, str] = {}
         if service_token:

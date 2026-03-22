@@ -400,7 +400,7 @@ def _check_format_compliance(
         try:
             import xml.etree.ElementTree as ET
 
-            ET.fromstring(clean)  # noqa: S314  # nosec B314
+            ET.fromstring(clean)  # nosec B314
         except ET.ParseError:
             failures.append("format_miss")
 
@@ -455,7 +455,7 @@ def _lint_embedded_blocks(response: str) -> list[str]:
             elif lang == "xml":
                 import xml.etree.ElementTree as ET
 
-                ET.fromstring(body)  # noqa: S314  # nosec B314
+                ET.fromstring(body)  # nosec B314
         except Exception:
             snippet = body[:60].replace("\n", " ")
             errors.append(f"embedded_{lang}_syntax_error")
@@ -925,8 +925,7 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
             cohesion_entity = cohesion_lock.get("entity", "")
             if cohesion_entity and not cohesion_section:
                 cohesion_section = (
-                    f"\nCOHESION:\n"
-                    f"The response should stay within the conceptual frame: {cohesion_entity}.\n"
+                    f"\nCOHESION:\nThe response should stay within the conceptual frame: {cohesion_entity}.\n"
                 )
 
             # Lenient mode: strip verbose instruction blocks to save ~500 tokens
@@ -1086,9 +1085,13 @@ Reply with JSON:
             if taxonomy_hints:
                 _dynamic_parts.append(f"Domain hints (use as context, not as mandatory checklist):\n{taxonomy_hints}")
             if is_lenient:
-                _dynamic_parts.append(f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient — approve if roughly correct and helpful. Only block for factual errors or missed requirements.")
+                _dynamic_parts.append(
+                    f"NOTE: This is a LOW-DIFFICULTY task (difficulty={difficulty:.2f}). Be lenient — approve if roughly correct and helpful. Only block for factual errors or missed requirements."
+                )
             if settings.crag_proportionality_enabled and difficulty < 0.4:
-                _dynamic_parts.append("PROPORTIONALITY: Flag sections that are over-engineered relative to the task complexity.")
+                _dynamic_parts.append(
+                    "PROPORTIONALITY: Flag sections that are over-engineered relative to the task complexity."
+                )
             if crag_block:
                 _dynamic_parts.append(crag_block)
             if failure_mode_block:
@@ -1408,9 +1411,7 @@ Reply with JSON:
 
                 if "missing_requirement_coverage" in failure_modes:
                     uncovered = [
-                        r
-                        for r in (task_frame_data.get("goals") or [])
-                        if len(_extract_requirement_keywords(r)) >= 2
+                        r for r in (task_frame_data.get("goals") or []) if len(_extract_requirement_keywords(r)) >= 2
                     ]
                     repair_list.append(
                         {

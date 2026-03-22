@@ -201,9 +201,7 @@ async def reconcile() -> dict:
     provider_keys = await _load_provider_api_keys()
 
     async with async_session() as session:
-        result = await session.execute(
-            select(ModelDeployment).where(ModelDeployment.is_active == True)  # noqa: E712
-        )
+        result = await session.execute(select(ModelDeployment).where(ModelDeployment.is_active == True))
         active_rows = list(result.scalars().all())
 
     db_by_served: dict[str, ModelDeployment] = {}
@@ -303,9 +301,7 @@ async def reconcile_single(deployment_id: int) -> bool:
             return True
 
 
-async def _update_litellm_model_id(
-    deployment_id: int, model_id: str | None, status: str
-) -> None:
+async def _update_litellm_model_id(deployment_id: int, model_id: str | None, status: str) -> None:
     async with async_session() as session:
         row = await session.get(ModelDeployment, deployment_id)
         if row:

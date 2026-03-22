@@ -31,4 +31,3 @@ def test_put_enriched_json_uses_versioned_layout(monkeypatch):
     assert key == "ingest/enriched/v2/abc123/result.json"
     assert captured["content_type"] == "application/json"
     assert b'"chunk_count": 7' in captured["body"]
-

@@ -25,11 +25,10 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
-
-from .trace_redaction import redact_trace_payload
 from langchain_core.outputs import LLMResult
 
 from .llm_usage_extract import normalize_from_llm_result
+from .trace_redaction import redact_trace_payload
 
 logger = logging.getLogger("synesis.tracer")
 
@@ -450,13 +449,9 @@ class SynesisTracer(BaseCallbackHandler):
 
         record.total_duration_ms = (time.monotonic() - self._trace_start) * 1000
         record.total_tokens = sum(sum(c.total_tokens for c in s.llm_calls) for s in record.spans)
-        record.total_cached_prompt_tokens = sum(
-            sum(c.cached_prompt_tokens for c in s.llm_calls) for s in record.spans
-        )
+        record.total_cached_prompt_tokens = sum(sum(c.cached_prompt_tokens for c in s.llm_calls) for s in record.spans)
         record.estimated_cost_usd = _compute_cost(record)
-        record.actual_cost_usd = sum(
-            c.actual_cost for s in record.spans for c in s.llm_calls
-        )
+        record.actual_cost_usd = sum(c.actual_cost for s in record.spans for c in s.llm_calls)
         threading.Thread(target=_persist_trace, args=(record,), daemon=True).start()
         self._current_trace = None
         self._active_spans.clear()
@@ -479,7 +474,12 @@ class SynesisTracer(BaseCallbackHandler):
         completion = sum(c.completion_tokens for c in calls)
         total = sum(c.total_tokens for c in calls)
         cached = sum(c.cached_prompt_tokens for c in calls)
-        return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total, "cached_prompt_tokens": cached}
+        return {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": total,
+            "cached_prompt_tokens": cached,
+        }
 
     # -- Metadata setters (called from graph nodes) ------------------------
 

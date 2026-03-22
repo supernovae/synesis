@@ -38,9 +38,7 @@ LOCAL_TOOL_DEFINITIONS: list[dict[str, Any]] = [
     ESCALATE_TOOL,
 ]
 
-LOCAL_TOOL_NAMES: frozenset[str] = frozenset(
-    t["function"]["name"] for t in LOCAL_TOOL_DEFINITIONS
-)
+LOCAL_TOOL_NAMES: frozenset[str] = frozenset(t["function"]["name"] for t in LOCAL_TOOL_DEFINITIONS)
 
 
 async def handle_local_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:

@@ -878,7 +878,9 @@ class RouterNode:
 
         combined_query = " | ".join(q[:80] for q in queries[:4])
         packet = _fallback_packet(combined_query, unified)
-        _notes = f"Consolidated fused retrieval: {len(queries)} queries, {len(unified)} results, {round(retrieve_ms)}ms."
+        _notes = (
+            f"Consolidated fused retrieval: {len(queries)} queries, {len(unified)} results, {round(retrieve_ms)}ms."
+        )
         if taxonomy_metadata:
             from ..taxonomy_prompt_factory import get_router_summarizer_tone
 

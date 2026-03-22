@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -44,7 +44,7 @@ async def get_summary_unified(
         scope_user_id=scope_user_id,
         scope_org_id=scope_org_id,
     )
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     lag_seconds: int | None = None
     if latest_bucket is not None:
         lag_seconds = max(0, int((now - latest_bucket).total_seconds()))
@@ -58,7 +58,7 @@ async def get_summary_unified(
         "rollup_latest_bucket_utc": latest_bucket.isoformat() if latest_bucket else None,
         "rollup_lag_seconds_approx": lag_seconds,
         "glossary": {
-            "estimated": "Configured $/M rates × tokens (traces / rollups), not provider invoice.",
+            "estimated": "Configured $/M rates x tokens (traces / rollups), not provider invoice.",
             "actual": "Sum of provider-reported per-call costs when present on llm_calls / traces.",
             "rollup": "5-minute buckets from traces; may lag real time until rollup job runs.",
             "yarn": "IDE/Yarn path (yarn_usage_log), separate from LangGraph pipeline traces.",
@@ -85,7 +85,7 @@ async def get_reconcile(
     since_hours: int = 24,
 ) -> dict[str, Any]:
     """Platform-admin: compare rollups vs trace sums vs Yarn (global, unscoped)."""
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    cutoff_dt = datetime.now(UTC) - timedelta(hours=since_hours)
     tcut = cutoff_dt.timestamp()
 
     rollup = await get_usage_summary(
@@ -121,13 +121,11 @@ async def get_reconcile(
 
         try:
             trace_rows = (
-                await session.execute(select(Trace).where(Trace.timestamp >= tcut).limit(5000))
-            ).scalars().all()
+                (await session.execute(select(Trace).where(Trace.timestamp >= tcut).limit(5000))).scalars().all()
+            )
             traces_scanned = len(trace_rows)
             total_in_db = (
-                await session.execute(
-                    select(func.count()).select_from(Trace).where(Trace.timestamp >= tcut)
-                )
+                await session.execute(select(func.count()).select_from(Trace).where(Trace.timestamp >= tcut))
             ).scalar() or 0
             partial = total_in_db > traces_scanned
 
@@ -175,8 +173,7 @@ async def get_reconcile(
         },
         "deltas": {
             "total_tokens_rollup_minus_trace_row": r_tok - tr_tok,
-            "estimated_usd_rollup_minus_trace": rollup.get("estimated_cost_usd", 0)
-            - traces["estimated_cost_usd"],
+            "estimated_usd_rollup_minus_trace": rollup.get("estimated_cost_usd", 0) - traces["estimated_cost_usd"],
             "pct_tokens_rollup_vs_trace": _pct_diff(float(r_tok), float(tr_tok)) if tr_tok else None,
         },
         "rollup_latest_bucket_utc": latest_bucket.isoformat() if latest_bucket else None,

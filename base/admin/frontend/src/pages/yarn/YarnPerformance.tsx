@@ -67,7 +67,7 @@ export default function YarnPerformance() {
   const [bucketMinutes, setBucketMinutes] = useState(15);
   const { data, isLoading } = useYarnPerformance(sinceHours, bucketMinutes);
 
-  const buckets = data ?? [];
+  const buckets = useMemo(() => data ?? [], [data]);
   const chartData = useMemo(
     () =>
       buckets.map((b) => ({

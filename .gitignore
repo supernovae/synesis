@@ -20,6 +20,7 @@ test_report_*.yaml
 
 # Virtual environments
 .venv/
+.test-venv/
 venv/
 scripts/.venv/
 

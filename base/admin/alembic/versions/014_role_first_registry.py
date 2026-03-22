@@ -39,9 +39,7 @@ def upgrade() -> None:
     conn = op.get_bind()
     for old, new in PROVIDER_FROM_SOURCE.items():
         conn.execute(
-            sa.text(
-                "UPDATE model_deployments SET provider = :new WHERE source = :old AND provider IS NULL"
-            ),
+            sa.text("UPDATE model_deployments SET provider = :new WHERE source = :old AND provider IS NULL"),
             {"new": new, "old": old},
         )
     # Catch any remaining NULLs

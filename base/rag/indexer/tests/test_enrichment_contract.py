@@ -56,4 +56,3 @@ def test_enrich_chunk_full_mode_uses_structured_pass_b(monkeypatch):
     assert "oauth2" in out.keywords
     assert out.semantic_profile is not None
     assert out.semantic_profile.get("contract_version") == "pass_b_v1"
-

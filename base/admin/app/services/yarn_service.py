@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import Float, case, cast, func, select, text
+from sqlalchemy import case, func, select, text
 
 from ..db.engine import async_session
 from ..db.models import YarnSession, YarnUsageLog
@@ -14,10 +14,11 @@ logger = logging.getLogger("synesis.admin.yarn_service")
 
 
 def _cutoff(since_hours: int) -> datetime:
-    return datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    return datetime.now(UTC) - timedelta(hours=since_hours)
 
 
 # ── Overview summary ──────────────────────────────────────────────────────────
+
 
 async def get_yarn_overview(
     since_hours: int = 24,
@@ -42,7 +43,8 @@ async def get_yarn_overview(
                 func.coalesce(func.avg(sub.c.latency_ms), 0).label("avg_latency_ms"),
                 func.coalesce(func.max(sub.c.latency_ms), 0).label("p99_latency_ms"),
                 func.coalesce(
-                    func.sum(case((sub.c.escalated == True, 1), else_=0)), 0  # noqa: E712
+                    func.sum(case((sub.c.escalated == True, 1), else_=0)),
+                    0,
                 ).label("escalation_count"),
                 func.coalesce(func.sum(sub.c.tool_calls_count), 0).label("total_tool_calls"),
             ).select_from(sub)
@@ -57,9 +59,7 @@ async def get_yarn_overview(
         error_count = error_count_res.scalar() or 0
 
         active_sessions_res = await session.execute(
-            select(func.count()).select_from(
-                select(YarnSession).where(YarnSession.last_active_at >= cutoff).subquery()
-            )
+            select(func.count()).select_from(select(YarnSession).where(YarnSession.last_active_at >= cutoff).subquery())
         )
         active_sessions = active_sessions_res.scalar() or 0
 
@@ -83,6 +83,7 @@ async def get_yarn_overview(
 
 # ── Sessions list ─────────────────────────────────────────────────────────────
 
+
 async def list_yarn_sessions(
     page: int = 1,
     page_size: int = 20,
@@ -96,9 +97,7 @@ async def list_yarn_sessions(
         if active_since_hours:
             base = base.where(YarnSession.last_active_at >= _cutoff(active_since_hours))
 
-        total = (await session.execute(
-            select(func.count()).select_from(base.subquery())
-        )).scalar() or 0
+        total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
 
         offset = (page - 1) * page_size
         stmt = base.order_by(YarnSession.last_active_at.desc()).offset(offset).limit(page_size)
@@ -130,6 +129,7 @@ async def list_yarn_sessions(
 
 
 # ── Session detail ────────────────────────────────────────────────────────────
+
 
 async def get_yarn_session_detail(session_key: str) -> dict | None:
     async with async_session() as session:
@@ -190,6 +190,7 @@ async def get_yarn_session_detail(session_key: str) -> dict | None:
 
 # ── Events / errors log ──────────────────────────────────────────────────────
 
+
 async def list_yarn_events(
     page: int = 1,
     page_size: int = 50,
@@ -204,13 +205,11 @@ async def list_yarn_events(
             base = base.where(YarnUsageLog.user_id == scope_user_id)
         if errors_only:
             base = base.where(
-                (YarnUsageLog.escalated == True) |  # noqa: E712
-                YarnUsageLog.finish_reason.in_(["error", "escalated", "tool_loop_limit_exceeded"])
+                (YarnUsageLog.escalated == True)
+                | YarnUsageLog.finish_reason.in_(["error", "escalated", "tool_loop_limit_exceeded"])
             )
 
-        total = (await session.execute(
-            select(func.count()).select_from(base.subquery())
-        )).scalar() or 0
+        total = (await session.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
 
         offset = (page - 1) * page_size
         stmt = base.order_by(YarnUsageLog.created_at.desc()).offset(offset).limit(page_size)
@@ -242,13 +241,13 @@ async def list_yarn_events(
 
 # ── Performance time-series ───────────────────────────────────────────────────
 
+
 async def get_yarn_performance(
     since_hours: int = 24,
     bucket_minutes: int = 15,
     scope_user_id: str = "",
 ) -> list[dict]:
     cutoff = _cutoff(since_hours)
-    bucket_secs = bucket_minutes * 60
     async with async_session() as session:
         stmt = text("""
             SELECT
@@ -270,11 +269,14 @@ async def get_yarn_performance(
             GROUP BY bucket
             ORDER BY bucket
         """)
-        result = await session.execute(stmt, {
-            "cutoff": cutoff,
-            "bucket": bucket_minutes,
-            "uid": scope_user_id or "",
-        })
+        result = await session.execute(
+            stmt,
+            {
+                "cutoff": cutoff,
+                "bucket": bucket_minutes,
+                "uid": scope_user_id or "",
+            },
+        )
         rows = result.mappings().all()
 
     return [
@@ -296,6 +298,7 @@ async def get_yarn_performance(
 
 # ── User-scoped usage summary (for account page) ─────────────────────────────
 
+
 async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -308,10 +311,12 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
                 func.coalesce(func.sum(YarnUsageLog.cost_usd), 0).label("cost_usd"),
                 func.coalesce(func.avg(YarnUsageLog.latency_ms), 0).label("avg_latency_ms"),
                 func.coalesce(
-                    func.sum(case((YarnUsageLog.escalated == True, 1), else_=0)), 0  # noqa: E712
+                    func.sum(case((YarnUsageLog.escalated == True, 1), else_=0)),
+                    0,
                 ).label("escalations"),
                 func.coalesce(
-                    func.sum(case((YarnUsageLog.finish_reason.in_(["error", "tool_loop_limit_exceeded"]), 1), else_=0)), 0
+                    func.sum(case((YarnUsageLog.finish_reason.in_(["error", "tool_loop_limit_exceeded"]), 1), else_=0)),
+                    0,
                 ).label("errors"),
             )
             .where(YarnUsageLog.user_id == user_id)

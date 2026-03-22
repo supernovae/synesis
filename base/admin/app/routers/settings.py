@@ -53,6 +53,7 @@ async def system_config(_user: UserInfo = Depends(require_platform_admin)):
 # Infrastructure cost configuration
 # ---------------------------------------------------------------------------
 
+
 @router.get("/infra-costs/catalog")
 async def infra_instance_catalog(_user: UserInfo = Depends(get_current_user)):
     """Return the pre-populated instance type catalog."""

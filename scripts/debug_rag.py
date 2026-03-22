@@ -111,7 +111,9 @@ def main() -> int:
         it.close()
         for i, r in enumerate(rows or []):
             text = (r.get("text") or "")[:120].replace("\n", " ")
-            print(f"  [{i+1}] doc={r.get('document_name', '')!r} handler={r.get('handler')} authority={r.get('authority')} domain={r.get('domain')}")
+            print(
+                f"  [{i + 1}] doc={r.get('document_name', '')!r} handler={r.get('handler')} authority={r.get('authority')} domain={r.get('domain')}"
+            )
             print(f"       text={text!r}...")
     except Exception as e:
         print(f"Sample query failed: {e}")
@@ -149,6 +151,7 @@ def main() -> int:
         embedder_url = os.environ.get("EMBEDDER_URL", "").rstrip("/")
         try:
             import httpx
+
             r = httpx.post(
                 f"{embedder_url}/embeddings",
                 json={"input": ["deployment configuration"], "model": "sentence-transformers/all-MiniLM-L6-v2"},

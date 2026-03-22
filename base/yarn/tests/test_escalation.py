@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.escalation.detector import (
-    EscalationSignal,
+    check_all,
     check_context_pressure,
     check_tool_loop_count,
     check_tool_result,
-    check_all,
 )
 from app.memory.buffer import MemoryBuffer
 from app.tools.orchestrator import ToolResult

@@ -26,6 +26,7 @@ def _get_encoder() -> Any:
     if _encoder is None:
         try:
             import tiktoken
+
             _encoder = tiktoken.get_encoding("cl100k_base")
         except Exception:
             _encoder = None
@@ -97,9 +98,7 @@ class MemoryBuffer:
         """Pin tool schemas as a system message. Replaces any existing tool-def pin."""
         if not tools:
             return
-        content = "\n".join(
-            f"Tool: {t.get('function', t).get('name', 'unknown')}" for t in tools
-        )
+        content = "\n".join(f"Tool: {t.get('function', t).get('name', 'unknown')}" for t in tools)
         msg = {"role": "system", "content": f"[Available Tools]\n{content}", "_yarn_pin": "tools"}
         tokens = count_message_tokens(msg)
 
