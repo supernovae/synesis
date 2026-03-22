@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
-import { useProviderKeys, useProviderCatalog, useSetProviderKey, useDeleteProviderKey } from "../../api/hooks";
+import { useProviderKeys, useProviderCatalog, useSetProviderKey, useDeleteProviderKey, useLitellmRestartStatus } from "../../api/hooks";
 import type { ProviderInfo } from "../../types";
 import { Key, CheckCircle, XCircle, RotateCw, Trash2, AlertTriangle, Eye, EyeOff } from "lucide-react";
 
@@ -17,6 +17,7 @@ function catalogKeyEnvNames(providers: Record<string, ProviderInfo>): Set<string
 export default function ProviderKeys() {
   const { data: keys, isLoading } = useProviderKeys();
   const { data: catalogData } = useProviderCatalog();
+  const { data: restartStatus } = useLitellmRestartStatus();
   const setKeyMut = useSetProviderKey();
   const deleteKeyMut = useDeleteProviderKey();
 
@@ -90,9 +91,48 @@ export default function ProviderKeys() {
               (or the deployment will fail at runtime). A future "split roles" model (e.g. key owners vs. assigners) may
               change this; today both flows use the same catalog.
             </p>
+            <p className="text-amber-900/90 dark:text-amber-200/90">
+              Saving a key here performs the cluster secret update immediately and triggers LiteLLM rollout restart. You do
+              not need to switch a model role away and back just to refresh keys.
+            </p>
           </div>
         </div>
       </div>
+
+      {restartStatus && (
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1 text-sm">
+              <p className="font-medium text-gray-800 dark:text-gray-100">
+                LiteLLM rollout status
+              </p>
+              <p className="text-gray-600 dark:text-gray-300">
+                {restartStatus.namespace}/{restartStatus.deployment}
+              </p>
+              <p className="text-gray-600 dark:text-gray-300">
+                Last restart trigger:{" "}
+                {restartStatus.restart_trigger_at
+                  ? new Date(restartStatus.restart_trigger_at).toLocaleString()
+                  : "not triggered yet"}
+              </p>
+              <p className="text-gray-600 dark:text-gray-300">
+                Replicas ready {restartStatus.ready_replicas}/{restartStatus.desired_replicas}, updated {restartStatus.updated_replicas}
+              </p>
+            </div>
+            <span
+              className={
+                restartStatus.rollout_observed && restartStatus.ready_replicas >= restartStatus.desired_replicas
+                  ? "rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+              }
+            >
+              {restartStatus.rollout_observed && restartStatus.ready_replicas >= restartStatus.desired_replicas
+                ? "Rollout healthy"
+                : "Rollout in progress"}
+            </span>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />

@@ -110,6 +110,7 @@ async def reconcile() -> dict:
     updated = 0
     removed = 0
     unchanged = 0
+    failed = 0
 
     for served_name, row in db_by_served.items():
         if served_name in PROTECTED_MODELS:
@@ -127,7 +128,7 @@ async def reconcile() -> dict:
             updated += 1
             logger.info("reconcile_updated model=%s served=%s", row.model, served_name)
         elif action == "error" or not ok:
-            pass  # logged in _push_active_route
+            failed += 1  # logged in _push_active_route
 
     for name, info in litellm_by_name.items():
         if name in PROTECTED_MODELS:
@@ -138,6 +139,7 @@ async def reconcile() -> dict:
                 removed += 1
                 logger.info("reconcile_removed model=%s", name)
             else:
+                failed += 1
                 logger.warning("reconcile_remove_failed model=%s", name)
 
     # Push fallback configuration to LiteLLM for active models that have fallbacks defined
@@ -151,6 +153,7 @@ async def reconcile() -> dict:
         if ok:
             logger.info("reconcile_fallbacks_set count=%d", len(fallback_map))
         else:
+            failed += 1
             logger.warning("reconcile_fallbacks_failed")
 
     summary = {
@@ -158,6 +161,7 @@ async def reconcile() -> dict:
         "updated": updated,
         "removed": removed,
         "unchanged": unchanged,
+        "failed": failed,
         "total_active": len(active_rows),
         "fallbacks_configured": len(fallback_map),
     }

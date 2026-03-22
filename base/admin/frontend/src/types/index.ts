@@ -116,6 +116,20 @@ export interface RoleInfo {
   description: string;
 }
 
+export interface LiteLLMRestartStatus {
+  deployment: string;
+  namespace: string;
+  restart_trigger_epoch: number | null;
+  restart_trigger_at: string | null;
+  generation: number;
+  observed_generation: number;
+  rollout_observed: boolean;
+  desired_replicas: number;
+  updated_replicas: number;
+  ready_replicas: number;
+  available_replicas: number;
+}
+
 export interface RoleHistoryEntry {
   id: number;
   role: string;

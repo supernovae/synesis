@@ -71,16 +71,19 @@ async def lifespan(app: FastAPI):
                     summary.get("added")
                     or summary.get("removed")
                     or summary.get("updated")
+                    or summary.get("failed")
                 ):
+                    failed = int(summary.get("failed", 0) or 0)
                     await record_admin_audit(
                         user=None,
                         source="system",
                         action="models.reconcile.scheduled",
-                        status="success",
+                        status="partial" if failed > 0 else "success",
                         summary=(
                             f"Scheduled LiteLLM reconcile: +{summary.get('added', 0)} added, "
                             f"~{summary.get('updated', 0)} updated, "
                             f"-{summary.get('removed', 0)} removed"
+                            + (f", !{failed} failed" if failed > 0 else "")
                         ),
                         detail=summary,
                     )

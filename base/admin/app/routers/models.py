@@ -37,6 +37,15 @@ logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 
 
+def _reconcile_audit_status(rec_sum: dict | None, rec_err: str | None) -> tuple[str, str]:
+    if rec_err:
+        return "partial", "failed"
+    failed = int((rec_sum or {}).get("failed") or 0)
+    if failed > 0:
+        return "partial", f"completed_with_{failed}_failures"
+    return "success", "completed"
+
+
 # ---------------------------------------------------------------------------
 # Registry snapshot (same data as GET /roles; optional alias for older clients)
 # ---------------------------------------------------------------------------
@@ -155,14 +164,15 @@ async def assign_model_to_role(
     except Exception as exc:
         rec_err = repr(exc)
         logger.warning("reconcile_after_role_assign_failed role=%s", role, exc_info=True)
+    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
 
     await record_admin_audit(
         user=_user,
         action="models.role_assign",
-        status="success" if rec_err is None else "partial",
+        status=audit_status,
         summary=(
             f"Assigned {role} → {data['provider']}/{data['model']}"
-            + ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
         ),
         detail={
             "role": role,
@@ -196,13 +206,14 @@ async def remove_role_assignment(
     except Exception as exc:
         rec_err = repr(exc)
         logger.warning("reconcile_after_role_deactivate_failed role=%s", role, exc_info=True)
+    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.role_deactivate",
-        status="success" if rec_err is None else "partial",
+        status=audit_status,
         summary=(
             f"Deactivated assignment for {role}"
-            + ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
         ),
         detail={"role": role, "previous": result, "reconcile": rec_sum, "reconcile_error": rec_err},
     )
@@ -269,16 +280,17 @@ async def update_model_deployment(
         except Exception as exc:
             rec_err = repr(exc)
             logger.warning("reconcile_after_deployment_update_failed id=%d", deployment_id, exc_info=True)
+    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.deployment_update",
-        status="success" if rec_err is None else "partial",
+        status=audit_status,
         summary=(
             f"Updated deployment id={deployment_id}"
             + (
                 ""
                 if rec_sum is None and rec_err is None
-                else ("; LiteLLM reconcile failed" if rec_err else "; LiteLLM reconcile completed")
+                else ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
             )
         ),
         detail={
@@ -405,14 +417,15 @@ async def trigger_reconcile(_user: UserInfo = Depends(require_platform_admin)):
     except Exception as exc:
         err = repr(exc)
         logger.warning("manual_reconcile_failed", exc_info=True)
+    audit_status, reconcile_state = _reconcile_audit_status(summary, err)
     await record_admin_audit(
         user=_user,
         action="models.reconcile.manual",
-        status="success" if err is None else "error",
+        status="error" if err is not None else audit_status,
         summary=(
             "Manual LiteLLM reconcile"
-            if err is None
-            else "Manual LiteLLM reconcile failed"
+            if err is None and reconcile_state == "completed"
+            else ("Manual LiteLLM reconcile failed" if err is not None else f"Manual LiteLLM reconcile {reconcile_state}")
         ),
         detail={"reconcile": summary, "error": err},
     )
@@ -441,11 +454,15 @@ async def set_fallbacks(
     except Exception as exc:
         rec_err = repr(exc)
         logger.warning("reconcile_after_fallback_update_failed id=%d", deployment_id, exc_info=True)
+    audit_status, reconcile_state = _reconcile_audit_status(rec_sum, rec_err)
     await record_admin_audit(
         user=_user,
         action="models.fallbacks_update",
-        status="success" if rec_err is None else "partial",
-        summary=f"Updated fallbacks for deployment {deployment_id}",
+        status=audit_status,
+        summary=(
+            f"Updated fallbacks for deployment {deployment_id}"
+            + ("; LiteLLM reconcile failed" if reconcile_state == "failed" else f"; LiteLLM reconcile {reconcile_state}")
+        ),
         detail={
             "deployment_id": deployment_id,
             "fallbacks": fallbacks,

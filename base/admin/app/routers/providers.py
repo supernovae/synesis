@@ -6,6 +6,7 @@ import base64
 import logging
 import os
 import time
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -27,6 +28,7 @@ _SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 _SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 _K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
 _K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+_HTTP_TIMEOUT_SECONDS = 10
 
 KNOWN_PROVIDERS = {
     p.api_key_env: p.label
@@ -57,18 +59,51 @@ def _k8s_verify() -> str | bool:
     return False
 
 
+def _k8s_error_detail(action: str, exc: Exception) -> str:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        body = (exc.response.text or "").strip()
+        if body:
+            body = body[:300]
+            return f"{action} failed with status {status}: {body}"
+        return f"{action} failed with status {status}"
+    if isinstance(exc, httpx.RequestError):
+        return f"{action} failed due to cluster connectivity error: {exc}"
+    return f"{action} failed: {exc}"
+
+
+async def _audit_best_effort(
+    *,
+    user: UserInfo,
+    action: str,
+    status: str,
+    summary: str,
+    detail: dict | None = None,
+) -> None:
+    try:
+        await record_admin_audit(
+            user=user,
+            action=action,
+            status=status,
+            summary=summary,
+            detail=detail or {},
+        )
+    except Exception:
+        logger.warning("provider_audit_failed action=%s status=%s", action, status, exc_info=True)
+
+
 async def _get_secret() -> dict | None:
     url = f"{_k8s_base()}/api/v1/namespaces/{_SECRET_NAMESPACE}/secrets/{_SECRET_NAME}"
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
-            resp = await client.get(url, headers=_k8s_headers(), timeout=10)
+            resp = await client.get(url, headers=_k8s_headers(), timeout=_HTTP_TIMEOUT_SECONDS)
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
             return resp.json()
-    except httpx.HTTPStatusError:
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("k8s_get_secret_failed", exc_info=True)
-        raise HTTPException(502, "Failed to read provider keys from cluster")
+        raise HTTPException(502, _k8s_error_detail("Reading provider key secret", exc))
 
 
 async def _create_secret(data: dict[str, str]) -> None:
@@ -88,9 +123,13 @@ async def _create_secret(data: dict[str, str]) -> None:
         "type": "Opaque",
         "data": encoded,
     }
-    async with httpx.AsyncClient(verify=_k8s_verify()) as client:
-        resp = await client.post(url, headers=_k8s_headers(), json=body, timeout=10)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.post(url, headers=_k8s_headers(), json=body, timeout=_HTTP_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_create_secret_failed", exc_info=True)
+        raise HTTPException(502, _k8s_error_detail("Creating provider key secret", exc))
 
 
 async def _patch_secret(data: dict[str, str]) -> None:
@@ -98,9 +137,13 @@ async def _patch_secret(data: dict[str, str]) -> None:
     encoded = {k: base64.b64encode(v.encode()).decode() for k, v in data.items()}
     body = {"data": encoded}
     headers = {**_k8s_headers(), "Content-Type": "application/strategic-merge-patch+json"}
-    async with httpx.AsyncClient(verify=_k8s_verify()) as client:
-        resp = await client.patch(url, headers=headers, json=body, timeout=10)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.patch(url, headers=headers, json=body, timeout=_HTTP_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_patch_secret_failed", exc_info=True)
+        raise HTTPException(502, _k8s_error_detail("Updating provider key secret", exc))
 
 
 async def _remove_key_from_secret(key: str) -> None:
@@ -119,9 +162,13 @@ async def _remove_key_from_secret(key: str) -> None:
         "type": "Opaque",
         "data": current_data,
     }
-    async with httpx.AsyncClient(verify=_k8s_verify()) as client:
-        resp = await client.put(url, headers=_k8s_headers(), json=body, timeout=10)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.put(url, headers=_k8s_headers(), json=body, timeout=_HTTP_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_remove_key_failed key=%s", key, exc_info=True)
+        raise HTTPException(502, _k8s_error_detail(f"Removing provider key {key}", exc))
 
 
 async def _restart_litellm() -> None:
@@ -144,11 +191,61 @@ async def _restart_litellm() -> None:
     headers = {**_k8s_headers(), "Content-Type": "application/strategic-merge-patch+json"}
     try:
         async with httpx.AsyncClient(verify=_k8s_verify()) as client:
-            resp = await client.patch(url, headers=headers, json=body, timeout=10)
+            resp = await client.patch(url, headers=headers, json=body, timeout=_HTTP_TIMEOUT_SECONDS)
             resp.raise_for_status()
             logger.info("litellm_restart_triggered")
-    except Exception:
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
         logger.warning("litellm_restart_failed", exc_info=True)
+        detail = (
+            f"{_k8s_error_detail('Restarting LiteLLM deployment', exc)}. "
+            "Provider key was saved, but LiteLLM may still have stale env vars. "
+            "Run: oc rollout restart deployment/litellm-proxy -n synesis-gateway"
+        )
+        raise HTTPException(502, detail)
+
+
+async def _assert_key_state(name: str, *, should_exist: bool) -> None:
+    secret = await _get_secret()
+    current_data = set((secret or {}).get("data", {}).keys())
+    exists = name in current_data
+    if should_exist and not exists:
+        raise HTTPException(
+            502,
+            f"Provider key {name} write did not persist in {_SECRET_NAMESPACE}/{_SECRET_NAME}. "
+            "Please retry and check admin pod RBAC/logs.",
+        )
+    if not should_exist and exists:
+        raise HTTPException(
+            502,
+            f"Provider key {name} delete did not persist in {_SECRET_NAMESPACE}/{_SECRET_NAME}. "
+            "Please retry and check admin pod RBAC/logs.",
+        )
+
+
+async def _get_litellm_deployment() -> dict:
+    url = (
+        f"{_k8s_base()}/apis/apps/v1/namespaces/{_SECRET_NAMESPACE}"
+        f"/deployments/{_LITELLM_DEPLOYMENT}"
+    )
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.get(url, headers=_k8s_headers(), timeout=_HTTP_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+            return resp.json()
+    except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+        logger.warning("k8s_get_litellm_deployment_failed", exc_info=True)
+        raise HTTPException(502, _k8s_error_detail("Reading LiteLLM deployment status", exc))
+
+
+def _coerce_int(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
 
 @router.get("/catalog")
@@ -176,6 +273,43 @@ async def list_keys(_user=Depends(get_current_user)):
     return {"keys": keys}
 
 
+@router.get("/litellm/restart-status")
+async def litellm_restart_status(_user=Depends(get_current_user)):
+    dep = await _get_litellm_deployment()
+    md = dep.get("metadata", {})
+    spec = dep.get("spec", {})
+    status = dep.get("status", {})
+    tmpl_md = ((spec.get("template") or {}).get("metadata") or {})
+    anns = tmpl_md.get("annotations") or {}
+
+    restart_epoch = _coerce_int(anns.get("synesis.io/restart-trigger"))
+    restart_at = (
+        datetime.fromtimestamp(restart_epoch, tz=UTC).isoformat()
+        if restart_epoch is not None
+        else None
+    )
+    generation = _coerce_int(md.get("generation")) or 0
+    observed_generation = _coerce_int(status.get("observedGeneration")) or 0
+    desired = _coerce_int(spec.get("replicas")) or 0
+    updated = _coerce_int(status.get("updatedReplicas")) or 0
+    ready = _coerce_int(status.get("readyReplicas")) or 0
+    available = _coerce_int(status.get("availableReplicas")) or 0
+
+    return {
+        "deployment": _LITELLM_DEPLOYMENT,
+        "namespace": _SECRET_NAMESPACE,
+        "restart_trigger_epoch": restart_epoch,
+        "restart_trigger_at": restart_at,
+        "generation": generation,
+        "observed_generation": observed_generation,
+        "rollout_observed": observed_generation >= generation,
+        "desired_replicas": desired,
+        "updated_replicas": updated,
+        "ready_replicas": ready,
+        "available_replicas": available,
+    }
+
+
 class SetKeyRequest(BaseModel):
     value: str
 
@@ -194,15 +328,26 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
             "Custom keys require a cluster secret change until an “add provider” flow exists.",
         )
 
-    secret = await _get_secret()
-    if secret is None:
-        await _create_secret({name: body.value.strip()})
-    else:
-        await _patch_secret({name: body.value.strip()})
+    try:
+        secret = await _get_secret()
+        if secret is None:
+            await _create_secret({name: body.value.strip()})
+        else:
+            await _patch_secret({name: body.value.strip()})
+        await _assert_key_state(name, should_exist=True)
+        await _restart_litellm()
+    except HTTPException as exc:
+        await _audit_best_effort(
+            user=user,
+            action="providers.key_set",
+            status="error",
+            summary=f"Failed to set provider key {name}",
+            detail={"env_var": name, "error": str(exc.detail)},
+        )
+        raise
 
-    await _restart_litellm()
     logger.info("provider_key_set name=%s", name)
-    await record_admin_audit(
+    await _audit_best_effort(
         user=user,
         action="providers.key_set",
         status="success",
@@ -222,10 +367,22 @@ async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
             "Only catalog provider keys can be removed here. "
             "Remove other env vars from the cluster secret directly.",
         )
-    await _remove_key_from_secret(name)
-    await _restart_litellm()
+    try:
+        await _remove_key_from_secret(name)
+        await _assert_key_state(name, should_exist=False)
+        await _restart_litellm()
+    except HTTPException as exc:
+        await _audit_best_effort(
+            user=user,
+            action="providers.key_delete",
+            status="error",
+            summary=f"Failed to remove provider key {name}",
+            detail={"env_var": name, "error": str(exc.detail)},
+        )
+        raise
+
     logger.info("provider_key_deleted name=%s", name)
-    await record_admin_audit(
+    await _audit_best_effort(
         user=user,
         action="providers.key_delete",
         status="success",

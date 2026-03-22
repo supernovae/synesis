@@ -259,6 +259,15 @@ export function useDeleteProviderKey() {
   });
 }
 
+export function useLitellmRestartStatus() {
+  return useQuery<import("../types").LiteLLMRestartStatus>({
+    queryKey: ["providers", "litellm", "restart-status"],
+    queryFn: () => client.get("/providers/litellm/restart-status").then((r) => r.data),
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+  });
+}
+
 // --- Role-first model registry ---
 
 export function useRoleAssignments() {
