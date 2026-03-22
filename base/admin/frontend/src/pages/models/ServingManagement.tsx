@@ -75,8 +75,9 @@ export default function ServingManagement() {
   const handleSave = () => {
     if (!editing) return;
     if (editing.id !== null) {
+      const { id, ...rest } = editing;
       updateMut.mutate(
-        { id: editing.id, ...editing },
+        { id: id as number, ...rest },
         { onSuccess: () => closeModal() },
       );
     } else {
