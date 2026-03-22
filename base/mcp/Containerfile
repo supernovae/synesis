@@ -18,6 +18,6 @@ ENV VIRTUAL_ENV=/opt/app-root/venv
 
 EXPOSE 8100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+  CMD ["/opt/app-root/venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
 
-CMD ["python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8100"]
+CMD ["/opt/app-root/venv/bin/python", "-m", "uvicorn", "app.server:app", "--host", "0.0.0.0", "--port", "8100"]
