@@ -71,6 +71,7 @@ class UserInfo(BaseModel):
     org_id: str = ""  # primary Keycloak organization ID
     org_name: str = ""  # primary organization display name
     org_roles: list[str] = []  # roles within the organization
+    token_scopes: list[str] = []  # PAT scopes (empty for JWT sessions)
 
 
 class TokenResponse(BaseModel):
@@ -176,11 +177,15 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
         )
         await session.commit()
 
+        raw_scopes = getattr(pat, "scopes", None)
+        scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+
         return UserInfo(
             username=pat.username,
             role=pat.role,
             user_id=pat.user_id,
             org_id=getattr(pat, "org_id", "") or "",
+            token_scopes=scopes,
         )
 
 

@@ -107,6 +107,45 @@ def can_access_trace(user: UserInfo, trace: dict[str, Any]) -> bool:
     return trace_user == uid
 
 
+def has_token_scope(user: UserInfo, scope_prefix: str) -> bool:
+    """Check whether *user* has a PAT scope starting with *scope_prefix*.
+
+    JWT sessions (no token_scopes) are always allowed — scope enforcement only
+    applies to PAT-authenticated calls.  Legacy PATs without scopes are treated
+    as ``model:readonly`` by the token resolution layer.
+    """
+    scopes = user.token_scopes
+    if not scopes:
+        return True
+    return any(s.startswith(scope_prefix) for s in scopes)
+
+
+def has_write_scope(user: UserInfo, scope_prefix: str) -> bool:
+    """True when user has ``<scope_prefix>:readwrite``."""
+    scopes = user.token_scopes
+    if not scopes:
+        return True
+    return f"{scope_prefix}:readwrite" in scopes
+
+
+def require_scope(scope_prefix: str):
+    """FastAPI dependency that rejects PATs missing the required scope."""
+
+    async def _dep(user: UserInfo = Depends(get_current_user)) -> UserInfo:
+        if not has_token_scope(user, scope_prefix):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Token missing required scope: {scope_prefix}",
+            )
+        return user
+
+    return _dep
+
+
+require_model_scope = require_scope("model")
+require_coder_scope = require_scope("coder")
+
+
 def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     """Return keyword filters to pass into ``trace_store.list_traces``
     so only rows the user is authorized to see are returned.

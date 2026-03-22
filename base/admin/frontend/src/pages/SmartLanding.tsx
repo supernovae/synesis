@@ -8,7 +8,7 @@ const LazyDashboard = lazy(() => import("./Dashboard"));
 export default function SmartLanding() {
   const { user } = useAuth();
   if (user && OPS_ROLES.has(user.role)) {
-    return <Navigate to="/yarn" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
   if (user) {
     return <Navigate to="/account" replace />;

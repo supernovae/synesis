@@ -198,7 +198,8 @@ async def list_models():
 
 @app.get("/v1/mcp/tools")
 async def list_mcp_tools(request: Request):
-    await resolve_auth(request)
+    user = await resolve_auth(request)
+    _require_coder_scope(user)
     bearer = extract_bearer_token(request)
     tools = await _orchestrator.load_tools_for_token(bearer)
     return {"tools": tools}
@@ -206,7 +207,8 @@ async def list_mcp_tools(request: Request):
 
 @app.post("/v1/mcp/tools/call")
 async def call_mcp_tool(request: Request):
-    await resolve_auth(request)
+    user = await resolve_auth(request)
+    _require_coder_scope(user)
     bearer = extract_bearer_token(request)
     tools = await _orchestrator.load_tools_for_token(bearer)
     allowed_tools = {t.get("function", {}).get("name", "") for t in tools if isinstance(t, dict)}
@@ -247,6 +249,13 @@ async def get_diagnostics_snapshot(request_id: str, request: Request):
     return snapshot
 
 
+def _require_coder_scope(user: "AuthUser") -> None:
+    """Reject PAT-authenticated requests that lack a coder scope."""
+    scopes = user.token_scopes
+    if scopes and not any(s.startswith("coder") for s in scopes):
+        raise HTTPException(status_code=403, detail="Token missing required scope: coder")
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(body: ChatCompletionRequest, request: Request):
     """Main endpoint — the agentic loop."""
@@ -255,6 +264,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 
     # --- Auth ---
     auth_user = await resolve_auth(request)
+    _require_coder_scope(auth_user)
     bearer_token = extract_bearer_token(request)
 
     # --- Session ---

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 import { useAuth } from "../auth/useAuth";
@@ -189,8 +189,10 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { user } = useAuth();
   const { pathname } = useLocation();
-  const allowedNavigation = navigation.filter(
-    (item) => roleRank(user?.role) >= requiredRank(item.minRole),
+  const userRole = user?.role;
+  const allowedNavigation = useMemo(
+    () => navigation.filter((item) => roleRank(userRole) >= requiredRank(item.minRole)),
+    [userRole],
   );
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -203,11 +205,16 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   });
 
   useEffect(() => {
-    for (const item of allowedNavigation) {
-      if (item.children && isGroupActive(item.children, pathname)) {
-        setExpanded((prev) => ({ ...prev, [item.label]: true }));
+    setExpanded((prev) => {
+      let next = prev;
+      for (const item of allowedNavigation) {
+        if (item.children && isGroupActive(item.children, pathname) && !prev[item.label]) {
+          if (next === prev) next = { ...prev };
+          next[item.label] = true;
+        }
       }
-    }
+      return next;
+    });
   }, [pathname, allowedNavigation]);
 
   function toggle(label: string) {

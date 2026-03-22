@@ -61,7 +61,7 @@ async def _resolve_pat(token: str) -> AuthUser:
                 await session.execute(
                     text(
                         """
-                    SELECT id, user_id, org_id, username, role, expires_at
+                    SELECT id, user_id, org_id, username, role, scopes, expires_at
                     FROM personal_access_tokens
                     WHERE token_hash = :token_hash
                       AND revoked = false
@@ -93,12 +93,16 @@ async def _resolve_pat(token: str) -> AuthUser:
         )
         await session.commit()
 
+    raw_scopes = row.get("scopes")
+    scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+
     return AuthUser(
         user_id=row.get("user_id", ""),
         org_id=row.get("org_id", "") or "",
         username=row.get("username", ""),
         role=row.get("role", "user"),
         auth_method="pat",
+        token_scopes=scopes,
     )
 
 

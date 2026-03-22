@@ -43,3 +43,4 @@ class AuthUser(BaseModel):
     username: str = ""
     role: str = "user"
     auth_method: str = "pat"  # "keycloak" | "pat" | "legacy"
+    token_scopes: list[str] = Field(default_factory=list)

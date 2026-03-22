@@ -566,7 +566,15 @@ class YarnUsageLog(Base):
 
 
 class PersonalAccessToken(Base):
-    """User-generated API tokens for programmatic access (Cursor, Claude Code, scripts)."""
+    """User-generated API tokens for programmatic access (Cursor, Claude Code, scripts).
+
+    Scopes control which service endpoints the token may reach:
+      - ``model``  → Planner / front-door LLM API
+      - ``coder``  → Yarn developer fabric
+    Access level per scope: ``readonly`` (default) or ``readwrite``.
+    Legacy tokens (pre-scope migration) have scopes=NULL and are treated as
+    ``["model:readonly"]`` for backward compatibility.
+    """
 
     __tablename__ = "personal_access_tokens"
 
@@ -578,6 +586,7 @@ class PersonalAccessToken(Base):
     token_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
+    scopes: Mapped[list[str] | None] = mapped_column(ARRAY(String(32)), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -5,6 +5,24 @@ import type { AxiosResponse } from "axios";
 import client from "../../api/client";
 import type { PersonalAccessToken, TokenCreated } from "../../types";
 
+type ScopeTarget = "model" | "coder";
+type ScopeLevel = "readonly" | "readwrite";
+
+const SCOPE_LABELS: Record<ScopeTarget, string> = {
+  model: "Model",
+  coder: "Coder",
+};
+
+const LEVEL_LABELS: Record<ScopeLevel, string> = {
+  readonly: "Read-only (Application)",
+  readwrite: "User (Read-write)",
+};
+
+function scopeDisplayLabel(scope: string): string {
+  const [target, level] = scope.split(":") as [ScopeTarget, ScopeLevel];
+  return `${SCOPE_LABELS[target] ?? target} · ${LEVEL_LABELS[level] ?? level}`;
+}
+
 export default function ApiTokens() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
@@ -12,9 +30,34 @@ export default function ApiTokens() {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [selectedTargets, setSelectedTargets] = useState<Set<ScopeTarget>>(
+    () => new Set(["model"]),
+  );
+  const [levels, setLevels] = useState<Record<ScopeTarget, ScopeLevel>>({
+    model: "readonly",
+    coder: "readonly",
+  });
+
+  function toggleTarget(t: ScopeTarget) {
+    setSelectedTargets((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) {
+        if (next.size > 1) next.delete(t);
+      } else {
+        next.add(t);
+      }
+      return next;
+    });
+  }
+
+  function buildScopes(): string[] {
+    return Array.from(selectedTargets).map((t) => `${t}:${levels[t]}`);
+  }
+
   const { data: tokens = [], isLoading } = useQuery<PersonalAccessToken[]>({
     queryKey: ["tokens"],
-    queryFn: () => client.get("/tokens").then((r: AxiosResponse<PersonalAccessToken[]>) => r.data),
+    queryFn: () =>
+      client.get("/tokens").then((r: AxiosResponse<PersonalAccessToken[]>) => r.data),
   });
 
   const createMutation = useMutation<TokenCreated, Error, void>({
@@ -23,6 +66,7 @@ export default function ApiTokens() {
         .post("/tokens", {
           name,
           expires_in_days: expiresDays || null,
+          scopes: buildScopes(),
         })
         .then((r: AxiosResponse<TokenCreated>) => r.data),
     onSuccess: (data) => {
@@ -53,34 +97,33 @@ export default function ApiTokens() {
           API tokens
         </h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Tokens are issued by the Synesis Admin API and work as{" "}
-          <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">
-            Bearer
-          </code>{" "}
-          for this service (bootstrap scripts, curl, internal tools). Name each
-          token by use case (e.g. &quot;load-bootstrap CI&quot;, IDE) so you can
-          revoke them independently.
+          Create tokens to connect third-party tools (IDEs, scripts, agents) to
+          Synesis services. Each token is scoped to specific services and access
+          levels.
         </p>
       </div>
 
       {/* Create token */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="text-sm font-semibold text-gray-700">
+      <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
           Create new token
         </h2>
+
         <div className="mt-3 flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs text-gray-500">Token name</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400">
+              Token name
+            </label>
             <input
               type="text"
               placeholder="e.g., Cursor IDE"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             />
           </div>
           <div className="w-36">
-            <label className="block text-xs text-gray-500">
+            <label className="block text-xs text-gray-500 dark:text-gray-400">
               Expires in (days)
             </label>
             <input
@@ -91,31 +134,100 @@ export default function ApiTokens() {
               onChange={(e) =>
                 setExpiresDays(e.target.value ? Number(e.target.value) : "")
               }
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             />
           </div>
+        </div>
+
+        {/* Scope selection */}
+        <div className="mt-4">
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
+            Service access
+          </label>
+          <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+            Select which services this token can reach and the permission level
+            for each.
+          </p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            {(["model", "coder"] as const).map((target) => {
+              const active = selectedTargets.has(target);
+              return (
+                <div
+                  key={target}
+                  className={`rounded-lg border p-3 transition-colors ${
+                    active
+                      ? "border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20"
+                      : "border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800"
+                  }`}
+                >
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => toggleTarget(target)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      {SCOPE_LABELS[target]}
+                    </span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {target === "model"
+                        ? "— Planner / LLM API"
+                        : "— Yarn developer fabric"}
+                    </span>
+                  </label>
+                  {active && (
+                    <div className="ml-6 mt-2 flex gap-3">
+                      {(["readonly", "readwrite"] as const).map((lvl) => (
+                        <label
+                          key={lvl}
+                          className="flex cursor-pointer items-center gap-1.5"
+                        >
+                          <input
+                            type="radio"
+                            name={`level-${target}`}
+                            checked={levels[target] === lvl}
+                            onChange={() =>
+                              setLevels((prev) => ({ ...prev, [target]: lvl }))
+                            }
+                            className="h-3.5 w-3.5 border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-xs text-gray-600 dark:text-gray-300">
+                            {LEVEL_LABELS[lvl]}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
           <button
             onClick={() => createMutation.mutate()}
             disabled={!name || createMutation.isPending}
-            className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
-            Generate
+            Generate token
           </button>
         </div>
 
         {newToken && (
-          <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-3">
-            <p className="text-xs font-medium text-green-800">
-              Token created — copy it now, it won't be shown again:
+          <div className="mt-3 rounded-md border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
+            <p className="text-xs font-medium text-green-800 dark:text-green-300">
+              Token created — copy it now, it won&apos;t be shown again:
             </p>
             <div className="mt-1 flex items-center gap-2">
-              <code className="flex-1 break-all rounded bg-green-100 px-2 py-1 text-xs text-green-900">
+              <code className="flex-1 break-all rounded bg-green-100 px-2 py-1 text-xs text-green-900 dark:bg-green-800 dark:text-green-100">
                 {newToken}
               </code>
               <button
                 onClick={handleCopy}
-                className="rounded p-1 text-green-700 hover:bg-green-200"
+                className="rounded p-1 text-green-700 hover:bg-green-200 dark:text-green-300 dark:hover:bg-green-800"
                 title="Copy to clipboard"
               >
                 {copied ? (
@@ -130,41 +242,51 @@ export default function ApiTokens() {
       </div>
 
       {/* Token list */}
-      <div className="rounded-lg border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-700">Your tokens</h2>
+      <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+            Your tokens
+          </h2>
         </div>
         {isLoading ? (
-          <div className="p-4 text-center text-sm text-gray-400">
-            Loading...
-          </div>
+          <div className="p-4 text-center text-sm text-gray-400">Loading...</div>
         ) : tokens.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-400">
-            <Key className="mx-auto h-8 w-8 text-gray-300" />
+            <Key className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
             <p className="mt-2">No tokens yet</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
             {tokens.map((t) => (
               <div
                 key={t.id}
                 className={`flex items-center justify-between px-4 py-3 ${t.revoked ? "opacity-50" : ""}`}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
                       {t.name}
                     </span>
-                    <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                    <code className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
                       {t.token_prefix}...
                     </code>
                     {t.revoked && (
-                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-600">
+                      <span className="rounded bg-red-100 px-1.5 py-0.5 text-xs text-red-600 dark:bg-red-900/30 dark:text-red-400">
                         revoked
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 text-xs text-gray-400">
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {t.scopes.map((s) => (
+                      <span
+                        key={s}
+                        className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400"
+                      >
+                        {scopeDisplayLabel(s)}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
                     Created {new Date(t.created_at).toLocaleDateString()}
                     {t.expires_at &&
                       ` · Expires ${new Date(t.expires_at).toLocaleDateString()}`}
@@ -176,7 +298,7 @@ export default function ApiTokens() {
                   <button
                     onClick={() => revokeMutation.mutate(t.id)}
                     disabled={revokeMutation.isPending}
-                    className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                    className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
                     title="Revoke token"
                   >
                     <Trash2 className="h-4 w-4" />

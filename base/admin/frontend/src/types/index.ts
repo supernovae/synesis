@@ -25,6 +25,7 @@ export interface PersonalAccessToken {
   name: string;
   token_prefix: string;
   role: string;
+  scopes: string[];
   created_at: string;
   expires_at: string | null;
   last_used_at: string | null;
@@ -37,6 +38,7 @@ export interface TokenCreated {
   token: string;
   token_prefix: string;
   role: string;
+  scopes: string[];
   expires_at: string | null;
 }
 

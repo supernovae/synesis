@@ -3,6 +3,12 @@
 Users can manage their own tokens.  Admins can list/revoke any user's tokens.
 Tokens are HMAC-SHA256 hashed (with server pepper) or SHA-256 hashed before
 storage.  The plaintext token is returned exactly once at creation time.
+
+Each token carries *scopes* that control which service endpoints it may reach:
+  - ``model:readonly``  / ``model:readwrite``  → Planner / front-door LLM
+  - ``coder:readonly``  / ``coder:readwrite``  → Yarn developer fabric
+Tokens without explicit scopes (pre-migration) are treated as
+``["model:readonly"]`` for backward compatibility.
 """
 
 from __future__ import annotations
@@ -11,7 +17,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +29,9 @@ from ..rbac import require_platform_admin
 
 router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
 
+VALID_SCOPES = frozenset({"model:readonly", "model:readwrite", "coder:readonly", "coder:readwrite"})
+DEFAULT_SCOPES = ["model:readonly"]
+
 
 # ── Request / response models ────────────────────────────────────────────────
 
@@ -30,6 +39,20 @@ router = APIRouter(prefix="/api/v1/tokens", tags=["tokens"])
 class TokenCreate(BaseModel):
     name: str
     expires_in_days: int | None = None
+    scopes: list[str] | None = None
+
+    @field_validator("scopes", mode="before")
+    @classmethod
+    def _validate_scopes(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned = list(dict.fromkeys(v))
+        invalid = [s for s in cleaned if s not in VALID_SCOPES]
+        if invalid:
+            raise ValueError(f"Invalid scopes: {invalid}. Valid: {sorted(VALID_SCOPES)}")
+        if not cleaned:
+            raise ValueError("At least one scope is required")
+        return cleaned
 
 
 class TokenCreated(BaseModel):
@@ -38,6 +61,7 @@ class TokenCreated(BaseModel):
     token: str
     token_prefix: str
     role: str
+    scopes: list[str]
     expires_at: datetime | None
 
 
@@ -46,10 +70,16 @@ class TokenInfo(BaseModel):
     name: str
     token_prefix: str
     role: str
+    scopes: list[str]
     created_at: datetime
     expires_at: datetime | None
     last_used_at: datetime | None
     revoked: bool
+
+
+def _effective_scopes(raw: list[str] | None) -> list[str]:
+    """Normalize DB value — legacy NULL tokens get default scopes."""
+    return list(raw) if raw else list(DEFAULT_SCOPES)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -65,6 +95,7 @@ async def create_token(
 
     The plaintext token is returned in the response and is never stored.
     """
+    scopes = body.scopes or list(DEFAULT_SCOPES)
     plaintext, token_hash, display_prefix = _generate_token()
     expires_at = datetime.now(UTC) + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     pat_id = str(uuid.uuid4())
@@ -77,6 +108,7 @@ async def create_token(
         token_prefix=display_prefix,
         name=body.name,
         role=user.role,
+        scopes=scopes,
         expires_at=expires_at,
     )
     session.add(pat)
@@ -88,6 +120,7 @@ async def create_token(
         token=plaintext,
         token_prefix=display_prefix,
         role=user.role,
+        scopes=scopes,
         expires_at=expires_at,
     )
 
@@ -111,6 +144,7 @@ async def list_tokens(
             name=t.name,
             token_prefix=t.token_prefix,
             role=t.role,
+            scopes=_effective_scopes(t.scopes),
             created_at=t.created_at,
             expires_at=t.expires_at,
             last_used_at=t.last_used_at,
@@ -161,6 +195,7 @@ async def list_all_tokens(
             name=t.name,
             token_prefix=t.token_prefix,
             role=t.role,
+            scopes=_effective_scopes(t.scopes),
             created_at=t.created_at,
             expires_at=t.expires_at,
             last_used_at=t.last_used_at,
