@@ -40,7 +40,10 @@ spec:
       ports:
         - port: 4000
           protocol: TCP
-    # RAG services: embedder, keyword-service, Milvus, redis
+    # RAG namespace: HTTP microservices (:8080), Milvus gRPC proxy (:19530),
+    # Redis (:6379). Service synesis-milvus exposes 19530 (+ 9091 metrics; planner uses 19530 only).
+    # Nothing in base/rag/* NetworkPolicy selects Milvus pods — preprocess/spam policies are scoped
+    # to those services only, so they do not block planner → Milvus.
     - to:
         - namespaceSelector:
             matchLabels:

@@ -138,13 +138,15 @@ async def _batch_embed_texts(texts: list[str]) -> list[list[float]]:
 # ---------------------------------------------------------------------------
 
 _MILVUS_TIMEOUT = 10
+# Best-effort probe during FastAPI lifespan so a slow/unreachable Milvus does not block startup for 4× full RPC timeouts.
+_MILVUS_STARTUP_CONNECT_TIMEOUT = 5.0
 
 # ---------------------------------------------------------------------------
 # Milvus client pool — enables truly parallel hybrid_search via asyncio.to_thread
 # ---------------------------------------------------------------------------
 
 _milvus_pool: asyncio.Queue | None = None
-_milvus_pool_init_lock = threading.Lock()
+_milvus_pool_async_lock = asyncio.Lock()
 
 _CONNECTION_DEAD_MARKERS = (
     "closed channel",
@@ -181,29 +183,64 @@ def _evict_dead_alias(client) -> None:
         pass
 
 
+def _try_create_milvus_client(*, timeout: float | None = None) -> Any | None:
+    """Return a connected MilvusClient or None (logs at debug)."""
+    try:
+        from pymilvus import MilvusClient
+
+        t = float(timeout) if timeout is not None else float(_MILVUS_TIMEOUT)
+        return MilvusClient(
+            uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
+            timeout=t,
+        )
+    except Exception as e:
+        logger.debug("milvus_client_create_failed", extra={"error": str(e)[:240]})
+        return None
+
+
 def _create_milvus_client():
-    from pymilvus import MilvusClient
+    """Create a client or raise — for paths that require a hard failure."""
+    c = _try_create_milvus_client()
+    if c is None:
+        raise ConnectionError(
+            f"Milvus unavailable at {settings.milvus_host}:{settings.milvus_port}",
+        )
+    return c
 
-    return MilvusClient(
-        uri=f"http://{settings.milvus_host}:{settings.milvus_port}",
-        timeout=_MILVUS_TIMEOUT,
-    )
+
+def _connect_clients_sync(count: int, connect_timeout: float | None) -> list[Any]:
+    """Blocking Milvus handshakes — run via asyncio.to_thread (never create asyncio.Queue there)."""
+    out: list[Any] = []
+    for _ in range(count):
+        c = _try_create_milvus_client(timeout=connect_timeout)
+        if c is not None:
+            out.append(c)
+    return out
 
 
-def _get_milvus_pool() -> asyncio.Queue:
-    """Return the shared pool, lazily creating it with settings.milvus_pool_size clients."""
+async def _ensure_milvus_pool_async() -> asyncio.Queue:
+    """Lazily build the pool on the event-loop thread; connect clients in a worker thread."""
     global _milvus_pool
     if _milvus_pool is not None:
         return _milvus_pool
-    with _milvus_pool_init_lock:
-        if _milvus_pool is None:
-            size = getattr(settings, "milvus_pool_size", 4)
-            pool = asyncio.Queue(maxsize=size)
-            for _ in range(size):
-                pool.put_nowait(_create_milvus_client())
-            _milvus_pool = pool
-            logger.info("milvus_pool_created", extra={"size": size})
-    return _milvus_pool
+    async with _milvus_pool_async_lock:
+        if _milvus_pool is not None:
+            return _milvus_pool
+        n = getattr(settings, "milvus_pool_size", 4)
+        clients = await asyncio.to_thread(_connect_clients_sync, n, None)
+        pool = asyncio.Queue(maxsize=n)
+        for c in clients:
+            pool.put_nowait(c)
+        _milvus_pool = pool
+        if pool.empty():
+            logger.warning(
+                "milvus_pool_empty_lazy_init",
+                extra={"host": settings.milvus_host, "port": settings.milvus_port},
+            )
+        else:
+            logger.info("milvus_pool_created", extra={"size": pool.qsize()})
+            ensure_milvus_keepalive()
+        return pool
 
 
 async def _acquire_milvus_client():
@@ -212,17 +249,22 @@ async def _acquire_milvus_client():
     Skips the expensive list_collections() round-trip.  Dead connections are
     detected and replaced inside _hybrid_search / _sparse_search retry loops.
     """
-    pool = _get_milvus_pool()
+    pool = await _ensure_milvus_pool_async()
     try:
         return await asyncio.wait_for(pool.get(), timeout=5.0)
     except TimeoutError:
         logger.warning("milvus_pool_exhausted")
-        return _create_milvus_client()
+    c = _try_create_milvus_client()
+    if c is None:
+        raise ConnectionError(
+            f"Milvus unavailable at {settings.milvus_host}:{settings.milvus_port}",
+        )
+    return c
 
 
 async def _release_milvus_client(client) -> None:
     """Return a client to the pool. If pool is full, discard it."""
-    pool = _get_milvus_pool()
+    pool = await _ensure_milvus_pool_async()
     with contextlib.suppress(asyncio.QueueFull):
         pool.put_nowait(client)
 
@@ -235,7 +277,7 @@ async def _keepalive_loop() -> None:
     """Background task: periodically ping all pool connections to prevent idle gRPC timeout."""
     while True:
         await asyncio.sleep(_KEEPALIVE_INTERVAL_S)
-        pool = _get_milvus_pool()
+        pool = await _ensure_milvus_pool_async()
         clients: list = []
         try:
             while not pool.empty():
@@ -248,9 +290,8 @@ async def _keepalive_loop() -> None:
             except Exception:
                 logger.debug("keepalive_replace_dead")
                 _evict_dead_alias(c)
-                try:
-                    c = _create_milvus_client()
-                except Exception:
+                c = _try_create_milvus_client()
+                if c is None:
                     continue
             with contextlib.suppress(asyncio.QueueFull):
                 pool.put_nowait(c)
@@ -273,7 +314,7 @@ async def warm_milvus_pool() -> None:
     Drains the pool, validates each client, replaces dead ones, and puts
     them all back. Much cheaper than discovering stale connections mid-search.
     """
-    pool = _get_milvus_pool()
+    pool = await _ensure_milvus_pool_async()
     clients: list = []
     try:
         while not pool.empty():
@@ -286,11 +327,10 @@ async def warm_milvus_pool() -> None:
             await asyncio.to_thread(c.list_collections)
         except Exception:
             _evict_dead_alias(c)
-            try:
-                c = _create_milvus_client()
-                replaced += 1
-            except Exception:
+            c = _try_create_milvus_client()
+            if c is None:
                 continue
+            replaced += 1
         with contextlib.suppress(asyncio.QueueFull):
             pool.put_nowait(c)
     if replaced:
@@ -298,10 +338,34 @@ async def warm_milvus_pool() -> None:
 
 
 async def init_milvus_pool() -> None:
-    """Eagerly create the pool and start keepalive at service startup."""
-    _get_milvus_pool()
-    ensure_milvus_keepalive()
-    logger.info("milvus_pool_init_eager")
+    """Fast Milvus probe during lifespan. Does not block the event loop for long.
+
+    If Milvus is down, the pool stays unset until first retrieval (full timeouts there).
+    """
+    global _milvus_pool
+    async with _milvus_pool_async_lock:
+        if _milvus_pool is not None:
+            ensure_milvus_keepalive()
+        else:
+            n = getattr(settings, "milvus_pool_size", 4)
+            clients = await asyncio.to_thread(_connect_clients_sync, n, _MILVUS_STARTUP_CONNECT_TIMEOUT)
+            if not clients:
+                logger.warning(
+                    "milvus_unreachable_at_startup",
+                    extra={
+                        "host": settings.milvus_host,
+                        "port": settings.milvus_port,
+                        "hint": "RAG returns empty until Milvus is reachable; pool initializes on first use",
+                    },
+                )
+            else:
+                pool = asyncio.Queue(maxsize=n)
+                for c in clients:
+                    pool.put_nowait(c)
+                _milvus_pool = pool
+                logger.info("milvus_pool_created", extra={"size": pool.qsize()})
+                ensure_milvus_keepalive()
+    logger.info("milvus_pool_init_complete")
 
 
 def _get_milvus_client():
@@ -707,12 +771,17 @@ async def _vector_search(
     filter_expr: str = "",
 ) -> list[dict[str, Any]]:
     """Semantic vector search via Milvus. filter_expr: taxonomy-aligned domain filter (e.g. domain in ["athletics_running"])."""
-    from pymilvus import MilvusClient
     from pymilvus.exceptions import MilvusException
 
-    client = MilvusClient(uri=f"http://{settings.milvus_host}:{settings.milvus_port}", timeout=_MILVUS_TIMEOUT)
+    client = _try_create_milvus_client()
+    if client is None:
+        return []
 
-    collections = client.list_collections()
+    try:
+        collections = client.list_collections()
+    except Exception as e:
+        logger.warning("vector_search_list_collections_failed", extra={"error": str(e)[:200]})
+        return []
     if collection not in collections:
         logger.warning("vector_search_collection_not_found", extra={"collection": collection, "available": collections})
         return []
@@ -743,7 +812,11 @@ async def _vector_search(
             else:
                 return []
         else:
-            raise
+            logger.warning("vector_search_milvus_failed", extra={"collection": collection, "error": str(e)[:200]})
+            return []
+    except Exception as e:
+        logger.warning("vector_search_failed", extra={"collection": collection, "error": str(e)[:200]})
+        return []
 
     formatted = []
     for hits in results:
@@ -860,6 +933,7 @@ async def _hybrid_search(
 
     last_err: BaseException | None = None
     discard = False
+    results = None
     try:
         for attempt in range(2):
             try:
@@ -876,9 +950,8 @@ async def _hybrid_search(
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
                     _evict_dead_alias(client)
-                    try:
-                        client = _create_milvus_client()
-                    except Exception:
+                    client = _try_create_milvus_client()
+                    if client is None:
                         discard = True
                         break
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
@@ -898,6 +971,9 @@ async def _hybrid_search(
     finally:
         if not discard:
             await _release_milvus_client(client)
+
+    if discard or results is None:
+        return []
 
     formatted: list[dict[str, Any]] = []
     for hit in results[0] if results else []:
@@ -1001,6 +1077,7 @@ async def _hybrid_search_with_vector(
 
     last_err: BaseException | None = None
     discard = False
+    results = None
     try:
         for attempt in range(2):
             try:
@@ -1017,9 +1094,8 @@ async def _hybrid_search_with_vector(
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
                     _evict_dead_alias(client)
-                    try:
-                        client = _create_milvus_client()
-                    except Exception:
+                    client = _try_create_milvus_client()
+                    if client is None:
                         discard = True
                         break
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
@@ -1036,6 +1112,9 @@ async def _hybrid_search_with_vector(
     finally:
         if not discard:
             await _release_milvus_client(client)
+
+    if discard or results is None:
+        return []
 
     return _format_hybrid_hits(results)
 
@@ -1215,9 +1294,8 @@ async def _sparse_search(
                 last_err = e
                 if _is_connection_dead_error(e) and attempt == 0:
                     _evict_dead_alias(client)
-                    try:
-                        client = _create_milvus_client()
-                    except Exception:
+                    client = _try_create_milvus_client()
+                    if client is None:
                         discard = True
                         break
                     logger.info("milvus_reconnect_retry", extra={"collection": collection, "attempt": 1})
@@ -1236,6 +1314,9 @@ async def _sparse_search(
     finally:
         if not discard:
             await _release_milvus_client(client)
+
+    if discard:
+        return []
 
     formatted: list[dict[str, Any]] = []
     for hits in results or []:
