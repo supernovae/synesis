@@ -169,6 +169,8 @@ from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
+from app.routers.vendors import router as vendors_router
+from app.routers.serving import router as serving_router
 from app.routers.yarn import router as yarn_router
 
 app.include_router(admin_mcp_router)
@@ -191,6 +193,8 @@ app.include_router(tokens_router)
 app.include_router(ingestion_router)
 app.include_router(ingestion_staged_router)
 app.include_router(usage_router)
+app.include_router(vendors_router)
+app.include_router(serving_router)
 app.include_router(yarn_router)
 
 

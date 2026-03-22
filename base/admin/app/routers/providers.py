@@ -15,6 +15,12 @@ from pydantic import BaseModel
 from ..auth import UserInfo, get_current_user, require_admin
 from ..services.admin_audit import record_admin_audit
 from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
+from ..services.provider_discovery import (
+    discover_models,
+    get_defaults_for_model,
+    supported_discovery_providers,
+    validate_model_id,
+)
 
 logger = logging.getLogger("synesis.admin.providers")
 
@@ -252,6 +258,50 @@ def _coerce_int(value: object) -> int | None:
 async def provider_catalog(_user=Depends(get_current_user)):
     """Return the provider catalog and canonical role list for the frontend."""
     return get_catalog()
+
+
+@router.get("/discovery/supported")
+async def discovery_supported(_user=Depends(get_current_user)):
+    """List provider keys that support model discovery."""
+    return {"providers": supported_discovery_providers()}
+
+
+@router.get("/discovery/{provider_key}/models")
+async def discovery_models(
+    provider_key: str,
+    bypass_cache: bool = False,
+    _user=Depends(get_current_user),
+):
+    """Fetch available models from a provider's API.
+
+    Results are cached for 5 minutes.  Pass ``?bypass_cache=true`` to force a
+    fresh fetch.
+    """
+    result = await discover_models(provider_key, bypass_cache=bypass_cache)
+    return result.to_dict()
+
+
+@router.get("/discovery/{provider_key}/defaults")
+async def discovery_defaults(
+    provider_key: str,
+    model_id: str = "",
+    context_window: int | None = None,
+    _user=Depends(get_current_user),
+):
+    """Get recommended LiteLLM defaults for a provider + model pair."""
+    defaults = get_defaults_for_model(provider_key, model_id, context_window)
+    return defaults.to_dict()
+
+
+@router.post("/discovery/validate")
+async def discovery_validate(
+    body: dict,
+    _user=Depends(get_current_user),
+):
+    """Validate a model ID for a given provider and return hints."""
+    provider_key = body.get("provider", "")
+    model_id = body.get("model", "")
+    return validate_model_id(provider_key, model_id)
 
 
 @router.get("/keys")

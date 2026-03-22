@@ -52,6 +52,8 @@ const navigation: NavItem[] = [
     icon: Layers,
     children: [
       { label: "Registry", path: "/models" },
+      { label: "Vendors", path: "/models/vendors" },
+      { label: "Serving", path: "/models/serving" },
       { label: "Cost Tracker", path: "/models/costs" },
       { label: "Performance", path: "/models/performance" },
     ],

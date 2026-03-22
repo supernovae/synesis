@@ -108,6 +108,41 @@ export interface ProviderInfo {
   needs_endpoint: boolean;
   placeholder: string;
   is_local: boolean;
+  supports_discovery: boolean;
+}
+
+export interface DiscoveredModel {
+  id: string;
+  name: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  supports_streaming: boolean;
+  supports_tools: boolean;
+  pricing_input_per_million: number | null;
+  pricing_output_per_million: number | null;
+}
+
+export interface DiscoveryResult {
+  provider: string;
+  models: DiscoveredModel[];
+  error: string | null;
+  cached: boolean;
+  count: number;
+}
+
+export interface ProviderDefaults {
+  max_tokens: number;
+  temperature: number;
+  supports_streaming: boolean;
+  supports_tools: boolean;
+  context_window: number | null;
+  notes: string;
+}
+
+export interface ModelValidation {
+  valid: boolean;
+  reason?: string;
+  suggestion?: string;
 }
 
 export interface RoleInfo {
@@ -128,6 +163,54 @@ export interface LiteLLMRestartStatus {
   updated_replicas: number;
   ready_replicas: number;
   available_replicas: number;
+}
+
+export interface VendorConfig {
+  id: number;
+  provider_key: string;
+  enabled: boolean;
+  default_max_tokens: number;
+  default_temperature: number;
+  allowed_roles: string[] | null;
+  policies: Record<string, unknown> | null;
+  notes: string;
+  updated_at: string | null;
+}
+
+export interface VendorInfo extends ProviderInfo {
+  config: VendorConfig | null;
+  enabled: boolean;
+  default_max_tokens: number;
+  default_temperature: number;
+  allowed_roles: string[] | null;
+  policies: Record<string, unknown> | null;
+  notes: string;
+  config_updated_at: string | null;
+}
+
+export interface ServingEndpointEntry {
+  id: number;
+  name: string;
+  provider: string;
+  model: string;
+  endpoint_url: string;
+  api_key_env: string;
+  allowed_roles: string[] | null;
+  is_active: boolean;
+  notes: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ServingHealthCheck {
+  id: number;
+  name: string;
+  provider: string;
+  model: string;
+  reachable: boolean;
+  status_code: number | null;
+  latency_ms: number | null;
+  error: string;
 }
 
 export interface RoleHistoryEntry {

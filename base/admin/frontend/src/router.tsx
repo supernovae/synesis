@@ -15,6 +15,8 @@ const AccountUsage = lazy(() => import("./pages/account/Usage"));
 const ModelRegistry = lazy(() => import("./pages/models/ModelRegistry"));
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
 const ModelPerformance = lazy(() => import("./pages/models/ModelPerformance"));
+const VendorManagement = lazy(() => import("./pages/models/VendorManagement"));
+const ServingManagement = lazy(() => import("./pages/models/ServingManagement"));
 
 const CorpusOverview = lazy(() => import("./pages/rag/CorpusOverview"));
 const QualityDashboard = lazy(() => import("./pages/rag/QualityDashboard"));
@@ -83,6 +85,8 @@ export const router = createBrowserRouter([
       { path: "models", element: <ModelRegistry /> },
       { path: "models/costs", element: <CostTracker /> },
       { path: "models/performance", element: <ModelPerformance /> },
+      { path: "models/vendors", element: <VendorManagement /> },
+      { path: "models/serving", element: <ServingManagement /> },
 
       { path: "rag/corpus", element: <CorpusOverview /> },
       { path: "rag/quality", element: <QualityDashboard /> },

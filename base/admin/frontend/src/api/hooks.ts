@@ -321,6 +321,129 @@ export function useProviderCatalog() {
   });
 }
 
+export function useDiscoverModels(providerKey: string | null, bypassCache = false) {
+  return useQuery<import("../types").DiscoveryResult>({
+    queryKey: ["providers", "discovery", providerKey, bypassCache],
+    queryFn: () =>
+      client
+        .get(`/providers/discovery/${providerKey}/models`, { params: { bypass_cache: bypassCache } })
+        .then((r) => r.data),
+    enabled: !!providerKey,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useProviderDefaults(providerKey: string, modelId: string, contextWindow?: number | null) {
+  return useQuery<import("../types").ProviderDefaults>({
+    queryKey: ["providers", "defaults", providerKey, modelId, contextWindow],
+    queryFn: () =>
+      client
+        .get(`/providers/discovery/${providerKey}/defaults`, {
+          params: { model_id: modelId, context_window: contextWindow ?? undefined },
+        })
+        .then((r) => r.data),
+    enabled: !!providerKey && !!modelId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useValidateModel() {
+  return useMutation<import("../types").ModelValidation, Error, { provider: string; model: string }>({
+    mutationFn: (data) =>
+      client.post("/providers/discovery/validate", data).then((r) => r.data),
+  });
+}
+
+// --- Vendor Management ---
+
+export function useVendors() {
+  return useQuery<{ vendors: import("../types").VendorInfo[] }>({
+    queryKey: ["vendors"],
+    queryFn: () => client.get("/vendors").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useUpdateVendor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ providerKey, ...data }: { providerKey: string } & Partial<import("../types").VendorConfig>) =>
+      client.put(`/vendors/${providerKey}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useResetVendor() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerKey: string) =>
+      client.delete(`/vendors/${providerKey}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+// --- Serving Management ---
+
+export function useServingEndpoints() {
+  return useQuery<{ endpoints: import("../types").ServingEndpointEntry[] }>({
+    queryKey: ["serving", "endpoints"],
+    queryFn: () => client.get("/serving/endpoints").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useCreateServingEndpoint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<import("../types").ServingEndpointEntry> & { name: string; provider: string; model: string }) =>
+      client.post("/serving/endpoints", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["serving"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useUpdateServingEndpoint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").ServingEndpointEntry>) =>
+      client.put(`/serving/endpoints/${id}`, data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["serving"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeleteServingEndpoint() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      client.delete(`/serving/endpoints/${id}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["serving"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useServingHealth() {
+  return useQuery<{ endpoints: import("../types").ServingHealthCheck[] }>({
+    queryKey: ["serving", "health"],
+    queryFn: () => client.get("/serving/health").then((r) => r.data),
+    refetchInterval: 15_000,
+  });
+}
+
 export function usePerformanceByRole(days: number = 7) {
   return useQuery<{ roles: import("../types").RolePerformance[]; period_days: number }>({
     queryKey: ["models", "performance", "by-role", days],

@@ -48,10 +48,21 @@ ROLE_DESCRIPTIONS = {
 }
 
 
+_DISCOVERY_PROVIDERS = frozenset([
+    "openrouter", "deepinfra", "groq", "together", "fireworks",
+    "openai", "xai", "mistral", "anthropic",
+])
+
+
 def get_catalog() -> dict:
     """Return catalog payload for GET /providers/catalog."""
+    providers_out: dict[str, dict] = {}
+    for k, v in PROVIDER_CATALOG.items():
+        d = asdict(v)
+        d["supports_discovery"] = k in _DISCOVERY_PROVIDERS
+        providers_out[k] = d
     return {
-        "providers": {k: asdict(v) for k, v in PROVIDER_CATALOG.items()},
+        "providers": providers_out,
         "roles": [
             {"key": r, "served_name": f"synesis-{r}", "description": ROLE_DESCRIPTIONS.get(r, "")}
             for r in KNOWN_ROLES
