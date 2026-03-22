@@ -41,3 +41,6 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Fail-safe: keep cluster service discovery available even if CNI matching
+    # behavior changes for specific peer selectors.
+    - {}

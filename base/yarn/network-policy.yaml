@@ -74,3 +74,6 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # Fail-safe: keep cluster service discovery available even if CNI matching
+    # behavior changes for specific peer selectors.
+    - {}
