@@ -5,11 +5,16 @@ WORKDIR /opt/app-root/src
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+# Same as yarn: avoid `uv pip install --system` writing under /usr/local (not writable on UBI in CI).
+RUN uv venv /opt/app-root/venv \
+    && uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
 
 COPY app/ app/
 
 USER 1001
+
+ENV PATH="/opt/app-root/venv/bin:${PATH}"
+ENV VIRTUAL_ENV=/opt/app-root/venv
 
 EXPOSE 8100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
