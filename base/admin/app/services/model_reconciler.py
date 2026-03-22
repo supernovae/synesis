@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
 
+import httpx
 from sqlalchemy import select
 
 from ..db.engine import async_session
@@ -19,6 +22,13 @@ PROTECTED_MODELS = frozenset({"synesis-agent", "synesis-thinking", "synesis-yarn
 
 # Compared to detect routing drift (/model/info omits redacted secrets — omit api_key).
 _ROUTING_KEYS = ("model", "api_base", "max_tokens", "temperature")
+_SECRET_NAME = "provider-api-keys"
+_SECRET_NAMESPACE = os.environ.get("SYNESIS_GATEWAY_NAMESPACE", "synesis-gateway")
+_SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+_SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+_K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+_K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+_HTTP_TIMEOUT_SECONDS = 10
 
 
 def _litellm_routing_differ(wanted: dict | None, got: dict | None) -> bool:
@@ -31,47 +41,140 @@ def _litellm_routing_differ(wanted: dict | None, got: dict | None) -> bool:
     return False
 
 
-def _index_litellm_by_name(litellm_models: list[dict]) -> dict[str, dict]:
-    by_name: dict[str, dict] = {}
+def _index_litellm_by_name(litellm_models: list[dict]) -> dict[str, list[dict]]:
+    by_name: dict[str, list[dict]] = {}
     for m in litellm_models:
         name = m.get("model_name", "")
         mid = m.get("model_info", {}).get("id", "")
+        dep_id = m.get("model_info", {}).get("synesis_deployment_id")
         if name:
-            by_name[name] = {"id": mid, "raw": m}
+            by_name.setdefault(name, []).append({"id": mid, "raw": m, "deployment_id": dep_id})
     return by_name
 
 
-async def _push_active_route(row: ModelDeployment, existing: dict | None) -> tuple[str, bool]:
+def _k8s_base() -> str:
+    return f"https://{_K8S_HOST}:{_K8S_PORT}"
+
+
+def _k8s_verify() -> str | bool:
+    return _SA_CA_PATH if os.path.exists(_SA_CA_PATH) else False
+
+
+def _k8s_headers() -> dict[str, str]:
+    try:
+        with open(_SA_TOKEN_PATH) as f:
+            token = f.read().strip()
+    except FileNotFoundError:
+        logger.warning("reconcile_k8s_sa_token_missing")
+        return {}
+    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+
+async def _load_provider_api_keys() -> dict[str, str]:
+    headers = _k8s_headers()
+    if not headers:
+        return {}
+    url = f"{_k8s_base()}/api/v1/namespaces/{_SECRET_NAMESPACE}/secrets/{_SECRET_NAME}"
+    try:
+        async with httpx.AsyncClient(verify=_k8s_verify()) as client:
+            resp = await client.get(url, headers=headers, timeout=_HTTP_TIMEOUT_SECONDS)
+            if resp.status_code == 404:
+                return {}
+            resp.raise_for_status()
+            data = (resp.json() or {}).get("data", {})
+            out: dict[str, str] = {}
+            for k, v in data.items():
+                try:
+                    out[k] = base64.b64decode(v).decode()
+                except Exception:
+                    logger.warning("reconcile_provider_key_decode_failed env=%s", k)
+            return out
+    except Exception:
+        logger.warning("reconcile_provider_keys_read_failed", exc_info=True)
+        return {}
+
+
+def _resolve_litellm_params(raw_params: dict | None, provider_keys: dict[str, str]) -> tuple[dict, bool]:
+    params = dict(raw_params or {})
+    unresolved = False
+    api_key = params.get("api_key")
+    if isinstance(api_key, str) and api_key.startswith("os.environ/"):
+        key_name = api_key.split("/", 1)[1].strip()
+        resolved = (provider_keys.get(key_name) or "").strip()
+        if resolved:
+            params["api_key"] = resolved
+        else:
+            unresolved = True
+            logger.warning("reconcile_missing_provider_key env=%s", key_name)
+    return params, unresolved
+
+
+async def _delete_routes(served_name: str, routes: list[dict]) -> tuple[bool, int]:
+    deleted = 0
+    ok = True
+    for r in routes:
+        rid = r.get("id", "")
+        if not rid:
+            continue
+        removed = await litellm_client.delete_model(rid)
+        if removed:
+            deleted += 1
+        else:
+            ok = False
+            logger.warning("reconcile_remove_failed model=%s id=%s", served_name, rid)
+    return ok, deleted
+
+
+async def _push_active_route(
+    row: ModelDeployment,
+    existing_routes: list[dict],
+    provider_keys: dict[str, str],
+) -> tuple[str, bool, int]:
     """Sync one active deployment to LiteLLM.
 
-    Returns (action, success) where action is unchanged|added|updated|error|skip_no_model.
+    Returns (action, success, removed_count) where action is unchanged|added|updated|error|skip_no_model.
     """
     served_name = row.served_name
-    params = dict(row.litellm_params) if row.litellm_params else {}
+    params, unresolved_key = _resolve_litellm_params(row.litellm_params, provider_keys)
     if not params.get("model"):
         logger.warning("reconcile_skip_no_model served=%s", served_name)
-        return "skip_no_model", False
+        return "skip_no_model", False, 0
+    if unresolved_key:
+        await _update_litellm_model_id(row.id, None, "error")
+        return "error", False, 0
 
     mi = {"synesis_deployment_id": row.id, "source": row.source}
+    removed_count = 0
 
-    if existing:
-        got_params = (existing.get("raw") or {}).get("litellm_params") or {}
+    canonical = None
+    for r in existing_routes:
+        if r.get("deployment_id") == row.id:
+            canonical = r
+            break
+
+    if canonical:
+        got_params = (canonical.get("raw") or {}).get("litellm_params") or {}
+        keep_id = canonical.get("id", "")
         if not _litellm_routing_differ(params, got_params):
-            eid = existing.get("id", "")
-            if eid:
-                await _update_litellm_model_id(row.id, eid, "active")
-            return "unchanged", True
+            dupes = [r for r in existing_routes if r.get("id") and r.get("id") != keep_id]
+            if dupes:
+                ok, removed = await _delete_routes(served_name, dupes)
+                removed_count += removed
+                if not ok:
+                    await _update_litellm_model_id(row.id, keep_id or None, "active")
+                    return "error", False, removed_count
+                await _update_litellm_model_id(row.id, keep_id or None, "active")
+                return "updated", True, removed_count
+            if keep_id:
+                await _update_litellm_model_id(row.id, keep_id, "active")
+            return "unchanged", True, 0
 
-        eid = existing.get("id", "")
-        if eid:
-            deleted = await litellm_client.delete_model(eid)
-            if not deleted:
-                logger.warning(
-                    "reconcile_param_drift_delete_failed served=%s "
-                    "(config-backed model? remove from litellm ConfigMap or enable DB routes)",
-                    served_name,
-                )
-                return "error", False
+    had_existing = bool(existing_routes)
+    if had_existing:
+        ok, removed = await _delete_routes(served_name, existing_routes)
+        removed_count += removed
+        if not ok:
+            return "error", False, removed_count
 
     result = await litellm_client.add_model(
         model_name=served_name,
@@ -81,11 +184,11 @@ async def _push_active_route(row: ModelDeployment, existing: dict | None) -> tup
     if result:
         model_id = result.get("model_info", {}).get("id", "")
         await _update_litellm_model_id(row.id, model_id, "active")
-        return ("updated" if existing else "added"), True
+        return ("updated" if had_existing else "added"), True, removed_count
 
     await _update_litellm_model_id(row.id, None, "error")
     logger.warning("reconcile_add_failed served=%s", served_name)
-    return "error", False
+    return "error", False, removed_count
 
 
 async def reconcile() -> dict:
@@ -95,6 +198,7 @@ async def reconcile() -> dict:
     """
     litellm_models = await litellm_client.list_models()
     litellm_by_name = _index_litellm_by_name(litellm_models)
+    provider_keys = await _load_provider_api_keys()
 
     async with async_session() as session:
         result = await session.execute(
@@ -111,14 +215,16 @@ async def reconcile() -> dict:
     removed = 0
     unchanged = 0
     failed = 0
+    duplicate_routes_removed = 0
 
     for served_name, row in db_by_served.items():
         if served_name in PROTECTED_MODELS:
             unchanged += 1
             continue
 
-        existing = litellm_by_name.get(served_name)
-        action, ok = await _push_active_route(row, existing)
+        existing_routes = litellm_by_name.get(served_name, [])
+        action, ok, removed_count = await _push_active_route(row, existing_routes, provider_keys)
+        duplicate_routes_removed += removed_count
         if action == "unchanged":
             unchanged += 1
         elif action == "added" and ok:
@@ -130,17 +236,16 @@ async def reconcile() -> dict:
         elif action == "error" or not ok:
             failed += 1  # logged in _push_active_route
 
-    for name, info in litellm_by_name.items():
+    for name, routes in litellm_by_name.items():
         if name in PROTECTED_MODELS:
             continue
-        if name not in db_by_served and info["id"]:
-            ok = await litellm_client.delete_model(info["id"])
+        if name not in db_by_served:
+            ok, removed_count = await _delete_routes(name, routes)
+            removed += removed_count
             if ok:
-                removed += 1
                 logger.info("reconcile_removed model=%s", name)
             else:
                 failed += 1
-                logger.warning("reconcile_remove_failed model=%s", name)
 
     # Push fallback configuration to LiteLLM for active models that have fallbacks defined
     fallback_map: list[dict[str, list[str]]] = []
@@ -162,6 +267,7 @@ async def reconcile() -> dict:
         "removed": removed,
         "unchanged": unchanged,
         "failed": failed,
+        "duplicate_routes_removed": duplicate_routes_removed,
         "total_active": len(active_rows),
         "fallbacks_configured": len(fallback_map),
     }
@@ -182,11 +288,16 @@ async def reconcile_single(deployment_id: int) -> bool:
 
         if row.is_active:
             litellm_by_name = _index_litellm_by_name(await litellm_client.list_models())
-            existing = litellm_by_name.get(served_name)
-            action, ok = await _push_active_route(row, existing)
+            existing_routes = litellm_by_name.get(served_name, [])
+            provider_keys = await _load_provider_api_keys()
+            action, ok, _removed = await _push_active_route(row, existing_routes, provider_keys)
             return ok and action != "skip_no_model"
         else:
-            if row.litellm_model_id:
+            litellm_by_name = _index_litellm_by_name(await litellm_client.list_models())
+            existing_routes = litellm_by_name.get(served_name, [])
+            if existing_routes:
+                await _delete_routes(served_name, existing_routes)
+            elif row.litellm_model_id:
                 await litellm_client.delete_model(row.litellm_model_id)
             await _update_litellm_model_id(row.id, None, "configured")
             return True

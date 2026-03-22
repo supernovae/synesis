@@ -114,7 +114,10 @@ proxy_config:
     request_timeout: 300
   general_settings:
     master_key: os.environ/PROXY_MASTER_KEY
-    forward_client_headers_to_llm_api: true
+    # Do not forward inbound Authorization headers to upstream providers.
+    # Provider auth must use per-route api_key values (from secrets/registry),
+    # otherwise user/session bearer tokens can override provider keys and cause 401s.
+    forward_client_headers_to_llm_api: false
     background_health_checks: false
     database_connection_pool_limit: 10
     database_connection_timeout: 60
