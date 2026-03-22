@@ -67,9 +67,11 @@ async def get_summary_unified(
 
     if role >= Role.org_admin:
         try:
+            yarn_scope_org_id = scope_org_id if role < Role.platform_admin else ""
             out["yarn"] = await yarn_service.get_yarn_overview(
                 since_hours=since_hours,
                 scope_user_id="",
+                scope_org_id=yarn_scope_org_id,
             )
         except Exception:
             logger.warning("usage_unified_yarn_overview_failed", exc_info=True)

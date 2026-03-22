@@ -8,11 +8,12 @@ from datetime import date as date_type
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import text
+from sqlalchemy import func, text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..rbac import require_platform_admin
+from ..db.models import Trace
+from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.admin_audit import record_admin_audit
 from ..services.model_registry import (
@@ -632,17 +633,22 @@ async def update_model_cost(
 
 @router.get("/costs/by-model")
 async def costs_by_model(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-model cost breakdown including estimated and actual costs."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT full_record, estimated_cost_usd, actual_cost_usd FROM traces WHERE timestamp >= :cutoff"),
-                {"cutoff": cutoff},
-            )
+            q = select(Trace.full_record, Trace.estimated_cost_usd, Trace.actual_cost_usd).where(Trace.timestamp >= cutoff)
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
 
         model_agg: dict[str, dict] = {}
@@ -714,17 +720,22 @@ async def costs_by_model(
 
 @router.get("/costs/by-role")
 async def costs_by_role(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-role cost breakdown from trace LLM calls, with estimated and actual costs."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT full_record FROM traces WHERE timestamp >= :cutoff"),
-                {"cutoff": cutoff},
-            )
+            q = select(Trace.full_record).where(Trace.timestamp >= cutoff)
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
 
         role_agg: dict[str, dict] = {}
@@ -803,30 +814,33 @@ def _infer_role(node_name: str, model_name: str) -> str:
 
 @router.get("/costs/daily")
 async def costs_daily(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-day cost rollup with both estimated and actual costs."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text(
-                    """
-                    SELECT
-                        DATE(to_timestamp(timestamp)) AS day,
-                        SUM(total_tokens)::bigint AS tokens,
-                        COUNT(*)::int AS requests,
-                        SUM(estimated_cost_usd) AS estimated_cost,
-                        SUM(actual_cost_usd) AS actual_cost
-                    FROM traces
-                    WHERE timestamp >= :cutoff
-                    GROUP BY DATE(to_timestamp(timestamp))
-                    ORDER BY day
-                    """
-                ),
-                {"cutoff": cutoff},
+            q = (
+                select(
+                    func.date(func.to_timestamp(Trace.timestamp)).label("day"),
+                    func.sum(Trace.total_tokens).label("tokens"),
+                    func.count().label("requests"),
+                    func.sum(Trace.estimated_cost_usd).label("estimated_cost"),
+                    func.sum(Trace.actual_cost_usd).label("actual_cost"),
+                )
+                .where(Trace.timestamp >= cutoff)
+                .group_by(func.date(func.to_timestamp(Trace.timestamp)))
+                .order_by(func.date(func.to_timestamp(Trace.timestamp)))
             )
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
             return {
                 "daily": [
@@ -893,7 +907,7 @@ async def cost_rate_history(
 
 
 @router.get("/performance")
-async def model_performance(_user: UserInfo = Depends(get_current_user)):
+async def model_performance(_user: UserInfo = Depends(require_org_admin)):
     models = await prom.get_model_performance()
     return {"models": models, "period": "24h"}
 
@@ -905,17 +919,22 @@ async def model_performance(_user: UserInfo = Depends(get_current_user)):
 
 @router.get("/performance/detailed")
 async def performance_detailed(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-model performance metrics aggregated from trace LLM calls."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT full_record FROM traces WHERE timestamp >= :cutoff"),
-                {"cutoff": cutoff},
-            )
+            q = select(Trace.full_record).where(Trace.timestamp >= cutoff)
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
 
         model_stats: dict[str, dict] = {}
@@ -970,17 +989,22 @@ async def performance_detailed(
 
 @router.get("/performance/latency-trend")
 async def latency_trend(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(14, ge=1, le=90),
 ):
     """Per-model daily latency trend from trace LLM calls."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT timestamp, full_record FROM traces WHERE timestamp >= :cutoff"),
-                {"cutoff": cutoff},
-            )
+            q = select(Trace.timestamp, Trace.full_record).where(Trace.timestamp >= cutoff)
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
 
         DayModel = tuple[str, str]  # (date_str, model)
@@ -1021,17 +1045,22 @@ async def latency_trend(
 
 @router.get("/performance/by-role")
 async def performance_by_role(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     days: int = Query(7, ge=1, le=90),
 ):
     """Per-role performance metrics aggregated from trace LLM calls."""
     cutoff = time.time() - days * 86400
+    scope = trace_scope_filters(_user)
+    scope_user_id = scope.get("user_id", "")
+    scope_org_id = scope.get("org_id", "")
     try:
         async with async_session() as session:
-            result = await session.execute(
-                text("SELECT full_record FROM traces WHERE timestamp >= :cutoff"),
-                {"cutoff": cutoff},
-            )
+            q = select(Trace.full_record).where(Trace.timestamp >= cutoff)
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+            result = await session.execute(q)
             rows = result.all()
 
         role_stats: dict[str, dict] = {}

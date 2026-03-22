@@ -19,6 +19,7 @@ class RateLimits(BaseModel):
 class SessionState(BaseModel):
     session_key: str
     user_id: str
+    org_id: str = ""
     username: str = ""
     role: str = "user"
     conversation_id: str = ""
@@ -38,6 +39,7 @@ class AuthUser(BaseModel):
     """Resolved identity from JWT or PAT."""
 
     user_id: str
+    org_id: str = ""
     username: str = ""
     role: str = "user"
     auth_method: str = "pat"  # "keycloak" | "pat" | "legacy"

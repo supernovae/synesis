@@ -43,13 +43,13 @@ async def persist_session_upsert(session: SessionState) -> None:
                 text(
                     """
                     INSERT INTO yarn_sessions (
-                        session_key, user_id, username, role, conversation_id,
+                        session_key, user_id, org_id, username, role, conversation_id,
                         provider, model,
                         total_tokens_in, total_tokens_out, total_tokens_cached, total_cost_usd,
                         request_count, escalation_count,
                         created_at, last_active_at
                     ) VALUES (
-                        :session_key, :user_id, :username, :role, :conversation_id,
+                        :session_key, :user_id, :org_id, :username, :role, :conversation_id,
                         :provider, :model,
                         :total_tokens_in, :total_tokens_out, :total_tokens_cached, :total_cost_usd,
                         :request_count, :escalation_count,
@@ -57,6 +57,7 @@ async def persist_session_upsert(session: SessionState) -> None:
                     )
                     ON CONFLICT (session_key) DO UPDATE SET
                         user_id = EXCLUDED.user_id,
+                        org_id = EXCLUDED.org_id,
                         username = EXCLUDED.username,
                         role = EXCLUDED.role,
                         conversation_id = EXCLUDED.conversation_id,
@@ -74,6 +75,7 @@ async def persist_session_upsert(session: SessionState) -> None:
                 {
                     "session_key": session.session_key,
                     "user_id": session.user_id,
+                    "org_id": session.org_id or "",
                     "username": session.username or "",
                     "role": session.role or "user",
                     "conversation_id": session.conversation_id or "",
@@ -101,6 +103,7 @@ async def persist_usage_log(
     session_key: str,
     request_id: str,
     user_id: str,
+    org_id: str,
     provider: str,
     model: str,
     tokens_in: int,
@@ -129,11 +132,11 @@ async def persist_usage_log(
                 text(
                     """
                     INSERT INTO yarn_usage_log (
-                        session_key, request_id, user_id, provider, model,
+                        session_key, request_id, user_id, org_id, provider, model,
                         tokens_in, tokens_out, tokens_cached, latency_ms, cost_usd,
                         escalated, tool_calls_count, finish_reason
                     ) VALUES (
-                        :session_key, :request_id, :user_id, :provider, :model,
+                        :session_key, :request_id, :user_id, :org_id, :provider, :model,
                         :tokens_in, :tokens_out, :tokens_cached, :latency_ms, :cost_usd,
                         :escalated, :tool_calls_count, :finish_reason
                     )
@@ -143,6 +146,7 @@ async def persist_usage_log(
                     "session_key": session_key[:256],
                     "request_id": rid,
                     "user_id": user_id[:256],
+                    "org_id": (org_id or "")[:256],
                     "provider": provider[:64],
                     "model": model[:256],
                     "tokens_in": tokens_in,

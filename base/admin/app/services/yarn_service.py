@@ -30,6 +30,8 @@ async def get_yarn_overview(
         base = select(YarnUsageLog).where(YarnUsageLog.created_at >= cutoff)
         if scope_user_id:
             base = base.where(YarnUsageLog.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnUsageLog.org_id == scope_org_id)
 
         sub = base.subquery()
 
@@ -58,8 +60,14 @@ async def get_yarn_overview(
         )
         error_count = error_count_res.scalar() or 0
 
+        active_sessions_base = select(YarnSession).where(YarnSession.last_active_at >= cutoff)
+        if scope_user_id:
+            active_sessions_base = active_sessions_base.where(YarnSession.user_id == scope_user_id)
+        elif scope_org_id:
+            active_sessions_base = active_sessions_base.where(YarnSession.org_id == scope_org_id)
+
         active_sessions_res = await session.execute(
-            select(func.count()).select_from(select(YarnSession).where(YarnSession.last_active_at >= cutoff).subquery())
+            select(func.count()).select_from(active_sessions_base.subquery())
         )
         active_sessions = active_sessions_res.scalar() or 0
 
@@ -88,12 +96,15 @@ async def list_yarn_sessions(
     page: int = 1,
     page_size: int = 20,
     scope_user_id: str = "",
+    scope_org_id: str = "",
     active_since_hours: int | None = None,
 ) -> dict:
     async with async_session() as session:
         base = select(YarnSession)
         if scope_user_id:
             base = base.where(YarnSession.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnSession.org_id == scope_org_id)
         if active_since_hours:
             base = base.where(YarnSession.last_active_at >= _cutoff(active_since_hours))
 
@@ -109,6 +120,7 @@ async def list_yarn_sessions(
             "id": r.id,
             "session_key": r.session_key,
             "user_id": r.user_id,
+            "org_id": r.org_id,
             "username": r.username,
             "role": r.role,
             "conversation_id": r.conversation_id,
@@ -131,9 +143,17 @@ async def list_yarn_sessions(
 # ── Session detail ────────────────────────────────────────────────────────────
 
 
-async def get_yarn_session_detail(session_key: str) -> dict | None:
+async def get_yarn_session_detail(
+    session_key: str,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict | None:
     async with async_session() as session:
         stmt = select(YarnSession).where(YarnSession.session_key == session_key).limit(1)
+        if scope_user_id:
+            stmt = stmt.where(YarnSession.user_id == scope_user_id)
+        elif scope_org_id:
+            stmt = stmt.where(YarnSession.org_id == scope_org_id)
         result = await session.execute(stmt)
         r = result.scalar_one_or_none()
         if not r:
@@ -145,6 +165,10 @@ async def get_yarn_session_detail(session_key: str) -> dict | None:
             .order_by(YarnUsageLog.created_at.desc())
             .limit(100)
         )
+        if scope_user_id:
+            req_stmt = req_stmt.where(YarnUsageLog.user_id == scope_user_id)
+        elif scope_org_id:
+            req_stmt = req_stmt.where(YarnUsageLog.org_id == scope_org_id)
         req_result = await session.execute(req_stmt)
         requests = req_result.scalars().all()
 
@@ -153,6 +177,7 @@ async def get_yarn_session_detail(session_key: str) -> dict | None:
             "id": r.id,
             "session_key": r.session_key,
             "user_id": r.user_id,
+            "org_id": r.org_id,
             "username": r.username,
             "role": r.role,
             "conversation_id": r.conversation_id,
@@ -195,6 +220,7 @@ async def list_yarn_events(
     page: int = 1,
     page_size: int = 50,
     scope_user_id: str = "",
+    scope_org_id: str = "",
     since_hours: int = 24,
     errors_only: bool = False,
 ) -> dict:
@@ -203,6 +229,8 @@ async def list_yarn_events(
         base = select(YarnUsageLog).where(YarnUsageLog.created_at >= cutoff)
         if scope_user_id:
             base = base.where(YarnUsageLog.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnUsageLog.org_id == scope_org_id)
         if errors_only:
             base = base.where(
                 (YarnUsageLog.escalated == True)
@@ -222,6 +250,7 @@ async def list_yarn_events(
             "session_key": r.session_key,
             "request_id": r.request_id,
             "user_id": r.user_id,
+            "org_id": r.org_id,
             "provider": r.provider,
             "model": r.model,
             "tokens_in": r.tokens_in,
@@ -246,6 +275,7 @@ async def get_yarn_performance(
     since_hours: int = 24,
     bucket_minutes: int = 15,
     scope_user_id: str = "",
+    scope_org_id: str = "",
 ) -> list[dict]:
     cutoff = _cutoff(since_hours)
     async with async_session() as session:
@@ -266,6 +296,7 @@ async def get_yarn_performance(
             FROM yarn_usage_log
             WHERE created_at >= :cutoff
             AND (:uid = '' OR user_id = :uid)
+            AND (:oid = '' OR org_id = :oid)
             GROUP BY bucket
             ORDER BY bucket
         """)
@@ -275,6 +306,7 @@ async def get_yarn_performance(
                 "cutoff": cutoff,
                 "bucket": bucket_minutes,
                 "uid": scope_user_id or "",
+                "oid": scope_org_id or "",
             },
         )
         rows = result.mappings().all()

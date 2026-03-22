@@ -10,6 +10,9 @@ export default function SmartLanding() {
   if (user && OPS_ROLES.has(user.role)) {
     return <Navigate to="/yarn" replace />;
   }
+  if (user) {
+    return <Navigate to="/account" replace />;
+  }
   return (
     <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-gray-100" />}>
       <LazyDashboard />

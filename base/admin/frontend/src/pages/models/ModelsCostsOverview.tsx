@@ -1,19 +1,25 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useUsageSummaryUnified } from "../../api/hooks";
+import { usePipelineServices, useRoleAssignments, useUsageSummaryUnified } from "../../api/hooks";
 import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
 import { fmtCost, fmtTokens } from "../../lib/formatUsage";
-import { Layers, Server, Gauge, LineChart, Sparkles } from "lucide-react";
+import { Layers, Server, Gauge, LineChart, Sparkles, Cloud } from "lucide-react";
 
 const HOURS_CHIPS = [24, 72, 168] as const;
 
 export default function ModelsCostsOverview() {
   const [sinceHours, setSinceHours] = useState<number>(24);
   const { data, isLoading } = useUsageSummaryUnified(sinceHours);
+  const { data: rolesData } = useRoleAssignments();
+  const { data: servicesData } = usePipelineServices();
 
   const roll = data?.pipeline?.rollups;
   const tr = data?.pipeline?.traces;
   const yarn = data?.yarn;
+  const activeRoles = (rolesData?.roles ?? []).filter((r) => r.assigned);
+  const mainRoles = activeRoles.filter((r) => !["coder", "summarizer"].includes(r.role));
+  const microRoles = activeRoles.filter((r) => ["coder", "summarizer"].includes(r.role));
+  const pipelineServices = servicesData?.services ?? [];
 
   return (
     <div className="space-y-6">
@@ -156,6 +162,87 @@ export default function ModelsCostsOverview() {
               : "no buckets yet"}
             {data?.rollup_lag_seconds_approx != null &&
               ` (~${Math.round(data.rollup_lag_seconds_approx / 60)} min behind UTC now)`}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+              <h2 className="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+                Main model roles
+              </h2>
+              <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                Active role-to-model assignments (API vs local runtime).
+              </p>
+              <div className="space-y-2">
+                {mainRoles.length === 0 ? (
+                  <p className="text-sm text-gray-500">No active assignments.</p>
+                ) : (
+                  mainRoles.map((r) => {
+                    const isLocal = ["vllm", "kserve"].includes((r.provider || "").toLowerCase());
+                    const RuntimeIcon = isLocal ? Server : Cloud;
+                    return (
+                      <div key={r.role} className="flex items-center justify-between rounded border border-gray-200 px-3 py-2 dark:border-gray-700">
+                        <div>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{r.role}</p>
+                          <p className="max-w-[420px] truncate text-xs text-gray-500 dark:text-gray-400" title={r.model}>
+                            {r.model || r.served_name}
+                          </p>
+                        </div>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${isLocal ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300"}`}>
+                          <RuntimeIcon className="h-3 w-3" />
+                          {isLocal ? "local" : "api"}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+              <h2 className="mb-2 text-sm font-semibold text-gray-900 dark:text-white">
+                Microservices & supporting roles
+              </h2>
+              <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                Supporting model roles and pipeline microservice health.
+              </p>
+              <div className="space-y-2">
+                {microRoles.map((r) => (
+                  <div key={r.role} className="flex items-center justify-between rounded border border-gray-200 px-3 py-2 dark:border-gray-700">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{r.role}</p>
+                      <p className="max-w-[420px] truncate text-xs text-gray-500 dark:text-gray-400" title={r.model}>
+                        {r.model || r.served_name}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                      role
+                    </span>
+                  </div>
+                ))}
+                {pipelineServices.slice(0, 6).map((svc) => (
+                  <div key={svc.name} className="flex items-center justify-between rounded border border-gray-200 px-3 py-2 dark:border-gray-700">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{svc.name}</p>
+                      <p className="max-w-[420px] truncate text-xs text-gray-500 dark:text-gray-400" title={svc.url || ""}>
+                        {svc.url || "not configured"}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${
+                      !svc.configured
+                        ? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                        : svc.reachable
+                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                          : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                    }`}>
+                      {!svc.configured ? "not set" : svc.reachable ? "ok" : "down"}
+                    </span>
+                  </div>
+                ))}
+                {microRoles.length === 0 && pipelineServices.length === 0 && (
+                  <p className="text-sm text-gray-500">No microservice data.</p>
+                )}
+              </div>
+            </div>
           </div>
 
           <div>

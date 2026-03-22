@@ -61,7 +61,7 @@ async def _resolve_pat(token: str) -> AuthUser:
                 await session.execute(
                     text(
                         """
-                    SELECT id, user_id, username, role, expires_at
+                    SELECT id, user_id, org_id, username, role, expires_at
                     FROM personal_access_tokens
                     WHERE token_hash = :token_hash
                       AND revoked = false
@@ -95,6 +95,7 @@ async def _resolve_pat(token: str) -> AuthUser:
 
     return AuthUser(
         user_id=row.get("user_id", ""),
+        org_id=row.get("org_id", "") or "",
         username=row.get("username", ""),
         role=row.get("role", "user"),
         auth_method="pat",
@@ -142,9 +143,29 @@ async def _resolve_keycloak_jwt(token: str) -> AuthUser:
     user_id = payload.get("sub", "")
     username = payload.get("preferred_username", user_id)
     roles = payload.get("realm_access", {}).get("roles", [])
-    role = "admin" if "synesis-admin" in roles else "user"
+    org_id = ""
+    org_claim = payload.get("organization")
+    org_roles: list[str] = []
+    if isinstance(org_claim, dict) and org_claim:
+        org_id, org_data = next(iter(org_claim.items()))
+        if isinstance(org_data, dict):
+            raw_roles = org_data.get("roles", [])
+            if isinstance(raw_roles, list):
+                org_roles = [str(r) for r in raw_roles]
+    if "synesis-admin" in roles:
+        role = "platform_admin"
+    elif "admin" in org_roles:
+        role = "org_admin"
+    else:
+        role = "user"
 
-    return AuthUser(user_id=user_id, username=username, role=role, auth_method="keycloak")
+    return AuthUser(
+        user_id=user_id,
+        org_id=org_id,
+        username=username,
+        role=role,
+        auth_method="keycloak",
+    )
 
 
 def _resolve_legacy_jwt(token: str) -> AuthUser:
@@ -156,6 +177,7 @@ def _resolve_legacy_jwt(token: str) -> AuthUser:
 
     return AuthUser(
         user_id=payload.get("sub", "unknown"),
+        org_id=payload.get("org_id", "") or "",
         username=payload.get("username", ""),
         role=payload.get("role", "user"),
         auth_method="legacy",

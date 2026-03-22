@@ -45,6 +45,7 @@ async def resolve_or_create_session(
     session = SessionState(
         session_key=key,
         user_id=auth_user.user_id,
+        org_id=auth_user.org_id,
         username=auth_user.username,
         role=auth_user.role,
         conversation_id=conversation_id,
@@ -129,6 +130,7 @@ async def record_request_usage(
                 session.session_key,
                 request_id,
                 session.user_id,
+                session.org_id,
                 prov,
                 mdl,
                 usage_agg.total_tokens_in,

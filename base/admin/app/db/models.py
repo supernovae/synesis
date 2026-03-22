@@ -513,6 +513,7 @@ class YarnSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_key: Mapped[str] = mapped_column(String(256), nullable=False)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     conversation_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
@@ -530,6 +531,7 @@ class YarnSession(Base):
     __table_args__ = (
         Index("ix_yarn_sessions_key", "session_key", unique=True),
         Index("ix_yarn_sessions_user_id", "user_id"),
+        Index("ix_yarn_sessions_org_id", "org_id"),
         Index("ix_yarn_sessions_last_active", "last_active_at"),
     )
 
@@ -541,6 +543,7 @@ class YarnUsageLog(Base):
     session_key: Mapped[str] = mapped_column(String(256), nullable=False)
     request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(256), nullable=False)
     tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -556,6 +559,7 @@ class YarnUsageLog(Base):
     __table_args__ = (
         Index("ix_yarn_usage_session", "session_key"),
         Index("ix_yarn_usage_user", "user_id"),
+        Index("ix_yarn_usage_org", "org_id"),
         Index("ix_yarn_usage_created", "created_at"),
         Index("ix_yarn_usage_provider", "provider"),
     )

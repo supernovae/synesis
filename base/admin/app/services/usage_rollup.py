@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from ..db.engine import async_session
 from ..db.models import Trace, UsageRollup
@@ -19,6 +19,22 @@ from ..db.models import Trace, UsageRollup
 logger = logging.getLogger("synesis.admin.usage_rollup")
 
 _BUCKET_MINUTES = 5
+
+
+def _infer_role(node_name: str, model_name: str) -> str:
+    node_lower = (node_name or "").lower()
+    model_lower = (model_name or "").lower()
+    if "summarizer" in node_lower or "summar" in node_lower or "synesis-summarizer" in model_lower:
+        return "summarizer"
+    if "router" in node_lower or "router" in model_lower:
+        return "router"
+    if "critic" in node_lower or "critic" in model_lower:
+        return "critic"
+    if "coder" in node_lower or "coder" in model_lower:
+        return "coder"
+    if "writer" in node_lower or "planner" in node_lower or "general" in model_lower:
+        return "general"
+    return node_name or "unknown"
 
 
 def _truncate_bucket(ts: float) -> datetime:
@@ -49,8 +65,30 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
             for trace in rows:
                 bucket_dt = _truncate_bucket(trace.timestamp)
                 rec = trace.full_record or {}
-                model = rec.get("model", "")
-                role = rec.get("role", "")
+                prompt_tokens = 0
+                completion_tokens = 0
+                cached_tokens = 0
+                dominant_model = ""
+                dominant_role = ""
+                dominant_tokens = -1
+
+                for span in rec.get("spans", []):
+                    node_name = span.get("node_name", "")
+                    for call in span.get("llm_calls", []):
+                        pt = int(call.get("prompt_tokens", 0) or 0)
+                        ct = int(call.get("completion_tokens", 0) or 0)
+                        cpt = int(call.get("cached_prompt_tokens", call.get("cached_tokens", 0)) or 0)
+                        tt = int(call.get("total_tokens", 0) or (pt + ct))
+                        prompt_tokens += pt
+                        completion_tokens += ct
+                        cached_tokens += cpt
+                        if tt > dominant_tokens:
+                            dominant_tokens = tt
+                            dominant_model = str(call.get("model", "") or "")
+                            dominant_role = _infer_role(node_name, dominant_model)
+
+                model = dominant_model or rec.get("model", "") or "unknown"
+                role = dominant_role or rec.get("role", "") or "unknown"
                 user_id = trace.user_id or ""
                 org_id = rec.get("org_id", "")
 
@@ -82,15 +120,24 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                 if trace.has_error:
                     b["error_count"] += 1
 
-                # Extract token breakdown from full_record if present
-                for span in rec.get("spans", []):
-                    for call in span.get("llm_calls", []):
-                        b["prompt_tokens"] += call.get("prompt_tokens", 0)
-                        b["completion_tokens"] += call.get("completion_tokens", 0)
-                        b["cached_tokens"] += call.get("cached_tokens", 0)
+                b["prompt_tokens"] += prompt_tokens
+                b["completion_tokens"] += completion_tokens
+                b["cached_tokens"] += cached_tokens
+
+            bucket_values = list(buckets.values())
+            if bucket_values:
+                min_bucket = min(b["bucket"] for b in bucket_values)
+                max_bucket = max(b["bucket"] for b in bucket_values)
+                # Keep rollups idempotent across overlapping scheduler windows.
+                await session.execute(
+                    delete(UsageRollup).where(
+                        UsageRollup.bucket >= min_bucket,
+                        UsageRollup.bucket <= max_bucket,
+                    )
+                )
 
             written = 0
-            for b in buckets.values():
+            for b in bucket_values:
                 avg_dur = b["total_duration_ms"] / b["request_count"] if b["request_count"] else 0
                 row = UsageRollup(
                     bucket=b["bucket"],

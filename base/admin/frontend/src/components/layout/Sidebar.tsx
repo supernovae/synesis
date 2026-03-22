@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
+import { useAuth } from "../auth/useAuth";
 import {
   LayoutDashboard,
   Layers,
@@ -19,6 +20,7 @@ import {
   ScanSearch,
   Bot,
   Sparkles,
+  User,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,13 +34,15 @@ interface NavItem {
   icon: LucideIcon;
   path?: string;
   children?: NavChild[];
+  minRole?: "readonly" | "user" | "org_admin" | "platform_admin";
 }
 
 const navigation: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard", minRole: "org_admin" },
   {
     label: "Models & Costs",
     icon: Layers,
+    minRole: "org_admin",
     children: [
       { label: "Overview", path: "/models/overview" },
       { label: "Registry", path: "/models" },
@@ -52,6 +56,7 @@ const navigation: NavItem[] = [
   {
     label: "Yarn Fabric",
     icon: Sparkles,
+    minRole: "org_admin",
     children: [
       { label: "Overview", path: "/yarn" },
       { label: "Sessions", path: "/yarn/sessions" },
@@ -63,6 +68,7 @@ const navigation: NavItem[] = [
   {
     label: "RAG Pipeline",
     icon: Database,
+    minRole: "org_admin",
     children: [
       { label: "Corpus", path: "/rag/corpus" },
       { label: "Quality", path: "/rag/quality" },
@@ -74,6 +80,7 @@ const navigation: NavItem[] = [
   {
     label: "Taxonomy",
     icon: GitBranch,
+    minRole: "org_admin",
     children: [
       { label: "Domains", path: "/taxonomy" },
       { label: "Coverage", path: "/taxonomy/coverage" },
@@ -82,6 +89,7 @@ const navigation: NavItem[] = [
   {
     label: "Pipeline",
     icon: Workflow,
+    minRole: "org_admin",
     children: [
       { label: "Graph", path: "/pipeline/graph" },
       { label: "Nodes", path: "/pipeline/nodes" },
@@ -92,6 +100,7 @@ const navigation: NavItem[] = [
   {
     label: "Tracing",
     icon: ScanSearch,
+    minRole: "user",
     children: [
       { label: "Activity Log", path: "/traces" },
     ],
@@ -99,6 +108,7 @@ const navigation: NavItem[] = [
   {
     label: "Integrations",
     icon: Plug,
+    minRole: "org_admin",
     children: [
       { label: "MCP Tools", path: "/integrations/mcp" },
       { label: "Web Search", path: "/integrations/search" },
@@ -107,6 +117,7 @@ const navigation: NavItem[] = [
   {
     label: "Feedback",
     icon: MessageSquare,
+    minRole: "org_admin",
     children: [
       { label: "Feedback", path: "/feedback" },
       { label: "Knowledge Gaps", path: "/feedback/knowledge-gaps" },
@@ -116,6 +127,7 @@ const navigation: NavItem[] = [
   {
     label: "Observability",
     icon: Activity,
+    minRole: "org_admin",
     children: [
       { label: "Health", path: "/observability/health" },
       { label: "Cache", path: "/observability/cache" },
@@ -124,10 +136,22 @@ const navigation: NavItem[] = [
       { label: "Retrieval Gaps", path: "/observability/retrieval-gaps" },
     ],
   },
-  { label: "Assistant", icon: Bot, path: "/assistant" },
+  { label: "Assistant", icon: Bot, path: "/assistant", minRole: "user" },
+  {
+    label: "Account",
+    icon: User,
+    minRole: "user",
+    children: [
+      { label: "Home", path: "/account" },
+      { label: "Usage", path: "/account/usage" },
+      { label: "Organization", path: "/account/organization" },
+      { label: "API Tokens", path: "/account/tokens" },
+    ],
+  },
   {
     label: "Settings",
     icon: Settings,
+    minRole: "org_admin",
     children: [
       { label: "System Config", path: "/settings" },
       { label: "Provider Keys", path: "/settings/providers" },
@@ -136,6 +160,20 @@ const navigation: NavItem[] = [
     ],
   },
 ];
+
+function roleRank(role?: string): number {
+  if (role === "platform_admin" || role === "admin") return 3;
+  if (role === "org_admin") return 2;
+  if (role === "user") return 1;
+  return 0;
+}
+
+function requiredRank(minRole?: NavItem["minRole"]): number {
+  if (minRole === "platform_admin") return 3;
+  if (minRole === "org_admin") return 2;
+  if (minRole === "user") return 1;
+  return 0;
+}
 
 function isGroupActive(children: NavChild[], pathname: string) {
   return children.some(
@@ -149,10 +187,14 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+  const { user } = useAuth();
   const { pathname } = useLocation();
+  const allowedNavigation = navigation.filter(
+    (item) => roleRank(user?.role) >= requiredRank(item.minRole),
+  );
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    for (const item of navigation) {
+    for (const item of allowedNavigation) {
       if (item.children && isGroupActive(item.children, pathname)) {
         init[item.label] = true;
       }
@@ -161,12 +203,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   });
 
   useEffect(() => {
-    for (const item of navigation) {
+    for (const item of allowedNavigation) {
       if (item.children && isGroupActive(item.children, pathname)) {
         setExpanded((prev) => ({ ...prev, [item.label]: true }));
       }
     }
-  }, [pathname]);
+  }, [pathname, allowedNavigation]);
 
   function toggle(label: string) {
     setExpanded((prev) => ({ ...prev, [label]: !prev[label] }));
@@ -202,7 +244,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
         <ul className="space-y-0.5">
-          {navigation.map((item) => {
+          {allowedNavigation.map((item) => {
             const Icon = item.icon;
 
             if (item.path !== undefined && !item.children) {

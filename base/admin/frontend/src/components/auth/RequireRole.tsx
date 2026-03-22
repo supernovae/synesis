@@ -33,7 +33,12 @@ export default function RequireRole({ children, role }: Props) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (role === "admin" && user?.role !== "admin") {
+  if (
+    role === "admin" &&
+    user?.role !== "admin" &&
+    user?.role !== "platform_admin" &&
+    user?.role !== "org_admin"
+  ) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">

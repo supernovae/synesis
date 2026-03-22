@@ -122,7 +122,7 @@ export default function TopBar() {
 
         {user && (
           <div className="flex items-center gap-2">
-            {user.role === "admin" ? (
+            {user.role === "admin" || user.role === "platform_admin" || user.role === "org_admin" ? (
               <Shield className="h-4 w-4 text-blue-500" />
             ) : (
               <Eye className="h-4 w-4 text-gray-400" />

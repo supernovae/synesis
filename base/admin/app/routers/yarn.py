@@ -24,12 +24,14 @@ _YARN_URL = os.getenv(
 )
 
 
-def _scope(user: UserInfo) -> str:
-    """Return user_id for scoping if not admin-level."""
+def _scope(user: UserInfo) -> tuple[str, str]:
+    """Return (scope_user_id, scope_org_id) for Yarn data filters."""
     role = resolve_role(user)
+    if role >= Role.platform_admin:
+        return "", ""
     if role >= Role.org_admin:
-        return ""
-    return user.user_id or user.username
+        return "", user.org_id or ""
+    return user.user_id or user.username, ""
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────
@@ -40,9 +42,11 @@ async def yarn_overview(
     since_hours: int = Query(24, ge=1, le=720),
     user: UserInfo = Depends(require_org_admin),
 ):
+    scope_user_id, scope_org_id = _scope(user)
     return await yarn_service.get_yarn_overview(
         since_hours=since_hours,
-        scope_user_id="",
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
     )
 
 
@@ -56,10 +60,12 @@ async def yarn_sessions(
     active_since_hours: int | None = Query(None, ge=1, le=720),
     user: UserInfo = Depends(require_org_admin),
 ):
+    scope_user_id, scope_org_id = _scope(user)
     return await yarn_service.list_yarn_sessions(
         page=page,
         page_size=page_size,
-        scope_user_id="",
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
         active_since_hours=active_since_hours,
     )
 
@@ -69,7 +75,12 @@ async def yarn_session_detail(
     session_key: str,
     user: UserInfo = Depends(require_org_admin),
 ):
-    detail = await yarn_service.get_yarn_session_detail(session_key)
+    scope_user_id, scope_org_id = _scope(user)
+    detail = await yarn_service.get_yarn_session_detail(
+        session_key,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+    )
     if not detail:
         raise HTTPException(status_code=404, detail="Session not found")
     return detail
@@ -86,10 +97,12 @@ async def yarn_events(
     errors_only: bool = Query(False),
     user: UserInfo = Depends(require_org_admin),
 ):
+    scope_user_id, scope_org_id = _scope(user)
     return await yarn_service.list_yarn_events(
         page=page,
         page_size=page_size,
-        scope_user_id="",
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
         since_hours=since_hours,
         errors_only=errors_only,
     )
@@ -104,10 +117,12 @@ async def yarn_performance(
     bucket_minutes: int = Query(15, ge=5, le=60),
     user: UserInfo = Depends(require_org_admin),
 ):
+    scope_user_id, scope_org_id = _scope(user)
     return await yarn_service.get_yarn_performance(
         since_hours=since_hours,
         bucket_minutes=bucket_minutes,
-        scope_user_id="",
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
     )
 
 

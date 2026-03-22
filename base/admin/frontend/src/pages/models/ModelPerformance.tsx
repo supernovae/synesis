@@ -31,33 +31,66 @@ export default function ModelPerformance() {
 
   const roles: RolePerformance[] = perfData?.roles ?? [];
   const trend = useMemo(() => trendData?.trend ?? [], [trendData]);
+  const activeRoles = useMemo(() => roles.filter((r) => r.assigned), [roles]);
+  const activeWithTraffic = useMemo(
+    () => activeRoles.filter((r) => r.request_count > 0),
+    [activeRoles],
+  );
+  const displayRoles = activeWithTraffic.length > 0 ? activeWithTraffic : activeRoles;
 
-  const totalRequests = roles.reduce((s, r) => s + r.request_count, 0);
+  const totalRequests = displayRoles.reduce((s, r) => s + r.request_count, 0);
+  const totalTokens = displayRoles.reduce((s, r) => s + r.total_tokens, 0);
   const avgLatency =
-    roles.length > 0
-      ? roles.reduce((s, r) => s + r.avg_latency_ms * r.request_count, 0) / (totalRequests || 1)
+    displayRoles.length > 0
+      ? displayRoles.reduce((s, r) => s + r.avg_latency_ms * r.request_count, 0) / (totalRequests || 1)
       : 0;
-  const slowest = roles.length > 0 ? roles.reduce((a, b) => (a.p95_latency_ms > b.p95_latency_ms ? a : b)) : null;
-  const totalCost = roles.reduce((s, r) => s + r.total_actual_cost, 0);
+  const slowest =
+    displayRoles.length > 0
+      ? displayRoles.reduce((a, b) => (a.p95_latency_ms > b.p95_latency_ms ? a : b))
+      : null;
+  const totalCost = displayRoles.reduce((s, r) => s + r.total_actual_cost, 0);
+  const windowSeconds = Math.max(1, days * 24 * 60 * 60);
+  const rps = totalRequests / windowSeconds;
+  const tps = totalTokens / windowSeconds;
+
+  const activeModelHints = useMemo(
+    () =>
+      new Set(
+        displayRoles
+          .map((r) => (r.registry_model || r.served_name || "").toLowerCase())
+          .filter(Boolean),
+      ),
+    [displayRoles],
+  );
+  const scopedTrend = useMemo(() => {
+    if (activeModelHints.size === 0) return trend;
+    return trend.filter((t) => {
+      const model = (t.model || "").toLowerCase();
+      for (const hint of activeModelHints) {
+        if (model.includes(hint) || hint.includes(model)) return true;
+      }
+      return false;
+    });
+  }, [trend, activeModelHints]);
 
   const trendModels = useMemo(() => {
     const set = new Set<string>();
-    trend.forEach((t) => set.add(t.model));
+    scopedTrend.forEach((t) => set.add(t.model));
     return Array.from(set);
-  }, [trend]);
+  }, [scopedTrend]);
 
   const pivotedTrend = useMemo(() => {
     const byDate: Record<string, Record<string, number>> = {};
-    for (const t of trend) {
+    for (const t of scopedTrend) {
       if (!byDate[t.date]) byDate[t.date] = { date: t.date } as never;
       const parts = t.model.split("/");
       const short = parts[parts.length - 1].substring(0, 28);
       (byDate[t.date] as Record<string, number>)[short] = t.avg_latency_ms;
     }
     return Object.values(byDate);
-  }, [trend]);
+  }, [scopedTrend]);
 
-  const latencyChartData = roles.map((r) => ({
+  const latencyChartData = displayRoles.map((r) => ({
     role: r.role,
     avg: Math.round(r.avg_latency_ms),
     p95: Math.round(r.p95_latency_ms),
@@ -71,7 +104,7 @@ export default function ModelPerformance() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Performance by Role</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Per-role latency, request volume, and cost — shows prompt impact on each pipeline stage
+            Active role throughput and latency (RPS/TPS, avg, p95), scoped to current model assignments
           </p>
         </div>
         <select
@@ -92,18 +125,30 @@ export default function ModelPerformance() {
             <div key={i} className="h-24 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
           ))}
         </div>
-      ) : roles.length === 0 ? (
+      ) : displayRoles.length === 0 ? (
         <EmptyState
           title="No performance data"
-          description="Metrics will populate after requests flow through the pipeline"
+          description="Metrics populate after traffic flows through active model roles"
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             <MetricCard
               label="Total Requests"
               value={totalRequests.toLocaleString()}
               icon={Activity}
+            />
+            <MetricCard
+              label="RPS"
+              value={rps.toFixed(rps < 1 ? 3 : 2)}
+              subtitle={`${days}d window`}
+              icon={Activity}
+            />
+            <MetricCard
+              label="TPS"
+              value={tps.toFixed(tps < 1 ? 1 : 0)}
+              subtitle={`${totalTokens.toLocaleString()} tokens`}
+              icon={Zap}
             />
             <MetricCard
               label="Avg Latency"
@@ -187,7 +232,7 @@ export default function ModelPerformance() {
               { key: "total_tokens", label: "Total Tokens", sortable: true, render: (r: RolePerformance) => r.total_tokens.toLocaleString() },
               { key: "total_actual_cost", label: "Actual Cost", sortable: true, render: (r: RolePerformance) => `$${r.total_actual_cost.toFixed(4)}` },
             ]}
-            data={roles}
+            data={displayRoles}
             keyField="role"
           />
         </>
