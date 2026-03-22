@@ -215,6 +215,23 @@ def _visible_tools(role: Role) -> list[dict[str, Any]]:
     ]
 
 
+def catalog_all_tools() -> list[dict[str, Any]]:
+    """Full Admin MCP tool catalog with minimum role (for Integrations UI / operators)."""
+    return [
+        {
+            "name": t["name"],
+            "description": t.get("description", ""),
+            "min_role": t["min_role"].name,
+        }
+        for t in _TOOLS
+    ]
+
+
+def visible_tools_for_role(role: Role) -> list[dict[str, Any]]:
+    """Public alias for Integrations UI (role-filtered tool list)."""
+    return _visible_tools(role)
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/tools")

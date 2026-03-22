@@ -4,28 +4,13 @@ import { useYarnEvents, type YarnEventRow } from "../../api/hooks";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
+import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
   { label: "24h", hours: 24 },
   { label: "7d", hours: 168 },
   { label: "30d", hours: 720 },
 ];
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function fmtCost(n: number): string {
-  if (n < 0.01 && n > 0) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
-  return `${Math.round(ms)}ms`;
-}
 
 function truncId(id: string): string {
   if (id.length <= 18) return id;
@@ -208,7 +193,7 @@ export default function YarnEvents() {
                         {row.provider || "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                        {fmtDuration(row.latency_ms)}
+                        {fmtDurationMs(row.latency_ms)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-600 dark:text-gray-400">
                         {fmtTokens(row.tokens_in + row.tokens_out + row.tokens_cached)}

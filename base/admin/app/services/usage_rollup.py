@@ -231,3 +231,23 @@ async def get_usage_summary(
         except Exception:
             logger.warning("usage_rollup_summary_failed", exc_info=True)
             return {"period_hours": since_hours}
+
+
+async def get_latest_rollup_bucket(
+    *,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> datetime | None:
+    """Most recent usage_rollup bucket (UTC), optionally scoped."""
+    async with async_session() as session:
+        try:
+            q = select(func.max(UsageRollup.bucket))
+            if scope_user_id:
+                q = q.where(UsageRollup.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(UsageRollup.org_id == scope_org_id)
+            row = (await session.execute(q)).scalar()
+            return row
+        except Exception:
+            logger.warning("usage_rollup_latest_bucket_failed", exc_info=True)
+            return None

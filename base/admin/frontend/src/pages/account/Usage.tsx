@@ -4,28 +4,14 @@ import type { UsageRollupEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
 import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles, ArrowUpRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { fmtCost, fmtDurationMs, fmtTokens } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
   { label: "24h", hours: 24 },
   { label: "7d", hours: 168 },
   { label: "30d", hours: 720 },
 ];
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function fmtCost(n: number): string {
-  if (n < 0.01 && n > 0) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
-  return `${Math.round(ms)}ms`;
-}
 
 function groupByBucket(rows: UsageRollupEntry[]): Record<string, UsageRollupEntry[]> {
   const grouped: Record<string, UsageRollupEntry[]> = {};
@@ -107,7 +93,11 @@ export default function Usage() {
             Usage
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Token consumption and cost for your requests
+            Pipeline usage from 5-minute rollups (traces). Yarn / IDE spend is separate — see{" "}
+            <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              Models &amp; Costs overview
+            </Link>
+            .
           </p>
         </div>
         <div className="flex gap-1 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
@@ -161,7 +151,7 @@ export default function Usage() {
             />
             <MetricCard
               label="Avg Latency"
-              value={fmtDuration(summary.avg_duration_ms)}
+              value={fmtDurationMs(summary.avg_duration_ms)}
               icon={Clock}
               subtitle={
                 summary.error_count > 0
@@ -259,7 +249,7 @@ export default function Usage() {
                           {fmtCost(row.estimated)}
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums text-gray-600 dark:text-gray-400">
-                          {fmtDuration(row.avgMs)}
+                          {fmtDurationMs(row.avgMs)}
                         </td>
                       </tr>
                     ))}
@@ -323,7 +313,7 @@ export default function Usage() {
           />
           <MetricCard
             label="Avg Latency"
-            value={fmtDuration(yarnUsage.avg_latency_ms)}
+            value={fmtDurationMs(yarnUsage.avg_latency_ms)}
             icon={Clock}
             subtitle={
               yarnUsage.errors > 0

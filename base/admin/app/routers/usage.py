@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from ..auth import UserInfo, get_current_user
 from ..rbac import require_platform_admin, trace_scope_filters
 from ..services.usage_rollup import get_usage, get_usage_summary, run_rollup
+from ..services.usage_unified import get_reconcile, get_summary_unified
 
 router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
 
@@ -46,3 +47,21 @@ async def trigger_rollup(
 ):
     """Manually trigger a usage rollup (admin only)."""
     return await run_rollup(lookback_minutes=lookback_minutes)
+
+
+@router.get("/summary-unified")
+async def usage_summary_unified(
+    since_hours: int = Query(24, ge=1, le=720),
+    user: UserInfo = Depends(get_current_user),
+):
+    """Pipeline rollups + trace totals + optional Yarn (org_admin+); glossary for UI."""
+    return await get_summary_unified(user=user, since_hours=since_hours)
+
+
+@router.get("/reconcile")
+async def usage_reconcile(
+    since_hours: int = Query(24, ge=1, le=720),
+    _user: UserInfo = Depends(require_platform_admin),
+):
+    """Compare rollups, trace rows, llm_calls walk (sample), and Yarn — platform admin only."""
+    return await get_reconcile(since_hours=since_hours)

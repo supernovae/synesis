@@ -12,6 +12,7 @@ import DataTable from "../../components/common/DataTable";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
 import { Activity, Clock, DollarSign, AlertTriangle, Trash2, Building2 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 function fmtDate(ts: number) {
   if (!ts) return "";
@@ -116,7 +117,11 @@ export default function TraceList() {
             LLM Traces
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Per-request pipeline traces with LLM call detail
+            Per-request pipeline traces with LLM call detail. Cost column uses the same estimated pricing as{" "}
+            <Link to="/models/costs" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              Usage &amp; spend
+            </Link>
+            .
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -76,9 +76,11 @@ async def dashboard_summary(_user: UserInfo = Depends(get_current_user)):
             "cache_hit_rate": (cache or {}).get("hit_rate", 0),
             "active_models": assigned,
             "traces_24h": (ts or {}).get("total_traces_24h", 0),
-            "total_cost_24h": (ts or {}).get("total_cost_usd", 0),
+            # Trace-table estimated spend (24h), not provider invoice
+            "trace_estimated_spend_24h_usd": (ts or {}).get("total_cost_usd", 0),
         },
-        "cost_estimate": cost_estimate or {},
+        # Monthly fixed infrastructure estimate from model_costs — not usage spend
+        "monthly_fixed_cost_estimate": cost_estimate or {},
         "healthy_count": healthy,
     }
 

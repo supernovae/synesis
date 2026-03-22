@@ -26,6 +26,8 @@ import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
 import { DollarSign, Cloud, Server, PenLine, TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react";
 import type { ModelCost, ActiveCostEntry } from "../../types";
+import { UsageGlossaryBanner } from "../../components/models/UsageGlossary";
+import { Link } from "react-router-dom";
 
 const COLORS = [
   "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -214,9 +216,13 @@ export default function CostTracker() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage Cost Tracker</h1>
+          <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Usage & spend</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Token spend by pipeline role — estimated vs actual usage cost, rate configuration, and price history
+            Pipeline (LangGraph / traces) only — estimated vs actual by role; Yarn / IDE spend is on{" "}
+            <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+              Overview
+            </Link>
+            .
           </p>
         </div>
         <select
@@ -230,6 +236,8 @@ export default function CostTracker() {
           <option value={30}>Last 30d</option>
         </select>
       </div>
+
+      <UsageGlossaryBanner />
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />

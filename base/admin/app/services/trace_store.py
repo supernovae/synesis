@@ -163,6 +163,51 @@ async def get_trace_stats(
             return _empty_stats()
 
 
+async def aggregate_traces_period(
+    *,
+    since_hours: int = 24,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict[str, Any]:
+    """Sum trace-level tokens and costs over a window (RBAC-scoped)."""
+    cutoff = time.time() - since_hours * 3600
+    async with async_session() as session:
+        try:
+            q = (
+                select(
+                    func.count().label("n"),
+                    func.coalesce(func.sum(Trace.total_tokens), 0).label("total_tokens"),
+                    func.coalesce(func.sum(Trace.estimated_cost_usd), 0).label(
+                        "estimated_cost_usd"
+                    ),
+                    func.coalesce(func.sum(Trace.actual_cost_usd), 0).label("actual_cost_usd"),
+                )
+                .where(Trace.timestamp >= cutoff)
+            )
+            if scope_user_id:
+                q = q.where(Trace.user_id == scope_user_id)
+            elif scope_org_id:
+                q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+
+            row = (await session.execute(q)).one()
+            return {
+                "period_hours": since_hours,
+                "trace_count": int(row.n or 0),
+                "total_tokens": int(row.total_tokens or 0),
+                "estimated_cost_usd": round(float(row.estimated_cost_usd or 0), 4),
+                "actual_cost_usd": round(float(row.actual_cost_usd or 0), 4),
+            }
+        except Exception:
+            logger.warning("trace_store_aggregate_period_failed", exc_info=True)
+            return {
+                "period_hours": since_hours,
+                "trace_count": 0,
+                "total_tokens": 0,
+                "estimated_cost_usd": 0.0,
+                "actual_cost_usd": 0.0,
+            }
+
+
 async def insert_trace(record: dict[str, Any]) -> None:
     """Insert a trace record (called by the planner trace writer)."""
     async with async_session() as session:

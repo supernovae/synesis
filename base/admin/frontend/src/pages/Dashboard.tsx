@@ -39,7 +39,7 @@ export default function Dashboard() {
     .map((s) => ({ name: s.name.replace("synesis-", ""), latency: s.latency_ms }))
     .sort((a, b) => (b.latency ?? 0) - (a.latency ?? 0));
 
-  const costByRole = data?.cost_estimate?.by_role ?? {};
+  const costByRole = data?.monthly_fixed_cost_estimate?.by_role ?? {};
   const costData = Object.entries(costByRole).map(([role, usd]) => ({
     role,
     usd: Number(usd),
@@ -86,13 +86,13 @@ export default function Dashboard() {
           icon={Activity}
         />
         <MetricCard
-          label="Usage Spend (24h)"
+          label="Pipeline spend (24h)"
           value={
-            m?.total_cost_24h != null
-              ? `$${Number(m.total_cost_24h).toFixed(4)}`
+            m?.trace_estimated_spend_24h_usd != null
+              ? `$${Number(m.trace_estimated_spend_24h_usd).toFixed(4)}`
               : "---"
           }
-          subtitle="from trace estimates"
+          subtitle="trace estimated_cost sum"
           icon={DollarSign}
         />
       </div>
@@ -173,7 +173,10 @@ export default function Dashboard() {
       </div>
 
       {costData.length > 0 && (
-        <ChartCard title="Infra Cost by Role" subtitle="Monthly infrastructure estimate (USD)">
+        <ChartCard
+          title="Monthly fixed (infra) by role"
+          subtitle="From model cost registry — not the same as 24h usage above"
+        >
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={costData}>
               <XAxis dataKey="role" tick={{ fontSize: 11 }} />

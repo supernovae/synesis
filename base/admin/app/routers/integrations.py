@@ -11,8 +11,10 @@ from sqlalchemy import case, delete, func, select
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import KnowledgeGap, WebSearchLog, WebUrlPolicy
+from ..rbac import Role, resolve_role
 from ..services import prometheus_client_svc as prom
-from ..services.mcp_client import get_mcp_tools
+from ..services.mcp_client import get_mcp_tools, probe_mcp_health
+from ..routers import admin_mcp
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
@@ -24,6 +26,25 @@ router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 async def mcp_tools(_user: UserInfo = Depends(get_current_user)):
     tools = await get_mcp_tools()
     return {"tools": tools}
+
+
+@router.get("/mcp/health")
+async def mcp_agent_health(_user: UserInfo = Depends(get_current_user)):
+    """Reachability of synesis-mcp (Yarn / IDE agent tools)."""
+    return await probe_mcp_health()
+
+
+@router.get("/mcp/admin-catalog")
+async def mcp_admin_tool_catalog(user: UserInfo = Depends(get_current_user)):
+    """Admin MCP (HTTP) tools: full list with required roles for platform admins; otherwise caller-visible subset."""
+    role = resolve_role(user)
+    if role >= Role.platform_admin:
+        return {"tools": admin_mcp.catalog_all_tools(), "scope": "full"}
+    return {
+        "tools": admin_mcp.visible_tools_for_role(role),
+        "scope": "visible",
+        "note": "platform_admin sees all tools with min_role; call via POST /api/v1/mcp/tools/call with Bearer token",
+    }
 
 
 # ── Web search: aggregate stats (Prometheus) ──

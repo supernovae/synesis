@@ -37,6 +37,58 @@ export function useDashboardSummary() {
   });
 }
 
+export interface UsageUnifiedSummary {
+  since_hours: number;
+  pipeline: {
+    rollups: Record<string, number | string>;
+    traces: {
+      period_hours: number;
+      trace_count: number;
+      total_tokens: number;
+      estimated_cost_usd: number;
+      actual_cost_usd: number;
+    };
+  };
+  rollup_latest_bucket_utc: string | null;
+  rollup_lag_seconds_approx: number | null;
+  yarn: Record<string, number | string> | null;
+  glossary: Record<string, string>;
+}
+
+export function useUsageSummaryUnified(sinceHours: number) {
+  return useQuery<UsageUnifiedSummary>({
+    queryKey: ["usage", "summary-unified", sinceHours],
+    queryFn: () =>
+      client.get("/usage/summary-unified", { params: { since_hours: sinceHours } }).then((r) => r.data),
+  });
+}
+
+export function useUsageReconcile(sinceHours: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["usage", "reconcile", sinceHours],
+    queryFn: () => client.get("/usage/reconcile", { params: { since_hours: sinceHours } }).then((r) => r.data),
+    enabled,
+  });
+}
+
+export function useMcpAgentHealth() {
+  return useQuery({
+    queryKey: ["integrations", "mcp", "health"],
+    queryFn: () => client.get("/integrations/mcp/health").then((r) => r.data),
+  });
+}
+
+export function useMcpAdminCatalog() {
+  return useQuery<{
+    tools: Array<{ name: string; description?: string; min_role?: string }>;
+    scope: string;
+    note?: string;
+  }>({
+    queryKey: ["integrations", "mcp", "admin-catalog"],
+    queryFn: () => client.get("/integrations/mcp/admin-catalog").then((r) => r.data),
+  });
+}
+
 // --- Models ---
 
 export function useModelCosts() {

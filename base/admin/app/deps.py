@@ -27,7 +27,7 @@ LITELLM_MASTER_KEY = os.getenv("SYNESIS_LITELLM_MASTER_KEY", "")
 ASSISTANT_MODEL = os.getenv("SYNESIS_ADMIN_ASSISTANT_MODEL", "synesis-general")
 MCP_URL = os.getenv(
     "SYNESIS_MCP_URL",
-    "http://synesis-mcp.synesis-planner.svc.cluster.local:8080",
+    "http://synesis-mcp.synesis-planner.svc.cluster.local:8100",
 )
 DATABASE_URL = os.getenv(
     "SYNESIS_ADMIN_DATABASE_URL",

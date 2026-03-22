@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { useAssistantChat } from "../../api/hooks";
 import { Send, Bot, User, Loader2 } from "lucide-react";
 import MarkdownContent from "../../components/common/MarkdownContent";
@@ -69,7 +69,11 @@ export default function AdminAssistant() {
           Admin Assistant
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Ask questions about traces, costs, taxonomy, or system behavior
+          Ask questions about traces, costs, taxonomy, or system behavior.{" "}
+          <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+            Models &amp; Costs overview
+          </Link>{" "}
+          for system-wide usage (this chat only shows tokens for the assistant request itself).
         </p>
       </div>
 

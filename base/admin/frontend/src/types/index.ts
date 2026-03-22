@@ -58,9 +58,11 @@ export interface DashboardSummary {
     cache_hit_rate: number;
     active_models: number;
     traces_24h: number;
-    total_cost_24h: number;
+    /** Sum of trace estimated_cost_usd (24h) — not provider invoice */
+    trace_estimated_spend_24h_usd: number;
   };
-  cost_estimate: {
+  /** Monthly fixed infra estimate from model_costs — not usage spend */
+  monthly_fixed_cost_estimate: {
     period: string;
     total_usd: number;
     by_role: Record<string, number>;

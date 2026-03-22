@@ -31,22 +31,13 @@ import {
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
 import EmptyState from "../../components/common/EmptyState";
+import { fmtCost, fmtDurationMs } from "../../lib/formatUsage";
 
 const PERIOD_OPTIONS = [
   { label: "24h", hours: 24 },
   { label: "7d", hours: 168 },
   { label: "30d", hours: 720 },
 ];
-
-function fmtCost(n: number): string {
-  if (n < 0.01 && n > 0) return `$${n.toFixed(4)}`;
-  return `$${n.toFixed(2)}`;
-}
-
-function fmtDuration(ms: number): string {
-  if (ms >= 1_000) return `${(ms / 1_000).toFixed(1)}s`;
-  return `${Math.round(ms)}ms`;
-}
 
 function fmtBucketLabel(iso: string | null): string {
   if (!iso) return "—";
@@ -167,11 +158,11 @@ export default function YarnOverview() {
             />
             <MetricCard
               label="Avg Latency"
-              value={fmtDuration(overview.avg_latency_ms)}
+              value={fmtDurationMs(overview.avg_latency_ms)}
               icon={Clock}
               subtitle={
                 overview.p99_latency_ms
-                  ? `p99 ${fmtDuration(overview.p99_latency_ms)}`
+                  ? `p99 ${fmtDurationMs(overview.p99_latency_ms)}`
                   : undefined
               }
             />

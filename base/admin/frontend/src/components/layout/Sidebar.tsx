@@ -37,7 +37,20 @@ interface NavItem {
 const navigation: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   {
-    label: "Yarn Ops",
+    label: "Models & Costs",
+    icon: Layers,
+    children: [
+      { label: "Overview", path: "/models/overview" },
+      { label: "Registry", path: "/models" },
+      { label: "Vendors", path: "/models/vendors" },
+      { label: "Serving", path: "/models/serving" },
+      { label: "Usage & spend", path: "/models/costs" },
+      { label: "Reconciliation", path: "/models/reconcile" },
+      { label: "Performance", path: "/models/performance" },
+    ],
+  },
+  {
+    label: "Yarn Fabric",
     icon: Sparkles,
     children: [
       { label: "Overview", path: "/yarn" },
@@ -45,17 +58,6 @@ const navigation: NavItem[] = [
       { label: "Events", path: "/yarn/events" },
       { label: "Performance", path: "/yarn/performance" },
       { label: "Verification", path: "/yarn/verification" },
-    ],
-  },
-  {
-    label: "Models & Costs",
-    icon: Layers,
-    children: [
-      { label: "Registry", path: "/models" },
-      { label: "Vendors", path: "/models/vendors" },
-      { label: "Serving", path: "/models/serving" },
-      { label: "Cost Tracker", path: "/models/costs" },
-      { label: "Performance", path: "/models/performance" },
     ],
   },
   {
@@ -130,7 +132,7 @@ const navigation: NavItem[] = [
       { label: "System Config", path: "/settings" },
       { label: "Provider Keys", path: "/settings/providers" },
       { label: "Infrastructure Costs", path: "/settings/infra-costs" },
-      { label: "Admin audit", path: "/settings/audit" },
+      { label: "Audit trail", path: "/settings/audit" },
     ],
   },
 ];
