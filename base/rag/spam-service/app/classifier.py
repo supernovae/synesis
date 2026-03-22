@@ -31,7 +31,9 @@ def load_model() -> None:
         return
     from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
-    model_id = (os.getenv("SPAM_MODEL") or "mrm8488/distilbert-base-finetuned-sms-spam-detection").strip()
+    model_id = (
+        os.getenv("SPAM_MODEL") or "mariagrandury/distilbert-base-uncased-finetuned-sms-spam-detection"
+    ).strip()
     token = (os.getenv("HF_TOKEN") or "").strip() or None
     logger.info("loading spam model %s", model_id)
     tok_kw: dict[str, Any] = {}

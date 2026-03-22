@@ -28,7 +28,7 @@ spec:
               protocol: TCP
           env:
             - name: SPAM_MODEL
-              value: "mrm8488/distilbert-base-finetuned-sms-spam-detection"
+              value: "mariagrandury/distilbert-base-uncased-finetuned-sms-spam-detection"
             - name: HF_HOME
               value: "/tmp/hf_home"
             - name: TRANSFORMERS_CACHE
