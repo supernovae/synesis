@@ -9,16 +9,20 @@ Application service images (planner, indexer, admin, etc.) **must not** include 
 
 ## Banned dependencies in app images
 
-Never add these to `requirements.txt` of planner, indexer, admin, or any new application service:
+Never add these to `requirements.txt` of planner, indexer, admin, or any new **application** service:
 - `torch` / `pytorch`
 - `sentence-transformers`
 - `keybert`
 - `transformers` (the HuggingFace library; transitive via sentence-transformers)
-- `ragatouille` / `colbert-ai` (removed — reranking now uses BGE service or FlashRank)
+- `ragatouille` / `colbert-ai` (**removed** — do not re-add; reranking uses **BGE reranker service** or **FlashRank**, not ColBERT/RAGatouille)
 
-## Keyword extraction — use the keyword-service
+**Exception:** Dedicated RAG microservices under `base/rag/` that exist solely for inference (e.g. **spam-service** with a small classifier) may pin `transformers` in **their own** image — never in planner, indexer, admin, or **yarn** app images.
+
+## Keyword extraction — use the keyword-service (planner / shared callers)
 
 **Service:** `keyword-service.synesis-rag.svc.cluster.local:8080`
+
+**Indexer:** The unified indexer’s default enrichment (`base/rag/indexer/app/enrichment.py`) does **not** call keyword-service. Tier 1 is template `context_prefix`; optional `--enrich full` uses the **LLM** JSON contract (may include a `keywords` array in the response). Do **not** reintroduce KeyBERT or indexer→keyword-service batch extraction without an explicit design review.
 
 ### Single document
 ```
@@ -74,5 +78,5 @@ If a new feature needs ML inference (NER, classification, summarization, etc.):
 
 - Planner config: `base/planner/app/config.py` — `embedder_url`, `keyword_service_url`
 - Planner deployment: `base/planner/deployment.yaml` — `SYNESIS_EMBEDDER_URL`, `SYNESIS_KEYWORD_SERVICE_URL`
-- Indexer enrichment: `base/rag/indexer/app/enrichment.py` — `KEYWORD_SERVICE_URL` env var
+- Indexer enrichment: `base/rag/indexer/app/enrichment.py` — template + optional LLM full enrich (no `KEYWORD_SERVICE_URL` on indexer)
 - Keyword-service deployment: `base/rag/keyword-service/deployment.yaml` — `EMBEDDER_URL` env var

@@ -91,13 +91,14 @@ If you created a new `sources-<category>.yaml`, add:
 
 ## Enrichment pipeline (automatic)
 
-The pipeline in `pipeline.py` automatically enriches every chunk from every handler:
+The pipeline in `pipeline.py` automatically enriches every chunk from every handler (see `enrichment.py`):
 
-1. **context_prefix** (Tier 1, free): Template from `document_name` + `heading_path` — this is why `heading_path` matters
-2. **keywords** (Tier 1, free): KeyBERT extraction (8 terms)
-3. **chunk_summary** (Tier 2, optional): LLM-generated via `--enrich full`
-4. **Embedding input**: `context_prefix + text` (Contextual Retrieval pattern)
-5. **Deduplication**: `chunk_id_hash(text, source)` skips unchanged content
+1. **context_prefix** (Tier 1, always): Template from `document_name` + `heading_path` — this is why `heading_path` matters
+2. **chunk_summary / semantic_profile / optional keywords** (Tier 2, `--enrich full` only): Single LLM JSON contract per chunk (or bulk path); **not** KeyBERT and **not** keyword-service
+3. **Embedding input**: `context_prefix + text` (Contextual Retrieval pattern)
+4. **Deduplication**: `chunk_id_hash(text, source)` skips unchanged content
+
+**Do not reintroduce:** indexer-side KeyBERT, indexer→keyword-service HTTP extraction, or `intended_roles` on chunks (removed in schema v4; Router owns retrieval).
 
 No handler code needed for enrichment — just return good `heading_path` and `document_name` values.
 

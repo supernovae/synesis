@@ -2,6 +2,7 @@
 description: Prompt ordering convention for vLLM prefix cache efficiency
 globs:
   - base/planner/app/nodes/*.py
+alwaysApply: false
 ---
 
 # Prefix-Cache-Aware Prompt Ordering

@@ -10,6 +10,7 @@ alwaysApply: false
 
 - **Model Registry** (`/models`) maps **pipeline roles** → **provider + model + endpoint**. It does **not** store API keys. In **API overlay** (`overlays/api`), LiteLLM must run with **Prisma** (`DATABASE_URL` + `STORE_MODEL_IN_DB`) so `POST /model/new` works; [`scripts/deploy.sh`](scripts/deploy.sh) patches `litellm-proxy` with the same Postgres URL as admin. Static `litellm-config` entries for `synesis-router` / `synesis-general` / … would otherwise override registry edits.
 - **Provider API Keys** (`/settings/providers`) writes **catalog env vars** to the cluster secret (`PUT`/`DELETE` allowlisted to [`provider_catalog.py`](base/admin/app/services/provider_catalog.py)). Same catalog drives both screens.
+- **Yarn** (`/yarn/*`): operator views for the **Synesis Yarn** runtime (sessions, events, performance, **Verification**). Admin probes Yarn via `SYNESIS_YARN_URL` (default in-cluster Service on port **8000**). The Yarn **Containerfile** must run the app with **`/opt/app-root/venv/bin/python`** (not bare `python`) so `uvicorn` resolves.
 - Prefer links between those pages when copy refers to “configure the key first.”
 
 ## Frontend patterns
