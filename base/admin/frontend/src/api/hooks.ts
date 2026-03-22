@@ -1330,7 +1330,7 @@ export function useTraceStats() {
 
 export function useAssistantChat() {
   return useMutation<
-    { response: string; tokens: number; model: string },
+    { response: string; tokens: number; model: string; tool_rounds?: number },
     Error,
     { message: string; context?: string; trace_id?: string; span_index?: number }
   >({

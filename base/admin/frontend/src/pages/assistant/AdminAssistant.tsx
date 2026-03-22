@@ -9,6 +9,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   tokens?: number;
+  toolRounds?: number;
 }
 
 export default function AdminAssistant() {
@@ -49,6 +50,7 @@ export default function AdminAssistant() {
               role: "assistant",
               content: data.response,
               tokens: data.tokens,
+              toolRounds: data.tool_rounds,
             },
           ]);
         },
@@ -69,11 +71,12 @@ export default function AdminAssistant() {
           Admin Assistant
         </h1>
         <p className="mt-1 text-sm text-gray-500">
-          Ask questions about traces, costs, taxonomy, or system behavior.{" "}
+          Ask questions about traces, costs, taxonomy, or system behavior. The assistant can call
+          the same Admin MCP tools as your account (usage, health, traces, etc.).{" "}
           <Link to="/models/overview" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
             Models &amp; Costs overview
           </Link>{" "}
-          for system-wide usage (this chat only shows tokens for the assistant request itself).
+          for charts; token counts below are for this chat turn only.
         </p>
       </div>
 
@@ -113,6 +116,9 @@ export default function AdminAssistant() {
               {msg.tokens != null && msg.tokens > 0 && (
                 <span className="mt-1 block text-xs opacity-60">
                   {msg.tokens} tokens
+                  {msg.toolRounds != null && msg.toolRounds > 0
+                    ? ` · ${msg.toolRounds} tool round${msg.toolRounds === 1 ? "" : "s"}`
+                    : ""}
                 </span>
               )}
             </div>

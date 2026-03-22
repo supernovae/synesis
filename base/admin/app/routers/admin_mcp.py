@@ -73,6 +73,21 @@ _TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "unified_usage_snapshot",
+        "description": (
+            "Full usage and cost snapshot: pipeline rollups + trace totals, rollup lag, "
+            "glossary of cost fields, and Yarn IDE usage for org_admin+. "
+            "Prefer this when the user asks about costs, spend, or unified usage."
+        ),
+        "min_role": Role.user,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since_hours": {"type": "integer", "default": 24, "description": "Lookback hours"},
+            },
+        },
+    },
+    {
         "name": "service_health",
         "description": "Check health of all Synesis services.",
         "min_role": Role.readonly,
@@ -232,6 +247,121 @@ def visible_tools_for_role(role: Role) -> list[dict[str, Any]]:
     return _visible_tools(role)
 
 
+def openai_function_tools_for_role(role: Role) -> list[dict[str, Any]]:
+    """OpenAI/LiteLLM ``tools`` entries (function calling) for the given role."""
+    out: list[dict[str, Any]] = []
+    for t in _TOOLS:
+        if role < t["min_role"]:
+            continue
+        schema = t.get("inputSchema") or {"type": "object", "properties": {}}
+        out.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": schema,
+                },
+            }
+        )
+    return out
+
+
+def _coerce_arguments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return {}
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON in arguments: {exc}") from exc
+    if raw is None:
+        return {}
+    raise HTTPException(status_code=400, detail="arguments must be an object or JSON string")
+
+
+def _http_exception_detail(exc: HTTPException) -> str:
+    d = exc.detail
+    if isinstance(d, str):
+        return d
+    try:
+        return json.dumps(d)
+    except TypeError:
+        return str(d)
+
+
+def _resolve_tool(user: UserInfo, tool_name: str) -> tuple[dict[str, Any], Any]:
+    role = resolve_role(user)
+    tool_def = next((t for t in _TOOLS if t["name"] == tool_name), None)
+    if tool_def is None:
+        raise HTTPException(status_code=404, detail=f"Unknown tool: {tool_name}")
+    if role < tool_def["min_role"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Tool '{tool_name}' requires {tool_def['min_role'].name} role",
+        )
+    handler = _HANDLERS.get(tool_name)
+    if handler is None:
+        raise HTTPException(status_code=501, detail=f"Tool '{tool_name}' not implemented")
+    return tool_def, handler
+
+
+async def invoke_mcp_tool_for_chat(
+    user: UserInfo,
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    audit_source: str = "assistant",
+) -> str:
+    """Execute an MCP tool and return text for a chat ``tool`` message.
+
+    Unlike the HTTP ``/mcp/tools/call`` endpoint, this never raises for RBAC or
+    handler errors — failures are JSON-encoded so the LLM can recover.
+    """
+    try:
+        _, handler = _resolve_tool(user, tool_name)
+    except HTTPException as e:
+        return json.dumps({"error": _http_exception_detail(e), "tool": tool_name})
+
+    try:
+        result = await handler(user, arguments)
+        await record_admin_audit(
+            action=f"mcp.tool.{tool_name}",
+            status="success",
+            summary=f"MCP tool call: {tool_name}",
+            detail={"arguments": arguments},
+            user=user,
+            source=audit_source,
+        )
+        if isinstance(result, str):
+            return result
+        return json.dumps(result, default=str)
+    except HTTPException as e:
+        await record_admin_audit(
+            action=f"mcp.tool.{tool_name}",
+            status="error",
+            summary=f"MCP tool call failed: {tool_name} — {_http_exception_detail(e)}",
+            detail={"arguments": arguments, "error": _http_exception_detail(e)},
+            user=user,
+            source=audit_source,
+        )
+        return json.dumps({"error": _http_exception_detail(e), "tool": tool_name})
+    except Exception as exc:
+        logger.warning("mcp_tool_%s_failed", tool_name, exc_info=True)
+        await record_admin_audit(
+            action=f"mcp.tool.{tool_name}",
+            status="error",
+            summary=f"MCP tool call failed: {tool_name} — {type(exc).__name__}",
+            detail={"arguments": arguments, "error": str(exc)[:500]},
+            user=user,
+            source=audit_source,
+        )
+        return json.dumps({"error": str(exc), "tool": tool_name})
+
+
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/tools")
@@ -248,22 +378,12 @@ async def call_tool(
 ):
     """MCP tools/call — execute a tool by name with RBAC + audit logging."""
     tool_name = body.get("name", "")
-    arguments = body.get("arguments", {})
-    role = resolve_role(user)
+    try:
+        arguments = _coerce_arguments(body.get("arguments", {}))
+    except HTTPException:
+        raise
 
-    tool_def = next((t for t in _TOOLS if t["name"] == tool_name), None)
-    if tool_def is None:
-        raise HTTPException(status_code=404, detail=f"Unknown tool: {tool_name}")
-
-    if role < tool_def["min_role"]:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Tool '{tool_name}' requires {tool_def['min_role'].name} role",
-        )
-
-    handler = _HANDLERS.get(tool_name)
-    if handler is None:
-        raise HTTPException(status_code=501, detail=f"Tool '{tool_name}' not implemented")
+    _, handler = _resolve_tool(user, tool_name)
 
     try:
         result = await handler(user, arguments)
@@ -352,6 +472,12 @@ async def _usage_summary(user: UserInfo, args: dict) -> Any:
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
     )
+
+
+async def _unified_usage_snapshot(user: UserInfo, args: dict) -> Any:
+    from ..services.usage_unified import get_summary_unified
+
+    return await get_summary_unified(user=user, since_hours=int(args.get("since_hours", 24)))
 
 
 async def _service_health(user: UserInfo, args: dict) -> Any:
@@ -500,6 +626,7 @@ _HANDLERS: dict[str, Any] = {
     "get_trace": _get_trace,
     "trace_stats": _trace_stats,
     "usage_summary": _usage_summary,
+    "unified_usage_snapshot": _unified_usage_snapshot,
     "service_health": _service_health,
     "list_models": _list_models,
     "cache_metrics": _cache_metrics,
