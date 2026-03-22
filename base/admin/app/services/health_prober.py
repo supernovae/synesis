@@ -20,6 +20,7 @@ CORE_SERVICES = [
     {"name": "lsp-gateway", "url": "http://lsp-gateway.synesis-lsp.svc:8000/health"},
     {"name": "litellm-proxy", "url": "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/health"},
     {"name": "mcp-server", "url": "http://synesis-mcp.synesis-planner.svc.cluster.local:8080/health"},
+    {"name": "synesis-yarn", "url": "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/health"},
 ]
 
 STATIC_MODEL_SERVICES = [

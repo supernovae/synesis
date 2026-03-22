@@ -33,7 +33,7 @@ from .middleware.rate_limiter import enforce_rate_limit
 from .model import executor as model_executor
 from .model.stream_handler import StreamChunk, ToolCallAccumulator, extract_chunk, parse_sse_line
 from .model.usage_tracker import UsageAggregator, UsageRecord
-from .session.manager import record_usage, resolve_or_create_session
+from .session.manager import record_request_usage, record_usage, resolve_or_create_session
 from .session.models import AuthUser, SessionState
 from .telemetry.metrics import record_escalation, record_request, record_tokens, record_tool_call
 from .telemetry.diagnostics import SessionDiagnostics, get_snapshot
@@ -474,6 +474,10 @@ async def _stream_agentic_loop(
                             usage_agg.total_tokens_out,
                             usage_agg.total_tokens_cached,
                         )
+                        await record_request_usage(
+                            session, request_id, usage_agg,
+                            elapsed * 1000, True, tool_loop_count, "escalated",
+                        )
                         return
 
                 continue
@@ -509,6 +513,10 @@ async def _stream_agentic_loop(
             usage_agg.total_tokens_in,
             usage_agg.total_tokens_out,
             usage_agg.total_tokens_cached,
+        )
+        await record_request_usage(
+            session, request_id, usage_agg,
+            elapsed * 1000, False, tool_loop_count, "stop",
         )
 
         # --- Eviction / compression check ---
@@ -666,6 +674,10 @@ async def _non_streaming_loop(
                 usage_agg.total_tokens_in,
                 usage_agg.total_tokens_out,
                 usage_agg.total_tokens_cached,
+            )
+            await record_request_usage(
+                session, request_id, usage_agg,
+                elapsed * 1000, False, tool_loop_count, "stop",
             )
 
             return JSONResponse(content={

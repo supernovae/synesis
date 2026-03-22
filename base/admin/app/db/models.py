@@ -503,6 +503,60 @@ class IngestionRun(Base):
     )
 
 
+class YarnSession(Base):
+    __tablename__ = "yarn_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
+    conversation_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="deepinfra")
+    model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    total_tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens_cached: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    escalation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_yarn_sessions_key", "session_key", unique=True),
+        Index("ix_yarn_sessions_user_id", "user_id"),
+        Index("ix_yarn_sessions_last_active", "last_active_at"),
+    )
+
+
+class YarnUsageLog(Base):
+    __tablename__ = "yarn_usage_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_cached: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    escalated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    tool_calls_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    finish_reason: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_yarn_usage_session", "session_key"),
+        Index("ix_yarn_usage_user", "user_id"),
+        Index("ix_yarn_usage_created", "created_at"),
+        Index("ix_yarn_usage_provider", "provider"),
+    )
+
+
 class PersonalAccessToken(Base):
     """User-generated API tokens for programmatic access (Cursor, Claude Code, scripts)."""
 

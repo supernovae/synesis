@@ -1594,3 +1594,222 @@ export function useUsageSummary(sinceHours = 24) {
     refetchInterval: 60_000,
   });
 }
+
+// --- Yarn Ops ---
+
+export interface YarnOverview {
+  since_hours: number;
+  total_requests: number;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  total_tokens_cached: number;
+  total_cost_usd: number;
+  avg_latency_ms: number;
+  p99_latency_ms: number;
+  error_count: number;
+  error_rate: number;
+  escalation_count: number;
+  total_tool_calls: number;
+  active_sessions: number;
+}
+
+export interface YarnPerformanceBucket {
+  bucket: string | null;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cached: number;
+  cost_usd: number;
+  avg_latency_ms: number;
+  max_latency_ms: number;
+  escalations: number;
+  errors: number;
+}
+
+export interface YarnSessionRow {
+  id: number;
+  session_key: string;
+  user_id: string;
+  username: string | null;
+  role: string | null;
+  conversation_id: string | null;
+  provider: string | null;
+  model: string | null;
+  total_tokens_in: number;
+  total_tokens_out: number;
+  total_tokens_cached: number;
+  total_cost_usd: number;
+  request_count: number;
+  escalation_count: number;
+  created_at: string | null;
+  last_active_at: string | null;
+}
+
+export interface YarnSessionRequestRow {
+  id: number;
+  request_id: string;
+  provider: string | null;
+  model: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cached: number;
+  latency_ms: number;
+  cost_usd: number;
+  escalated: boolean;
+  tool_calls_count: number;
+  finish_reason: string | null;
+  created_at: string | null;
+}
+
+export interface YarnSessionDetailResponse {
+  session: YarnSessionRow;
+  requests: YarnSessionRequestRow[];
+}
+
+export interface YarnEventRow {
+  id: number;
+  session_key: string;
+  request_id: string;
+  user_id: string;
+  provider: string | null;
+  model: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cached: number;
+  latency_ms: number;
+  cost_usd: number;
+  escalated: boolean;
+  tool_calls_count: number;
+  finish_reason: string | null;
+  created_at: string | null;
+}
+
+export interface YarnHealthResult {
+  name: string;
+  status: string;
+  status_code: number | null;
+  latency_ms: number;
+  error: string | null;
+  category: string;
+}
+
+export interface YarnVerifyCheck {
+  check: string;
+  status: string;
+  status_code?: number;
+  error?: string;
+}
+
+export interface YarnVerifyResult {
+  overall: string;
+  checks: YarnVerifyCheck[];
+}
+
+export function useYarnOverview(sinceHours: number) {
+  return useQuery<YarnOverview>({
+    queryKey: ["yarn", "overview", sinceHours],
+    queryFn: () =>
+      client.get("/yarn/overview", { params: { since_hours: sinceHours } }).then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useYarnPerformance(sinceHours: number, bucketMinutes = 15) {
+  return useQuery<YarnPerformanceBucket[]>({
+    queryKey: ["yarn", "performance", sinceHours, bucketMinutes],
+    queryFn: () =>
+      client
+        .get("/yarn/performance", {
+          params: { since_hours: sinceHours, bucket_minutes: bucketMinutes },
+        })
+        .then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useYarnSessions(page: number, pageSize: number) {
+  return useQuery<{ sessions: YarnSessionRow[]; total: number }>({
+    queryKey: ["yarn", "sessions", page, pageSize],
+    queryFn: () =>
+      client
+        .get("/yarn/sessions", { params: { page, page_size: pageSize } })
+        .then((r) => r.data),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useYarnSessionDetail(sessionKey: string | undefined) {
+  return useQuery<YarnSessionDetailResponse>({
+    queryKey: ["yarn", "session", sessionKey],
+    queryFn: () =>
+      client.get(`/yarn/sessions/${encodeURIComponent(sessionKey!)}`).then((r) => r.data),
+    enabled: Boolean(sessionKey),
+  });
+}
+
+export function useYarnEvents(
+  page: number,
+  pageSize: number,
+  sinceHours: number,
+  errorsOnly: boolean,
+) {
+  return useQuery<{ events: YarnEventRow[]; total: number }>({
+    queryKey: ["yarn", "events", page, pageSize, sinceHours, errorsOnly],
+    queryFn: () =>
+      client
+        .get("/yarn/events", {
+          params: {
+            page,
+            page_size: pageSize,
+            since_hours: sinceHours,
+            errors_only: errorsOnly,
+          },
+        })
+        .then((r) => r.data),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useYarnHealth() {
+  return useQuery<YarnHealthResult>({
+    queryKey: ["yarn", "health"],
+    queryFn: () => client.get("/yarn/health").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useYarnVerify() {
+  const qc = useQueryClient();
+  return useMutation<YarnVerifyResult>({
+    mutationFn: () => client.post("/yarn/verify").then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["yarn", "health"] });
+    },
+  });
+}
+
+// --- Yarn User Usage ---
+
+export interface YarnUserUsage {
+  user_id: string;
+  since_hours: number;
+  total_requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  tokens_cached: number;
+  cost_usd: number;
+  avg_latency_ms: number;
+  escalations: number;
+  errors: number;
+}
+
+export function useYarnUserUsage(sinceHours = 720) {
+  return useQuery<YarnUserUsage>({
+    queryKey: ["yarn", "user-usage", sinceHours],
+    queryFn: () =>
+      client
+        .get("/yarn/user-usage", { params: { since_hours: sinceHours } })
+        .then((r) => r.data),
+    refetchInterval: 120_000,
+  });
+}

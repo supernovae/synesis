@@ -6,6 +6,7 @@ import RequireRole from "./components/auth/RequireRole";
 const Login = lazy(() => import("./pages/Login"));
 const OidcCallback = lazy(() => import("./pages/OidcCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
+const SmartLanding = lazy(() => import("./pages/SmartLanding"));
 const AccountHome = lazy(() => import("./pages/account/AccountHome"));
 const ApiTokens = lazy(() => import("./pages/account/ApiTokens"));
 const Organization = lazy(() => import("./pages/account/Organization"));
@@ -53,6 +54,13 @@ const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 
+const YarnOverview = lazy(() => import("./pages/yarn/YarnOverview"));
+const YarnSessions = lazy(() => import("./pages/yarn/YarnSessions"));
+const YarnSessionDetail = lazy(() => import("./pages/yarn/YarnSessionDetail"));
+const YarnEvents = lazy(() => import("./pages/yarn/YarnEvents"));
+const YarnPerformance = lazy(() => import("./pages/yarn/YarnPerformance"));
+const YarnVerification = lazy(() => import("./pages/yarn/YarnVerification"));
+
 export const router = createBrowserRouter([
   {
     path: "/login",
@@ -69,7 +77,8 @@ export const router = createBrowserRouter([
       </RequireRole>
     ),
     children: [
-      { index: true, element: <Dashboard /> },
+      { index: true, element: <SmartLanding /> },
+      { path: "dashboard", element: <Dashboard /> },
 
       { path: "models", element: <ModelRegistry /> },
       { path: "models/costs", element: <CostTracker /> },
@@ -106,6 +115,13 @@ export const router = createBrowserRouter([
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
+
+      { path: "yarn", element: <YarnOverview /> },
+      { path: "yarn/sessions", element: <YarnSessions /> },
+      { path: "yarn/sessions/:sessionKey", element: <YarnSessionDetail /> },
+      { path: "yarn/events", element: <YarnEvents /> },
+      { path: "yarn/performance", element: <YarnPerformance /> },
+      { path: "yarn/verification", element: <YarnVerification /> },
 
       { path: "account", element: <AccountHome /> },
       { path: "account/tokens", element: <ApiTokens /> },

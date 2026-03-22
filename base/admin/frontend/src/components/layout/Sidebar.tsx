@@ -18,6 +18,7 @@ import {
   PanelLeft,
   ScanSearch,
   Bot,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,7 +35,18 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { label: "Dashboard", icon: LayoutDashboard, path: "/" },
+  { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  {
+    label: "Yarn Ops",
+    icon: Sparkles,
+    children: [
+      { label: "Overview", path: "/yarn" },
+      { label: "Sessions", path: "/yarn/sessions" },
+      { label: "Events", path: "/yarn/events" },
+      { label: "Performance", path: "/yarn/performance" },
+      { label: "Verification", path: "/yarn/verification" },
+    ],
+  },
   {
     label: "Models & Costs",
     icon: Layers,

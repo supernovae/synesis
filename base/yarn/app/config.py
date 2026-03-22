@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     # --- Telemetry ---
     log_level: str = "info"
     otel_endpoint: str = ""
+    persist_usage_to_db: bool = True
     metrics_enabled: bool = True
     diagnostics_enabled: bool = True
     diagnostics_base_sample_rate: float = 0.02

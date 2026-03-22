@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useUsageSummary, useUsageSeries } from "../../api/hooks";
+import { useUsageSummary, useUsageSeries, useYarnUserUsage } from "../../api/hooks";
 import type { UsageRollupEntry } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
 import EmptyState from "../../components/common/EmptyState";
-import { Coins, Clock, Zap, AlertTriangle, Hash } from "lucide-react";
+import { Coins, Clock, Zap, AlertTriangle, Hash, Sparkles, ArrowUpRight } from "lucide-react";
 
 const PERIOD_OPTIONS = [
   { label: "24h", hours: 24 },
@@ -90,6 +90,9 @@ export default function Usage() {
   const [period, setPeriod] = useState(24);
   const { data: summary, isLoading: summaryLoading } = useUsageSummary(period);
   const { data: series, isLoading: seriesLoading } = useUsageSeries(period);
+  const { data: yarnUsage, isLoading: yarnLoading } = useYarnUserUsage(
+    period <= 24 ? 24 : period <= 168 ? 168 : 720,
+  );
 
   const loading = summaryLoading || seriesLoading;
   const bucketRows = series ? aggregateBuckets(series) : [];
@@ -271,6 +274,66 @@ export default function Usage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Yarn Agent Consumption */}
+      <div className="border-t border-gray-200 pt-8 dark:border-gray-700">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-violet-500" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Yarn Agent Usage
+          </h2>
+        </div>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          Token consumption and performance from the Yarn coding agent
+        </p>
+      </div>
+
+      {yarnLoading ? (
+        <div className="h-28 animate-pulse rounded-lg bg-gray-100" />
+      ) : !yarnUsage || yarnUsage.total_requests === 0 ? (
+        <div className="rounded-lg border border-gray-200 bg-white p-6 text-center dark:border-gray-700 dark:bg-gray-900">
+          <Sparkles className="mx-auto h-8 w-8 text-gray-300 dark:text-gray-600" />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            No Yarn agent usage recorded for this period
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="Yarn Requests"
+            value={yarnUsage.total_requests.toLocaleString()}
+            icon={Hash}
+          />
+          <MetricCard
+            label="Tokens Used"
+            value={fmtTokens(yarnUsage.tokens_in + yarnUsage.tokens_out)}
+            icon={Zap}
+            subtitle={`${fmtTokens(yarnUsage.tokens_in)} in · ${fmtTokens(yarnUsage.tokens_out)} out`}
+          />
+          <MetricCard
+            label="Yarn Cost"
+            value={fmtCost(yarnUsage.cost_usd)}
+            icon={Coins}
+            subtitle={
+              yarnUsage.tokens_cached > 0
+                ? `${fmtTokens(yarnUsage.tokens_cached)} cached`
+                : undefined
+            }
+          />
+          <MetricCard
+            label="Avg Latency"
+            value={fmtDuration(yarnUsage.avg_latency_ms)}
+            icon={Clock}
+            subtitle={
+              yarnUsage.errors > 0
+                ? `${yarnUsage.errors} errors · ${yarnUsage.escalations} escalations`
+                : yarnUsage.escalations > 0
+                  ? `${yarnUsage.escalations} escalations`
+                  : undefined
+            }
+          />
+        </div>
       )}
     </div>
   );

@@ -188,6 +188,42 @@ Two tables in the admin database (`base/admin/alembic/versions/012_yarn_sessions
 - **yarn_sessions**: Durable session metadata (user, provider, token totals, costs)
 - **yarn_usage_log**: Per-request usage records (cached/uncached token split, latency, cost)
 
+## Yarn Ops Dashboard
+
+The admin dashboard includes a dedicated Yarn Ops section for monitoring
+and managing the agent runtime. Ops roles (platform_admin, org_admin) land
+here by default.
+
+### Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Overview | `/yarn` | Single-pane hub: requests, errors, escalations, cost, latency, active sessions |
+| Sessions | `/yarn/sessions` | Paginated list of all Yarn sessions with drill-down detail |
+| Events & Errors | `/yarn/events` | Request-level event log with error/escalation filtering |
+| Performance | `/yarn/performance` | Time-series charts: requests, latency, cost, token throughput |
+| Verification | `/yarn/verification` | Health probes and smoke tests for the Yarn service |
+
+### Data Flow
+
+1. Yarn runtime persists per-request usage rows into `yarn_usage_log` and
+   upserts session aggregates into `yarn_sessions` during request finalization.
+2. Admin API (`/api/v1/yarn/*`) queries these tables with RBAC scoping.
+3. Frontend pages consume the API via TanStack Query hooks with auto-refresh.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SYNESIS_YARN_PERSIST_USAGE_TO_DB` | `true` | Enable/disable DB persistence from Yarn |
+| `SYNESIS_YARN_URL` (admin) | `http://synesis-yarn.synesis-yarn.svc.cluster.local:8000` | Yarn service URL for health probes and diagnostics proxy |
+
+### User Token Consumption
+
+Regular users see their personal Yarn usage (tokens, cost, latency, errors)
+on the account Usage page (`/account/usage`), powered by
+`GET /api/v1/yarn/user-usage`.
+
 ## Telemetry
 
 - **Prometheus metrics** at `/metrics`: request count, latency histogram, token counters (cached vs uncached), escalation rate, tool call success rate, circuit breaker state

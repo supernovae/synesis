@@ -64,3 +64,15 @@ oc -n synesis-rag exec deploy/synesis-redis -- redis-cli GET "yarn:diag:<request
 - If incidents are missed, raise `SYNESIS_YARN_DIAGNOSTICS_BASE_SAMPLE_RATE` gradually (for example `0.02 -> 0.05`).
 - If logs are too noisy, lower base sample rate first; keep failure sampling on.
 - Keep `SYNESIS_YARN_DIAGNOSTICS_MAX_TOOL_EVENTS` modest to bound log payload size.
+
+## Admin Dashboard Integration
+
+Diagnostics snapshots are now accessible from the Yarn Ops dashboard:
+
+1. Navigate to **Yarn Ops > Events & Errors** and locate the problematic request
+2. Copy the `request_id`  
+3. Navigate to the admin API: `GET /api/v1/yarn/diagnostics/{request_id}`
+4. Or use the verification page to run health checks
+
+The Yarn Ops Overview page surfaces error rates and escalation counts at a
+glance, making it the natural starting point for incident triage.

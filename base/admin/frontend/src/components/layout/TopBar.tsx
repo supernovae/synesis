@@ -34,6 +34,10 @@ const breadcrumbLabels: Record<string, string> = {
   "circuit-breakers": "Circuit Breakers",
   errors: "Errors",
   "retrieval-gaps": "Retrieval Gaps",
+  yarn: "Yarn Ops",
+  sessions: "Sessions",
+  events: "Events",
+  verification: "Verification",
   settings: "Settings",
   providers: "Provider Keys",
   "infra-costs": "Infrastructure Costs",
@@ -51,6 +55,7 @@ function breadcrumbSegmentLabel(seg: string, prevSeg: string | undefined): strin
   if (prevSeg === "traces" && isLikelyIdSegment(seg)) return "Trace detail";
   if (prevSeg === "errors" && isLikelyIdSegment(seg)) return "Failure detail";
   if (prevSeg === "quality" && seg.length > 0 && !breadcrumbLabels[seg]) return "Domain";
+  if (prevSeg === "sessions" && seg.length > 0) return "Session detail";
   return breadcrumbLabels[seg] || seg;
 }
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -321,6 +322,40 @@ def _sum_labeled_metric(
             if label_filter is None or all(labels.get(k) == v for k, v in label_filter.items()):
                 total += float(entry.get("value", 0))
     return total
+
+
+_YARN_URL = os.getenv(
+    "SYNESIS_YARN_URL",
+    "http://synesis-yarn.synesis-yarn.svc.cluster.local:8000",
+)
+
+
+async def fetch_yarn_metrics() -> dict[str, Any]:
+    url = f"{_YARN_URL.rstrip('/')}/metrics"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=5.0)
+            resp.raise_for_status()
+            return parse_prometheus_text(resp.text)
+    except Exception as exc:
+        logger.warning("yarn_metrics_error error=%s", str(exc)[:80])
+        return {}
+
+
+async def get_yarn_live_metrics() -> dict[str, Any]:
+    """Fetch live Prometheus counters from the Yarn /metrics endpoint."""
+    raw = await fetch_yarn_metrics()
+    if not raw:
+        return {}
+    return {
+        "total_requests": int(_find_metric(raw, "yarn_requests_total")),
+        "request_errors": int(_find_metric(raw, "yarn_request_errors_total")),
+        "tokens_in": int(_find_metric(raw, "yarn_tokens_in_total")),
+        "tokens_out": int(_find_metric(raw, "yarn_tokens_out_total")),
+        "tokens_cached": int(_find_metric(raw, "yarn_tokens_cached_total")),
+        "tool_calls": int(_find_metric(raw, "yarn_tool_calls_total")),
+        "escalations": int(_find_metric(raw, "yarn_escalations_total")),
+    }
 
 
 async def get_web_search_stats() -> dict[str, Any]:
