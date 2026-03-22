@@ -5,9 +5,8 @@ WORKDIR /opt/app-root/src
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 COPY requirements.txt .
-# UBI + uv: `--system` targets /usr/local/... which is not writable in GHA buildx / some runners.
-# Install into a venv under /opt/app-root (owned by root during build, readable by default user).
-RUN uv venv /opt/app-root/venv \
+# Explicitly target the SCL Python 3.11 — uv may otherwise discover /usr/bin/python3 (3.9).
+RUN uv venv --python /opt/app-root/bin/python /opt/app-root/venv \
     && uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
 
 COPY app/ app/
