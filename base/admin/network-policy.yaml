@@ -63,10 +63,8 @@ spec:
           protocol: TCP
         - port: 8443
           protocol: TCP
-    # DNS resolution
-    - to:
-        - namespaceSelector: {}
-      ports:
+    # DNS — any destination (see planner network-policy.yaml)
+    - ports:
         - port: 53
           protocol: UDP
         - port: 53

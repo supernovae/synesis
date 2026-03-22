@@ -79,10 +79,10 @@ spec:
       ports:
         - port: 443
           protocol: TCP
-    # DNS
-    - to:
-        - namespaceSelector: {}
-      ports:
+    # DNS: omit `to` so UDP/TCP 53 may reach any destination (cluster DNS
+    # ServiceIP, NodeLocal, CoreDNS pod IPs). Restricting by namespaceSelector
+    # breaks on OVN when traffic is DNAT’d away from the Service IP.
+    - ports:
         - port: 53
           protocol: UDP
         - port: 53

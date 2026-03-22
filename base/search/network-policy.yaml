@@ -35,9 +35,8 @@ spec:
           port: 443
         - protocol: TCP
           port: 80
-    # Allow DNS resolution
-    - to: []
-      ports:
+    # DNS — any destination (see planner network-policy.yaml)
+    - ports:
         - protocol: UDP
           port: 53
         - protocol: TCP

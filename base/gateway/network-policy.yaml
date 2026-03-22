@@ -57,10 +57,8 @@ spec:
       ports:
         - port: 5432
           protocol: TCP
-    # DNS
-    - to:
-        - namespaceSelector: {}
-      ports:
+    # DNS — any destination (see planner network-policy.yaml)
+    - ports:
         - port: 53
           protocol: UDP
         - port: 53
