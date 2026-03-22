@@ -1,0 +1,29 @@
+---
+description: Prefer UBI base images, uv for Python deps, Podman + uv for local dev and tests
+alwaysApply: true
+---
+
+# Synesis toolchain defaults (containers + local Python)
+
+## Container images — prefer UBI
+
+- **Default base:** Red Hat **UBI 9** Python images, e.g. `registry.access.redhat.com/ubi9/python-311:latest`, unless a service truly needs a different OS/runtime.
+- **Why:** Aligns with OpenShift/RHEL, supported CVE cadence, and matches existing Synesis `Containerfile` patterns under `base/*/`.
+- **Minimal variants:** Use `ubi9/ubi-minimal` only when you are not using the S2I Python image and have a clear reason (static binaries, non-Python workers); still prefer UBI lineage over arbitrary `debian`/`alpine` unless there is an explicit exception.
+
+## Python packages — use **uv**
+
+- **In Docker/Podman builds:** Copy the `uv` binary (`ghcr.io/astral-sh/uv:latest`) and install deps with **`uv venv`** + **`uv pip install --python <venv>/bin/python -r requirements.txt`** (or `pyproject.toml` where the service uses it). Avoid `pip install` in Dockerfiles unless the image has no uv yet and you are only doing a one-line bootstrap.
+- **UBI note:** On UBI Python images, avoid `uv pip install --system` into `/usr/local` during CI/buildx — it is often not writable; a venv under `/opt/app-root/venv` (or similar) is the established pattern. Prefer an **explicit venv interpreter** in `CMD`/`HEALTHCHECK` if PATH may not pick up the venv in production (see `base/yarn/Containerfile`).
+- **Repo root:** The monorepo uses **`uv`** for tooling (e.g. `uv run ruff`, `uv run pytest`); prefer **`uv run …`** over ad-hoc `python -m` when a `pyproject.toml` / lock context exists.
+
+## Local development and testing — **Podman** + **uv**
+
+- **Containers locally:** Prefer **Podman** over Docker for rootless, OpenShift-like workflows. The repo ships [`podman-compose.yaml`](podman-compose.yaml) for stack bring-up where applicable.
+- **Python envs locally:** Prefer **`uv venv`** and **`uv pip install`** (or **`uv sync`** if the component uses a `uv`-managed project) rather than ad-hoc `python3 -m venv` + pip, when `uv` is installed.
+- **Running tests:** From the repo root or service directory, use **`uv run pytest …`** / **`uv run ruff check …`** when `uv` is available so versions match CI and `pyproject.toml`.
+
+## When to diverge
+
+- **Upstream images** (e.g. TEI, vLLM, Milvus) are pinned by vendors — do not force UBI inside third-party images; only Synesis-owned `Containerfile`s need the UBI bias.
+- **GitHub Actions** already uses `astral-sh/setup-uv` in workflows; keep container builds and local docs consistent with **uv**, not a mix of legacy pip-only instructions without reason.
