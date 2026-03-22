@@ -15,6 +15,9 @@ set -euo pipefail
 #   env:  SYNESIS_LITELLM_STATIC_FALLBACK=true (api mode only)
 #         Force static LiteLLM role mappings from overlays/api/litellm-config-openrouter-static-fallback.yaml
 #         instead of Prisma-backed dynamic registry sync.
+#   env:  SYNESIS_FORCE_LITELLM_HELM=true (api mode only)
+#         Always run `helm upgrade --install` for LiteLLM even when values files are unchanged.
+#         Default: skip Helm when the values fingerprint matches the last successful deploy.
 #
 # Yarn (IDE path) and the MCP agent deploy with both api and model overlays
 # (namespaces synesis-yarn, synesis-planner/synesis-mcp). Images: ghcr.io/.../yarn, .../mcp.
@@ -741,7 +744,29 @@ _upsert_litellm_db_credentials() {
 # -----------------------------------------------------------------------
 # Deploy LiteLLM via the official Helm chart.
 # Replaces the Kustomize-managed Deployment/Service/ConfigMap.
+#
+# Idempotent: skips `helm upgrade --wait` when the merged values fingerprint
+# matches the last successful run (ConfigMap synesis-gateway/litellm-helm-values-fingerprint).
+# Use SYNESIS_FORCE_LITELLM_HELM=true to always upgrade (e.g. after pulling a new chart).
 # -----------------------------------------------------------------------
+_sha256_stdin() {
+    "$PYTHON" -c "import hashlib,sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"
+}
+
+_litellm_helm_values_fingerprint() {
+    local values_file="$1" values_dir="$2" static_flag="$3"
+    {
+        cat "$values_file"
+        if [[ "$static_flag" == "true" ]]; then
+            local static_file="$values_dir/values-synesis-static.yaml"
+            if [[ -f "$static_file" ]]; then
+                cat "$static_file"
+            fi
+        fi
+        printf '\n# synesis_fingerprint static_fallback=%s\n' "$static_flag"
+    } | _sha256_stdin
+}
+
 deploy_litellm_helm() {
     [[ "$MODE" != "api" ]] && return 0
 
@@ -749,6 +774,7 @@ deploy_litellm_helm() {
     local values_dir="$PROJECT_ROOT/base/gateway/helm"
     local values_file="$values_dir/values-synesis.yaml"
     local release_name="litellm-proxy"
+    local fp_cm="litellm-helm-values-fingerprint"
 
     if [[ ! -f "$values_file" ]]; then
         log "WARNING: Helm values file not found: $values_file — skipping LiteLLM Helm deploy"
@@ -759,6 +785,30 @@ deploy_litellm_helm() {
         log "ERROR: helm CLI not found. Install Helm 3.x to deploy LiteLLM."
         log "  https://helm.sh/docs/intro/install/"
         return 1
+    fi
+
+    oc create namespace "$ns" 2>/dev/null || true
+
+    local fp
+    fp=$(_litellm_helm_values_fingerprint "$values_file" "$values_dir" "$LITELLM_STATIC_FALLBACK")
+
+    local prev_fp=""
+    if oc get configmap "$fp_cm" -n "$ns" &>/dev/null; then
+        prev_fp=$(oc get configmap "$fp_cm" -n "$ns" -o jsonpath='{.data.sha256}' 2>/dev/null || true)
+    fi
+
+    if ! is_true "${SYNESIS_FORCE_LITELLM_HELM:-false}"; then
+        if helm status "$release_name" -n "$ns" &>/dev/null; then
+            if [[ -n "$prev_fp" && "$prev_fp" == "$fp" ]]; then
+                log ""
+                log "LiteLLM Helm: values unchanged (fingerprint matches $ns/$fp_cm) — skipping upgrade."
+                log "  To force: SYNESIS_FORCE_LITELLM_HELM=true $0 $MODE"
+                return 0
+            fi
+        fi
+    else
+        log ""
+        log "LiteLLM Helm: SYNESIS_FORCE_LITELLM_HELM=true — running upgrade regardless of fingerprint."
     fi
 
     local helm_args=(
@@ -789,6 +839,11 @@ deploy_litellm_helm() {
 
     if helm "${helm_args[@]}"; then
         log "  LiteLLM Helm release '$release_name' deployed successfully"
+        oc create configmap "$fp_cm" -n "$ns" \
+            --from-literal=sha256="$fp" \
+            --from-literal=updated="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --dry-run=client -o yaml | oc apply -f - \
+            && log "  Recorded values fingerprint in ConfigMap $fp_cm"
     else
         log "WARNING: LiteLLM Helm deploy failed. Check: helm status $release_name -n $ns"
         return 1
