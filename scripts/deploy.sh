@@ -16,6 +16,9 @@ set -euo pipefail
 #         Force static LiteLLM role mappings from overlays/api/litellm-config-openrouter-static-fallback.yaml
 #         instead of Prisma-backed dynamic registry sync.
 #
+# Yarn (IDE path) and the MCP agent deploy with both api and model overlays
+# (namespaces synesis-yarn, synesis-planner/synesis-mcp). Images: ghcr.io/.../yarn, .../mcp.
+#
 # Examples:
 #   ./scripts/deploy.sh api                     # default — API providers, latest images
 #   ./scripts/deploy.sh api v1.2.0              # API providers, release tag
