@@ -119,19 +119,15 @@ Use this as the password when prompted. The username field can be anything
 
 ### Admin UI via synesis-admin
 
-The Synesis admin service (`synesis-admin`) also manages model routing.
-It reads `models.yaml` and pushes model definitions to LiteLLM via the
-`POST /model/new` API on startup. This is the "Seed from YAML" flow — it
-bootstraps the model registry so the Admin UI shows the correct routes
-even on a fresh deploy.
+The Synesis admin service (`synesis-admin`) manages model routing through its **Model Registry**. Operators assign models to pipeline roles in the admin UI, and the **Reconcile** action syncs active assignments to LiteLLM. The "Seed from YAML" action re-bootstraps `model_deployments` from `models.yaml` for fresh deployments or resets.
 
 ## Model Routing
 
 ### Dynamic mode (default)
 
-Models are stored in Postgres via Prisma. The Synesis admin service pushes
-model definitions from `models.yaml` to LiteLLM on startup. Changes made
-in the Admin UI are persisted and survive restarts.
+Models are stored in Postgres via Prisma. The Synesis admin Model Registry
+manages role → model assignments and reconciles them to LiteLLM. Changes
+made through the admin UI or via the reconcile API are persisted and survive restarts.
 
 `STORE_MODEL_IN_DB=true` is set in the Helm values.
 
@@ -150,17 +146,20 @@ This mode:
 - Defines all pipeline roles (router, general, critic, coder, summarizer,
   thinking) as static model entries
 
-### Pipeline roles and current providers
+### Pipeline roles
 
-| Role | Model | Provider | Use |
-|------|-------|----------|-----|
+Runtime model routing is managed through the **admin Model Registry** and reconciled to LiteLLM. The table below shows example role assignments for an OpenRouter/cloud overlay — your cluster will differ based on registry configuration.
+
+| Role | Example Model | Example Provider | Use |
+|------|---------------|------------------|-----|
 | `synesis-agent` | Synesis planner | Internal | End-user conversations |
-| `synesis-router` | grok-4-1-fast | xAI | Intent classification |
-| `synesis-summarizer` | grok-4-1-fast | xAI | Conversation summaries |
-| `synesis-general` | DeepSeek-V3.2 | DeepInfra | General reasoning |
-| `synesis-critic` | deepseek-r1-distill-qwen-32b | OpenRouter | Answer validation |
-| `synesis-coder` | qwen-2.5-coder-32b | OpenRouter | Code generation |
-| `synesis-thinking` | deepseek-r1-distill-llama-70b | OpenRouter | Deep reasoning |
+| `synesis-router` | Qwen2.5-14B-Instruct | Self-hosted vLLM | Intent classification |
+| `synesis-general` | Qwen3-32B FP8 | Self-hosted vLLM | General reasoning |
+| `synesis-critic` | DeepSeek R1-Distill-Qwen-32B | Self-hosted vLLM | Answer validation |
+| `synesis-coder` | Qwen3-Coder-30B-A3B FP8 | Self-hosted vLLM | Code generation |
+| `synesis-summarizer` | Qwen2.5-0.5B-Instruct | CPU / KServe | Conversation summaries |
+
+Cloud overlays (OpenRouter, xAI, DeepInfra) swap self-hosted models for API providers. See [OPENROUTER.md](OPENROUTER.md) for the cloud overlay pattern.
 
 ## Database
 

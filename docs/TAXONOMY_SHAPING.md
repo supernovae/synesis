@@ -24,7 +24,7 @@ entry_classifier_weights ──→  ScoringEngine         ──→  EntryClassi
 intent_weights.yaml      ──→  (deterministic)            (no LLM)
                                     │
                                     ▼
-taxonomy_prompt_config   ──→  TaxonomyPromptFactory ──→  Router (Qwen3-8B)
+taxonomy_prompt_config   ──→  TaxonomyPromptFactory ──→  Router (Qwen2.5-14B)
 intent_prompts.yaml      ──→  (deterministic lookup)     Planner (router model)
 vertical_*.yaml plugins  ──→                             Executor (general model)
                                                          Critic (R1)
@@ -75,7 +75,7 @@ routing_thresholds:
   plan_required_above: 0.5   # lower threshold → more tasks hit Planner
 ```
 
-### Router (Qwen3-8B)
+### Router (Qwen2.5-14B)
 
 The Router returns a minimal `RouterDecision` JSON:
 

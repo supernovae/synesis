@@ -12,7 +12,6 @@ Post-retrieval pipeline:
 
 Coherence gate (Phase 6) was removed — Milvus hybrid search + FlashRank
 cross-encoder reranking + rerank-score floor handle relevance filtering.
-See docs/COHERENCE_GATE_ARCHIVE.md for rationale and restoration guide.
 
 Authority system preserved end-to-end:
   - RAG: authority boost applied in rag_client.py (canonical=1.5, vetted=1.3, etc.)

@@ -10,7 +10,7 @@ This document describes how to train and tune LoRA adapters for the Router and C
 
 ## No LoRA Required to Start
 
-**You do not need LoRA adapters** to achieve distinct Router vs Critic behavior. The router deployment (Qwen3-8B FP8-dynamic) serves all three non-executor roles via:
+**You do not need LoRA adapters** to achieve distinct Router vs Critic behavior. The router deployment (Qwen2.5-14B-Instruct FP8) serves all three non-executor roles via:
 
 | Role | Purpose | Differentiation |
 |------|---------|-----------------|
@@ -28,10 +28,10 @@ Each node uses a different `ChatOpenAI` instance with role-specific prompts and 
 
 | Component | Model | Quantization | VRAM |
 |-----------|-------|-------------|------|
-| **Router, Planner, Critic** | Qwen3-8B FP8-dynamic | FP8 | ~8 GB on L40S |
+| **Router, Planner, Critic** | Qwen2.5-14B-Instruct FP8 | FP8 | ~14 GB on L40S |
 | **Critic (R1)** | DeepSeek R1-Distill-Qwen-32B FP8 | FP8 | ~33 GB on L40S |
 
-LoRA adapters would be trained against the **Qwen3-8B** base and loaded onto the router deployment. The R1-Distill critic would not use LoRA in the initial phase.
+LoRA adapters would be trained against the **Qwen2.5-14B-Instruct** base and loaded onto the router deployment. The R1-Distill critic would not use LoRA in the initial phase.
 
 ---
 
@@ -93,7 +93,7 @@ LoRA adapters would be trained against the **Qwen3-8B** base and loaded onto the
    - System prompt + user/assistant turns
    - Target format matches RouterOut / CriticOut JSON
 3. Train LoRA (Unsloth or Axolotl)
-   - Base: Qwen3-8B (text-only)
+   - Base: Qwen2.5-14B-Instruct (text-only)
    - Rank: 16-64, alpha: 32 (typical)
    - Epochs: 2-4, lr: 1e-4 to 5e-5
 4. Export adapter (safetensors)
@@ -121,7 +121,7 @@ LoRA adapters would be trained against the **Qwen3-8B** base and loaded onto the
 
 The following priorities are ordered by impact. Each describes the specific behavior gap that prompt engineering cannot fully close, the training data shape, and the signal that triggers LoRA investment.
 
-### Priority 1: Planner LoRA (Qwen3-8B base)
+### Priority 1: Planner LoRA (Qwen2.5-14B base)
 
 **Target behavior:** Faithful 1:1 mapping of user deliverables to plan steps. Extraction of meta-instructions (format constraints, structural requests) into the `assumptions` field.
 
@@ -161,7 +161,7 @@ The following priorities are ordered by impact. Each describes the specific beha
 
 **Signal to train:** When `_DEEP_DIVE_SUFFIX` + temperature 0.4 + format constraints pipeline still produces "menu-style" responses on >30% of benchmark prompts.
 
-### Priority 3: Critic LoRA (Qwen3-8B base)
+### Priority 3: Critic LoRA (Qwen2.5-14B base)
 
 **Target behavior:** Flag generic/menu-style responses as `approved=false`. Verify structural compliance against user's explicit format requests. Reject invented metrics and unsupported claims.
 
@@ -180,7 +180,7 @@ The following priorities are ordered by impact. Each describes the specific beha
 
 **Signal to train:** When the critic consistently approves responses that the external benchmark scores below 6/10.
 
-### Priority 4: Domain Classifier LoRA (Qwen3-8B base) — FUTURE
+### Priority 4: Domain Classifier LoRA (Qwen2.5-14B base) — FUTURE
 
 **Target behavior:** Map a user prompt directly to domain labels (software_architecture, cloud, kubernetes, etc.) and complexity assessment, replacing or augmenting the current keyword-based axis 2 detection.
 

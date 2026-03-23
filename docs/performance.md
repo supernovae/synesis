@@ -1,6 +1,6 @@
 # Synesis Performance Notes
 
-Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW.md](WORKFLOW.md). Model roles: [models.yaml](../models.yaml). **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
+Latency, **writer evidence budgeting**, prefix ordering, and observability. Graph flow: [WORKFLOW.md](WORKFLOW.md). Model roles: [models.yaml](../models.yaml) (build-time reference; runtime routing via admin Model Registry → LiteLLM). **vLLM flags, GPU sizing, OOM tuning:** [VLLM_RECIPES.md](VLLM_RECIPES.md) (do not duplicate here).
 
 ---
 

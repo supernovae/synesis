@@ -105,7 +105,7 @@ On-demand: ~$7.00/hr combined. Advantages: independent scaling, fault isolation.
 
 Upgrade model sizes within a profile using `model_override` in `models.yaml`:
 
-- General: Qwen3.5-35B-A3B -> Qwen3-235B-A22B (requires TP=2)
+- General: Qwen3-32B -> Qwen3-235B-A22B (requires TP=2)
 - Critic: R1-Distill-32B -> R1-Distill-70B (requires TP=2)
 - Better quality per request, higher cost per GPU
 

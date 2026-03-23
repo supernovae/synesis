@@ -10,11 +10,11 @@ The primary GPU-bound workloads are the model serving deployments. Memory bandwi
 
 | Profile | Hardware | Model Distribution |
 |---------|----------|-------------------|
-| **Small** | 3x L40S (3x g6e.2xlarge) | GPU 0: Router + Critic (Qwen2.5-14B-Instruct FP8); GPU 1: General (Qwen3.5-35B-A3B FP8); GPU 2: Coder (FP8) |
+| **Small** | 3x L40S (3x g6e.2xlarge) | GPU 0: Router + Critic (Qwen2.5-14B-Instruct FP8); GPU 1: General (Qwen3-32B FP8); GPU 2: Coder (FP8) |
 | **Medium** | 4x L40S | General on GPU 0; Coder TP=2 on GPUs 1-2; Router + R1 Critic on GPU 3 |
 | **Large** | 8x GPU (A100/H100) | All roles dedicated; Coder scales 2-4 replicas on queue depth |
 
-**Small profile note**: 3× g6e.2xlarge (8 vCPU, 64 GiB RAM, 1× L40S each). On-demand ~$6.72/hr; spot ~$2.73/hr. The critic uses the same Qwen2.5-14B-Instruct as the router (prompt-based CoT, no native thinking mode). The 14B model's stronger instruction-following produces more definitive critic evaluations than the previous 8B. The dedicated Qwen3.5-35B-A3B general model handles executor/writer roles. The R1 critic deployment is scaled to 0 replicas.
+**Small profile note**: 3× g6e.2xlarge (8 vCPU, 64 GiB RAM, 1× L40S each). On-demand ~$6.72/hr; spot ~$2.73/hr. The critic uses the same Qwen2.5-14B-Instruct as the router (prompt-based CoT, no native thinking mode). The 14B model's stronger instruction-following produces more definitive critic evaluations than the previous 8B. The dedicated Qwen3-32B general model handles executor/writer roles. The R1 critic deployment is scaled to 0 replicas.
 
 ### GPU Comparison
 
@@ -30,7 +30,7 @@ The primary GPU-bound workloads are the model serving deployments. Memory bandwi
 | Role | Default Model | FP8 Weights | KV Cache (32K ctx) | Total Active VRAM |
 |------|--------------|-------------|--------------------|--------------------|
 | Router | Qwen2.5-14B-Instruct FP8 | ~14 GB | ~5.5 GB | ~22 GB |
-| General (small) | Qwen3.5-35B-A3B-FP8 | ~35 GB (all experts) | ~3 GB | ~38 GB |
+| General (small) | Qwen3-32B FP8-dynamic | ~32 GB | ~4.2 GB | ~38.7 GB |
 | Coder (small) | Qwen3-Coder-30B-A3B-FP8 | ~15 GB | ~4 GB (65K ctx) | ~20 GB |
 | Coder (medium+) | Qwen3-Coder-Next-FP8 | ~46 GB (all 512 experts) | ~4 GB (65K ctx) | ~50 GB (TP=2) |
 | Critic (small) | Qwen2.5-14B-Instruct FP8 | shared with Router | shared | ~22 GB (shared) |

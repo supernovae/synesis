@@ -54,7 +54,7 @@ LLM instructions are composed in **three layers** (full rationale: [PROMPT_EPIST
 
 | Role | Model | Hardware | Notes |
 |------|-------|----------|-------|
-| Router / Planner | Qwen3-8B FP8 | GPU 0 (L40S) | Fast routing, query generation, plan decomposition |
+| Router / Planner | Qwen2.5-14B-Instruct FP8 | GPU 0 (L40S) | Fast routing, query generation, plan decomposition |
 | General (Executor / Writer) | Qwen3-32B FP8 | GPU 1 (L40S) | Code generation, knowledge synthesis |
 | Coder | Qwen3-Coder-30B-A3B FP8 | GPU 2 (L40S) | Dedicated code generation for IDE clients (direct vLLM) |
 | Critic | DeepSeek R1-Distill-32B FP8 | GPU (L40S) | Quality review with configurable thinking budget |

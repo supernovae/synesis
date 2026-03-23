@@ -112,9 +112,8 @@ class Settings(BaseSettings):
     rag_score_threshold: float = 0.25
 
     # Minimum rerank score floor — drops results below this after FlashRank
-    # cross-encoder reranking.  Replaces the removed coherence gate (see
-    # docs/COHERENCE_GATE_ARCHIVE.md).  0.05 is permissive; raise to 0.1+
-    # if off-topic chunks persist.
+    # cross-encoder reranking.  0.05 is permissive; raise to 0.1+ if
+    # off-topic chunks persist.
     rag_rerank_score_min: float = 0.05
 
     # Cohesion Lock: post-retrieval inter-document coherence filtering.

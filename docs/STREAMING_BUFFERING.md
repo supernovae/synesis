@@ -1,6 +1,6 @@
 # Streaming and Buffering for Synesis
 
-Status updates from the LLM (e.g. "Classifying request…", "Gathering evidence…") depend on streaming tokens reaching the client without being buffered. Buffering in proxies (HAProxy, nginx) can delay or drop small updates, degrading UX.
+Status updates from the LLM (e.g. "Analyzing request…", "Gathering evidence…") depend on streaming tokens reaching the client without being buffered. Buffering in proxies (HAProxy, nginx) can delay or drop small updates, degrading UX.
 
 ---
 

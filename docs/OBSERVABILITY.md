@@ -137,8 +137,8 @@ This triggers a rolling restart. To revert, redeploy the overlay.
 The `models.yaml` profiles control how many model pods are deployed. The dashboard
 adapts automatically because all vLLM queries group by `model_name` label:
 
-- **small** (2x L40S): Router + Critic panels visible
-- **medium** (4x L40S): + General + Coder panels appear
+- **small** (3x L40S): Router/Critic + General + Coder panels visible
+- **medium** (4x L40S): All roles dedicated; + separate Critic panel
 - **large** (8+ GPU): Same models, potentially multiple replicas per role
 
 No dashboard changes are needed when switching profiles.

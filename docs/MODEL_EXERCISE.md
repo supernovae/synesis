@@ -47,7 +47,9 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 ---
 
-## Router / Planner (Qwen3-8B FP8)
+## Router / Planner (Qwen2.5-14B-Instruct FP8)
+
+> Historical note: Observations below were made against Qwen3-8B. Several issues (deliverable merging, people-pleasing critic) were mitigated by upgrading to Qwen2.5-14B-Instruct, which has stronger instruction-following and more definitive evaluations.
 
 **Role:** Task routing (router), execution planning (planner), quality review (critic).
 
@@ -100,7 +102,7 @@ The BM25 classification fix correctly moved the architecture benchmark prompt fr
 
 ---
 
-## Critic (Qwen3-8B / R1-Distill-32B)
+## Critic (Qwen2.5-14B / R1-Distill-32B)
 
 **Role:** Quality review of generated responses.
 

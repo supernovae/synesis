@@ -29,17 +29,16 @@ On first visit, create an admin account. The `synesis-agent` model is available 
 
 | Model Name | What It Does |
 |------------|-------------|
-| `synesis-agent` | Full pipeline: Router → Planner → Worker → Critic → Respond (all via Qwen3-8B) |
-| `synesis-thinking` | Qwen3-8B with thinking mode enabled — shows chain-of-thought reasoning |
+| `synesis-agent` | Full pipeline: Entry → Planner → Router → Writer → Critic → Respond (via Qwen2.5-14B router + Qwen3-32B general) |
 
-In small profile, Qwen3-8B handles all roles (router, executor, critic) on GPU 0. The critic uses Qwen3 thinking mode for chain-of-thought reasoning. The Coder model runs on GPU 1 but is accessed directly by IDEs, not through Open WebUI.
+In small profile, Qwen2.5-14B-Instruct handles routing, planning, and critic roles on GPU 0. Qwen3-32B handles general/writer on GPU 1. The Coder model runs on GPU 2 but is accessed directly by IDEs, not through Open WebUI.
 
 ### Medium/Large Profile (staging/prod)
 
 | Model Name | What It Does |
 |------------|-------------|
 | `synesis-agent` | Full pipeline: Router → Planner → Worker → Critic → Respond |
-| `synesis-router` | Direct access to Router model (Qwen3-8B) |
+| `synesis-router` | Direct access to Router model (Qwen2.5-14B-Instruct) |
 | `synesis-critic` | Direct access to Critic model (R1-Distill, deep thinking) |
 | `synesis-thinking` | R1-Distill thinking model — dedicated deep reasoning |
 | `synesis-coder` | Direct access to Coder model (Qwen3-Coder-Next-FP8) |

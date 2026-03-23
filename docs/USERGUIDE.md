@@ -20,19 +20,19 @@ How to get the behavior you want. Synesis uses a deterministic EntryClassifier b
 
 ## 1. Task Size and Routing
 
-Synesis classifies your request into three tiers before any LLM runs:
+Synesis classifies your request before any LLM runs. The canonical graph flow is **entry_pipeline → planner → plan_gate → router → writer → critic → respond** (see [WORKFLOW.md](WORKFLOW.md)):
 
 | Tier | Path | When |
 |------|------|------|
-| **Trivial** | EntryClassifier → Writer → Scrubber → Respond | Regex matches (hello world, print X, basic unit test, parse json, fizzbuzz, etc.) |
-| **Small** | EntryClassifier → **Router** → Writer → … | Default when not trivial or complex |
-| **Complex** | EntryClassifier → **Router** → Planner → Writer → Critic → … | Matches: deploy, architecture, design, migrate, security, credentials, whole repo |
+| **Trivial** | Entry → Writer → Scrubber → Respond | Regex matches (hello world, print X, basic unit test, parse json, fizzbuzz, etc.) |
+| **Normal** | Entry → Planner → Plan Gate → **Router** → Writer → Critic → … | Default for most requests; plan gate may short-circuit to clarification |
+| **Complex** | Same as normal, but with deeper planning and stricter critic | Matches: deploy, architecture, design, migrate, security, credentials, whole repo |
 
 > **Note:** Code generation and editing is handled by the **Coder front door**
 > (Qwen Coder via LiteLLM → IDE coding agents). The planner pipeline focuses on
 > knowledge synthesis and can include code snippets in fenced markdown blocks.
 
-**Trivial** gets minimal context from Router. **Small** and **Complex** run through the Router, which may suggest planning or ask clarification (within budget).
+**Trivial** skips retrieval. **Normal** and **Complex** pass through the planner and router for evidence gathering. The plan gate validates the plan and can retry the planner with repair feedback or short-circuit to clarification.
 
 ---
 

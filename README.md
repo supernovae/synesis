@@ -36,7 +36,7 @@ The architecture doesn't even require a full agent. For lighter use cases, a gui
 
 ## Architecture
 
-Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. All model assignments, vLLM tuning, and deployment profiles are driven from a single [`models.yaml`](models.yaml).
+Synesis separates concerns across specialized model roles. A deterministic entry classifier routes requests through a LangGraph pipeline, while domain agents (like the Coder) connect directly to dedicated models and reach Synesis intelligence through MCP tools. [`models.yaml`](models.yaml) defines the build-time reference for model repos, vLLM args, and deployment profiles; **runtime model routing** is configured in the **admin Model Registry** (Postgres) and reconciled to LiteLLM — use admin "Seed from YAML" to re-bootstrap from the file.
 
 ```mermaid
 flowchart TD
@@ -103,12 +103,12 @@ Canonical order is **entry → planner → plan gate → router → writer → (
 - **Taxonomy-driven prompt shaping** — Domain behavior, critic depth, writer persona, epistemic guidance, and planner decomposition rules are YAML-configurable (`taxonomy_prompt_config.yaml`). Taxonomy config is compiled at startup with Pydantic schema validation and orphan detection. No prompt logic is hardcoded in nodes. See [docs/TAXONOMY_SHAPING.md](docs/TAXONOMY_SHAPING.md).
 - **Anti-oscillation controls** — immutable semantic frame, decision ledger consumed by writer (not planner prose), deterministic validators block style drift and decision oscillation across nodes, oscillation detector force-terminates runaway retry loops, retrieval churn detection. When prompts are ambiguous, **clarify-first** returns a short clarification question instead of guessing, reducing cost and avoiding retry loops.
 - **Design theory (Cynefin, sensemaking, JCS, safety-II)** — Synesis is grounded in established sensemaking research. Frame coherence maps directly to the Cynefin framework (Snowden & Boone, 2007): **focused** = obvious/complicated (sense-categorize-respond); **composite** = complicated with multiple expert domains (sense-analyze-respond proportionally); **diffuse** = complex (probe-sense-respond, ask the user before retrieving blindly). Prompts are modeled as topic mixtures with weights (Blei et al., 2003 LDA), not single-label classifications. Data-Frame sensemaking (Klein et al., 2007) drives frame extraction: build a holistic understanding of the prompt before acting, rather than locking on the first keyword signal. Information foraging theory (Pirolli & Card, 1999) shapes how evidence is gathered after the frame is established. This keeps the system a joint cognitive system (human + AI), supports multi-disciplinary prompts (scientists managing cloud GPU ML clusters), and avoids the "whack-a-mole" failure mode of keyword-based hard exclusion. See [docs/SENSEMAKING_REFERENCES.md](docs/SENSEMAKING_REFERENCES.md).
-- **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. See [docs/SECURITY.md](docs/SECURITY.md).
+- **Prompt injection hardening** — defense-in-depth with 8 layers: pattern scanning (Tier 1 + 2), trust delimiters (`<context trust="untrusted">`), instruction hierarchy (trust policies in every system prompt), sandwich defense (post-evidence reminders), datamarking (`[R:authority]`/`[W]` provenance), state sanitization (persona blocklist, step action scanning), index-time RAG scanning with admin review queue, and output guardrails. All external content — including human-vetted documents — is always wrapped as untrusted in prompts. Vetting boosts ranking, not trust. A shared **guardrails core** (`base/security/`) provides unified regex scanning, Unicode normalization, base64 payload detection, and a deterministic **policy matrix** (event type × severity × confidence → action) for both Planner and Yarn. Detections feed Prometheus metrics and the admin **Security Console** for triage and containment. See [docs/SECURITY.md](docs/SECURITY.md).
 - **EFS-backed model storage** — all model weights share a single AWS EFS PVC (`synesis-models-efs`), multi-AZ for Karpenter spot flexibility. No per-model EBS volumes.
 
 ## Model Roles
 
-All model definitions live in [`models.yaml`](models.yaml) — the single source of truth for model repos, vLLM args, PVC sizing, and deployment names.
+[`models.yaml`](models.yaml) defines the build-time reference for model repos, vLLM args, PVC sizing, and deployment names. Live routing is managed through the **admin Model Registry** and synced to LiteLLM.
 
 | Role | Default Model | Purpose |
 |------|--------------|---------|
@@ -165,7 +165,7 @@ Deploy via the OpenShift AI dashboard (Model Hub, `hf://`, or OCI) or use the pi
 ### 3. Build and push images
 
 ```bash
-./scripts/build-images.sh --push              # All 12 images to GHCR
+./scripts/build-images.sh --push              # All 17 images to GHCR (3 base + 14 service)
 ./scripts/build-images.sh --push --tag v1.0   # With version tag
 ./scripts/build-images.sh --only planner,admin --push  # Subset
 ```
@@ -203,9 +203,19 @@ done
 | **synesis-api** | `https://synesis-api.<cluster>/v1` | Full pipeline via LiteLLM (Open WebUI, API clients) |
 | **synesis-coder** | `https://synesis-coder.<cluster>/v1` | Direct vLLM coder for Cursor / Claude Code |
 | **synesis-planner** | `https://synesis-planner.<cluster>/v1` | LangGraph pipeline without LiteLLM |
-| **synesis-admin** | `https://synesis-admin.<cluster>/` | Traces, web search log, RAG review, knowledge gaps, AI assistant |
+| **synesis-admin** | `https://synesis-admin.<cluster>/` | Model Registry, Provider Management, traces, RAG review, security console, AI assistant |
 
-The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs` on the same host; OpenAPI JSON at `/api/openapi.json`. Operator UX conventions and backlog: [base/admin/README.md](base/admin/README.md), [docs/admin/TODO.md](docs/admin/TODO.md).
+The admin service serves the React SPA and a JSON API under `/api/v1`. **Interactive API docs** (Swagger UI) live at `/api/docs` on the same host; OpenAPI JSON at `/api/openapi.json`. Key admin surfaces:
+
+- **Model Registry** — assign models to pipeline roles; reconcile to LiteLLM
+- **Provider Management** — enable/disable providers, set defaults, governance policies
+- **Provider Keys** — manage API key secrets (Kubernetes Secret backed)
+- **Effective Serving** — read-only view derived from registry role assignments
+- **Security Console** — guardrail event dashboard, severity triage, containment actions
+- **RAG Pipeline** — ingestion queue, corpus review, quality benchmarks
+- **Observability** — traces, web search log, knowledge gaps, feedback review
+
+Operator UX conventions and backlog: [base/admin/README.md](base/admin/README.md), [docs/admin/TODO.md](docs/admin/TODO.md).
 
 See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examples, and Open WebUI setup.
 
@@ -227,13 +237,15 @@ See [docs/USERGUIDE.md](docs/USERGUIDE.md) for detailed configuration, API examp
 | **Web Search HITL** | Search event log, domain breakdown, per-URL vet/block/ingest actions, URL policy management — admin UI for human-in-the-loop web search review | [docs/WEB_SEARCH.md](docs/WEB_SEARCH.md) |
 | **Open WebUI** | Themed child image (Synesis `custom.css`), LiteLLM integration, SSE phases | [docs/OPENWEBUI.md](docs/OPENWEBUI.md) |
 | **Prompt Injection Hardening** | 8-layer defense-in-depth: pattern scanning, trust delimiters, instruction hierarchy, sandwich defense, datamarking, state sanitization, index-time RAG scanning, output guardrails | [docs/SECURITY.md](docs/SECURITY.md) |
+| **Universal Guardrails** | Shared scanner core (`base/security/`) for Planner and Yarn: regex scanning, Unicode normalization, base64 detection, deterministic policy matrix, Prometheus metrics | [docs/SECURITY.md](docs/SECURITY.md) |
+| **Admin Model Registry** | Role-based model assignment, LiteLLM reconciliation, provider governance, effective serving view, security event console | [base/admin/README.md](base/admin/README.md) |
 | **Anti-Oscillation Framework** | Immutable frame, decision ledger, monotonic reducers, deterministic validators, oscillation detection, retrieval churn detection | [docs/WORKFLOW.md](docs/WORKFLOW.md#anti-oscillation-framework) |
 
 ## Project Structure
 
 ```
 synesis/
-├── models.yaml                 # Single source of truth for all model roles + profiles
+├── models.yaml                 # Build-time reference for model roles, profiles, and codegen
 ├── docs/                       # Architecture, guides, and capability deep-dives
 ├── base/
 │   ├── planner/                # FastAPI + LangGraph orchestrator
@@ -252,7 +264,9 @@ synesis/
 │   ├── lsp/                    # LSP Intelligence Gateway (6 languages)
 │   ├── search/                 # SearXNG meta-search engine
 │   ├── webui/                  # Open WebUI chat frontend
-│   ├── admin/                  # Admin UI — traces, web search log, RAG review, AI assistant
+│   ├── yarn/                   # Synesis Yarn — OpenAI-compatible IDE/agent runtime
+│   ├── security/               # Shared guardrails core (scanner, policy matrix, metrics)
+│   ├── admin/                  # Admin UI — model registry, provider governance, security console, traces
 │   ├── postgres/               # CloudNativePG cluster (admin + trace DB)
 │   ├── quality-runner/         # Corpus quality CronJob (curator agent)
 │   ├── supervisor/             # Health monitoring
@@ -263,7 +277,7 @@ synesis/
 │   └── prod/                   # HA, NetworkPolicies, PDBs
 ├── pipelines/                  # KFP model download pipelines (reads models.yaml)
 ├── scripts/                    # Bootstrap, deploy, build, pipeline runners
-└── .github/workflows/          # CI: lint, test, build images, security scan
+└── .github/workflows/          # CI: lint, test, build images, guardrails, security scan, quality pipeline
 ```
 
 ## Documentation
@@ -302,15 +316,25 @@ synesis/
 | [docs/IDE_CLIENT_COORDINATION.md](docs/IDE_CLIENT_COORDINATION.md) | IDE/agent client trust model, prompt injection defense |
 | [docs/UV_TOOLING.md](docs/UV_TOOLING.md) | UV for Python dependency management (local, CI, containers) |
 | [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) | Design experiments: parallel critic, adaptive depth mode |
-| [docs/COHERENCE_GATE_ARCHIVE.md](docs/COHERENCE_GATE_ARCHIVE.md) | Removed coherence gate: rationale, original implementation, restoration guide |
+| [docs/YARN_RUNTIME.md](docs/YARN_RUNTIME.md) | Yarn IDE/agent runtime architecture, trust model, tool-calling |
+| [docs/TESTING.md](docs/TESTING.md) | CI workflows, test inventory, local test instructions |
 | [docs/ARCHITECTURE_AUDIT.md](docs/ARCHITECTURE_AUDIT.md) | Historical architecture audit and remediation log |
 | [docs/admin/TODO.md](docs/admin/TODO.md) | Admin UI backlog: API explorer, MCP roadmap, doc/UX gaps |
 
 ## Changing Models
 
+**For a running cluster** (typical day-to-day):
+
+1. Open the **admin Model Registry** and update role → model assignments
+2. Run **Reconcile** to sync changes to LiteLLM
+3. Deploy the model via OpenShift AI if it is not already running
+
+**To change the bootstrap reference** (new defaults for fresh deployments):
+
 1. Edit [`models.yaml`](models.yaml) with the new HuggingFace repo, name, and vLLM args
 2. Run `./scripts/run-model-pipeline.sh --role=<role>` to download and deploy
 3. Redeploy services if config changed: `./scripts/deploy.sh dev`
+4. Optionally use admin "Seed from YAML" to re-bootstrap `model_deployments` from the file
 
 The `.cursor/rules/model-alignment.mdc` rule reminds you which files reference model endpoints.
 
