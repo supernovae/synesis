@@ -1,3 +1,5 @@
+# Build with repository root as context, e.g.:
+#   podman build -f base/mcp/Containerfile .
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-api:latest
 FROM ${BASE_IMAGE}
 
@@ -9,7 +11,9 @@ WORKDIR /opt/app-root/src
 # COPY requirements.txt .
 # RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
 
-COPY app/ app/
+COPY base/mcp/app/ app/
+# Shared with planner gate (single source in base/planner/app/integrity_core.py).
+COPY base/planner/app/integrity_core.py app/integrity_core.py
 
 USER 1001
 

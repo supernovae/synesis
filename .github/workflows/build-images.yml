@@ -120,6 +120,7 @@ jobs:
               - 'base/webui/synesis-theme.css'
             mcp:
               - 'base/mcp/**'
+              - 'base/planner/app/integrity_core.py'
             yarn:
               - 'base/yarn/**'
 
@@ -375,7 +376,7 @@ jobs:
             base_change_key: ""
           - name: mcp
             dockerfile: base/mcp/Containerfile
-            context: base/mcp
+            context: .
             base_arg: synesis-base-api
             change_key: mcp
             base_change_key: base-api

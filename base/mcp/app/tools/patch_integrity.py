@@ -10,17 +10,9 @@ Uses integrity_core from the planner package (shared logic).
 from __future__ import annotations
 
 import logging
-import sys
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("synesis.mcp.patch_integrity")
-
-# integrity_core lives in the planner package; add it to sys.path if
-# running from the MCP service image (which may not have planner installed).
-_PLANNER_APP = str(Path(__file__).resolve().parents[3] / "planner")
-if _PLANNER_APP not in sys.path:
-    sys.path.insert(0, _PLANNER_APP)
 
 from app.integrity_core import IntegrityReport, run_all_checks
 

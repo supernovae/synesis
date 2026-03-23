@@ -99,7 +99,7 @@ SERVICE_IMAGES=(
     "spam-service|base/rag/spam-service/Dockerfile|base/rag/spam-service"
     "quality-runner|base/quality-runner/Dockerfile|."
     "open-webui|base/webui/Dockerfile|base/webui"
-    "mcp|base/mcp/Containerfile|base/mcp"
+    "mcp|base/mcp/Containerfile|."
     "yarn|base/yarn/Containerfile|base/yarn"
 )
 
