@@ -53,6 +53,10 @@ All checks run on every push to `main` and on pull requests:
 
 Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.trivyignore`.
 
+### pip-audit: indexer and NLTK (transitive)
+
+The RAG **indexer** depends on **Crawl4AI**, which pulls **nltk**. OSV currently reports **CVE-2026-33230**, **CVE-2026-33231**, and **GHSA-rf74-v2fm-23pw** for **nltk** through **3.9.3**, and **there is no newer fixed release on PyPI** yet. The indexer does not run NLTK’s `wordnet_app` web UI; risk from these advisories is assessed as **low** for our usage. The **Security Scan** workflow applies **pip-audit `ignore-vulns` only to the indexer matrix job** (not the whole monorepo). **Revisit** when **nltk** publishes a patched version, then drop the ignores and add an explicit `nltk>=…` constraint if needed.
+
 ## Known Acceptances (Development Phase)
 
 The following items are accepted during active development and tracked for resolution before production release:
