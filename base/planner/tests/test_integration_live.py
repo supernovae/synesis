@@ -63,6 +63,9 @@ def test_live_models_no_auth_required():
     data = json.loads(raw.decode())
     assert data["object"] == "list"
     assert any(m.get("id") == "Synesis" for m in data.get("data", []))
+    syn = next(m for m in data["data"] if m.get("id") == "Synesis")
+    assert syn.get("object") == "model"
+    assert isinstance(syn.get("created"), int)
 
 
 def test_live_models_with_bearer_succeeds():
@@ -87,3 +90,6 @@ def test_live_chat_minimal_when_enabled():
     assert code == 200, raw.decode()[:500]
     payload = json.loads(raw.decode())
     assert payload.get("choices")
+    usage = payload.get("usage") or {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        assert key in usage, f"missing usage.{key}"

@@ -7,6 +7,7 @@ endpoint requires mocking the graph.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,15 +15,45 @@ import pytest
 pytest.importorskip("fastapi", reason="fastapi not installed (container-only)")
 pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
 
+import app.main as planner_main_module
+from app.config import settings as planner_settings
 from app.main import app, normalize_planner_client_model
 from app.pat_auth import PatAuthContext
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
 
+def _sse_completion_chunks(text: str) -> list[dict]:
+    """Parse ``data: {...}`` JSON lines from an SSE body (OpenAI stream)."""
+    out: list[dict] = []
+    for line in text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        if not payload.startswith("{"):
+            continue
+        try:
+            obj = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("object") == "chat.completion.chunk" and obj.get("choices"):
+            out.append(obj)
+    return out
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _clear_planner_prompt_cache():
+    """Cache key is prompt+model only; streaming tests would otherwise skip graph on later tests."""
+    planner_main_module._prompt_cache.clear()
+    yield
+    planner_main_module._prompt_cache.clear()
 
 
 class TestNormalizePlannerModel:
@@ -57,6 +88,11 @@ class TestModelsEndpoint:
         ids = {m["id"] for m in data["data"]}
         assert "Synesis" in ids
         assert "Synesis Thinking" in ids
+        for m in data["data"]:
+            assert m.get("object") == "model"
+            assert isinstance(m.get("created"), int)
+            assert m.get("owned_by")
+            assert "permission" not in m
 
 
 class TestChatCompletions:
@@ -80,6 +116,10 @@ class TestChatCompletions:
         body = resp.json()
         assert body["object"] == "chat.completion"
         assert body["choices"][0]["message"]["content"] == "Hello from Synesis!"
+        usage = body.get("usage") or {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cached_prompt_tokens"):
+            assert key in usage
+            assert isinstance(usage[key], int)
 
     @patch("app.main.resolve_pat_or_none", new_callable=AsyncMock)
     @patch("app.main.graph")
@@ -123,8 +163,11 @@ class TestChatCompletions:
         assert "No user messages" in resp.json()["detail"]
 
     @patch("app.main.graph")
-    def test_streaming_returns_sse_with_status_events(self, mock_graph, client):
+    def test_streaming_returns_sse_with_status_events(self, mock_graph, client, monkeypatch):
         """Streaming uses astream and emits status events plus final content."""
+
+        _s = planner_settings.model_copy(update={"streaming_events_enabled": False})
+        monkeypatch.setattr(planner_main_module, "settings", _s)
 
         async def mock_astream(init_state, *, stream_mode, config=None):
             # Simulate two node completions then end
@@ -149,13 +192,46 @@ class TestChatCompletions:
                 "model": "synesis-agent",
                 "messages": [{"role": "user", "content": "hi"}],
                 "stream": True,
+                "stream_options": {"include_usage": True},
             },
         )
         assert resp.status_code == 200
         assert "text/event-stream" in resp.headers.get("content-type", "")
         body = resp.text
-        assert '"type": "status"' in body
+        assert "Here is your code." in body
         assert "[DONE]" in body
+        chunks = _sse_completion_chunks(body)
+        assert chunks
+        final = chunks[-1]
+        assert final["choices"][0].get("finish_reason")
+        usage = final.get("usage") or {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            assert key in usage
+
+    @patch("app.main.graph")
+    def test_streaming_without_include_usage_omits_usage_on_final_chunk(self, mock_graph, client, monkeypatch):
+        _s = planner_settings.model_copy(update={"streaming_events_enabled": False})
+        monkeypatch.setattr(planner_main_module, "settings", _s)
+
+        async def mock_astream(init_state, *, stream_mode, config=None):
+            yield {"current_node": "entry_classifier", "messages": []}
+            yield {"current_node": "context_curator", "messages": []}
+            yield {"current_node": "worker", "messages": []}
+            yield {"current_node": "respond", "messages": [AIMessage(content="Here is your code.")]}
+
+        mock_graph.astream = mock_astream
+        resp = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "synesis-agent",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        chunks = _sse_completion_chunks(resp.text)
+        assert chunks
+        assert "usage" not in chunks[-1]
 
     @patch("app.main.graph")
     def test_graph_error_returns_500(self, mock_graph, client):

@@ -75,3 +75,7 @@ class TestHealthEndpoints:
             data = resp.json()
             assert data["object"] == "list"
             assert any(m["id"] == "synesis-yarn" for m in data["data"])
+            yarn = next(m for m in data["data"] if m["id"] == "synesis-yarn")
+            assert yarn.get("object") == "model"
+            assert isinstance(yarn.get("created"), int)
+            assert yarn.get("owned_by")

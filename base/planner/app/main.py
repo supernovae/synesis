@@ -61,6 +61,8 @@ from .synesis_tracer import get_synesis_tracer
 
 # /why and /reclassify command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
+# OpenAI Model object ``created`` (Unix seconds) — stable for tests/clients.
+_SYNESIS_MODEL_CREATED_EPOCH = 1704067200
 _RECLASSIFY_PATTERN = re.compile(r"^\s*\/reclassify\s+(easy|medium|hard)\s*$", re.IGNORECASE)
 
 
@@ -1553,6 +1555,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             root_trace_id=_root_tid or run_id,
         )
 
+    # OpenAI streaming: include ``usage`` on the final chunk only when requested.
+    _stream_include_usage = bool(request.stream_options and request.stream_options.include_usage)
+
     # Prompt-level cache: return cached response for identical (user + prompt + model)
     cached_response = _prompt_cache_get(user_id, last_user_content or "", response_model_id)
     if cached_response is not None:
@@ -1575,16 +1580,20 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     {"role": "assistant", "content": cached_response},
                     run_id=run_id,
                 )
-                yield _sse_chunk(
-                    {
-                        "id": _cache_chat_id,
-                        "object": "chat.completion.chunk",
-                        "model": response_model_id,
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                        "run_id": run_id,
+                _cache_final: dict[str, Any] = {
+                    "id": _cache_chat_id,
+                    "object": "chat.completion.chunk",
+                    "model": response_model_id,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    "run_id": run_id,
+                }
+                if _stream_include_usage:
+                    _cache_final["usage"] = {
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
                     }
-                )
+                yield _sse_chunk(_cache_final)
                 yield "data: [DONE]\n\n"
 
             return StreamingResponse(
@@ -1846,16 +1855,16 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     pipeline_trace = _build_pipeline_trace(accumulated_state)
                                     _early_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
                                     _early_usage = _build_final_usage(None, total_tokens)
-                                    yield _sse_chunk(
-                                        {
-                                            "id": chat_id,
-                                            "object": "chat.completion.chunk",
-                                            "choices": [{"index": 0, "delta": {}, "finish_reason": _early_finish}],
-                                            "usage": _early_usage,
-                                            "run_id": run_id,
-                                            "pipeline_trace": pipeline_trace,
-                                        }
-                                    )
+                                    _early_chunk: dict[str, Any] = {
+                                        "id": chat_id,
+                                        "object": "chat.completion.chunk",
+                                        "choices": [{"index": 0, "delta": {}, "finish_reason": _early_finish}],
+                                        "run_id": run_id,
+                                        "pipeline_trace": pipeline_trace,
+                                    }
+                                    if _stream_include_usage:
+                                        _early_chunk["usage"] = _early_usage
+                                    yield _sse_chunk(_early_chunk)
                                     yield "data: [DONE]\n\n"
                                     _stream_closed = True
 
@@ -2381,16 +2390,16 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 pipeline_trace = _build_pipeline_trace(accumulated_state)
                 _final_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
                 _final_usage = _build_final_usage(_tracer_usage, total_tokens)
-                yield _sse_chunk(
-                    {
-                        "id": chat_id,
-                        "object": "chat.completion.chunk",
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": _final_finish}],
-                        "usage": _final_usage,
-                        "run_id": run_id,
-                        "pipeline_trace": pipeline_trace,
-                    }
-                )
+                _final_chunk: dict[str, Any] = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": _final_finish}],
+                    "run_id": run_id,
+                    "pipeline_trace": pipeline_trace,
+                }
+                if _stream_include_usage:
+                    _final_chunk["usage"] = _final_usage
+                yield _sse_chunk(_final_chunk)
                 yield "data: [DONE]\n\n"
 
         else:
@@ -2539,16 +2548,16 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 pipeline_trace = _build_pipeline_trace(result)
                 _fb_finish = "length" if (result or {}).get("writer_truncated") else "stop"
                 _fb_final_usage = _build_final_usage(_fb_tracer_usage, total_tokens)
-                yield _sse_chunk(
-                    {
-                        "id": chat_id,
-                        "object": "chat.completion.chunk",
-                        "choices": [{"index": 0, "delta": {}, "finish_reason": _fb_finish}],
-                        "usage": _fb_final_usage,
-                        "run_id": run_id,
-                        "pipeline_trace": pipeline_trace,
-                    }
-                )
+                _fb_chunk: dict[str, Any] = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": _fb_finish}],
+                    "run_id": run_id,
+                    "pipeline_trace": pipeline_trace,
+                }
+                if _stream_include_usage:
+                    _fb_chunk["usage"] = _fb_final_usage
+                yield _sse_chunk(_fb_chunk)
                 yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -2631,21 +2640,22 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
 @app.get("/v1/models")
 async def list_models():
+    """List models — core fields match OpenAI Model object; ``description`` is an optional extra."""
     return {
         "object": "list",
         "data": [
             {
                 "id": "Synesis",
                 "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
                 "owned_by": "synesis",
-                "permission": [],
                 "description": "Full Synesis pipeline: router, planner, evidence, writer, critic.",
             },
             {
                 "id": "Synesis Thinking",
                 "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
                 "owned_by": "synesis",
-                "permission": [],
                 "description": "Same pipeline with extended thinking on the general (writer) model when supported.",
             },
         ],

@@ -1,0 +1,34 @@
+# Manual / scheduled gap report — never blocks merge.
+# Set repository secret SYNESIS_PROBE_PLANNER_URL (and optional SYNESIS_PROBE_TOKEN) to run checks.
+name: OpenAI compat probe (optional)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 12 * * 0" # weekly Sunday 12:00 UTC
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run synesis_openai_capability_probe
+        env:
+          SYNESIS_PROBE_PLANNER_URL: ${{ secrets.SYNESIS_PROBE_PLANNER_URL }}
+          SYNESIS_PROBE_YARN_URL: ${{ secrets.SYNESIS_PROBE_YARN_URL }}
+          SYNESIS_PROBE_TOKEN: ${{ secrets.SYNESIS_PROBE_TOKEN }}
+        run: |
+          if [ -z "${SYNESIS_PROBE_PLANNER_URL}" ] && [ -z "${SYNESIS_PROBE_YARN_URL}" ]; then
+            echo "No SYNESIS_PROBE_PLANNER_URL or SYNESIS_PROBE_YARN_URL secret — skipping probe."
+            exit 0
+          fi
+          python3 scripts/synesis_openai_capability_probe.py -o probe-report.json || true
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openai-probe-report
+          path: probe-report.json
+          if-no-files-found: ignore

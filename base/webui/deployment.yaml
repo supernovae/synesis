@@ -94,16 +94,20 @@ spec:
             # Otherwise first-boot OAuth values are frozen in SQLite and env changes (WEBUI_URL) are ignored.
             - name: ENABLE_OAUTH_PERSISTENT_CONFIG
               value: "false"
+            # Open WebUI built-ins (not Synesis pipeline): keep off so the UI matches what we ship.
+            # Synesis web search/RAG run inside the planner when enabled there — not OWUI ENABLE_RAG_WEB_SEARCH.
             - name: ENABLE_IMAGE_GENERATION
               value: "false"
             - name: ENABLE_RAG_WEB_SEARCH
               value: "false"
             - name: ENABLE_COMMUNITY_SHARING
               value: "false"
+            # Forward X-OpenWebUI-* / org headers to LiteLLM → planner for trusted identity.
             - name: ENABLE_FORWARD_USER_INFO_HEADERS
               value: "true"
             - name: SAFE_MODE
               value: "true"
+            # No in-UI code execution engine; Synesis uses its own tools/sandbox when configured.
             - name: CODE_EXECUTION_ENGINE
               value: ""
             - name: ENABLE_CODE_AUTOCOMPLETION

@@ -2,6 +2,8 @@
 
 Run these after push + deploy to validate intent flow and prompting against the release you want to regression-test.
 
+**CI inventory:** see [TESTING.md](./TESTING.md) for what runs on every PR vs manual-only.
+
 ---
 
 ## Quick Reference (Makefile)

@@ -190,7 +190,7 @@ async def list_models():
             {
                 "id": "synesis-yarn",
                 "object": "model",
-                "created": 1700000000,
+                "created": 1704067200,
                 "owned_by": "synesis",
                 "description": (
                     "Synesis Coder — Yarn agent runtime with tool orchestration, session memory, "
