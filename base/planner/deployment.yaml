@@ -185,7 +185,8 @@ spec:
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/2"
             - name: SYNESIS_L2_ARCHIVE_TTL_SECONDS
               value: "604800"
-            # Trace persistence — writes directly to admin Postgres
+            # Trace persistence — admin Postgres. Same DSN validates syn- PATs unless
+            # SYNESIS_ADMIN_DATABASE_URL is set. Use the same SYNESIS_PAT_PEPPER as admin/yarn when enabled.
             - name: SYNESIS_TRACE_DATABASE_URL
               value: "postgresql://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN

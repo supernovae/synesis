@@ -49,6 +49,7 @@ from .history_summarizer import archive_to_l2, summarize_pivot_history
 from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
+from .pat_auth import PatAuthContext, resolve_pat_or_none
 from .pending_drift import pending_reply_diverges
 from .rag_client import build_metadata_filter, retrieve_context, submit_user_knowledge
 from .run_context import compute_trace_links, derive_critic_turn_kind
@@ -461,6 +462,10 @@ def _enforce_auth_and_header_trust(http_request: Request) -> tuple[str, bool]:
     bearer = _extract_bearer_token(http_request)
     if settings.planner_require_bearer_auth and not bearer:
         raise HTTPException(status_code=401, detail="Missing Bearer token")
+    # Admin PAT (syn-…): validated in ``resolve_pat_or_none``; forwarded OWUI headers are never trusted.
+    # Short-circuit so strict_forwarded_identity_mode does not 403 clients that carry stray proxy headers.
+    if bearer.startswith("syn-"):
+        return bearer, False
     trust_forwarded = bool(settings.trust_forwarded_identity_headers and _is_trusted_service_bearer(bearer))
     if settings.strict_forwarded_identity_mode and settings.trust_forwarded_identity_headers:
         has_forwarded = bool(
@@ -481,8 +486,13 @@ def _resolve_user_id(
     *,
     bearer_token: str,
     trust_forwarded_identity: bool,
+    pat_ctx: PatAuthContext | None = None,
 ) -> str:
-    """Resolve user identity: Open WebUI header > request body > API key hash > anonymous."""
+    """Resolve user identity: PAT > Open WebUI header > request body > API key hash > anonymous."""
+    if pat_ctx is not None:
+        uid = (pat_ctx.user_id or "").strip()
+        if uid:
+            return uid[:128]
     owui_user = (http_request.headers.get("x-openwebui-user-id") or "").strip()
     if trust_forwarded_identity and owui_user:
         return owui_user[:128]
@@ -493,18 +503,34 @@ def _resolve_user_id(
     return "anonymous"
 
 
-def _resolve_user_email(http_request: Request, *, trust_forwarded_identity: bool) -> str:
+def _resolve_user_email(
+    http_request: Request,
+    *,
+    trust_forwarded_identity: bool,
+    pat_ctx: PatAuthContext | None = None,
+) -> str:
     """Extract user email from Open WebUI forwarded headers (shared with Keycloak)."""
+    if pat_ctx is not None:
+        uname = (pat_ctx.username or "").strip()
+        return uname[:256] if "@" in uname else ""
     if not trust_forwarded_identity:
         return ""
     return (http_request.headers.get("x-openwebui-user-email") or "").strip()[:256]
 
 
-def _resolve_user_org(http_request: Request, *, trust_forwarded_identity: bool) -> tuple[str, str]:
+def _resolve_user_org(
+    http_request: Request,
+    *,
+    trust_forwarded_identity: bool,
+    pat_ctx: PatAuthContext | None = None,
+) -> tuple[str, str]:
     """Extract organization id/name from forwarded headers.
 
     Returns (org_id, org_name). Both empty when user has no org membership.
     """
+    if pat_ctx is not None:
+        oid = (pat_ctx.org_id or "").strip()
+        return (oid[:128], "") if oid else ("", "")
     if not trust_forwarded_identity:
         return "", ""
     org_id = (http_request.headers.get("x-synesis-org-id") or "").strip()[:128]
@@ -1100,6 +1126,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     _sample_memory_and_log("request_start")
 
     bearer_token, trust_forwarded_identity = _enforce_auth_and_header_trust(http_request)
+    pat_ctx = await resolve_pat_or_none(bearer_token)
     if not trust_forwarded_identity and (
         http_request.headers.get("x-openwebui-user-id")
         or http_request.headers.get("x-openwebui-user-email")
@@ -1112,9 +1139,18 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         http_request,
         bearer_token=bearer_token,
         trust_forwarded_identity=trust_forwarded_identity,
+        pat_ctx=pat_ctx,
     )
-    user_email = _resolve_user_email(http_request, trust_forwarded_identity=trust_forwarded_identity)
-    org_id, org_name = _resolve_user_org(http_request, trust_forwarded_identity=trust_forwarded_identity)
+    user_email = _resolve_user_email(
+        http_request,
+        trust_forwarded_identity=trust_forwarded_identity,
+        pat_ctx=pat_ctx,
+    )
+    org_id, org_name = _resolve_user_org(
+        http_request,
+        trust_forwarded_identity=trust_forwarded_identity,
+        pat_ctx=pat_ctx,
+    )
     conversation_id = _resolve_conversation_id(
         request,
         http_request,

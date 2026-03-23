@@ -350,6 +350,9 @@ class Settings(BaseSettings):
 
     # SynesisTracer — lightweight built-in LLM tracing (Postgres-backed)
     trace_database_url: str = ""  # set via SYNESIS_TRACE_DATABASE_URL
+    # PAT validation (syn- bearer tokens): same DB as admin ``personal_access_tokens``.
+    # When empty, PAT lookups use ``trace_database_url`` (typically the same synesis_admin DSN).
+    admin_database_url: str = ""
     trace_snippet_max_chars: int = 500
 
     # Query normalizer — deterministic typo correction before classification

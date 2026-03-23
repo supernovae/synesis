@@ -15,6 +15,7 @@ pytest.importorskip("fastapi", reason="fastapi not installed (container-only)")
 pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
 
 from app.main import app, normalize_planner_client_model
+from app.pat_auth import PatAuthContext
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
@@ -79,6 +80,36 @@ class TestChatCompletions:
         body = resp.json()
         assert body["object"] == "chat.completion"
         assert body["choices"][0]["message"]["content"] == "Hello from Synesis!"
+
+    @patch("app.main.resolve_pat_or_none", new_callable=AsyncMock)
+    @patch("app.main.graph")
+    def test_pat_bearer_resolves_user_id(self, mock_graph, mock_pat, client):
+        mock_pat.return_value = PatAuthContext(
+            user_id="pat-user-99",
+            org_id="org-1",
+            username="alice@example.com",
+            role="user",
+            scopes=["model:readonly"],
+            token_row_id="row-1",
+        )
+        mock_graph.ainvoke = AsyncMock(
+            return_value={
+                "messages": [AIMessage(content="Hello from Synesis!")],
+                "iteration_count": 1,
+                "node_traces": [],
+            }
+        )
+        resp = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer syn-fake"},
+            json={
+                "model": "synesis-agent",
+                "messages": [{"role": "user", "content": "write a hello world"}],
+            },
+        )
+        assert resp.status_code == 200
+        state = mock_graph.ainvoke.call_args[0][0]
+        assert state["user_id"] == "pat-user-99"
 
     def test_no_user_messages(self, client):
         resp = client.post(
