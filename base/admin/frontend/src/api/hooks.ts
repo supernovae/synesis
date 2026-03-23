@@ -442,6 +442,40 @@ export function useResetProviderConfig() {
   });
 }
 
+export function useCreateProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      key: string;
+      label: string;
+      litellm_prefix?: string;
+      api_key_env?: string;
+      needs_endpoint?: boolean;
+      placeholder?: string;
+      is_local?: boolean;
+      enabled?: boolean;
+    }) => client.post("/provider-governance", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provider-governance"] });
+      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeleteProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (providerKey: string) =>
+      client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["provider-governance"] });
+      qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
 // --- Effective Serving (read-only, derived from Model Registry) ---
 // No CRUD hooks — serving is managed via the Model Registry role assignments.
 

@@ -182,6 +182,7 @@ export interface ProviderConfig {
 }
 
 export interface ProviderConfigInfo extends ProviderInfo {
+  is_custom: boolean;
   config: ProviderConfig | null;
   enabled: boolean;
   default_max_tokens: number;

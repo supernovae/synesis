@@ -636,9 +636,9 @@ class OpenWebUIFeedback(Base):
 class ProviderConfig(Base):
     """Per-provider governance: enablement, default policies, notes.
 
-    Rows only exist for providers that have been explicitly configured
-    (toggled, had defaults overridden, etc.).  Absent rows inherit the
-    static catalog defaults and are considered enabled.
+    Catalog providers are seeded on startup (is_custom=False).
+    User-defined providers set is_custom=True and carry their own
+    label/litellm_prefix/api_key_env metadata.
     """
 
     __tablename__ = "provider_configs"
@@ -654,6 +654,14 @@ class ProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+    is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    litellm_prefix: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    api_key_env: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    needs_endpoint: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    placeholder: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    is_local: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
 
 
 class FeedbackReview(Base):

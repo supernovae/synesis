@@ -238,19 +238,32 @@ def _coerce_int(value: object) -> int | None:
 async def provider_catalog(_user=Depends(get_current_user)):
     """Return the provider catalog and canonical role list for the frontend.
 
-    Filters out providers disabled in Provider Management so the Model Registry
-    picklist stays in sync with a single source of truth.
+    Filters out providers disabled in Provider Management and merges in custom
+    providers so the Model Registry picklist stays in sync with a single source
+    of truth.
     """
-    from ..routers.provider_governance import get_disabled_provider_keys
+    from ..routers.provider_governance import _get_custom_rows, get_disabled_provider_keys
 
     catalog = get_catalog()
     disabled = await get_disabled_provider_keys()
-    if disabled:
-        catalog = {
-            **catalog,
-            "providers": {k: v for k, v in catalog["providers"].items() if k not in disabled},
-        }
-    return catalog
+    providers = {k: v for k, v in catalog["providers"].items() if k not in disabled}
+
+    custom_rows = await _get_custom_rows()
+    for r in custom_rows:
+        if r.provider_key not in providers and r.enabled:
+            providers[r.provider_key] = {
+                "key": r.provider_key,
+                "label": r.label or r.provider_key,
+                "litellm_prefix": r.litellm_prefix or "openai/",
+                "api_key_env": r.api_key_env or "",
+                "needs_endpoint": r.needs_endpoint if r.needs_endpoint is not None else True,
+                "placeholder": r.placeholder or "model-name",
+                "is_local": r.is_local or False,
+                "supports_discovery": False,
+                "is_custom": True,
+            }
+
+    return {**catalog, "providers": providers}
 
 
 @router.get("/discovery/supported")
@@ -361,13 +374,16 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
     name = name.upper()
     if not body.value.strip():
         raise HTTPException(400, "Key value cannot be empty")
-    if name not in _ALLOWED_KEY_ENV_NAMES:
+    from ..routers.provider_governance import _get_custom_rows as _custom
+
+    custom_key_envs = {r.api_key_env for r in await _custom() if r.api_key_env}
+    allowed = _ALLOWED_KEY_ENV_NAMES | custom_key_envs
+    if name not in allowed:
         raise HTTPException(
             400,
-            "Unknown key name. Only env vars from the provider catalog may be set here "
-            "(same names as Models → Model Registry → Edit role → Provider). "
-            "Custom keys require a cluster secret change until an “add provider” flow exists.",
+            "Unknown key name. Only env vars from the provider catalog or custom providers may be set here.",
         )
+
 
     try:
         secret = await _get_secret()
@@ -402,10 +418,14 @@ async def set_key(name: str, body: SetKeyRequest, user: UserInfo = Depends(requi
 async def delete_key(name: str, user: UserInfo = Depends(require_admin)):
     """Remove a provider API key. Triggers LiteLLM restart."""
     name = name.upper()
-    if name not in _ALLOWED_KEY_ENV_NAMES:
+    from ..routers.provider_governance import _get_custom_rows as _custom
+
+    custom_key_envs = {r.api_key_env for r in await _custom() if r.api_key_env}
+    allowed = _ALLOWED_KEY_ENV_NAMES | custom_key_envs
+    if name not in allowed:
         raise HTTPException(
             400,
-            "Only catalog provider keys can be removed here. Remove other env vars from the cluster secret directly.",
+            "Only catalog or custom provider keys can be removed here.",
         )
     try:
         await _remove_key_from_secret(name)
