@@ -335,6 +335,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       <li key={child.path}>
                         <NavLink
                           to={child.path}
+                          end
                           className={({ isActive }) =>
                             clsx(
                               "block rounded-md px-3 py-1.5 text-sm transition-colors",
