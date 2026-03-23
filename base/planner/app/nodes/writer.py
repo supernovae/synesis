@@ -35,6 +35,7 @@ from ..short_followup_context import (
     conversation_history_to_openai_messages,
     effective_user_query,
 )
+from ..model_policy import ModelContext, resolve_model
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -739,8 +740,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     if task_is_trivial or difficulty < trivial_threshold or no_retrieval_easy:
         raw_question = _effective_user_query(state)
         if raw_question:
-            writer_url = settings.writer_model_url or settings.general_model_url
-            writer_name = settings.writer_model_name or settings.general_model_name
+            _fast_res = resolve_model("general", ModelContext(difficulty=difficulty))
+            writer_url = _fast_res.base_url
+            writer_name = _fast_res.model_name
 
             # Conversation history for context continuity
             conv_history = _build_conversation_messages(state)
@@ -792,8 +794,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-    writer_url = settings.writer_model_url or settings.general_model_url
-    writer_name = settings.writer_model_name or settings.general_model_name
+    _wr_res = resolve_model("general", ModelContext(difficulty=difficulty))
+    writer_url = _wr_res.base_url
+    writer_name = _wr_res.model_name
 
     # Evidence: rank-first greedy pack (confidence order) into token + char budgets.
     packets = state.get("evidence_packets") or []

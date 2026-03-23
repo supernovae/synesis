@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
+from ..model_policy import ModelContext, resolve_model
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.strategic_advisor")
@@ -43,16 +44,21 @@ _advisor_rb = reasoning_body(settings.router_reasoning_effort)
 if _advisor_rb:
     _advisor_kw["extra_body"] = _advisor_rb
 
-advisor_llm = ChatOpenAI(
-    base_url=settings.advisor_model_url,
-    api_key=settings.model_api_key,
-    model=settings.advisor_model_name,
-    temperature=0.0,
-    max_completion_tokens=256,
-    use_responses_api=False,
-    http_client=get_llm_http_client(uds_path=settings.advisor_model_uds or None),
-    model_kwargs=_advisor_kw,
-)
+_advisor_http_client = get_llm_http_client(uds_path=settings.advisor_model_uds or None)
+
+
+def _get_advisor_llm(difficulty: float = 0.5) -> ChatOpenAI:
+    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.0,
+        max_completion_tokens=256,
+        use_responses_api=False,
+        http_client=_advisor_http_client,
+        model_kwargs=_advisor_kw,
+    )
 
 
 async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -127,7 +133,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             HumanMessage(content=prompt),
         ]
         response = await asyncio.wait_for(
-            advisor_llm.ainvoke(messages),
+            _get_advisor_llm(difficulty).ainvoke(messages),
             timeout=5.0,
         )
         raw = (response.content or "").strip()

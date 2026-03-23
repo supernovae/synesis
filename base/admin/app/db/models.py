@@ -720,3 +720,25 @@ class SecurityEvent(Base):
         Index("ix_security_events_org_id", "org_id"),
         Index("ix_security_events_resolved", "resolved"),
     )
+
+
+class ModelPolicy(Base):
+    """Conditional model selection rule — per role, evaluated in priority order."""
+
+    __tablename__ = "model_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    role: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    condition_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    condition_value: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(256), nullable=False)
+    label: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_model_policies_role_priority", "role", "priority"),
+    )

@@ -2063,3 +2063,60 @@ export function useResolveSecurityEvent() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Model Policies — conditional model selection rules
+// ---------------------------------------------------------------------------
+
+export interface PolicyRule {
+  id?: number;
+  role?: string;
+  priority: number;
+  condition_type: string;
+  condition_value: string;
+  model: string;
+  label: string;
+  enabled: boolean;
+}
+
+export function useModelPolicies() {
+  return useQuery<{ policies: Record<string, PolicyRule[]> }>({
+    queryKey: ["models", "policies"],
+    queryFn: () => client.get("/models/policies").then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useRolePolicies(role: string) {
+  return useQuery<{ role: string; rules: PolicyRule[]; preview: Record<string, string> }>({
+    queryKey: ["models", "policies", role],
+    queryFn: () => client.get(`/models/policies/${role}`).then((r) => r.data),
+    enabled: !!role,
+  });
+}
+
+export function useSaveRolePolicies() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ role, rules }: { role: string; rules: Omit<PolicyRule, "id">[] }) =>
+      client.put(`/models/policies/${role}`, rules).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "policies"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "graph"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}
+
+export function useDeleteRolePolicies() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (role: string) =>
+      client.delete(`/models/policies/${role}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models", "policies"] });
+      qc.invalidateQueries({ queryKey: ["pipeline", "graph"] });
+      qc.invalidateQueries({ queryKey: ["audit"] });
+    },
+  });
+}

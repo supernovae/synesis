@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 from ..clarification_helpers import is_clarification_proceed_waiver
 from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
+from ..model_policy import ModelContext, resolve_model
 from ..prompt_spine import TRUST_UNTRUSTED_CONTEXT
 from ..schemas import DecisionEntry, PlanBody, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
@@ -239,17 +240,22 @@ _planner_extra_body.update(reasoning_body(settings.planner_reasoning_effort))
 if _planner_extra_body:
     _planner_model_kw["extra_body"] = _planner_extra_body
 
-planner_llm = ChatOpenAI(
-    base_url=settings.planner_model_url,
-    api_key=settings.model_api_key,
-    model=settings.planner_model_name,
-    temperature=0.1,
-    max_completion_tokens=settings.planner_max_tokens,
-    streaming=False,
-    use_responses_api=False,
-    model_kwargs=_planner_model_kw,
-    http_client=get_llm_http_client(uds_path=settings.planner_model_uds or None),
-)
+_planner_http_client = get_llm_http_client(uds_path=settings.planner_model_uds or None)
+
+
+def _get_planner_llm(difficulty: float = 0.5) -> ChatOpenAI:
+    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.1,
+        max_completion_tokens=settings.planner_max_tokens,
+        streaming=False,
+        use_responses_api=False,
+        model_kwargs=_planner_model_kw,
+        http_client=_planner_http_client,
+    )
 
 
 def _build_evidence_context(state: dict[str, Any]) -> str:
@@ -715,7 +721,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
                 HumanMessage(content=prompt),
             ]
 
-            response = await planner_llm.ainvoke(messages)
+            response = await _get_planner_llm(difficulty).ainvoke(messages)
 
             try:
                 parsed = parse_and_validate(response.content or "", PlannerOut)

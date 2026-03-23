@@ -27,6 +27,7 @@ from langchain_openai import ChatOpenAI
 from ..config import reasoning_body, settings
 from ..failure_store import record_error
 from ..llm_telemetry import get_llm_http_client
+from ..model_policy import ModelContext, resolve_model
 from ..rag_client import build_metadata_filter, ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
@@ -225,85 +226,76 @@ Maximum 30 words. Output ONLY the refined query string, nothing else.
 # Router LLMs (lazily initialised to avoid import-time side effects)
 # ---------------------------------------------------------------------------
 
-_router_llm: ChatOpenAI | None = None
-_router_query_llm: ChatOpenAI | None = None
-_summarizer_llm: ChatOpenAI | None = None
+_router_http_client = get_llm_http_client(uds_path=settings.router_model_uds or None)
+
+# Pre-build model_kwargs at module level (shared across requests).
+_router_query_kw: dict[str, Any] = {"stop": ["\n"]}
+_rqrb = reasoning_body(settings.router_reasoning_effort)
+if _rqrb:
+    _router_query_kw["extra_body"] = _rqrb
+
+_router_summary_kw: dict[str, Any] = {}
+_rsrb = reasoning_body(settings.planner_reasoning_effort)
+if _rsrb:
+    _router_summary_kw["extra_body"] = _rsrb
+
+_summarizer_kw: dict[str, Any] = {}
+_summarizer_extra: dict[str, Any] = {}
+if settings.guided_json_enabled:
+    _ep_schema = EvidencePacket.model_json_schema()
+    _ep_schema.pop("title", None)
+    _summarizer_extra["guided_json"] = _ep_schema
+else:
+    _summarizer_kw["response_format"] = {"type": "json_object"}
+_summarizer_extra.update(reasoning_body(settings.planner_reasoning_effort))
+if _summarizer_extra:
+    _summarizer_kw["extra_body"] = _summarizer_extra
 
 
-def _get_router_query_llm() -> ChatOpenAI:
+def _get_router_query_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Tight LLM for short-form outputs: query gen, HyDE, expansion, refine."""
-    global _router_query_llm
-    if _router_query_llm is None:
-        _qkw: dict[str, Any] = {"stop": ["\n"]}
-        _qrb = reasoning_body(settings.router_reasoning_effort)
-        if _qrb:
-            _qkw["extra_body"] = _qrb
-        _router_query_llm = ChatOpenAI(
-            base_url=settings.router_model_url,
-            api_key=settings.model_api_key,
-            model=settings.router_model_name,
-            temperature=0.0,
-            max_completion_tokens=settings.router_query_max_tokens,
-            use_responses_api=False,
-            model_kwargs=_qkw,
-            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
-        )
-    return _router_query_llm
+    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.0,
+        max_completion_tokens=settings.router_query_max_tokens,
+        use_responses_api=False,
+        model_kwargs=_router_query_kw,
+        http_client=_router_http_client,
+    )
 
 
-def _get_router_llm() -> ChatOpenAI:
+def _get_router_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Router LLM for summarization (larger output budget)."""
-    global _router_llm
-    if _router_llm is None:
-        _rkw: dict[str, Any] = {}
-        _rrb = reasoning_body(settings.planner_reasoning_effort)
-        if _rrb:
-            _rkw["extra_body"] = _rrb
-        _router_llm = ChatOpenAI(
-            base_url=settings.router_model_url,
-            api_key=settings.model_api_key,
-            model=settings.router_model_name,
-            temperature=0.0,
-            max_completion_tokens=settings.router_max_summary_tokens,
-            use_responses_api=False,
-            model_kwargs=_rkw or None,
-            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
-        )
-    return _router_llm
+    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.0,
+        max_completion_tokens=settings.router_max_summary_tokens,
+        use_responses_api=False,
+        model_kwargs=_router_summary_kw or None,
+        http_client=_router_http_client,
+    )
 
 
-def _get_summarizer_llm() -> ChatOpenAI:
+def _get_summarizer_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Evidence packet summarization — uses summarizer route (synesis-summarizer) via LiteLLM."""
-    global _summarizer_llm
-    if _summarizer_llm is None:
-        extra_body: dict[str, Any] = {}
-        model_kw: dict[str, Any] = {}
-        if settings.guided_json_enabled:
-            _ep_schema = EvidencePacket.model_json_schema()
-            _ep_schema.pop("title", None)
-            extra_body["guided_json"] = _ep_schema
-        else:
-            model_kw["response_format"] = {"type": "json_object"}
-        extra_body.update(reasoning_body(settings.planner_reasoning_effort))
-        if extra_body:
-            model_kw["extra_body"] = extra_body
-
-        _sum_url = (getattr(settings, "summarizer_model_url", "") or "").strip()
-        _base = _sum_url if _sum_url else settings.router_model_url
-        _name = getattr(settings, "summarizer_model_name", "") or "synesis-summarizer"
-
-        _summarizer_llm = ChatOpenAI(
-            base_url=_base,
-            api_key=settings.model_api_key,
-            model=_name,
-            temperature=0.0,
-            max_completion_tokens=settings.router_max_summary_tokens,
-            streaming=False,
-            use_responses_api=False,
-            model_kwargs=model_kw,
-            http_client=get_llm_http_client(uds_path=settings.router_model_uds or None),
-        )
-    return _summarizer_llm
+    res = resolve_model("summarizer", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.0,
+        max_completion_tokens=settings.router_max_summary_tokens,
+        streaming=False,
+        use_responses_api=False,
+        model_kwargs=_summarizer_kw,
+        http_client=_router_http_client,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +311,7 @@ class RouterNode:
         cache: HybridRetrievalCache | None = None,
     ) -> None:
         self.cache = cache or get_retrieval_cache()
+        self._difficulty: float = 0.5
         timeout = float(getattr(settings, "node_timeout_seconds", 180.0))
         self.request_timeout_seconds = max(30.0, timeout * 0.7)
         self.retrieve_timeout_seconds = max(15.0, min(90.0, timeout * 0.4))
@@ -329,7 +322,7 @@ class RouterNode:
 
     async def generate_query(self, evidence_request: dict[str, Any], task_context: str = "") -> str:
         """Use LLM to produce a retrieval query from an evidence request."""
-        llm = _get_router_query_llm()
+        llm = _get_router_query_llm(self._difficulty)
         topic_frame = evidence_request.get("_topic_frame", "")
         technologies = evidence_request.get("technologies") or []
         tech_str = ", ".join(technologies[:6]) if technologies else "(none)"
@@ -351,7 +344,7 @@ class RouterNode:
         """Generate a hypothetical document snippet for HyDE vector search."""
         if not settings.router_hyde_enabled:
             return ""
-        llm = _get_router_query_llm()
+        llm = _get_router_query_llm(self._difficulty)
         prompt = HYDE_PROMPT.format(question=question[:300])
         resp = await llm.ainvoke(
             [
@@ -377,7 +370,7 @@ class RouterNode:
             hints_block = f"RELATED CONCEPTS: {', '.join(expansion_hints[:6])}"
         tech_terms = " ".join(technologies[:4]) if technologies else ""
 
-        llm = _get_router_query_llm()
+        llm = _get_router_query_llm(self._difficulty)
         prompt = CONCEPTUAL_EXPANSION_PROMPT.format(
             need=need[:300],
             domain=domain,
@@ -501,7 +494,7 @@ class RouterNode:
             f"- Line N corresponds to request [N].\n"
             f"- No numbering, no explanations — just the query strings."
         )
-        llm = _get_router_llm()
+        llm = _get_router_llm(self._difficulty)
         resp = await llm.ainvoke(
             [
                 SystemMessage(content="You generate retrieval queries. Output one query per line."),
@@ -534,7 +527,7 @@ class RouterNode:
     ) -> EvidencePacket:
         """Use LLM to convert raw retrieval results into a structured EvidencePacket."""
         results_text = self._format_raw_results(results)
-        llm = _get_summarizer_llm()
+        llm = _get_summarizer_llm(self._difficulty)
         summarizer_tone_block = ""
         if taxonomy_metadata:
             from ..taxonomy_prompt_factory import get_router_summarizer_tone
@@ -560,7 +553,7 @@ class RouterNode:
 
     async def refine_query(self, query: str, packet: EvidencePacket) -> str:
         """Use LLM to produce a more specific query when evidence is insufficient."""
-        llm = _get_router_query_llm()
+        llm = _get_router_query_llm(self._difficulty)
         prompt = REFINER_PROMPT.format(
             query=query,
             summary=packet.summary[:300],
@@ -1248,6 +1241,7 @@ class RouterNode:
         task_desc = state.get("task_description", "")
         task_frame = state.get("task_frame") or {}
         difficulty = state.get("difficulty", 0.5)
+        self._difficulty = difficulty
         rag_mode = state.get("rag_mode", "normal")
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         task_context = f"{task_desc}\n{json.dumps(task_frame, default=str)[:500]}"

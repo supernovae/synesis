@@ -3,9 +3,8 @@
 Validates:
 - Deterministic cohesion lock detection from metadata
 - Exclusion signal generation for known entity pairs
-- Cohesion filter respects protected top-N documents
 - LongContextReorder places strongest items at edges
-- Writer template renders persona and cohesion lock correctly
+- Writer template renders persona correctly
 - Persona detection from raw user text
 """
 
@@ -261,22 +260,6 @@ class TestWriterTemplate:
         assert "pirate" in prompt
         assert "Formal Analyst" not in prompt
 
-    def test_cohesion_lock_injected(self):
-        from app.nodes.writer import _build_system_prompt
-
-        state = {
-            "cohesion_lock": {
-                "entity": "Transformer Architecture",
-                "type": "generic",
-                "exclude_signals": ["AWS", "GCP"],
-            }
-        }
-        prompt = _build_system_prompt(state)
-        assert "COHESION LOCK" in prompt
-        assert "Transformer Architecture" in prompt
-        assert "AWS" in prompt
-        assert "GCP" in prompt
-
     def test_no_cohesion_lock_no_block(self):
         from app.nodes.writer import _build_system_prompt
 
@@ -409,38 +392,3 @@ class TestCohesionLockState:
         task = TaskFrame()
         assert task.persona == ""
 
-
-# ---------------------------------------------------------------------------
-# Downstream hardening: Summarizer cohesion constraint
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not _has_langgraph, reason="langgraph not installed (container-only dep)")
-class TestSummarizerCohesionConstraint:
-    """Test that _build_cohesion_constraint produces the right prompt block."""
-
-    def test_with_lock_and_exclusions(self):
-        from app.nodes.router import _build_cohesion_constraint
-
-        lock = {"entity": "AWS", "exclude_signals": ["GCP", "Azure"]}
-        block = _build_cohesion_constraint(lock)
-        assert "COHESION CONSTRAINT" in block
-        assert "AWS" in block
-        assert "GCP" in block
-        assert "Azure" in block
-
-    def test_with_lock_no_exclusions(self):
-        from app.nodes.router import _build_cohesion_constraint
-
-        lock = {"entity": "transformer architecture", "exclude_signals": []}
-        block = _build_cohesion_constraint(lock)
-        assert "COHESION CONSTRAINT" in block
-        assert "transformer architecture" in block
-        assert "Exclude content" not in block
-
-    def test_no_lock_returns_empty(self):
-        from app.nodes.router import _build_cohesion_constraint
-
-        assert _build_cohesion_constraint(None) == ""
-        assert _build_cohesion_constraint({}) == ""
-        assert _build_cohesion_constraint({"entity": ""}) == ""

@@ -38,16 +38,46 @@ AVAILABLE_CRITIC_MODELS = {
 router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 
 # Matches base/planner/app/graph.py (unified knowledge pipeline).
+# model_role: which KNOWN_ROLE (provider_catalog.py) this node uses.
+# model_served_name: the LiteLLM alias the node passes as `model=`.
 GRAPH_DEFINITION = {
     "nodes": [
-        {"id": "entry_pipeline", "label": "Entry Pipeline", "type": "entry"},
-        {"id": "planner", "label": "Planner", "type": "planning"},
-        {"id": "plan_gate", "label": "Plan Gate", "type": "planning"},
-        {"id": "router", "label": "Router", "type": "retrieval"},
-        {"id": "writer", "label": "Writer", "type": "generation"},
-        {"id": "critic", "label": "Critic", "type": "evaluation"},
-        {"id": "final_scrubber", "label": "Final Scrubber", "type": "post"},
-        {"id": "respond", "label": "Respond", "type": "terminal"},
+        {
+            "id": "entry_pipeline", "label": "Entry Pipeline", "type": "entry",
+            "model_role": "router", "model_served_name": "synesis-router",
+            "notes": "Deterministic classifier + LLM frame segmentation",
+        },
+        {
+            "id": "planner", "label": "Planner", "type": "planning",
+            "model_role": "router", "model_served_name": "synesis-router",
+        },
+        {
+            "id": "plan_gate", "label": "Plan Gate", "type": "planning",
+            "model_role": "router", "model_served_name": "synesis-router",
+            "notes": "Optional coherence check; mostly deterministic",
+        },
+        {
+            "id": "router", "label": "Router", "type": "retrieval",
+            "model_role": "router", "model_served_name": "synesis-router",
+            "notes": "Evidence packet summarization uses synesis-summarizer",
+        },
+        {
+            "id": "writer", "label": "Writer", "type": "generation",
+            "model_role": "general", "model_served_name": "synesis-general",
+        },
+        {
+            "id": "critic", "label": "Critic", "type": "evaluation",
+            "model_role": "critic", "model_served_name": "synesis-critic",
+        },
+        {
+            "id": "final_scrubber", "label": "Final Scrubber", "type": "post",
+            "model_role": "general", "model_served_name": "synesis-general",
+        },
+        {
+            "id": "respond", "label": "Respond", "type": "terminal",
+            "model_role": None, "model_served_name": None,
+            "notes": "SSE streaming, no LLM call",
+        },
     ],
     "edges": [
         {"from": "entry_pipeline", "to": "planner", "label": "default"},
@@ -74,7 +104,43 @@ GRAPH_DEFINITION = {
 
 @router.get("/graph")
 async def pipeline_graph(_user: UserInfo = Depends(get_current_user)):
-    return GRAPH_DEFINITION
+    result = dict(GRAPH_DEFINITION)
+    result["model_policies"] = await _load_active_policies()
+    return result
+
+
+async def _load_active_policies() -> dict:
+    """Load model policies from DB for graph visualization. Returns {} if table absent."""
+    try:
+        async with async_session() as session:
+            check = await session.execute(
+                sa_text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables "
+                    "WHERE table_name = 'model_policies')"
+                )
+            )
+            if not check.scalar():
+                return {}
+            rows = await session.execute(
+                sa_text(
+                    "SELECT role, condition_type, condition_value, model, label, priority "
+                    "FROM model_policies WHERE enabled = true ORDER BY role, priority"
+                )
+            )
+            policies: dict[str, list[dict]] = {}
+            for row in rows:
+                role = row[0]
+                policies.setdefault(role, []).append({
+                    "condition_type": row[1],
+                    "condition_value": row[2],
+                    "model": row[3],
+                    "label": row[4] or "",
+                    "priority": row[5],
+                })
+            return policies
+    except Exception:
+        logger.debug("model_policies load failed (table may not exist)", exc_info=True)
+        return {}
 
 
 @router.get("/metrics")

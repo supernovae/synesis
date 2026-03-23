@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_critic_rejection
 from ..config import settings
+from ..model_policy import ModelContext, resolve_model
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -327,16 +328,21 @@ else:
 if _critic_extra_body:
     _model_kwargs["extra_body"] = _critic_extra_body
 
-critic_llm = ChatOpenAI(
-    base_url=settings.critic_model_url,
-    api_key=settings.model_api_key,
-    model=settings.critic_model_name,
-    temperature=0.1,
-    max_completion_tokens=settings.critic_max_tokens,
-    use_responses_api=False,
-    http_client=get_llm_http_client(uds_path=settings.critic_model_uds or None),
-    model_kwargs=_model_kwargs,
-)
+_critic_http_client = get_llm_http_client(uds_path=settings.critic_model_uds or None)
+
+
+def _get_critic_llm(difficulty: float = 0.5) -> ChatOpenAI:
+    res = resolve_model("critic", ModelContext(difficulty=difficulty))
+    return ChatOpenAI(
+        base_url=res.base_url,
+        api_key=settings.model_api_key,
+        model=res.model_name,
+        temperature=0.1,
+        max_completion_tokens=settings.critic_max_tokens,
+        use_responses_api=False,
+        http_client=_critic_http_client,
+        model_kwargs=_model_kwargs,
+    )
 
 
 _BACKTICK_NAME_RE = re.compile(r"`[A-Za-z][\w.\-/]*`")
@@ -707,7 +713,7 @@ def _budget_guided_critic(difficulty: float) -> ChatOpenAI:
     """
     thinking_budget = int(256 + 1792 * min(1.0, difficulty))
     total_budget = thinking_budget + 2048
-    return critic_llm.bind(max_completion_tokens=min(total_budget, settings.critic_max_tokens))
+    return _get_critic_llm(difficulty).bind(max_completion_tokens=min(total_budget, settings.critic_max_tokens))
 
 
 def _domain_coverage_check(
@@ -1154,7 +1160,7 @@ Reply with JSON:
 
             doc_prompt = f"## User Task\n{task_summary}\n\n## Response to Evaluate\n{response_text}"
             try:
-                doc_response = await critic_llm.ainvoke(
+                doc_response = await _get_critic_llm(difficulty).ainvoke(
                     [
                         SystemMessage(content=doc_system),
                         HumanMessage(content=doc_prompt),

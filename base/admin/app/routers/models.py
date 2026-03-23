@@ -12,7 +12,7 @@ from sqlalchemy import func, text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
-from ..db.models import Trace
+from ..db.models import ModelPolicy, Trace
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.admin_audit import record_admin_audit
@@ -1131,3 +1131,177 @@ async def performance_by_role(
     except Exception:
         logger.warning("performance_by_role_failed", exc_info=True)
         return {"roles": [], "period_days": days}
+
+
+# ---------------------------------------------------------------------------
+# Model Policies — conditional model selection rules per role
+# ---------------------------------------------------------------------------
+
+CONDITION_TYPES = ("difficulty_lt", "difficulty_gte", "account_tier", "user_preference", "always")
+
+
+@router.get("/policies")
+async def list_model_policies(_user: UserInfo = Depends(get_current_user)):
+    """All active model policies grouped by role."""
+    try:
+        async with async_session() as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id, role, priority, condition_type, condition_value, "
+                        "model, label, enabled "
+                        "FROM model_policies ORDER BY role, priority"
+                    )
+                )
+            ).fetchall()
+    except Exception:
+        return {"policies": {}}
+
+    policies: dict[str, list[dict]] = {}
+    for row in rows:
+        role = row[1]
+        policies.setdefault(role, []).append({
+            "id": row[0],
+            "role": role,
+            "priority": row[2],
+            "condition_type": row[3],
+            "condition_value": row[4],
+            "model": row[5],
+            "label": row[6],
+            "enabled": row[7],
+        })
+    return {"policies": policies}
+
+
+@router.get("/policies/{role}")
+async def get_role_policies(role: str, _user: UserInfo = Depends(get_current_user)):
+    """Ordered rules for one role."""
+    if role not in KNOWN_ROLES:
+        raise HTTPException(404, f"Unknown role: {role}")
+    try:
+        async with async_session() as session:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT id, priority, condition_type, condition_value, "
+                        "model, label, enabled "
+                        "FROM model_policies WHERE role = :role ORDER BY priority"
+                    ),
+                    {"role": role},
+                )
+            ).fetchall()
+    except Exception:
+        return {"role": role, "rules": [], "preview": {}}
+
+    rules = [
+        {
+            "id": r[0],
+            "priority": r[1],
+            "condition_type": r[2],
+            "condition_value": r[3],
+            "model": r[4],
+            "label": r[5],
+            "enabled": r[6],
+        }
+        for r in rows
+    ]
+    preview = _preview_policy(rules)
+    return {"role": role, "rules": rules, "preview": preview}
+
+
+@router.put("/policies/{role}")
+async def put_role_policies(
+    role: str,
+    rules: list[dict] = Body(...),
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Replace all rules for a role atomically."""
+    if role not in KNOWN_ROLES:
+        raise HTTPException(404, f"Unknown role: {role}")
+    for r in rules:
+        ct = r.get("condition_type", "")
+        if ct not in CONDITION_TYPES:
+            raise HTTPException(422, f"Invalid condition_type: {ct}")
+        if not r.get("model"):
+            raise HTTPException(422, "Each rule must have a model")
+
+    async with async_session() as session:
+        async with session.begin():
+            await session.execute(
+                text("DELETE FROM model_policies WHERE role = :role"),
+                {"role": role},
+            )
+            for idx, r in enumerate(rules):
+                policy = ModelPolicy(
+                    role=role,
+                    priority=idx,
+                    condition_type=r["condition_type"],
+                    condition_value=str(r.get("condition_value", "")),
+                    model=r["model"],
+                    label=r.get("label", ""),
+                    enabled=r.get("enabled", True),
+                )
+                session.add(policy)
+
+    await record_admin_audit(
+        user_email=user.email,
+        action="model_policy_updated",
+        resource_type="model_policy",
+        resource_id=role,
+        detail={"rules_count": len(rules)},
+    )
+    return {"role": role, "rules_count": len(rules), "preview": _preview_policy(rules)}
+
+
+@router.delete("/policies/{role}")
+async def delete_role_policies(
+    role: str,
+    user: UserInfo = Depends(require_platform_admin),
+):
+    """Remove all rules for a role (reverts to static default)."""
+    if role not in KNOWN_ROLES:
+        raise HTTPException(404, f"Unknown role: {role}")
+    async with async_session() as session:
+        async with session.begin():
+            await session.execute(
+                text("DELETE FROM model_policies WHERE role = :role"),
+                {"role": role},
+            )
+    await record_admin_audit(
+        user_email=user.email,
+        action="model_policy_deleted",
+        resource_type="model_policy",
+        resource_id=role,
+    )
+    return {"role": role, "deleted": True}
+
+
+def _preview_policy(rules: list[dict]) -> dict[str, str]:
+    """Preview model selection at various difficulty levels."""
+    points = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    enabled = [r for r in rules if r.get("enabled", True)]
+    result: dict[str, str] = {}
+    for d in points:
+        matched = "(default)"
+        for r in enabled:
+            ct = r.get("condition_type", "")
+            cv = r.get("condition_value", "")
+            if ct == "difficulty_lt":
+                try:
+                    if d < float(cv):
+                        matched = r.get("model", "")
+                        break
+                except (ValueError, TypeError):
+                    continue
+            elif ct == "difficulty_gte":
+                try:
+                    if d >= float(cv):
+                        matched = r.get("model", "")
+                        break
+                except (ValueError, TypeError):
+                    continue
+            elif ct == "always":
+                matched = r.get("model", "")
+                break
+        result[str(d)] = matched
+    return result

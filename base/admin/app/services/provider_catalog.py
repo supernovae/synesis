@@ -47,11 +47,11 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
 KNOWN_ROLES = ("router", "general", "critic", "coder", "summarizer")
 
 ROLE_DESCRIPTIONS = {
-    "router": "Fast classification, planner, advisor",
-    "general": "Writer synthesis, general reasoning",
-    "critic": "Deep reasoning critic",
-    "coder": "IDE direct endpoint (Cursor, Claude Code)",
-    "summarizer": "Pivot history summarization",
+    "router": "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
+    "general": "Writer + final_scrubber — general reasoning & synthesis",
+    "critic": "Deep reasoning — critic node evaluates drafts",
+    "coder": "IDE direct endpoint (Cursor, Claude Code) — not in planner graph",
+    "summarizer": "Pivot history summarization — router evidence compression",
 }
 
 

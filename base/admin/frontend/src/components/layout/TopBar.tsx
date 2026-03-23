@@ -12,6 +12,7 @@ const breadcrumbLabels: Record<string, string> = {
   performance: "Performance",
   providers: "Providers",
   serving: "Effective Serving",
+  policies: "Model Policies",
   rag: "RAG Pipeline",
   corpus: "Corpus",
   quality: "Quality",

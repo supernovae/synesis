@@ -16,6 +16,7 @@ import time
 from typing import Any
 
 from ..config import reasoning_body, settings
+from ..model_policy import ModelContext, resolve_model
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -225,6 +226,7 @@ async def _shallow_coherence_check(
     steps: list[dict[str, Any]],
     task_description: str,
     deliverables: list[str],
+    difficulty: float = 0.5,
 ) -> list[str]:
     """Optional small-LLM yes/no classification. Kept short and constrained."""
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -236,10 +238,11 @@ async def _shallow_coherence_check(
     _pg_rb = reasoning_body(settings.router_reasoning_effort)
     if _pg_rb:
         _pg_kw["extra_body"] = _pg_rb
+    _pg_res = resolve_model("router", ModelContext(difficulty=difficulty))
     llm = ChatOpenAI(
-        base_url=settings.router_model_url,
+        base_url=_pg_res.base_url,
         api_key=settings.model_api_key,
-        model=settings.router_model_name,
+        model=_pg_res.model_name,
         temperature=0,
         max_completion_tokens=1024,
         streaming=False,
@@ -357,7 +360,7 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         ran_coherence = True
         checks_run += 1
         task_desc = state.get("task_description") or task_frame.get("main_question") or ""
-        errors.extend(await _shallow_coherence_check(steps, task_desc, deliverables))
+        errors.extend(await _shallow_coherence_check(steps, task_desc, deliverables, difficulty))
 
     passed = not errors
     latency = (time.monotonic() - start) * 1000

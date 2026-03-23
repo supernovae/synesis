@@ -28,6 +28,7 @@ from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, record_frame_cache_size
 from ..config import reasoning_body, settings
+from ..model_policy import ModelContext, resolve_model
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
 from ..schemas import (
@@ -104,7 +105,7 @@ If a sentence contains multiple distinct requirements, split them.
 Output JSON: {"units": [{"text": "...", "type": "goal|task|constraint|context|dependency|evaluation"}]}"""
 
 
-async def _llm_segment(raw_text: str) -> list[FrameUnit]:
+async def _llm_segment(raw_text: str, *, difficulty: float = 0.5) -> list[FrameUnit]:
     """Call the router model to segment the prompt into FrameUnits."""
     _kw: dict[str, Any] = {}
     _eb: dict[str, Any] = {}
@@ -116,10 +117,11 @@ async def _llm_segment(raw_text: str) -> list[FrameUnit]:
     if _eb:
         _kw["extra_body"] = _eb
 
+    _fe_res = resolve_model("router", ModelContext(difficulty=difficulty))
     llm = ChatOpenAI(
-        base_url=settings.router_model_url,
+        base_url=_fe_res.base_url,
         api_key=settings.model_api_key,
-        model=settings.router_model_name,
+        model=_fe_res.model_name,
         temperature=0,
         max_completion_tokens=settings.frame_repair_max_tokens,
         streaming=False,
@@ -747,7 +749,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     try:
-        llm_coro = _llm_segment(task_description)
+        llm_coro = _llm_segment(task_description, difficulty=difficulty)
         gliner_coro = asyncio.to_thread(_gliner_enrichment, task_description)
         units, gliner = await asyncio.gather(llm_coro, gliner_coro)
 

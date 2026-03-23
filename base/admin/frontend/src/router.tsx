@@ -19,6 +19,7 @@ const UsageReconcile = lazy(() => import("./pages/models/UsageReconcile"));
 const ModelPerformance = lazy(() => import("./pages/models/ModelPerformance"));
 const ProviderManagement = lazy(() => import("./pages/models/ProviderManagement"));
 const ServingManagement = lazy(() => import("./pages/models/ServingManagement"));
+const ModelPolicies = lazy(() => import("./pages/models/ModelPolicies"));
 
 const CorpusOverview = lazy(() => import("./pages/rag/CorpusOverview"));
 const QualityDashboard = lazy(() => import("./pages/rag/QualityDashboard"));
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
       { path: "models/performance", element: <ModelPerformance /> },
       { path: "models/providers", element: <ProviderManagement /> },
       { path: "models/serving", element: <ServingManagement /> },
+      { path: "models/policies", element: <ModelPolicies /> },
 
       { path: "rag/corpus", element: <CorpusOverview /> },
       { path: "rag/quality", element: <QualityDashboard /> },

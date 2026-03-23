@@ -69,6 +69,8 @@ class LLMCallRecord:
     completion_full: str = ""
     timestamp: float = 0.0
     actual_cost: float = 0.0
+    policy_source: str = ""  # "policy", "env", "static", or "" if not tracked
+    policy_rule_label: str = ""  # human label from matched policy rule
 
 
 @dataclass
@@ -111,6 +113,7 @@ class TraceRecord:
     evidence_summary: dict[str, Any] = field(default_factory=dict)
     context_curation: dict[str, Any] = field(default_factory=dict)
     taxonomy: dict[str, Any] = field(default_factory=dict)
+    model_policy_resolutions: dict[str, Any] = field(default_factory=dict)
     phase_timings: dict[str, float] = field(default_factory=dict)
     short_circuit_reason: str = ""
     conversation_id: str = ""
@@ -557,6 +560,17 @@ class SynesisTracer(BaseCallbackHandler):
             self._current_trace.taxonomy["semantic_ambiguous"] = sem.get("ambiguous", False)
             self._current_trace.taxonomy["semantic_keyword_key"] = sem.get("keyword_key", "")
             self._current_trace.taxonomy["semantic_top"] = sem.get("semantic_top", [])[:3]
+
+    def record_model_policy(self, node: str, role: str, model_name: str, source: str, rule_label: str = "") -> None:
+        """Record which model was selected by policy for a node."""
+        if self._current_trace is None:
+            return
+        self._current_trace.model_policy_resolutions[node] = {
+            "role": role,
+            "model": model_name,
+            "source": source,
+            "rule_label": rule_label,
+        }
 
     def set_context_curation(self, report: dict[str, Any]) -> None:
         """Writer evidence budgeting — rank-first pack, exclusions, starvation signals."""
