@@ -60,25 +60,60 @@ def scan_text(text: str) -> ScanResult:
     )
 
 
+def _scan_tool_call_arguments(tool_calls: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Sanitize string arguments inside assistant tool_calls (untrusted client transcript)."""
+    any_detected = False
+    out: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        tc_copy = dict(tc)
+        fn = tc_copy.get("function")
+        if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
+            scan = scan_text(fn["arguments"])
+            if scan.detected:
+                any_detected = True
+                fn = dict(fn)
+                fn["arguments"] = scan.sanitized_text
+                tc_copy["function"] = fn
+        out.append(tc_copy)
+    return out, any_detected
+
+
 def scan_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
-    """Scan all user messages for injection patterns.
+    """Scan untrusted client-supplied chat roles for injection patterns.
 
     Returns (possibly-sanitized messages, injection_detected).
-    Only user messages are scanned; system/assistant messages are trusted.
+
+    OpenAI-shaped clients may place IDE context in user, assistant, tool, or
+    even system messages. None of these are server authority: scan and
+    redact before they influence logging or any future merge paths. (Yarn
+    still pins server system + tools separately from this transcript.)
     """
     injection_detected = False
     result: list[dict[str, Any]] = []
 
+    untrusted_roles = frozenset({"user", "assistant", "tool", "system"})
+
     for msg in messages:
-        if msg.get("role") == "user" and msg.get("content"):
-            scan = scan_text(msg["content"])
+        role = msg.get("role", "")
+        if role not in untrusted_roles:
+            result.append(msg)
+            continue
+
+        new_msg = dict(msg)
+        content = new_msg.get("content")
+        if isinstance(content, str) and content:
+            scan = scan_text(content)
             if scan.detected:
                 injection_detected = True
-                logger.warning("Injection patterns found: %s", scan.patterns_found)
-                result.append({**msg, "content": scan.sanitized_text})
-            else:
-                result.append(msg)
-        else:
-            result.append(msg)
+                logger.warning("Injection patterns found (%s): %s", role, scan.patterns_found)
+                new_msg["content"] = scan.sanitized_text
+
+        if role == "assistant" and new_msg.get("tool_calls"):
+            tcs, tc_detected = _scan_tool_call_arguments(new_msg["tool_calls"])
+            if tc_detected:
+                injection_detected = True
+                new_msg["tool_calls"] = tcs
+
+        result.append(new_msg)
 
     return result, injection_detected

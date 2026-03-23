@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from app.context.reducer import build_user_turn_content
 from app.memory.buffer import MemoryBuffer, count_message_tokens, count_tokens
 from app.memory.compressor import build_summarize_messages, merge_replay
 from app.memory.delta_stitcher import estimate_cache_hit_tokens, stitch_delta
 from app.memory.prefix_optimizer import compute_prefix_stability, validate_prefix_order
+
+
+def _user_turn(text: str) -> str:
+    """Match API path: user turns are wrapped for trust boundaries + cache-stable tags."""
+    return build_user_turn_content(text, None)
 
 
 class TestMemoryBuffer:
@@ -22,15 +28,17 @@ class TestMemoryBuffer:
         assert "helpful assistant" in ctx[0]["content"]
 
     def test_append_user_and_model(self, memory_buffer: MemoryBuffer):
-        memory_buffer.append_user("Hello")
+        memory_buffer.append_user(_user_turn("Hello"))
         memory_buffer.append_model("Hi there!")
         ctx = memory_buffer.get_context()
         assert len(ctx) == 3  # system + user + assistant
         assert ctx[1]["role"] == "user"
+        assert "Hello" in (ctx[1].get("content") or "")
+        assert "synesis_coder_turn" in (ctx[1].get("content") or "")
         assert ctx[2]["role"] == "assistant"
 
     def test_tool_result_appended(self, memory_buffer: MemoryBuffer):
-        memory_buffer.append_user("Run a tool")
+        memory_buffer.append_user(_user_turn("Run a tool"))
         memory_buffer.append_model(
             "",
             tool_calls=[
@@ -43,13 +51,16 @@ class TestMemoryBuffer:
         )
         memory_buffer.append_tool_result("tc_1", "test_tool", "result data")
         ctx = memory_buffer.get_context()
-        assert any(m["role"] == "tool" for m in ctx)
+        tool_msgs = [m for m in ctx if m["role"] == "tool"]
+        assert len(tool_msgs) == 1
+        assert "synesis_tool_output" in (tool_msgs[0].get("content") or "")
+        assert "result data" in (tool_msgs[0].get("content") or "")
 
     def test_eviction_on_overflow(self):
         buf = MemoryBuffer(max_tokens=100, pinned_budget=50)
         buf.set_system_prompt("Short sys prompt")
         for i in range(50):
-            buf.append_user(f"Message number {i} with some padding text")
+            buf.append_user(_user_turn(f"Message number {i} with some padding text"))
 
         assert buf.total_tokens <= buf.max_tokens + 50
         evicted = buf.get_evicted_turns()
@@ -63,7 +74,7 @@ class TestMemoryBuffer:
             ]
         )
         memory_buffer.set_memory_replay("Previous session summary")
-        memory_buffer.append_user("Hello")
+        memory_buffer.append_user(_user_turn("Hello"))
         memory_buffer.append_model("Hi!")
 
         ctx = memory_buffer.get_context()
@@ -76,7 +87,7 @@ class TestMemoryBuffer:
                 system_seen = False
 
     def test_serialization_roundtrip(self, memory_buffer: MemoryBuffer):
-        memory_buffer.append_user("Hello")
+        memory_buffer.append_user(_user_turn("Hello"))
         memory_buffer.append_model("World")
 
         data = memory_buffer.to_dict()
@@ -87,7 +98,7 @@ class TestMemoryBuffer:
 
     def test_utilization(self, memory_buffer: MemoryBuffer):
         assert 0.0 < memory_buffer.utilization < 1.0
-        memory_buffer.append_user("x " * 200)
+        memory_buffer.append_user(_user_turn("x " * 200))
         assert memory_buffer.utilization > 0.0
 
     def test_internal_keys_stripped(self, memory_buffer: MemoryBuffer):
@@ -105,9 +116,9 @@ class TestDeltaStitcher:
         assert memory_buffer.stable_turn_count == initial_count + 1
 
     def test_cache_hit_estimate(self, memory_buffer: MemoryBuffer):
-        memory_buffer.append_user("First turn")
+        memory_buffer.append_user(_user_turn("First turn"))
         memory_buffer.append_model("Response 1")
-        memory_buffer.append_user("Second turn")
+        memory_buffer.append_user(_user_turn("Second turn"))
 
         est = estimate_cache_hit_tokens(memory_buffer)
         assert est > memory_buffer._pinned_tokens

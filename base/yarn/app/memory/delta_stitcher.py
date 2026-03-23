@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..context.reducer import build_user_turn_content
 from .buffer import MemoryBuffer, count_message_tokens
 
 
@@ -36,7 +37,7 @@ def stitch_delta(
     if memory_replay is not None:
         buf.set_memory_replay(memory_replay)
 
-    buf.append_user(new_user_content)
+    buf.append_user(build_user_turn_content(new_user_content, None))
     return buf.get_context()
 
 

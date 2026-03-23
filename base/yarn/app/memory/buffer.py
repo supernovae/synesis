@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..context.reducer import wrap_tool_result_content
+
 logger = logging.getLogger("yarn.memory")
 
 _encoder: Any = None
@@ -150,7 +152,8 @@ class MemoryBuffer:
         self._maybe_evict()
 
     def append_tool_result(self, tool_call_id: str, name: str, content: str) -> None:
-        msg = {"role": "tool", "tool_call_id": tool_call_id, "name": name, "content": content}
+        wrapped = wrap_tool_result_content(name, content)
+        msg = {"role": "tool", "tool_call_id": tool_call_id, "name": name, "content": wrapped}
         tokens = count_message_tokens(msg)
         self._stable.append(msg)
         self._stable_tokens += tokens
