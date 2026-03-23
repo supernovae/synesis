@@ -70,6 +70,10 @@ spec:
               value: "20"
             - name: SYNESIS_YARN_DIAGNOSTICS_SNAPSHOT_TTL_SECONDS
               value: "86400"
+            # Browser clients: comma-separated origins (defaults in app include localhost).
+            # For legacy open CORS set to "*" (discouraged in production).
+            # - name: SYNESIS_YARN_CORS_ALLOW_ORIGINS
+            #   value: "https://your-console.example.com"
           envFrom:
             - secretRef:
                 name: provider-api-keys

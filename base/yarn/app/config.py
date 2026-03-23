@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     escalation_context_threshold: float = 0.9
     escalation_max_tool_loops: int = 25
 
+    # --- HTTP / CORS (browser clients only; server-side callers ignore CORS) ---
+    # Comma-separated origins. Use "*" for legacy permissive mode (not recommended in production).
+    cors_allow_origins: str = (
+        "http://127.0.0.1:3000,http://localhost:3000,"
+        "http://127.0.0.1:5173,http://localhost:5173,"
+        "http://127.0.0.1:8000,http://localhost:8000"
+    )
+
     # --- Telemetry ---
     log_level: str = "info"
     otel_endpoint: str = ""
@@ -83,6 +91,23 @@ class Settings(BaseSettings):
     deepinfra_input_per_m: float = 0.22
     deepinfra_output_per_m: float = 1.00
     deepinfra_cached_per_m: float = 0.022
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        raw = self.cors_allow_origins.strip()
+        if raw == "*":
+            return ["*"]
+        parts = [x.strip() for x in raw.split(",") if x.strip()]
+        if parts:
+            return parts
+        return [
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:8000",
+            "http://localhost:8000",
+        ]
 
     @property
     def effective_base_url(self) -> str:
