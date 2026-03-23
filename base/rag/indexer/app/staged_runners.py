@@ -262,89 +262,91 @@ def run_staged_enrich(
     progress = ProgressTracker(name="Staged Enrich")
     gate_policy = GatePolicy()
 
-    while True:
-        try:
-            jobs = client.claim_enrich(limit=batch_limit, worker_id=wid)
-        except httpx.HTTPError as e:
-            logger.error("staged_enrich_claim_failed", extra={"error": str(e)})
-            time.sleep(5)
-            continue
-        if not jobs:
-            logger.info("staged_enrich_queue_empty")
-            break
-
-        for job in jobs:
-            job_id = job["job_id"]
-            md_key = job.get("norm_s3_md_key") or ""
-            doc_key = job.get("doc_key", "")
+    try:
+        while True:
             try:
-                md = "" if dry_run else (store.get_text(md_key) if store else "")
-                if dry_run:
-                    chunks = 0
-                else:
-                    raw_doc = RawDocument(
-                        doc_id=doc_key,
-                        name=job.get("title") or doc_key,
-                        content=md,
-                        source_url=job.get("canonical_uri", ""),
-                        metadata={
-                            "tags": job.get("effective_tags"),
-                            "domain": job.get("effective_domain"),
-                            "authority": job.get("effective_authority"),
-                        },
-                    )
-                    source_config = {
-                        "name": job.get("title") or doc_key,
-                        "handler": job.get("effective_handler") or "html_document",
-                        "authority": job.get("effective_authority") or "vetted",
-                        "origin_type": job.get("origin_type", "curated"),
-                        "domain": job.get("effective_domain") or "generalist",
-                        "config": job.get("effective_config") or {},
-                    }
-                    chunks, stats = index_normalized_markdown_doc(
-                        source_config,
-                        raw_doc,
-                        writer,
-                        embedder,
-                        progress,
-                        existing_ids,
-                        enrich_full=enrich_full,
-                        llm_url=llm_url or os.getenv("SYNESIS_INDEXER_LLM_URL", ""),
-                        dry_run=False,
-                        gate_policy=gate_policy,
-                    )
-                    if store is not None:
-                        store.put_enriched_json(
-                            job.get("enrich_version", "v1"),
-                            doc_key,
-                            {
-                                "doc_key": doc_key,
-                                "job_id": job_id,
-                                "canonical_uri": job.get("canonical_uri", ""),
-                                "chunk_count": chunks,
-                                "enrich_version": job.get("enrich_version", "v1"),
-                                "norm_version": job.get("norm_version", "v1"),
-                                "indexer_stats": stats if isinstance(stats, dict) else {},
+                jobs = client.claim_enrich(limit=batch_limit, worker_id=wid)
+            except httpx.HTTPError as e:
+                logger.error("staged_enrich_claim_failed", extra={"error": str(e)})
+                time.sleep(5)
+                continue
+            if not jobs:
+                logger.info("staged_enrich_queue_empty")
+                break
+
+            for job in jobs:
+                job_id = job["job_id"]
+                md_key = job.get("norm_s3_md_key") or ""
+                doc_key = job.get("doc_key", "")
+                try:
+                    md = "" if dry_run else (store.get_text(md_key) if store else "")
+                    if dry_run:
+                        chunks = 0
+                    else:
+                        raw_doc = RawDocument(
+                            doc_id=doc_key,
+                            name=job.get("title") or doc_key,
+                            content=md,
+                            source_url=job.get("canonical_uri", ""),
+                            metadata={
+                                "tags": job.get("effective_tags"),
+                                "domain": job.get("effective_domain"),
+                                "authority": job.get("effective_authority"),
                             },
                         )
+                        source_config = {
+                            "name": job.get("title") or doc_key,
+                            "handler": job.get("effective_handler") or "html_document",
+                            "authority": job.get("effective_authority") or "vetted",
+                            "origin_type": job.get("origin_type", "curated"),
+                            "domain": job.get("effective_domain") or "generalist",
+                            "config": job.get("effective_config") or {},
+                        }
+                        chunks, stats = index_normalized_markdown_doc(
+                            source_config,
+                            raw_doc,
+                            writer,
+                            embedder,
+                            progress,
+                            existing_ids,
+                            enrich_full=enrich_full,
+                            llm_url=llm_url or os.getenv("SYNESIS_INDEXER_LLM_URL", ""),
+                            dry_run=False,
+                            gate_policy=gate_policy,
+                        )
+                        if store is not None:
+                            store.put_enriched_json(
+                                job.get("enrich_version", "v1"),
+                                doc_key,
+                                {
+                                    "doc_key": doc_key,
+                                    "job_id": job_id,
+                                    "canonical_uri": job.get("canonical_uri", ""),
+                                    "chunk_count": chunks,
+                                    "enrich_version": job.get("enrich_version", "v1"),
+                                    "norm_version": job.get("norm_version", "v1"),
+                                    "indexer_stats": stats if isinstance(stats, dict) else {},
+                                },
+                            )
 
-                client.patch_enrich_job(
-                    job_id,
-                    {
-                        "status": "done",
-                        "chunk_count": chunks,
-                        "milvus_doc_id": doc_key[:128],
-                    },
-                )
-                logger.info(
-                    "staged_enrich_job_done",
-                    extra={"job_id": job_id, "doc_key": doc_key, "chunks": chunks},
-                )
-            except Exception as e:
-                logger.error("staged_enrich_job_failed", extra={"job_id": job_id, "error": str(e)})
-                client.patch_enrich_job(
-                    job_id,
-                    {"status": "failed", "error": str(e)[:2000]},
-                )
+                    client.patch_enrich_job(
+                        job_id,
+                        {
+                            "status": "done",
+                            "chunk_count": chunks,
+                            "milvus_doc_id": doc_key[:128],
+                        },
+                    )
+                    logger.info(
+                        "staged_enrich_job_done",
+                        extra={"job_id": job_id, "doc_key": doc_key, "chunks": chunks},
+                    )
+                except Exception as e:
+                    logger.error("staged_enrich_job_failed", extra={"job_id": job_id, "error": str(e)})
+                    client.patch_enrich_job(
+                        job_id,
+                        {"status": "failed", "error": str(e)[:2000]},
+                    )
 
-    progress.log_complete()
+    finally:
+        progress.log_complete()

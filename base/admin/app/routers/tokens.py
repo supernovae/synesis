@@ -43,7 +43,7 @@ class TokenCreate(BaseModel):
 
     @field_validator("scopes", mode="before")
     @classmethod
-    def _validate_scopes(cls, v: list[str] | None) -> list[str] | None:
+    def _validate_scopes(_cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
         cleaned = list(dict.fromkeys(v))

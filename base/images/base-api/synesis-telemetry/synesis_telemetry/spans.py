@@ -33,13 +33,13 @@ def _get_tracer():
 class _NoOpSpan:
     """Placeholder span when OTel is disabled."""
 
-    def set_attribute(self, key: str, value: Any) -> None:
+    def set_attribute(self, _key: str, _value: Any) -> None:
         pass
 
     def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         pass
 
-    def set_status(self, *args: Any, **kwargs: Any) -> None:
+    def set_status(self, *_args: Any, **_kwargs: Any) -> None:
         pass
 
     def record_exception(self, exc: BaseException) -> None:

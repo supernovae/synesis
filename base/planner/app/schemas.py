@@ -148,7 +148,7 @@ def safe_parse_json(raw: str) -> dict:
     return json.loads(cleaned)
 
 
-def parse_and_validate(raw: str, model: type[T], retry_prompt: str | None = None) -> T:
+def parse_and_validate(raw: str, model: type[T]) -> T:
     """Extract JSON, validate against schema, return validated model or raise."""
     extracted = _extract_json(raw)
     data = json.loads(extracted)

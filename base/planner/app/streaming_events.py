@@ -76,7 +76,7 @@ class StatusQueueCallback(AsyncCallbackHandler):
     def on_chain_start(
         self,
         serialized: dict[str, Any],
-        inputs: dict[str, Any],
+        _inputs: dict[str, Any],
         *,
         run_id: Any = None,
         **kwargs: Any,
@@ -114,7 +114,7 @@ class StatusQueueCallback(AsyncCallbackHandler):
     def on_tool_start(
         self,
         serialized: dict[str, Any],
-        input_str: str,
+        _input_str: str,
         *,
         run_id: Any = None,
         **kwargs: Any,
@@ -125,7 +125,7 @@ class StatusQueueCallback(AsyncCallbackHandler):
 
     def on_chain_end(
         self,
-        outputs: dict[str, Any],
+        _outputs: dict[str, Any],
         *,
         run_id: Any = None,
         parent_run_id: Any = None,

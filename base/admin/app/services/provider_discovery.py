@@ -132,7 +132,7 @@ async def _openai_compat_models(
     base_url: str,
     api_key: str,
     *,
-    provider_name: str,
+    _provider_name: str,
 ) -> list[DiscoveredModel]:
     """Generic adapter for OpenAI-compatible /v1/models endpoints."""
     headers = {"Authorization": f"Bearer {api_key}"}
@@ -197,7 +197,7 @@ async def _discover_deepinfra() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.deepinfra.com",
             key,
-            provider_name="deepinfra",
+            _provider_name="deepinfra",
         )
         return DiscoveryResult(provider="deepinfra", models=models)
     except Exception as exc:
@@ -212,7 +212,7 @@ async def _discover_groq() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.groq.com/openai",
             key,
-            provider_name="groq",
+            _provider_name="groq",
         )
         return DiscoveryResult(provider="groq", models=models)
     except Exception as exc:
@@ -227,7 +227,7 @@ async def _discover_together() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.together.xyz",
             key,
-            provider_name="together",
+            _provider_name="together",
         )
         return DiscoveryResult(provider="together", models=models)
     except Exception as exc:
@@ -242,7 +242,7 @@ async def _discover_fireworks() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.fireworks.ai/inference",
             key,
-            provider_name="fireworks",
+            _provider_name="fireworks",
         )
         return DiscoveryResult(provider="fireworks", models=models)
     except Exception as exc:
@@ -257,7 +257,7 @@ async def _discover_openai() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.openai.com",
             key,
-            provider_name="openai",
+            _provider_name="openai",
         )
         return DiscoveryResult(provider="openai", models=models)
     except Exception as exc:
@@ -272,7 +272,7 @@ async def _discover_xai() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.x.ai",
             key,
-            provider_name="xai",
+            _provider_name="xai",
         )
         return DiscoveryResult(provider="xai", models=models)
     except Exception as exc:
@@ -287,7 +287,7 @@ async def _discover_mistral() -> DiscoveryResult:
         models = await _openai_compat_models(
             "https://api.mistral.ai",
             key,
-            provider_name="mistral",
+            _provider_name="mistral",
         )
         return DiscoveryResult(provider="mistral", models=models)
     except Exception as exc:

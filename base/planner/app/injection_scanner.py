@@ -246,7 +246,7 @@ def scan_web_content(text: str, source: str = "web", max_scan_chars: int = 32_00
     )
 
 
-def reduce_context_on_injection(text: str, pattern_match: str) -> str:
+def reduce_context_on_injection(text: str, _pattern_match: str) -> str:
     """Reduce context by redacting spans around injection patterns.
 
     Conservative: replace matching substring with [REDACTED].

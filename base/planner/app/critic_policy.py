@@ -71,7 +71,7 @@ def get_available_evidence_ids(tool_refs: list[dict[str, Any]]) -> set[str]:
 def check_evidence_gate(
     approved: bool,
     blocking_issues: list[Any],
-    available_ids: set[str] | None = None,
+    _available_ids: set[str] | None = None,
 ) -> tuple[bool, bool]:
     """Evidence gate: approved=false requires >=1 blocking_issue with valid evidence refs.
 

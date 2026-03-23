@@ -47,13 +47,14 @@ class MilvusWriter:
             output_fields=["chunk_id"],
             batch_size=batch_size,
         )
-        while True:
+        try:
             rows = iterator.next()
-            if not rows:
-                break
-            for row in rows:
-                ids.add(row["chunk_id"])
-        iterator.close()
+            while rows:
+                for row in rows:
+                    ids.add(row["chunk_id"])
+                rows = iterator.next()
+        finally:
+            iterator.close()
 
         return ids
 

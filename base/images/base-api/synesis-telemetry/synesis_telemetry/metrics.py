@@ -20,19 +20,19 @@ try:
 except ImportError:
 
     class _Stub:
-        def __init__(self, *a: Any, **kw: Any) -> None:
+        def __init__(self, *_a: Any, **_kw: Any) -> None:
             pass
 
-        def labels(self, **kw: Any) -> _Stub:
+        def labels(self, **_kw: Any) -> _Stub:
             return self
 
-        def inc(self, amount: float = 1) -> None:
+        def inc(self, _amount: float = 1) -> None:
             pass
 
-        def set(self, value: float) -> None:
+        def set(self, _value: float) -> None:
             pass
 
-        def observe(self, value: float) -> None:
+        def observe(self, _value: float) -> None:
             pass
 
     Counter = _Stub  # type: ignore[misc,assignment]

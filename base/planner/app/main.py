@@ -302,7 +302,7 @@ class ChatMessage(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def normalize_content(cls, data: object) -> object:
+    def normalize_content(_cls, data: object) -> object:
         if isinstance(data, dict):
             c = data.get("content")
             if c is None:

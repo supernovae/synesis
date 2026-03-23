@@ -663,7 +663,7 @@ class SynesisTracer(BaseCallbackHandler):
     def on_chain_start(
         self,
         serialized: dict[str, Any],
-        inputs: dict[str, Any],
+        _inputs: dict[str, Any],
         *,
         run_id: uuid.UUID,
         parent_run_id: uuid.UUID | None = None,
@@ -697,7 +697,7 @@ class SynesisTracer(BaseCallbackHandler):
 
     def on_chain_end(
         self,
-        outputs: dict[str, Any],
+        _outputs: dict[str, Any],
         *,
         run_id: uuid.UUID,
         **kwargs: Any,

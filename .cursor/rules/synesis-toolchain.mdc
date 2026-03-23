@@ -40,6 +40,7 @@ These images still use Python **3.11** for fleet consistency, `uv` for package i
 - **Containers locally:** Prefer **Podman** over Docker for rootless, OpenShift-like workflows. The repo ships [`podman-compose.yaml`](podman-compose.yaml) for stack bring-up where applicable.
 - **Python envs locally:** Prefer **`uv venv`** + **`uv pip install`** (or **`uv sync`** if the component uses a `uv`-managed project) rather than ad-hoc `python3 -m venv` + pip.
 - **Running tests:** Use **`uv run pytest …`** / **`uv run ruff check …`** from the repo root or service directory.
+- **Dead code:** After **`uv sync --group dev`**, run **`./scripts/check-dead-code.sh`** (vulture at 100% confidence on each service `app/` tree; `base/planner/app/main.py` is excluded because vulture mis-parses the async SSE generator). Optional coverage for **`synesis_telemetry`**: set `PYTHONPATH=base/images/base-api/synesis-telemetry` and run pytest on `base/planner/tests/test_telemetry.py` with **`--cov=synesis_telemetry --cov-config=pyproject.toml`** (see script header comment).
 
 ## When to diverge
 
