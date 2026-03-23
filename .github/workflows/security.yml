@@ -20,7 +20,7 @@ jobs:
       matrix:
         language: [python, javascript-typescript]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -39,7 +39,7 @@ jobs:
     name: Trivy Config Scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Generate Trivy SARIF report
         uses: aquasecurity/trivy-action@master
@@ -72,7 +72,7 @@ jobs:
     name: Bandit (Python Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
 
@@ -92,7 +92,7 @@ jobs:
             --confidence-level medium
 
       - name: Upload Bandit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: bandit-report
@@ -130,7 +130,7 @@ jobs:
           - name: yarn
             dir: base/yarn
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v6
         with:
@@ -149,7 +149,7 @@ jobs:
     name: Semgrep (Python/OWASP Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
 
@@ -171,7 +171,7 @@ jobs:
             base/planner/app/ base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ base/yarn/app/
 
       - name: Upload Semgrep results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: semgrep-results
@@ -184,7 +184,7 @@ jobs:
     name: npm Audit (Admin Frontend)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
@@ -203,7 +203,7 @@ jobs:
         run: npm audit --audit-level=high
 
       - name: Upload npm audit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: npm-audit-report
@@ -213,7 +213,7 @@ jobs:
     name: Semgrep (JS/TS/React Security)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
 
@@ -241,7 +241,7 @@ jobs:
             base/admin/frontend/src/
 
       - name: Upload Semgrep JS results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         if: always()
         with:
           name: semgrep-js-results

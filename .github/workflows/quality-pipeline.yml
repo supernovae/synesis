@@ -54,14 +54,14 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "benchmarks/corpus/requirements.txt"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -97,7 +97,7 @@ jobs:
           "
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: corpus-audit-report
@@ -110,14 +110,14 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "benchmarks/corpus/requirements.txt"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -140,7 +140,7 @@ jobs:
             --model "${{ inputs.model || 'synesis-general' }}" \
             --output "${{ env.REPORT_DIR }}/relevance_labels_llm.json"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: llm-judge-labels
@@ -156,14 +156,14 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "tools/curator/requirements.txt"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -171,7 +171,7 @@ jobs:
         run: uv pip install --system -r tools/curator/requirements.txt
 
       - name: Download audit report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v7
         with:
           name: corpus-audit-report
           path: ${{ env.REPORT_DIR }}
@@ -186,7 +186,7 @@ jobs:
             --max-domains "${{ inputs.max_domains || '10' }}" \
             --output "${{ env.REPORT_DIR }}/proposed_sources.yaml"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: curator-proposals
@@ -199,10 +199,10 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download audit report
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v7
         with:
           name: corpus-audit-report
           path: ${{ env.REPORT_DIR }}

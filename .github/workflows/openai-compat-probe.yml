@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run synesis_openai_capability_probe
         env:
@@ -27,7 +27,7 @@ jobs:
           python3 scripts/synesis_openai_capability_probe.py -o probe-report.json || true
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: openai-probe-report
           path: probe-report.json
