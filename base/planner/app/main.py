@@ -1044,16 +1044,27 @@ def _build_final_usage(tracer_usage: dict[str, int] | None = None, node_traces_t
     Prefers tracer-sourced breakdown (same aggregation written to the Postgres
     trace record).  Falls back to node_traces total when the tracer is
     unavailable or returned zeros.
+
+    Open WebUI reads ``prompt_tokens`` / ``completion_tokens``; if only an
+    aggregate exists (e.g. node_traces without tracer breakdown), attribute the
+    total to ``completion_tokens`` so UIs do not show all zeros.
     """
     u = tracer_usage or snapshot_tracer_usage()
-    total = u.get("total_tokens", 0)
+    pt = int(u.get("prompt_tokens", 0) or 0)
+    ct = int(u.get("completion_tokens", 0) or 0)
+    cached = int(u.get("cached_prompt_tokens", 0) or 0)
+    total = int(u.get("total_tokens", 0) or 0)
     if total <= 0:
-        total = node_traces_total
+        total = pt + ct
+    if total <= 0:
+        total = int(node_traces_total or 0)
+    if total > 0 and pt == 0 and ct == 0:
+        ct = total
     return {
-        "prompt_tokens": u.get("prompt_tokens", 0),
-        "completion_tokens": u.get("completion_tokens", 0),
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
         "total_tokens": total,
-        "cached_prompt_tokens": u.get("cached_prompt_tokens", 0),
+        "cached_prompt_tokens": cached,
     }
 
 

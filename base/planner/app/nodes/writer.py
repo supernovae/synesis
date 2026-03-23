@@ -24,6 +24,7 @@ from ..config import settings
 from ..context_curation import curate_evidence_for_writer
 from ..contract_validator import fingerprint_draft
 from ..llm_telemetry import get_llm_http_client
+from ..llm_usage_extract import normalize_usage_dict, normalize_usage_metadata
 from ..prompt_spine import (
     EPISTEMIC_WRITER,
     REGULATED_FLOOR_UNIVERSAL,
@@ -1062,6 +1063,19 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             ]
         )
 
+        _writer_token_total = 0
+        _um = getattr(result, "usage_metadata", None)
+        if isinstance(_um, dict) and _um:
+            _wn = normalize_usage_metadata(_um)
+            _writer_token_total = _wn.total_tokens or (_wn.prompt_tokens + _wn.completion_tokens)
+        if _writer_token_total <= 0:
+            _rm = getattr(result, "response_metadata", None) or {}
+            if isinstance(_rm, dict):
+                _ru = _rm.get("usage")
+                if isinstance(_ru, dict) and _ru:
+                    _wn2 = normalize_usage_dict(_ru)
+                    _writer_token_total = _wn2.total_tokens or (_wn2.prompt_tokens + _wn2.completion_tokens)
+
         compiled = (result.content or "").strip()
         if not compiled or len(compiled) < 50:
             logger.warning("writer_output_too_short")
@@ -1147,6 +1161,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 "writer_budget": writer_budget,
                 "available_sources_count": available_sources_count,
                 "sections_written": sections_written,
+                "usage_total_tokens": _writer_token_total,
             },
         )
 
@@ -1190,6 +1205,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                     confidence=0.85,
                     outcome=NodeOutcome.SUCCESS,
                     latency_ms=latency,
+                    tokens_used=_writer_token_total,
                 )
             ],
         }

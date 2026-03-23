@@ -913,6 +913,12 @@ class SynesisTracer(BaseCallbackHandler):
             total_tokens = norm.total_tokens or (prompt_tokens + completion_tokens)
             cached_prompt_tokens = norm.cached_prompt_tokens
 
+            # ChatOpenAI streaming may invoke on_llm_end first with empty usage, then
+            # on_chat_model_end with usage_metadata. Popping _llm_starts in the first
+            # call prevents the second from recording (see on_chat_model_end guard).
+            if total_tokens <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
+                return
+
             if response.llm_output and isinstance(response.llm_output, dict):
                 model = response.llm_output.get("model_name", "") or response.llm_output.get("model", "")
                 usage = response.llm_output.get("token_usage") or response.llm_output.get("usage") or {}
