@@ -11,16 +11,16 @@ alwaysApply: true
 - **Why:** OpenShift/RHEL alignment, supported CVE cadence, consistent Python minor across fleet.
 - **`base-api`** (`base/images/base-api/Dockerfile`) builds on UBI 9 Python 3.11 and creates a venv at `/opt/app-root/venv`. All downstream app images (`planner`, `admin`, `keyword-service`, `preprocess-service`, `quality-runner`, `base-ml` chain) inherit this venv. Install additional deps with `uv pip install --python /opt/app-root/venv/bin/python`.
 - **`base-ml`** (`base/images/base-ml/Dockerfile`) extends base-api (same UBI base, same venv).
+- **`base-devtools`** (`base/images/base-devtools/Dockerfile`) extends **UBI 9 Python 3.11** with **Node.js 22** (AppStream module), **Go** and **JDK 21** (AppStream), and **shellcheck** / **cppcheck** via **EPEL 9** (not in UBI repos). Sets **`ENV UV_PYTHON=/opt/app-root/bin/python`** so child layers running as **root** still install with **uv** into the app-root 3.11 environment (avoids picking `/usr/bin/python3` from RPM deps). LSP gateway and sandbox build on this image.
 - **Minimal variants:** Use `ubi9/ubi-minimal` only for non-Python workers or static binaries.
 
 ### Documented Debian exceptions
 
 | Image | Base | Reason |
 |-------|------|--------|
-| `base-devtools` | `python:3.11-slim` | Multi-language toolchain (Node, Go, JDK, shellcheck, cppcheck) — RPM equivalents not all available on UBI |
 | `rag/indexer` | `python:3.11-slim` | Playwright + Chromium shared libraries require Debian packages |
 
-These images still use Python **3.11** for fleet consistency, `uv` for package installs, and `--system` (no venv) since Debian images have a writable system site-packages.
+The indexer still uses Python **3.11**, `uv`, and `--system` installs. **`base-devtools`** uses UBI; child images use `uv pip install --system` against **`/opt/app-root/bin/python`** (writable app-root site-packages, no separate venv).
 
 ## Python version policy
 
@@ -31,8 +31,9 @@ These images still use Python **3.11** for fleet consistency, `uv` for package i
 
 ## Python packages — use **uv**
 
-- **UBI images (base-api, yarn, MCP):** Copy the `uv` binary (`ghcr.io/astral-sh/uv:latest`) and install into the venv with `uv pip install --python /opt/app-root/venv/bin/python -r requirements.txt`. Avoid `--system` on UBI — `/usr/local` is often not writable.
-- **Debian exception images (devtools, indexer):** `uv pip install --system` is acceptable since site-packages is writable.
+- **UBI images (base-api, yarn, MCP):** Copy the `uv` binary (`ghcr.io/astral-sh/uv:latest`) and install into the venv with `uv pip install --python /opt/app-root/venv/bin/python -r requirements.txt`. Avoid `--system` into `/usr/local` on UBI — it is often not writable.
+- **UBI `base-devtools` and its children (sandbox, LSP):** `uv pip install --system` targets **`/opt/app-root/bin/python`** (default `PATH`); site-packages under `/opt/app-root` is writable as root during build.
+- **Debian exception images (indexer):** `uv pip install --system` is acceptable since site-packages is writable.
 - **Repo root:** Use `uv run ruff`, `uv run pytest`, etc. when a `pyproject.toml` / lock context exists.
 
 ## Local development and testing — **Podman** + **uv**

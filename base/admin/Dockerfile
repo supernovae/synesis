@@ -1,7 +1,8 @@
 ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-api:latest
 
-# --- Stage 1: Build React frontend ---
-FROM node:22-alpine AS frontend
+# --- Stage 1: Build React frontend (UBI 9 Node.js 22, same major as AppStream module in base-devtools) ---
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest AS frontend
+USER 0
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --ignore-scripts 2>/dev/null || npm install

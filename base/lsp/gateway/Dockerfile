@@ -2,18 +2,20 @@ ARG BASE_IMAGE=ghcr.io/supernovae/synesis/synesis-base-devtools:latest
 FROM ${BASE_IMAGE}
 
 USER 0
+# UBI python image sets HOME=/opt/app-root/src even for root; rustup installs into $HOME/.cargo.
+ENV HOME=/root
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # TypeScript compiler (Node already in base)
 RUN npm install -g typescript@5
 
 # staticcheck for Go (Go already in base)
-RUN GOBIN=/usr/local/bin go install honnef.co/go/tools/cmd/staticcheck@2024.1.1
+RUN GOBIN=/usr/local/bin go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
 
 # Rust minimal toolchain (rustc + cargo only, no docs)
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --profile minimal --default-toolchain stable \
-    && . /root/.cargo/env && rustup component add clippy
+    && . "${HOME}/.cargo/env" && rustup component add clippy
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # basedpyright for Python type checking
