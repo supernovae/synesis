@@ -125,7 +125,7 @@ jobs:
         run: uv pip install --system -r benchmarks/corpus/requirements.txt
 
       - name: Restore judgment cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: benchmarks/corpus/judgments_cache.json
           key: llm-judgments-${{ hashFiles('benchmarks/bm25/queries.yaml') }}
