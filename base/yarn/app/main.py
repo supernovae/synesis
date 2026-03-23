@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
+from .client_identity import client_identity_log_extra
 from .config import settings
 from .escalation import bridge as escalation_bridge
 from .escalation.detector import check_all as check_escalation
@@ -33,7 +34,7 @@ from .model import executor as model_executor
 from .model.stream_handler import ToolCallAccumulator
 from .model.usage_tracker import UsageAggregator, UsageRecord
 from .session.manager import record_request_usage, record_usage, resolve_or_create_session
-from .session.models import SessionState
+from .session.models import AuthUser, SessionState
 from .telemetry.diagnostics import SessionDiagnostics, get_snapshot
 from .telemetry.metrics import record_escalation, record_request, record_tokens, record_tool_call
 from .telemetry.traces import setup_logging, setup_otel
@@ -253,7 +254,7 @@ async def get_diagnostics_snapshot(request_id: str, request: Request):
     return snapshot
 
 
-def _require_coder_scope(user: "AuthUser") -> None:
+def _require_coder_scope(user: AuthUser) -> None:
     """Reject PAT-authenticated requests that lack a coder scope."""
     scopes = user.token_scopes
     if scopes and not any(s.startswith("coder") for s in scopes):
@@ -270,6 +271,11 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     auth_user = await resolve_auth(request)
     _require_coder_scope(auth_user)
     bearer_token = extract_bearer_token(request)
+    _cid = client_identity_log_extra(request)
+    logger.info(
+        "chat_completions_start",
+        extra={**_cid, "request_id": request_id, "user_id": auth_user.user_id[:16] if auth_user.user_id else ""},
+    )
 
     # --- Session ---
     conversation_id = (

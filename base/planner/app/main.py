@@ -39,6 +39,7 @@ from .api_metrics import (
     record_run_critic_turn_kind,
     record_tokens,
 )
+from .coder_client_detect import is_coding_client_request
 from .config import settings
 from .conversation_memory import memory
 from .entry_classifier_engine import get_scoring_engine
@@ -419,13 +420,7 @@ class ChatCompletionResponse(BaseModel):
 
 def _is_coding_client(http_request: Request) -> bool:
     """Detect Cursor, Claude Code, or other coding IDE/agent. Enables code bias for ambiguous requests."""
-    ua = (http_request.headers.get("user-agent") or "").lower()
-    x_client = (http_request.headers.get("x-client") or "").lower()
-    x_app = (http_request.headers.get("x-app") or "").lower()
-    for needle in ("cursor", "claude.code", "claude-code", "vscode", "codeium", "windsurf"):
-        if needle in ua or needle in x_client or needle in x_app:
-            return True
-    return False
+    return is_coding_client_request(http_request)
 
 
 def _service_tokens() -> list[str]:

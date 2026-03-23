@@ -27,6 +27,8 @@ _TEST_ENV = {
     "SYNESIS_WEB_SEARCH_ENABLED": "false",
     "SYNESIS_LSP_ENABLED": "false",
     "SYNESIS_LOG_LEVEL": "warning",
+    # Unit tests use TestClient without Bearer; production uses SYNESIS_PLANNER_REQUIRE_BEARER_AUTH=true.
+    "SYNESIS_PLANNER_REQUIRE_BEARER_AUTH": "false",
 }
 
 for k, v in _TEST_ENV.items():
