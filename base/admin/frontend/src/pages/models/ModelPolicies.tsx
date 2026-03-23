@@ -21,7 +21,7 @@ import {
   useRoleAssignments,
   type PolicyRule,
 } from "../../api/hooks";
-import ApiErrorBanner from "../../components/common/ApiErrorBanner";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
 
 const KNOWN_ROLES = ["router", "general", "critic", "coder", "summarizer"] as const;
@@ -267,15 +267,15 @@ function RoleCard({ role }: { role: string }) {
         <div className="px-4 pb-4 border-t border-zinc-100 dark:border-zinc-800">
           <div className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
             Default model: <code className="text-zinc-700 dark:text-zinc-300">{defaultModel}</code>
-            {assignment?.registry_model && (
-              <> (registry: <code>{assignment.registry_model}</code>)</>
+            {assignment?.model && (
+              <> (registry: <code>{assignment.model}</code>)</>
             )}
           </div>
 
           {isLoading && (
             <div className="mt-3 text-sm text-zinc-400">Loading...</div>
           )}
-          {error && <ApiErrorBanner error={error} className="mt-3" />}
+          {error && <div className="mt-3"><ApiErrorBanner error={error} /></div>}
 
           <div className="mt-3 space-y-2">
             {editRules.map((rule, idx) => (
@@ -412,7 +412,7 @@ function RoleCard({ role }: { role: string }) {
               </button>
             )}
           </div>
-          {saveMutation.error && <ApiErrorBanner error={saveMutation.error} className="mt-2" />}
+          {saveMutation.error && <div className="mt-2"><ApiErrorBanner error={saveMutation.error} /></div>}
         </div>
       )}
     </div>
@@ -449,7 +449,7 @@ export default function ModelPolicies() {
 
       {isLoading && (
         <EmptyState
-          icon={<GitBranch className="w-8 h-8 text-zinc-400" />}
+          icon={GitBranch}
           title="Loading policies..."
         />
       )}
