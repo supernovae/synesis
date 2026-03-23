@@ -656,35 +656,6 @@ class ProviderConfig(Base):
     )
 
 
-class ServingEndpoint(Base):
-    """Curated model-serving entries that appear in the picklist.
-
-    Admins can pin specific endpoint + model combos so that role
-    assignment uses a governed set instead of free-form typing.
-    """
-
-    __tablename__ = "serving_endpoints"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
-    provider: Mapped[str] = mapped_column(String(64), nullable=False)
-    model: Mapped[str] = mapped_column(String(256), nullable=False)
-    endpoint_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    api_key_env: Mapped[str] = mapped_column(String(128), nullable=False, default="")
-    allowed_roles: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    notes: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    __table_args__ = (
-        Index("ix_serving_endpoints_provider", "provider"),
-        Index("ix_serving_endpoints_active", "is_active"),
-    )
-
-
 class FeedbackReview(Base):
     """Admin triage state for planner thumbs or mirrored Open WebUI feedback."""
 

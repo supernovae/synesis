@@ -47,8 +47,8 @@ const navigation: NavItem[] = [
     children: [
       { label: "Overview", path: "/models/overview" },
       { label: "Registry", path: "/models" },
-      { label: "Vendors", path: "/models/vendors" },
-      { label: "Serving", path: "/models/serving" },
+      { label: "Providers", path: "/models/providers" },
+      { label: "Effective Serving", path: "/models/serving" },
       { label: "Usage & spend", path: "/models/costs" },
       { label: "Reconciliation", path: "/models/reconcile" },
       { label: "Performance", path: "/models/performance" },
@@ -164,7 +164,7 @@ const navigation: NavItem[] = [
     minRole: "org_admin",
     children: [
       { label: "System Config", path: "/settings" },
-      { label: "Provider Keys", path: "/settings/providers" },
+      { label: "Provider Keys", path: "/settings/provider-keys" },
       { label: "Infrastructure Costs", path: "/settings/infra-costs" },
       { label: "Audit trail", path: "/settings/audit" },
     ],

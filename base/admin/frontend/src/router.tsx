@@ -17,7 +17,7 @@ const ModelsCostsOverview = lazy(() => import("./pages/models/ModelsCostsOvervie
 const CostTracker = lazy(() => import("./pages/models/CostTracker"));
 const UsageReconcile = lazy(() => import("./pages/models/UsageReconcile"));
 const ModelPerformance = lazy(() => import("./pages/models/ModelPerformance"));
-const VendorManagement = lazy(() => import("./pages/models/VendorManagement"));
+const ProviderManagement = lazy(() => import("./pages/models/ProviderManagement"));
 const ServingManagement = lazy(() => import("./pages/models/ServingManagement"));
 
 const CorpusOverview = lazy(() => import("./pages/rag/CorpusOverview"));
@@ -92,7 +92,7 @@ export const router = createBrowserRouter([
       { path: "models/costs", element: <CostTracker /> },
       { path: "models/reconcile", element: <UsageReconcile /> },
       { path: "models/performance", element: <ModelPerformance /> },
-      { path: "models/vendors", element: <VendorManagement /> },
+      { path: "models/providers", element: <ProviderManagement /> },
       { path: "models/serving", element: <ServingManagement /> },
 
       { path: "rag/corpus", element: <CorpusOverview /> },
@@ -144,7 +144,7 @@ export const router = createBrowserRouter([
 
       { path: "assistant", element: <AdminAssistant /> },
       { path: "settings", element: <SystemConfig /> },
-      { path: "settings/providers", element: <ProviderKeys /> },
+      { path: "settings/provider-keys", element: <ProviderKeys /> },
       { path: "settings/infra-costs", element: <InfraCosts /> },
       { path: "settings/audit", element: <AuditLog /> },
     ],

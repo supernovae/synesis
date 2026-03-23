@@ -31,7 +31,7 @@ _reconciler_task: asyncio.Task | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.routers.vendors import seed_vendor_configs
+    from app.routers.provider_governance import seed_provider_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
     from app.services.model_registry import capture_cost_rate_snapshots, seed_model_deployments
@@ -45,11 +45,11 @@ async def lifespan(app: FastAPI):
         logger.debug("infra_table_ensure_failed", exc_info=True)
 
     try:
-        vendor_count = await seed_vendor_configs()
-        if vendor_count:
-            logger.info("vendor_seed_complete count=%d", vendor_count)
+        provider_count = await seed_provider_configs()
+        if provider_count:
+            logger.info("provider_seed_complete count=%d", provider_count)
     except Exception:
-        logger.warning("vendor_seed_failed", exc_info=True)
+        logger.warning("provider_seed_failed", exc_info=True)
 
     try:
         seeded = await seed_model_deployments()
@@ -166,6 +166,7 @@ from app.routers.integrations import router as integrations_router
 from app.routers.models import router as models_router
 from app.routers.observability import router as observability_router
 from app.routers.pipeline import router as pipeline_router
+from app.routers.provider_governance import router as provider_governance_router
 from app.routers.providers import router as providers_router
 from app.routers.rag import router as rag_router
 from app.routers.security import router as security_router
@@ -175,7 +176,6 @@ from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
-from app.routers.vendors import router as vendors_router
 from app.routers.yarn import router as yarn_router
 
 app.include_router(admin_mcp_router)
@@ -198,7 +198,7 @@ app.include_router(tokens_router)
 app.include_router(ingestion_router)
 app.include_router(ingestion_staged_router)
 app.include_router(usage_router)
-app.include_router(vendors_router)
+app.include_router(provider_governance_router)
 app.include_router(security_router)
 app.include_router(serving_router)
 app.include_router(yarn_router)

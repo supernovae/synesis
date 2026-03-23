@@ -238,13 +238,13 @@ def _coerce_int(value: object) -> int | None:
 async def provider_catalog(_user=Depends(get_current_user)):
     """Return the provider catalog and canonical role list for the frontend.
 
-    Filters out vendors disabled in Vendor Management so the Model Registry
+    Filters out providers disabled in Provider Management so the Model Registry
     picklist stays in sync with a single source of truth.
     """
-    from ..routers.vendors import get_disabled_vendor_keys
+    from ..routers.provider_governance import get_disabled_provider_keys
 
     catalog = get_catalog()
-    disabled = await get_disabled_vendor_keys()
+    disabled = await get_disabled_provider_keys()
     if disabled:
         catalog = {
             **catalog,

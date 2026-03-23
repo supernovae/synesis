@@ -512,7 +512,7 @@ function EditModal({
                 <p className="font-medium">Set the provider key before saving</p>
                 <p className="text-amber-800/95 dark:text-amber-300/95">
                   Configure <code className="rounded bg-amber-100/80 px-1 font-mono dark:bg-amber-900/50">{keyEnv}</code> under{" "}
-                  <Link to="/settings/providers" className="font-medium underline hover:text-amber-950 dark:hover:text-amber-100">
+                  <Link to="/settings/provider-keys" className="font-medium underline hover:text-amber-950 dark:hover:text-amber-100">
                     Settings → Provider API Keys
                   </Link>
                   . This dialog only maps roles to models; secrets stay in the cluster secret.
@@ -603,7 +603,7 @@ function EditModal({
               ) : (
                 <span className="ml-2 text-amber-600 dark:text-amber-400">
                   (not set —{" "}
-                  <Link to="/settings/providers" className="underline hover:text-amber-700 dark:hover:text-amber-300">
+                  <Link to="/settings/provider-keys" className="underline hover:text-amber-700 dark:hover:text-amber-300">
                     add in Provider API Keys
                   </Link>
                   )

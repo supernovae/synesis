@@ -1,12 +1,12 @@
 import { useState } from "react";
 import {
-  useVendors,
-  useUpdateVendor,
-  useResetVendor,
+  useProviderGovernance,
+  useUpdateProviderConfig,
+  useResetProviderConfig,
   useProviderKeys,
 } from "../../api/hooks";
 import type { ProviderKeyStatus } from "../../api/hooks";
-import type { VendorConfig, VendorInfo } from "../../types";
+import type { ProviderConfig, ProviderConfigInfo } from "../../types";
 import {
   Cloud,
   Server,
@@ -18,11 +18,11 @@ import {
   Key,
 } from "lucide-react";
 
-export default function VendorManagement() {
-  const { data, isLoading } = useVendors();
+export default function ProviderManagement() {
+  const { data, isLoading } = useProviderGovernance();
   const { data: providerKeysData } = useProviderKeys();
-  const updateMut = useUpdateVendor();
-  const resetMut = useResetVendor();
+  const updateMut = useUpdateProviderConfig();
+  const resetMut = useResetProviderConfig();
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<{
     enabled: boolean;
@@ -31,15 +31,15 @@ export default function VendorManagement() {
     notes: string;
   } | null>(null);
 
-  const vendors: VendorInfo[] = data?.vendors ?? [];
+  const providers: ProviderConfigInfo[] = data?.providers ?? [];
   const configuredKeys = new Set(
     (providerKeysData ?? []).filter((k: ProviderKeyStatus) => k.configured).map((k) => k.name),
   );
 
-  const enabledCount = vendors.filter((v) => v.enabled).length;
-  const keyReadyCount = vendors.filter((v) => !v.is_local && v.api_key_env && configuredKeys.has(v.api_key_env)).length;
+  const enabledCount = providers.filter((v) => v.enabled).length;
+  const keyReadyCount = providers.filter((v) => !v.is_local && v.api_key_env && configuredKeys.has(v.api_key_env)).length;
 
-  const openEdit = (v: VendorInfo) => {
+  const openEdit = (v: ProviderConfigInfo) => {
     setEditingKey(v.key);
     setEditForm({
       enabled: v.enabled,
@@ -51,7 +51,7 @@ export default function VendorManagement() {
 
   const handleSave = () => {
     if (!editingKey || !editForm) return;
-    const payload: { providerKey: string } & Partial<VendorConfig> = {
+    const payload: { providerKey: string } & Partial<ProviderConfig> = {
       providerKey: editingKey,
       enabled: editForm.enabled,
       default_max_tokens: Number(editForm.default_max_tokens) || 8192,
@@ -70,14 +70,14 @@ export default function VendorManagement() {
   };
 
   const handleReset = (key: string) => {
-    if (!window.confirm("Reset this vendor to catalog defaults? All overrides will be cleared.")) return;
+    if (!window.confirm("Reset this provider to catalog defaults? All overrides will be cleared.")) return;
     resetMut.mutate(key);
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Vendor Management</h1>
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Provider Management</h1>
         <p className="mt-1 text-sm text-gray-500">
           Enable or disable providers, set default policies, and view key status.
         </p>
@@ -86,7 +86,7 @@ export default function VendorManagement() {
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Total Providers</p>
-          <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{vendors.length}</p>
+          <p className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">{providers.length}</p>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Enabled</p>
@@ -114,7 +114,7 @@ export default function VendorManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
-              {vendors.map((v) => {
+              {providers.map((v) => {
                 const Icon = v.is_local ? Server : Cloud;
                 const keyEnv = v.api_key_env;
                 const keyOk = !keyEnv || configuredKeys.has(keyEnv);
@@ -172,7 +172,7 @@ export default function VendorManagement() {
                         <button
                           onClick={() => openEdit(v)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-gray-800"
-                          title="Edit vendor config"
+                          title="Edit provider config"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
@@ -201,7 +201,7 @@ export default function VendorManagement() {
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-900">
             <h3 className="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
               <Shield className="mr-2 inline h-5 w-5 text-blue-500" />
-              Configure {vendors.find((v) => v.key === editingKey)?.label ?? editingKey}
+              Configure {providers.find((v) => v.key === editingKey)?.label ?? editingKey}
             </h3>
             <div className="space-y-3">
               <label className="flex items-center gap-2 text-sm">

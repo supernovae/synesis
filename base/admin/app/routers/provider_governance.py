@@ -1,4 +1,4 @@
-"""Vendor Management API — provider governance, defaults, enablement."""
+"""Provider Governance API — provider enablement, defaults, and policies."""
 
 from __future__ import annotations
 
@@ -14,15 +14,15 @@ from ..rbac import require_platform_admin
 from ..services.admin_audit import record_admin_audit
 from ..services.provider_catalog import PROVIDER_CATALOG, get_catalog
 
-logger = logging.getLogger("synesis.admin.vendors")
+logger = logging.getLogger("synesis.admin.provider_governance")
 
-router = APIRouter(prefix="/api/v1/vendors", tags=["vendors"])
+router = APIRouter(prefix="/api/v1/provider-governance", tags=["provider-governance"])
 
 
-async def seed_vendor_configs() -> int:
+async def seed_provider_configs() -> int:
     """Ensure every catalog provider has a ProviderConfig row.
 
-    Runs on startup so Vendor Management is the single source of truth for
+    Runs on startup so Provider Management is the single source of truth for
     enablement, defaults, and governance — no more "absent row = enabled".
     Returns the number of newly created rows.
     """
@@ -41,8 +41,8 @@ async def seed_vendor_configs() -> int:
     return created
 
 
-async def get_disabled_vendor_keys() -> frozenset[str]:
-    """Return the set of provider keys that are disabled in vendor management."""
+async def get_disabled_provider_keys() -> frozenset[str]:
+    """Return the set of provider keys that are disabled in provider governance."""
     async with async_session() as session:
         result = await session.execute(
             select(ProviderConfig.provider_key).where(ProviderConfig.enabled == False)
@@ -72,15 +72,15 @@ async def _get_all_configs() -> dict[str, dict]:
 
 
 @router.get("/")
-async def list_vendors(_user: UserInfo = Depends(get_current_user)):
+async def list_provider_configs(_user: UserInfo = Depends(get_current_user)):
     """Return all providers from the catalog with their governance config overlay."""
     catalog = get_catalog()
     configs = await _get_all_configs()
 
-    vendors = []
+    providers = []
     for key, info in catalog["providers"].items():
         cfg = configs.get(key, {})
-        vendors.append(
+        providers.append(
             {
                 **info,
                 "config": cfg if cfg else None,
@@ -93,12 +93,12 @@ async def list_vendors(_user: UserInfo = Depends(get_current_user)):
                 "config_updated_at": cfg.get("updated_at"),
             }
         )
-    return {"vendors": vendors}
+    return {"providers": providers}
 
 
 @router.get("/{provider_key}")
-async def get_vendor(provider_key: str, _user: UserInfo = Depends(get_current_user)):
-    """Get a single vendor's catalog info + governance config."""
+async def get_provider_config(provider_key: str, _user: UserInfo = Depends(get_current_user)):
+    """Get a single provider's catalog info + governance config."""
     if provider_key not in PROVIDER_CATALOG:
         raise HTTPException(404, f"Unknown provider: {provider_key}")
     catalog = get_catalog()
@@ -118,7 +118,7 @@ async def get_vendor(provider_key: str, _user: UserInfo = Depends(get_current_us
 
 
 @router.put("/{provider_key}")
-async def update_vendor(
+async def update_provider_config(
     provider_key: str,
     data: dict = Body(...),
     _user: UserInfo = Depends(require_platform_admin),
@@ -164,20 +164,20 @@ async def update_vendor(
 
     await record_admin_audit(
         user=_user,
-        action="vendors.update",
+        action="provider_governance.update",
         status="success",
-        summary=f"Updated vendor config for {provider_key}",
+        summary=f"Updated provider config for {provider_key}",
         detail={"provider_key": provider_key, "config": out},
     )
     return out
 
 
 @router.delete("/{provider_key}")
-async def reset_vendor(
+async def reset_provider_config(
     provider_key: str,
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    """Reset vendor config to catalog defaults (keep the row, restore defaults)."""
+    """Reset provider config to catalog defaults (keep the row, restore defaults)."""
     async with async_session() as session:
         result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider_key == provider_key))
         row = result.scalar_one_or_none()
@@ -193,9 +193,9 @@ async def reset_vendor(
 
     await record_admin_audit(
         user=_user,
-        action="vendors.reset",
+        action="provider_governance.reset",
         status="success",
-        summary=f"Reset vendor config for {provider_key} to catalog defaults",
+        summary=f"Reset provider config for {provider_key} to catalog defaults",
         detail={"provider_key": provider_key},
     )
     return {"ok": True, "provider_key": provider_key}

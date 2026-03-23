@@ -406,95 +406,44 @@ export function useValidateModel() {
   });
 }
 
-// --- Vendor Management ---
+// --- Provider Governance ---
 
-export function useVendors() {
-  return useQuery<{ vendors: import("../types").VendorInfo[] }>({
-    queryKey: ["vendors"],
-    queryFn: () => client.get("/vendors").then((r) => r.data),
+export function useProviderGovernance() {
+  return useQuery<{ providers: import("../types").ProviderConfigInfo[] }>({
+    queryKey: ["provider-governance"],
+    queryFn: () => client.get("/provider-governance").then((r) => r.data),
     refetchInterval: 30_000,
   });
 }
 
-export function useUpdateVendor() {
+export function useUpdateProviderConfig() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ providerKey, ...data }: { providerKey: string } & Partial<import("../types").VendorConfig>) =>
-      client.put(`/vendors/${providerKey}`, data).then((r) => r.data),
+    mutationFn: ({ providerKey, ...data }: { providerKey: string } & Partial<import("../types").ProviderConfig>) =>
+      client.put(`/provider-governance/${providerKey}`, data).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["provider-governance"] });
       qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
 
-export function useResetVendor() {
+export function useResetProviderConfig() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (providerKey: string) =>
-      client.delete(`/vendors/${providerKey}`).then((r) => r.data),
+      client.delete(`/provider-governance/${providerKey}`).then((r) => r.data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["provider-governance"] });
       qc.invalidateQueries({ queryKey: ["providers", "catalog"] });
       qc.invalidateQueries({ queryKey: ["audit"] });
     },
   });
 }
 
-// --- Serving Management ---
-
-export function useServingEndpoints() {
-  return useQuery<{ endpoints: import("../types").ServingEndpointEntry[] }>({
-    queryKey: ["serving", "endpoints"],
-    queryFn: () => client.get("/serving/endpoints").then((r) => r.data),
-    refetchInterval: 30_000,
-  });
-}
-
-export function useCreateServingEndpoint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: Partial<import("../types").ServingEndpointEntry> & { name: string; provider: string; model: string }) =>
-      client.post("/serving/endpoints", data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["serving"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
-
-export function useUpdateServingEndpoint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, ...data }: { id: number } & Partial<import("../types").ServingEndpointEntry>) =>
-      client.put(`/serving/endpoints/${id}`, data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["serving"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
-
-export function useDeleteServingEndpoint() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: number) =>
-      client.delete(`/serving/endpoints/${id}`).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["serving"] });
-      qc.invalidateQueries({ queryKey: ["audit"] });
-    },
-  });
-}
-
-export function useServingHealth() {
-  return useQuery<{ endpoints: import("../types").ServingHealthCheck[] }>({
-    queryKey: ["serving", "health"],
-    queryFn: () => client.get("/serving/health").then((r) => r.data),
-    refetchInterval: 15_000,
-  });
-}
+// --- Effective Serving (read-only, derived from Model Registry) ---
+// No CRUD hooks — serving is managed via the Model Registry role assignments.
 
 export function usePerformanceByRole(days: number = 7) {
   return useQuery<{ roles: import("../types").RolePerformance[]; period_days: number }>({

@@ -169,7 +169,7 @@ export interface LiteLLMRestartStatus {
   available_replicas: number;
 }
 
-export interface VendorConfig {
+export interface ProviderConfig {
   id: number;
   provider_key: string;
   enabled: boolean;
@@ -181,8 +181,8 @@ export interface VendorConfig {
   updated_at: string | null;
 }
 
-export interface VendorInfo extends ProviderInfo {
-  config: VendorConfig | null;
+export interface ProviderConfigInfo extends ProviderInfo {
+  config: ProviderConfig | null;
   enabled: boolean;
   default_max_tokens: number;
   default_temperature: number;
@@ -192,30 +192,8 @@ export interface VendorInfo extends ProviderInfo {
   config_updated_at: string | null;
 }
 
-export interface ServingEndpointEntry {
-  id: number;
-  name: string;
-  provider: string;
-  model: string;
-  endpoint_url: string;
-  api_key_env: string;
-  allowed_roles: string[] | null;
-  is_active: boolean;
-  notes: string;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface ServingHealthCheck {
-  id: number;
-  name: string;
-  provider: string;
-  model: string;
-  reachable: boolean;
-  status_code: number | null;
-  latency_ms: number | null;
-  error: string;
-}
+// ServingEndpointEntry and ServingHealthCheck removed — serving is now a
+// read-only view derived from ModelDeployment (Model Registry).
 
 export interface RoleHistoryEntry {
   id: number;
