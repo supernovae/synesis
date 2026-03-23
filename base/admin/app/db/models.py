@@ -697,3 +697,47 @@ class FeedbackReview(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class SecurityEvent(Base):
+    """Guardrail detection events — written by Planner/Yarn, read by admin safety console."""
+
+    __tablename__ = "security_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_band: Mapped[str] = mapped_column(String(16), nullable=False, default="low")
+    action_taken: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False, default="request")
+
+    service: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    session_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    token_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+
+    patterns_found: Mapped[list[str] | None] = mapped_column(ARRAY(String(128)), nullable=True)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    scanner_name: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolved_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    resolved_action: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    resolved_reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_security_events_created_at", "created_at"),
+        Index("ix_security_events_event_type", "event_type"),
+        Index("ix_security_events_severity", "severity"),
+        Index("ix_security_events_user_id", "user_id"),
+        Index("ix_security_events_org_id", "org_id"),
+        Index("ix_security_events_resolved", "resolved"),
+    )

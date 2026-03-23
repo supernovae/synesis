@@ -107,7 +107,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: base/planner
-        run: uv pip install --system -r requirements-test.txt
+        run: |
+          uv pip install --system ../security
+          uv pip install --system -r requirements-test.txt
 
       - name: Run tests
         working-directory: base/planner

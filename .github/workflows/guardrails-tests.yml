@@ -1,0 +1,97 @@
+name: Guardrails Security Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "base/security/**"
+      - "base/planner/app/injection_scanner.py"
+      - "base/yarn/app/middleware/injection_scanner.py"
+  pull_request:
+    branches: [main]
+    paths:
+      - "base/security/**"
+      - "base/planner/app/injection_scanner.py"
+      - "base/yarn/app/middleware/injection_scanner.py"
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails-core-tests:
+    name: Guardrails Core Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install guardrails core
+        working-directory: base/security
+        run: uv pip install --system -e ".[test]" pytest
+
+      - name: Run guardrails core tests
+        working-directory: base/security
+        run: python -m pytest tests/ -v --tb=short --junitxml=../../guardrails-test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardrails-test-results
+          path: guardrails-test-results.xml
+
+  yarn-scanner-tests:
+    name: Yarn Scanner Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Yarn deps + guardrails core
+        working-directory: base/yarn
+        run: |
+          uv pip install --system ../security
+          uv pip install --system -r requirements.txt
+          uv pip install --system pytest pytest-asyncio
+
+      - name: Run Yarn tests
+        working-directory: base/yarn
+        run: python -m pytest tests/test_api_integration.py tests/test_context_reducer.py -v --tb=short
+
+  planner-scanner-tests:
+    name: Planner Scanner Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Planner deps + guardrails core
+        working-directory: base/planner
+        run: |
+          uv pip install --system ../security
+          uv pip install --system -r requirements-test.txt
+
+      - name: Run injection scanner tests
+        working-directory: base/planner
+        run: python -m pytest tests/test_injection_scanner.py -v --tb=short

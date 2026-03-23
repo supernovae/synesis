@@ -160,6 +160,7 @@ from app.routers.observability import router as observability_router
 from app.routers.pipeline import router as pipeline_router
 from app.routers.providers import router as providers_router
 from app.routers.rag import router as rag_router
+from app.routers.security import router as security_router
 from app.routers.serving import router as serving_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
@@ -190,6 +191,7 @@ app.include_router(ingestion_router)
 app.include_router(ingestion_staged_router)
 app.include_router(usage_router)
 app.include_router(vendors_router)
+app.include_router(security_router)
 app.include_router(serving_router)
 app.include_router(yarn_router)
 

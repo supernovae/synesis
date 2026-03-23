@@ -20,6 +20,7 @@ on:
       - 'base/rag/knowledge-base/**'
       - 'base/mcp/**'
       - 'base/yarn/**'
+      - 'base/security/**'
       - 'base/quality-runner/**'
       - 'base/webui/Dockerfile'
       - 'base/webui/synesis-theme.css'
@@ -92,6 +93,7 @@ jobs:
               - 'base/planner/app/**'
               - 'base/planner/*.yaml'
               - 'base/planner/plugins/**'
+              - 'base/security/**'
             admin:
               - 'base/admin/**'
             lsp-gateway:
@@ -123,6 +125,7 @@ jobs:
               - 'base/planner/app/integrity_core.py'
             yarn:
               - 'base/yarn/**'
+              - 'base/security/**'
 
       - name: Aggregate base changes
         id: aggregate
@@ -304,7 +307,7 @@ jobs:
         include:
           - name: planner
             dockerfile: base/planner/Dockerfile
-            context: base/planner
+            context: base
             base_arg: synesis-base-api
             change_key: planner
             base_change_key: base-api
@@ -382,7 +385,7 @@ jobs:
             base_change_key: base-api
           - name: yarn
             dockerfile: base/yarn/Containerfile
-            context: base/yarn
+            context: base
             base_arg: ""
             change_key: yarn
             base_change_key: ""

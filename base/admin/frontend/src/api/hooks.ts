@@ -1997,3 +1997,86 @@ export function useYarnUserUsage(sinceHours = 720) {
     refetchInterval: 120_000,
   });
 }
+
+// --- Security / Guardrails ---
+
+export interface SecurityEventRow {
+  id: number;
+  event_id: string;
+  created_at: string | null;
+  event_type: string;
+  severity: string;
+  confidence: number;
+  confidence_band: string;
+  action_taken: string;
+  scope: string;
+  service: string;
+  request_id: string;
+  session_id: string;
+  user_id: string;
+  token_id: string;
+  org_id: string;
+  patterns_found: string[];
+  excerpt: string;
+  scanner_name: string;
+  latency_ms: number;
+  detail: Record<string, unknown>;
+  resolved: boolean;
+  resolved_by: string;
+  resolved_action: string;
+  resolved_reason: string;
+  resolved_at: string | null;
+}
+
+export interface SecuritySummary {
+  total: number;
+  unresolved: number;
+  by_severity: Record<string, number>;
+  by_type: Record<string, number>;
+  since_hours: number;
+}
+
+export function useSecurityEvents(params: {
+  limit?: number;
+  before_id?: number;
+  severity?: string;
+  event_type?: string;
+  service?: string;
+  resolved?: boolean;
+  since_hours?: number;
+}) {
+  return useQuery<{ events: SecurityEventRow[] }>({
+    queryKey: ["security", "events", params],
+    queryFn: () =>
+      client.get("/security/events", { params }).then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useSecuritySummary(sinceHours: number) {
+  return useQuery<SecuritySummary>({
+    queryKey: ["security", "summary", sinceHours],
+    queryFn: () =>
+      client
+        .get("/security/summary", { params: { since_hours: sinceHours } })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useResolveSecurityEvent() {
+  const qc = useQueryClient();
+  return useMutation<
+    SecurityEventRow,
+    Error,
+    { event_id: string; action: string; reason: string }
+  >({
+    mutationFn: ({ event_id, ...body }) =>
+      client
+        .post(`/security/events/${event_id}/resolve`, body)
+        .then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["security"] });
+    },
+  });
+}

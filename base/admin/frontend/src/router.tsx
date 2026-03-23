@@ -58,6 +58,9 @@ const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 
+const SecurityDashboard = lazy(() => import("./pages/security/SecurityDashboard"));
+const SecurityEvents = lazy(() => import("./pages/security/SecurityEvents"));
+
 const YarnOverview = lazy(() => import("./pages/yarn/YarnOverview"));
 const YarnSessions = lazy(() => import("./pages/yarn/YarnSessions"));
 const YarnSessionDetail = lazy(() => import("./pages/yarn/YarnSessionDetail"));
@@ -123,6 +126,9 @@ export const router = createBrowserRouter([
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
       { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
+
+      { path: "security", element: <SecurityDashboard /> },
+      { path: "security/events", element: <SecurityEvents /> },
 
       { path: "yarn", element: <YarnOverview /> },
       { path: "yarn/sessions", element: <YarnSessions /> },

@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   ScanSearch,
+  ShieldCheck,
   Bot,
   Sparkles,
   User,
@@ -51,6 +52,15 @@ const navigation: NavItem[] = [
       { label: "Usage & spend", path: "/models/costs" },
       { label: "Reconciliation", path: "/models/reconcile" },
       { label: "Performance", path: "/models/performance" },
+    ],
+  },
+  {
+    label: "Security",
+    icon: ShieldCheck,
+    minRole: "org_admin",
+    children: [
+      { label: "Dashboard", path: "/security" },
+      { label: "Events", path: "/security/events" },
     ],
   },
   {
