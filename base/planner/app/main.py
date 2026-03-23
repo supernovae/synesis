@@ -117,6 +117,37 @@ def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> N
     record_prompt_cache_size(len(_prompt_cache))
 
 
+# Open WebUI / LiteLLM: display model ids (do not use "synesis-thinking" here — that id is the separate R1 route).
+_SYNESIS_PIPELINE_IDS = frozenset({"synesis", "synesis-agent", "synesis_agent"})
+_SYNESIS_PIPELINE_THINKING_SLUGS = frozenset({"synesis-thinking-chat", "synesis-pipeline-thinking"})
+
+
+def normalize_planner_client_model(model: str | None) -> tuple[str, bool]:
+    """Map client model to (echo_id_for_API_responses, enable_general_model_thinking).
+
+    ``Synesis Thinking`` turns on ``chat_template_kwargs.enable_thinking`` (or ``thinking`` for
+    DeepSeek) on the writer/general model when :env:`worker_thinking_mode_enabled` is true.
+    """
+    raw = (model or "").strip()
+    if not raw:
+        return ("Synesis", False)
+    if raw == "Synesis Thinking":
+        return ("Synesis Thinking", True)
+    low = raw.lower()
+    if low in _SYNESIS_PIPELINE_THINKING_SLUGS:
+        return ("Synesis Thinking", True)
+    if low in _SYNESIS_PIPELINE_IDS:
+        return ("Synesis", False)
+    if low.startswith("openai/"):
+        inner = low[7:].strip()
+        inner_dash = inner.replace(" ", "-")
+        if inner == "synesis thinking" or inner_dash in _SYNESIS_PIPELINE_THINKING_SLUGS:
+            return ("Synesis Thinking", True)
+        if inner_dash in _SYNESIS_PIPELINE_IDS:
+            return ("Synesis", False)
+    return (raw, False)
+
+
 def _get_rss_mib() -> float:
     """Return current process RSS in MiB (for metrics and logging)."""
     rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -334,7 +365,7 @@ class StreamOptions(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "synesis-agent"
+    model: str = "Synesis"
     messages: list[ChatMessage]
     temperature: float = 0.2
     max_tokens: int | None = None
@@ -379,7 +410,7 @@ class ChatCompletionResponse(BaseModel):
     id: str = Field(default_factory=lambda: f"chatcmpl-{uuid.uuid4().hex[:12]}")
     object: str = "chat.completion"
     created: int = Field(default_factory=lambda: int(time.time()))
-    model: str = "synesis-agent"
+    model: str = "Synesis"
     choices: list[Choice]
     usage: Usage
     run_id: str | None = None  # For feedback association (echo in POST /v1/feedback)
@@ -913,7 +944,7 @@ def _extract_content_and_metrics(
     last_user_content: str,
     run_id: str = "",
     memory_scope: str | None = None,
-    model: str = "synesis-agent",
+    model: str = "Synesis",
 ) -> tuple[str, int]:
     """Extract response content from graph result; store in memory; return (content, total_tokens).
     memory_scope: key for conversation-scoped memory (user_id or user_id:conversation_id)."""
@@ -1103,6 +1134,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     last_user_content = user_messages[-1].content if user_messages else ""
     task_size_override: str | None = None
+    response_model_id, general_model_enable_thinking = normalize_planner_client_model(request.model)
 
     # A) UI-helper filter: reject follow-up suggestions, title/tag generators EARLY
     # Must run before pivot detection to prevent UI meta-requests from triggering
@@ -1117,6 +1149,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         else:
             helper_content = ""
         return ChatCompletionResponse(
+            model=response_model_id,
             choices=[
                 Choice(
                     message=ChatMessage(role="assistant", content=helper_content),
@@ -1283,6 +1316,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         content = "\n".join(lines)
         logger.info("why_command", extra={"user_id": user_id, "score": score, "task_size": task_size})
         return ChatCompletionResponse(
+            model=response_model_id,
             choices=[
                 Choice(
                     message=ChatMessage(role="assistant", content=content),
@@ -1314,6 +1348,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             # No previous message — return hint
             logger.info("reclassify_no_prev", extra={"user_id": user_id})
             return ChatCompletionResponse(
+                model=response_model_id,
                 choices=[
                     Choice(
                         message=ChatMessage(
@@ -1380,6 +1415,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "evidence_experiments_count": 0,
         "conversation_id": conversation_id or "",
         "request_max_tokens": request.effective_max_tokens,
+        "general_model_enable_thinking": general_model_enable_thinking,
     }
     if request.output_controls:
         oc = request.output_controls
@@ -1487,11 +1523,11 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         )
 
     # Prompt-level cache: return cached response for identical (user + prompt + model)
-    cached_response = _prompt_cache_get(user_id, last_user_content or "", request.model)
+    cached_response = _prompt_cache_get(user_id, last_user_content or "", response_model_id)
     if cached_response is not None:
         logger.info(
             "prompt_cache_hit",
-            extra={"user_id": user_id, "run_id": run_id, "model": request.model},
+            extra={"user_id": user_id, "run_id": run_id, "model": response_model_id},
         )
         if _tracer is not None:
             _tracer.mark_short_circuit("prompt_cache_hit")
@@ -1512,6 +1548,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     {
                         "id": _cache_chat_id,
                         "object": "chat.completion.chunk",
+                        "model": response_model_id,
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                         "run_id": run_id,
@@ -1525,6 +1562,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
             )
         return ChatCompletionResponse(
+            model=response_model_id,
             choices=[Choice(message=ChatMessage(role="assistant", content=cached_response), finish_reason="stop")],
             usage=Usage(),
             run_id=run_id,
@@ -1760,9 +1798,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         last_user_content,
                                         run_id=run_id,
                                         memory_scope=memory_scope,
-                                        model=request.model,
+                                        model=response_model_id,
                                     )
-                                    _prompt_cache_put(user_id, last_user_content or "", request.model, content)
+                                    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
                                     record_chat_success(time.monotonic() - start)
                                     total_elapsed_ms = int((time.monotonic() - t_start) * 1000)
                                     logger.info(
@@ -2255,9 +2293,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     last_user_content,
                     run_id=run_id,
                     memory_scope=memory_scope,
-                    model=request.model,
+                    model=response_model_id,
                 )
-                _prompt_cache_put(user_id, last_user_content or "", request.model, content)
+                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
                 record_chat_success(time.monotonic() - start)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=accumulated_state)
                 record_memory_after_request(rss_mib, cgroup_mib)
@@ -2456,9 +2494,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
                 yield _fb_flow_phase("", done=True)
                 content, total_tokens = _extract_content_and_metrics(
-                    result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
+                    result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=response_model_id
                 )
-                _prompt_cache_put(user_id, last_user_content or "", request.model, content)
+                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
                 record_chat_success(time.monotonic() - start)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
                 record_memory_after_request(rss_mib, cgroup_mib)
@@ -2521,9 +2559,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         flush_tracer()
 
     content, total_tokens = _extract_content_and_metrics(
-        result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=request.model
+        result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=response_model_id
     )
-    _prompt_cache_put(user_id, last_user_content or "", request.model, content)
+    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
 
     latency_ms = (time.monotonic() - start) * 1000
     record_chat_success(latency_ms / 1000)
@@ -2548,7 +2586,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     return ChatCompletionResponse(
         id=chat_id,
-        model=request.model,
+        model=response_model_id,
         choices=[
             Choice(
                 message=ChatMessage(role="assistant", content=content),
@@ -2566,11 +2604,19 @@ async def list_models():
         "object": "list",
         "data": [
             {
-                "id": "synesis-agent",
+                "id": "Synesis",
                 "object": "model",
                 "owned_by": "synesis",
                 "permission": [],
-            }
+                "description": "Full Synesis pipeline: router, planner, evidence, writer, critic.",
+            },
+            {
+                "id": "Synesis Thinking",
+                "object": "model",
+                "owned_by": "synesis",
+                "permission": [],
+                "description": "Same pipeline with extended thinking on the general (writer) model when supported.",
+            },
         ],
     }
 
@@ -2600,7 +2646,7 @@ async def feedback_submit(req: FeedbackSubmitRequest):
         run_id=req.run_id,
         vote=req.vote.lower(),
         user_id=req.user_id or (ctx.get("user_id", "") if ctx else ""),
-        model=req.model or "synesis-agent",
+        model=req.model or "Synesis",
         message_snippet=ctx.get("message_snippet", "") if ctx else "",
         response_snippet=ctx.get("response_snippet", "") if ctx else "",
         classification_reasons=ctx.get("classification_reasons", []) if ctx else [],

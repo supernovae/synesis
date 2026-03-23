@@ -179,7 +179,7 @@ async def _classify(args: dict[str, Any]) -> dict[str, Any]:
         resp = await client.post(
             f"{PLANNER_URL}/v1/chat/completions",
             json={
-                "model": "synesis-agent",
+                "model": "Synesis",
                 "messages": [{"role": "user", "content": task}],
                 "stream": False,
                 "max_tokens": 1,
@@ -202,7 +202,7 @@ async def _plan(args: dict[str, Any]) -> dict[str, Any]:
         resp = await client.post(
             f"{PLANNER_URL}/v1/chat/completions",
             json={
-                "model": "synesis-agent",
+                "model": "Synesis",
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
                 "max_tokens": 4096,

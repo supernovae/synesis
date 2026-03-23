@@ -40,6 +40,18 @@ from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.writer")
 
+
+def _writer_chat_template_kwargs(state: dict[str, Any]) -> dict[str, Any]:
+    """Extra vLLM/Qwen body for writer: enable_thinking when user picked Synesis Thinking."""
+    want = bool(state.get("general_model_enable_thinking")) and settings.worker_thinking_mode_enabled
+    if not settings.guided_json_enabled and not want:
+        return {}
+    param = (settings.executor_thinking_param or "").strip()
+    if param == "thinking":
+        return {"extra_body": {"chat_template_kwargs": {"thinking": bool(want)}}}
+    return {"extra_body": {"chat_template_kwargs": {"enable_thinking": bool(want)}}}
+
+
 _WRITER_SYSTEM_STATIC = f"""\
 You produce a complete, polished markdown response from a plan outline \
 and compiled evidence.
@@ -755,6 +767,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                     "latency_ms": round(latency, 1),
                 },
             )
+            _ds_extra = _writer_chat_template_kwargs(state)
+            if not _ds_extra and settings.guided_json_enabled:
+                _ds_extra = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
             return {
                 "generated_code": "",
                 "compiled_answer": "",
@@ -762,11 +777,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                     "messages": ds_messages,
                     "max_completion_tokens": fast_budget,
                     "temperature": 0.4,
-                    **(
-                        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
-                        if settings.guided_json_enabled
-                        else {}
-                    ),
+                    **_ds_extra,
                 },
                 "error": None,
                 "current_node": node_name,
@@ -1039,6 +1050,9 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     )
 
     try:
+        _mk = _writer_chat_template_kwargs(state)
+        if not _mk and settings.guided_json_enabled:
+            _mk = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
         llm = ChatOpenAI(
             base_url=writer_url,
             api_key=settings.model_api_key,
@@ -1048,11 +1062,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             streaming=True,
             stream_usage=True,
             use_responses_api=False,
-            model_kwargs=(
-                {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
-                if settings.guided_json_enabled
-                else {}
-            ),
+            model_kwargs=_mk,
             http_client=get_llm_http_client(),
         )
 

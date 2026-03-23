@@ -273,6 +273,7 @@ class GraphState(TypedDict, total=False):
     task_size_override: str
     coding_client_detected: bool
     memory_scope: str
+    general_model_enable_thinking: bool
 
     # --- Entry classifier observability ---
     classification_reasons: list[str]

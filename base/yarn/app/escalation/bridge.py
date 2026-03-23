@@ -45,7 +45,7 @@ async def escalate_to_langchain(
     client = _get_client()
 
     payload: dict[str, Any] = {
-        "model": "synesis-agent",
+        "model": "Synesis",
         "messages": messages,
         "stream": True,
     }
@@ -74,7 +74,7 @@ async def escalate_sync(
     client = _get_client()
 
     payload: dict[str, Any] = {
-        "model": "synesis-agent",
+        "model": "Synesis",
         "messages": messages,
         "stream": False,
     }

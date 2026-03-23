@@ -199,7 +199,7 @@ if litellm_config.exists():
         model_list = inner.get("model_list", [])
         model_names = [m.get("model_name") for m in model_list]
         print(f"  Current models in LiteLLM: {model_names}")
-        for needed in ["synesis-agent", "synesis-router", "synesis-critic"]:
+        for needed in ["Synesis", "synesis-router", "synesis-critic"]:
             if needed not in model_names:
                 print(f"  MISSING: {needed} not in LiteLLM config")
 else:

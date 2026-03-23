@@ -14,7 +14,7 @@ import pytest
 pytest.importorskip("fastapi", reason="fastapi not installed (container-only)")
 pytest.importorskip("langgraph", reason="langgraph not installed (container-only)")
 
-from app.main import app
+from app.main import app, normalize_planner_client_model
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
@@ -22,6 +22,16 @@ from langchain_core.messages import AIMessage
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+class TestNormalizePlannerModel:
+    def test_legacy_and_display_ids(self):
+        assert normalize_planner_client_model("synesis-agent") == ("Synesis", False)
+        assert normalize_planner_client_model("Synesis") == ("Synesis", False)
+        assert normalize_planner_client_model("Synesis Thinking") == ("Synesis Thinking", True)
+        assert normalize_planner_client_model("synesis-thinking-chat") == ("Synesis Thinking", True)
+        assert normalize_planner_client_model("openai/Synesis") == ("Synesis", False)
+        assert normalize_planner_client_model("openai/synesis thinking") == ("Synesis Thinking", True)
 
 
 class TestHealthEndpoints:
@@ -43,7 +53,9 @@ class TestModelsEndpoint:
         data = resp.json()
         assert data["object"] == "list"
         assert len(data["data"]) >= 1
-        assert data["data"][0]["id"] == "synesis-agent"
+        ids = {m["id"] for m in data["data"]}
+        assert "Synesis" in ids
+        assert "Synesis Thinking" in ids
 
 
 class TestChatCompletions:

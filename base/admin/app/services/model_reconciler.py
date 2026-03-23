@@ -18,7 +18,16 @@ logger = logging.getLogger("synesis.admin.model_reconciler")
 # LiteLLM routes defined in base/gateway/litellm-config.yaml but not represented as
 # admin ModelDeployment rows (KNOWN_ROLES). Reconcile must not DELETE these via API —
 # config-backed routes return 500 on /model/delete and should stay for Open WebUI / Yarn.
-PROTECTED_MODELS = frozenset({"synesis-agent", "synesis-thinking", "synesis-yarn"})
+PROTECTED_MODELS = frozenset(
+    {
+        "synesis-agent",
+        "Synesis",
+        "Synesis Thinking",
+        "Synesis Coder",
+        "synesis-thinking",
+        "synesis-yarn",
+    }
+)
 
 # Compared to detect routing drift (/model/info omits redacted secrets — omit api_key).
 _ROUTING_KEYS = ("model", "api_base", "max_tokens", "temperature")

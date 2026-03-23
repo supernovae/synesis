@@ -80,10 +80,10 @@ spec:
               value: "synesis-admin"
             - name: OAUTH_ALLOWED_ROLES
               value: "synesis-user,synesis-admin"
-            # V3: synesis-agent = default (pipeline), synesis-thinking = R1 optional,
-            # synesis-coder = IDE direct. All auto-discovered from LiteLLM /v1/models.
+            # V3: Synesis = default pipeline; Synesis Thinking = writer thinking param;
+            # synesis-thinking = R1 optional; Synesis Coder / synesis-yarn = IDE. From LiteLLM /v1/models.
             - name: DEFAULT_MODELS
-              value: "synesis-agent"
+              value: "Synesis"
             - name: ENABLE_OLLAMA_API
               value: "false"
             - name: WEBUI_NAME

@@ -51,7 +51,7 @@ advisor_llm = ChatOpenAI(
     max_completion_tokens=256,
     use_responses_api=False,
     http_client=get_llm_http_client(uds_path=settings.advisor_model_uds or None),
-    model_kwargs=_advisor_kw or None,
+    model_kwargs=_advisor_kw,
 )
 
 

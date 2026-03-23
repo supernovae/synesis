@@ -11,14 +11,23 @@ data:
     # Synesis V3 Model Endpoints
     # See models.yaml for profile-specific model assignments and GPU sizing.
     #
-    # synesis-agent: Open WebUI default — routes through Synesis planner pipeline
-    # synesis-coder: IDE direct endpoint — bypasses planner, agentic coding
-    # synesis-thinking: Optional R1 thinking model — user-selectable in Open WebUI
+    # Synesis / Synesis Thinking: Open WebUI — same planner; Thinking enables writer thinking param
+    # synesis-coder: IDE direct vLLM — bypasses planner
+    # synesis-thinking: Optional R1 thinking model (separate from Synesis Thinking pipeline mode)
     model_list:
-      # Primary pipeline endpoint (Open WebUI → LangGraph pipeline)
-      - model_name: synesis-agent
+      # Primary pipeline (display name "Synesis")
+      - model_name: Synesis
         litellm_params:
-          model: openai/synesis-agent
+          model: openai/Synesis
+          api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 32768
+          temperature: 0.2
+
+      # Pipeline + general-model thinking (Qwen3 enable_thinking / DeepSeek thinking param)
+      - model_name: Synesis Thinking
+        litellm_params:
+          model: openai/Synesis Thinking
           api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
           api_key: "not-needed"
           max_tokens: 32768
@@ -85,10 +94,16 @@ data:
           max_tokens: 16384
           temperature: 0.2
 
-      # Yarn Runtime — Stateful agentic coding endpoint for IDE clients
-      # (Cursor, Claude Code, Windsurf, OpenCode). Routes through the Yarn
-      # memory buffer + tool orchestrator with prefix-cache-optimized context.
+      # Yarn runtime — also exposed as "Synesis Coder" for IDE clients
       - model_name: synesis-yarn
+        litellm_params:
+          model: openai/synesis-yarn
+          api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
+          api_key: "not-needed"
+          max_tokens: 32768
+          temperature: 0.2
+
+      - model_name: Synesis Coder
         litellm_params:
           model: openai/synesis-yarn
           api_base: http://synesis-yarn.synesis-yarn.svc.cluster.local:8000/v1
