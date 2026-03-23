@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     litellm_url: str = "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
     litellm_api_key: str = Field(default="", alias="LITELLM_MASTER_KEY")
 
-    max_tokens: int = 32768
+    # Default max *completion* tokens per upstream call (IDE may override per request).
+    # Coder workloads often need large single replies; cap lower if your provider/model rejects high values.
+    max_tokens: int = 65536
     temperature: float = 0.2
     request_timeout: float = 300.0
     model_retries: int = 2

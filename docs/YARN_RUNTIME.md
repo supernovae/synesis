@@ -8,27 +8,38 @@ Yarn is the **agentic shell around the coder workload**: LLM traffic is intended
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph clients [IDE clients]
+        Cursor[Cursor]
+        ClaudeCode[Claude Code]
+        Windsurf[Windsurf]
+        OpenCode[OpenCode]
+    end
+
+    subgraph yarnNs [Yarn runtime synesis-yarn]
+        direction TB
+        Session[Session manager]
+        Memory[Memory buffer 3-zone]
+        Tools[Tool orchestrator]
+        Model[Model executor]
+        Escalation[Escalation bridge]
+        ContextMod[Context trust envelope]
+    end
+
+    subgraph upstream [Upstream]
+        Provider[DeepInfra / vLLM / LiteLLM]
+        Planner[Planner LangGraph]
+        MCP[MCP server]
+    end
+
+    clients --> yarnNs
+    Model --> Provider
+    Escalation --> Planner
+    Tools --> MCP
 ```
-IDE Clients (Cursor, Claude Code, Windsurf, OpenCode)
-    │
-    ▼
-┌─────────────────────────────────────────────────┐
-│  Yarn Runtime (synesis-yarn namespace)          │
-│                                                  │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────┐ │
-│  │ Session   │  │ Memory Buffer│  │ Tool      │ │
-│  │ Manager   │  │ (3-zone)     │  │ Orchestra.│ │
-│  └──────────┘  └──────────────┘  └───────────┘ │
-│  ┌──────────┐  ┌──────────────┐                 │
-│  │ Model     │  │ Escalation   │                 │
-│  │ Executor  │  │ Bridge       │                 │
-│  └──────────┘  └──────────────┘                 │
-└─────────────────────────────────────────────────┘
-    │              │               │
-    ▼              ▼               ▼
-  DeepInfra     Planner        MCP Server
-  (Qwen3-480B)  (LangGraph)    (tools)
-```
+
+Core components inside the Yarn process: **session** (auth, rate limits, Redis), **memory buffer** (pinned + rolling transcript), **tool orchestrator** (MCP + local tools), **model executor** (streaming, usage), **escalation bridge** (planner proxy). Incoming user turns are passed through the **context trust envelope** (optional `synesis_context`, delimiter-wrapped text for the model) — see [YARN_CONTEXT_TRUST.md](YARN_CONTEXT_TRUST.md).
 
 ## Modules
 
@@ -38,21 +49,24 @@ IDE Clients (Cursor, Claude Code, Windsurf, OpenCode)
 - Token-bucket rate limiting per session/role
 
 ### Memory Buffer (`app/memory/`)
-The core differentiator. A three-zone rolling buffer optimized for prefix caching:
+The core differentiator. A **rolling buffer** optimized for prefix caching:
 
-1. **Pinned Zone**: System prompt + tool schemas + memory replay. Never changes. Always a cache hit.
-2. **Stable Zone**: Completed conversation turns. Grows monotonically. High cache hit rate.
-3. **Delta Zone**: Current user message. The only cache miss.
+| Zone | Contents | Cache behavior |
+|------|-----------|----------------|
+| **Pinned** | Server system prompt, pinned tool summary, optional session replay | Stable across turns (high hit rate) |
+| **Stable** | User / assistant / tool messages in order; user text is **reducer-wrapped** for trust boundaries | Grows monotonically; shared prefix with prior requests |
+| **New turn** | Latest user message appended each HTTP request | Effectively the tail “delta” vs the previous snapshot |
 
-This layout ensures 80-85% prefix cache hits on DeepInfra (10x cheaper cached tokens) and vLLM APC.
+This layout targets strong **prefix-cache** reuse on providers that cache by prompt prefix (e.g. DeepInfra cached tokens, vLLM APC). Exact hit rates depend on model, provider, and whether pinned tool text changes.
 
-When turns are evicted from the window, the **compressor** summarizes them into a memory replay message pinned to the first zone, preserving long-session context.
+When stable history exceeds `SYNESIS_YARN_MEMORY_WINDOW_TOKENS`, **oldest stable messages are evicted** and the **compressor** (background) summarizes them into a **memory replay** pinned message, preserving long-session continuity without unbounded growth.
 
 ### Tool Orchestrator (`app/tools/`)
 - Loads caller-authorized tools from admin MCP API + built-in local tools
 - JSON Schema validation for arguments
 - Retries on transient failure
 - The `synesis_escalate` tool triggers LangChain escalation
+- Tool results are wrapped for the model in bounded tags (see [YARN_CONTEXT_TRUST.md](YARN_CONTEXT_TRUST.md))
 
 ### Model Executor (`app/model/`)
 Provider-agnostic transport with streaming:
@@ -65,8 +79,8 @@ Includes circuit breaker, usage tracking (cached/uncached token split), and cost
 ### Escalation Bridge (`app/escalation/`)
 Triggers when:
 - The model calls `synesis_escalate`
-- Context utilization exceeds 90%
-- Tool loop count exceeds 25
+- Context utilization exceeds ~90% (`escalation_context_threshold`)
+- Tool loop count exceeds configured max (`escalation_max_tool_loops`, default 25)
 
 Proxies transparently to the planner's `/v1/chat/completions` and streams the response back.
 
@@ -84,7 +98,16 @@ Proxies transparently to the planner's `/v1/chat/completions` and streams the re
 
 ## Configuration
 
-All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
+All configuration is via environment variables with the `SYNESIS_YARN_` prefix (see [`base/yarn/app/config.py`](../base/yarn/app/config.py)).
+
+### Token limits: two different knobs
+
+| Concept | Env / setting | Role |
+|---------|----------------|------|
+| **Rolling context window** | `SYNESIS_YARN_MEMORY_WINDOW_TOKENS` (default `131072`) | Max **approximate tokens** retained in the session buffer (pinned + stable). When exceeded, old turns are evicted and summarized into replay — not silently dropped without a trace. |
+| **Max completion per call** | `SYNESIS_YARN_MAX_TOKENS` (default `65536`) | Default **output** cap for each upstream completion when the client omits `max_tokens`. Large values suit big patches and long explanations; **lower** if your provider or model rejects high `max_tokens`. Clients (Cursor, CLI) can also send `max_tokens` per request. |
+
+### Other variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -93,6 +116,7 @@ All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
 | `DEEPINFRA_API_KEY` | | DeepInfra API key |
 | `SYNESIS_YARN_SESSION_REDIS_URL` | `redis://localhost:6379/3` | Redis for sessions |
 | `SYNESIS_YARN_MEMORY_REDIS_URL` | `redis://localhost:6379/4` | Redis for memory |
+| `SYNESIS_YARN_MEMORY_PINNED_BUDGET_TOKENS` | `8192` | Reserved headroom hint for pinned zone accounting |
 | `SYNESIS_YARN_PLANNER_URL` | `http://synesis-planner...` | Planner for escalation |
 | `SYNESIS_YARN_MCP_URL` | `http://synesis-mcp...` | MCP server for tools |
 | `SYNESIS_YARN_ADMIN_API_URL` | `http://synesis-admin-api...` | Admin API base URL for user-scoped MCP authz |
@@ -102,8 +126,6 @@ All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
 | `SYNESIS_YARN_ADMIN_DB_URL` | | Admin Postgres DSN for PAT lookup |
 | `SYNESIS_YARN_AUTH_ALLOW_LEGACY_FALLBACK` | `false` | Allow legacy HS256 dev auth fallback |
 | `SYNESIS_YARN_ENFORCE_MCP_AUTHZ` | `true` | Enforce admin-backed MCP authorization on list/call |
-| `SYNESIS_YARN_MEMORY_WINDOW_TOKENS` | `131072` | Memory window size |
-| `SYNESIS_YARN_MAX_TOKENS` | `32768` | Max output tokens |
 | `SYNESIS_YARN_TEMPERATURE` | `0.2` | Model temperature |
 | `SYNESIS_YARN_LOG_LEVEL` | `info` | Log level |
 | `SYNESIS_YARN_DIAGNOSTICS_ENABLED` | `true` | Enable adaptive diagnostics capture |
@@ -111,6 +133,16 @@ All configuration is via environment variables with the `SYNESIS_YARN_` prefix:
 | `SYNESIS_YARN_DIAGNOSTICS_ON_FAILURE` | `true` | Always capture on failure/escalation |
 | `SYNESIS_YARN_DIAGNOSTICS_TOOL_LOOP_THRESHOLD` | `8` | Force capture when tool loops look oscillatory |
 | `SYNESIS_YARN_DIAGNOSTICS_SNAPSHOT_TTL_SECONDS` | `86400` | TTL for Redis diagnostics snapshots |
+
+## Output truncation vs context pressure
+
+| Situation | What happens | Continuity |
+|-----------|----------------|------------|
+| **Model hits output limit** (`max_tokens` / provider stop, often `finish_reason: length`) | Yarn streams **partial** assistant text to the client and ends the turn. | The **IDE** (Cursor, Claude Code, etc.) should start a **new user message** (“continue from where you stopped”) if you want the rest of the patch. Yarn keeps session memory so the next request still has prior turns in the buffer. Yarn does **not** auto-inject a “continue” message today. |
+| **Session buffer exceeds memory window** | Oldest stable messages are **evicted** and later **compressed** into the pinned **memory replay** summary. | Long-horizon context is preserved in summarized form; not the same as dropping mid-code silently. |
+| **Escalation triggers** | Request is proxied to the planner pipeline. | User sees planner-backed continuation for that escalation path. |
+
+For large codegen, prefer a **high** `max_tokens` (server default and/or per-request) **and** rely on the client to **iterate** if the model still stops early — that matches how desktop agents normally work.
 
 ## Local Development
 
@@ -166,19 +198,34 @@ Settings > Models > Add Custom Model:
 ### Other IDE Clients
 Any client that supports OpenAI-compatible endpoints works the same way.
 
-## Agentic Loop Flow
+## Agentic loop flow
 
-```
-1. Client sends POST /v1/chat/completions
-2. Auth → resolve Keycloak JWT or PAT
-3. Session → load or create session state
-4. Memory → append user message to buffer
-5. Loop:
-   a. Build context from buffer (pinned + stable + delta)
-   b. Stream model response
-   c. If tool_calls → execute → append results → continue loop
-   d. If content → append to buffer → stream to client → done
-   e. If escalation trigger → proxy to planner → done
+```mermaid
+sequenceDiagram
+    participant C as IDE client
+    participant Y as Yarn
+    participant M as Model
+    participant T as Tools
+
+    C->>Y: POST /v1/chat/completions
+    Y->>Y: Auth, session, injection scan
+    Y->>Y: Append user turn (trust envelope + optional synesis_context)
+    loop Agentic loop
+        Y->>M: context from buffer + tools
+        M-->>Y: stream tokens and/or tool_calls
+        alt tool_calls
+            Y->>T: execute tools
+            T-->>Y: results (wrapped)
+            Y->>Y: append assistant + tool messages
+        else final content
+            Y->>Y: append assistant message
+            Y-->>C: stream done
+        end
+    end
+    opt Escalation
+        Y->>Y: Proxy to planner
+        Y-->>C: planner stream
+    end
 ```
 
 ## Database Tables
@@ -234,6 +281,7 @@ on the account Usage page (`/account/usage`), powered by
 
 - **Phase 1 (implemented):** strict PAT/Keycloak auth, removal of permissive token fallback by default, and admin-backed MCP authorization for tool listing/calls.
 - **Phase 2 (implemented):** adaptive diagnostics for oscillation/waffling with failure-triggered sampling and operator snapshots for targeted debugging.
+- **Context trust (implemented):** optional `synesis_context`, delimiter-wrapped user/tool text, expanded injection scanning — [YARN_CONTEXT_TRUST.md](YARN_CONTEXT_TRUST.md).
 
 ## Cost Analysis
 
