@@ -51,7 +51,7 @@ All checks run on every push to `main` and on pull requests:
 | **Hadolint** | Dockerfile best practices | Yes |
 | **Dependabot** | Dependency version alerts | Advisory |
 
-Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.trivyignore`.
+Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.trivyignore` (including **KSV-0056** for the RHBK Keycloak operator `Role` in `base/keycloak/operator-rbac.yaml`, and **DS-0002** for the thin **Open WebUI** child `Dockerfile` that inherits upstream’s default root user).
 
 ### pip-audit: indexer and NLTK (transitive)
 
