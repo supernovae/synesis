@@ -85,6 +85,7 @@ jobs:
               - 'base/images/base-ml/**'
             base-devtools:
               - 'base/images/base-devtools/**'
+              - 'base/images/base-api/synesis-telemetry/**'
             planner:
               - 'base/planner/Dockerfile'
               - 'base/planner/requirements.txt'
@@ -225,7 +226,9 @@ jobs:
         if: steps.filter.outputs.skip != 'true'
         uses: docker/build-push-action@v7
         with:
-          context: base/images/base-devtools
+          # Context must be base/images so COPY base-api/synesis-telemetry/ resolves
+          # (matches scripts/build-images.sh synesis-base-devtools entry).
+          context: base/images
           file: base/images/base-devtools/Dockerfile
           push: true
           tags: |
@@ -373,9 +376,9 @@ jobs:
           - name: mcp
             dockerfile: base/mcp/Containerfile
             context: base/mcp
-            base_arg: ""
+            base_arg: synesis-base-api
             change_key: mcp
-            base_change_key: ""
+            base_change_key: base-api
           - name: yarn
             dockerfile: base/yarn/Containerfile
             context: base/yarn

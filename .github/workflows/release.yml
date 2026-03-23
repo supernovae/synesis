@@ -95,7 +95,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
-          context: base/images/base-devtools
+          context: base/images
           file: base/images/base-devtools/Dockerfile
           push: ${{ needs.prepare.outputs.is_dry_run != 'true' }}
           tags: |
