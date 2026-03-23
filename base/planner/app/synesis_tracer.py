@@ -551,6 +551,12 @@ class SynesisTracer(BaseCallbackHandler):
             "complexity_score": taxonomy.get("complexity_score", 0),
             "persona_instructions": str(taxonomy.get("persona_instructions", ""))[:200],
         }
+        sem = taxonomy.get("taxonomy_semantic")
+        if isinstance(sem, dict):
+            self._current_trace.taxonomy["semantic_overridden"] = sem.get("overridden", False)
+            self._current_trace.taxonomy["semantic_ambiguous"] = sem.get("ambiguous", False)
+            self._current_trace.taxonomy["semantic_keyword_key"] = sem.get("keyword_key", "")
+            self._current_trace.taxonomy["semantic_top"] = sem.get("semantic_top", [])[:3]
 
     def set_context_curation(self, report: dict[str, Any]) -> None:
         """Writer evidence budgeting — rank-first pack, exclusions, starvation signals."""

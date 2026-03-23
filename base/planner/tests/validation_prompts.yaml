@@ -126,3 +126,10 @@ prompts:
     expected:
       intent_class: writing
       is_code_task: false
+
+  # --- Taxonomy domain regression: ADR must not route to music ---
+  - prompt: "Understand what ADR records are - architectural decision records, what a sample one looks like and steps to make them"
+    expected:
+      is_code_task: false
+      active_domain_refs_includes: software_architecture
+      active_domain_refs_excludes: music_production

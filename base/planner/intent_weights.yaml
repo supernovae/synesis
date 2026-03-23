@@ -218,18 +218,16 @@ domain_keywords:
     keywords: ["canvas", "moodle", "blackboard", "lms"]
   software_architecture:
     domain: software_architecture
-    min_hits: 2
-    # NOTE: "design" is the key addition — most architecture prompts say
-    # "design an X" or "propose a design" which, combined with "architecture",
-    # gives the 2 hits needed. If min_hits proves too strict for real-world
-    # prompts, consider lowering to 1 (architecture alone is a strong signal).
+    min_hits: 1
     keywords: [
-      "architecture", "design", "system design", "microservices",
+      "architecture", "architectural", "design", "system design", "microservices",
       "monolith", "event-driven", "distributed system", "scalability",
       "high availability", "load balancing", "caching strategy",
       "api gateway", "design proposal", "design goals", "propose",
       "rollout plan", "phased rollout", "failure modes",
-      "model strategy", "retrieval", "assistant"
+      "model strategy", "retrieval", "assistant",
+      "adr", "architecture decision record", "architecture decision",
+      "design review"
     ]
   data_science:
     domain: data_science

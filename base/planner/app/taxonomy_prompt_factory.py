@@ -127,6 +127,7 @@ def resolve_taxonomy_metadata(
     intent_class: str,
     complexity_score: float = 0.5,
     domain_ref_counts: dict[str, int] | None = None,
+    query_text: str = "",
 ) -> dict[str, Any]:
     """Resolve TaxonomyNode from Entry Classifier output. No LLM.
 
@@ -136,6 +137,11 @@ def resolve_taxonomy_metadata(
     When ``domain_ref_counts`` is provided, the taxonomy key with the most
     contributing signals wins (pairings, domain keywords, risk domains all
     count).  Falls back to first-match when counts are unavailable or tied.
+
+    When ``query_text`` is provided, the keyword-selected key is cross-checked
+    against embedding similarity via semantic_taxonomy.  The semantic validator
+    can override the keyword choice when the margin is large enough, or flag
+    ambiguity for downstream nodes.
 
     All raw YAML fields are forwarded so downstream nodes can access any
     taxonomy field (e.g. epistemic_guidance) without plumbing changes here.
@@ -158,6 +164,18 @@ def resolve_taxonomy_metadata(
             )
     else:
         key = "generic"
+
+    # Semantic cross-check: validate keyword selection against embeddings.
+    semantic_validation = None
+    if query_text and key != "generic":
+        try:
+            from .semantic_taxonomy import validate_taxonomy
+
+            semantic_validation = validate_taxonomy(query=query_text, keyword_key=key)
+            if semantic_validation.overridden:
+                key = semantic_validation.recommended_key
+        except Exception:
+            logger.debug("taxonomy_semantic_crosscheck_skipped", exc_info=True)
 
     node_cfg = taxonomies.get(key) or taxonomies.get("generic") or {}
 
@@ -202,6 +220,16 @@ def resolve_taxonomy_metadata(
             "regulated_domain": bool(node_cfg.get("regulated_domain")),
         }
     )
+
+    if semantic_validation is not None:
+        result["taxonomy_semantic"] = {
+            "overridden": semantic_validation.overridden,
+            "ambiguous": semantic_validation.ambiguous,
+            "keyword_key": semantic_validation.keyword_key,
+            "keyword_score": semantic_validation.keyword_score,
+            "semantic_top": semantic_validation.semantic_top,
+        }
+
     return result
 
 

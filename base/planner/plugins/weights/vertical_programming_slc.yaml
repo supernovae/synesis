@@ -177,6 +177,13 @@ domain_keywords:
       - cabal
       - stack
       - ghc
+  software_lifecycle:
+    domain: software_architecture
+    keywords:
+      - adr
+      - architecture decision
+      - design doc
+      - design review
 
 pairings:
   - keywords: [dependency, upgrade]

@@ -79,6 +79,20 @@ class TestEntryClassifierValidation:
         out = entry_classifier_node(state)
 
         for key, want in expected.items():
+            if key.endswith("_includes"):
+                field = key.removesuffix("_includes")
+                actual_list = out.get(field) or []
+                assert want in actual_list, (
+                    f'Prompt "{prompt[:60]}..." expected {want!r} in {field}, got {actual_list!r}'
+                )
+                continue
+            if key.endswith("_excludes"):
+                field = key.removesuffix("_excludes")
+                actual_list = out.get(field) or []
+                assert want not in actual_list, (
+                    f'Prompt "{prompt[:60]}..." expected {want!r} NOT in {field}, got {actual_list!r}'
+                )
+                continue
             actual = out.get(key)
             if key == "rag_mode" and want == "disabled":
                 want = "disabled"

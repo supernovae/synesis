@@ -26,3 +26,15 @@ pairings:
   - keywords: ["cluster", "postgres"]
     domain: databases
     extra_weight: 0
+  - keywords: ["sample", "architecture"]
+    domain: software_architecture
+    extra_weight: 0
+  - keywords: ["sample", "architectural"]
+    domain: software_architecture
+    extra_weight: 0
+  - keywords: ["sample", "design review"]
+    domain: software_architecture
+    extra_weight: 0
+  - keywords: ["sample", "adr"]
+    domain: software_architecture
+    extra_weight: 0
