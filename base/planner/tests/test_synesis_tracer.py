@@ -6,9 +6,12 @@ import json
 import os
 import sys
 import time
+import uuid
 from unittest.mock import patch
 
 import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, LLMResult
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -294,6 +297,44 @@ class TestCostComputation:
         record = TraceRecord()
         cost = _compute_cost(record)
         assert cost == 0.0
+
+
+# ---------------------------------------------------------------------------
+# ChatOpenAI streaming: zero-usage on_llm_end then on_chat_model_end
+# ---------------------------------------------------------------------------
+
+
+class TestStreamingChatDoubleCallback:
+    """Admin UI reads spans[].llm_calls; this path must survive a spurious zero-usage on_llm_end."""
+
+    def test_zero_usage_on_llm_end_then_chat_model_end_records_llm_call(self, tracer: SynesisTracer):
+        tracer._current_trace.spans.append(SpanRecord(node_name="writer", start_time=time.time()))
+        run_id = uuid.uuid4()
+        tracer.on_chat_model_start({}, [[]], run_id=run_id, parent_run_id=None)
+        assert str(run_id) in tracer._llm_starts
+
+        empty = LLMResult(generations=[], llm_output={})
+        tracer.on_llm_end(empty, run_id=run_id, parent_run_id=None)
+        assert str(run_id) in tracer._llm_starts
+
+        msg = AIMessage(
+            content="final",
+            usage_metadata={
+                "input_tokens": 10,
+                "output_tokens": 25,
+                "total_tokens": 35,
+            },
+        )
+        rich = LLMResult(generations=[[ChatGeneration(message=msg)]], llm_output=None)
+        tracer.on_chat_model_end(rich, run_id=run_id, parent_run_id=None)
+
+        span = tracer._current_trace.spans[-1]
+        assert len(span.llm_calls) == 1
+        call = span.llm_calls[0]
+        assert call.prompt_tokens == 10
+        assert call.completion_tokens == 25
+        assert call.total_tokens == 35
+        assert str(run_id) not in tracer._llm_starts
 
 
 # ---------------------------------------------------------------------------
