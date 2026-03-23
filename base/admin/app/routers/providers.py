@@ -236,8 +236,21 @@ def _coerce_int(value: object) -> int | None:
 
 @router.get("/catalog")
 async def provider_catalog(_user=Depends(get_current_user)):
-    """Return the provider catalog and canonical role list for the frontend."""
-    return get_catalog()
+    """Return the provider catalog and canonical role list for the frontend.
+
+    Filters out vendors disabled in Vendor Management so the Model Registry
+    picklist stays in sync with a single source of truth.
+    """
+    from ..routers.vendors import get_disabled_vendor_keys
+
+    catalog = get_catalog()
+    disabled = await get_disabled_vendor_keys()
+    if disabled:
+        catalog = {
+            **catalog,
+            "providers": {k: v for k, v in catalog["providers"].items() if k not in disabled},
+        }
+    return catalog
 
 
 @router.get("/discovery/supported")

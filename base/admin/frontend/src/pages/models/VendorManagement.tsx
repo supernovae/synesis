@@ -70,7 +70,7 @@ export default function VendorManagement() {
   };
 
   const handleReset = (key: string) => {
-    if (!window.confirm("Reset this vendor to catalog defaults? Custom config will be removed.")) return;
+    if (!window.confirm("Reset this vendor to catalog defaults? All overrides will be cleared.")) return;
     resetMut.mutate(key);
   };
 
@@ -211,7 +211,7 @@ export default function VendorManagement() {
                   onChange={(e) => setEditForm({ ...editForm, enabled: e.target.checked })}
                   className="rounded"
                 />
-                <span className="text-gray-700 dark:text-gray-300">Enabled in picklists</span>
+                <span className="text-gray-700 dark:text-gray-300">Show in Model Registry</span>
               </label>
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">Default Max Tokens</label>

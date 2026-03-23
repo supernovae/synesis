@@ -19,6 +19,37 @@ logger = logging.getLogger("synesis.admin.vendors")
 router = APIRouter(prefix="/api/v1/vendors", tags=["vendors"])
 
 
+async def seed_vendor_configs() -> int:
+    """Ensure every catalog provider has a ProviderConfig row.
+
+    Runs on startup so Vendor Management is the single source of truth for
+    enablement, defaults, and governance — no more "absent row = enabled".
+    Returns the number of newly created rows.
+    """
+    async with async_session() as session:
+        result = await session.execute(select(ProviderConfig.provider_key))
+        existing = {row[0] for row in result.all()}
+
+        created = 0
+        for key in PROVIDER_CATALOG:
+            if key not in existing:
+                session.add(ProviderConfig(provider_key=key))
+                created += 1
+
+        if created:
+            await session.commit()
+    return created
+
+
+async def get_disabled_vendor_keys() -> frozenset[str]:
+    """Return the set of provider keys that are disabled in vendor management."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(ProviderConfig.provider_key).where(ProviderConfig.enabled == False)
+        )
+        return frozenset(row[0] for row in result.all())
+
+
 async def _get_all_configs() -> dict[str, dict]:
     """Load all ProviderConfig rows, keyed by provider_key."""
     async with async_session() as session:
@@ -146,13 +177,18 @@ async def reset_vendor(
     provider_key: str,
     _user: UserInfo = Depends(require_platform_admin),
 ):
-    """Reset vendor config to catalog defaults (remove governance override)."""
+    """Reset vendor config to catalog defaults (keep the row, restore defaults)."""
     async with async_session() as session:
         result = await session.execute(select(ProviderConfig).where(ProviderConfig.provider_key == provider_key))
         row = result.scalar_one_or_none()
         if row is None:
-            raise HTTPException(404, "No custom config exists for this provider")
-        await session.delete(row)
+            raise HTTPException(404, "No config exists for this provider")
+        row.enabled = True
+        row.default_max_tokens = 8192
+        row.default_temperature = 0.1
+        row.allowed_roles = None
+        row.policies = None
+        row.notes = ""
         await session.commit()
 
     await record_admin_audit(

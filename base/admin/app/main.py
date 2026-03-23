@@ -31,6 +31,7 @@ _reconciler_task: asyncio.Task | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.routers.vendors import seed_vendor_configs
     from app.services.infra_pricing import ensure_table as ensure_infra_table
     from app.services.model_reconciler import reconcile
     from app.services.model_registry import capture_cost_rate_snapshots, seed_model_deployments
@@ -42,6 +43,13 @@ async def lifespan(app: FastAPI):
         await ensure_infra_table()
     except Exception:
         logger.debug("infra_table_ensure_failed", exc_info=True)
+
+    try:
+        vendor_count = await seed_vendor_configs()
+        if vendor_count:
+            logger.info("vendor_seed_complete count=%d", vendor_count)
+    except Exception:
+        logger.warning("vendor_seed_failed", exc_info=True)
 
     try:
         seeded = await seed_model_deployments()
