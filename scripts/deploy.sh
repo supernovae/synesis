@@ -838,6 +838,18 @@ deploy_litellm_helm() {
 
     helm_args+=(--wait --timeout 5m)
 
+    # Helm 3.15+ applies some resources with server-side apply. A ConfigMap that was
+    # previously touched by `kubectl/oc apply` (client-side) keeps field manager
+    # "kubectl-client-side-apply" on .data.config.yaml and Helm then fails with:
+    #   conflict with "kubectl-client-side-apply" ... .data.config.yaml
+    # Dropping the chart ConfigMap immediately before upgrade is idempotent: the
+    # chart recreates it in the same upgrade (same as a first-time install).
+    local litellm_chart_cfg_cm="litellm-proxy-config"
+    if oc get configmap "$litellm_chart_cfg_cm" -n "$ns" &>/dev/null; then
+        log "  Removing $ns/$litellm_chart_cfg_cm so Helm can own it (avoids SSA / kubectl apply conflicts)."
+        oc delete configmap "$litellm_chart_cfg_cm" -n "$ns" --wait=false 2>/dev/null || true
+    fi
+
     if helm "${helm_args[@]}"; then
         log "  LiteLLM Helm release '$release_name' deployed successfully"
         oc create configmap "$fp_cm" -n "$ns" \
@@ -1212,24 +1224,29 @@ log "  $MANIFEST_COUNT resources to apply"
 
 # -----------------------------------------------------------------------
 # Pre-flight: verify custom images are reachable.
-# Spot-check one image from the kustomize output to catch the common
-# mistake of deploying before building/pushing images.
+# Spot-check the **admin UI** image (build-images.sh artifact "admin" → REGISTRY/admin:tag,
+# kustomize: synesis-admin → …/synesis/admin) so we do not depend on manifest ordering.
 # When REF is not "latest", we check the same tag we're about to deploy.
 # -----------------------------------------------------------------------
 check_custom_images() {
-    log "Checking custom image availability..."
+    log "Checking Synesis admin image availability (synesis-admin workload)..."
     local built
     built=$(kustomize build "$OVERLAY_DIR" 2>/dev/null)
     # sed regex replacement; ${var//} cannot express capture groups
     # shellcheck disable=SC2001
     [[ "$REF_SAFE" != "latest" ]] && built=$(echo "$built" | sed "s|ghcr.io/supernovae/synesis/\([^:]*\):latest|ghcr.io/supernovae/synesis/\\1:${REF_SAFE}|g")
     local sample_image
-    sample_image=$(echo "$built" | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
-        | sed 's/.*image: *//' | tr -d '"' | tr -d "'" || true)
+    # Must match overlays */kustomization synesis-admin → ghcr.io/.../synesis/admin (not synesis-admin as path).
+    sample_image=$(echo "$built" | grep 'image:' | grep -E 'synesis/admin(:|@)' | head -1 \
+        | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
+    if [[ -z "$sample_image" ]]; then
+        sample_image=$(echo "$built" | grep 'image:' | grep 'ghcr.io.*synesis' | head -1 \
+            | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
+    fi
 
     if [[ -z "$sample_image" ]]; then
         sample_image=$(echo "$built" | grep 'image:' | grep 'synesis-' | head -1 \
-            | sed 's/.*image: *//' | tr -d '"' | tr -d "'" || true)
+            | sed 's/.*image: *//' | tr -d '"' | tr -d "'" | awk '{print $1}' || true)
         if [[ -n "$sample_image" && "$sample_image" != *"/"* ]]; then
             log "WARNING: Custom images still use bare names (e.g., $sample_image)."
             log "  Kubernetes will try docker.io/library/$sample_image which does not exist."
@@ -1242,11 +1259,12 @@ check_custom_images() {
 
     if command -v skopeo &>/dev/null; then
         if ! skopeo inspect --no-tags "docker://$sample_image" &>/dev/null; then
-            log "WARNING: Cannot reach image $sample_image"
-            log "  Build and push images first:"
-            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --push --tag $REF_SAFE"
-            log "    ./scripts/build-images.sh --push"
-            log "  If the repo is private, create a pull secret in each namespace."
+            log "WARNING: skopeo cannot inspect $sample_image (missing image, network, or anonymous auth)."
+            log "  Build/push the admin image (same name build-images uses: REGISTRY/admin:tag):"
+            [[ "$REF_SAFE" != "latest" ]] && log "    ./scripts/build-images.sh --only admin --push --tag $REF_SAFE"
+            log "    ./scripts/build-images.sh --only admin --push"
+            log "  Private GHCR: skopeo needs registry login (e.g. podman login ghcr.io); the cluster still pulls via imagePullSecrets."
+            log "  If the cluster already pulls this image, you can ignore this warning."
             log ""
         else
             log "  Image check OK ($sample_image)"
