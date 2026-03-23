@@ -1,10 +1,14 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 LABEL org.opencontainers.image.description="Synesis dev-tools base — shellcheck, cppcheck, JDK, Node 20, Go 1.22"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Shared telemetry library (from sibling base-api image source)
+COPY base-api/synesis-telemetry/ /tmp/synesis-telemetry/
+RUN uv pip install --system --no-cache /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \

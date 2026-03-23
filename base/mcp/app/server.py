@@ -14,19 +14,16 @@ Runs as a standalone FastAPI service on port 8100.
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from synesis_telemetry import configure_logging, get_logger
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("SYNESIS_LOG_LEVEL", "info").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logger = logging.getLogger("synesis.mcp")
+configure_logging(service="synesis-mcp")
+logger = get_logger("synesis.mcp")
 
 PLANNER_URL = os.environ.get(
     "SYNESIS_PLANNER_URL",

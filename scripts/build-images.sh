@@ -83,7 +83,7 @@ log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*"; }
 BASE_IMAGES=(
     "synesis-base-api|base/images/base-api/Dockerfile|base/images/base-api"
     "synesis-base-ml|base/images/base-ml/Dockerfile|base/images/base-ml"
-    "synesis-base-devtools|base/images/base-devtools/Dockerfile|base/images/base-devtools"
+    "synesis-base-devtools|base/images/base-devtools/Dockerfile|base/images"
 )
 
 SERVICE_IMAGES=(
@@ -182,7 +182,7 @@ for entry in "${IMAGES[@]}"; do
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;
-        planner|admin|keyword-service|preprocess-service|quality-runner)
+        planner|admin|keyword-service|preprocess-service|quality-runner|mcp)
             local_base="${BASE_TAG_MAP[synesis-base-api]:-$REGISTRY/synesis-base-api:$TAG}"
             BUILD_ARGS+=(--build-arg "BASE_IMAGE=$local_base")
             ;;

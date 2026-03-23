@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from synesis_telemetry import configure_logging, get_logger
 
-from .embed_client import EmbedClient
+from .embed_client import EMBEDDER_URL, EmbedClient
 from .extractor import extract_keywords, extract_keywords_batch
 
 configure_logging(service="synesis-keyword-service")
@@ -24,7 +24,7 @@ _embedder: EmbedClient | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _embedder
-    _embedder = EmbedClient()
+    _embedder = EmbedClient(url=EMBEDDER_URL)
     logger.info("keyword-service ready (embedder=%s)", _embedder.url)
     yield
 

@@ -7,31 +7,33 @@ inline alternative.
 
 from __future__ import annotations
 
-import logging
 import os
 import time
 
 import torch
 from fastapi import FastAPI
 from pydantic import BaseModel
+from synesis_telemetry import configure_logging, get_logger
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("synesis.bge-reranker")
+configure_logging(service="synesis-bge-reranker")
+logger = get_logger("synesis.bge-reranker")
 
 MODEL_NAME = os.environ.get("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 MODEL_REVISION = os.environ.get("BGE_RERANKER_REVISION", "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
 
-logger.info(f"Loading {MODEL_NAME} rev={MODEL_REVISION} on {DEVICE} with dtype={DTYPE}")
+logger.info(
+    "loading_model", extra={"model": MODEL_NAME, "revision": MODEL_REVISION, "device": DEVICE, "dtype": str(DTYPE)}
+)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
 model = (
     AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, revision=MODEL_REVISION, torch_dtype=DTYPE)
     .to(DEVICE)
     .eval()
 )
-logger.info("Model loaded")
+logger.info("model_loaded")
 
 app = FastAPI(title="Synesis BGE Reranker", version="0.1.0")
 

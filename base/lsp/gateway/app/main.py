@@ -7,24 +7,19 @@ failure to enrich error context for the worker's revision pass.
 
 from __future__ import annotations
 
-import logging
-import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 from fastapi import FastAPI, HTTPException
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 from starlette.responses import Response
+from synesis_telemetry import CONTENT_TYPE_LATEST, Counter, Histogram, configure_logging, generate_latest, get_logger
 
 from .analyzers import ANALYZERS, get_analyzer, supported_languages
 from .circuit_breaker import CircuitBreaker
 
-logging.basicConfig(
-    level=getattr(logging, os.environ.get("SYNESIS_LOG_LEVEL", "info").upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
-logger = logging.getLogger("synesis.lsp.gateway")
+configure_logging(service="synesis-lsp-gateway")
+logger = get_logger("synesis.lsp.gateway")
 
 ANALYSIS_DURATION = Histogram(
     "synesis_lsp_analysis_duration_seconds",

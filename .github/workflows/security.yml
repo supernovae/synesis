@@ -105,22 +105,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: base-api
+            dir: base/images/base-api
+          - name: base-ml
+            dir: base/images/base-ml
           - name: planner
             dir: base/planner
           - name: admin
             dir: base/admin
           - name: indexer
             dir: base/rag/indexer
+          - name: keyword-service
+            dir: base/rag/keyword-service
           - name: preprocess-service
             dir: base/rag/preprocess-service
           - name: spam-service
             dir: base/rag/spam-service
+          - name: gliner-service
+            dir: base/rag/gliner-service
           - name: lsp-gateway
             dir: base/lsp/gateway
-          - name: mcp
-            dir: base/mcp
           - name: bge-reranker
             dir: base/planner/bge-reranker
+          - name: yarn
+            dir: base/yarn
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +157,7 @@ jobs:
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
             --json --json-output=semgrep-results.json \
-            base/planner/app/ base/rag/indexer/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/admin/app/ base/mcp/app/ || true
+            base/planner/app/ base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ base/yarn/app/ || true
 
       - name: Run Semgrep (gate)
         run: |
@@ -157,7 +165,7 @@ jobs:
             --config "https://semgrep.dev/p/python" \
             --config "https://semgrep.dev/p/owasp-top-ten" \
             --error --include "*.py" \
-            base/planner/app/ base/rag/indexer/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/admin/app/ base/mcp/app/
+            base/planner/app/ base/planner/bge-reranker/app/ base/rag/indexer/app/ base/rag/keyword-service/app/ base/rag/preprocess-service/app/ base/rag/spam-service/app/ base/rag/gliner-service/app/ base/admin/app/ base/mcp/app/ base/lsp/gateway/app/ base/yarn/app/
 
       - name: Upload Semgrep results
         uses: actions/upload-artifact@v4

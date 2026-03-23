@@ -10,19 +10,16 @@ requests are never blocked by a running forward pass.
 from __future__ import annotations
 
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
+from synesis_telemetry import configure_logging, get_logger
 
 from .extractor import extract, load_model
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
-logger = logging.getLogger("gliner_service")
+configure_logging(service="synesis-gliner-service")
+logger = get_logger("synesis.gliner")
 
 
 @asynccontextmanager

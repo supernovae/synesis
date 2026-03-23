@@ -1,9 +1,6 @@
 httpx>=0.27.0
 boto3>=1.35.0
-# synesis_telemetry: install from base/images/base-api/synesis_telemetry. Indexer Dockerfile
-# uses python:3.13-slim (not base-api); add before pip install:
-#   COPY base/images/base-api/synesis_telemetry /tmp/synesis_telemetry
-#   RUN pip install --no-cache-dir /tmp/synesis_telemetry
+# synesis_telemetry: installed separately in Dockerfile (Debian exception, not base-api)
 defusedxml>=0.7.0
 pymilvus>=2.4.0
 pyyaml>=6.0

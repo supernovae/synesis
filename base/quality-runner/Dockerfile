@@ -4,7 +4,7 @@ FROM ${BASE_IMAGE}
 USER 0
 COPY benchmarks/corpus/requirements.txt /tmp/corpus-req.txt
 COPY tools/curator/requirements.txt /tmp/curator-req.txt
-RUN uv pip install --system --no-cache -r /tmp/corpus-req.txt -r /tmp/curator-req.txt && \
+RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r /tmp/corpus-req.txt -r /tmp/curator-req.txt && \
     rm -f /tmp/corpus-req.txt /tmp/curator-req.txt
 
 USER 1001

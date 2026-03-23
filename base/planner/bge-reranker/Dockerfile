@@ -5,7 +5,7 @@ USER 0
 WORKDIR /app
 
 COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
 
 COPY app/ app/
 
