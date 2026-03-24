@@ -203,19 +203,97 @@ oc apply -k base/validation-ring/
 
 ---
 
-## 9. Quality Regression Workflows (H2)
+## 9. Quality Regression Workflows
 
-### Lane A: Merge-Blocking CI Gates
+### 9.1 Three activation modes
+
+Live validation tests (prompt regression, retrieval regression) support three modes so you can control cost during heavy development and still guarantee coverage at release time.
+
+| Mode | Trigger | When to use | Cost | How to activate |
+|------|---------|-------------|------|-----------------|
+| **PR-gated (default off)** | `pull_request` → planner paths | Continuous development — off by default to avoid token burn on every push | Per-PR (when enabled) | Set `SYNESIS_VALIDATION_ENABLED=true` as a GitHub **Variable** on the repo |
+| **Manual dispatch** | `workflow_dispatch` via Actions UI or `gh` CLI | Ad-hoc testing after a big change, before a release, or local debugging | On-demand | Trigger manually (see §9.3) |
+| **Release ring** | `release: published` | Tag/release pipeline — runs automatically when you cut a release | Per-release | Create a GitHub release or tag |
+
+**PR-gated mode** is intentionally off by default. Offline validation (YAML structure, router governance unit tests) always runs on PR. The live suite only fires when the repo variable is set, so daily pushes don't burn tokens.
+
+**Manual dispatch** is the primary mode during active development. Run it when you want to validate changes against the live cluster without waiting for a PR merge.
+
+**Release ring** fires automatically on `release: published`. When you're down to fewer pushes and cutting releases, every release gets a full regression pass.
+
+### 9.2 Lane A: Merge-Blocking CI Gates
 
 | Workflow | Trigger | What It Checks | Blocking? |
 |----------|---------|---------------|-----------|
 | `prompt-regression.yml` — Router Governance | PR touching `base/planner/app/nodes/**`, `graph/**`, `prompts/**`, `state.py`, etc. | `test_router_governance.py`: role boundaries, evidence schema, retrieval bounds, anti-oscillation | Yes (required job) |
-| `prompt-regression.yml` — Prompt Suite Offline | Same trigger | YAML validation, required categories present (adversarial, retrieval_quality, node_routing) | Yes |
-| `prompt-regression.yml` — Prompt Suite Live | Same trigger + `SYNESIS_VALIDATION_ENABLED=true` | Run adversarial/retrieval/routing suite against cluster, fail on regression | Yes (when enabled) |
-| `retrieval-regression.yml` | PR touching `router.py`, `unified_retrieval.py`, `rag_client.py`, benchmarks | Retrieval quality metrics vs baseline (recall@k, mrr@k, ndcg@k within tolerance) | Yes (when validation env enabled) |
+| `prompt-regression.yml` — Prompt Suite Offline | Same trigger | YAML validation, required categories present (adversarial, retrieval_quality, node_routing, grounding) | Yes |
+| `prompt-regression.yml` — Prompt Suite Live | PR (when `SYNESIS_VALIDATION_ENABLED=true`), manual dispatch, or release | Run adversarial/retrieval/routing/grounding suite against cluster, fail on regression | Yes (when triggered) |
+| `retrieval-regression.yml` | PR (when enabled), manual dispatch, or release | Retrieval quality metrics vs baseline (recall@k, mrr@k, ndcg@k within tolerance) | Yes (when triggered) |
 | `guardrails-tests.yml` | PR touching `base/security/**`, `injection_scanner.py`, `nodes/**`, `graph/**`, `state.py` | Guardrails core + scanner integration tests | Yes |
 
-### Lane B: Testing Labs (Admin-Facing)
+### 9.3 Running live tests manually
+
+**From GitHub Actions UI:**
+
+Go to Actions > select workflow > "Run workflow". For `prompt-regression.yml` you can override `categories` (space-separated) and `model`.
+
+**From the CLI (`gh`):**
+
+```bash
+# Prompt regression — all default categories
+gh workflow run prompt-regression.yml
+
+# Prompt regression — specific categories only
+gh workflow run prompt-regression.yml -f categories="grounding adversarial"
+
+# Prompt regression — different model
+gh workflow run prompt-regression.yml -f model="synesis-agent" -f categories="grounding"
+
+# Retrieval regression — custom tolerance
+gh workflow run retrieval-regression.yml -f tolerance=0.03
+
+# Retrieval regression — custom Milvus host (port-forwarded)
+gh workflow run retrieval-regression.yml -f milvus_host=localhost:19530
+```
+
+**Locally (no GitHub required):**
+
+```bash
+# Prompt regression suite against local or remote planner
+python tests/prompts/run_test_suite.py \
+  --api-url http://127.0.0.1:8000 \
+  --api-key "$SYNESIS_API_KEY" \
+  --category grounding adversarial \
+  --verbose
+
+# Dry run — validate YAML and show execution plan without sending requests
+python tests/prompts/run_test_suite.py --dry-run
+
+# Run a single prompt by ID
+python tests/prompts/run_test_suite.py \
+  --api-url http://127.0.0.1:8000 \
+  --api-key "$SYNESIS_API_KEY" \
+  --ids ground-01
+
+# Save full response outputs for review
+python tests/prompts/run_test_suite.py \
+  --api-url http://127.0.0.1:8000 \
+  --api-key "$SYNESIS_API_KEY" \
+  --category grounding \
+  --save-outputs
+```
+
+### 9.4 GitHub secrets and variables
+
+| Name | Type | Where | Purpose |
+|------|------|-------|---------|
+| `SYNESIS_VALIDATION_ENABLED` | **Variable** | Repo settings > Variables | Set to `true` to enable live tests on PRs; remove or set `false` to disable |
+| `SYNESIS_VALIDATION_API_URL` | **Secret** | `validation` environment | Planner API URL (e.g. `https://synesis-api.apps.openshiftdemo.dev`) |
+| `SYNESIS_VALIDATION_API_KEY` | **Secret** | `validation` environment | PAT or service token for the planner |
+
+The `validation` GitHub **Environment** provides branch protections and reviewer gates. Secrets are scoped to this environment and not visible to other workflows.
+
+### 9.5 Lane B: Testing Labs (Admin-Facing)
 
 Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
 
@@ -225,7 +303,7 @@ Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
 - **HITL review queue**: approve/reject individual results
 - **Execution**: K8s Jobs in `synesis-validation` namespace, optional Tekton pipeline for governed promotions
 
-### Baseline Management
+### 9.6 Baseline Management
 
 - `benchmarks/retrieval/baseline.json` — seed file, auto-overwritten on first benchmark run
 - To update baseline after a deliberate quality change:
@@ -246,3 +324,4 @@ python benchmarks/retrieval/bench_hybrid.py \
 | 2026-03-23 | Initial inventory: CI vs manual, planner/Yarn/probe, OpenAI reference pointers. |
 | 2026-03-23 | §4: Planner vs Yarn OpenAI surface — implemented vs not implemented, test backlog. |
 | 2026-03-24 | §8: Validation ring (CI-to-cluster security). §9: H2 quality regression workflows + Testing Labs. |
+| 2026-03-24 | §9: Three-mode activation (PR-gated, dispatch, release). Local/CLI usage. Secrets reference. |

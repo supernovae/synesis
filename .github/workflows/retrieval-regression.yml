@@ -20,6 +20,8 @@ on:
       embedder_url:
         description: "TEI embedder URL"
         default: "http://embedder.synesis-rag.svc.cluster.local:8080"
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -29,7 +31,8 @@ jobs:
     name: Retrieval Quality Regression
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      vars.SYNESIS_VALIDATION_ENABLED == 'true'
+      github.event_name == 'release' ||
+      (github.event_name == 'pull_request' && vars.SYNESIS_VALIDATION_ENABLED == 'true')
     runs-on: self-hosted
     timeout-minutes: 30
     environment: validation
