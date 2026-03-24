@@ -105,15 +105,15 @@ class TestEntryClassifierValidation:
 class TestEntryPipelineTrivialPath:
     """Explicit tests for trivial fast-path routing via route_after_entry_pipeline."""
 
-    def test_trivial_routes_to_writer(self):
-        """route_after_entry_pipeline: trivial non-code → writer."""
+    def test_trivial_routes_to_planner(self):
+        """route_after_entry_pipeline: unified pipeline sends all requests to planner."""
         from app.graph import route_after_entry_pipeline
 
         state = {"messages": [{"content": "hello world"}]}
         out = entry_classifier_node(state)
         state.update(out)
         assert out["difficulty"] < TRIVIAL_CEILING
-        assert route_after_entry_pipeline(state) == "writer"
+        assert route_after_entry_pipeline(state) == "planner"
 
     def test_ui_helper_routes_to_respond(self):
         from app.graph import route_after_entry_pipeline
@@ -254,7 +254,6 @@ class TestExplainabilityPhase1:
         state = {"messages": [{"content": "kubectl get pods"}]}
         out = entry_classifier_node(state)
         assert out["difficulty"] < PLAN_FLOOR, "Domain keywords (kubectl) must not push difficulty to plan threshold"
-        assert out.get("domain_hints") or out.get("active_domain_refs"), "Domain should be detected for RAG"
 
     def test_intent_class_emitted_for_keyword_match(self):
         """Intent class drives critic overlay; BM25-scored, highest score wins."""

@@ -8,14 +8,12 @@ Validates that:
 
 from __future__ import annotations
 
-import pytest
-
 from app.schema import EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV10TenancyFields:
-    def test_version_is_10(self):
-        assert SCHEMA_VERSION == 10
+class TestSchemaV11TenancyFields:
+    def test_version_is_11(self):
+        assert SCHEMA_VERSION == 11
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS

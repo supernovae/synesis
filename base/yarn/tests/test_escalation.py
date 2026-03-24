@@ -31,9 +31,8 @@ class TestEscalationDetector:
         assert sig.should_escalate is False
 
     def test_context_pressure_above_threshold(self):
-        buf = MemoryBuffer(max_tokens=50)
-        buf.set_system_prompt("A" * 200)
-        # utilization should exceed 0.9 threshold
+        buf = MemoryBuffer(max_tokens=30)
+        buf.set_system_prompt("The quick brown fox " * 50)
         assert buf.utilization >= 0.9
         sig = check_context_pressure(buf)
         assert sig.should_escalate is True

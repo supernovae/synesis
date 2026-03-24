@@ -224,7 +224,7 @@ def _read_planner_prompt_source() -> str:
 
     src = pathlib.Path(__file__).resolve().parent.parent / "app" / "nodes" / "planner_node.py"
     text = src.read_text()
-    start = text.index('_PLANNER_SYSTEM_STATIC = """\\\n')
+    start = text.index('_PLANNER_SYSTEM_STATIC = (\n')
     end_marker = "def _build_knowledge_planner_prompt"
     func_start = text.index(end_marker, start)
     func_end = text.index("\n\n", func_start + len(end_marker))

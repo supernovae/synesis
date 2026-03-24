@@ -35,8 +35,8 @@ def _build_section_queries(
 class TestDepthModeActivation:
     """Verify _should_activate_depth_mode gating logic.
 
-    Depth mode activates for all non-code tasks with 2+ plan steps.
-    Only disabled for code tasks or when depth_mode config = "disabled".
+    Unified pipeline: depth mode activates for ALL tasks with 2+ plan steps.
+    Only disabled when depth_mode config = "disabled".
     """
 
     def _make_state(self, **overrides) -> dict:
@@ -77,11 +77,12 @@ class TestDepthModeActivation:
         steps = self._make_steps(5)
         assert _should_activate_depth_mode(state, steps) is False
 
-    def test_code_tasks_never_activate(self, monkeypatch):
+    def test_code_tasks_activate_in_unified_pipeline(self, monkeypatch):
+        """Unified pipeline: depth mode activates for code tasks with 2+ steps too."""
         monkeypatch.setenv("SYNESIS_DEPTH_MODE", "auto")
         state = self._make_state(is_code_task=True)
         steps = self._make_steps(5)
-        assert _should_activate_depth_mode(state, steps) is False
+        assert _should_activate_depth_mode(state, steps) is True
 
     def test_single_step_does_not_activate(self, monkeypatch):
         """Fewer than 2 steps → no depth mode."""
