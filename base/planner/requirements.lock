@@ -692,9 +692,9 @@ kubernetes-asyncio==35.0.1 \
     --hash=sha256:244ef45943e89c5c5104276a646bfcbf1a9dc3d060876c2094aa601e932f1c03 \
     --hash=sha256:975870e3097b647c265a59b9175ab0841f0de06cd2162268273ca210b1fa672e
     # via -r base/planner/requirements.txt
-langchain-core==1.2.21 \
-    --hash=sha256:1a121d13976dc0908d5a8222262810ea483a4cf2b05006bdba75df5b11b554b3 \
-    --hash=sha256:486cb405e2ecb0c407cb5fb5379ed0f919eb4b8a868b60cc8c3c15a3dfb560a7
+langchain-core==1.2.22 \
+    --hash=sha256:7e30d586b75918e828833b9ec1efc25465723566845dd652c277baf751e9c04b \
+    --hash=sha256:8d8f726d03d3652d403da915126626bb6250747e8ba406537d849e68b9f5d058
     # via langchain-openai, langgraph, langgraph-checkpoint, langgraph-prebuilt, -r base/planner/requirements.txt
 langchain-openai==1.1.12 \
     --hash=sha256:ccf5ef02c896f6807b4d0e51aaf678a72ce81ae41201cae8d65e11eeff9ecb79 \

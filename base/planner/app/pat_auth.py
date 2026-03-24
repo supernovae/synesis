@@ -107,7 +107,7 @@ def resolve_pat_context_sync(token: str, dsn: str) -> PatAuthContext | None:
         tenant_ids = [str(t).strip()[:64] for t in raw_tenants if str(t).strip()][:50]
         org_id = str(row.get("org_id") or "").strip()
         if tenant_ids and not org_id:
-            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(row.get("id", "")))
+            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(row.get("id", "")))  # nosemgrep: python-logger-credential-disclosure
             return None
         return PatAuthContext(
             user_id=str(row.get("user_id") or ""),
