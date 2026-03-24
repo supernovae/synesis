@@ -23,7 +23,8 @@ from pydantic import ValidationError
 # 1. Role boundary tests (static analysis)
 # ---------------------------------------------------------------------------
 
-NODES_DIR = Path(__file__).resolve().parent.parent / "app" / "nodes"
+APP_DIR = Path(__file__).resolve().parent.parent / "app"
+NODES_DIR = APP_DIR / "nodes"
 
 FORBIDDEN_RETRIEVAL_IMPORTS = {
     "rag_client",
@@ -86,6 +87,35 @@ class TestRoleBoundaries:
         """Verify deleted nodes are actually gone."""
         for name in ("supervisor.py", "context_curator.py", "evidence_gatherer.py", "evidence_compiler.py"):
             assert not (NODES_DIR / name).exists(), f"{name} should have been deleted"
+
+    def test_main_no_retrieval_imports(self):
+        """main.py must not import retrieval symbols from rag_client.
+
+        init_milvus_pool (infrastructure init) is allowed; retrieval functions
+        like retrieve_context, build_metadata_filter, submit_user_knowledge
+        belong in routers/knowledge.py, not in the main module.
+        """
+        filepath = APP_DIR / "main.py"
+        assert filepath.exists(), "main.py not found"
+        source = filepath.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        allowed_from_rag_client = {"init_milvus_pool"}
+        violations: set[str] = set()
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if "rag_client" not in node.module.split("."):
+                continue
+            for alias in node.names:
+                if alias.name not in allowed_from_rag_client:
+                    violations.add(alias.name)
+
+        assert not violations, (
+            f"main.py imports forbidden symbols from rag_client: {violations}. "
+            "Retrieval endpoints belong in routers/knowledge.py."
+        )
 
 
 # ---------------------------------------------------------------------------

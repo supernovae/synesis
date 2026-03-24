@@ -51,7 +51,6 @@ from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pat_auth import PatAuthContext, resolve_pat_or_none
 from .pending_drift import pending_reply_diverges
-from .rag_client import build_metadata_filter, retrieve_context, submit_user_knowledge
 from .run_context import compute_trace_links, derive_critic_turn_kind
 from .short_followup_context import pick_richer_conversation_transcript, prior_transcript_from_request_messages
 from .state import RetrievalParams
@@ -327,6 +326,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from .routers.knowledge import router as knowledge_router  # noqa: E402
+
+app.include_router(knowledge_router)
 
 
 class ChatMessage(BaseModel):
@@ -2732,108 +2735,6 @@ async def feedback_list(
             }
             for e in entries
         ],
-    }
-
-
-class KnowledgeSearchRequest(BaseModel):
-    """Label-scoped RAG search against the Synesis catalog."""
-
-    query: str = Field(..., min_length=1, description="Search query")
-    top_k: int = Field(default=5, ge=1, le=50, description="Number of results")
-    language: str = Field(default="", description="Filter by language (e.g. python, go, rust)")
-    artifact_kind: str = Field(default="", description="Filter by artifact kind (code, docs, config, api_spec)")
-    domain: str = Field(default="", description="Filter by taxonomy domain (e.g. python, kubernetes)")
-    repo_path: str = Field(default="", description="Filter by repository (e.g. owner/repo)")
-    tags: str = Field(default="", description="Filter by tag substring (e.g. async, web)")
-    content_format: str = Field(default="", description="Filter by content format (e.g. python, yaml)")
-
-
-class KnowledgeSubmitRequest(BaseModel):
-    """User-submitted knowledge to fill gaps. Self-heal flow."""
-
-    domain: str = Field(..., description="Domain (e.g. openshift, python, generalist)")
-    content: str = Field(..., min_length=1, description="Markdown or plain text content")
-
-
-@app.post("/v1/knowledge/submit")
-async def knowledge_submit(req: KnowledgeSubmitRequest):
-    """Submit user knowledge to synesis_catalog. Fills gaps from knowledge backlog review."""
-    content = req.content.strip()
-    if settings.injection_scan_enabled:
-        result = scan_text(content, source="user_knowledge_submit")
-        if result.detected:
-            logger.warning(
-                "knowledge_submit_injection_blocked",
-                extra={"patterns": result.patterns_found[:5]},
-            )
-            raise HTTPException(status_code=422, detail="Content rejected: potential prompt injection detected")
-    chunk_id = await submit_user_knowledge(
-        domain=req.domain.strip() or "generalist",
-        content=content,
-        source="user_submitted",
-    )
-    if chunk_id:
-        return {"chunk_id": chunk_id, "status": "ingested"}
-    raise HTTPException(status_code=500, detail="Failed to submit knowledge")
-
-
-@app.post("/v1/knowledge/search")
-async def knowledge_search(req: KnowledgeSearchRequest):
-    """Label-scoped RAG search — Milvus pre-filtered by metadata signals.
-
-    Supports filtering by language, artifact_kind, domain, repo_path, tags,
-    and content_format.  Used by MCP tools (synesis_search, synesis_code_search,
-    etc.) to give coding agents targeted corpus access.
-    """
-    domain_filter = ""
-    if req.domain:
-        safe = req.domain.replace('"', "")[:64]
-        domain_filter = f'domain == "{safe}"'
-
-    filter_expr = build_metadata_filter(
-        language=req.language,
-        artifact_kind=req.artifact_kind,
-        repo_path=req.repo_path,
-        domain_filter=domain_filter,
-        tags=req.tags,
-        content_format=req.content_format,
-    )
-
-    try:
-        results = await retrieve_context(
-            query=req.query,
-            collections=["synesis_catalog"],
-            top_k=req.top_k,
-            domain_filter=filter_expr,
-        )
-    except Exception as e:
-        logger.warning("knowledge_search_failed", extra={"error": str(e)[:200]})
-        raise HTTPException(status_code=502, detail="Search backend unavailable") from e
-
-    return {
-        "results": [
-            {
-                "text": r.text,
-                "source": r.source,
-                "source_url": r.source_url,
-                "document_name": r.document_name,
-                "domain": r.domain,
-                "language": r.language,
-                "artifact_kind": r.artifact_kind,
-                "repo_path": r.repo_path,
-                "module_path": r.module_path,
-                "symbol_name": r.symbol_name,
-                "heading_path": r.heading_path,
-                "authority": r.authority,
-                "handler": r.handler,
-                "source_type": r.source_type,
-                "rrf_score": r.rrf_score,
-                "rerank_score": r.rerank_score,
-            }
-            for r in results
-        ],
-        "count": len(results),
-        "filters_applied": filter_expr or "(none)",
     }
 
 
