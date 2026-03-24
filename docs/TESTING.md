@@ -11,7 +11,7 @@ This document is the **inventory** of how we validate Synesis: what runs automat
 | Workflow | What it runs | Blocking on PR? |
 |----------|----------------|-----------------|
 | [`.github/workflows/lint.yml`](../.github/workflows/lint.yml) | Ruff (all `base/`), vulture, yamllint, kustomize build (matrix `dev`/`staging`/`prod`), ShellCheck, Hadolint, **`pytest` for `base/planner/tests/`** on Python **3.11** (required) and **3.13** (experimental, `continue-on-error`) | Yes (required jobs) |
-| [`.github/workflows/security.yml`](../.github/workflows/security.yml) | CodeQL, Trivy, Bandit, npm audit (e.g. admin frontend), targeted static paths | Yes (per workflow config) |
+| [`.github/workflows/security.yml`](../.github/workflows/security.yml) | CodeQL, Checkov, Grype, Bandit, Semgrep, pip-audit, npm audit | Yes (per workflow config) |
 | [`.github/workflows/openai-compat-probe.yml`](../.github/workflows/openai-compat-probe.yml) | Optional `scripts/synesis_openai_capability_probe.py` when secrets are set; **`continue-on-error: true`** | **No** (never blocks merge) |
 | [`.github/workflows/quality-pipeline.yml`](../.github/workflows/quality-pipeline.yml) | Quality runner / scheduled jobs (not planner `pytest` by default) | Per workflow |
 | [`.github/workflows/retrieval-regression.yml`](../.github/workflows/retrieval-regression.yml) | RAG/regression against cluster inputs | Manual / scheduled |

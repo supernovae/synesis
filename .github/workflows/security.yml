@@ -35,44 +35,64 @@ jobs:
         with:
           category: "/language:${{ matrix.language }}"
 
-  trivy:
-    name: Trivy Config Scan
+  # ---------------------------------------------------------------------------
+  # IaC misconfiguration scanning (Checkov — replaces Trivy config scan)
+  # Trivy was removed after supply-chain compromise GHSA-69fq-xp46-6x23.
+  # ---------------------------------------------------------------------------
+  checkov:
+    name: Checkov IaC Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      # Pinned to v0.35.0 (SHA) — the verified-safe release after the Trivy
-      # supply-chain incident (GHSA-69fq-xp46-6x23, 2026-03-19).
-      # Do NOT use @master or unpinned tags; update by verifying the new SHA
-      # against a signed GitHub release.
-      - name: Generate Trivy SARIF report
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
+      - name: Run Checkov (SARIF report)
+        uses: bridgecrewio/checkov-action@v12
         with:
-          scan-type: 'config'
-          scan-ref: '.'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-          trivyignores: '.trivyignore'
-          exit-code: '0'
-          version: 'v0.69.3'
+          directory: .
+          config_file: .checkov.yml
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
 
-      - name: Upload Trivy SARIF
+      - name: Upload Checkov SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
-          category: 'trivy-config'
+          sarif_file: checkov-results.sarif
+          category: 'checkov-iac'
 
-      - name: Fail on HIGH/CRITICAL misconfigurations
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
+      - name: Run Checkov (gate — hard fail)
+        uses: bridgecrewio/checkov-action@v12
         with:
-          scan-type: 'config'
-          scan-ref: '.'
-          severity: 'HIGH,CRITICAL'
-          format: 'table'
-          exit-code: '1'
-          trivyignores: '.trivyignore'
-          version: 'v0.69.3'
+          directory: .
+          config_file: .checkov.yml
+          output_format: cli
+          soft_fail: false
+
+  # ---------------------------------------------------------------------------
+  # Filesystem vulnerability scanning (Grype — replaces Trivy vuln scan)
+  # ---------------------------------------------------------------------------
+  grype:
+    name: Grype Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Scan filesystem for vulnerabilities
+        uses: anchore/scan-action@v6
+        id: grype-scan
+        with:
+          path: .
+          fail-build: true
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype-scan.outputs.sarif }}
+          category: 'grype-vuln'
 
   bandit:
     name: Bandit (Python Security)
@@ -296,18 +316,18 @@ jobs:
           fi
           echo "All LiteLLM image references are pinned."
 
-      - name: Check for mutable CI action refs
+      - name: Check for residual Trivy references
         run: |
-          echo "=== Scanning workflows for mutable action refs ==="
+          echo "=== Scanning for residual Trivy/Aqua Security references ==="
           FOUND=0
-          if grep -rnE 'uses:\s+aquasecurity/trivy-action@(master|main)\b' .github/workflows/; then
-            echo "::error::trivy-action pinned to mutable branch ref — use a SHA or release tag."
+          if grep -rnE 'aquasecurity/trivy' .github/workflows/; then
+            echo "::error::Trivy reference detected — removed after supply-chain compromise. Use Checkov + Grype."
             FOUND=1
           fi
           if [ "$FOUND" -eq 1 ]; then
             exit 1
           fi
-          echo "All CI action refs are properly pinned."
+          echo "No Trivy references found in CI workflows."
 
   # ---------------------------------------------------------------------------
   # Lockfile freshness — ensures committed requirements.lock files match

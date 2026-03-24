@@ -202,6 +202,24 @@ jobs:
           cache-from: type=gha,scope=synesis-base-api
           cache-to: type=gha,mode=max,scope=synesis-base-api
 
+      - name: Generate SBOM (Syft)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
+          artifact-name: sbom-synesis-base-api
+          output-file: sbom-synesis-base-api.cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Scan image (Grype)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
+
   build-base-devtools:
     needs: [determine-tag, detect-changes]
     if: >-
@@ -242,6 +260,24 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-devtools:latest
           cache-from: type=gha,scope=synesis-base-devtools
           cache-to: type=gha,mode=max,scope=synesis-base-devtools
+
+      - name: Generate SBOM (Syft)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
+          artifact-name: sbom-synesis-base-devtools
+          output-file: sbom-synesis-base-devtools.cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Scan image (Grype)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
 
   build-base-ml:
     needs: [determine-tag, detect-changes, build-base-api]
@@ -294,6 +330,24 @@ jobs:
             ${{ env.REGISTRY }}/synesis-base-ml:latest
           cache-from: type=gha,scope=synesis-base-ml
           cache-to: type=gha,mode=max,scope=synesis-base-ml
+
+      - name: Generate SBOM (Syft)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.determine-tag.outputs.tag }}
+          artifact-name: sbom-synesis-base-ml
+          output-file: sbom-synesis-base-ml.cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Scan image (Grype)
+        if: steps.filter.outputs.skip != 'true'
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.determine-tag.outputs.tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table
 
   # -----------------------------------------------------------------------
   # Stage 2: Service images — only rebuilt when their files (or base) change.
@@ -482,3 +536,21 @@ jobs:
             ${{ env.REGISTRY }}/${{ matrix.name }}:latest
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Generate SBOM (Syft)
+        if: steps.check.outputs.skip != 'true'
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.determine-tag.outputs.tag }}
+          artifact-name: sbom-${{ matrix.name }}
+          output-file: sbom-${{ matrix.name }}.cyclonedx.json
+          format: cyclonedx-json
+
+      - name: Scan image (Grype)
+        if: steps.check.outputs.skip != 'true'
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.determine-tag.outputs.tag }}
+          fail-build: false
+          severity-cutoff: critical
+          output-format: table

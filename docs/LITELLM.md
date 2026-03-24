@@ -468,7 +468,7 @@ every push and PR. It fails if any of the following are detected:
 - Compromised LiteLLM PyPI versions (`1.82.7`, `1.82.8`) in lockfiles or requirements
 - Known IOC strings (`litellm_init.pth`, `models.litellm.cloud`)
 - Mutable LiteLLM image tags (`main-stable`, `latest`) in gateway manifests
-- Mutable CI action refs (`@master`, `@main`) for `trivy-action`
+- Residual references to removed tools (Trivy was replaced by Checkov + Grype)
 
 ### Incident response checklist
 

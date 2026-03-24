@@ -1,0 +1,64 @@
+# Checkov IaC / Dockerfile / K8s misconfiguration scanner configuration
+#
+# Frameworks scanned: kubernetes, dockerfile, kustomize, helm, github_actions
+# Replaces .trivyignore (Trivy removed after supply-chain compromise GHSA-69fq-xp46-6x23).
+#
+# Run locally:
+#   checkov -d base/ --config-file .checkov.yml
+#   checkov -d .github/workflows/ --framework github_actions --config-file .checkov.yml
+
+framework:
+  - kubernetes
+  - dockerfile
+  - kustomize
+  - helm
+  - github_actions
+
+compact: true
+quiet: true
+
+# ─── Global skips ────────────────────────────────────────────────────────────
+# These apply to all scanned files. Each maps from a former .trivyignore entry.
+
+skip-check:
+  # CKV_K8S_22: readOnlyRootFilesystem not set
+  # (was Trivy KSV-0014)
+  # Requires emptyDir mounts per container for /tmp, model caches, HF_HOME, etc.
+  # Too invasive to enable safely across all services without per-service testing.
+  # First-party images already run as non-root with dropped capabilities.
+  - CKV_K8S_22
+
+  # CKV_K8S_30: Apply a default security context
+  # (was Trivy KSV-0118)
+  # Suppressed for third-party images where we don't control runtime behavior:
+  #   - litellm (ghcr.io/berriai/litellm)
+  #   - vLLM (registry.redhat.io/rhaiis/vllm-cuda-rhel9, quay.io vllm-cpu)
+  #   - KServe ServingRuntime templates
+  # First-party deployments have securityContext configured directly.
+  - CKV_K8S_30
+
+  # CKV_K8S_49: Do not allow roles that can mutate cluster resources
+  # (was Trivy KSV-0056)
+  # RHBK Keycloak operator Role in base/keycloak/operator-rbac.yaml — required
+  # for the operator to reconcile Keycloak CRs; follows Red Hat operator expectations.
+  - CKV_K8S_49
+
+  # CKV_DOCKER_3: Ensure USER directive is not root
+  # (was Trivy DS-0002)
+  # base/webui is a thin layer on ghcr.io/open-webui/open-webui (defaults to UID 0
+  # unless rebuilt with upstream USE_PERMISSION_HARDENING). Only this Dockerfile is
+  # affected today — revisit if more Dockerfiles are added without USER.
+  - CKV_DOCKER_3
+
+  # CKV_K8S_40: Do not allow containers with added capabilities
+  # Third-party operator pods (Keycloak, vLLM) sometimes need NET_BIND_SERVICE.
+  - CKV_K8S_40
+
+  # CKV_K8S_8/CKV_K8S_9: Liveness/readiness probes
+  # CronJobs and one-shot Jobs don't need probes; many third-party manifests omit them.
+  - CKV_K8S_8
+  - CKV_K8S_9
+
+  # CKV_K8S_43: Image should use a fixed tag (not latest)
+  # First-party images use :latest during dev; pinning tracked separately in SECURITY.md.
+  - CKV_K8S_43

@@ -43,7 +43,9 @@ All checks run on every push to `main` and on pull requests:
 |------|---------------|--------------|
 | **CodeQL** | Semantic code analysis (Python) | Yes |
 | **Bandit** | Python-specific security patterns (medium+ severity) | Yes |
-| **Trivy** | K8s/Dockerfile misconfiguration, secrets (HIGH/CRITICAL) | Yes |
+| **Checkov** | K8s/Dockerfile/Kustomize/Helm/Actions misconfiguration | Yes |
+| **Grype** | Filesystem vulnerability scan (HIGH/CRITICAL) | Yes |
+| **Syft** | CycloneDX SBOM generation (per image build) | Artifact only |
 | **Semgrep** | OWASP Top 10, Python security rules | Yes |
 | **pip-audit** | Known vulnerabilities in Python dependencies | Yes |
 | **Ruff** | Lint + flake8-bandit (S-class) security rules | Yes |
@@ -51,7 +53,9 @@ All checks run on every push to `main` and on pull requests:
 | **Hadolint** | Dockerfile best practices | Yes |
 | **Dependabot** | Dependency version alerts | Advisory |
 
-Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.trivyignore` (including **KSV-0056** for the RHBK Keycloak operator `Role` in `base/keycloak/operator-rbac.yaml`, and **DS-0002** for the thin **Open WebUI** child `Dockerfile` that inherits upstream’s default root user).
+**Note:** Trivy was removed after the Aqua Security supply-chain compromise ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Checkov (IaC misconfiguration) and Grype (vulnerability scanning) replace it. Syft generates CycloneDX SBOMs for every built image.
+
+Suppressions are documented in-code (`# nosec`, `# nosemgrep`) and in `.checkov.yml` (including `CKV_K8S_49` for the RHBK Keycloak operator `Role` in `base/keycloak/operator-rbac.yaml`, and `CKV_DOCKER_3` for the thin **Open WebUI** child `Dockerfile` that inherits upstream’s default root user).
 
 ### pip-audit: indexer and NLTK (transitive)
 
@@ -104,6 +108,8 @@ All first-party images currently use `:latest` tags. This is intentional during 
 - [x] CI verifies lockfile freshness on every PR (lockfile-freshness job)
 - [x] pip-audit scans pre-resolved lockfiles (no resolver-dependent results)
 - [x] LiteLLM PyPI compromise IOCs checked by supply-chain-guard job
+- [x] CycloneDX SBOMs generated for every image build (Syft)
+- [x] Image vulnerability scanning on every build (Grype)
 - [ ] Enable cosign/sigstore signature verification for first-party images
 
 ### Container registries
@@ -116,7 +122,7 @@ Images are currently pulled from public registries (`ghcr.io`, `quay.io`, `regis
 
 ### Read-only root filesystem
 
-`KSV-0014` (readOnlyRootFilesystem) is suppressed in `.trivyignore`. Many containers require writable paths for model caches, HuggingFace home, `/tmp`, and crawl state. Before production:
+`CKV_K8S_22` (readOnlyRootFilesystem) is suppressed in `.checkov.yml`. Many containers require writable paths for model caches, HuggingFace home, `/tmp`, and crawl state. Before production:
 
 - [ ] Audit each container for minimum writable paths
 - [ ] Enable `readOnlyRootFilesystem: true` with targeted `emptyDir` mounts

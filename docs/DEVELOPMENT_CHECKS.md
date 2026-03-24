@@ -161,26 +161,32 @@ print('Taxonomy issues:', lint_taxonomy_config())
 
 ---
 
-## 6. Security Scanning (Trivy)
+## 6. Security Scanning (Checkov + Grype)
 
-Run Trivy for vulnerability and misconfiguration scanning. Use version
-**0.69.3** (the last verified-safe release before the Trivy supply-chain
-incident [GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)).
+Trivy was removed after the Aqua Security supply-chain compromise
+([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)).
+**Checkov** handles IaC/Dockerfile misconfiguration scanning; **Grype**
+handles vulnerability scanning. **Syft** generates CycloneDX SBOMs at
+image build time (CI only).
 
 ```bash
-# Scan Dockerfiles for misconfigurations
-trivy config base/ --severity HIGH,CRITICAL
+# IaC misconfiguration scan (K8s manifests, Dockerfiles, Kustomize, Helm)
+checkov -d base/ --config-file .checkov.yml
 
-# Scan filesystem for secrets
-trivy fs . --scanners secret
+# Filesystem vulnerability scan
+grype dir:. --only-fixed --fail-on high
+
+# Generate SBOM for a local image and scan it
+syft localhost/synesis-base-api:test -o cyclonedx-json > sbom.json
+grype sbom:sbom.json --fail-on high
 ```
 
-CI pins `aquasecurity/trivy-action` to commit SHA (v0.35.0) and Trivy
-binary v0.69.3 in `.github/workflows/security.yml`. When upgrading Trivy
-locally, verify the binary checksum against the
-[GitHub release](https://github.com/aquasecurity/trivy/releases).
+Install locally: `brew install checkov grype syft` (macOS) or see
+[Checkov docs](https://www.checkov.io/), [Grype docs](https://github.com/anchore/grype),
+[Syft docs](https://github.com/anchore/syft).
 
-All Dockerfiles use non-root `USER 1001` at runtime to comply with DS-0002.
+Suppressed checks are documented in `.checkov.yml` (see comments for rationale).
+All first-party Dockerfiles use non-root `USER 1001` at runtime.
 
 ## 7. Supply-Chain Guardrails
 
@@ -196,8 +202,8 @@ grep -rn --include='*.txt' --include='*.lock' --include='*.toml' \
 # Check for floating LiteLLM image tags
 grep -n 'main-stable\|:latest' base/gateway/helm/values-synesis.yaml
 
-# Check for mutable CI action refs
-grep -rn 'trivy-action@master\|trivy-action@main' .github/workflows/
+# Check for residual Trivy references (should return nothing)
+grep -rn 'aquasecurity/trivy' .github/workflows/
 ```
 
 All commands should return no matches. See `docs/LITELLM.md` for the
