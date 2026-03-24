@@ -86,6 +86,7 @@ const navigation: NavItem[] = [
       { label: "Benchmarks", path: "/rag/benchmarks" },
       { label: "Review Queue", path: "/rag/review" },
       { label: "Ingestion Queue", path: "/rag/ingestion" },
+      { label: "Testing Labs", path: "/rag/testing-labs" },
     ],
   },
   {

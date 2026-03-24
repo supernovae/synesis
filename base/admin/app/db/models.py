@@ -733,6 +733,83 @@ class SecurityEvent(Base):
     )
 
 
+class TestingLabsRun(Base):
+    """A Testing Labs replay run: baseline vs candidate comparison."""
+
+    __tablename__ = "testing_labs_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    run_type: Mapped[str] = mapped_column(String(32), nullable=False, default="replay")
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+
+    baseline_model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    candidate_model: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    prompt_category: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    trace_filter: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    total_prompts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_prompts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_prompts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    baseline_metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    candidate_metrics: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    comparison: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_testing_labs_runs_status", "status"),
+        Index("ix_testing_labs_runs_created_by", "created_by"),
+        Index("ix_testing_labs_runs_org_id", "org_id"),
+        Index("ix_testing_labs_runs_created_at", "created_at"),
+    )
+
+
+class TestingLabsResult(Base):
+    """Individual prompt result within a Testing Labs run."""
+
+    __tablename__ = "testing_labs_results"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    prompt_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    prompt_category: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    source_trace_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+
+    baseline_response: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    baseline_latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    baseline_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    baseline_citation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    baseline_verdict: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+
+    candidate_response: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    candidate_latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    candidate_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    candidate_citation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    candidate_verdict: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+
+    review_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    reviewer: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    reviewer_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_testing_labs_results_run_id", "run_id"),
+        Index("ix_testing_labs_results_review", "review_status"),
+    )
+
+
 class ModelPolicy(Base):
     """Conditional model selection rule — per role, evaluated in priority order."""
 

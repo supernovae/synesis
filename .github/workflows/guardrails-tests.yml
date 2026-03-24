@@ -6,12 +6,18 @@ on:
     paths:
       - "base/security/**"
       - "base/planner/app/injection_scanner.py"
+      - "base/planner/app/nodes/**"
+      - "base/planner/app/graph/**"
+      - "base/planner/app/state.py"
       - "base/yarn/app/middleware/injection_scanner.py"
   pull_request:
     branches: [main]
     paths:
       - "base/security/**"
       - "base/planner/app/injection_scanner.py"
+      - "base/planner/app/nodes/**"
+      - "base/planner/app/graph/**"
+      - "base/planner/app/state.py"
       - "base/yarn/app/middleware/injection_scanner.py"
 
 permissions:

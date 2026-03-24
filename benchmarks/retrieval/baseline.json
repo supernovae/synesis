@@ -1,0 +1,19 @@
+{
+  "aggregate": {
+    "recall@5": 0.0,
+    "recall@10": 0.0,
+    "recall@20": 0.0,
+    "mrr@5": 0.0,
+    "mrr@10": 0.0,
+    "mrr@20": 0.0,
+    "ndcg@5": 0.0,
+    "ndcg@10": 0.0,
+    "ndcg@20": 0.0,
+    "p50_ms": 0.0,
+    "p95_ms": 0.0,
+    "p99_ms": 0.0,
+    "query_count": 0
+  },
+  "per_query": [],
+  "_note": "Seed baseline — first benchmark run against a populated Milvus will overwrite with real values. See benchmarks/retrieval/bench_hybrid.py."
+}

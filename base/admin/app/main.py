@@ -176,6 +176,7 @@ from app.routers.taxonomy import router as taxonomy_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
+from app.routers.testing_labs import router as testing_labs_router
 from app.routers.yarn import router as yarn_router
 
 app.include_router(admin_mcp_router)
@@ -201,6 +202,7 @@ app.include_router(usage_router)
 app.include_router(provider_governance_router)
 app.include_router(security_router)
 app.include_router(serving_router)
+app.include_router(testing_labs_router)
 app.include_router(yarn_router)
 
 

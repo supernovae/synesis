@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: validation-deny-all
+  namespace: synesis-validation
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # Deny all by default. The runner job gets explicit egress to
+  # planner/admin/embedder/milvus via the allow policy below.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: validation-runner-egress
+  namespace: synesis-validation
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  podSelector:
+    matchLabels:
+      synesis-component: validation-runner
+  policyTypes:
+    - Egress
+  egress:
+    # DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Planner API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-planner
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Admin API (for result collection)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: synesis-admin
+      ports:
+        - protocol: TCP
+          port: 8080

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: synesis-validation
+  labels:
+    app.kubernetes.io/part-of: synesis
+    synesis-env: validation
+    # Network policy: deny-all by default; allow only from quality-runner
+    # and admin namespace for result collection.

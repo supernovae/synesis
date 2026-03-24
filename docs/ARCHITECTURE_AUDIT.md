@@ -46,8 +46,8 @@ We are standardizing on a gateway-only policy:
 |------|-----------|---------|
 | **Token budget** | **RESOLVED.** `token_budget_remaining` is now enforced across all core LLM nodes (router, planner, writer, critic, compiler) and the direct-stream path. Budget accounting uses a centralized state machine (`token_utils.apply_budget_decrement`) with hybrid enforcement (degrade at warning threshold, hard-stop at zero), overspend anomaly detection, and Prometheus metrics (`synesis_token_budget_*`). Config SSOT is `settings.effective_token_budget`. | Governance tests in `test_token_budget.py` ensure all core nodes import budget accounting helpers and return `token_budget_remaining`. |
 | **Critic stop sequence** | `config.critic_stop_sequence` is **empty** with an explicit comment that truncation would break `repair_instructions` / `requirement_coverage`. | Keep as-is; revisit only if critic JSON schema is split or streaming truncation is redesigned. |
-| **Retrieval regression CI** | `.github/workflows/retrieval-regression.yml` exists but is **workflow_dispatch** + needs Milvus/embedder; **no `baseline.json`** is committed under `benchmarks/retrieval/` in this repo snapshot. | Commit a baseline + optional PR trigger; or document “run weekly from ops” and keep dispatch-only. |
-| **Prompt suite in CI** | Adversarial YAML exists; **no workflow** references `tests/prompts/run_test_suite.py`. | Add a small job (subset categories) on planner changes, or keep manual. |
+| **Retrieval regression CI** | **RESOLVED.** `retrieval-regression.yml` now triggers on PRs touching retrieval paths. Seed `benchmarks/retrieval/baseline.json` committed. Self-hosted runner in `validation` environment. | First real run against populated Milvus overwrites seed baseline. |
+| **Prompt suite in CI** | **RESOLVED.** `prompt-regression.yml` runs router governance + prompt suite (adversarial, retrieval_quality, node_routing) on planner changes. Admin Testing Labs for customer replay/comparison. | See `docs/TESTING.md` §9 for full workflow reference. |
 | **Summarizer** | `summarizer_model_url` defaults empty — pivot summarization **off** until deployed. | Set `SYNESIS_SUMMARIZER_MODEL_URL` per [model alignment](../.cursor/rules/model-alignment.mdc) / LiteLLM. |
 | **Planner `next_node`** | Was `"worker"` (removed graph node); planner now uses **`writer`** when a plan continues to generation, **`planner`** on hard error with empty plan (retry via plan_gate). | Done in code; keep naming aligned with `route_after_router` allowlist (`planner` \| `writer` \| `respond`). |
 | **Fail-fast cache dir** | Default remains `/tmp/...` unless `SYNESIS_CACHE_DIR` is set. | Mount PVC + env in deployment if cross-restart cache matters. |
@@ -66,7 +66,7 @@ The detailed severity tables, KPI tables, and phase-2 roadmap lived in git histo
 
 1. **Document and verify** LiteLLM resilience settings (`num_retries`, `request_timeout`, fallback lists) for every active served model in admin registry + gateway config.  
 2. ~~**Either** enforce token budget in router/planner **or** document intentional omission.~~ **Done** — budget enforced in all core nodes with hybrid policy.  
-3. **Commit** `benchmarks/retrieval/baseline.json` (or generate in CI first-run) if regression workflow should be reproducible from a fresh clone.  
-4. **Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.
+3. ~~**Commit** `benchmarks/retrieval/baseline.json`~~ **Done** — seed baseline committed; first benchmark run overwrites with real values.
+4. ~~**Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.~~ **Done** — `prompt-regression.yml` + Admin Testing Labs.
 
 When the open list is empty or moved to GitHub Issues, this file can be reduced to a short pointer to WORKFLOW + SECURITY only, or deleted.

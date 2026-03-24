@@ -182,7 +182,7 @@ ensure_internal_service_auth() {
     local key_name="token"
     local existing=""
     local ns
-    local namespaces=(synesis-admin synesis-rag synesis-planner synesis-yarn synesis-gateway synesis-sandbox)
+    local namespaces=(synesis-admin synesis-rag synesis-planner synesis-yarn synesis-gateway synesis-sandbox synesis-validation)
 
     for ns in "${namespaces[@]}"; do
         oc create namespace "$ns" 2>/dev/null || true

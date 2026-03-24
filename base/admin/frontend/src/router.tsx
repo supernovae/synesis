@@ -27,6 +27,7 @@ const DomainHealth = lazy(() => import("./pages/rag/DomainHealth"));
 const Benchmarks = lazy(() => import("./pages/rag/Benchmarks"));
 const ReviewQueue = lazy(() => import("./pages/rag/ReviewQueue"));
 const IngestionQueue = lazy(() => import("./pages/rag/IngestionQueue"));
+const TestingLabs = lazy(() => import("./pages/rag/TestingLabs"));
 
 const DomainBrowser = lazy(() => import("./pages/taxonomy/DomainBrowser"));
 const CoverageMap = lazy(() => import("./pages/taxonomy/CoverageMap"));
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
       { path: "rag/benchmarks", element: <Benchmarks /> },
       { path: "rag/review", element: <ReviewQueue /> },
       { path: "rag/ingestion", element: <IngestionQueue /> },
+      { path: "rag/testing-labs", element: <TestingLabs /> },
 
       { path: "taxonomy", element: <DomainBrowser /> },
       { path: "taxonomy/coverage", element: <CoverageMap /> },

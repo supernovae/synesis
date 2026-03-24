@@ -1,0 +1,163 @@
+name: Prompt & Citation Regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "base/planner/app/nodes/**"
+      - "base/planner/app/graph/**"
+      - "base/planner/app/prompts/**"
+      - "base/planner/app/taxonomy_prompt_config.yaml"
+      - "base/planner/app/state.py"
+      - "base/planner/app/reducers.py"
+      - "base/planner/app/config.py"
+      - "base/planner/app/oscillation_detector.py"
+      - "tests/prompts/**"
+
+permissions:
+  contents: read
+
+env:
+  SYNESIS_API_URL: ""
+  SYNESIS_API_KEY: ""
+
+jobs:
+  router-governance:
+    name: Router Governance Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: "base/planner/requirements*.txt"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        working-directory: base/planner
+        run: |
+          uv pip install --system ../security
+          uv pip install --system -r requirements-test.txt
+
+      - name: Run router governance tests
+        working-directory: base/planner
+        run: python -m pytest tests/test_router_governance.py -v --tb=short --junitxml=../../governance-results.xml
+
+      - name: Upload governance results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: governance-test-results
+          path: governance-results.xml
+
+  prompt-suite-offline:
+    name: Prompt Suite Validation (Offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv pip install --system pyyaml
+
+      - name: Validate prompt suite YAML
+        run: |
+          python -c "
+          import yaml, sys
+          with open('tests/prompts/test_prompts.yaml') as f:
+              prompts = yaml.safe_load(f)
+          ids = [p['id'] for p in prompts]
+          dupes = [i for i in ids if ids.count(i) > 1]
+          if dupes:
+              print(f'Duplicate IDs: {set(dupes)}')
+              sys.exit(1)
+          required_cats = {'adversarial', 'retrieval_quality', 'node_routing'}
+          cats = {p.get('category','') for p in prompts}
+          missing = required_cats - cats
+          if missing:
+              print(f'Missing required categories: {missing}')
+              sys.exit(1)
+          print(f'Suite OK: {len(prompts)} prompts, {len(cats)} categories')
+          print(f'Required categories present: {required_cats}')
+          "
+
+      - name: Validate test harness loads
+        run: |
+          python -c "
+          import sys; sys.path.insert(0, 'tests/prompts')
+          from run_test_suite import load_suite, group_sequences, CATEGORY_DEFAULTS
+          from pathlib import Path
+          suite = load_suite(Path('tests/prompts/test_prompts.yaml'))
+          batches = group_sequences(suite)
+          print(f'Loaded {len(suite)} prompts in {len(batches)} batches')
+          assert len(suite) > 0, 'Empty suite'
+          "
+
+  prompt-suite-live:
+    name: Prompt Regression (Live)
+    needs: [router-governance, prompt-suite-offline]
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.SYNESIS_VALIDATION_ENABLED == 'true'
+    runs-on: self-hosted
+    timeout-minutes: 30
+    environment: validation
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: uv pip install --system httpx pyyaml
+
+      - name: Run adversarial + retrieval + routing suite
+        env:
+          SYNESIS_API_URL: ${{ secrets.SYNESIS_VALIDATION_API_URL }}
+          SYNESIS_API_KEY: ${{ secrets.SYNESIS_VALIDATION_API_KEY }}
+        run: |
+          python tests/prompts/run_test_suite.py \
+            --api-url "$SYNESIS_API_URL" \
+            --api-key "$SYNESIS_API_KEY" \
+            --category adversarial retrieval_quality node_routing \
+            --output prompt-regression-report.yaml
+
+      - name: Check for failures
+        run: |
+          python -c "
+          import yaml, sys
+          with open('prompt-regression-report.yaml') as f:
+              report = yaml.safe_load(f)
+          fails = report['summary']['fail']
+          if fails > 0:
+              print(f'REGRESSION: {fails} prompt(s) failed')
+              for r in report['failures']:
+                  print(f'  - {r[\"id\"]}: {r[\"verdict\"]}')
+                  for c in r['checks']:
+                      if c['status'] == 'fail':
+                          print(f'      {c[\"check\"]}: {c[\"detail\"]}')
+              sys.exit(1)
+          print(f'All {report[\"summary\"][\"pass\"]} prompts passed')
+          "
+
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: prompt-regression-report
+          path: prompt-regression-report.yaml
+          retention-days: 30

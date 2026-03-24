@@ -147,9 +147,102 @@ uvx ruff check base/
 
 ---
 
-## 8. Changelog
+## 8. Validation Ring (CI-to-Cluster Security)
+
+### Architecture
+
+CI regression tests that need a running Synesis cluster execute inside an isolated **validation ring** namespace (`synesis-validation`). This prevents credential leakage and keeps CI jobs from touching production data.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  GitHub Actions                                                     │
+│  ┌──────────────┐  ┌─────────────────────┐  ┌──────────────────┐  │
+│  │  lint.yml     │  │ prompt-regression   │  │ retrieval-       │  │
+│  │  (always)     │  │ .yml (on PR)        │  │ regression.yml   │  │
+│  └──────────────┘  └────────┬────────────┘  └────────┬─────────┘  │
+│                              │                        │             │
+│              ┌───────────────┴────────────────────────┘             │
+│              │ self-hosted runner / in-cluster Job                  │
+│              ▼                                                      │
+│  ┌──────────────────────────────────────────────────┐              │
+│  │  synesis-validation namespace                     │              │
+│  │  • deny-all network policy                        │              │
+│  │  • egress only to planner + admin                 │              │
+│  │  • validation-runner ServiceAccount               │              │
+│  │  • synesis-internal-service-auth secret            │              │
+│  │  • synthetic/non-prod data only                   │              │
+│  └──────────────────────────────────────────────────┘              │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Security Principles
+
+- **No static kubeconfig** in repo or PR context
+- **Environment-scoped secrets**: `validation` GitHub environment with branch protections
+- **In-cluster execution preferred**: self-hosted runner or K8s Job with namespace-scoped SA token
+- **Validation ring data only**: never customer PII in CI replay
+- **Artifact scrubbing**: no tokens or sensitive prompts in uploaded artifacts
+- **Secret redaction**: workflows disable `set-output` for sensitive values
+
+### Manifests
+
+- `base/validation-ring/namespace.yaml` — namespace with deny-all default
+- `base/validation-ring/network-policy.yaml` — egress to planner (8000) + admin (8080) + DNS
+- `base/validation-ring/serviceaccount.yaml` — `validation-runner` SA
+- `base/validation-ring/replay-job.yaml` — K8s Job template for Testing Labs replays
+
+### Setup
+
+```bash
+# Apply validation ring
+oc apply -k base/validation-ring/
+
+# Sync auth secret to validation namespace (automatic via deploy.sh)
+./scripts/deploy.sh api
+```
+
+---
+
+## 9. Quality Regression Workflows (H2)
+
+### Lane A: Merge-Blocking CI Gates
+
+| Workflow | Trigger | What It Checks | Blocking? |
+|----------|---------|---------------|-----------|
+| `prompt-regression.yml` — Router Governance | PR touching `base/planner/app/nodes/**`, `graph/**`, `prompts/**`, `state.py`, etc. | `test_router_governance.py`: role boundaries, evidence schema, retrieval bounds, anti-oscillation | Yes (required job) |
+| `prompt-regression.yml` — Prompt Suite Offline | Same trigger | YAML validation, required categories present (adversarial, retrieval_quality, node_routing) | Yes |
+| `prompt-regression.yml` — Prompt Suite Live | Same trigger + `SYNESIS_VALIDATION_ENABLED=true` | Run adversarial/retrieval/routing suite against cluster, fail on regression | Yes (when enabled) |
+| `retrieval-regression.yml` | PR touching `router.py`, `unified_retrieval.py`, `rag_client.py`, benchmarks | Retrieval quality metrics vs baseline (recall@k, mrr@k, ndcg@k within tolerance) | Yes (when validation env enabled) |
+| `guardrails-tests.yml` | PR touching `base/security/**`, `injection_scanner.py`, `nodes/**`, `graph/**`, `state.py` | Guardrails core + scanner integration tests | Yes |
+
+### Lane B: Testing Labs (Admin-Facing)
+
+Admin UI under **RAG Pipeline > Testing Labs** for customer validation:
+
+- **Create replay runs** from selected trace sets or prompt suite categories
+- **Compare baseline vs candidate** model/corpus with per-prompt metrics
+- **Score**: citation rate, latency, token count, pass/fail verdicts
+- **HITL review queue**: approve/reject individual results
+- **Execution**: K8s Jobs in `synesis-validation` namespace, optional Tekton pipeline for governed promotions
+
+### Baseline Management
+
+- `benchmarks/retrieval/baseline.json` — seed file, auto-overwritten on first benchmark run
+- To update baseline after a deliberate quality change:
+
+```bash
+python benchmarks/retrieval/bench_hybrid.py \
+  --milvus-uri http://localhost:19530 \
+  --embedder-url http://localhost:8082/v1 \
+  --output benchmarks/retrieval/baseline.json
+```
+
+---
+
+## 10. Changelog
 
 | Date | Change |
 |------|--------|
 | 2026-03-23 | Initial inventory: CI vs manual, planner/Yarn/probe, OpenAI reference pointers. |
 | 2026-03-23 | §4: Planner vs Yarn OpenAI surface — implemented vs not implemented, test backlog. |
+| 2026-03-24 | §8: Validation ring (CI-to-cluster security). §9: H2 quality regression workflows + Testing Labs. |

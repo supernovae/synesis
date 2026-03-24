@@ -1,6 +1,14 @@
 name: Retrieval Regression
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "base/planner/app/nodes/router.py"
+      - "base/planner/app/nodes/unified_retrieval.py"
+      - "base/planner/app/rag_client.py"
+      - "benchmarks/retrieval/**"
+      - "benchmarks/bm25/queries.yaml"
   workflow_dispatch:
     inputs:
       tolerance:
@@ -19,7 +27,12 @@ permissions:
 jobs:
   retrieval-regression:
     name: Retrieval Quality Regression
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      vars.SYNESIS_VALIDATION_ENABLED == 'true'
+    runs-on: self-hosted
+    timeout-minutes: 30
+    environment: validation
     steps:
       - uses: actions/checkout@v6
 

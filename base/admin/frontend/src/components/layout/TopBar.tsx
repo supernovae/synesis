@@ -19,6 +19,7 @@ const breadcrumbLabels: Record<string, string> = {
   benchmarks: "Benchmarks",
   review: "Review Queue",
   ingestion: "Ingestion Queue",
+  "testing-labs": "Testing Labs",
   taxonomy: "Taxonomy",
   coverage: "Coverage",
   pipeline: "Pipeline",

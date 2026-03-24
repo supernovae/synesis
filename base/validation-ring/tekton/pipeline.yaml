@@ -1,0 +1,115 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: testing-labs-replay
+  namespace: synesis-validation
+  labels:
+    app.kubernetes.io/part-of: synesis
+spec:
+  description: |
+    Multi-step replay pipeline with approval gate for governed model promotions.
+    Requires Tekton Pipelines v0.50+ and manual-approval custom task.
+
+  params:
+    - name: run-id
+      type: string
+      description: Testing Labs run ID
+    - name: planner-url
+      type: string
+      default: "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+    - name: admin-url
+      type: string
+      default: "http://synesis-admin.synesis-admin.svc.cluster.local:8080"
+
+  tasks:
+    - name: replay
+      taskRef:
+        name: testing-labs-replay-task
+      params:
+        - name: run-id
+          value: $(params.run-id)
+        - name: planner-url
+          value: $(params.planner-url)
+        - name: admin-url
+          value: $(params.admin-url)
+
+    - name: gate
+      runAfter: [replay]
+      taskRef:
+        name: testing-labs-gate
+      params:
+        - name: run-id
+          value: $(params.run-id)
+        - name: admin-url
+          value: $(params.admin-url)
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: testing-labs-replay-task
+  namespace: synesis-validation
+spec:
+  params:
+    - name: run-id
+    - name: planner-url
+    - name: admin-url
+  steps:
+    - name: replay
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      script: |
+        pip install --quiet httpx pyyaml
+        python /workspace/replay_runner.py \
+          --run-id "$(params.run-id)" \
+          --planner-url "$(params.planner-url)" \
+          --admin-url "$(params.admin-url)" \
+          --api-key "${API_KEY}"
+      env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: synesis-internal-service-auth
+              key: token
+              optional: true
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: testing-labs-gate
+  namespace: synesis-validation
+spec:
+  description: |
+    Quality gate: fetches comparison metrics and fails if candidate
+    regresses below threshold. For governed promotions, add a
+    manual-approval CustomTask after this step.
+  params:
+    - name: run-id
+    - name: admin-url
+  steps:
+    - name: check
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      script: |
+        pip install --quiet httpx
+        python -c "
+        import httpx, sys, os
+        admin = '$(params.admin-url)'
+        run_id = '$(params.run-id)'
+        key = os.environ.get('API_KEY', '')
+        headers = {'Authorization': f'Bearer {key}'} if key else {}
+        resp = httpx.get(f'{admin}/api/v1/testing-labs/runs/{run_id}/comparison', headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        diff = data.get('diff', {})
+        if diff.get('pass_rate', 0) < -0.05:
+            print(f'GATE FAILED: pass_rate regressed by {diff[\"pass_rate\"]}')
+            sys.exit(1)
+        print('GATE PASSED: quality within tolerance')
+        "
+      env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: synesis-internal-service-auth
+              key: token
+              optional: true

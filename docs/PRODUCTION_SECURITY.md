@@ -399,3 +399,43 @@ Traditional Istio (sidecar mode) adds ~100-150Mi RAM per pod — disproportionat
 ### Key Principle
 
 The mesh handles **transport identity** (who is calling). Application-layer HMAC handles **request integrity** (the body hasn't been tampered with). These are complementary, not competing — Tier 2 HMAC signing should persist even with a mesh, because a mesh cannot prove that the request body is the same one the caller intended to send.
+
+---
+
+## 11. CI Security Model (Validation Ring)
+
+### Principles
+
+Quality regression tests (H2) that need a running Synesis cluster execute inside the `synesis-validation` namespace. This provides:
+
+- **No long-lived kube credentials** in GitHub repo or PR context
+- **Namespace-scoped SA tokens** for in-cluster execution
+- **Deny-all network policy** with explicit egress only to planner and admin
+- **Environment-protected secrets** with branch protections in GitHub
+- **Non-production data** — validation uses synthetic corpus, never customer PII
+
+### Secret Distribution
+
+The `synesis-internal-service-auth` secret is synced to `synesis-validation` by `scripts/deploy.sh`. The validation runner uses it as a Bearer token for planner/admin API calls.
+
+### GitHub Configuration
+
+1. Create a `validation` environment in GitHub Settings > Environments
+2. Restrict to `main` branch (or specific branches for staging)
+3. Add secrets: `SYNESIS_VALIDATION_API_URL`, `SYNESIS_VALIDATION_API_KEY`
+4. Add variable: `SYNESIS_VALIDATION_ENABLED=true`
+5. Do **not** echo secrets in workflow steps; use `::add-mask::` if intermediate variables are needed
+
+### Testing Labs Execution
+
+Testing Labs replay runs execute as K8s Jobs in `synesis-validation`:
+
+```bash
+# Manual trigger
+oc create -f base/validation-ring/replay-job.yaml \
+  --dry-run=client -o yaml | \
+  sed "s/value: \"\"/value: \"tl-abc123\"/" | \
+  oc apply -f -
+```
+
+For governed promotions (model swap approval flows), use the optional Tekton pipeline at `base/validation-ring/tekton/pipeline.yaml`.
