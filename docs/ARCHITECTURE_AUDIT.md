@@ -24,11 +24,17 @@ The long-form audit below was written against an **older** tree (line-numbered e
 
 ---
 
-## Correcting an outdated claim
+## LLM resilience policy (decided)
 
-The **previous** header of this file said `model_client.py` wraps **all** LLM calls. **As of the last codebase review, that is not true:** `create_chat_model` / `resilient_ainvoke` live in `base/planner/app/model_client.py` but **no planner node imports them**; nodes still construct `ChatOpenAI` (and similar) directly. Resilience may still come from **LiteLLM / gateway** (fallback lists, timeouts) — document that in deployment config if that is the intended pattern.
+The previous header of this file said `model_client.py` wraps all LLM calls. That is not true in current planner code: nodes construct `ChatOpenAI` directly.
 
-**Options if you want code-level breakers/fallbacks:** (1) migrate nodes to `model_client` incrementally by role; (2) remove or narrow `model_client.py` if gateway-only is the policy; (3) add a short ADR stating “resilience at LiteLLM only.”
+We are standardizing on a gateway-only policy:
+
+- LiteLLM is the source of truth for retries/timeouts/fallback routing.
+- Planner remains focused on orchestration and does not implement parallel per-node resilience loops.
+- Admin observability uses LiteLLM health and failure telemetry for the LLM category instead of planner-local `synesis_llm_*` counters.
+
+`base/planner/app/model_client.py` is retained as legacy helper code for targeted experiments, not as the default production path.
 
 ---
 
@@ -56,7 +62,7 @@ The detailed severity tables, KPI tables, and phase-2 roadmap lived in git histo
 
 ## Suggested next actions (pick by priority)
 
-1. **Decide** gateway-only vs **wire `model_client`** into planner nodes; update docs accordingly.  
+1. **Document and verify** LiteLLM resilience settings (`num_retries`, `request_timeout`, fallback lists) for every active served model in admin registry + gateway config.  
 2. **Either** enforce token budget in router/planner **or** document intentional omission.  
 3. **Commit** `benchmarks/retrieval/baseline.json` (or generate in CI first-run) if regression workflow should be reproducible from a fresh clone.  
 4. **Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.

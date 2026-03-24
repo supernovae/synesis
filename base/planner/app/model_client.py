@@ -1,8 +1,9 @@
-"""Resilient LLM call wrapper — retry, circuit breaker, fallback model support.
+"""Legacy planner-local LLM resilience helpers.
 
-All graph nodes should use ``create_chat_model()`` or ``resilient_ainvoke()``
-instead of constructing ChatOpenAI directly, so we get uniform retry,
-circuit-breaker, and (optional) fallback behavior across every LLM role.
+Synesis now standardizes on gateway-owned resilience in LiteLLM (retries,
+timeouts, and fallback routing configured centrally). Planner nodes may still
+import these helpers in targeted experiments, but this module is not the
+default reliability path for production orchestration.
 """
 
 from __future__ import annotations

@@ -319,6 +319,17 @@ retries on transient HTTP errors (429, 500, 503) with exponential backoff.
 For cost-sensitive deployments, set `num_retries: 0` to avoid duplicate
 charges on long-running completions.
 
+### Gateway-only reliability checklist
+
+When LiteLLM is the single resilience layer (recommended), validate these per
+release:
+
+1. Every active served model has an explicit fallback chain in the admin model registry.
+2. `num_retries` and `request_timeout` are set intentionally for the deployment profile.
+3. `/health` shows expected healthy endpoints after rollouts.
+4. `/metrics` emits `litellm_deployment_failure_total` and request/latency counters.
+5. Planner/admin point to the same LiteLLM base URL and environment.
+
 ### Rate limiting
 
 Rate limits are managed via virtual keys in the Admin UI. Create a key

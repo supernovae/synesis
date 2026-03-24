@@ -36,6 +36,13 @@ running the Grafana Operator.
 | Service Health | `synesis_service_health` | Per-service health gauge (1=up, 0=down) |
 | Circuit Breaker State | `synesis_circuit_breaker_state` | 0=closed, 1=half-open, 2=open |
 
+Admin API note:
+
+- `/api/v1/observability/circuit-breakers` combines:
+  - planner infrastructure/web breaker metrics (`synesis_circuit_breaker_*`, `synesis_web_search_breaker_*`)
+  - LiteLLM model endpoint health (`/health`) + `litellm_deployment_failure_total` for the LLM category
+- Planner-local `synesis_llm_*` breaker/retry/fallback metrics are not the default signal in gateway-only mode.
+
 ### Critic and Tokens
 
 | Panel | PromQL | Description |
