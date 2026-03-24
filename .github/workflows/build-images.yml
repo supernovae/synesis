@@ -6,6 +6,7 @@ on:
     paths:
       - 'base/**/Dockerfile'
       - 'base/**/requirements.txt'
+      - 'base/**/requirements.lock'
       - 'base/**/app/**'
       - 'base/**/frontend/**'
       - 'base/**/plugins/**'
@@ -90,6 +91,7 @@ jobs:
             planner:
               - 'base/planner/Dockerfile'
               - 'base/planner/requirements.txt'
+              - 'base/planner/requirements.lock'
               - 'base/planner/app/**'
               - 'base/planner/*.yaml'
               - 'base/planner/plugins/**'

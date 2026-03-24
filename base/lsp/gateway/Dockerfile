@@ -23,8 +23,8 @@ RUN uv pip install --system --no-cache basedpyright
 
 # Python app dependencies
 WORKDIR /app
-COPY requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+COPY requirements.lock .
+RUN uv pip install --system --no-cache --require-hashes -r requirements.lock
 
 COPY app/ app/
 

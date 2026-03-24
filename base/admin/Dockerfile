@@ -14,8 +14,8 @@ FROM ${BASE_IMAGE}
 
 USER 0
 WORKDIR /app
-COPY requirements.txt .
-RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
+COPY requirements.lock .
+RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r requirements.lock
 
 COPY alembic.ini ./
 COPY alembic/ ./alembic/

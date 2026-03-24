@@ -5,11 +5,11 @@ WORKDIR /opt/app-root/src
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 COPY security/ /tmp/security/
-COPY yarn/requirements.txt .
+COPY yarn/requirements.lock .
 # Explicitly target the SCL Python 3.11 — uv may otherwise discover /usr/bin/python3 (3.9).
 RUN uv venv --python /opt/app-root/bin/python /opt/app-root/venv \
     && uv pip install --python /opt/app-root/venv/bin/python --no-cache /tmp/security/ \
-    && uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt \
+    && uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r requirements.lock \
     && rm -rf /tmp/security
 
 COPY yarn/app/ app/

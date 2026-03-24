@@ -9,9 +9,9 @@ RUN dnf install -y git && dnf clean all
 
 RUN uv venv --python /opt/app-root/bin/python /opt/app-root/venv
 
-COPY requirements.txt /tmp/requirements.txt
-RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt
+COPY requirements.lock /tmp/requirements.lock
+RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r /tmp/requirements.lock \
+    && rm /tmp/requirements.lock
 
 COPY synesis-telemetry/ /tmp/synesis-telemetry/
 RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache /tmp/synesis-telemetry/ \

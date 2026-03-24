@@ -8,8 +8,8 @@ WORKDIR /opt/app-root/src
 
 # MCP has no deps beyond base-api (fastapi, uvicorn, httpx, synesis-telemetry).
 # If service-specific deps are added later, uncomment:
-# COPY requirements.txt .
-# RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt
+# COPY requirements.lock .
+# RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r requirements.lock
 
 COPY base/mcp/app/ app/
 # Shared with planner gate (single source in base/planner/app/integrity_core.py).

@@ -121,21 +121,16 @@ jobs:
             dir: base/admin
           - name: indexer
             dir: base/rag/indexer
-            requirements_file: requirements-lock.txt
-          - name: keyword-service
-            dir: base/rag/keyword-service
           - name: preprocess-service
             dir: base/rag/preprocess-service
-          - name: spam-service
-            dir: base/rag/spam-service
           - name: gliner-service
             dir: base/rag/gliner-service
           - name: lsp-gateway
             dir: base/lsp/gateway
-          - name: bge-reranker
-            dir: base/planner/bge-reranker
           - name: yarn
             dir: base/yarn
+          - name: mcp
+            dir: base/mcp
     steps:
       - uses: actions/checkout@v6
 
@@ -146,9 +141,9 @@ jobs:
       - name: Audit ${{ matrix.name }}
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          # Indexer uses a pre-compiled lockfile (uv pip compile) because
-          # crawl4ai's transitive dep tree breaks pip's backtracking resolver.
-          inputs: ${{ matrix.dir }}/${{ matrix.requirements_file || 'requirements.txt' }}
+          # All services now use uv-compiled lockfiles with pinned versions.
+          # pip-audit reads the pre-resolved lockfile, bypassing pip's resolver.
+          inputs: ${{ matrix.dir }}/requirements.lock
           vulnerability-service: osv
           # Indexer: nltk is transitive via crawl4ai; OSV lists no fixed PyPI version yet (last nltk 3.9.3).
           # See .github/SECURITY.md — remove when nltk publishes a fix.
@@ -313,3 +308,19 @@ jobs:
             exit 1
           fi
           echo "All CI action refs are properly pinned."
+
+  # ---------------------------------------------------------------------------
+  # Lockfile freshness — ensures committed requirements.lock files match
+  # their source requirements.txt. Prevents stale lockfiles from silently
+  # drifting from declared dependencies.
+  # ---------------------------------------------------------------------------
+  lockfile-freshness:
+    name: Lockfile Freshness Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Verify lockfiles are up to date
+        run: ./scripts/lock-deps.sh --check

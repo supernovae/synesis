@@ -36,8 +36,8 @@ WORKDIR /app
 COPY images/base-api/synesis-telemetry/ /tmp/synesis-telemetry/
 RUN uv pip install --system --no-cache /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
 
-COPY rag/indexer/requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt \
+COPY rag/indexer/requirements.lock .
+RUN uv pip install --system --no-cache --require-hashes -r requirements.lock \
     && uv pip uninstall --system unclecode-litellm 2>/dev/null || true
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).

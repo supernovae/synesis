@@ -1,0 +1,2 @@
+# Mark generated lockfiles so GitHub collapses them in PR diffs.
+**/requirements.lock linguist-generated=true

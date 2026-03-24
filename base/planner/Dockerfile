@@ -11,9 +11,9 @@ USER 0
 WORKDIR /opt/app-root/src
 
 COPY security/ /tmp/security/
-COPY planner/requirements.txt .
+COPY planner/requirements.lock .
 RUN uv pip install --python /opt/app-root/venv/bin/python --no-cache /tmp/security/ \
-    && uv pip install --python /opt/app-root/venv/bin/python --no-cache -r requirements.txt \
+    && uv pip install --python /opt/app-root/venv/bin/python --no-cache --require-hashes -r requirements.lock \
     && rm -rf /tmp/security
 
 # Pre-download FlashRank reranker model so it's baked into the image
