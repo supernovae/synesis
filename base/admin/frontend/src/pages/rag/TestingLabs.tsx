@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import client from "../../api/client";
 import MetricCard from "../../components/common/MetricCard";
@@ -183,7 +183,7 @@ function RunRow({ run, onStart }: { run: RunSummary; onStart: (id: string) => vo
         <div className="text-xs text-gray-500">{run.run_id}</div>
       </td>
       <td className="px-4 py-3 text-sm">
-        <StatusBadge status={run.status} />
+        <StatusBadge status={run.status as React.ComponentProps<typeof StatusBadge>["status"]} />
       </td>
       <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
         {run.run_type}
