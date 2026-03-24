@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        overlay: [dev, staging, prod]
+        overlay: [api, model, dev-models, dev-webui, jobs, jobs-prod, jobs-staging]
     steps:
       - uses: actions/checkout@v6
 
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: planner-test-results-${{ matrix.python-version }}
           path: test-results-${{ matrix.python-version }}.xml

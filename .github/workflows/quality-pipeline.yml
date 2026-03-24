@@ -97,7 +97,7 @@ jobs:
           "
           fi
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: corpus-audit-report
@@ -140,7 +140,7 @@ jobs:
             --model "${{ inputs.model || 'synesis-general' }}" \
             --output "${{ env.REPORT_DIR }}/relevance_labels_llm.json"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: llm-judge-labels
@@ -186,7 +186,7 @@ jobs:
             --max-domains "${{ inputs.max_domains || '10' }}" \
             --output "${{ env.REPORT_DIR }}/proposed_sources.yaml"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: curator-proposals

@@ -77,8 +77,8 @@ lock_path_for() {
     local target="$1"
     local entry
     for entry in "${SERVICES[@]}"; do
-        local n d c
-        IFS='|' read -r n d c <<< "$entry"
+        local n d _c
+        IFS='|' read -r n d _c <<< "$entry"
         if [ "$n" = "$target" ]; then
             echo "$PROJECT_ROOT/$d/requirements.lock"
             return

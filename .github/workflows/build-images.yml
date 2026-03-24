@@ -213,7 +213,7 @@ jobs:
 
       - name: Scan image (Grype)
         if: steps.filter.outputs.skip != 'true'
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ${{ env.REGISTRY }}/synesis-base-api:${{ needs.determine-tag.outputs.tag }}
           fail-build: false
@@ -272,7 +272,7 @@ jobs:
 
       - name: Scan image (Grype)
         if: steps.filter.outputs.skip != 'true'
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ${{ env.REGISTRY }}/synesis-base-devtools:${{ needs.determine-tag.outputs.tag }}
           fail-build: false
@@ -342,7 +342,7 @@ jobs:
 
       - name: Scan image (Grype)
         if: steps.filter.outputs.skip != 'true'
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ${{ env.REGISTRY }}/synesis-base-ml:${{ needs.determine-tag.outputs.tag }}
           fail-build: false
@@ -548,7 +548,7 @@ jobs:
 
       - name: Scan image (Grype)
         if: steps.check.outputs.skip != 'true'
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         with:
           image: ${{ env.REGISTRY }}/${{ matrix.name }}:${{ needs.determine-tag.outputs.tag }}
           fail-build: false
