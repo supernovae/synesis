@@ -1,8 +1,14 @@
-"""Hierarchical conversation memory -- L1 in-memory store.
+"""Conversation memory — in-process or Redis-backed.
 
-Per-user conversation history keyed by user_id, with LRU eviction at the
-user level and per-user turn limits via bounded deques. Designed with an
-explicit L2 eviction hook for future Milvus-backed persistence.
+Two implementations share the same public API:
+
+- ``ConversationMemory`` — process-local (OrderedDict + deques). Works for
+  single-replica dev and tests.
+- ``RedisConversationMemory`` — Redis-primary. Guarantees consistency across
+  HPA replicas and survives pod restarts.
+
+Which one is instantiated is controlled by ``settings.memory_redis_url``:
+non-empty → Redis, empty → in-process.
 
 PendingCheckpointStore: optional L2 for pending_question state snapshots.
 When pods scale down, get_and_clear_pending_question can fall back to L2.
@@ -10,6 +16,7 @@ When pods scale down, get_and_clear_pending_question can fall back to L2.
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import threading
 import time
@@ -332,24 +339,235 @@ class RedisPendingCheckpointStore:
         return json.loads(raw)
 
 
+class RedisConversationMemory:
+    """Redis-backed conversation memory shared across planner replicas.
+
+    Data model per user — Redis Hash at ``synesis:mem:{user_id}``:
+      - ``turns`` — JSON list of ``{role, content, timestamp, summary}`` dicts
+      - ``lang``  — last-active language string
+      - ``ctx``   — JSON ``{is_code_task, domain_refs}``
+
+    Pending-question state is delegated to ``PendingCheckpointStore`` (same
+    as the in-process implementation).
+
+    TTL is refreshed on every write via ``EXPIRE``.
+    """
+
+    _PREFIX = "synesis:mem:"
+
+    def __init__(
+        self,
+        redis_url: str,
+        max_turns_per_user: int = 20,
+        ttl_seconds: float = 14400.0,
+        pending_checkpoint_store: PendingCheckpointStore | None = None,
+    ):
+        import redis as _redis
+
+        self._client = _redis.Redis.from_url(redis_url, decode_responses=True)
+        self._max_turns = max_turns_per_user
+        self._ttl = int(ttl_seconds)
+        self._pending_l2 = pending_checkpoint_store
+
+    def _key(self, user_id: str) -> str:
+        return f"{self._PREFIX}{user_id}"
+
+    def _touch(self, user_id: str, pipe: Any | None = None) -> None:
+        target = pipe or self._client
+        target.expire(self._key(user_id), self._ttl)
+
+    # ── Turn history ──────────────────────────────────────────────────
+
+    def store_turn(self, user_id: str, role: str, content: str) -> None:
+        key = self._key(user_id)
+        turn = {"role": role, "content": content[:4096], "timestamp": time.time(), "summary": ""}
+        pipe = self._client.pipeline(transaction=True)
+        raw = self._client.hget(key, "turns")
+        turns: list[dict] = _json.loads(raw) if raw else []
+        turns.append(turn)
+        turns = turns[-self._max_turns :]
+        pipe.hset(key, "turns", _json.dumps(turns))
+        pipe.expire(key, self._ttl)
+        pipe.execute()
+
+    def get_history(self, user_id: str, max_turns: int | None = None) -> list[str]:
+        raw = self._client.hget(self._key(user_id), "turns")
+        if not raw:
+            return []
+        turns: list[dict] = _json.loads(raw)
+        limit = max_turns or self._max_turns
+        recent = turns[-limit:]
+        return [f"[{t['role']}]: {t['content'][:4096]}" for t in recent]
+
+    def get_summary(self, user_id: str) -> str:
+        history = self.get_history(user_id, max_turns=10)
+        if not history:
+            return ""
+        lines = "\n".join(f"- {h}" for h in history)
+        return (
+            "## Conversation History\n"
+            "The user has had previous interactions. Recent context:\n"
+            f"{lines}\n\n"
+            'Use this context to understand references like "it", "that script", '
+            '"the previous one", etc.'
+        )
+
+    def get_turn_count(self, user_id: str) -> int:
+        raw = self._client.hget(self._key(user_id), "turns")
+        if not raw:
+            return 0
+        return len(_json.loads(raw))
+
+    # ── Language / context pivots ─────────────────────────────────────
+
+    def get_last_active_language(self, user_id: str) -> str | None:
+        val = self._client.hget(self._key(user_id), "lang")
+        return val if val else None
+
+    def set_last_active_language(self, user_id: str, lang: str) -> None:
+        key = self._key(user_id)
+        pipe = self._client.pipeline(transaction=True)
+        pipe.hset(key, "lang", lang)
+        pipe.expire(key, self._ttl)
+        pipe.execute()
+
+    def get_last_context(self, user_id: str) -> tuple[bool, list[str]] | None:
+        raw = self._client.hget(self._key(user_id), "ctx")
+        if not raw:
+            return None
+        data = _json.loads(raw)
+        return (bool(data.get("is_code_task", False)), list(data.get("domain_refs", [])))
+
+    def set_last_context(self, user_id: str, is_code_task: bool | str, active_domain_refs: list[str]) -> None:
+        if isinstance(is_code_task, str):
+            is_code_task = is_code_task not in ("explain_only", "text")
+        key = self._key(user_id)
+        pipe = self._client.pipeline(transaction=True)
+        pipe.hset(key, "ctx", _json.dumps({"is_code_task": is_code_task, "domain_refs": list(active_domain_refs or [])}))
+        pipe.expire(key, self._ttl)
+        pipe.execute()
+
+    # ── Clear ─────────────────────────────────────────────────────────
+
+    def clear_user_history(self, user_id: str) -> None:
+        self._client.hdel(self._key(user_id), "turns")
+
+    # ── Pending state (delegates to PendingCheckpointStore) ───────────
+
+    def store_pending_plan(self, user_id: str, plan_data: dict[str, Any]) -> None:
+        if self._pending_l2:
+            self._pending_l2.write(user_id + ":plan", plan_data)
+
+    def get_and_clear_pending_plan(self, user_id: str) -> dict[str, Any] | None:
+        if self._pending_l2:
+            return self._pending_l2.read_and_delete(user_id + ":plan")
+        return None
+
+    def store_pending_needs_input(self, user_id: str, data: dict[str, Any]) -> None:
+        if self._pending_l2:
+            self._pending_l2.write(user_id + ":needs_input", data)
+
+    def get_and_clear_pending_needs_input(self, user_id: str) -> dict[str, Any] | None:
+        if self._pending_l2:
+            return self._pending_l2.read_and_delete(user_id + ":needs_input")
+        return None
+
+    def store_pending_question(self, user_id: str, data: dict[str, Any]) -> None:
+        enriched = dict(data)
+        enriched.setdefault("pending_question_id", str(uuid.uuid4()))
+        enriched.setdefault("run_id", data.get("run_id", ""))
+        enriched.setdefault("turn_id", data.get("turn_id", ""))
+        expires_sec = getattr(settings, "pending_question_ttl_seconds", 86400) or 86400
+        enriched.setdefault("expires_at", time.time() + expires_sec)
+        if self._pending_l2:
+            try:
+                snapshot = {k: v for k, v in enriched.items() if k != "question"}
+                snapshot["_full"] = enriched
+                self._pending_l2.write(user_id, snapshot, ttl_seconds=86400)
+            except Exception as e:
+                logger.debug("l2_pending_checkpoint_write_failed", extra={"error": str(e)[:200]})
+
+    def get_and_clear_pending_question(self, user_id: str) -> dict[str, Any] | None:
+        if self._pending_l2:
+            try:
+                data = self._pending_l2.read_and_delete(user_id)
+                if data and isinstance(data.get("_full"), dict):
+                    return data["_full"]
+                return data
+            except Exception as e:
+                logger.debug("l2_pending_checkpoint_read_failed", extra={"error": str(e)[:200]})
+        return None
+
+    # ── Stats ─────────────────────────────────────────────────────────
+
+    @property
+    def active_users(self) -> int:
+        cursor = 0
+        count = 0
+        while True:
+            cursor, keys = self._client.scan(cursor, match=f"{self._PREFIX}*", count=200)
+            count += len(keys)
+            if cursor == 0:
+                break
+        return count
+
+    def stats(self) -> dict[str, Any]:
+        user_count = self.active_users
+        return {
+            "active_users": user_count,
+            "total_turns": -1,  # expensive to compute across all keys; use -1 sentinel
+            "max_users": -1,
+            "max_turns_per_user": self._max_turns,
+            "ttl_seconds": self._ttl,
+            "backend": "redis",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+
 def _build_pending_l2() -> PendingCheckpointStore | None:
     """Build L2 pending checkpoint store from config. Returns None if unconfigured."""
-    if settings.l2_archive_redis_url:
+    redis_url = settings.memory_redis_url or settings.l2_archive_redis_url
+    if redis_url:
         try:
             store = RedisPendingCheckpointStore(
-                redis_url=settings.l2_archive_redis_url,
+                redis_url=redis_url,
                 prefix="synesis:pending:",
             )
-            logger.info("redis_pending_l2_ready", extra={"url": settings.l2_archive_redis_url[:40]})
+            logger.info("redis_pending_l2_ready", extra={"url": redis_url[:40]})
             return store
         except Exception:
             logger.warning("redis_pending_l2_init_failed", exc_info=True)
     return None
 
 
-memory = ConversationMemory(
-    max_turns_per_user=settings.memory_max_turns_per_user,
-    max_users=settings.memory_max_users,
-    ttl_seconds=settings.memory_ttl_seconds,
-    pending_checkpoint_store=_build_pending_l2(),
-)
+def _build_memory() -> ConversationMemory | RedisConversationMemory:
+    """Select memory backend based on config."""
+    pending_l2 = _build_pending_l2()
+    if settings.memory_redis_url:
+        try:
+            mem = RedisConversationMemory(
+                redis_url=settings.memory_redis_url,
+                max_turns_per_user=settings.memory_max_turns_per_user,
+                ttl_seconds=settings.memory_ttl_seconds,
+                pending_checkpoint_store=pending_l2,
+            )
+            logger.info(
+                "redis_conversation_memory_ready",
+                extra={"url": settings.memory_redis_url[:40]},
+            )
+            return mem
+        except Exception:
+            logger.warning("redis_memory_init_failed_falling_back", exc_info=True)
+    return ConversationMemory(
+        max_turns_per_user=settings.memory_max_turns_per_user,
+        max_users=settings.memory_max_users,
+        ttl_seconds=settings.memory_ttl_seconds,
+        pending_checkpoint_store=pending_l2,
+    )
+
+
+memory = _build_memory()

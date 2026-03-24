@@ -16,6 +16,7 @@ The long-form audit below was written against an **older** tree (line-numbered e
 | **Catalog schema drift** | `_ensure_synesis_catalog` / `_recreate_catalog` target **v9** unified schema with `sparse_text` + BM25 function + semantic metadata fields (align with indexer `SCHEMA_VERSION` and `SYNESIS_EXPECTED_SCHEMA_VERSION` on admin). |
 | **Semantic index TTL** | Redis-backed path uses `expire` on insert (`semantic_index.py`). |
 | **Session checkpointer** | `graph.py` uses `MemorySaver` at compile time; `upgrade_checkpointer_to_redis()` installs `AsyncRedisSaver` when `session_checkpointer_backend=redis` and URL are set (replaces the old `RedisSaver` context-manager bug class). |
+| **Conversation memory** | `RedisConversationMemory` provides Redis-primary storage when `SYNESIS_MEMORY_REDIS_URL` is set; falls back to in-process `ConversationMemory` otherwise. Both implement the same public API (enforced by governance tests). Multi-replica planners require the Redis backend. |
 | **Token estimation (writer/compiler)** | `token_utils.estimate_tokens()` (tiktoken when available) is used in `writer.py` and `final_answer_compiler.py`. |
 | **Retrieval cache metrics** | `retrieval_cache.py` registers `synesis_cache_*` Prometheus counters. |
 | **Background critic metrics** | `graph.py` defines `synesis_background_critic_approved_total` / `rejected_total`. |

@@ -179,11 +179,12 @@ class Settings(BaseSettings):
     # Context pivot: summarize old era before flush (micro model; stubbed)
     pivot_summary_enabled: bool = True  # When True, call summarizer (stub until model deployed)
 
-    # Conversation memory (L1 in-memory)
+    # Conversation memory
     memory_enabled: bool = True
     memory_max_turns_per_user: int = 20
-    memory_max_users: int = 5000
+    memory_max_users: int = 5000  # in-process only; ignored when memory_redis_url is set
     memory_ttl_seconds: float = 14400.0
+    memory_redis_url: str = ""  # Redis URL for shared memory across replicas; empty = in-process only
 
     # Worker: Thinking Mode for complex tasks (deliberate reasoning, higher latency).
     # executor_thinking_param: "enable_thinking" (Qwen3 general model), "thinking" (DeepSeek-V3),
