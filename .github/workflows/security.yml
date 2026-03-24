@@ -121,6 +121,7 @@ jobs:
             dir: base/admin
           - name: indexer
             dir: base/rag/indexer
+            requirements_file: requirements-lock.txt
           - name: keyword-service
             dir: base/rag/keyword-service
           - name: preprocess-service
@@ -145,7 +146,9 @@ jobs:
       - name: Audit ${{ matrix.name }}
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:
-          inputs: ${{ matrix.dir }}/requirements.txt
+          # Indexer uses a pre-compiled lockfile (uv pip compile) because
+          # crawl4ai's transitive dep tree breaks pip's backtracking resolver.
+          inputs: ${{ matrix.dir }}/${{ matrix.requirements_file || 'requirements.txt' }}
           vulnerability-service: osv
           # Indexer: nltk is transitive via crawl4ai; OSV lists no fixed PyPI version yet (last nltk 3.9.3).
           # See .github/SECURITY.md — remove when nltk publishes a fix.

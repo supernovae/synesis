@@ -9,8 +9,11 @@ PyMuPDF>=1.24.0
 # HTML parsing and content extraction
 beautifulsoup4>=4.12.0
 trafilatura>=2.0.0
-# Web crawling (pulls nltk transitively; pip-audit ignores for nltk CVEs are indexer-only — see .github/SECURITY.md)
-crawl4ai>=0.4.0
+# Web crawling — pin exact version; pulls nltk transitively (pip-audit ignores
+# for nltk CVEs are indexer-only — see .github/SECURITY.md).  Also pulls
+# unclecode-litellm (a litellm fork) which is unused by indexer code — stripped
+# post-install in the Dockerfile.  See docs/LITELLM.md § Supply-Chain Security.
+crawl4ai==0.8.6
 # Code parsing (tree-sitter — 170+ languages via language-pack)
 tree-sitter>=0.23.0
 tree-sitter-language-pack>=0.13.0

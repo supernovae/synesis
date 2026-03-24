@@ -37,7 +37,8 @@ COPY images/base-api/synesis-telemetry/ /tmp/synesis-telemetry/
 RUN uv pip install --system --no-cache /tmp/synesis-telemetry/ && rm -rf /tmp/synesis-telemetry/
 
 COPY rag/indexer/requirements.txt .
-RUN uv pip install --system --no-cache -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt \
+    && uv pip uninstall --system unclecode-litellm 2>/dev/null || true
 
 # Download Chromium for Playwright (used by crawl4ai web_page handler).
 # PLAYWRIGHT_BROWSERS_PATH must be readable by the arbitrary UID at runtime.
