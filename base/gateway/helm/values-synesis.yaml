@@ -4,12 +4,14 @@
 #   Pre-builds Prisma with debian-openssl-3.0.x target, runs as nobody,
 #   sets group-0 permissions, and enables PRISMA_OFFLINE_MODE=true.
 #
-# Usage:
+# Usage (chart version must match SYNESIS_LITELLM_CHART_VERSION in deploy.sh):
 #   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     --version 1.82.3-stable.patch.2 \
 #     -n synesis-gateway -f values-synesis.yaml --wait --timeout 5m
 #
 # Static fallback (no Prisma model sync):
 #   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     --version 1.82.3-stable.patch.2 \
 #     -n synesis-gateway -f values-synesis.yaml -f values-synesis-static.yaml \
 #     --wait --timeout 5m
 #
@@ -25,8 +27,11 @@ numWorkers: 2
 
 image:
   repository: ghcr.io/berriai/litellm-non_root
-  pullPolicy: Always
-  tag: "main-stable"
+  pullPolicy: IfNotPresent
+  # Pin to a known-safe stable release.  The floating "main-stable" tag was
+  # replaced after the LiteLLM PyPI supply-chain compromise (v1.82.7/v1.82.8).
+  # Upgrade by bumping this tag and the chart version in deploy.sh together.
+  tag: "main-v1.82.3-stable"
 
 # Preserve existing service/deployment name so DNS references keep working:
 #   litellm-proxy.synesis-gateway.svc.cluster.local:4000

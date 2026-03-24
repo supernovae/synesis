@@ -27,14 +27,19 @@ model routing, authentication, cost tracking, and rate limiting.
 
 ## Deployment
 
-LiteLLM is deployed via the **official Helm chart** (`oci://ghcr.io/berriai/litellm-helm`).
-Everything else in Synesis uses Kustomize. The Helm release is managed by `deploy.sh`.
+LiteLLM is deployed via the **official Helm chart** (`oci://ghcr.io/berriai/litellm-helm`),
+pinned to a specific chart version. Everything else in Synesis uses Kustomize.
+The Helm release is managed by `deploy.sh`.
 
 ### Image
 
-We use `ghcr.io/berriai/litellm-non_root:main-stable` — the OpenShift-compatible
-variant that pre-builds Prisma binaries with the correct OpenSSL target, runs as
+We use `ghcr.io/berriai/litellm-non_root` — the OpenShift-compatible variant
+that pre-builds Prisma binaries with the correct OpenSSL target, runs as
 `nobody`, and applies the OpenShift group-0 permission pattern.
+
+The image tag is **pinned** to a specific stable release (e.g.
+`main-v1.82.3-stable`) in `values-synesis.yaml`. Do not use floating tags
+like `main-stable` or `latest` — see *Version Pinning Policy* below.
 
 ### Files
 
@@ -54,13 +59,15 @@ variant that pre-builds Prisma binaries with the correct OpenSSL target, runs as
 # Static fallback mode (bypasses Prisma model sync)
 SYNESIS_LITELLM_STATIC_FALLBACK=true ./scripts/deploy.sh api
 
-# Manual Helm upgrade (dynamic mode)
+# Manual Helm upgrade (dynamic mode) — chart version must match deploy.sh
 helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+  --version 1.82.3-stable.patch.2 \
   -n synesis-gateway -f base/gateway/helm/values-synesis.yaml \
   --wait --timeout 5m
 
 # Manual Helm upgrade (static fallback)
 helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+  --version 1.82.3-stable.patch.2 \
   -n synesis-gateway \
   -f base/gateway/helm/values-synesis.yaml \
   -f base/gateway/helm/values-synesis-static.yaml \
@@ -410,3 +417,72 @@ SYNESIS_LITELLM_STATIC_FALLBACK=true ./scripts/deploy.sh api
 This layers `values-synesis-static.yaml` on top, defining all models in the
 ConfigMap and disabling the migration job. Revert by running deploy without
 the flag.
+
+## Version Pinning Policy
+
+LiteLLM deployment artifacts are pinned to specific versions to mitigate
+supply-chain attacks.
+
+| Artifact | Pinned in | Current version | Override env var |
+|----------|-----------|-----------------|------------------|
+| Container image tag | `values-synesis.yaml` | `main-v1.82.3-stable` | Edit values file |
+| Helm chart version | `scripts/deploy.sh` | `1.82.3-stable.patch.2` | `SYNESIS_LITELLM_CHART_VERSION` |
+
+### Upgrade procedure
+
+1. Verify the new release on the [GitHub releases page](https://github.com/BerriAI/litellm/releases) (never trust PyPI alone).
+2. Update the image `tag` in `base/gateway/helm/values-synesis.yaml`.
+3. Update the default chart version in `scripts/deploy.sh` (or set `SYNESIS_LITELLM_CHART_VERSION`).
+4. Run `./scripts/deploy.sh api` and verify pod health.
+
+### What NOT to do
+
+- Do not use `main-stable`, `latest`, or any other floating tag.
+- Do not install `litellm` as a PyPI package in any Synesis application
+  image (planner, admin, indexer, yarn). See `ml-service-boundary` rule.
+- Do not pull the Helm chart without `--version`.
+
+## Supply-Chain Security
+
+### Background
+
+In March 2026, the `litellm` PyPI package was compromised via maintainer
+account hijack ([GitHub #24518](https://github.com/BerriAI/litellm/issues/24518)).
+Versions 1.82.7 and 1.82.8 contained credential-stealing malware. The
+Trivy scanner ecosystem was also temporarily compromised around the same
+time ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)).
+
+### Synesis exposure
+
+Synesis does **not** install `litellm` as a Python package. LiteLLM runs
+as a standalone container image pulled from `ghcr.io` (GitHub Container
+Registry), built by BerriAI's GitHub Actions CI. The compromised PyPI
+versions were never published through GitHub CI, so the container images
+were not affected. Nevertheless, we pin all artifacts to prevent drift.
+
+### CI guardrails
+
+The `supply-chain-guard` job in `.github/workflows/security.yml` runs on
+every push and PR. It fails if any of the following are detected:
+
+- Compromised LiteLLM PyPI versions (`1.82.7`, `1.82.8`) in lockfiles or requirements
+- Known IOC strings (`litellm_init.pth`, `models.litellm.cloud`)
+- Mutable LiteLLM image tags (`main-stable`, `latest`) in gateway manifests
+- Mutable CI action refs (`@master`, `@main`) for `trivy-action`
+
+### Incident response checklist
+
+If a new supply-chain compromise is discovered:
+
+1. **Block**: Add compromised versions/IOCs to the `supply-chain-guard` job.
+2. **Audit**: Check running pod image digests against known-safe digests:
+   ```bash
+   oc get pod -n synesis-gateway -o jsonpath='{.items[*].status.containerStatuses[*].imageID}'
+   ```
+3. **Rotate**: Treat all secrets on affected systems as compromised and rotate immediately.
+4. **Pin**: Update image tag and chart version to the last verified-safe release.
+5. **Verify**: Inspect container for IOC artifacts:
+   ```bash
+   oc exec -n synesis-gateway deploy/litellm-proxy -- \
+     find /app -name 'litellm_init.pth' -o -name '*.pth' 2>/dev/null
+   ```

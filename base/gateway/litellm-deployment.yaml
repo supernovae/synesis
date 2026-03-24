@@ -1,3 +1,7 @@
+# DEPRECATED: LiteLLM is now deployed via Helm (see deploy.sh / values-synesis.yaml).
+# This manifest is kept for reference only and is NOT included in kustomization.yaml.
+# Do not apply directly — use: ./scripts/deploy.sh api
+#
 # LiteLLM proxy — production-hardened for OpenShift + Prisma/Postgres.
 #
 # DB: dedicated PostgreSQL database `litellm` on the CNPG cluster (not synesis_admin).
@@ -38,7 +42,7 @@ spec:
         runAsNonRoot: true
       initContainers:
         - name: setup-ui
-          image: ghcr.io/berriai/litellm:main-stable
+          image: ghcr.io/berriai/litellm:main-v1.82.3-stable
           command:
             - sh
             - -c
@@ -58,7 +62,7 @@ spec:
             - name: litellm-assets
               mountPath: /mnt/assets
         - name: fetch-prisma-engine
-          image: ghcr.io/berriai/litellm:main-stable
+          image: ghcr.io/berriai/litellm:main-v1.82.3-stable
           command:
             - sh
             - -c
@@ -93,7 +97,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: litellm
-          image: ghcr.io/berriai/litellm:main-stable
+          image: ghcr.io/berriai/litellm:main-v1.82.3-stable
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

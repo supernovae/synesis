@@ -163,7 +163,9 @@ print('Taxonomy issues:', lint_taxonomy_config())
 
 ## 6. Security Scanning (Trivy)
 
-Run Trivy for vulnerability and misconfiguration scanning:
+Run Trivy for vulnerability and misconfiguration scanning. Use version
+**0.69.3** (the last verified-safe release before the Trivy supply-chain
+incident [GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)).
 
 ```bash
 # Scan Dockerfiles for misconfigurations
@@ -173,4 +175,30 @@ trivy config base/ --severity HIGH,CRITICAL
 trivy fs . --scanners secret
 ```
 
+CI pins `aquasecurity/trivy-action` to commit SHA (v0.35.0) and Trivy
+binary v0.69.3 in `.github/workflows/security.yml`. When upgrading Trivy
+locally, verify the binary checksum against the
+[GitHub release](https://github.com/aquasecurity/trivy/releases).
+
 All Dockerfiles use non-root `USER 1001` at runtime to comply with DS-0002.
+
+## 7. Supply-Chain Guardrails
+
+CI runs a `supply-chain-guard` job that fails on compromised dependency
+indicators (LiteLLM PyPI v1.82.7/v1.82.8 IOCs, mutable image tags, and
+unpinned CI action refs). To run the same checks locally:
+
+```bash
+# Check for compromised LiteLLM versions in lockfiles/requirements
+grep -rn --include='*.txt' --include='*.lock' --include='*.toml' \
+  -E 'litellm==1\.82\.(7|8)|litellm_init\.pth|models\.litellm\.cloud' .
+
+# Check for floating LiteLLM image tags
+grep -n 'main-stable\|:latest' base/gateway/helm/values-synesis.yaml
+
+# Check for mutable CI action refs
+grep -rn 'trivy-action@master\|trivy-action@main' .github/workflows/
+```
+
+All commands should return no matches. See `docs/LITELLM.md` for the
+version pinning policy and incident response checklist.

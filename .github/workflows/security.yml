@@ -41,8 +41,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Pinned to v0.35.0 (SHA) — the verified-safe release after the Trivy
+      # supply-chain incident (GHSA-69fq-xp46-6x23, 2026-03-19).
+      # Do NOT use @master or unpinned tags; update by verifying the new SHA
+      # against a signed GitHub release.
       - name: Generate Trivy SARIF report
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
         with:
           scan-type: 'config'
           scan-ref: '.'
@@ -50,6 +54,7 @@ jobs:
           output: 'trivy-results.sarif'
           trivyignores: '.trivyignore'
           exit-code: '0'
+          version: 'v0.69.3'
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v4
@@ -59,7 +64,7 @@ jobs:
           category: 'trivy-config'
 
       - name: Fail on HIGH/CRITICAL misconfigurations
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
         with:
           scan-type: 'config'
           scan-ref: '.'
@@ -67,6 +72,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           trivyignores: '.trivyignore'
+          version: 'v0.69.3'
 
   bandit:
     name: Bandit (Python Security)
@@ -246,3 +252,61 @@ jobs:
         with:
           name: semgrep-js-results
           path: semgrep-js-results.json
+
+  # ---------------------------------------------------------------------------
+  # Supply-chain guardrails
+  # ---------------------------------------------------------------------------
+  supply-chain-guard:
+    name: Supply-Chain IOC Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check for compromised LiteLLM PyPI versions
+        run: |
+          echo "=== Scanning for compromised LiteLLM versions (1.82.7, 1.82.8) ==="
+          FOUND=0
+          for pattern in 'litellm==1\.82\.7' 'litellm==1\.82\.8' 'litellm>=1\.82\.7' 'litellm_init\.pth' 'models\.litellm\.cloud'; do
+            if grep -rn --include='*.txt' --include='*.lock' --include='*.toml' --include='*.cfg' \
+                 --include='*.yaml' --include='*.yml' --include='*.json' \
+                 -E "$pattern" . 2>/dev/null; then
+              echo "::error::Compromised LiteLLM IOC detected: $pattern"
+              FOUND=1
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            echo "::error::Supply-chain IOC check FAILED — see above."
+            exit 1
+          fi
+          echo "No compromised LiteLLM indicators found."
+
+      - name: Check for mutable LiteLLM image tags
+        run: |
+          echo "=== Scanning gateway manifests for floating LiteLLM image tags ==="
+          FOUND=0
+          for f in base/gateway/helm/values-synesis.yaml base/gateway/litellm-deployment.yaml; do
+            if [ -f "$f" ]; then
+              if grep -nE 'tag:\s*"?main-stable"?' "$f" || \
+                 grep -nE 'image:.*litellm[^:]*:(main-stable|latest)\b' "$f"; then
+                echo "::error file=$f::Mutable LiteLLM image tag detected — pin to a versioned tag."
+                FOUND=1
+              fi
+            fi
+          done
+          if [ "$FOUND" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All LiteLLM image references are pinned."
+
+      - name: Check for mutable CI action refs
+        run: |
+          echo "=== Scanning workflows for mutable action refs ==="
+          FOUND=0
+          if grep -rnE 'uses:\s+aquasecurity/trivy-action@(master|main)\b' .github/workflows/; then
+            echo "::error::trivy-action pinned to mutable branch ref — use a SHA or release tag."
+            FOUND=1
+          fi
+          if [ "$FOUND" -eq 1 ]; then
+            exit 1
+          fi
+          echo "All CI action refs are properly pinned."

@@ -812,9 +812,14 @@ deploy_litellm_helm() {
         log "LiteLLM Helm: SYNESIS_FORCE_LITELLM_HELM=true — running upgrade regardless of fingerprint."
     fi
 
+    # Pin chart version to a known-safe release.  Override with
+    # SYNESIS_LITELLM_CHART_VERSION for controlled upgrades.
+    local chart_version="${SYNESIS_LITELLM_CHART_VERSION:-1.82.3-stable.patch.2}"
+
     local helm_args=(
         upgrade --install "$release_name"
         oci://ghcr.io/berriai/litellm-helm
+        --version "$chart_version"
         -n "$ns"
         -f "$values_file"
     )

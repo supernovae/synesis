@@ -4,8 +4,9 @@
 # is unhealthy. Defines all pipeline role routes statically in the ConfigMap
 # so traffic continues to flow without DB dependency.
 #
-# Usage:
+# Usage (chart version must match SYNESIS_LITELLM_CHART_VERSION in deploy.sh):
 #   helm upgrade --install litellm-proxy oci://ghcr.io/berriai/litellm-helm \
+#     --version 1.82.3-stable.patch.2 \
 #     -n synesis-gateway \
 #     -f values-synesis.yaml \
 #     -f values-synesis-static.yaml \
