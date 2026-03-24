@@ -24,6 +24,9 @@ test_report_*.yaml
 venv/
 scripts/.venv/
 
+# uv lockfiles (per-service; requirements.lock is the canonical lockfile)
+**/uv.lock
+
 # IDE
 .idea/
 .vscode/

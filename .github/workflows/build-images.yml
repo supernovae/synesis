@@ -282,9 +282,12 @@ jobs:
   build-base-ml:
     needs: [determine-tag, detect-changes, build-base-api]
     if: >-
-      needs.detect-changes.outputs.base-ml == 'true'
+      !cancelled()
+      && needs.determine-tag.result == 'success'
+      && needs.detect-changes.result == 'success'
+      && (needs.detect-changes.outputs.base-ml == 'true'
       || needs.detect-changes.outputs.base-api == 'true'
-      || github.event_name == 'workflow_dispatch'
+      || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Filter by input
