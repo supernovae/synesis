@@ -654,6 +654,8 @@ FAILURE_MODE_TAXONOMY = frozenset(
         "architecture_theater",
         "section_overgrowth",
         "unsupported_specificity",
+        "hallucinated_citation",
+        "evidence_underuse",
     }
 )
 

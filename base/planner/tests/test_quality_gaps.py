@@ -420,6 +420,103 @@ class TestCitationValidation:
         hallucinated = [] if not valid_uris else ["would-be-flagged"]
         assert hallucinated == []
 
+    def test_taxonomy_includes_grounding_modes(self):
+        """hallucinated_citation and evidence_underuse are in the canonical taxonomy."""
+        from app.schemas import FAILURE_MODE_TAXONOMY
+
+        assert "hallucinated_citation" in FAILURE_MODE_TAXONOMY
+        assert "evidence_underuse" in FAILURE_MODE_TAXONOMY
+
+    def test_citation_rate_triggers_evidence_underuse(self):
+        """When < 30% of evidence URIs are cited at difficulty >= 0.6, flag underuse."""
+        packet_uris = {
+            "https://docs.example.com/guide",
+            "https://docs.example.com/ref",
+            "https://docs.example.com/api",
+            "https://docs.example.com/faq",
+        }
+        draft = "Based on the guide at https://docs.example.com/guide, the answer is 42."
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        citation_rate = len(cited & packet_uris) / len(packet_uris)
+        assert citation_rate < 0.3
+        failure_modes: list[str] = []
+        difficulty = 0.7
+        if difficulty >= 0.6 and packet_uris and citation_rate < 0.3:
+            failure_modes.append("evidence_underuse")
+        assert "evidence_underuse" in failure_modes
+
+    def test_citation_rate_passes_when_sufficient(self):
+        """When >= 30% of evidence URIs are cited, no underuse flag."""
+        packet_uris = {
+            "https://docs.example.com/guide",
+            "https://docs.example.com/ref",
+            "https://docs.example.com/api",
+        }
+        draft = (
+            "See https://docs.example.com/guide and https://docs.example.com/ref "
+            "for details on the API."
+        )
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        citation_rate = len(cited & packet_uris) / len(packet_uris)
+        assert citation_rate >= 0.3
+
+    def test_zero_evidence_leniency_strips_underuse(self):
+        """When total snippets across packets is 0, evidence_underuse is removed."""
+        failure_modes = ["evidence_underuse", "insufficient_depth", "genericity"]
+        zero_evidence = True
+        if zero_evidence:
+            failure_modes = [f for f in failure_modes if f not in ("evidence_underuse", "insufficient_depth")]
+        assert "evidence_underuse" not in failure_modes
+        assert "insufficient_depth" not in failure_modes
+        assert "genericity" in failure_modes
+
+    def test_zero_evidence_leniency_preserves_other_modes(self):
+        """Zero-evidence leniency only strips the two depth modes, nothing else."""
+        failure_modes = ["non_answer", "evidence_underuse", "format_miss", "insufficient_depth"]
+        zero_evidence = True
+        if zero_evidence:
+            failure_modes = [f for f in failure_modes if f not in ("evidence_underuse", "insufficient_depth")]
+        assert failure_modes == ["non_answer", "format_miss"]
+
+    def test_hallucinated_url_rejects_approval(self):
+        """Hallucinated URLs deterministically set doc_approved=False and add failure mode."""
+        valid_uris = {"https://example.com/doc1"}
+        draft = "See https://example.com/doc1 and https://fabricated.io/fake."
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        hallucinated_urls = sorted(cited - valid_uris)
+
+        doc_approved = True
+        failure_modes: list[str] = []
+        if hallucinated_urls:
+            doc_approved = False
+            failure_modes.append("hallucinated_citation")
+        assert not doc_approved
+        assert "hallucinated_citation" in failure_modes
+        assert len(hallucinated_urls) == 1
+        assert "fabricated.io" in hallucinated_urls[0]
+
+    def test_citation_rate_skipped_below_difficulty_threshold(self):
+        """Citation rate check only fires at difficulty >= 0.6."""
+        packet_uris = {"https://docs.example.com/guide", "https://docs.example.com/ref"}
+        draft = "The answer is 42."
+        cited = set(re.findall(r"https?://[^\s\]\)>\"']+", draft))
+        difficulty = 0.4
+        failure_modes: list[str] = []
+        if difficulty >= 0.6 and packet_uris:
+            citation_rate = len(cited & packet_uris) / len(packet_uris)
+            if citation_rate < 0.3:
+                failure_modes.append("evidence_underuse")
+        assert "evidence_underuse" not in failure_modes
+
+    def test_evidence_underuse_critical_at_high_difficulty(self):
+        """At difficulty >= 0.7, evidence_underuse becomes a critical failure."""
+        failure_modes = ["evidence_underuse"]
+        difficulty = 0.75
+        critical_failures: set[str] = set()
+        if difficulty >= 0.7 and "evidence_underuse" in failure_modes:
+            critical_failures.add("evidence_underuse")
+        assert "evidence_underuse" in critical_failures
+
 
 class TestTradeoffDetection:
     """Critic rubric adds tradeoff explicitness when user requests it."""

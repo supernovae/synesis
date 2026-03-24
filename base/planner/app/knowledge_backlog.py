@@ -58,7 +58,13 @@ async def publish_knowledge_gap(
     """Publish a knowledge gap to the admin Postgres DB.
 
     Returns gap_id (chunk_id) or None on error.
+    Respects ``settings.knowledge_backlog_enabled``; no-op when disabled.
     """
+    from .config import settings
+
+    if not settings.knowledge_backlog_enabled:
+        return None
+
     try:
         coll_str = ",".join(collections_queried or [])[:256]
         task_desc = (task_description or query)[:2048]

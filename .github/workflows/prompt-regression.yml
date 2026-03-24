@@ -80,7 +80,7 @@ jobs:
           if dupes:
               print(f'Duplicate IDs: {set(dupes)}')
               sys.exit(1)
-          required_cats = {'adversarial', 'retrieval_quality', 'node_routing'}
+          required_cats = {'adversarial', 'retrieval_quality', 'node_routing', 'grounding'}
           cats = {p.get('category','') for p in prompts}
           missing = required_cats - cats
           if missing:
@@ -133,7 +133,7 @@ jobs:
           python tests/prompts/run_test_suite.py \
             --api-url "$SYNESIS_API_URL" \
             --api-key "$SYNESIS_API_KEY" \
-            --category adversarial retrieval_quality node_routing \
+            --category adversarial retrieval_quality node_routing grounding \
             --output prompt-regression-report.yaml
 
       - name: Check for failures
