@@ -53,8 +53,11 @@ class Settings(BaseSettings):
     writer_model_url: str = ""
     writer_model_name: str = ""
 
-    # Summarizer (micro model for pivot history)
-    summarizer_model_url: str = ""
+    # Summarizer — pivot history + Tier 3 manifest compression.
+    # Self-hosted: Qwen2.5-0.5B-Instruct on CPU (InferenceService).
+    # Production (LiteLLM): deployment.yaml overrides URL to LiteLLM proxy;
+    #   admin registry / Helm static values route to provider (e.g. grok-4-fast).
+    summarizer_model_url: str = "http://synesis-summarizer.synesis-models.svc.cluster.local:8080/v1"
     summarizer_model_name: str = "synesis-summarizer"
     # Shared API key sent to model endpoints (required for LiteLLM virtual-key auth).
     model_api_key: str = "not-needed"
@@ -184,8 +187,8 @@ class Settings(BaseSettings):
     failfast_cache_max_size: int = 1000
     failfast_cache_ttl_seconds: float = 86400.0
 
-    # Context pivot: summarize old era before flush (micro model; stubbed)
-    pivot_summary_enabled: bool = True  # When True, call summarizer (stub until model deployed)
+    # Context pivot: summarize old era before flush via summarizer model.
+    pivot_summary_enabled: bool = True
 
     # Conversation memory
     memory_enabled: bool = True

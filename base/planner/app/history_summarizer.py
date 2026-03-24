@@ -2,12 +2,14 @@
 
 When user pivots languages (Python→JS→shell), is_code_task (True↔False),
 or domain, we optionally:
-1. Summarize the "old era" via a tiny micro model (Qwen 0.5B, CPU)
+1. Summarize the "old era" via the synesis-summarizer model role
 2. Archive raw history to L2 (durable store)
 3. Replace flushed history with a compact summary for smooth UX
 
-Uses summarizer_model_url when configured; otherwise falls back to stub.
-Taxonomy-aware: pivot summary prompts inlined (formerly approach_dark_debt_config.yaml).
+Model routing: summarizer_model_url → LiteLLM → provider (grok-4-fast via
+admin registry, or Qwen2.5-0.5B-Instruct CPU for self-hosted).
+Falls back to deterministic stub when the model endpoint is unreachable.
+Taxonomy-aware: pivot summary prompts inlined.
 """
 
 from __future__ import annotations

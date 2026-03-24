@@ -75,10 +75,13 @@ data:
           temperature: 0.2
 
       # Summarizer — pivot history summarization (micro model)
-      # Defaults to router pod; admin UI can reassign to any provider.
+      # Static fallback routes to router pod (serves synesis-router).
+      # When dedicated InferenceService (Qwen2.5-0.5B CPU) is deployed,
+      # update api_base to synesis-summarizer.synesis-models and model to
+      # openai/synesis-summarizer. Admin UI can reassign to any provider.
       - model_name: synesis-summarizer
         litellm_params:
-          model: openai/synesis-summarizer
+          model: openai/synesis-router
           api_base: http://synesis-router.synesis-models.svc.cluster.local:8080/v1
           api_key: "not-needed"
           max_tokens: 2048
