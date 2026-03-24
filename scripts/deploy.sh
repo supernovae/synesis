@@ -855,6 +855,23 @@ deploy_litellm_helm() {
         oc delete configmap "$litellm_chart_cfg_cm" -n "$ns" --wait=false 2>/dev/null || true
     fi
 
+    # Pre-create the synesis-callbacks ConfigMap so the migration hook
+    # (a Helm pre-upgrade job) can mount it. Helm extraResources are
+    # only applied after hooks finish, causing a mount failure otherwise.
+    # Labels/annotations must match Helm ownership so the chart can adopt it.
+    local callbacks_src="$PROJECT_ROOT/base/gateway/synesis_callbacks.py"
+    if [[ -f "$callbacks_src" ]]; then
+        oc create configmap synesis-callbacks -n "$ns" \
+            --from-file=synesis_callbacks.py="$callbacks_src" \
+            --dry-run=client -o yaml | oc apply -f - >/dev/null
+        oc label configmap synesis-callbacks -n "$ns" \
+            app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+        oc annotate configmap synesis-callbacks -n "$ns" \
+            "meta.helm.sh/release-name=$release_name" \
+            "meta.helm.sh/release-namespace=$ns" --overwrite >/dev/null
+        log "  Pre-created synesis-callbacks ConfigMap (required by migration hook)"
+    fi
+
     if helm "${helm_args[@]}"; then
         log "  LiteLLM Helm release '$release_name' deployed successfully"
         oc create configmap "$fp_cm" -n "$ns" \
