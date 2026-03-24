@@ -59,11 +59,14 @@ spec:
               value: "/etc/synesis/taxonomy_prompt_config.yaml"
             # Placeholder password — CloudNativePG stores the real password in secret
             # synesis-admin-db-app. scripts/deploy.sh (ensure_admin_db) patches this URL after apply.
-            # Raw `oc apply -k base/admin` overwrites the live value; re-run deploy.sh or:
-            #   oc set env deployment/synesis-admin -n synesis-admin --containers=admin \
-            #     SYNESIS_ADMIN_DATABASE_URL="postgresql+asyncpg://app:<url-encoded-pass>@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
+            # DB URL sourced from Secret (deploy.sh creates synesis-admin-db-url
+            # from the CNPG operator password). Immune to kustomize resets.
             - name: SYNESIS_ADMIN_DATABASE_URL
-              value: "postgresql+asyncpg://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-db-url
+                  key: admin-url
+                  optional: true
             - name: SYNESIS_JWT_SECRET
               value: "synesis-dev-secret-change-me"
             # ── Keycloak OIDC ──

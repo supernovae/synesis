@@ -690,17 +690,29 @@ ensure_admin_db() {
     # LiteLLM Prisma must use its own database (empty at first migrate) — not synesis_admin (Alembic).
     local litellm_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/litellm"
 
-    # Patch admin deployment (only if value differs)
-    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
-
-    # Patch planner deployment (explicit container — not always containers[0])
-    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
+    # Store DB URLs in a Secret so kustomize apply cannot reset them to placeholders.
+    # Deployments reference this via secretKeyRef (admin-url, trace-url).
+    _upsert_admin_db_url_secret "$admin_url" "$planner_url"
 
     _ensure_litellm_database "$ns" "$cluster_name" || true
     _upsert_litellm_database_secret "$litellm_url"
     _upsert_litellm_db_credentials
 
     log "  Admin DB wired: $svc_host/$db_name (user=$db_user)"
+}
+
+# Store admin + planner DB URLs in a single Secret per namespace.
+# Deployments reference these via secretKeyRef, immune to kustomize resets.
+_upsert_admin_db_url_secret() {
+    local admin_url="${1:?}" planner_url="${2:?}"
+    for ns_target in synesis-admin synesis-planner synesis-yarn; do
+        oc create namespace "$ns_target" 2>/dev/null || true
+        oc create secret generic synesis-admin-db-url -n "$ns_target" \
+            --from-literal=admin-url="$admin_url" \
+            --from-literal=trace-url="$planner_url" \
+            --dry-run=client -o yaml | oc apply -f - >/dev/null
+    done
+    log "  Secret synesis-admin-db-url synced to synesis-admin, synesis-planner, synesis-yarn"
 }
 
 # Sync LiteLLM DATABASE_URL via Secret so `oc apply -k` does not wipe inline env values.
@@ -998,8 +1010,8 @@ _patch_deployment_env() {
     fi
 }
 
-# Post-apply version: re-patches deployments that were just created by
-# kustomize apply and still have the placeholder password.
+# Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
+# Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
     local ns="synesis-admin"
     local cluster_name="synesis-admin-db"
@@ -1027,11 +1039,9 @@ patch_admin_db_urls() {
     local planner_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/${db_name}"
     local litellm_url="postgresql://${db_user}:${encoded_pass}@${svc_host}:5432/litellm"
 
-    _patch_deployment_env "$ns" "synesis-admin" "SYNESIS_ADMIN_DATABASE_URL" "$admin_url" "admin"
-    _patch_deployment_env "synesis-planner" "synesis-planner" "SYNESIS_TRACE_DATABASE_URL" "$planner_url" "planner"
+    _upsert_admin_db_url_secret "$admin_url" "$planner_url"
     _ensure_litellm_database "$ns" "$cluster_name" || true
     _upsert_litellm_database_secret "$litellm_url"
-    _patch_deployment_env "synesis-yarn" "synesis-yarn" "SYNESIS_YARN_ADMIN_DB_URL" "$admin_url" "yarn"
 }
 
 # -----------------------------------------------------------------------

@@ -53,7 +53,11 @@ spec:
             - name: SYNESIS_YARN_KEYCLOAK_ISSUER_URL
               value: ""
             - name: SYNESIS_YARN_ADMIN_DB_URL
-              value: ""
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-db-url
+                  key: admin-url
+                  optional: true
             - name: SYNESIS_YARN_AUTH_ALLOW_LEGACY_FALLBACK
               value: "false"
             - name: SYNESIS_YARN_ENFORCE_MCP_AUTHZ

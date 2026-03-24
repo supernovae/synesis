@@ -194,7 +194,11 @@ spec:
             # Trace persistence — admin Postgres. Same DSN validates syn- PATs unless
             # SYNESIS_ADMIN_DATABASE_URL is set. Use the same SYNESIS_PAT_PEPPER as admin/yarn when enabled.
             - name: SYNESIS_TRACE_DATABASE_URL
-              value: "postgresql://app:changeme@synesis-admin-db-rw.synesis-admin.svc:5432/synesis_admin"
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-db-url
+                  key: trace-url
+                  optional: true
             - name: SYNESIS_INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
