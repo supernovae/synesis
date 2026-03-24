@@ -12,6 +12,7 @@ import client from "../../api/client";
 import EmptyState from "../../components/common/EmptyState";
 import MetricCard from "../../components/common/MetricCard";
 import ChartCard from "../../components/common/ChartCard";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { Target, Timer, TrendingUp, Play } from "lucide-react";
 
 function useRunBenchmark() {
@@ -53,6 +54,7 @@ export default function Benchmarks() {
             {runMutation.isPending ? "Running..." : "Run Benchmark"}
           </button>
         </div>
+        <ApiErrorBanner error={runMutation.error} onDismiss={() => runMutation.reset()} />
         <EmptyState
           title="No benchmark data"
           description="Click 'Run Benchmark' to execute a retrieval quality test"
@@ -91,6 +93,8 @@ export default function Benchmarks() {
           {runMutation.isPending ? "Running..." : "Run Benchmark"}
         </button>
       </div>
+
+      <ApiErrorBanner error={runMutation.error} onDismiss={() => runMutation.reset()} />
 
       <div className="grid gap-4 sm:grid-cols-4">
         <MetricCard label="recall@10" value={(agg["recall@10"] ?? 0).toFixed(3)} icon={Target} />

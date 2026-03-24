@@ -89,6 +89,7 @@ const navigation: NavItem[] = [
       { label: "Benchmarks", path: "/rag/benchmarks" },
       { label: "Review Queue", path: "/rag/review" },
       { label: "Ingestion Queue", path: "/rag/ingestion" },
+      { label: "Ingestion Sources", path: "/rag/ingestion/sources" },
       { label: "Testing Labs", path: "/rag/testing-labs" },
     ],
   },
@@ -172,6 +173,7 @@ const navigation: NavItem[] = [
       { label: "Provider Keys", path: "/settings/provider-keys" },
       { label: "Infrastructure Costs", path: "/settings/infra-costs" },
       { label: "Audit trail", path: "/settings/audit" },
+      { label: "API Explorer", path: "/settings/api-docs" },
     ],
   },
 ];

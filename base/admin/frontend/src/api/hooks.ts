@@ -1471,6 +1471,11 @@ export function useCreateIngestionSource() {
       origin_type?: string;
       config?: Record<string, unknown>;
       tags?: string[];
+      visibility_scope?: string;
+      org_id?: string;
+      tenant_id?: string;
+      acl_mode?: string;
+      acl_groups?: string;
     }) => client.post("/ingestion/sources", data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ingestion"] });

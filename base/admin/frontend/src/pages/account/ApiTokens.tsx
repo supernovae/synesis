@@ -4,6 +4,7 @@ import { Key, Plus, Trash2, Copy, Check } from "lucide-react";
 import type { AxiosResponse } from "axios";
 import client from "../../api/client";
 import type { PersonalAccessToken, TokenCreated } from "../../types";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 
 type ScopeTarget = "model" | "coder";
 type ScopeLevel = "readonly" | "readwrite";
@@ -205,6 +206,8 @@ export default function ApiTokens() {
           </div>
         </div>
 
+        <ApiErrorBanner error={createMutation.error} onDismiss={() => createMutation.reset()} />
+
         <div className="mt-4 flex justify-end">
           <button
             onClick={() => createMutation.mutate()}
@@ -240,6 +243,8 @@ export default function ApiTokens() {
           </div>
         )}
       </div>
+
+      <ApiErrorBanner error={revokeMutation.error} onDismiss={() => revokeMutation.reset()} />
 
       {/* Token list */}
       <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">

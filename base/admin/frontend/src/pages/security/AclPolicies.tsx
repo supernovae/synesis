@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCheck, Plus, Trash2 } from "lucide-react";
 import client from "../../api/client";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 
 interface AclPolicy {
   id: number;
@@ -145,6 +146,7 @@ export default function AclPolicies() {
               className="col-span-2 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
           </div>
+          <ApiErrorBanner error={createPolicy.error} onDismiss={() => createPolicy.reset()} />
           <div className="mt-3 flex gap-2">
             <button
               onClick={handleSubmit}
@@ -164,7 +166,8 @@ export default function AclPolicies() {
       )}
 
       {isLoading && <p className="text-sm text-gray-500">Loading policies...</p>}
-      {error && <p className="text-sm text-red-600">Failed to load policies</p>}
+      <ApiErrorBanner error={error} />
+      <ApiErrorBanner error={deletePolicy.error} onDismiss={() => deletePolicy.reset()} />
 
       <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">

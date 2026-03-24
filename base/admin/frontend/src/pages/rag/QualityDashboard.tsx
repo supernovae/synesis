@@ -5,6 +5,7 @@ import client from "../../api/client";
 import MetricCard from "../../components/common/MetricCard";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { RefreshCw } from "lucide-react";
 
 function useRefreshQuality() {
@@ -41,6 +42,8 @@ export default function QualityDashboard() {
           {refreshMutation.isPending ? "Refreshing..." : "Refresh Now"}
         </button>
       </div>
+
+      <ApiErrorBanner error={refreshMutation.error} onDismiss={() => refreshMutation.reset()} />
 
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />

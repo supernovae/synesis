@@ -27,6 +27,7 @@ const DomainHealth = lazy(() => import("./pages/rag/DomainHealth"));
 const Benchmarks = lazy(() => import("./pages/rag/Benchmarks"));
 const ReviewQueue = lazy(() => import("./pages/rag/ReviewQueue"));
 const IngestionQueue = lazy(() => import("./pages/rag/IngestionQueue"));
+const IngestionSources = lazy(() => import("./pages/rag/IngestionSources"));
 const TestingLabs = lazy(() => import("./pages/rag/TestingLabs"));
 
 const DomainBrowser = lazy(() => import("./pages/taxonomy/DomainBrowser"));
@@ -59,6 +60,7 @@ const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
 const ProviderKeys = lazy(() => import("./pages/settings/ProviderKeys"));
 const InfraCosts = lazy(() => import("./pages/settings/InfraCosts"));
 const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
+const ApiExplorer = lazy(() => import("./pages/settings/ApiExplorer"));
 
 const SecurityDashboard = lazy(() => import("./pages/security/SecurityDashboard"));
 const SecurityEvents = lazy(() => import("./pages/security/SecurityEvents"));
@@ -107,6 +109,7 @@ export const router = createBrowserRouter([
       { path: "rag/benchmarks", element: <Benchmarks /> },
       { path: "rag/review", element: <ReviewQueue /> },
       { path: "rag/ingestion", element: <IngestionQueue /> },
+      { path: "rag/ingestion/sources", element: <IngestionSources /> },
       { path: "rag/testing-labs", element: <TestingLabs /> },
 
       { path: "taxonomy", element: <DomainBrowser /> },
@@ -157,6 +160,7 @@ export const router = createBrowserRouter([
       { path: "settings/provider-keys", element: <ProviderKeys /> },
       { path: "settings/infra-costs", element: <InfraCosts /> },
       { path: "settings/audit", element: <AuditLog /> },
+      { path: "settings/api-docs", element: <ApiExplorer /> },
     ],
   },
 ]);

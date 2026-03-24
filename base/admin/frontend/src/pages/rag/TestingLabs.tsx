@@ -4,6 +4,7 @@ import client from "../../api/client";
 import MetricCard from "../../components/common/MetricCard";
 import StatusBadge from "../../components/common/StatusBadge";
 import EmptyState from "../../components/common/EmptyState";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import { Plus, Play, X, ChevronRight, BarChart3, FlaskConical } from "lucide-react";
 
 interface RunSummary {
@@ -164,9 +165,7 @@ function CreateRunModal({ onClose, onCreated }: { onClose: () => void; onCreated
             {mutation.isPending ? "Creating..." : "Create Run"}
           </button>
         </div>
-        {mutation.isError && (
-          <p className="mt-2 text-sm text-red-500">Failed to create run. Please try again.</p>
-        )}
+        <ApiErrorBanner error={mutation.error} onDismiss={() => mutation.reset()} />
       </div>
     </div>
   );
@@ -272,6 +271,8 @@ export default function TestingLabs() {
           <MetricCard label="Needs Review" value={stats.needs_review} />
         </div>
       ) : null}
+
+      <ApiErrorBanner error={startMutation.error} onDismiss={() => startMutation.reset()} />
 
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium text-gray-500">Filter:</span>

@@ -532,6 +532,11 @@ export interface IngestionSource {
   domain: string;
   config: Record<string, unknown> | null;
   tags: string[] | null;
+  visibility_scope: string;
+  org_id: string;
+  tenant_id: string;
+  acl_mode: string;
+  acl_groups: string;
   status: string;
   item_count: number;
   pending_count: number;

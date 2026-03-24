@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Shield, Trash2, Users, ChevronDown, ChevronRight } from "lucide-react";
 import client from "../../api/client";
+import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 
 interface AclGroup {
   id: number;
@@ -119,6 +120,7 @@ export default function AclGroups() {
               className="col-span-2 rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             />
           </div>
+          <ApiErrorBanner error={createGroup.error} onDismiss={() => createGroup.reset()} />
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => createGroup.mutate(newGroup)}
@@ -138,7 +140,10 @@ export default function AclGroups() {
       )}
 
       {isLoading && <p className="text-sm text-gray-500">Loading groups...</p>}
-      {error && <p className="text-sm text-red-600">Failed to load groups</p>}
+      <ApiErrorBanner error={error} />
+      <ApiErrorBanner error={deleteGroup.error} onDismiss={() => deleteGroup.reset()} />
+      <ApiErrorBanner error={addMember.error} onDismiss={() => addMember.reset()} />
+      <ApiErrorBanner error={removeMember.error} onDismiss={() => removeMember.reset()} />
 
       <div className="space-y-2">
         {groups.map((g) => (

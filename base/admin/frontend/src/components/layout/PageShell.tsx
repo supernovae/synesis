@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { Outlet } from "react-router-dom";
-import { Suspense } from "react";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import ErrorBoundary from "../common/ErrorBoundary";
+import { useAdminSSE } from "../../api/useAdminSSE";
 
 export default function PageShell() {
   const [collapsed, setCollapsed] = useState(false);
+  useAdminSSE();
 
   return (
     <div className="flex h-screen overflow-hidden">
