@@ -1,0 +1,45 @@
+# Forwarded Identity Trust Model
+
+## Principle
+
+Only **dedicated internal service tokens** grant forwarded-identity trust.
+The `model_api_key` is exclusively for outbound LLM API calls (planner → LiteLLM).
+PATs (`syn-…`) carry their own identity from the admin database and bypass forwarded headers entirely.
+
+## Token roles (never conflate)
+
+| Token | Purpose | Grants identity trust |
+|-------|---------|----------------------|
+| `internal_service_token(s)` | Service-to-service auth (Open WebUI → planner, Yarn → planner) | **Yes** — forwarded `x-openwebui-*` and `x-synesis-org-*` headers are trusted |
+| `model_api_key` | Outbound auth to LiteLLM / model endpoints | **No** (unless `trust_model_api_key_for_forwarded_identity=True`, which is insecure) |
+| PAT (`syn-…`) | End-user personal access token | **No** — identity comes from the `personal_access_tokens` DB row |
+
+## Production defaults (secure-by-default)
+
+```
+SYNESIS_STRICT_FORWARDED_IDENTITY_MODE=true
+SYNESIS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY=false
+SYNESIS_TRUST_FORWARDED_IDENTITY_HEADERS=true
+SYNESIS_INTERNAL_SERVICE_TOKEN=<from synesis-internal-service-auth secret>
+```
+
+## Enforcement path
+
+1. `_extract_bearer_token()` — pulls Bearer from Authorization header
+2. `_is_trusted_service_bearer()` — checks against `internal_service_token(s)` only
+3. `_enforce_auth_and_header_trust()` — returns `(bearer, trust_forwarded)` tuple
+4. In strict mode: 403 if forwarded identity headers present with untrusted bearer
+5. PAT bearers (`syn-…`) short-circuit to `trust_forwarded=False` (no 403)
+
+## Regression guards
+
+- `test_forwarded_identity_auth.py` — 18 tests covering the full auth matrix
+- `_audit_identity_trust_config()` — startup warnings for insecure configurations
+- Yarn escalation bridge sends `Authorization: Bearer {internal_service_token}` via `planner_internal_token` config
+
+## When modifying auth
+
+- Never add `model_api_key` to the trusted-service-bearer path without explicit security review
+- Never weaken `strict_forwarded_identity_mode` default (must remain `True`)
+- If adding a new upstream that forwards identity headers, it MUST use a dedicated internal service token
+- The `synesis-internal-service-auth` secret is synced across namespaces by `scripts/deploy.sh`

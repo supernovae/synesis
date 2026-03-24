@@ -234,6 +234,39 @@ def _load_approved_conflict_groups() -> None:
         logger.debug("conflict_groups_db_load_failed", exc_info=True)
 
 
+def _audit_identity_trust_config() -> None:
+    """Emit startup warnings for insecure forwarded-identity configurations."""
+    if settings.trust_model_api_key_for_forwarded_identity:
+        logger.warning(
+            "SECURITY: trust_model_api_key_for_forwarded_identity is enabled. "
+            "The shared model API key grants forwarded-identity trust — any client "
+            "with the LiteLLM master key can spoof user/org identity. "
+            "Set SYNESIS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY=false and use "
+            "dedicated internal_service_tokens."
+        )
+    if settings.trust_forwarded_identity_headers and not settings.strict_forwarded_identity_mode:
+        logger.warning(
+            "SECURITY: strict_forwarded_identity_mode is disabled. Forwarded identity "
+            "headers from untrusted bearers will be silently ignored rather than rejected. "
+            "Set SYNESIS_STRICT_FORWARDED_IDENTITY_MODE=true for production."
+        )
+    if settings.trust_forwarded_identity_headers and not _service_tokens():
+        logger.warning(
+            "SECURITY: trust_forwarded_identity_headers is enabled but no "
+            "internal_service_token(s) are configured. No upstream service can be "
+            "trusted for identity forwarding. Set SYNESIS_INTERNAL_SERVICE_TOKEN."
+        )
+    if settings.trust_forwarded_identity_headers and settings.strict_forwarded_identity_mode and _service_tokens():
+        logger.info(
+            "identity_trust_config_ok",
+            extra={
+                "strict_mode": True,
+                "model_key_trust": settings.trust_model_api_key_for_forwarded_identity,
+                "service_token_count": len(_service_tokens()),
+            },
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .entry_classifier_engine import get_scoring_engine
@@ -278,6 +311,9 @@ async def lifespan(app: FastAPI):
             _load_approved_conflict_groups()
         except Exception:
             logger.debug("conflict_groups_db_load_skipped", exc_info=True)
+
+    # ── Security posture checks ──
+    _audit_identity_trust_config()
 
     logger.info(
         "sse_status_format",
@@ -448,19 +484,45 @@ def _extract_bearer_token(http_request: Request) -> str:
 
 
 def _is_trusted_service_bearer(token: str) -> bool:
+    """Check whether ``token`` is a dedicated internal service token.
+
+    The model_api_key path is an opt-in escape hatch for backward compatibility
+    only.  Production deployments MUST leave
+    ``trust_model_api_key_for_forwarded_identity=False`` (default) so that only
+    dedicated internal service tokens can assert forwarded identity.
+    """
     if not token:
         return False
     for candidate in _service_tokens():
         if hmac.compare_digest(token, candidate):
             return True
-    if (
-        settings.trust_model_api_key_for_forwarded_identity
-        and not settings.strict_forwarded_identity_mode
-        and settings.model_api_key
-    ):
+    if settings.trust_model_api_key_for_forwarded_identity and settings.model_api_key:
         if hmac.compare_digest(token, settings.model_api_key):
             return True
+    if settings.log_untrusted_identity_attempts and settings.model_api_key:
+        if hmac.compare_digest(token, settings.model_api_key):
+            logger.warning(
+                "model_api_key_identity_trust_rejected",
+                extra={
+                    "reason": "trust_model_api_key_for_forwarded_identity is disabled",
+                    "hint": "Use a dedicated internal_service_token for identity forwarding",
+                },
+            )
     return False
+
+
+_FORWARDED_IDENTITY_HEADERS = frozenset((
+    "x-openwebui-user-id",
+    "x-openwebui-user-email",
+    "x-synesis-org-id",
+    "x-synesis-org-name",
+    "x-synesis-tenant-ids",
+    "x-openwebui-chat-id",
+))
+
+
+def _has_forwarded_identity_headers(http_request: Request) -> bool:
+    return any(http_request.headers.get(h) for h in _FORWARDED_IDENTITY_HEADERS)
 
 
 def _enforce_auth_and_header_trust(http_request: Request) -> tuple[str, bool]:
@@ -473,14 +535,11 @@ def _enforce_auth_and_header_trust(http_request: Request) -> tuple[str, bool]:
         return bearer, False
     trust_forwarded = bool(settings.trust_forwarded_identity_headers and _is_trusted_service_bearer(bearer))
     if settings.strict_forwarded_identity_mode and settings.trust_forwarded_identity_headers:
-        has_forwarded = bool(
-            http_request.headers.get("x-openwebui-user-id")
-            or http_request.headers.get("x-openwebui-user-email")
-            or http_request.headers.get("x-synesis-org-id")
-            or http_request.headers.get("x-synesis-org-name")
-            or http_request.headers.get("x-openwebui-chat-id")
-        )
-        if has_forwarded and not trust_forwarded:
+        if _has_forwarded_identity_headers(http_request) and not trust_forwarded:
+            logger.warning(
+                "rejected_untrusted_forwarded_identity",
+                extra={"remote": http_request.client.host if http_request.client else "unknown"},
+            )
             raise HTTPException(status_code=403, detail="Untrusted forwarded identity headers")
     return bearer, trust_forwarded
 

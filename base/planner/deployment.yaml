@@ -199,9 +199,9 @@ spec:
               value: "true"
             - name: SYNESIS_TRUST_FORWARDED_IDENTITY_HEADERS
               value: "true"
-            # Optional hardening: when true, forwarded user/org headers are accepted
-            # only for internal-service-token callers, and untrusted forwarded headers are rejected.
             - name: SYNESIS_STRICT_FORWARDED_IDENTITY_MODE
+              value: "true"
+            - name: SYNESIS_TRUST_MODEL_API_KEY_FOR_FORWARDED_IDENTITY
               value: "false"
           volumeMounts:
             - name: search-sources

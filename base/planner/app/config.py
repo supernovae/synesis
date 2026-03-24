@@ -59,12 +59,19 @@ class Settings(BaseSettings):
     # Shared API key sent to model endpoints (required for LiteLLM virtual-key auth).
     model_api_key: str = "not-needed"
     # Request auth / trusted upstream identity headers.
+    #
+    # Security model (see docs/PRODUCTION_SECURITY.md):
+    #   - Only dedicated internal_service_token(s) grant forwarded-identity trust.
+    #   - model_api_key is for outbound LLM calls, never for identity trust.
+    #   - strict_forwarded_identity_mode=True rejects spoofed identity headers.
+    #   - PATs (syn-…) carry their own identity from the database.
     planner_require_bearer_auth: bool = True
     internal_service_token: str = ""
     internal_service_tokens: str = ""
     trust_forwarded_identity_headers: bool = True
-    trust_model_api_key_for_forwarded_identity: bool = True
-    strict_forwarded_identity_mode: bool = False
+    trust_model_api_key_for_forwarded_identity: bool = False
+    strict_forwarded_identity_mode: bool = True
+    log_untrusted_identity_attempts: bool = True
 
     # UDS paths (bypass HTTP; for co-located vLLM)
     router_model_uds: str = ""
