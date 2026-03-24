@@ -383,7 +383,7 @@ def _get_milvus_client():
 
 _catalog_ensured = False
 
-# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=9).
+# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=10).
 _EXPECTED_FIELDS = frozenset(
     {
         "chunk_id",
@@ -412,6 +412,10 @@ _EXPECTED_FIELDS = frozenset(
         "module_path",
         "symbol_name",
         "artifact_kind",
+        # v10 — multi-tenant isolation
+        "visibility_scope",
+        "org_id",
+        "tenant_id",
         "content_type",
         "quality_score",
         "technical_depth",
@@ -461,7 +465,7 @@ def _validate_catalog_schema(client) -> bool:
 
 
 def _recreate_catalog(client) -> bool:
-    """Drop and recreate synesis_catalog with the full v9 schema.
+    """Drop and recreate synesis_catalog with the full v10 schema.
 
     This is the nuclear option for schema drift — it drops all indexed data
     and recreates the collection with the correct schema.  The indexer will
@@ -504,6 +508,9 @@ def _recreate_catalog(client) -> bool:
         FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
         FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="quality_score", dtype=DataType.FLOAT),
         FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
@@ -529,7 +536,7 @@ def _recreate_catalog(client) -> bool:
         output_field_names=["sparse_text"],
         function_type=FunctionType.BM25,
     )
-    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v9")
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v10")
 
     try:
         client.drop_collection(collection_name=SYNESIS_CATALOG)
@@ -550,7 +557,7 @@ def _recreate_catalog(client) -> bool:
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
         client.load_collection(collection_name=SYNESIS_CATALOG)
         logger.warning(
-            "synesis_catalog_recreated_v9",
+            "synesis_catalog_recreated_v10",
             extra={"detail": "Collection is empty — run the indexer to repopulate"},
         )
         return True
@@ -562,7 +569,7 @@ def _recreate_catalog(client) -> bool:
 def _ensure_synesis_catalog() -> None:
     """Validate synesis_catalog exists and is loaded.
 
-    On schema drift, drops and recreates the collection with the v9 schema
+    On schema drift, drops and recreates the collection with the v10 schema
     so searches don't crash on missing fields.  The indexer repopulates data.
     """
     global _catalog_ensured
@@ -575,7 +582,7 @@ def _ensure_synesis_catalog() -> None:
 
         if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "synesis_catalog_not_found — creating with v9 schema",
+                "synesis_catalog_not_found — creating with v10 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -584,7 +591,7 @@ def _ensure_synesis_catalog() -> None:
 
         if not _validate_catalog_schema(client):
             logger.warning(
-                "synesis_catalog_schema_drift — recreating collection with v9 schema",
+                "synesis_catalog_schema_drift — recreating collection with v10 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -600,6 +607,10 @@ async def submit_user_knowledge(
     domain: str,
     content: str,
     source: str = "user_submitted",
+    *,
+    visibility_scope: str = "global",
+    org_id: str = "",
+    tenant_id: str = "",
 ) -> str | None:
     """Submit user-provided knowledge to synesis_catalog. Returns chunk_id or None on error.
 
@@ -641,6 +652,9 @@ async def submit_user_knowledge(
         "module_path": "",
         "symbol_name": "",
         "artifact_kind": "docs",
+        "visibility_scope": (visibility_scope or "global")[:16],
+        "org_id": (org_id or "")[:64],
+        "tenant_id": (tenant_id or "")[:64],
         "content_type": "reference",
         "quality_score": -1.0,
         "technical_depth": -1.0,
@@ -681,6 +695,38 @@ def discover_collections() -> list[str]:
     return [SYNESIS_CATALOG]
 
 
+def build_scope_filter(
+    *,
+    caller_org_id: str = "",
+    caller_tenant_ids: list[str] | None = None,
+) -> str:
+    """Build the mandatory three-tier visibility scope predicate.
+
+    Access tiers (OR-combined):
+      1. ``visibility_scope == "global"`` — always allowed
+      2. ``visibility_scope == "org"`` AND ``org_id == caller_org_id``
+      3. ``visibility_scope == "tenant"`` AND ``org_id == caller_org_id``
+         AND ``tenant_id in caller_tenant_ids``
+
+    Fail-closed: if caller_org_id is empty, only global content is returned.
+    """
+    available = _catalog_fields
+    if "visibility_scope" not in available and available:
+        return ""
+
+    clauses: list[str] = ['visibility_scope == "global"']
+    if caller_org_id:
+        safe_org = caller_org_id.replace('"', "")[:64]
+        clauses.append(f'(visibility_scope == "org" and org_id == "{safe_org}")')
+        if caller_tenant_ids:
+            safe_tenants = [t.replace('"', "")[:64] for t in caller_tenant_ids[:50]]
+            tenant_list = ",".join(f'"{t}"' for t in safe_tenants)
+            clauses.append(
+                f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
+            )
+    return f"({' or '.join(clauses)})"
+
+
 def build_metadata_filter(
     *,
     language: str = "",
@@ -691,16 +737,27 @@ def build_metadata_filter(
     content_format: str = "",
     content_type: str = "",
     index_decision: str = "",
+    caller_org_id: str = "",
+    caller_tenant_ids: list[str] | None = None,
 ) -> str:
-    """Build a Milvus filter expression from v8/v9 metadata signals.
+    """Build a Milvus filter expression from metadata signals + mandatory scope.
 
     Combines optional language, artifact_kind, repo_path, tags,
     content_format, content_type, index_decision with domain filter using AND.
-    Returns empty string if no filters apply.
+    Always prepends the three-tier visibility scope predicate when the schema
+    supports it (fail-closed: no org → global only).
     Silently skips fields that are missing from the collection schema.
     """
     available = _catalog_fields
     parts: list[str] = []
+
+    scope_expr = build_scope_filter(
+        caller_org_id=caller_org_id,
+        caller_tenant_ids=caller_tenant_ids,
+    )
+    if scope_expr:
+        parts.append(scope_expr)
+
     if domain_filter:
         parts.append(f"({domain_filter})")
     if language and ("language" in available or not available):

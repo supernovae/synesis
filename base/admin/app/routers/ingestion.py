@@ -47,6 +47,9 @@ class SourceCreate(BaseModel):
     domain: str = ""
     config: dict | None = None
     tags: list[str] | None = None
+    visibility_scope: str = "global"
+    org_id: str = ""
+    tenant_id: str = ""
 
 
 class ItemCreate(BaseModel):
@@ -57,6 +60,9 @@ class ItemCreate(BaseModel):
     authority: str = "vetted"
     origin_type: str = "curated"
     tags: list[str] | None = None
+    visibility_scope: str = "global"
+    org_id: str = ""
+    tenant_id: str = ""
     priority: int = 0
     config: dict | None = None
     source_id: int | None = None
@@ -103,6 +109,9 @@ def _item_dict(r: IngestionItem) -> dict:
         "authority": r.authority,
         "origin_type": r.origin_type,
         "tags": r.tags,
+        "visibility_scope": r.visibility_scope,
+        "org_id": r.org_id,
+        "tenant_id": r.tenant_id,
         "priority": r.priority,
         "config": r.config,
         "status": r.status,
@@ -159,6 +168,9 @@ async def list_sources(
                     "domain": r.domain,
                     "config": r.config,
                     "tags": r.tags,
+                    "visibility_scope": r.visibility_scope,
+                    "org_id": r.org_id,
+                    "tenant_id": r.tenant_id,
                     "status": r.status,
                     "item_count": item_count,
                     "pending_count": pending,
@@ -182,6 +194,9 @@ async def create_source(
             domain=body.domain,
             config=body.config,
             tags=body.tags,
+            visibility_scope=body.visibility_scope,
+            org_id=body.org_id,
+            tenant_id=body.tenant_id,
         )
         session.add(src)
         await session.commit()
@@ -568,6 +583,9 @@ async def add_item(
                 authority=body.authority,
                 origin_type=body.origin_type,
                 tags=body.tags,
+                visibility_scope=body.visibility_scope,
+                org_id=body.org_id,
+                tenant_id=body.tenant_id,
                 priority=body.priority,
                 config=body.config,
                 status="pending",
@@ -603,6 +621,9 @@ async def add_items_bulk(
                     authority=item.authority,
                     origin_type=item.origin_type,
                     tags=item.tags,
+                    visibility_scope=item.visibility_scope,
+                    org_id=item.org_id,
+                    tenant_id=item.tenant_id,
                     priority=item.priority,
                     config=item.config,
                     status="pending",
@@ -650,6 +671,9 @@ class ItemPatch(BaseModel):
     authority: str | None = None
     origin_type: str | None = None
     tags: list[str] | None = None
+    visibility_scope: str | None = None
+    org_id: str | None = None
+    tenant_id: str | None = None
     priority: int | None = None
     config: dict | None = None
     source_id: int | None = None
@@ -684,6 +708,12 @@ async def patch_item(
             item.origin_type = body.origin_type
         if body.tags is not None:
             item.tags = body.tags
+        if body.visibility_scope is not None:
+            item.visibility_scope = body.visibility_scope
+        if body.org_id is not None:
+            item.org_id = body.org_id
+        if body.tenant_id is not None:
+            item.tenant_id = body.tenant_id
         if body.priority is not None:
             item.priority = body.priority
         if body.config is not None:
@@ -826,6 +856,9 @@ async def claim_item(
         effective_config = item.config
         effective_domain = item.domain
         effective_tags = item.tags
+        effective_visibility_scope = item.visibility_scope
+        effective_org_id = item.org_id
+        effective_tenant_id = item.tenant_id
 
         if item.source_id:
             src = await session.get(IngestionSource, item.source_id)
@@ -840,6 +873,12 @@ async def claim_item(
                     effective_authority = src.authority
                 if not effective_tags and src.tags:
                     effective_tags = src.tags
+                if effective_visibility_scope == "global" and src.visibility_scope != "global":
+                    effective_visibility_scope = src.visibility_scope
+                if not effective_org_id and src.org_id:
+                    effective_org_id = src.org_id
+                if not effective_tenant_id and src.tenant_id:
+                    effective_tenant_id = src.tenant_id
 
         await session.commit()
         await session.refresh(item)
@@ -850,6 +889,9 @@ async def claim_item(
         payload["effective_config"] = effective_config
         payload["effective_domain"] = effective_domain
         payload["effective_tags"] = effective_tags
+        payload["effective_visibility_scope"] = effective_visibility_scope
+        payload["effective_org_id"] = effective_org_id
+        payload["effective_tenant_id"] = effective_tenant_id
         return payload
 
 
@@ -1216,7 +1258,7 @@ async def report_schema_version(
         }
 
 
-EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "9"))
+EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "10"))
 
 SYNESIS_CATALOG_NAME = "synesis_catalog"
 
@@ -1235,7 +1277,7 @@ async def reset_milvus_catalog(
 ):
     """Drop the unified RAG collection and optionally reset the ingestion queue.
 
-    Next indexer run will recreate the collection (v9 schema) and re-index.
+    Next indexer run will recreate the collection (v10 schema) and re-index.
     """
     if body.confirm != "DELETE_SYNESIS_CATALOG":
         raise HTTPException(
@@ -1571,6 +1613,9 @@ async def bootstrap_from_yaml(
             origin_type = entry.get("origin_type", "curated") or "curated"
             raw_tags = entry.get("tags")
             tags = raw_tags if isinstance(raw_tags, list) else None
+            visibility_scope = entry.get("visibility_scope", "global") or "global"
+            bootstrap_org_id = entry.get("org_id", "") or ""
+            bootstrap_tenant_id = entry.get("tenant_id", "") or ""
             priority = int(entry.get("priority") or 0)
             config = entry.get("config")
 
@@ -1585,6 +1630,9 @@ async def bootstrap_from_yaml(
                         authority=authority,
                         origin_type=origin_type,
                         tags=tags,
+                        visibility_scope=visibility_scope,
+                        org_id=bootstrap_org_id,
+                        tenant_id=bootstrap_tenant_id,
                         priority=priority,
                         config=config,
                         status=status_override,
@@ -1612,6 +1660,9 @@ async def bootstrap_from_yaml(
                         authority=authority,
                         origin_type=origin_type,
                         tags=tags,
+                        visibility_scope=visibility_scope,
+                        org_id=bootstrap_org_id,
+                        tenant_id=bootstrap_tenant_id,
                         priority=priority,
                         config=config,
                         status=status_override,

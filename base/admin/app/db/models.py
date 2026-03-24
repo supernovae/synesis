@@ -365,6 +365,9 @@ class IngestionSource(Base):
     domain: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    visibility_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -374,6 +377,7 @@ class IngestionSource(Base):
     __table_args__ = (
         Index("ix_ingestion_sources_status", "status"),
         Index("ix_ingestion_sources_domain", "domain"),
+        Index("ix_ingestion_sources_org_id", "org_id"),
     )
 
 
@@ -389,6 +393,9 @@ class IngestionItem(Base):
     authority: Mapped[str] = mapped_column(String(32), nullable=False, default="vetted")
     origin_type: Mapped[str] = mapped_column(String(32), nullable=False, default="curated")
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    visibility_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
@@ -410,6 +417,7 @@ class IngestionItem(Base):
         Index("ix_ingestion_items_source_id", "source_id"),
         Index("ix_ingestion_items_domain", "domain"),
         Index("ix_ingestion_items_handler", "handler"),
+        Index("ix_ingestion_items_org_id", "org_id"),
     )
 
 
@@ -430,6 +438,9 @@ class IngestionDocument(Base):
     authority: Mapped[str] = mapped_column(String(32), nullable=False, default="vetted")
     origin_type: Mapped[str] = mapped_column(String(32), nullable=False, default="curated")
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    visibility_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     config_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     raw_status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     raw_content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

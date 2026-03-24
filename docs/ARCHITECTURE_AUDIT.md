@@ -13,7 +13,7 @@ The long-form audit below was written against an **older** tree (line-numbered e
 | **Milvus hybrid / sparse / pool** | `rag_client.py` defines `_get_milvus_client()`, `_get_milvus_pool()`, `_sparse_search(..., filter_expr=...)`, and hybrid passes `filter_expr`. |
 | **Taxonomy / domain boost** | `UnifiedResult` includes `domain`; `_rag_to_unified` populates it; `_taxonomy_boost` matches on `domain`. |
 | **`import time` / rerank** | `rag_client.py` imports and uses `time` for rerank paths. |
-| **Catalog schema drift** | `_ensure_synesis_catalog` / `_recreate_catalog` target **v9** unified schema with `sparse_text` + BM25 function + semantic metadata fields (align with indexer `SCHEMA_VERSION` and `SYNESIS_EXPECTED_SCHEMA_VERSION` on admin). |
+| **Catalog schema drift** | `_ensure_synesis_catalog` / `_recreate_catalog` target **v10** unified schema with `sparse_text` + BM25 function + semantic metadata fields + **multi-tenant scope** (`visibility_scope`, `org_id`, `tenant_id`). Aligned across indexer `SCHEMA_VERSION`, planner `_EXPECTED_FIELDS`, and admin `EXPECTED_SCHEMA_VERSION`. |
 | **Semantic index TTL** | Redis-backed path uses `expire` on insert (`semantic_index.py`). |
 | **Session checkpointer** | `graph.py` uses `MemorySaver` at compile time; `upgrade_checkpointer_to_redis()` installs `AsyncRedisSaver` when `session_checkpointer_backend=redis` and URL are set (replaces the old `RedisSaver` context-manager bug class). |
 | **Conversation memory** | `RedisConversationMemory` provides Redis-primary storage when `SYNESIS_MEMORY_REDIS_URL` is set; falls back to in-process `ConversationMemory` otherwise. Both implement the same public API (enforced by governance tests). Multi-replica planners require the Redis backend. |
@@ -22,6 +22,7 @@ The long-form audit below was written against an **older** tree (line-numbered e
 | **Background critic metrics** | `graph.py` defines `synesis_background_critic_approved_total` / `rejected_total`. |
 | **Adversarial prompt payloads** | `tests/prompts/test_prompts.yaml` includes an **`adversarial`** category (instruction override, encoding tricks, etc.); `run_test_suite.py` knows the category. |
 | **Injection defense layers** | See [SECURITY.md](SECURITY.md) — scanner + trust policy + ongoing hardening. |
+| **Multi-tenant RAG isolation (C1)** | Three-tier visibility model (global/org/tenant) implemented in Milvus schema v10. `build_scope_filter()` enforces fail-closed retrieval on every search path. Indexer validates scope at upsert. Ingestion DB carries scope on sources/items/documents (Alembic `030`). Yarn escalation forwards `x-synesis-org-id` / `x-synesis-tenant-ids` headers. Integration tests in `test_tenant_isolation.py` + `test_tenant_scope.py`. Benchmarks support `--org-id`/`--tenant-ids`. **Code complete; pending reindex + deploy.** |
 
 ---
 

@@ -77,4 +77,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Local review / working documents (not for commit)
+state_review.md
+
 # Docs: track all documentation (no docs/* ignore)

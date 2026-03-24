@@ -466,6 +466,7 @@ async def _stream_agentic_loop(
                             buf.get_context(),
                             user=session.user_id,
                             conversation_id=session.conversation_id,
+                            org_id=session.org_id or "",
                         ):
                             yield line.decode("utf-8", errors="replace")
 

@@ -528,19 +528,23 @@ def _resolve_user_org(
     *,
     trust_forwarded_identity: bool,
     pat_ctx: PatAuthContext | None = None,
-) -> tuple[str, str]:
-    """Extract organization id/name from forwarded headers.
+) -> tuple[str, str, list[str]]:
+    """Extract organization id/name and tenant IDs from forwarded headers.
 
-    Returns (org_id, org_name). Both empty when user has no org membership.
+    Returns (org_id, org_name, tenant_ids).
+    org_id/org_name empty when user has no org membership.
+    tenant_ids is a list of tenant scopes the caller may access (empty = org-level only).
     """
     if pat_ctx is not None:
         oid = (pat_ctx.org_id or "").strip()
-        return (oid[:128], "") if oid else ("", "")
+        return (oid[:128], "", []) if oid else ("", "", [])
     if not trust_forwarded_identity:
-        return "", ""
+        return "", "", []
     org_id = (http_request.headers.get("x-synesis-org-id") or "").strip()[:128]
     org_name = (http_request.headers.get("x-synesis-org-name") or "").strip()[:256]
-    return org_id, org_name
+    raw_tenants = (http_request.headers.get("x-synesis-tenant-ids") or "").strip()
+    tenant_ids = [t.strip()[:64] for t in raw_tenants.split(",") if t.strip()][:50]
+    return org_id, org_name, tenant_ids
 
 
 def _resolve_conversation_id(
@@ -1151,7 +1155,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         trust_forwarded_identity=trust_forwarded_identity,
         pat_ctx=pat_ctx,
     )
-    org_id, org_name = _resolve_user_org(
+    org_id, org_name, tenant_ids = _resolve_user_org(
         http_request,
         trust_forwarded_identity=trust_forwarded_identity,
         pat_ctx=pat_ctx,
@@ -1439,6 +1443,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "iteration_count": 0,
         "retrieval_params": retrieval_params,
         "user_id": user_id,
+        "org_id": org_id,
+        "tenant_ids": tenant_ids,
         "memory_scope": memory_scope,
         "conversation_history": conversation_history,
         "is_pivot": is_pivot,

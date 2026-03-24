@@ -31,6 +31,11 @@ Version history:
             (quality_score, technical_depth, domain_relevance), index_decision,
             spam_score, dedupe/topic fields, crawl_timestamp, entities_json,
             section_boundaries_json, content hashes, enrichment_profile.
+  v9 → v10: Multi-tenant isolation — visibility_scope (global/org/tenant),
+            org_id (Keycloak organization), tenant_id (sub-org workspace).
+            Three-tier access model: global content visible to all, org content
+            scoped to members, tenant content restricted to sub-org scope.
+            Fail-closed: non-global chunks require org/tenant match at retrieval.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -59,7 +64,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -91,6 +96,10 @@ EXPECTED_FIELDS = frozenset(
         "module_path",
         "symbol_name",
         "artifact_kind",
+        # v10 — multi-tenant isolation
+        "visibility_scope",
+        "org_id",
+        "tenant_id",
         # v9 — semantic ingestion / MCP filters
         "content_type",
         "quality_score",
@@ -152,6 +161,10 @@ CATALOG_FIELDS = [
     FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
     FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
     FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+    # v10 — multi-tenant isolation (three-tier: global / org / tenant)
+    FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
+    FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
     # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
     FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="quality_score", dtype=DataType.FLOAT),
@@ -326,6 +339,10 @@ def catalog_entity(
     module_path: str = "",
     symbol_name: str = "",
     artifact_kind: str = "",
+    # v10 — multi-tenant isolation
+    visibility_scope: str = "global",
+    org_id: str = "",
+    tenant_id: str = "",
     # v9
     content_type: str = "",
     quality_score: float = -1.0,
@@ -372,6 +389,9 @@ def catalog_entity(
         "module_path": _trunc_bytes(module_path or "", 256),
         "symbol_name": _trunc_bytes(symbol_name or "", 128),
         "artifact_kind": (artifact_kind or "")[:32],
+        "visibility_scope": (visibility_scope or "global")[:16],
+        "org_id": _trunc_bytes(org_id or "", 64),
+        "tenant_id": _trunc_bytes(tenant_id or "", 64),
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
         "technical_depth": float(technical_depth),

@@ -54,24 +54,42 @@ def embed_text(text: str, embedder_url: str) -> list[float]:
     return resp.json()["data"][0]["embedding"]
 
 
+def build_scope_expr(org_id: str = "", tenant_ids: list[str] | None = None) -> str:
+    """Build three-tier visibility scope filter for benchmarks."""
+    clauses = ['visibility_scope == "global"']
+    if org_id:
+        safe_org = org_id.replace('"', "")[:64]
+        clauses.append(f'(visibility_scope == "org" and org_id == "{safe_org}")')
+        if tenant_ids:
+            safe_tenants = [t.replace('"', "")[:64] for t in tenant_ids[:50]]
+            tenant_list = ",".join(f'"{t}"' for t in safe_tenants)
+            clauses.append(
+                f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
+            )
+    return f"({' or '.join(clauses)})"
+
+
 def hybrid_search(
     query: str,
     query_vector: list[float],
     client: MilvusClient,
     top_k: int,
     rrf_k: int = 60,
+    scope_filter: str = "",
 ) -> list[dict[str, Any]]:
     dense_req = AnnSearchRequest(
         data=[query_vector],
         anns_field="embedding",
         param={"metric_type": "COSINE", "params": {"ef": max(128, top_k)}},
         limit=top_k,
+        expr=scope_filter if scope_filter else None,
     )
     sparse_req = AnnSearchRequest(
         data=[query],
         anns_field="sparse_text",
         param={"metric_type": "BM25"},
         limit=top_k,
+        expr=scope_filter if scope_filter else None,
     )
     results = client.hybrid_search(
         collection_name=COLLECTION,
@@ -135,6 +153,8 @@ def main():
         action="store_true",
         help="Use LLM-judged labels from benchmarks/corpus/ instead of overlap-based",
     )
+    parser.add_argument("--org-id", default="", help="Scope results to this org (multi-tenant filter)")
+    parser.add_argument("--tenant-ids", default="", help="Comma-separated tenant IDs for scope filter")
     args = parser.parse_args()
 
     queries_path = Path(__file__).parent.parent / "bm25" / "queries.yaml"
@@ -161,6 +181,12 @@ def main():
     ks = [5, 10, 20]
     fetch_k = args.top_k * 4
 
+    scope_filter = ""
+    if args.org_id:
+        tid_list = [t.strip() for t in args.tenant_ids.split(",") if t.strip()] if args.tenant_ids else None
+        scope_filter = build_scope_expr(args.org_id, tid_list)
+        print(f"Scope filter: {scope_filter}")
+
     print("Pre-computing query embeddings...")
     query_vectors = {q["id"]: embed_text(q["query"], embedder_url) for q in queries}
 
@@ -175,7 +201,7 @@ def main():
                 continue
 
             t0 = time.perf_counter()
-            results = hybrid_search(q["query"], query_vectors[q["id"]], client, fetch_k)
+            results = hybrid_search(q["query"], query_vectors[q["id"]], client, fetch_k, scope_filter=scope_filter)
             lat = (time.perf_counter() - t0) * 1000
             latencies.append(lat)
 

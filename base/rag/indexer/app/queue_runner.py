@@ -106,6 +106,9 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     domain = item.get("effective_domain") or item.get("domain") or "generalist"
     authority = item.get("effective_authority") or item.get("authority") or "vetted"
     tags = item.get("effective_tags") or item.get("tags") or []
+    visibility_scope = item.get("effective_visibility_scope") or item.get("visibility_scope") or "global"
+    org_id = item.get("effective_org_id") or item.get("org_id") or ""
+    tenant_id = item.get("effective_tenant_id") or item.get("tenant_id") or ""
 
     uri = item.get("uri", "")
     if "url" not in config and uri:
@@ -128,6 +131,9 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
         "origin_type": item.get("origin_type", "curated"),
         "domain": domain,
         "config": config,
+        "visibility_scope": visibility_scope,
+        "org_id": org_id,
+        "tenant_id": tenant_id,
     }
 
 

@@ -35,12 +35,16 @@ async def escalate_to_langchain(
     *,
     user: str = "",
     conversation_id: str = "",
+    org_id: str = "",
+    tenant_ids: list[str] | None = None,
 ) -> AsyncIterator[bytes]:
     """Forward a request to the planner and stream the SSE response back.
 
     The planner exposes an OpenAI-compatible /v1/chat/completions endpoint.
     We send the full conversation context so the planner has everything it
     needs for RAG, planning, and multi-step reasoning.
+    Org/tenant identity is forwarded as headers so the planner can enforce
+    three-tier visibility scope on retrieval.
     """
     client = _get_client()
 
@@ -54,12 +58,19 @@ async def escalate_to_langchain(
     if conversation_id:
         payload["conversation_id"] = conversation_id
 
+    headers: dict[str, str] = {}
+    if org_id:
+        headers["x-synesis-org-id"] = org_id
+    if tenant_ids:
+        headers["x-synesis-tenant-ids"] = ",".join(tenant_ids)
+
     logger.info("Escalating to planner: %d messages", len(messages))
 
     async with client.stream(
         "POST",
         "/v1/chat/completions",
         json=payload,
+        headers=headers,
     ) as resp:
         resp.raise_for_status()
         async for line in resp.aiter_lines():

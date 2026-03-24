@@ -234,6 +234,7 @@ def audit_domain(
     top_k: int,
     llm_url: str | None,
     model: str,
+    scope_filter: str = "",
 ) -> dict[str, Any]:
     """Run the full audit for a single domain."""
     queries = generate_queries_from_taxonomy(domain_key, domain_config, llm_url, model)
@@ -267,7 +268,7 @@ def audit_domain(
     for q in queries:
         try:
             vec = embed_text(q, embedder_url)
-            results = hybrid_search(q, vec, client, top_k)
+            results = hybrid_search(q, vec, client, top_k, domain_filter=scope_filter)
         except Exception as e:
             print(f"    Search failed for '{q[:50]}': {e}", file=sys.stderr)
             mrr_scores.append(0.0)
@@ -349,6 +350,8 @@ def main():
     parser.add_argument("--top-k", type=int, default=20)
     parser.add_argument("--domains", default="", help="Comma-separated list of domains to audit (empty = all)")
     parser.add_argument("--output", default="benchmarks/corpus/corpus_audit_report.json")
+    parser.add_argument("--org-id", default="", help="Scope results to this org (multi-tenant filter)")
+    parser.add_argument("--tenant-ids", default="", help="Comma-separated tenant IDs for scope filter")
     args = parser.parse_args()
 
     taxonomy_path = Path(args.taxonomy)
@@ -365,6 +368,20 @@ def main():
 
     client = MilvusClient(uri=args.milvus_uri)
     embedder_url = args.embedder_url.rstrip("/")
+
+    scope_filter = ""
+    if args.org_id:
+        tid_list = [t.strip() for t in args.tenant_ids.split(",") if t.strip()] if args.tenant_ids else None
+        scope_clauses = ['visibility_scope == "global"']
+        safe_org = args.org_id.replace('"', "")[:64]
+        scope_clauses.append(f'(visibility_scope == "org" and org_id == "{safe_org}")')
+        if tid_list:
+            tenant_list = ",".join(f'"{t.replace(chr(34), "")[:64]}"' for t in tid_list[:50])
+            scope_clauses.append(
+                f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
+            )
+        scope_filter = f"({' or '.join(scope_clauses)})"
+        print(f"Scope filter: {scope_filter}")
 
     print(f"Auditing {len(target_domains)} domains against {COLLECTION}...")
     t0 = time.time()
@@ -387,6 +404,7 @@ def main():
             args.top_k,
             args.llm_url,
             args.model,
+            scope_filter=scope_filter,
         )
         health = classify_domain(scorecard)
         scorecard["health"] = health

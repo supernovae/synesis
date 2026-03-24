@@ -441,6 +441,8 @@ async def retrieve_unified(
     search_source_ids: list[str] | None = None,
     preferred_domains: list[str] | None = None,
     preseeded_lock: Any = None,
+    caller_org_id: str = "",
+    caller_tenant_ids: list[str] | None = None,
 ) -> RetrievalBundle:
     """Parallel RAG + multi-source web retrieval with authority-weighted RRF fusion.
 
@@ -483,7 +485,15 @@ async def retrieve_unified(
     # never as a Milvus WHERE-clause filter.  The user's query drives retrieval;
     # taxonomy lifts domain-matching results higher in the ranking but never
     # hides cross-domain content that the reranker would keep.
-    domain_filter = ""
+    #
+    # Scope filter IS mandatory — three-tier visibility (global/org/tenant)
+    # enforced via build_scope_filter.
+    from .rag_client import build_scope_filter
+
+    domain_filter = build_scope_filter(
+        caller_org_id=caller_org_id,
+        caller_tenant_ids=caller_tenant_ids,
+    )
 
     web_budget = settings.scaled_web_budget(difficulty)
     web_enabled = settings.web_search_enabled and (web_budget > 0 or force_web) and not skip_web

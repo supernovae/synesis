@@ -41,6 +41,8 @@ class KnowledgeSearchRequest(BaseModel):
     repo_path: str = Field(default="", description="Filter by repository (e.g. owner/repo)")
     tags: str = Field(default="", description="Filter by tag substring (e.g. async, web)")
     content_format: str = Field(default="", description="Filter by content format (e.g. python, yaml)")
+    caller_org_id: str = Field(default="", description="Org ID for scope filtering (fail-closed: empty = global only)")
+    caller_tenant_ids: list[str] = Field(default_factory=list, description="Tenant IDs the caller may access")
 
 
 class KnowledgeSubmitRequest(BaseModel):
@@ -48,6 +50,9 @@ class KnowledgeSubmitRequest(BaseModel):
 
     domain: str = Field(..., description="Domain (e.g. openshift, python, generalist)")
     content: str = Field(..., min_length=1, description="Markdown or plain text content")
+    visibility_scope: str = Field(default="global", description="Visibility tier: global, org, or tenant")
+    org_id: str = Field(default="", description="Org ID (required for org/tenant scope)")
+    tenant_id: str = Field(default="", description="Tenant ID (required for tenant scope)")
 
 
 @router.post("/v1/knowledge/submit")
@@ -66,6 +71,9 @@ async def knowledge_submit(req: KnowledgeSubmitRequest):
         domain=req.domain.strip() or "generalist",
         content=content,
         source="user_submitted",
+        visibility_scope=req.visibility_scope or "global",
+        org_id=req.org_id or "",
+        tenant_id=req.tenant_id or "",
     )
     if chunk_id:
         return {"chunk_id": chunk_id, "status": "ingested"}
@@ -92,6 +100,8 @@ async def knowledge_search(req: KnowledgeSearchRequest):
         domain_filter=domain_filter,
         tags=req.tags,
         content_format=req.content_format,
+        caller_org_id=req.caller_org_id,
+        caller_tenant_ids=req.caller_tenant_ids or None,
     )
 
     try:

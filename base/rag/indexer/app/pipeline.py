@@ -143,6 +143,9 @@ def index_parsed_chunk_pairs(
     domain = source_config.get("domain", "generalist")
     tags_list = source_config.get("config", {}).get("tags", [])
     tags_str = ",".join(str(t) for t in tags_list)
+    src_visibility_scope = source_config.get("visibility_scope", "global")
+    src_org_id = source_config.get("org_id", "")
+    src_tenant_id = source_config.get("tenant_id", "")
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -151,9 +154,31 @@ def index_parsed_chunk_pairs(
     else:
         source_type = source_type_override or handler.source_type
 
+    if src_visibility_scope not in ("global", "org", "tenant"):
+        logger.error(
+            "indexer_invalid_visibility_scope",
+            extra={"source": name, "visibility_scope": src_visibility_scope},
+        )
+        progress.log_error(name, f"invalid visibility_scope: {src_visibility_scope}")
+        return 0, fetch_meta
+    if src_visibility_scope in ("org", "tenant") and not src_org_id:
+        logger.error(
+            "indexer_scope_missing_org_id",
+            extra={"source": name, "visibility_scope": src_visibility_scope},
+        )
+        progress.log_error(name, f"visibility_scope={src_visibility_scope} requires org_id")
+        return 0, fetch_meta
+    if src_visibility_scope == "tenant" and not src_tenant_id:
+        logger.error(
+            "indexer_scope_missing_tenant_id",
+            extra={"source": name, "visibility_scope": src_visibility_scope},
+        )
+        progress.log_error(name, f"visibility_scope=tenant requires tenant_id")
+        return 0, fetch_meta
+
     parsed_count = len(parsed_pairs)
     fetch_meta["semantic_contract"] = {
-        "pass_a_version": "v9_gatekeeper",
+        "pass_a_version": "v10_gatekeeper",
         "pass_b_version": "pass_b_v1" if enrich_full else "deterministic_v1",
         "enrich_full": bool(enrich_full),
         "docs_total": 0,
@@ -417,6 +442,9 @@ def index_parsed_chunk_pairs(
                 module_path=module_path,
                 symbol_name=symbol_name,
                 artifact_kind=artifact_kind,
+                visibility_scope=src_visibility_scope,
+                org_id=src_org_id,
+                tenant_id=src_tenant_id,
                 content_type=v9_content_type,
                 quality_score=v9_q,
                 technical_depth=v9_td,

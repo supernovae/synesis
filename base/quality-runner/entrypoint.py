@@ -22,6 +22,8 @@ EMBEDDER_URL = os.getenv("SYNESIS_EMBEDDER_URL", "http://embedder.synesis-rag.sv
 LLM_URL = os.getenv("SYNESIS_LLM_URL", "")
 LLM_MODEL = os.getenv("SYNESIS_LLM_MODEL", "synesis-general")
 TAXONOMY_PATH = os.getenv("SYNESIS_TAXONOMY_PATH", "/app/taxonomy_prompt_config.yaml")
+SCOPE_ORG_ID = os.getenv("SYNESIS_SCOPE_ORG_ID", "")
+SCOPE_TENANT_IDS = os.getenv("SYNESIS_SCOPE_TENANT_IDS", "")
 _tmp = tempfile.gettempdir()
 AUDIT_OUTPUT = os.path.join(_tmp, "corpus_audit_report.json")
 CURATOR_OUTPUT = os.path.join(_tmp, "proposed_sources.yaml")
@@ -44,6 +46,10 @@ def run_audit() -> bool:
     ]
     if LLM_URL:
         cmd += ["--llm-url", LLM_URL, "--model", LLM_MODEL]
+    if SCOPE_ORG_ID:
+        cmd += ["--org-id", SCOPE_ORG_ID]
+    if SCOPE_TENANT_IDS:
+        cmd += ["--tenant-ids", SCOPE_TENANT_IDS]
     print(f"[quality-runner] Running audit: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     print(result.stdout[-2000:] if result.stdout else "")
