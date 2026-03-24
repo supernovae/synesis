@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -29,24 +30,30 @@ pytestmark = [
 ]
 
 
-def _get(path: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
-    req = urllib.request.Request(f"{_BASE}{path}", headers=headers or {}, method="GET")
+def _safe_urlopen(
+    req: urllib.request.Request, *, timeout: int
+) -> tuple[int, bytes]:
+    """urlopen wrapper that rejects non-HTTP(S) schemes (B310 mitigation)."""
+    scheme = urllib.parse.urlparse(req.full_url).scheme
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Refusing non-HTTP scheme: {scheme}")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return resp.status, resp.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
+
+
+def _get(path: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
+    req = urllib.request.Request(f"{_BASE}{path}", headers=headers or {}, method="GET")
+    return _safe_urlopen(req, timeout=30)
 
 
 def _post_json(path: str, body: dict, headers: dict[str, str]) -> tuple[int, bytes]:
     data = json.dumps(body).encode("utf-8")
     h = {"Content-Type": "application/json", **headers}
     req = urllib.request.Request(f"{_BASE}{path}", data=data, headers=h, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            return resp.status, resp.read()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read()
+    return _safe_urlopen(req, timeout=120)
 
 
 def test_yarn_live_health():
