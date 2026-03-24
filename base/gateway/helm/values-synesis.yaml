@@ -96,6 +96,12 @@ extraEnvVars:
         name: litellm-secrets
         key: salt-key
         optional: true
+  - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: synesis-internal-service-auth
+        key: token
+        optional: false
 
 # ---------- Proxy config (dynamic mode — bootstrap models only) ----------
 proxy_config:
@@ -104,14 +110,14 @@ proxy_config:
       litellm_params:
         model: openai/Synesis
         api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
-        api_key: "not-needed"
+        api_key: "os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN"
         max_tokens: 65536
         temperature: 0.2
     - model_name: Synesis Thinking
       litellm_params:
         model: openai/Synesis Thinking
         api_base: http://synesis-planner.synesis-planner.svc.cluster.local:8000/v1
-        api_key: "not-needed"
+        api_key: "os.environ/SYNESIS_INTERNAL_SERVICE_TOKEN"
         max_tokens: 65536
         temperature: 0.2
     - model_name: synesis-thinking
