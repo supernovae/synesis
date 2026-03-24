@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user
-from ..rbac import require_platform_admin, trace_scope_filters
+from ..rbac import RouteGroup, can_access_route_group, require_platform_admin, trace_scope_filters
 from ..services.usage_rollup import get_usage, get_usage_summary, run_rollup
 from ..services.usage_unified import get_reconcile, get_summary_unified
 
 router = APIRouter(prefix="/api/v1/usage", tags=["usage"])
+
+
+def _ensure_org_observability(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_observability):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_observability")
 
 
 @router.get("")
@@ -18,11 +23,13 @@ async def usage_series(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Time-series usage data (5-min buckets), scoped to the caller's role."""
+    _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
     return await get_usage(
         since_hours=since_hours,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
     )
 
 
@@ -32,11 +39,13 @@ async def usage_summary(
     _user: UserInfo = Depends(get_current_user),
 ):
     """Aggregated usage totals over a period, scoped to the caller's role."""
+    _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
     return await get_usage_summary(
         since_hours=since_hours,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
     )
 
 
@@ -55,6 +64,7 @@ async def usage_summary_unified(
     user: UserInfo = Depends(get_current_user),
 ):
     """Pipeline rollups + trace totals + optional Yarn (org_admin+); glossary for UI."""
+    _ensure_org_observability(user)
     return await get_summary_unified(user=user, since_hours=since_hours)
 
 

@@ -2,7 +2,7 @@
 
 Called periodically by the admin background reconciler or a CronJob.
 Each invocation looks at traces created since the last rollup and
-inserts one ``UsageRollup`` row per (5-min bucket, model, user_id, org_id).
+inserts one ``UsageRollup`` row per (5-min bucket, model, user_id, org_id, tenant_id).
 """
 
 from __future__ import annotations
@@ -91,8 +91,9 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                 role = dominant_role or rec.get("role", "") or "unknown"
                 user_id = trace.user_id or ""
                 org_id = rec.get("org_id", "")
+                tenant_id = rec.get("tenant_id", "")
 
-                key = (bucket_dt, model, role, user_id, org_id)
+                key = (bucket_dt, model, role, user_id, org_id, tenant_id)
                 if key not in buckets:
                     buckets[key] = {
                         "bucket": bucket_dt,
@@ -100,6 +101,7 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                         "role": role,
                         "user_id": user_id,
                         "org_id": org_id,
+                        "tenant_id": tenant_id,
                         "request_count": 0,
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
@@ -145,6 +147,7 @@ async def run_rollup(lookback_minutes: int = 15) -> dict[str, Any]:
                     role=b["role"],
                     user_id=b["user_id"],
                     org_id=b["org_id"],
+                    tenant_id=b["tenant_id"],
                     request_count=b["request_count"],
                     prompt_tokens=b["prompt_tokens"],
                     completion_tokens=b["completion_tokens"],
@@ -173,6 +176,7 @@ async def get_usage(
     since_hours: int = 24,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
     group_by: str = "bucket",
 ) -> list[dict[str, Any]]:
     """Read pre-aggregated usage data, respecting RBAC scope."""
@@ -186,6 +190,9 @@ async def get_usage(
                 q = q.where(UsageRollup.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(UsageRollup.org_id == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(UsageRollup.tenant_id == scope_tenant_id)
 
             q = q.order_by(UsageRollup.bucket.desc())
             result = await session.execute(q)
@@ -220,6 +227,7 @@ async def get_usage_summary(
     since_hours: int = 24,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
 ) -> dict[str, Any]:
     """Return aggregated totals over the period, respecting RBAC scope."""
     cutoff = datetime.now(UTC) - timedelta(hours=since_hours)
@@ -242,6 +250,9 @@ async def get_usage_summary(
                 q = q.where(UsageRollup.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(UsageRollup.org_id == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(UsageRollup.tenant_id == scope_tenant_id)
 
             row = (await session.execute(q)).one()
 
@@ -266,6 +277,7 @@ async def get_latest_rollup_bucket(
     *,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
 ) -> datetime | None:
     """Most recent usage_rollup bucket (UTC), optionally scoped."""
     async with async_session() as session:
@@ -275,6 +287,10 @@ async def get_latest_rollup_bucket(
                 q = q.where(UsageRollup.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(UsageRollup.org_id == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(UsageRollup.tenant_id == scope_tenant_id)
+
             row = (await session.execute(q)).scalar()
             return row
         except Exception:

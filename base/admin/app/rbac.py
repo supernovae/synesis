@@ -21,7 +21,7 @@ Keycloak mapping:
 
 from __future__ import annotations
 
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 from fastapi import Depends, HTTPException
@@ -68,6 +68,16 @@ def effective_role(user: UserInfo) -> Role:
     return resolve_role(user)
 
 
+class RouteGroup(StrEnum):
+    """Logical route groups for multi-tenant authorization design."""
+
+    platform_control = "platform_control"
+    org_observability = "org_observability"
+    org_content_admin = "org_content_admin"
+    tenant_content_admin = "tenant_content_admin"
+    self_service = "self_service"
+
+
 # ── FastAPI dependency helpers ───────────────────────────────────────────────
 
 
@@ -89,6 +99,87 @@ require_platform_admin = _require(Role.platform_admin)
 require_org_admin = _require(Role.org_admin)
 require_user = _require(Role.user)
 require_readonly = _require(Role.readonly)
+
+
+def can_access_route_group(user: UserInfo, group: RouteGroup) -> bool:
+    """Return True when user can access the logical API route group."""
+    role = resolve_role(user)
+    if group == RouteGroup.platform_control:
+        return role >= Role.platform_admin
+    if group == RouteGroup.org_observability:
+        if role >= Role.platform_admin:
+            return True
+        return role >= Role.org_admin and bool((user.org_id or "").strip())
+    if group == RouteGroup.org_content_admin:
+        if role >= Role.platform_admin:
+            return True
+        return role >= Role.org_admin and bool((user.org_id or "").strip())
+    if group == RouteGroup.tenant_content_admin:
+        return is_tenant_content_operator(user)
+    if group == RouteGroup.self_service:
+        return role >= Role.user
+    return False
+
+
+def require_route_group(group: RouteGroup):
+    """FastAPI dependency factory enforcing logical route-group access."""
+
+    async def _dep(user: UserInfo = Depends(get_current_user)) -> UserInfo:
+        if not can_access_route_group(user, group):
+            raise HTTPException(status_code=403, detail=f"Requires route group access: {group.value}")
+        return user
+
+    return _dep
+
+
+require_org_observability = require_route_group(RouteGroup.org_observability)
+require_org_content_admin = require_route_group(RouteGroup.org_content_admin)
+
+
+def is_tenant_content_operator(user: UserInfo) -> bool:
+    """True when user can operate on tenant-scoped content in own org."""
+    if resolve_role(user) >= Role.org_admin:
+        return bool((user.org_id or "").strip())
+    return bool((user.org_id or "").strip() and (user.tenant_ids or []))
+
+
+async def require_tenant_content_operator(user: UserInfo = Depends(get_current_user)) -> UserInfo:
+    """Allow org_admin+ or tenant-scoped users with explicit tenant grants."""
+    if not is_tenant_content_operator(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Requires org_admin role or tenant content grants",
+        )
+    return user
+
+
+def can_manage_visibility_scope(
+    user: UserInfo,
+    *,
+    visibility_scope: str,
+    org_id: str = "",
+    tenant_id: str = "",
+) -> bool:
+    """Check whether caller may create/update content with the requested scope."""
+    scope = (visibility_scope or "global").strip().lower()
+    caller_org = (user.org_id or "").strip()
+    role = resolve_role(user)
+    if role >= Role.platform_admin:
+        return True
+    if scope == "global":
+        return role >= Role.org_admin
+    if scope == "org":
+        return role >= Role.org_admin and caller_org and (org_id or caller_org) == caller_org
+    if scope == "tenant":
+        if not caller_org or not tenant_id:
+            return False
+        target_org = (org_id or caller_org).strip()
+        if target_org != caller_org:
+            return False
+        if role >= Role.org_admin:
+            return True
+        return tenant_id in set(user.tenant_ids or [])
+    return False
 
 
 # ── Data-scoping helpers ─────────────────────────────────────────────────────
@@ -150,7 +241,8 @@ def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     """Return keyword filters to pass into ``trace_store.list_traces``
     so only rows the user is authorized to see are returned.
 
-    Platform admins get an empty dict (no restriction).
+    Platform admins get an empty dict (no restriction). Non-org-admin users with
+    ``tenant_ids`` also get ``scope_tenant_id`` (first id).
     """
     role = resolve_role(user)
     if role >= Role.platform_admin:
@@ -158,4 +250,10 @@ def trace_scope_filters(user: UserInfo) -> dict[str, str]:
     if role >= Role.org_admin and user.org_id:
         return {"org_id": user.org_id}
     uid = user.user_id or user.username
-    return {"user_id": uid}
+    out: dict[str, str] = {"user_id": uid}
+    tenant_ids = user.tenant_ids or []
+    if tenant_ids and role < Role.org_admin:
+        tid = str(tenant_ids[0]).strip()[:64]
+        if tid:
+            out["scope_tenant_id"] = tid
+    return out

@@ -127,6 +127,7 @@ class TestChatCompletions:
         mock_pat.return_value = PatAuthContext(
             user_id="pat-user-99",
             org_id="org-1",
+            tenant_ids=[],
             username="alice@example.com",
             role="user",
             scopes=["model:readonly"],

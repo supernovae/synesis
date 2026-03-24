@@ -40,6 +40,7 @@ class TokenCreate(BaseModel):
     name: str
     expires_in_days: int | None = None
     scopes: list[str] | None = None
+    tenant_ids: list[str] | None = None
 
     @field_validator("scopes", mode="before")
     @classmethod
@@ -54,6 +55,17 @@ class TokenCreate(BaseModel):
             raise ValueError("At least one scope is required")
         return cleaned
 
+    @field_validator("tenant_ids", mode="before")
+    @classmethod
+    def _validate_tenant_ids(_cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        cleaned = [str(t).strip()[:64] for t in v if str(t).strip()]
+        cleaned = list(dict.fromkeys(cleaned))
+        if len(cleaned) > 50:
+            raise ValueError("At most 50 tenant_ids are allowed")
+        return cleaned
+
 
 class TokenCreated(BaseModel):
     id: str
@@ -62,6 +74,7 @@ class TokenCreated(BaseModel):
     token_prefix: str
     role: str
     scopes: list[str]
+    tenant_ids: list[str]
     expires_at: datetime | None
 
 
@@ -71,6 +84,7 @@ class TokenInfo(BaseModel):
     token_prefix: str
     role: str
     scopes: list[str]
+    tenant_ids: list[str]
     created_at: datetime
     expires_at: datetime | None
     last_used_at: datetime | None
@@ -80,6 +94,10 @@ class TokenInfo(BaseModel):
 def _effective_scopes(raw: list[str] | None) -> list[str]:
     """Normalize DB value — legacy NULL tokens get default scopes."""
     return list(raw) if raw else list(DEFAULT_SCOPES)
+
+
+def _effective_tenant_ids(raw: list[str] | None) -> list[str]:
+    return [str(t).strip()[:64] for t in (raw or []) if str(t).strip()][:50]
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -96,6 +114,9 @@ async def create_token(
     The plaintext token is returned in the response and is never stored.
     """
     scopes = body.scopes or list(DEFAULT_SCOPES)
+    tenant_ids = _effective_tenant_ids(body.tenant_ids)
+    if tenant_ids and not (user.org_id or "").strip():
+        raise HTTPException(status_code=400, detail="tenant_ids require an organization-scoped identity")
     plaintext, token_hash, display_prefix = _generate_token()
     expires_at = datetime.now(UTC) + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     pat_id = str(uuid.uuid4())
@@ -104,6 +125,7 @@ async def create_token(
         user_id=user.user_id or user.username,
         username=user.username,
         org_id=user.org_id or "",
+        tenant_ids=tenant_ids,
         token_hash=token_hash,
         token_prefix=display_prefix,
         name=body.name,
@@ -121,6 +143,7 @@ async def create_token(
         token_prefix=display_prefix,
         role=user.role,
         scopes=scopes,
+        tenant_ids=tenant_ids,
         expires_at=expires_at,
     )
 
@@ -145,6 +168,7 @@ async def list_tokens(
             token_prefix=t.token_prefix,
             role=t.role,
             scopes=_effective_scopes(t.scopes),
+            tenant_ids=_effective_tenant_ids(t.tenant_ids),
             created_at=t.created_at,
             expires_at=t.expires_at,
             last_used_at=t.last_used_at,
@@ -196,6 +220,7 @@ async def list_all_tokens(
             token_prefix=t.token_prefix,
             role=t.role,
             scopes=_effective_scopes(t.scopes),
+            tenant_ids=_effective_tenant_ids(t.tenant_ids),
             created_at=t.created_at,
             expires_at=t.expires_at,
             last_used_at=t.last_used_at,

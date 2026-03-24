@@ -22,6 +22,8 @@ class Trace(Base):
     parent_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     root_trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
     query_snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
     timestamp: Mapped[float] = mapped_column(Float, nullable=False, index=True)
     total_duration_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -99,7 +101,7 @@ class UsageRollup(Base):
     """Pre-aggregated usage buckets for fast dashboard charts.
 
     Populated by a periodic rollup task; one row per (bucket, model,
-    user_id, org_id) tuple.  Bucket is truncated to 5 minutes by default.
+    user_id, org_id, tenant_id) tuple.  Bucket is truncated to 5 minutes by default.
     """
 
     __tablename__ = "usage_rollups"
@@ -110,6 +112,7 @@ class UsageRollup(Base):
     role: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     user_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
     request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -368,6 +371,8 @@ class IngestionSource(Base):
     visibility_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
     org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    acl_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    acl_groups: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -396,6 +401,8 @@ class IngestionItem(Base):
     visibility_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="global")
     org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    acl_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    acl_groups: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
@@ -525,6 +532,7 @@ class YarnSession(Base):
     session_key: Mapped[str] = mapped_column(String(256), nullable=False)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False)
     org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
     username: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     conversation_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
@@ -555,6 +563,7 @@ class YarnUsageLog(Base):
     request_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(String(256), nullable=False)
     org_id: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="", index=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     model: Mapped[str] = mapped_column(String(256), nullable=False)
     tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -593,6 +602,7 @@ class PersonalAccessToken(Base):
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     username: Mapped[str] = mapped_column(String, nullable=False)
     org_id: Mapped[str] = mapped_column(String, nullable=False, default="")
+    tenant_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     token_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -830,3 +840,54 @@ class ModelPolicy(Base):
     __table_args__ = (
         Index("ix_model_policies_role_priority", "role", "priority"),
     )
+
+
+class AclGroup(Base):
+    __tablename__ = "acl_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="admin")
+    keycloak_group_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_acl_groups_org_id", "org_id"),)
+
+
+class AclGroupMember(Base):
+    __tablename__ = "acl_group_members"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    granted_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_acl_group_members_user_id", "user_id"),
+        Index("ix_acl_group_members_group_id", "group_id"),
+    )
+
+
+class AclPolicy(Base):
+    __tablename__ = "acl_policies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="org")
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, default="content")
+    acl_groups: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    route_groups: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    effect: Mapped[str] = mapped_column(String(16), nullable=False, default="allow")
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_acl_policies_org_id", "org_id"),)

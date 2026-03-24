@@ -224,6 +224,8 @@ CORE_BUDGET_NODES = {
     "writer.py",
     "critic.py",
     "final_answer_compiler.py",
+    "plan_gate.py",
+    "strategic_advisor.py",
 }
 
 
@@ -235,6 +237,7 @@ def _file_references_budget_accounting(filepath: Path) -> bool:
     budget_functions = {
         "apply_budget_decrement",
         "track_budget",
+        "charge_response_budget",
         "check_budget_for_node",
     }
 
@@ -262,7 +265,7 @@ class TestBudgetGovernance:
         assert fp.exists(), f"{node_file} not found"
         assert _file_references_budget_accounting(fp), (
             f"{node_file} does not import any budget accounting function "
-            f"(apply_budget_decrement, track_budget, or check_budget_for_node). "
+            f"(apply_budget_decrement, track_budget, charge_response_budget, or check_budget_for_node). "
             "All core LLM nodes must account for token budget."
         )
 
@@ -293,3 +296,10 @@ class TestTraceContextBudgetFields:
         assert "token_budget_state" in ctx
         assert ctx["token_budget_remaining"] == 42000
         assert ctx["token_budget_state"] in ("healthy", "degraded", "exhausted")
+
+
+class TestGraphWriterPassBudget:
+    def test_writer_pass_is_budget_charged(self):
+        graph_source = (APP_DIR / "graph.py").read_text(encoding="utf-8")
+        assert 'role="writer_pass"' in graph_source
+        assert '"token_budget_remaining": token_budget_remaining' in graph_source

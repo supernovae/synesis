@@ -82,7 +82,9 @@ def normalize_usage_metadata(meta: dict[str, Any] | None) -> NormalizedLLMUsage:
 
     pt = _int_u(meta.get("input_tokens"))
     ct = _int_u(meta.get("output_tokens"))
-    tt = pt + ct
+    tt = _int_u(meta.get("total_tokens"))
+    if not tt:
+        tt = pt + ct
     cached = 0
     itd = meta.get("input_token_details")
     if isinstance(itd, dict):

@@ -1111,9 +1111,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             q = needs_input_question or "I need more information to proceed. Can you provide more details?"
             logger.info("writer_needs_input", extra={"question": q[:80]})
             latency = (time.monotonic() - start) * 1000
-            from ..token_utils import track_budget
+            from ..token_utils import charge_response_budget
 
-            new_budget = track_budget(state, result, role="writer")
+            _budget = charge_response_budget(state, result, role="writer")
+            new_budget = _budget.remaining
             _tok = result.usage_metadata.get("total_tokens", 0) if getattr(result, "usage_metadata", None) else 0
             return {
                 "generated_code": "",
@@ -1198,9 +1199,10 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
             )
 
-        from ..token_utils import track_budget
+        from ..token_utils import charge_response_budget
 
-        new_budget = track_budget(state, result, role="writer")
+        _budget = charge_response_budget(state, result, role="writer")
+        new_budget = _budget.remaining
 
         return {
             "generated_code": compiled,
@@ -1232,6 +1234,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
             "compiled_answer": fallback,
             "current_node": node_name,
             "evidence_curation": curation_report,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

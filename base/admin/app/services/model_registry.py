@@ -15,7 +15,7 @@ from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
 from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
 from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, build_litellm_params
-from .token_cost import estimate_llm_call_cost_usd
+from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
 
 logger = logging.getLogger("synesis.admin.models")
 
@@ -627,9 +627,19 @@ async def get_cost_by_model() -> list[dict]:
             rows = result.scalars().all()
 
             model_agg: dict[str, dict] = {}
+            costs = await get_cost_estimates()
+            pricing_by_role: dict[str, tuple[float, float, float | None]] = {
+                c.get("role", ""): (
+                    c["input_per_million"],
+                    c["output_per_million"],
+                    c.get("input_cached_per_million"),
+                )
+                for c in costs
+            }
             for row in rows:
                 full = row.full_record or {}
                 for span in full.get("spans", []):
+                    node = span.get("node_name", "unknown")
                     for call in span.get("llm_calls", []):
                         model = call.get("model", "unknown")
                         if model not in model_agg:
@@ -648,38 +658,22 @@ async def get_cost_by_model() -> list[dict]:
                         agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                         agg["total_tokens"] += call.get("total_tokens", 0)
                         agg["requests"] += 1
+                        role = _infer_role_for_cost(node, call.get("model", ""))
+                        inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+                        est = parse_recorded_estimated_cost(call)
+                        agg["cost_usd"] += (
+                            est
+                            if est is not None
+                            else estimate_llm_call_cost_from_payload(
+                                call,
+                                input_per_million=inp_r,
+                                output_per_million=out_r,
+                                input_cached_per_million=ic_r,
+                            )
+                        )
 
-            costs = await get_cost_estimates()
-            pricing_by_role: dict[str, tuple[float, float, float | None]] = {
-                c.get("role", ""): (
-                    c["input_per_million"],
-                    c["output_per_million"],
-                    c.get("input_cached_per_million"),
-                )
-                for c in costs
-            }
-
-            def _first_role_for_model(target: str) -> str:
-                for row in rows:
-                    full = row.full_record or {}
-                    for span in full.get("spans", []):
-                        node = span.get("node_name", "unknown")
-                        for call in span.get("llm_calls", []):
-                            if call.get("model", "unknown") == target:
-                                return _infer_role_for_cost(node, call.get("model", ""))
-                return "unknown"
-
-            for model, agg in model_agg.items():
-                role = _first_role_for_model(model)
-                inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
-                agg["cost_usd"] = estimate_llm_call_cost_usd(
-                    agg["prompt_tokens"],
-                    agg["completion_tokens"],
-                    agg["cached_prompt_tokens"],
-                    input_per_million=inp_r,
-                    output_per_million=out_r,
-                    input_cached_per_million=ic_r,
-                )
+            for agg in model_agg.values():
+                agg["cost_usd"] = round(float(agg["cost_usd"]), 6)
 
             return sorted(model_agg.values(), key=lambda x: x["cost_usd"], reverse=True)
         except Exception:

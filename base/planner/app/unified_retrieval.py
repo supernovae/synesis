@@ -443,6 +443,7 @@ async def retrieve_unified(
     preseeded_lock: Any = None,
     caller_org_id: str = "",
     caller_tenant_ids: list[str] | None = None,
+    caller_acl_groups: list[str] | None = None,
 ) -> RetrievalBundle:
     """Parallel RAG + multi-source web retrieval with authority-weighted RRF fusion.
 
@@ -493,6 +494,7 @@ async def retrieve_unified(
     domain_filter = build_scope_filter(
         caller_org_id=caller_org_id,
         caller_tenant_ids=caller_tenant_ids,
+        caller_acl_groups=caller_acl_groups,
     )
 
     web_budget = settings.scaled_web_budget(difficulty)

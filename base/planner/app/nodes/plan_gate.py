@@ -227,7 +227,7 @@ async def _shallow_coherence_check(
     task_description: str,
     deliverables: list[str],
     difficulty: float = 0.5,
-) -> list[str]:
+) -> tuple[list[str], int]:
     """Optional small-LLM yes/no classification. Kept short and constrained."""
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_openai import ChatOpenAI
@@ -276,13 +276,18 @@ async def _shallow_coherence_check(
         import json
 
         data = json.loads(resp.content or "{}")
+        _tok = 0
+        _usage = getattr(resp, "usage_metadata", None) or {}
+        if isinstance(_usage, dict):
+            _tok = int(_usage.get("total_tokens") or (_usage.get("input_tokens", 0) + _usage.get("output_tokens", 0)))
+
         if not data.get("match", True):
             mismatches = data.get("mismatches") or ["plan does not match user request"]
-            return [f"coherence_mismatch: {m}" for m in mismatches[:3]]
+            return [f"coherence_mismatch: {m}" for m in mismatches[:3]], _tok
     except Exception as e:
         logger.warning("plan_gate_coherence_check_failed", extra={"error": str(e)[:200]})
 
-    return []
+    return [], 0
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +331,7 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
                     latency_ms=latency,
                 )
             ],
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
         }
 
     deliverable_details = [
@@ -349,6 +355,7 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
 
     checks_run = 7
     ran_coherence = False
+    coherence_tokens = 0
 
     # Optional shallow coherence LLM check
     if (
@@ -360,7 +367,8 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         ran_coherence = True
         checks_run += 1
         task_desc = state.get("task_description") or task_frame.get("main_question") or ""
-        errors.extend(await _shallow_coherence_check(steps, task_desc, deliverables, difficulty))
+        _coherence_errors, coherence_tokens = await _shallow_coherence_check(steps, task_desc, deliverables, difficulty)
+        errors.extend(_coherence_errors)
 
     passed = not errors
     latency = (time.monotonic() - start) * 1000
@@ -424,6 +432,13 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
             },
         )
+    token_budget_remaining = state.get("token_budget_remaining", settings.effective_token_budget)
+    if coherence_tokens > 0:
+        from ..token_utils import apply_budget_decrement
+        _budget = apply_budget_decrement(
+            state, coherence_tokens, role="plan_gate", run_id=state.get("run_id", ""),
+        )
+        token_budget_remaining = _budget.remaining
 
     return {
         "plan_gate_passed": passed,
@@ -432,4 +447,5 @@ async def plan_gate_node(state: dict[str, Any]) -> dict[str, Any]:
         "planner_error_count": planner_error_count,
         "current_node": node_name,
         "node_traces": [trace],
+        "token_budget_remaining": token_budget_remaining,
     }

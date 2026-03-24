@@ -46,6 +46,7 @@ async def resolve_or_create_session(
         session_key=key,
         user_id=auth_user.user_id,
         org_id=auth_user.org_id,
+        tenant_ids=list(auth_user.tenant_ids or []),
         username=auth_user.username,
         role=auth_user.role,
         conversation_id=conversation_id,

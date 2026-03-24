@@ -17,8 +17,9 @@ merge, and reranking quality as the pipeline.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..config import settings
@@ -28,6 +29,22 @@ from ..rag_client import build_metadata_filter, retrieve_multi_query_fused, subm
 logger = logging.getLogger("synesis.knowledge")
 
 router = APIRouter()
+_scope_resolver: Callable[[Request], Awaitable[tuple[str, list[str]]]] | None = None
+
+
+def set_knowledge_scope_resolver(
+    resolver: Callable[[Request], Awaitable[tuple[str, list[str]]]],
+) -> None:
+    """Configure auth scope resolver from the planner API layer."""
+    global _scope_resolver
+    _scope_resolver = resolver
+
+
+async def _require_scope(request: Request) -> tuple[str, list[str]]:
+    if _scope_resolver is None:
+        raise HTTPException(status_code=503, detail="Knowledge auth scope resolver is not configured")
+    org_id, tenant_ids = await _scope_resolver(request)
+    return (org_id or "").strip()[:128], [t.strip()[:64] for t in (tenant_ids or []) if t.strip()][:50]
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -41,8 +58,6 @@ class KnowledgeSearchRequest(BaseModel):
     repo_path: str = Field(default="", description="Filter by repository (e.g. owner/repo)")
     tags: str = Field(default="", description="Filter by tag substring (e.g. async, web)")
     content_format: str = Field(default="", description="Filter by content format (e.g. python, yaml)")
-    caller_org_id: str = Field(default="", description="Org ID for scope filtering (fail-closed: empty = global only)")
-    caller_tenant_ids: list[str] = Field(default_factory=list, description="Tenant IDs the caller may access")
 
 
 class KnowledgeSubmitRequest(BaseModel):
@@ -51,13 +66,13 @@ class KnowledgeSubmitRequest(BaseModel):
     domain: str = Field(..., description="Domain (e.g. openshift, python, generalist)")
     content: str = Field(..., min_length=1, description="Markdown or plain text content")
     visibility_scope: str = Field(default="global", description="Visibility tier: global, org, or tenant")
-    org_id: str = Field(default="", description="Org ID (required for org/tenant scope)")
     tenant_id: str = Field(default="", description="Tenant ID (required for tenant scope)")
 
 
 @router.post("/v1/knowledge/submit")
-async def knowledge_submit(req: KnowledgeSubmitRequest):
+async def knowledge_submit(req: KnowledgeSubmitRequest, scope: tuple[str, list[str]] = Depends(_require_scope)):
     """Submit user knowledge to synesis_catalog. Fills gaps from knowledge backlog review."""
+    caller_org_id, caller_tenant_ids = scope
     content = req.content.strip()
     if settings.injection_scan_enabled:
         result = scan_text(content, source="user_knowledge_submit")
@@ -67,13 +82,26 @@ async def knowledge_submit(req: KnowledgeSubmitRequest):
                 extra={"patterns": result.patterns_found[:5]},
             )
             raise HTTPException(status_code=422, detail="Content rejected: potential prompt injection detected")
+    visibility_scope = (req.visibility_scope or "global").strip().lower()
+    if visibility_scope not in {"global", "org", "tenant"}:
+        raise HTTPException(status_code=400, detail="visibility_scope must be one of: global, org, tenant")
+
+    tenant_id = (req.tenant_id or "").strip()[:64]
+    if visibility_scope in {"org", "tenant"} and not caller_org_id:
+        raise HTTPException(status_code=403, detail="Org-scoped submit requires authenticated org context")
+    if visibility_scope == "tenant":
+        if not tenant_id:
+            raise HTTPException(status_code=400, detail="tenant_id is required when visibility_scope=tenant")
+        if tenant_id not in set(caller_tenant_ids):
+            raise HTTPException(status_code=403, detail="tenant_id is outside caller scope")
+
     chunk_id = await submit_user_knowledge(
         domain=req.domain.strip() or "generalist",
         content=content,
         source="user_submitted",
-        visibility_scope=req.visibility_scope or "global",
-        org_id=req.org_id or "",
-        tenant_id=req.tenant_id or "",
+        visibility_scope=visibility_scope,
+        org_id=caller_org_id if visibility_scope in {"org", "tenant"} else "",
+        tenant_id=tenant_id if visibility_scope == "tenant" else "",
     )
     if chunk_id:
         return {"chunk_id": chunk_id, "status": "ingested"}
@@ -81,13 +109,14 @@ async def knowledge_submit(req: KnowledgeSubmitRequest):
 
 
 @router.post("/v1/knowledge/search")
-async def knowledge_search(req: KnowledgeSearchRequest):
+async def knowledge_search(req: KnowledgeSearchRequest, scope: tuple[str, list[str]] = Depends(_require_scope)):
     """Label-scoped RAG search — Milvus pre-filtered by metadata signals.
 
     Supports filtering by language, artifact_kind, domain, repo_path, tags,
     and content_format.  Used by MCP tools (synesis_search, synesis_code_search,
     etc.) to give coding agents targeted corpus access.
     """
+    caller_org_id, caller_tenant_ids = scope
     domain_filter = ""
     if req.domain:
         safe = req.domain.replace('"', "")[:64]
@@ -100,8 +129,8 @@ async def knowledge_search(req: KnowledgeSearchRequest):
         domain_filter=domain_filter,
         tags=req.tags,
         content_format=req.content_format,
-        caller_org_id=req.caller_org_id,
-        caller_tenant_ids=req.caller_tenant_ids or None,
+        caller_org_id=caller_org_id,
+        caller_tenant_ids=caller_tenant_ids or None,
     )
 
     try:

@@ -32,7 +32,10 @@ from ..services.model_registry import (
     upsert_model_cost,
 )
 from ..services.provider_catalog import KNOWN_ROLES
-from ..services.token_cost import estimate_llm_call_cost_usd
+from ..services.token_cost import (
+    estimate_llm_call_cost_from_payload,
+    parse_recorded_estimated_cost,
+)
 
 logger = logging.getLogger("synesis.admin.models_router")
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
@@ -651,10 +654,21 @@ async def costs_by_model(
             result = await session.execute(q)
             rows = result.all()
 
+        cost_rates = await get_cost_estimates()
+        pricing_by_role: dict[str, tuple[float, float, float | None]] = {
+            c.get("role", ""): (
+                c["input_per_million"],
+                c["output_per_million"],
+                c.get("input_cached_per_million"),
+            )
+            for c in cost_rates
+        }
+
         model_agg: dict[str, dict] = {}
         for row in rows:
             full = row[0] or {}
             for span in full.get("spans", []):
+                node = span.get("node_name", "unknown")
                 for call in span.get("llm_calls", []):
                     model = call.get("model", "unknown")
                     if model not in model_agg:
@@ -672,39 +686,23 @@ async def costs_by_model(
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
                     agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
+                    role = _infer_role(node, call.get("model", ""))
+                    inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
+                    est = parse_recorded_estimated_cost(call)
+                    agg["estimated_cost_usd"] += (
+                        est
+                        if est is not None
+                        else estimate_llm_call_cost_from_payload(
+                            call,
+                            input_per_million=inp_r,
+                            output_per_million=out_r,
+                            input_cached_per_million=ic_r,
+                        )
+                    )
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
-        cost_rates = await get_cost_estimates()
-        pricing_by_role: dict[str, tuple[float, float, float | None]] = {
-            c.get("role", ""): (
-                c["input_per_million"],
-                c["output_per_million"],
-                c.get("input_cached_per_million"),
-            )
-            for c in cost_rates
-        }
-
-        def _role_for_model(target: str) -> str:
-            for row in rows:
-                full = row[0] or {}
-                for span in full.get("spans", []):
-                    node = span.get("node_name", "unknown")
-                    for call in span.get("llm_calls", []):
-                        if call.get("model", "unknown") == target:
-                            return _infer_role(node, call.get("model", ""))
-            return "unknown"
-
         for model, agg in model_agg.items():
-            role = _role_for_model(model)
-            inp_r, out_r, ic_r = pricing_by_role.get(role, (0.0, 0.0, None))
-            agg["estimated_cost_usd"] = estimate_llm_call_cost_usd(
-                agg["prompt_tokens"],
-                agg["completion_tokens"],
-                agg["cached_prompt_tokens"],
-                input_per_million=inp_r,
-                output_per_million=out_r,
-                input_cached_per_million=ic_r,
-            )
+            agg["estimated_cost_usd"] = round(agg["estimated_cost_usd"], 6)
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
         return {
@@ -738,6 +736,15 @@ async def costs_by_role(
             result = await session.execute(q)
             rows = result.all()
 
+        cost_rates = await get_cost_estimates()
+        pricing: dict[str, tuple[float, float, float | None]] = {}
+        for c in cost_rates:
+            pricing[c.get("role", "")] = (
+                c["input_per_million"],
+                c["output_per_million"],
+                c.get("input_cached_per_million"),
+            )
+
         role_agg: dict[str, dict] = {}
         for row in rows:
             full = row[0] or {}
@@ -760,27 +767,22 @@ async def costs_by_role(
                     agg["completion_tokens"] += call.get("completion_tokens", 0)
                     agg["cached_prompt_tokens"] += call.get("cached_prompt_tokens", 0)
                     agg["requests"] += 1
+                    inp_r, out_r, ic_r = pricing.get(role, (0.0, 0.0, None))
+                    est = parse_recorded_estimated_cost(call)
+                    agg["estimated_cost_usd"] += (
+                        est
+                        if est is not None
+                        else estimate_llm_call_cost_from_payload(
+                            call,
+                            input_per_million=inp_r,
+                            output_per_million=out_r,
+                            input_cached_per_million=ic_r,
+                        )
+                    )
                     agg["actual_cost_usd"] += float(call.get("actual_cost", 0.0) or 0.0)
 
-        cost_rates = await get_cost_estimates()
-        pricing: dict[str, tuple[float, float, float | None]] = {}
-        for c in cost_rates:
-            pricing[c.get("role", "")] = (
-                c["input_per_million"],
-                c["output_per_million"],
-                c.get("input_cached_per_million"),
-            )
-
         for role, agg in role_agg.items():
-            inp_r, out_r, ic_r = pricing.get(role, (0.0, 0.0, None))
-            agg["estimated_cost_usd"] = estimate_llm_call_cost_usd(
-                agg["prompt_tokens"],
-                agg["completion_tokens"],
-                agg["cached_prompt_tokens"],
-                input_per_million=inp_r,
-                output_per_million=out_r,
-                input_cached_per_million=ic_r,
-            )
+            agg["estimated_cost_usd"] = round(agg["estimated_cost_usd"], 6)
             agg["actual_cost_usd"] = round(agg["actual_cost_usd"], 6)
 
         return {

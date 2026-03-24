@@ -762,11 +762,8 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         touched_files = getattr(parsed, "touched_files", []) or []
 
         latency = (time.monotonic() - start) * 1000
-        _tok = 0
-        if response is not None and getattr(response, "usage_metadata", None):
-            _tok = response.usage_metadata.get("total_tokens", 0) or 0
-
-        from ..token_utils import apply_budget_decrement
+        from ..token_utils import apply_budget_decrement, extract_usage_tokens
+        _tok = extract_usage_tokens(response) if response is not None else 0
         _budget = apply_budget_decrement(
             state, _tok, role="planner", run_id=state.get("run_id", ""),
         )

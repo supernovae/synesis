@@ -14,6 +14,37 @@ def _request_with_auth(value: str | None) -> Request:
     return Request({"type": "http", "headers": headers})
 
 
+def test_select_active_org_single_org():
+    payload = {"organization": {"org-a": {"roles": ["member"]}}}
+    org_id, roles = auth._select_active_org(payload)
+    assert org_id == "org-a"
+    assert roles == ["member"]
+
+
+def test_select_active_org_multi_org_requires_selection():
+    payload = {
+        "organization": {
+            "org-a": {"roles": ["member"]},
+            "org-b": {"roles": ["admin"]},
+        }
+    }
+    with pytest.raises(HTTPException) as exc:
+        auth._select_active_org(payload)
+    assert exc.value.status_code == 401
+
+
+def test_select_active_org_uses_requested_org():
+    payload = {
+        "organization": {
+            "org-a": {"roles": ["member"]},
+            "org-b": {"roles": ["admin"]},
+        }
+    }
+    org_id, roles = auth._select_active_org(payload, requested_org_id="org-b")
+    assert org_id == "org-b"
+    assert roles == ["admin"]
+
+
 @pytest.mark.asyncio
 async def test_missing_bearer_token_rejected():
     req = _request_with_auth(None)

@@ -69,6 +69,7 @@ class LLMCallRecord:
     completion_full: str = ""
     timestamp: float = 0.0
     actual_cost: float = 0.0
+    estimated_cost: float | None = None
     policy_source: str = ""  # "policy", "env", "static", or "" if not tracked
     policy_rule_label: str = ""  # human label from matched policy rule
 
@@ -178,27 +179,53 @@ def _load_pricing() -> dict[str, tuple[float, float | None, float]]:
     return _pricing_table
 
 
+def _resolve_pricing_rates(
+    model: str,
+    pricing: dict[str, tuple[float, float | None, float]],
+) -> tuple[float, float | None, float]:
+    rates = pricing.get(model, (0.0, None, 0.0))
+    if rates == (0.0, None, 0.0):
+        for key in pricing:
+            if key in model or model in key:
+                return pricing[key]
+    return rates
+
+
+def _estimate_call_cost(
+    *,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_prompt_tokens: int,
+    pricing: dict[str, tuple[float, float | None, float]] | None = None,
+) -> float:
+    table = pricing or _load_pricing()
+    inp_r, inp_cached_r, out_r = _resolve_pricing_rates(model or "", table)
+    pt = max(0, int(prompt_tokens or 0))
+    cached = min(max(0, int(cached_prompt_tokens or 0)), pt)
+    uncached = pt - cached
+    ic_rate = _cached_input_rate(inp_r, inp_cached_r)
+    input_cost = (uncached / 1_000_000) * inp_r + (cached / 1_000_000) * ic_rate
+    output_cost = (max(0, int(completion_tokens or 0)) / 1_000_000) * out_r
+    return round(input_cost + output_cost, 8)
+
+
 def _compute_cost(record: TraceRecord) -> float:
-    """Sum cost across all LLM calls in the trace using the pricing table."""
+    """Sum cost across all LLM calls in the trace using per-call estimates."""
     pricing = _load_pricing()
     total_cost = 0.0
     for span in record.spans:
         for call in span.llm_calls:
-            model = call.model or ""
-            rates = pricing.get(model, (0.0, None, 0.0))
-            if rates == (0.0, None, 0.0):
-                for key in pricing:
-                    if key in model or model in key:
-                        rates = pricing[key]
-                        break
-            inp_r, inp_cached_r, out_r = rates
-            pt = max(0, int(call.prompt_tokens or 0))
-            cached = min(max(0, int(call.cached_prompt_tokens or 0)), pt)
-            uncached = pt - cached
-            ic_rate = _cached_input_rate(inp_r, inp_cached_r)
-            input_cost = (uncached / 1_000_000) * inp_r + (cached / 1_000_000) * ic_rate
-            output_cost = (call.completion_tokens / 1_000_000) * out_r
-            total_cost += input_cost + output_cost
+            if call.estimated_cost is not None:
+                total_cost += float(call.estimated_cost)
+                continue
+            total_cost += _estimate_call_cost(
+                model=call.model or "",
+                prompt_tokens=call.prompt_tokens,
+                completion_tokens=call.completion_tokens,
+                cached_prompt_tokens=call.cached_prompt_tokens,
+                pricing=pricing,
+            )
     return round(total_cost, 8)
 
 
@@ -645,6 +672,12 @@ class SynesisTracer(BaseCallbackHandler):
             prompt_full=prompt_text[:_MAX_FULL_CHARS],
             completion_full=completion_text[:_MAX_FULL_CHARS],
             timestamp=time.time(),
+            estimated_cost=_estimate_call_cost(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_prompt_tokens=cached,
+            ),
         )
         target_span = None
         for span in reversed(self._current_trace.spans):
@@ -889,6 +922,12 @@ class SynesisTracer(BaseCallbackHandler):
             completion_full=completion_full,
             timestamp=time.time(),
             actual_cost=actual_cost,
+            estimated_cost=_estimate_call_cost(
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cached_prompt_tokens=cached_prompt_tokens,
+            ),
         )
 
         parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None

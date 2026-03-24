@@ -146,6 +146,8 @@ def index_parsed_chunk_pairs(
     src_visibility_scope = source_config.get("visibility_scope", "global")
     src_org_id = source_config.get("org_id", "")
     src_tenant_id = source_config.get("tenant_id", "")
+    src_acl_mode = source_config.get("acl_mode", "open")
+    src_acl_groups = source_config.get("acl_groups", "")
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -173,7 +175,22 @@ def index_parsed_chunk_pairs(
             "indexer_scope_missing_tenant_id",
             extra={"source": name, "visibility_scope": src_visibility_scope},
         )
-        progress.log_error(name, f"visibility_scope=tenant requires tenant_id")
+        progress.log_error(name, "visibility_scope=tenant requires tenant_id")
+        return 0, fetch_meta
+
+    if src_acl_mode not in ("open", "restricted", "private", ""):
+        logger.error(
+            "indexer_invalid_acl_mode",
+            extra={"source": name, "acl_mode": src_acl_mode},
+        )
+        progress.log_error(name, f"invalid acl_mode: {src_acl_mode}")
+        return 0, fetch_meta
+    if src_acl_mode in ("restricted", "private") and not src_acl_groups:
+        logger.error(
+            "indexer_acl_missing_groups",
+            extra={"source": name, "acl_mode": src_acl_mode},
+        )
+        progress.log_error(name, f"acl_mode={src_acl_mode} requires acl_groups")
         return 0, fetch_meta
 
     parsed_count = len(parsed_pairs)
@@ -445,6 +462,8 @@ def index_parsed_chunk_pairs(
                 visibility_scope=src_visibility_scope,
                 org_id=src_org_id,
                 tenant_id=src_tenant_id,
+                acl_mode=src_acl_mode,
+                acl_groups=src_acl_groups,
                 content_type=v9_content_type,
                 quality_score=v9_q,
                 technical_depth=v9_td,

@@ -153,6 +153,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.routers.acl import router as acl_router
 from app.routers.admin_mcp import router as admin_mcp_router
 from app.routers.assistant import router as assistant_router
 from app.routers.audit import router as audit_router
@@ -173,13 +174,14 @@ from app.routers.security import router as security_router
 from app.routers.serving import router as serving_router
 from app.routers.settings import router as settings_router
 from app.routers.taxonomy import router as taxonomy_router
+from app.routers.testing_labs import router as testing_labs_router
 from app.routers.tokens import router as tokens_router
 from app.routers.traces import router as traces_router
 from app.routers.usage import router as usage_router
-from app.routers.testing_labs import router as testing_labs_router
 from app.routers.yarn import router as yarn_router
 
 app.include_router(admin_mcp_router)
+app.include_router(acl_router)
 app.include_router(assistant_router)
 app.include_router(audit_router)
 app.include_router(auth_router)

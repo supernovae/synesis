@@ -36,6 +36,13 @@ Version history:
             Three-tier access model: global content visible to all, org content
             scoped to members, tenant content restricted to sub-org scope.
             Fail-closed: non-global chunks require org/tenant match at retrieval.
+  v10 → v11: Per-document ACL — acl_mode (open/restricted/private),
+            acl_groups (comma-separated group IDs for restricted docs).
+            Open: visible to anyone matching visibility_scope. Restricted:
+            additionally requires caller to hold at least one listed group.
+            Private: only visible to exact group membership match.
+            Fail-closed: chunks with acl_mode=restricted/private and no
+            matching groups are excluded from retrieval.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -64,7 +71,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -100,6 +107,9 @@ EXPECTED_FIELDS = frozenset(
         "visibility_scope",
         "org_id",
         "tenant_id",
+        # v11 — per-document ACL
+        "acl_mode",
+        "acl_groups",
         # v9 — semantic ingestion / MCP filters
         "content_type",
         "quality_score",
@@ -165,6 +175,9 @@ CATALOG_FIELDS = [
     FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
     FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
+    # v11 — per-document ACL (hybrid Keycloak + Admin policy)
+    FieldSchema(name="acl_mode", dtype=DataType.VARCHAR, max_length=16),
+    FieldSchema(name="acl_groups", dtype=DataType.VARCHAR, max_length=1024),
     # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
     FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="quality_score", dtype=DataType.FLOAT),
@@ -343,6 +356,9 @@ def catalog_entity(
     visibility_scope: str = "global",
     org_id: str = "",
     tenant_id: str = "",
+    # v11 — per-document ACL
+    acl_mode: str = "open",
+    acl_groups: str = "",
     # v9
     content_type: str = "",
     quality_score: float = -1.0,
@@ -392,6 +408,8 @@ def catalog_entity(
         "visibility_scope": (visibility_scope or "global")[:16],
         "org_id": _trunc_bytes(org_id or "", 64),
         "tenant_id": _trunc_bytes(tenant_id or "", 64),
+        "acl_mode": (acl_mode or "open")[:16],
+        "acl_groups": _trunc_bytes(acl_groups or "", 1024),
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
         "technical_depth": float(technical_depth),

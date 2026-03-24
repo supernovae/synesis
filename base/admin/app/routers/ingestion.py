@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..auth import UserInfo, get_current_user, require_admin
@@ -26,7 +26,14 @@ from ..db.models import (
 )
 from ..deps import get_milvus
 from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
-from ..rbac import require_platform_admin
+from ..rbac import (
+    Role,
+    can_manage_visibility_scope,
+    require_org_admin,
+    require_platform_admin,
+    require_tenant_content_operator,
+    resolve_role,
+)
 from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.ingestion")
@@ -50,6 +57,8 @@ class SourceCreate(BaseModel):
     visibility_scope: str = "global"
     org_id: str = ""
     tenant_id: str = ""
+    acl_mode: str = "open"
+    acl_groups: str = ""
 
 
 class ItemCreate(BaseModel):
@@ -63,6 +72,8 @@ class ItemCreate(BaseModel):
     visibility_scope: str = "global"
     org_id: str = ""
     tenant_id: str = ""
+    acl_mode: str = "open"
+    acl_groups: str = ""
     priority: int = 0
     config: dict | None = None
     source_id: int | None = None
@@ -112,6 +123,8 @@ def _item_dict(r: IngestionItem) -> dict:
         "visibility_scope": r.visibility_scope,
         "org_id": r.org_id,
         "tenant_id": r.tenant_id,
+        "acl_mode": r.acl_mode,
+        "acl_groups": r.acl_groups,
         "priority": r.priority,
         "config": r.config,
         "status": r.status,
@@ -129,6 +142,76 @@ def _item_dict(r: IngestionItem) -> dict:
     }
 
 
+def _scope_clauses(model: Any, user: UserInfo) -> list[Any]:
+    """Return SQLAlchemy scope clauses for the caller."""
+    role = resolve_role(user)
+    if role >= Role.platform_admin:
+        return []
+    caller_org = (user.org_id or "").strip()
+    if not caller_org:
+        return [model.visibility_scope == "global"]
+    if role >= Role.org_admin:
+        return [
+            model.visibility_scope == "global",
+            and_(model.visibility_scope == "org", model.org_id == caller_org),
+            and_(model.visibility_scope == "tenant", model.org_id == caller_org),
+        ]
+    tenant_ids = [t for t in (user.tenant_ids or []) if t]
+    if not tenant_ids:
+        return [model.visibility_scope == "global"]
+    return [
+        model.visibility_scope == "global",
+        and_(
+            model.visibility_scope == "tenant",
+            model.org_id == caller_org,
+            model.tenant_id.in_(tenant_ids),
+        ),
+    ]
+
+
+def _apply_scope_filter(query: Any, model: Any, user: UserInfo) -> Any:
+    clauses = _scope_clauses(model, user)
+    if not clauses:
+        return query
+    return query.where(or_(*clauses))
+
+
+def _normalize_and_authorize_scope(
+    user: UserInfo,
+    *,
+    visibility_scope: str,
+    org_id: str,
+    tenant_id: str,
+    acl_mode: str = "open",
+    acl_groups: str = "",
+) -> tuple[str, str, str, str, str]:
+    scope = (visibility_scope or "global").strip().lower()
+    target_org = (org_id or "").strip()[:64]
+    target_tenant = (tenant_id or "").strip()[:64]
+    acl_m = (acl_mode or "open").strip().lower()[:16]
+    if acl_m not in ("open", "restricted", "private"):
+        raise HTTPException(status_code=400, detail="acl_mode must be one of: open, restricted, private")
+    acl_g = (acl_groups or "").strip()[:1024]
+    if acl_m in ("restricted", "private") and not acl_g:
+        raise HTTPException(status_code=400, detail=f"acl_mode={acl_m} requires at least one acl_groups entry")
+    if scope not in {"global", "org", "tenant"}:
+        raise HTTPException(status_code=400, detail="visibility_scope must be one of: global, org, tenant")
+    if not can_manage_visibility_scope(
+        user,
+        visibility_scope=scope,
+        org_id=target_org,
+        tenant_id=target_tenant,
+    ):
+        raise HTTPException(status_code=403, detail="Not authorized for requested visibility scope")
+    caller_org = (user.org_id or "").strip()[:64]
+    if scope == "global":
+        return scope, "", "", acl_m, acl_g
+    if scope == "org":
+        return scope, (target_org or caller_org), "", acl_m, acl_g
+    # tenant
+    return scope, (target_org or caller_org), target_tenant, acl_m, acl_g
+
+
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
@@ -136,11 +219,12 @@ def _item_dict(r: IngestionItem) -> dict:
 
 @router.get("/sources")
 async def list_sources(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
     status: str = Query("", description="Filter by status"),
 ):
     async with async_session() as session:
         q = select(IngestionSource).order_by(IngestionSource.id.desc())
+        q = _apply_scope_filter(q, IngestionSource, _user)
         if status:
             q = q.where(IngestionSource.status == status)
         rows = (await session.execute(q)).scalars().all()
@@ -171,6 +255,8 @@ async def list_sources(
                     "visibility_scope": r.visibility_scope,
                     "org_id": r.org_id,
                     "tenant_id": r.tenant_id,
+                    "acl_mode": r.acl_mode,
+                    "acl_groups": r.acl_groups,
                     "status": r.status,
                     "item_count": item_count,
                     "pending_count": pending,
@@ -183,8 +269,16 @@ async def list_sources(
 @router.post("/sources")
 async def create_source(
     body: SourceCreate,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
+    vis_scope, org_id, tenant_id, norm_acl_mode, norm_acl_groups = _normalize_and_authorize_scope(
+        _user,
+        visibility_scope=body.visibility_scope,
+        org_id=body.org_id,
+        tenant_id=body.tenant_id,
+        acl_mode=body.acl_mode,
+        acl_groups=body.acl_groups,
+    )
     async with async_session() as session:
         src = IngestionSource(
             name=body.name,
@@ -194,9 +288,11 @@ async def create_source(
             domain=body.domain,
             config=body.config,
             tags=body.tags,
-            visibility_scope=body.visibility_scope,
-            org_id=body.org_id,
-            tenant_id=body.tenant_id,
+            visibility_scope=vis_scope,
+            org_id=org_id,
+            tenant_id=tenant_id,
+            acl_mode=norm_acl_mode,
+            acl_groups=norm_acl_groups,
         )
         session.add(src)
         await session.commit()
@@ -537,7 +633,7 @@ async def batch_preflight(
 
 @router.get("/items")
 async def list_items(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
     status: str = Query("", description="Filter by status"),
     handler: str = Query("", description="Filter by handler"),
     domain: str = Query("", description="Filter by domain"),
@@ -548,6 +644,7 @@ async def list_items(
     offset = (page - 1) * page_size
     async with async_session() as session:
         q = select(IngestionItem)
+        q = _apply_scope_filter(q, IngestionItem, _user)
         if status:
             q = q.where(IngestionItem.status == status)
         if handler:
@@ -568,9 +665,17 @@ async def list_items(
 @router.post("/items")
 async def add_item(
     body: ItemCreate,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
     """Add a single URI to the ingestion queue (dedup by uri)."""
+    vis_scope, org_id, tenant_id, norm_acl_mode, norm_acl_groups = _normalize_and_authorize_scope(
+        _user,
+        visibility_scope=body.visibility_scope,
+        org_id=body.org_id,
+        tenant_id=body.tenant_id,
+        acl_mode=body.acl_mode,
+        acl_groups=body.acl_groups,
+    )
     async with async_session() as session:
         stmt = (
             pg_insert(IngestionItem)
@@ -583,9 +688,11 @@ async def add_item(
                 authority=body.authority,
                 origin_type=body.origin_type,
                 tags=body.tags,
-                visibility_scope=body.visibility_scope,
-                org_id=body.org_id,
-                tenant_id=body.tenant_id,
+                visibility_scope=vis_scope,
+                org_id=org_id,
+                tenant_id=tenant_id,
+                acl_mode=norm_acl_mode,
+                acl_groups=norm_acl_groups,
                 priority=body.priority,
                 config=body.config,
                 status="pending",
@@ -602,7 +709,7 @@ async def add_item(
 @router.post("/items/bulk")
 async def add_items_bulk(
     body: BulkImport,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
     """Bulk-add URIs to the ingestion queue (dedup by uri)."""
     now = datetime.now(UTC)
@@ -610,6 +717,14 @@ async def add_items_bulk(
     skipped = 0
     async with async_session() as session:
         for item in body.items:
+            vis_scope, org_id, tenant_id, norm_acl_mode, norm_acl_groups = _normalize_and_authorize_scope(
+                _user,
+                visibility_scope=item.visibility_scope,
+                org_id=item.org_id,
+                tenant_id=item.tenant_id,
+                acl_mode=item.acl_mode,
+                acl_groups=item.acl_groups,
+            )
             stmt = (
                 pg_insert(IngestionItem)
                 .values(
@@ -621,9 +736,11 @@ async def add_items_bulk(
                     authority=item.authority,
                     origin_type=item.origin_type,
                     tags=item.tags,
-                    visibility_scope=item.visibility_scope,
-                    org_id=item.org_id,
-                    tenant_id=item.tenant_id,
+                    visibility_scope=vis_scope,
+                    org_id=org_id,
+                    tenant_id=tenant_id,
+                    acl_mode=norm_acl_mode,
+                    acl_groups=norm_acl_groups,
                     priority=item.priority,
                     config=item.config,
                     status="pending",
@@ -643,12 +760,19 @@ async def add_items_bulk(
 @router.delete("/items/{item_id}")
 async def delete_item(
     item_id: int,
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
     async with async_session() as session:
         item = await session.get(IngestionItem, item_id)
         if not item:
             return {"ok": False, "error": "not_found"}
+        if not can_manage_visibility_scope(
+            _user,
+            visibility_scope=item.visibility_scope,
+            org_id=item.org_id,
+            tenant_id=item.tenant_id,
+        ):
+            raise HTTPException(status_code=403, detail="Not authorized to delete this item")
         await session.delete(item)
         await session.commit()
     return {"ok": True}
@@ -859,6 +983,8 @@ async def claim_item(
         effective_visibility_scope = item.visibility_scope
         effective_org_id = item.org_id
         effective_tenant_id = item.tenant_id
+        effective_acl_mode = item.acl_mode or "open"
+        effective_acl_groups = item.acl_groups or ""
 
         if item.source_id:
             src = await session.get(IngestionSource, item.source_id)
@@ -879,6 +1005,9 @@ async def claim_item(
                     effective_org_id = src.org_id
                 if not effective_tenant_id and src.tenant_id:
                     effective_tenant_id = src.tenant_id
+                if effective_acl_mode == "open" and (src.acl_mode or "open") != "open":
+                    effective_acl_mode = src.acl_mode or "open"
+                    effective_acl_groups = src.acl_groups or ""
 
         await session.commit()
         await session.refresh(item)
@@ -892,6 +1021,10 @@ async def claim_item(
         payload["effective_visibility_scope"] = effective_visibility_scope
         payload["effective_org_id"] = effective_org_id
         payload["effective_tenant_id"] = effective_tenant_id
+        payload["effective_acl_mode"] = effective_acl_mode
+        payload["effective_acl_groups"] = effective_acl_groups
+        payload["acl_mode"] = item.acl_mode or "open"
+        payload["acl_groups"] = item.acl_groups or ""
         return payload
 
 
@@ -949,7 +1082,7 @@ async def update_item_status(
 async def retry_item(
     item_id: int,
     reset_retries: bool = Query(False, description="Reset retry count (for dead_letter items)"),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
     """Reset a failed or dead_letter item back to pending for reprocessing.
 
@@ -959,6 +1092,13 @@ async def retry_item(
         item = await session.get(IngestionItem, item_id)
         if not item:
             return {"ok": False, "error": "not_found"}
+        if not can_manage_visibility_scope(
+            _user,
+            visibility_scope=item.visibility_scope,
+            org_id=item.org_id,
+            tenant_id=item.tenant_id,
+        ):
+            raise HTTPException(status_code=403, detail="Not authorized to retry this item")
         if item.status not in ("failed", "dead_letter"):
             return {"ok": False, "error": f"cannot retry item with status '{item.status}'"}
         if item.status == "dead_letter" and not reset_retries:
@@ -982,7 +1122,7 @@ async def retry_item(
 
 @router.get("/runs")
 async def list_runs(
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_org_admin),
     limit: int = Query(20, ge=1, le=100),
 ):
     async with async_session() as session:
@@ -1062,7 +1202,7 @@ async def update_run(
 
 
 @router.get("/stats")
-async def ingestion_stats(_user: UserInfo = Depends(get_current_user)):
+async def ingestion_stats(_user: UserInfo = Depends(require_org_admin)):
     """Summary stats for the ingestion queue."""
     async with async_session() as session:
         total_sources = (await session.execute(select(func.count()).select_from(IngestionSource))).scalar() or 0
@@ -1258,7 +1398,7 @@ async def report_schema_version(
         }
 
 
-EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "10"))
+EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "11"))
 
 SYNESIS_CATALOG_NAME = "synesis_catalog"
 
@@ -1277,7 +1417,7 @@ async def reset_milvus_catalog(
 ):
     """Drop the unified RAG collection and optionally reset the ingestion queue.
 
-    Next indexer run will recreate the collection (v10 schema) and re-index.
+    Next indexer run will recreate the collection (v11 schema) and re-index.
     """
     if body.confirm != "DELETE_SYNESIS_CATALOG":
         raise HTTPException(
@@ -1570,7 +1710,7 @@ async def bootstrap_from_yaml(
         False,
         description="Update existing rows by uri. Metadata-only changes keep status; handler/config changes requeue as pending.",
     ),
-    _user: UserInfo = Depends(get_current_user),
+    _user: UserInfo = Depends(require_tenant_content_operator),
 ):
     """Import a normalized bootstrap YAML file into the ingestion queue.
 
@@ -1616,6 +1756,18 @@ async def bootstrap_from_yaml(
             visibility_scope = entry.get("visibility_scope", "global") or "global"
             bootstrap_org_id = entry.get("org_id", "") or ""
             bootstrap_tenant_id = entry.get("tenant_id", "") or ""
+            entry_acl_mode = entry.get("acl_mode", "open") or "open"
+            entry_acl_groups = entry.get("acl_groups", "") or ""
+            visibility_scope, bootstrap_org_id, bootstrap_tenant_id, norm_acl_mode, norm_acl_groups = (
+                _normalize_and_authorize_scope(
+                    _user,
+                    visibility_scope=visibility_scope,
+                    org_id=bootstrap_org_id,
+                    tenant_id=bootstrap_tenant_id,
+                    acl_mode=entry_acl_mode,
+                    acl_groups=entry_acl_groups,
+                )
+            )
             priority = int(entry.get("priority") or 0)
             config = entry.get("config")
 
@@ -1633,6 +1785,8 @@ async def bootstrap_from_yaml(
                         visibility_scope=visibility_scope,
                         org_id=bootstrap_org_id,
                         tenant_id=bootstrap_tenant_id,
+                        acl_mode=norm_acl_mode,
+                        acl_groups=norm_acl_groups,
                         priority=priority,
                         config=config,
                         status=status_override,
@@ -1663,6 +1817,8 @@ async def bootstrap_from_yaml(
                         visibility_scope=visibility_scope,
                         org_id=bootstrap_org_id,
                         tenant_id=bootstrap_tenant_id,
+                        acl_mode=norm_acl_mode,
+                        acl_groups=norm_acl_groups,
                         priority=priority,
                         config=config,
                         status=status_override,
@@ -1680,6 +1836,8 @@ async def bootstrap_from_yaml(
                 and (row.origin_type or "") == origin_type
                 and row.priority == priority
                 and _tags_equal(row.tags, tags)
+                and (row.acl_mode or "open") == norm_acl_mode
+                and (row.acl_groups or "") == norm_acl_groups
             )
 
             if ingest_unchanged and meta_unchanged:
@@ -1693,6 +1851,8 @@ async def bootstrap_from_yaml(
                 row.origin_type = origin_type
                 row.tags = tags
                 row.priority = priority
+                row.acl_mode = norm_acl_mode
+                row.acl_groups = norm_acl_groups
                 updated_meta += 1
                 continue
 
@@ -1703,6 +1863,8 @@ async def bootstrap_from_yaml(
             row.origin_type = origin_type
             row.tags = tags
             row.priority = priority
+            row.acl_mode = norm_acl_mode
+            row.acl_groups = norm_acl_groups
             row.config = config
             row.status = "pending"
             row.content_hash = None

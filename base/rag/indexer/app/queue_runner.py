@@ -109,6 +109,8 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     visibility_scope = item.get("effective_visibility_scope") or item.get("visibility_scope") or "global"
     org_id = item.get("effective_org_id") or item.get("org_id") or ""
     tenant_id = item.get("effective_tenant_id") or item.get("tenant_id") or ""
+    acl_mode = item.get("effective_acl_mode") or item.get("acl_mode") or "open"
+    acl_groups = item.get("effective_acl_groups") or item.get("acl_groups") or ""
 
     uri = item.get("uri", "")
     if "url" not in config and uri:
@@ -134,6 +136,8 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
         "visibility_scope": visibility_scope,
         "org_id": org_id,
         "tenant_id": tenant_id,
+        "acl_mode": acl_mode,
+        "acl_groups": acl_groups,
     }
 
 

@@ -9,11 +9,12 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 
 from ..auth import UserInfo, get_current_user
 from ..deps import CATALOG_COLLECTION, QUALITY_REPORT_PATH
+from ..rbac import RouteGroup, can_access_route_group
 from ..services.milvus_service import (
     collection_domain_hierarchy,
     collection_schema_info,
@@ -24,6 +25,16 @@ from ..services.milvus_service import (
 logger = logging.getLogger("synesis.admin.rag")
 
 router = APIRouter(prefix="/api/v1/rag", tags=["rag"])
+
+
+def _ensure_org_observability(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_observability):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_observability")
+
+
+def _ensure_org_content_admin(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_content_admin):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_content_admin")
 
 
 def _load_quality_report() -> dict:
@@ -40,6 +51,7 @@ def _load_quality_report() -> dict:
 
 @router.get("/corpus")
 async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
+    _ensure_org_observability(_user)
     from ..db.engine import async_session as _async_session
     from ..db.models import MilvusSchemaSync
 
@@ -91,6 +103,7 @@ async def corpus_overview(_user: UserInfo = Depends(get_current_user)):
 @router.get("/corpus/schema")
 async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
     """Milvus collection schema: fields, indexes, domain->source hierarchy."""
+    _ensure_org_observability(_user)
     try:
         schema = collection_schema_info(CATALOG_COLLECTION)
         hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
@@ -107,6 +120,7 @@ async def corpus_schema(_user: UserInfo = Depends(get_current_user)):
 @router.get("/quality")
 async def quality_summary(_user: UserInfo = Depends(get_current_user)):
     """Quality summary — try DB snapshots first, fall back to JSON file."""
+    _ensure_org_observability(_user)
     try:
         from sqlalchemy import select
         from sqlalchemy.orm import aliased
@@ -170,6 +184,7 @@ async def quality_summary(_user: UserInfo = Depends(get_current_user)):
 @router.post("/quality/refresh")
 async def quality_refresh(_user: UserInfo = Depends(get_current_user)):
     """Compute per-domain health scores from Milvus and store in quality_snapshots."""
+    _ensure_org_content_admin(_user)
     hierarchy = collection_domain_hierarchy(CATALOG_COLLECTION)
     if not hierarchy:
         return {"ok": False, "error": "no corpus data"}
@@ -247,6 +262,7 @@ async def quality_import_report(
     stored in ``raw_scorecard`` so that domain-detail pages get
     MRR / hit-rate / dead-weight data without needing the JSON file.
     """
+    _ensure_org_content_admin(_user)
     from datetime import datetime
 
     from ..db.engine import async_session
@@ -303,6 +319,7 @@ async def quality_domains(
     health: str = Query("", description="Filter by health"),
     sort: str = Query("domain", description="Sort field"),
 ):
+    _ensure_org_observability(_user)
     report = _load_quality_report()
     scorecards = report.get("scorecards", [])
 
@@ -379,6 +396,7 @@ async def quality_domain_detail(
     key: str,
     _user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_org_observability(_user)
     report = _load_quality_report()
     for sc in report.get("scorecards", []):
         if sc.get("domain") == key:
@@ -413,6 +431,7 @@ async def quality_domain_detail(
 @router.get("/benchmarks")
 async def benchmarks(_user: UserInfo = Depends(get_current_user)):
     """Return latest benchmark results — try DB first, fall back to JSON file."""
+    _ensure_org_observability(_user)
     try:
         from sqlalchemy import select
 
@@ -455,6 +474,7 @@ async def benchmark_history(
     limit: int = Query(10, ge=1, le=50),
 ):
     """List recent benchmark runs."""
+    _ensure_org_observability(_user)
     try:
         from sqlalchemy import select
 
@@ -497,6 +517,7 @@ async def benchmark_import(
 
     Accepts ``{"run_id": "...", "aggregate": {...}, "per_query": [...]}``.
     """
+    _ensure_org_content_admin(_user)
     import hashlib
     import time as _time
     from datetime import datetime
@@ -534,6 +555,7 @@ async def benchmark_run(_user: UserInfo = Depends(get_current_user)):
     For full benchmarks, use ``POST /benchmarks/import`` or run the
     quality-runner CronJob.
     """
+    _ensure_org_content_admin(_user)
     import hashlib
     import time as _time
     from datetime import datetime
@@ -691,6 +713,7 @@ def _detect_flag_reasons(text: str) -> list[dict[str, str]]:
 @router.get("/review/stats")
 async def review_stats(_user: UserInfo = Depends(get_current_user)):
     """Counts by scan_status and approval_status for the review queue badge."""
+    _ensure_org_observability(_user)
     flagged = safe_query(
         CATALOG_COLLECTION, filter_expr='scan_status == "flagged"', output_fields=["chunk_id"], limit=10000
     )
@@ -711,6 +734,7 @@ async def review_queue(
     offset: int = Query(0, ge=0),
 ):
     """List chunks needing review, grouped by scan_status."""
+    _ensure_org_observability(_user)
     if status == "all":
         expr = 'scan_status in ["flagged", "unscanned"]'
     else:
@@ -729,6 +753,7 @@ async def review_queue(
 @router.post("/review/{chunk_id}/vet")
 async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     """Mark a chunk as vetted: set scan_status to 'vetted', approval_status to 'approved'."""
+    _ensure_org_content_admin(_user)
     from ..services.milvus_service import safe_query as sq
 
     rows = sq(
@@ -754,6 +779,7 @@ async def vet_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
 @router.post("/review/{chunk_id}/reject")
 async def reject_chunk(chunk_id: str, _user: UserInfo = Depends(get_current_user)):
     """Mark a chunk as rejected: set approval_status to 'rejected' (excluded from RAG retrieval)."""
+    _ensure_org_content_admin(_user)
     try:
         client = get_milvus()
         client.upsert(
@@ -779,6 +805,7 @@ async def bulk_review_action(
     POST /review/bulk/vet   {"chunk_ids": ["id1", "id2"]}
     POST /review/bulk/reject {"chunk_ids": ["id1", "id2"]}
     """
+    _ensure_org_content_admin(_user)
     chunk_ids = request.get("chunk_ids", [])
     if not chunk_ids:
         return {"ok": False, "error": "no chunk_ids provided"}

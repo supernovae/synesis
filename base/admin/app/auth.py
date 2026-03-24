@@ -71,6 +71,7 @@ class UserInfo(BaseModel):
     org_id: str = ""  # primary Keycloak organization ID
     org_name: str = ""  # primary organization display name
     org_roles: list[str] = []  # roles within the organization
+    tenant_ids: list[str] = []  # PAT tenant scopes (JWT usually empty)
     token_scopes: list[str] = []  # PAT scopes (empty for JWT sessions)
 
 
@@ -83,23 +84,47 @@ class TokenResponse(BaseModel):
 # ── Token verification ───────────────────────────────────────────────────────
 
 
-def _parse_org_claim(payload: dict) -> tuple[str, str, list[str]]:
-    """Extract primary organization from Keycloak's ``organization`` JWT claim.
+def _parse_org_claim(payload: dict, requested_org_id: str = "") -> tuple[str, str, list[str]]:
+    """Extract active organization from Keycloak's ``organization`` JWT claim.
 
     Keycloak emits: ``{"<org-id>": {"name": "...", "roles": [...]}, ...}``
-    Returns ``(org_id, org_name, org_roles)`` for the first org, or empty
-    values when the user has no organization membership.
+    Returns ``(org_id, org_name, org_roles)`` for an explicitly selected org.
+    Selection precedence: requested_org_id header > token active-org claim >
+    single org in claim. If multiple orgs exist and none is selected, reject.
     """
     org_claim = payload.get("organization")
     if not org_claim or not isinstance(org_claim, dict):
         return "", "", []
-    org_id, org_data = next(iter(org_claim.items()))
-    if isinstance(org_data, dict):
-        return org_id, org_data.get("name", ""), org_data.get("roles", [])
-    return org_id, "", []
+    org_map: dict[str, dict] = {str(k): v for k, v in org_claim.items() if isinstance(v, dict)}
+    if not org_map:
+        return "", "", []
+
+    selected = requested_org_id.strip()
+    if not selected:
+        for claim_key in ("synesis_active_org_id", "active_org_id", "org_id"):
+            raw = str(payload.get(claim_key) or "").strip()
+            if raw:
+                selected = raw
+                break
+
+    if selected:
+        org_data = org_map.get(selected)
+        if org_data is None:
+            raise jwt.InvalidTokenError("Selected org is not present in organization claim")
+        raw_roles = org_data.get("roles", [])
+        roles = [str(r) for r in raw_roles] if isinstance(raw_roles, list) else []
+        return selected, str(org_data.get("name", "")), roles
+
+    if len(org_map) == 1:
+        org_id, org_data = next(iter(org_map.items()))
+        raw_roles = org_data.get("roles", [])
+        roles = [str(r) for r in raw_roles] if isinstance(raw_roles, list) else []
+        return org_id, str(org_data.get("name", "")), roles
+
+    raise jwt.InvalidTokenError("Multiple organizations in token; active organization must be specified")
 
 
-def _verify_keycloak_token(token: str) -> UserInfo:
+def _verify_keycloak_token(token: str, *, requested_org_id: str = "") -> UserInfo:
     """Decode and verify a Keycloak-issued JWT using JWKS."""
     client = _get_jwks_client()
     signing_key = client.get_signing_key_from_jwt(token)
@@ -123,7 +148,7 @@ def _verify_keycloak_token(token: str) -> UserInfo:
             raise jwt.InvalidTokenError("Token not issued for Synesis Admin client")
     roles = payload.get("realm_access", {}).get("roles", [])
     username = payload.get("preferred_username", payload.get("sub", "unknown"))
-    org_id, org_name, org_roles = _parse_org_claim(payload)
+    org_id, org_name, org_roles = _parse_org_claim(payload, requested_org_id=requested_org_id)
 
     if "synesis-admin" in roles:
         role = "platform_admin"
@@ -179,12 +204,19 @@ async def _verify_pat(token: str, request: Request) -> UserInfo | None:
 
         raw_scopes = getattr(pat, "scopes", None)
         scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+        raw_tenants = getattr(pat, "tenant_ids", None)
+        tenant_ids = [str(t).strip()[:64] for t in (raw_tenants or []) if str(t).strip()][:50]
+        org_id = (getattr(pat, "org_id", "") or "").strip()
+        if tenant_ids and not org_id:
+            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(getattr(pat, "id", "")))
+            return None
 
         return UserInfo(
             username=pat.username,
             role=pat.role,
             user_id=pat.user_id,
-            org_id=getattr(pat, "org_id", "") or "",
+            org_id=org_id,
+            tenant_ids=tenant_ids,
             token_scopes=scopes,
         )
 
@@ -224,7 +256,10 @@ async def get_current_user(
     # 2. Try Keycloak JWKS validation
     if KEYCLOAK_ISSUER:
         try:
-            return _verify_keycloak_token(token)
+            requested_org_id = (
+                (request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or "").strip()[:128]
+            )
+            return _verify_keycloak_token(token, requested_org_id=requested_org_id)
         except jwt.ExpiredSignatureError as err:
             raise HTTPException(status_code=401, detail="Token expired") from err
         except jwt.InvalidTokenError as err:

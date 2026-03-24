@@ -8,14 +8,19 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from ..auth import UserInfo
-from ..rbac import Role, require_org_admin, resolve_role
+from ..auth import UserInfo, get_current_user
+from ..rbac import RouteGroup, Role, can_access_route_group, resolve_role
 from ..services import security_service
 from ..services.admin_audit import record_admin_audit
 
 logger = logging.getLogger("synesis.admin.security")
 
 router = APIRouter(prefix="/api/v1/security", tags=["security"])
+
+
+def _ensure_org_observability(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_observability):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_observability")
 
 
 def _scope_org(user: UserInfo) -> str:
@@ -30,7 +35,7 @@ def _scope_org(user: UserInfo) -> str:
 
 @router.get("/events")
 async def list_events(
-    user: UserInfo = Depends(require_org_admin),
+    user: UserInfo = Depends(get_current_user),
     limit: int = Query(100, ge=1, le=500),
     before_id: int | None = Query(None),
     severity: str | None = Query(None),
@@ -39,6 +44,7 @@ async def list_events(
     resolved: bool | None = Query(None),
     since_hours: int | None = Query(None, ge=1, le=8760),
 ):
+    _ensure_org_observability(user)
     events = await security_service.list_events(
         limit=limit,
         before_id=before_id,
@@ -54,9 +60,10 @@ async def list_events(
 
 @router.get("/summary")
 async def security_summary(
-    user: UserInfo = Depends(require_org_admin),
+    user: UserInfo = Depends(get_current_user),
     since_hours: int = Query(24, ge=1, le=8760),
 ):
+    _ensure_org_observability(user)
     return await security_service.get_summary(
         since_hours=since_hours,
         scope_org_id=_scope_org(user),
@@ -75,8 +82,9 @@ class ResolveRequest(BaseModel):
 async def resolve_event(
     event_id: str,
     body: ResolveRequest,
-    user: UserInfo = Depends(require_org_admin),
+    user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_org_observability(user)
     result = await security_service.resolve_event(
         event_id=event_id,
         action=body.action,

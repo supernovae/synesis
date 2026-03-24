@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. Scope filter expression tests
 # ---------------------------------------------------------------------------
@@ -80,6 +79,69 @@ class TestBuildScopeFilter:
         from app.rag_client import build_scope_filter
 
         assert build_scope_filter(caller_org_id="acme") == ""
+
+
+class TestAclScopeFilter:
+    """Verify ACL enforcement layer in build_scope_filter."""
+
+    @pytest.fixture(autouse=True)
+    def _set_catalog_fields(self, monkeypatch):
+        import app.rag_client as rc
+
+        monkeypatch.setattr(
+            rc,
+            "_catalog_fields",
+            {"visibility_scope", "org_id", "tenant_id", "acl_mode", "acl_groups", "embedding", "text"},
+        )
+
+    def test_no_acl_groups_denies_restricted(self):
+        from app.rag_client import build_scope_filter
+
+        expr = build_scope_filter(caller_org_id="acme")
+        assert 'acl_mode in ["open", ""]' in expr
+
+    def test_acl_groups_allows_matching(self):
+        from app.rag_client import build_scope_filter
+
+        expr = build_scope_filter(
+            caller_org_id="acme",
+            caller_acl_groups=["eng-team", "data-team"],
+        )
+        assert 'acl_groups like "%eng-team%"' in expr
+        assert 'acl_groups like "%data-team%"' in expr
+        assert 'acl_mode in ["open", ""]' in expr
+
+    def test_empty_acl_groups_list_denies_restricted(self):
+        from app.rag_client import build_scope_filter
+
+        expr = build_scope_filter(
+            caller_org_id="acme",
+            caller_acl_groups=[],
+        )
+        assert 'acl_mode in ["open", ""]' in expr
+        assert "like" not in expr
+
+    def test_acl_groups_sanitized(self):
+        from app.rag_client import build_scope_filter
+
+        expr = build_scope_filter(
+            caller_org_id="acme",
+            caller_acl_groups=['evil"group'],
+        )
+        assert 'evilgroup' in expr
+        assert '""' not in expr.replace('["open", ""]', "")
+
+    def test_no_acl_fields_skips_acl_clause(self, monkeypatch):
+        import app.rag_client as rc
+
+        monkeypatch.setattr(
+            rc, "_catalog_fields",
+            {"visibility_scope", "org_id", "tenant_id", "embedding", "text"},
+        )
+        from app.rag_client import build_scope_filter
+
+        expr = build_scope_filter(caller_org_id="acme", caller_acl_groups=["team-a"])
+        assert "acl_mode" not in expr
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +259,15 @@ class TestFailClosedBehavior:
 
 class TestIndexerScopeValidation:
     """Verify catalog_entity properly handles scope fields and that the
-    indexer pipeline rejects malformed scope metadata."""
+    indexer pipeline rejects malformed scope metadata.
+
+    These tests require the indexer codebase on sys.path. When running from
+    the planner directory, skip gracefully.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _ensure_indexer_importable(self):
+        pytest.importorskip("app.schema", reason="indexer app.schema not on PYTHONPATH")
 
     def test_catalog_entity_default_global(self):
         from app.schema import catalog_entity
@@ -210,6 +280,8 @@ class TestIndexerScopeValidation:
         assert entity["visibility_scope"] == "global"
         assert entity["org_id"] == ""
         assert entity["tenant_id"] == ""
+        assert entity["acl_mode"] == "open"
+        assert entity["acl_groups"] == ""
 
     def test_catalog_entity_org_scope(self):
         from app.schema import catalog_entity
@@ -242,7 +314,7 @@ class TestIndexerScopeValidation:
     def test_schema_version_bumped(self):
         from app.schema import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 10
+        assert SCHEMA_VERSION == 11
 
     def test_expected_fields_include_scope(self):
         from app.schema import EXPECTED_FIELDS
@@ -250,6 +322,8 @@ class TestIndexerScopeValidation:
         assert "visibility_scope" in EXPECTED_FIELDS
         assert "org_id" in EXPECTED_FIELDS
         assert "tenant_id" in EXPECTED_FIELDS
+        assert "acl_mode" in EXPECTED_FIELDS
+        assert "acl_groups" in EXPECTED_FIELDS
 
 
 # ---------------------------------------------------------------------------
@@ -283,15 +357,13 @@ class TestPlannerStateScope:
 
         from app.main import _resolve_user_org
 
-        mock_request = MagicMock()
-        mock_request.headers = {
-            "x-synesis-org-id": "org-123",
-        }
-        mock_request.headers.get = lambda k, default="": {
+        _headers = {
             "x-synesis-org-id": "org-123",
             "x-synesis-org-name": "",
             "x-synesis-tenant-ids": "",
-        }.get(k, default)
+        }
+        mock_request = MagicMock()
+        mock_request.headers.get = lambda k, default="": _headers.get(k, default)
         org_id, org_name, tenant_ids = _resolve_user_org(
             mock_request, trust_forwarded_identity=True
         )
@@ -308,11 +380,34 @@ class TestPlannerStateScope:
             user_id="user-1",
             username="test",
             org_id="pat-org",
+            tenant_ids=["tenant-a", "tenant-b"],
             role="user",
             scopes=["model:readonly"],
+            token_row_id="tid-1",
         )
         org_id, org_name, tenant_ids = _resolve_user_org(
             mock_request, trust_forwarded_identity=True, pat_ctx=pat
         )
         assert org_id == "pat-org"
+        assert tenant_ids == ["tenant-a", "tenant-b"]
+
+    def test_resolve_user_org_pat_tenants_require_org(self):
+        from unittest.mock import MagicMock
+
+        from app.main import PatAuthContext, _resolve_user_org
+
+        mock_request = MagicMock()
+        pat = PatAuthContext(
+            user_id="user-1",
+            username="test",
+            org_id="",
+            tenant_ids=["tenant-a"],
+            role="user",
+            scopes=["model:readonly"],
+            token_row_id="tid-2",
+        )
+        org_id, _, tenant_ids = _resolve_user_org(
+            mock_request, trust_forwarded_identity=True, pat_ctx=pat
+        )
+        assert org_id == ""
         assert tenant_ids == []

@@ -582,6 +582,7 @@ class RouterNode:
         preseeded_lock: Any | None = None,
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
+        caller_acl_groups: list[str] | None = None,
     ) -> RetrievalBundle:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
@@ -600,6 +601,7 @@ class RouterNode:
             preseeded_lock=preseeded_lock,
             caller_org_id=caller_org_id,
             caller_tenant_ids=caller_tenant_ids,
+            caller_acl_groups=caller_acl_groups,
         )
         bundle.results = bundle.results[:doc_cap]
         return bundle
@@ -625,6 +627,7 @@ class RouterNode:
         taxonomy_metadata: dict[str, Any] | None = None,
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
+        caller_acl_groups: list[str] | None = None,
     ) -> tuple[list[EvidencePacket], dict[str, Any] | None]:
         """Dispatch independent evidence requests concurrently.
 
@@ -652,6 +655,9 @@ class RouterNode:
                         difficulty,
                         precomputed_query=q,
                         taxonomy_metadata=taxonomy_metadata,
+                        caller_org_id=caller_org_id,
+                        caller_tenant_ids=caller_tenant_ids,
+                        caller_acl_groups=caller_acl_groups,
                     ),
                     timeout=self.request_timeout_seconds,
                 )
@@ -776,6 +782,7 @@ class RouterNode:
         taxonomy_metadata: dict[str, Any] | None = None,
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
+        caller_acl_groups: list[str] | None = None,
     ) -> tuple[list[EvidencePacket], dict[str, Any] | None]:
         """Single-pass multi-query-fusion retrieval.
 
@@ -821,6 +828,7 @@ class RouterNode:
             domain_filter=domain_filter,
             caller_org_id=caller_org_id,
             caller_tenant_ids=caller_tenant_ids,
+            caller_acl_groups=caller_acl_groups,
         )
 
         per_query_limit = 25
@@ -914,6 +922,7 @@ class RouterNode:
         preseeded_lock: Any | None = None,
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
+        caller_acl_groups: list[str] | None = None,
     ) -> RetrievalBundle:
         """Retrieve using multiple query variants and merge via RRF."""
         if len(variants) <= 1:
@@ -927,6 +936,7 @@ class RouterNode:
                 preseeded_lock=preseeded_lock,
                 caller_org_id=caller_org_id,
                 caller_tenant_ids=caller_tenant_ids,
+                caller_acl_groups=caller_acl_groups,
             )
 
         tasks = [
@@ -940,6 +950,7 @@ class RouterNode:
                 preseeded_lock=preseeded_lock,
                 caller_org_id=caller_org_id,
                 caller_tenant_ids=caller_tenant_ids,
+                caller_acl_groups=caller_acl_groups,
             )
             for q in variants
         ]
@@ -1010,6 +1021,7 @@ class RouterNode:
         taxonomy_metadata: dict[str, Any] | None = None,
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
+        caller_acl_groups: list[str] | None = None,
     ) -> tuple[EvidencePacket, dict[str, Any] | None, dict[str, Any]]:
         """Full pipeline for one evidence request: query -> cache -> retrieve -> summarize -> refine.
 
@@ -1057,6 +1069,7 @@ class RouterNode:
                     preseeded_lock=preseeded_lock,
                     caller_org_id=caller_org_id,
                     caller_tenant_ids=caller_tenant_ids,
+                    caller_acl_groups=caller_acl_groups,
                 ),
                 timeout=self.retrieve_timeout_seconds,
             )
@@ -1177,6 +1190,9 @@ class RouterNode:
                         skip_web=skip_web,
                         preferred_web_scopes=preferred_web_scopes,
                         search_source_ids=search_source_ids or None,
+                        caller_org_id=caller_org_id,
+                        caller_tenant_ids=caller_tenant_ids,
+                        caller_acl_groups=caller_acl_groups,
                     ),
                     timeout=self.retrieve_timeout_seconds,
                 )
@@ -1383,6 +1399,7 @@ class RouterNode:
                 taxonomy_metadata,
                 caller_org_id=state.get("org_id", ""),
                 caller_tenant_ids=state.get("tenant_ids"),
+                caller_acl_groups=state.get("acl_groups"),
             )
         else:
             dispatched_packets, cohesion_lock = [], None

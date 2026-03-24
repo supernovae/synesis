@@ -39,7 +39,7 @@ async def resolve_auth(request: Request) -> AuthUser:
 
     # Keycloak JWT
     if settings.keycloak_issuer_url:
-        return await _resolve_keycloak_jwt(token)
+        return await _resolve_keycloak_jwt(token, request=request)
 
     # Optional legacy HS256 JWT fallback (local dev only).
     if not settings.auth_allow_legacy_fallback:
@@ -61,7 +61,7 @@ async def _resolve_pat(token: str) -> AuthUser:
                 await session.execute(
                     text(
                         """
-                    SELECT id, user_id, org_id, username, role, scopes, expires_at
+                    SELECT id, user_id, org_id, tenant_ids, username, role, scopes, expires_at
                     FROM personal_access_tokens
                     WHERE token_hash = :token_hash
                       AND revoked = false
@@ -95,10 +95,16 @@ async def _resolve_pat(token: str) -> AuthUser:
 
     raw_scopes = row.get("scopes")
     scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+    raw_tenants = row.get("tenant_ids") or []
+    tenant_ids = [str(t).strip()[:64] for t in raw_tenants if str(t).strip()][:50]
+    org_id = str(row.get("org_id", "") or "").strip()
+    if tenant_ids and not org_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     return AuthUser(
         user_id=row.get("user_id", ""),
-        org_id=row.get("org_id", "") or "",
+        org_id=org_id,
+        tenant_ids=tenant_ids,
         username=row.get("username", ""),
         role=row.get("role", "user"),
         auth_method="pat",
@@ -106,7 +112,44 @@ async def _resolve_pat(token: str) -> AuthUser:
     )
 
 
-async def _resolve_keycloak_jwt(token: str) -> AuthUser:
+def _select_active_org(
+    payload: dict[str, Any],
+    *,
+    requested_org_id: str = "",
+) -> tuple[str, list[str]]:
+    org_claim = payload.get("organization")
+    if not isinstance(org_claim, dict) or not org_claim:
+        return "", []
+    org_map: dict[str, dict[str, Any]] = {str(k): v for k, v in org_claim.items() if isinstance(v, dict)}
+    if not org_map:
+        return "", []
+
+    selected = requested_org_id.strip()
+    if not selected:
+        for claim_key in ("synesis_active_org_id", "active_org_id", "org_id"):
+            raw = str(payload.get(claim_key) or "").strip()
+            if raw:
+                selected = raw
+                break
+
+    if selected:
+        org_data = org_map.get(selected)
+        if org_data is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        raw_roles = org_data.get("roles", [])
+        org_roles = [str(r) for r in raw_roles] if isinstance(raw_roles, list) else []
+        return selected, org_roles
+
+    if len(org_map) == 1:
+        org_id, org_data = next(iter(org_map.items()))
+        raw_roles = org_data.get("roles", [])
+        org_roles = [str(r) for r in raw_roles] if isinstance(raw_roles, list) else []
+        return org_id, org_roles
+
+    raise HTTPException(status_code=401, detail="Invalid token")
+
+
+async def _resolve_keycloak_jwt(token: str, *, request: Request) -> AuthUser:
     """Validate a Keycloak-issued JWT against JWKS."""
     global _jwks_cache, _jwks_fetched_at
 
@@ -147,15 +190,10 @@ async def _resolve_keycloak_jwt(token: str) -> AuthUser:
     user_id = payload.get("sub", "")
     username = payload.get("preferred_username", user_id)
     roles = payload.get("realm_access", {}).get("roles", [])
-    org_id = ""
-    org_claim = payload.get("organization")
-    org_roles: list[str] = []
-    if isinstance(org_claim, dict) and org_claim:
-        org_id, org_data = next(iter(org_claim.items()))
-        if isinstance(org_data, dict):
-            raw_roles = org_data.get("roles", [])
-            if isinstance(raw_roles, list):
-                org_roles = [str(r) for r in raw_roles]
+    requested_org_id = (
+        (request.headers.get("x-synesis-org-id") or request.headers.get("x-active-org-id") or "").strip()[:128]
+    )
+    org_id, org_roles = _select_active_org(payload, requested_org_id=requested_org_id)
     if "synesis-admin" in roles:
         role = "platform_admin"
     elif "admin" in org_roles:

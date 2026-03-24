@@ -352,24 +352,24 @@ _WRITER_SYSTEM = (
 )
 
 
-async def _writer_pass(content: str, state: dict[str, Any]) -> str:
+async def _writer_pass(content: str, state: dict[str, Any]) -> tuple[str, int]:
     """Writer synthesis pass for polishing assembled output."""
     difficulty = state.get("difficulty", 0.5)
     rt = state.get("routing_thresholds") or {}
     writer_threshold = float(rt.get("writer_pass_above", 0.2))
     if difficulty < writer_threshold:
-        return content
+        return content, state.get("token_budget_remaining", settings.effective_token_budget)
     section_count = content.count("\n---\n") + content.count("\n**")
     if section_count < 3:
-        return content
+        return content, state.get("token_budget_remaining", settings.effective_token_budget)
 
     if len(content) < 500:
-        return content
+        return content, state.get("token_budget_remaining", settings.effective_token_budget)
 
     writer_url = settings.writer_model_url or settings.general_model_url
     writer_name = settings.writer_model_name or settings.general_model_name
     if not writer_url:
-        return content
+        return content, state.get("token_budget_remaining", settings.effective_token_budget)
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -445,15 +445,18 @@ async def _writer_pass(content: str, state: dict[str, Any]) -> str:
                 HumanMessage(content=f"{instruction}\n\n{content}"),
             ]
         )
+        from .token_utils import charge_response_budget
+        _budget = charge_response_budget(state, result, role="writer_pass")
+        _new_budget = _budget.remaining
         polished = _clean_section_artifacts((result.content or "").strip())
         if polished and len(polished) > len(content) * 0.5:
             logger.info("writer_pass applied, original=%d polished=%d", len(content), len(polished))
-            return polished
+            return polished, _new_budget
         logger.warning("writer_pass output too short, using original")
-        return content
+        return content, _new_budget
     except Exception:
         logger.warning("writer_pass failed, using original", exc_info=True)
-        return content
+        return content, state.get("token_budget_remaining", settings.effective_token_budget)
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +494,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     plan_pending_approval = state.get("plan_pending_approval", False)
     user_id = state.get("user_id", "anonymous")
     memory_scope = state.get("memory_scope") or user_id
+    token_budget_remaining = state.get("token_budget_remaining", settings.effective_token_budget)
 
     if state.get("message_origin") == "ui_helper" and not code and not error:
         return {
@@ -724,7 +728,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             content = "I processed your request but have no output to show."
         else:
             content = "\n".join(parts)
-            content = await _writer_pass(content, state)
+            content, token_budget_remaining = await _writer_pass(content, state)
 
     avg_confidence = 0.0
     if traces:
@@ -824,6 +828,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "messages": [AIMessage(content=content)],
         "current_node": "respond",
+        "token_budget_remaining": token_budget_remaining,
     }
 
 

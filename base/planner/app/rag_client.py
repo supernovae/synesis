@@ -383,7 +383,7 @@ def _get_milvus_client():
 
 _catalog_ensured = False
 
-# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=10).
+# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=11).
 _EXPECTED_FIELDS = frozenset(
     {
         "chunk_id",
@@ -416,6 +416,8 @@ _EXPECTED_FIELDS = frozenset(
         "visibility_scope",
         "org_id",
         "tenant_id",
+        "acl_mode",
+        "acl_groups",
         "content_type",
         "quality_score",
         "technical_depth",
@@ -465,7 +467,7 @@ def _validate_catalog_schema(client) -> bool:
 
 
 def _recreate_catalog(client) -> bool:
-    """Drop and recreate synesis_catalog with the full v10 schema.
+    """Drop and recreate synesis_catalog with the full v11 schema.
 
     This is the nuclear option for schema drift — it drops all indexed data
     and recreates the collection with the correct schema.  The indexer will
@@ -511,6 +513,8 @@ def _recreate_catalog(client) -> bool:
         FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
         FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="acl_mode", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="acl_groups", dtype=DataType.VARCHAR, max_length=1024),
         FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="quality_score", dtype=DataType.FLOAT),
         FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
@@ -536,7 +540,7 @@ def _recreate_catalog(client) -> bool:
         output_field_names=["sparse_text"],
         function_type=FunctionType.BM25,
     )
-    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v10")
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v11")
 
     try:
         client.drop_collection(collection_name=SYNESIS_CATALOG)
@@ -557,7 +561,7 @@ def _recreate_catalog(client) -> bool:
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
         client.load_collection(collection_name=SYNESIS_CATALOG)
         logger.warning(
-            "synesis_catalog_recreated_v10",
+            "synesis_catalog_recreated_v11",
             extra={"detail": "Collection is empty — run the indexer to repopulate"},
         )
         return True
@@ -569,7 +573,7 @@ def _recreate_catalog(client) -> bool:
 def _ensure_synesis_catalog() -> None:
     """Validate synesis_catalog exists and is loaded.
 
-    On schema drift, drops and recreates the collection with the v10 schema
+    On schema drift, drops and recreates the collection with the v11 schema
     so searches don't crash on missing fields.  The indexer repopulates data.
     """
     global _catalog_ensured
@@ -582,7 +586,7 @@ def _ensure_synesis_catalog() -> None:
 
         if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "synesis_catalog_not_found — creating with v10 schema",
+                "synesis_catalog_not_found — creating with v11 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -591,7 +595,7 @@ def _ensure_synesis_catalog() -> None:
 
         if not _validate_catalog_schema(client):
             logger.warning(
-                "synesis_catalog_schema_drift — recreating collection with v10 schema",
+                "synesis_catalog_schema_drift — recreating collection with v11 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -655,6 +659,8 @@ async def submit_user_knowledge(
         "visibility_scope": (visibility_scope or "global")[:16],
         "org_id": (org_id or "")[:64],
         "tenant_id": (tenant_id or "")[:64],
+        "acl_mode": "open",
+        "acl_groups": "",
         "content_type": "reference",
         "quality_score": -1.0,
         "technical_depth": -1.0,
@@ -699,6 +705,7 @@ def build_scope_filter(
     *,
     caller_org_id: str = "",
     caller_tenant_ids: list[str] | None = None,
+    caller_acl_groups: list[str] | None = None,
 ) -> str:
     """Build the mandatory three-tier visibility scope predicate.
 
@@ -724,7 +731,24 @@ def build_scope_filter(
             clauses.append(
                 f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
             )
-    return f"({' or '.join(clauses)})"
+    base_expr = f"({' or '.join(clauses)})"
+
+    # ACL enforcement: deny-by-default for restricted/private content.
+    if "acl_mode" not in available and available:
+        return base_expr
+
+    if caller_acl_groups:
+        safe_groups = [g.replace('"', "")[:64] for g in caller_acl_groups[:100]]
+        safe_groups = [g for g in safe_groups if g.strip()]
+        if safe_groups:
+            group_likes = " or ".join(f'acl_groups like "%{g}%"' for g in safe_groups)
+            acl_expr = f'(acl_mode in ["open", ""] or ({group_likes}))'
+        else:
+            acl_expr = 'acl_mode in ["open", ""]'
+    else:
+        acl_expr = 'acl_mode in ["open", ""]'
+
+    return f"{base_expr} and {acl_expr}"
 
 
 def build_metadata_filter(
@@ -739,6 +763,7 @@ def build_metadata_filter(
     index_decision: str = "",
     caller_org_id: str = "",
     caller_tenant_ids: list[str] | None = None,
+    caller_acl_groups: list[str] | None = None,
 ) -> str:
     """Build a Milvus filter expression from metadata signals + mandatory scope.
 
@@ -754,6 +779,7 @@ def build_metadata_filter(
     scope_expr = build_scope_filter(
         caller_org_id=caller_org_id,
         caller_tenant_ids=caller_tenant_ids,
+        caller_acl_groups=caller_acl_groups,
     )
     if scope_expr:
         parts.append(scope_expr)

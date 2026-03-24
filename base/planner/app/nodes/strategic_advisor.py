@@ -84,6 +84,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
         }
 
     # Complex: EntryClassifier already escalated; skip advisor LLM (anemic advisor).
@@ -114,6 +115,7 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
         }
 
     if not getattr(settings, "advisor_enabled", True):
@@ -123,9 +125,11 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             "active_domain_refs": existing_domains,
             "advisory_message": "",
             "current_node": node_name,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
         }
 
     platform_context = "generic"
+    token_budget_remaining = state.get("token_budget_remaining", settings.effective_token_budget)
     try:
         prompt = f"Task: {task_desc[:300]}\nDomain:"
         messages = [
@@ -136,6 +140,9 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
             _get_advisor_llm(difficulty).ainvoke(messages),
             timeout=5.0,
         )
+        from ..token_utils import charge_response_budget
+        _budget = charge_response_budget(state, response, role="strategic_advisor")
+        token_budget_remaining = _budget.remaining
         raw = (response.content or "").strip()
         platform_context = _normalize_domain(raw)
         if platform_context == "generic" and raw:
@@ -165,5 +172,6 @@ async def strategic_advisor_node(state: dict[str, Any]) -> dict[str, Any]:
         "active_domain_refs": existing_domains,
         "advisory_message": "",
         "current_node": node_name,
+        "token_budget_remaining": token_budget_remaining,
         "node_traces": [trace],
     }

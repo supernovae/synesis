@@ -481,9 +481,10 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        from ..token_utils import track_budget
+        from ..token_utils import charge_response_budget
 
-        new_budget = track_budget(state, result, role="compiler")
+        _budget = charge_response_budget(state, result, role="compiler")
+        new_budget = _budget.remaining
 
         return {
             "compiled_answer": compiled,
@@ -506,6 +507,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
         return {
             "compiled_answer": section_text,
             "current_node": node_name,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
@@ -585,6 +587,9 @@ async def _light_compile(
 
         llm_output = (result.content or "").strip()
 
+        from ..token_utils import charge_response_budget
+        _budget = charge_response_budget(state, result, role="compiler")
+
         # Parse intro and conclusion from LLM output.
         # Accept both separator variants the LLM might produce.
         intro = ""
@@ -642,6 +647,7 @@ async def _light_compile(
         return {
             "compiled_answer": compiled,
             "current_node": node_name,
+            "token_budget_remaining": _budget.remaining,
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,
@@ -659,6 +665,7 @@ async def _light_compile(
         return {
             "compiled_answer": cleaned_sections,
             "current_node": node_name,
+            "token_budget_remaining": state.get("token_budget_remaining", settings.effective_token_budget),
             "node_traces": [
                 NodeTrace(
                     node_name=node_name,

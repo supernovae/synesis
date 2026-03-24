@@ -20,6 +20,7 @@ class SessionState(BaseModel):
     session_key: str
     user_id: str
     org_id: str = ""
+    tenant_ids: list[str] = Field(default_factory=list)
     username: str = ""
     role: str = "user"
     conversation_id: str = ""
@@ -40,6 +41,7 @@ class AuthUser(BaseModel):
 
     user_id: str
     org_id: str = ""
+    tenant_ids: list[str] = Field(default_factory=list)
     username: str = ""
     role: str = "user"
     auth_method: str = "pat"  # "keycloak" | "pat" | "legacy"

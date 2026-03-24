@@ -138,23 +138,32 @@ def _get_tokenizer(model: str) -> Any:
 
 def extract_usage_tokens(response: Any) -> int:
     """Extract total token usage from a LangChain AIMessage or response object."""
+    from .llm_usage_extract import normalize_usage_dict, normalize_usage_metadata
+
     meta = getattr(response, "usage_metadata", None)
-    if meta:
-        if isinstance(meta, dict):
-            total = meta.get("total_tokens", 0)
-            if not total:
-                total = meta.get("input_tokens", 0) + meta.get("output_tokens", 0)
-            return int(total or 0)
-        total = int(getattr(meta, "total_tokens", 0) or 0)
-        if not total:
-            total = int(getattr(meta, "input_tokens", 0) or 0) + int(getattr(meta, "output_tokens", 0) or 0)
-        return total
-    resp_meta = getattr(response, "response_metadata", {})
+    if isinstance(meta, dict) and meta:
+        norm = normalize_usage_metadata(meta)
+        total = norm.total_tokens or (norm.prompt_tokens + norm.completion_tokens)
+        if total > 0:
+            return int(total)
+
+    resp_meta = getattr(response, "response_metadata", None) or {}
     usage = resp_meta.get("usage", {}) if isinstance(resp_meta, dict) else {}
-    total = int(usage.get("total_tokens", 0))
-    if not total:
-        total = int(usage.get("prompt_tokens", 0)) + int(usage.get("completion_tokens", 0))
-    return total
+    if isinstance(usage, dict) and usage:
+        norm = normalize_usage_dict(usage)
+        return int(norm.total_tokens or (norm.prompt_tokens + norm.completion_tokens))
+    return 0
+
+
+def charge_response_budget(state: dict, response: Any, *, role: str = "") -> BudgetResult:
+    """Charge token budget from a model response in one call."""
+    used = extract_usage_tokens(response)
+    return apply_budget_decrement(
+        state,
+        used,
+        role=role,
+        run_id=state.get("run_id", ""),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -262,13 +271,7 @@ def track_budget(state: dict, response: Any, role: str = "") -> int:
     Returns the new budget value (integer).  Nodes being migrated to the
     full ``apply_budget_decrement`` API can continue using this wrapper.
     """
-    used = extract_usage_tokens(response)
-    result = apply_budget_decrement(
-        state,
-        used,
-        role=role,
-        run_id=state.get("run_id", ""),
-    )
+    result = charge_response_budget(state, response, role=role)
     return result.remaining
 
 

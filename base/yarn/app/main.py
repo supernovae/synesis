@@ -467,6 +467,7 @@ async def _stream_agentic_loop(
                             user=session.user_id,
                             conversation_id=session.conversation_id,
                             org_id=session.org_id or "",
+                            tenant_ids=session.tenant_ids or None,
                         ):
                             yield line.decode("utf-8", errors="replace")
 
@@ -670,6 +671,8 @@ async def _non_streaming_loop(
                         esc_result = await escalation_bridge.escalate_sync(
                             buf.get_context(),
                             user=session.user_id,
+                            org_id=session.org_id or "",
+                            tenant_ids=session.tenant_ids or None,
                         )
                         session.escalation_count += 1
                         status = "escalated"

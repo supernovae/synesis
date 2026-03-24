@@ -62,6 +62,9 @@ const navigation: NavItem[] = [
     children: [
       { label: "Dashboard", path: "/security" },
       { label: "Events", path: "/security/events" },
+      { label: "ACL Groups", path: "/security/acl-groups" },
+      { label: "ACL Policies", path: "/security/acl-policies" },
+      { label: "Effective Permissions", path: "/security/effective-permissions" },
     ],
   },
   {

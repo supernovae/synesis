@@ -52,6 +52,7 @@ async def test_resolve_pat_or_none_403_coder_only():
     ctx = PatAuthContext(
         user_id="u1",
         org_id="o1",
+        tenant_ids=[],
         username="alice",
         role="user",
         scopes=["coder:readonly"],
@@ -69,6 +70,7 @@ async def test_resolve_pat_or_none_ok():
     ctx = PatAuthContext(
         user_id="u1",
         org_id="o1",
+        tenant_ids=[],
         username="alice",
         role="user",
         scopes=["model:readonly"],
@@ -78,3 +80,21 @@ async def test_resolve_pat_or_none_ok():
         with patch("app.pat_auth.resolve_pat_context_sync", return_value=ctx):
             out = await resolve_pat_or_none("syn-deadbeef")
             assert out is not None and out.user_id == "u1"
+
+
+@pytest.mark.asyncio
+async def test_resolve_pat_or_none_preserves_tenant_ids():
+    ctx = PatAuthContext(
+        user_id="u1",
+        org_id="o1",
+        tenant_ids=["tenant-a", "tenant-b"],
+        username="alice",
+        role="user",
+        scopes=["model:readonly"],
+        token_row_id="tid",
+    )
+    with patch("app.pat_auth.pat_lookup_database_url", return_value="postgresql://localhost/test"):
+        with patch("app.pat_auth.resolve_pat_context_sync", return_value=ctx):
+            out = await resolve_pat_or_none("syn-deadbeef")
+            assert out is not None
+            assert out.tenant_ids == ["tenant-a", "tenant-b"]

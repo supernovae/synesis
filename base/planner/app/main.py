@@ -363,7 +363,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from .routers.knowledge import router as knowledge_router  # noqa: E402
+from .routers.knowledge import router as knowledge_router, set_knowledge_scope_resolver  # noqa: E402
 
 app.include_router(knowledge_router)
 
@@ -596,7 +596,8 @@ def _resolve_user_org(
     """
     if pat_ctx is not None:
         oid = (pat_ctx.org_id or "").strip()
-        return (oid[:128], "", []) if oid else ("", "", [])
+        # Tenant scopes are only meaningful within an org context.
+        return (oid[:128], "", list(pat_ctx.tenant_ids or [])) if oid else ("", "", [])
     if not trust_forwarded_identity:
         return "", "", []
     org_id = (http_request.headers.get("x-synesis-org-id") or "").strip()[:128]
@@ -604,6 +605,21 @@ def _resolve_user_org(
     raw_tenants = (http_request.headers.get("x-synesis-tenant-ids") or "").strip()
     tenant_ids = [t.strip()[:64] for t in raw_tenants.split(",") if t.strip()][:50]
     return org_id, org_name, tenant_ids
+
+
+async def _resolve_knowledge_scope(http_request: Request) -> tuple[str, list[str]]:
+    """Resolve org/tenant scope for knowledge endpoints from authenticated principal."""
+    bearer_token, trust_forwarded_identity = _enforce_auth_and_header_trust(http_request)
+    pat_ctx = await resolve_pat_or_none(bearer_token)
+    org_id, _, tenant_ids = _resolve_user_org(
+        http_request,
+        trust_forwarded_identity=trust_forwarded_identity,
+        pat_ctx=pat_ctx,
+    )
+    return org_id, tenant_ids
+
+
+set_knowledge_scope_resolver(_resolve_knowledge_scope)
 
 
 def _resolve_conversation_id(
@@ -1504,6 +1520,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "user_id": user_id,
         "org_id": org_id,
         "tenant_ids": tenant_ids,
+        "acl_groups": [],  # populated when ACL resolver is configured
         "memory_scope": memory_scope,
         "conversation_history": conversation_history,
         "is_pivot": is_pivot,

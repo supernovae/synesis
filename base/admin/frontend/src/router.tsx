@@ -62,6 +62,9 @@ const AuditLog = lazy(() => import("./pages/settings/AuditLog"));
 
 const SecurityDashboard = lazy(() => import("./pages/security/SecurityDashboard"));
 const SecurityEvents = lazy(() => import("./pages/security/SecurityEvents"));
+const AclGroups = lazy(() => import("./pages/security/AclGroups"));
+const AclPolicies = lazy(() => import("./pages/security/AclPolicies"));
+const EffectivePermissions = lazy(() => import("./pages/security/EffectivePermissions"));
 
 const YarnOverview = lazy(() => import("./pages/yarn/YarnOverview"));
 const YarnSessions = lazy(() => import("./pages/yarn/YarnSessions"));
@@ -133,6 +136,9 @@ export const router = createBrowserRouter([
 
       { path: "security", element: <SecurityDashboard /> },
       { path: "security/events", element: <SecurityEvents /> },
+      { path: "security/acl-groups", element: <AclGroups /> },
+      { path: "security/acl-policies", element: <AclPolicies /> },
+      { path: "security/effective-permissions", element: <EffectivePermissions /> },
 
       { path: "yarn", element: <YarnOverview /> },
       { path: "yarn/sessions", element: <YarnSessions /> },

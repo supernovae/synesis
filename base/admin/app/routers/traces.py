@@ -9,12 +9,17 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from ..auth import UserInfo, get_current_user
 from ..deps import PLANNER_URL
-from ..rbac import can_access_trace, require_platform_admin, trace_scope_filters
+from ..rbac import RouteGroup, can_access_route_group, can_access_trace, require_platform_admin, trace_scope_filters
 from ..services import trace_store
 
 logger = logging.getLogger("synesis.admin.traces")
 
 router = APIRouter(prefix="/api/v1/traces", tags=["traces"])
+
+
+def _ensure_org_observability(user: UserInfo) -> None:
+    if not can_access_route_group(user, RouteGroup.org_observability):
+        raise HTTPException(status_code=403, detail="Requires route group access: org_observability")
 
 
 @router.get("")
@@ -36,9 +41,12 @@ async def list_traces(
     min_hallucinated_urls: int | None = Query(
         None, ge=1, description="Filter traces with at least N hallucinated URLs"
     ),
+    tenant_id: str = Query("", description="Filter by tenant"),
     _user: UserInfo = Depends(get_current_user),
 ):
+    _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
+    effective_tenant = tenant_id or scope.get("scope_tenant_id", "")
     return await trace_store.list_traces(
         offset=offset,
         limit=limit,
@@ -57,15 +65,18 @@ async def list_traces(
         min_hallucinated_urls=min_hallucinated_urls,
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=effective_tenant,
     )
 
 
 @router.get("/stats")
 async def trace_stats(_user: UserInfo = Depends(get_current_user)):
+    _ensure_org_observability(_user)
     scope = trace_scope_filters(_user)
     return await trace_store.get_trace_stats(
         scope_user_id=scope.get("user_id", ""),
         scope_org_id=scope.get("org_id", ""),
+        scope_tenant_id=scope.get("scope_tenant_id", ""),
     )
 
 
@@ -218,6 +229,7 @@ async def purge_trivial_traces(
 
 @router.get("/{trace_id}")
 async def get_trace(trace_id: str, _user: UserInfo = Depends(get_current_user)):
+    _ensure_org_observability(_user)
     record = await trace_store.get_trace(trace_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Trace not found")

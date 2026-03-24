@@ -37,11 +37,13 @@ async def list_traces(
     min_hallucinated_urls: int | None = None,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
 ) -> dict[str, Any]:
     """Return paginated trace list from Postgres, newest first.
 
-    ``scope_user_id`` / ``scope_org_id`` are RBAC-enforced filters injected
-    by the router — they take priority and cannot be widened by query params.
+    ``scope_user_id`` / ``scope_org_id`` / ``scope_tenant_id`` are RBAC-enforced
+    filters injected by the router — they take priority and cannot be widened by
+    query params.
     """
     async with async_session() as session:
         try:
@@ -51,6 +53,9 @@ async def list_traces(
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(Trace.tenant_id == scope_tenant_id)
 
             if has_error is not None:
                 q = q.where(Trace.has_error == has_error)
@@ -120,6 +125,7 @@ async def get_trace_stats(
     *,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
 ) -> dict[str, Any]:
     """Aggregate statistics from recent traces (last 24h), respecting RBAC scope."""
     cutoff = time.time() - 86400
@@ -138,6 +144,9 @@ async def get_trace_stats(
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(Trace.tenant_id == scope_tenant_id)
 
             result = await session.execute(q)
             row = result.one()
@@ -168,6 +177,7 @@ async def aggregate_traces_period(
     since_hours: int = 24,
     scope_user_id: str = "",
     scope_org_id: str = "",
+    scope_tenant_id: str = "",
 ) -> dict[str, Any]:
     """Sum trace-level tokens and costs over a window (RBAC-scoped)."""
     cutoff = time.time() - since_hours * 3600
@@ -183,6 +193,9 @@ async def aggregate_traces_period(
                 q = q.where(Trace.user_id == scope_user_id)
             elif scope_org_id:
                 q = q.where(Trace.full_record["org_id"].astext == scope_org_id)
+
+            if scope_tenant_id:
+                q = q.where(Trace.tenant_id == scope_tenant_id)
 
             row = (await session.execute(q)).one()
             return {
@@ -207,9 +220,13 @@ async def insert_trace(record: dict[str, Any]) -> None:
     """Insert a trace record (called by the planner trace writer)."""
     async with async_session() as session:
         try:
+            org_id = record.get("org_id", "")
+            tenant_id = record.get("tenant_id", "")
             trace = Trace(
                 trace_id=record["trace_id"],
                 user_id=record.get("user_id", ""),
+                org_id=org_id,
+                tenant_id=tenant_id,
                 query_snippet=record.get("query_snippet", ""),
                 timestamp=record["timestamp"],
                 total_duration_ms=record.get("total_duration_ms", 0),

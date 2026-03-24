@@ -41,6 +41,7 @@ def pat_lookup_database_url() -> str:
 class PatAuthContext:
     user_id: str
     org_id: str
+    tenant_ids: list[str]
     username: str
     role: str
     scopes: list[str]
@@ -75,7 +76,7 @@ def resolve_pat_context_sync(token: str, dsn: str) -> PatAuthContext | None:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT id, user_id, org_id, username, role, scopes, expires_at
+                SELECT id, user_id, org_id, tenant_ids, username, role, scopes, expires_at
                 FROM personal_access_tokens
                 WHERE token_hash = %s
                   AND revoked = false
@@ -102,9 +103,16 @@ def resolve_pat_context_sync(token: str, dsn: str) -> PatAuthContext | None:
 
         raw_scopes = row.get("scopes")
         scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+        raw_tenants = row.get("tenant_ids") or []
+        tenant_ids = [str(t).strip()[:64] for t in raw_tenants if str(t).strip()][:50]
+        org_id = str(row.get("org_id") or "").strip()
+        if tenant_ids and not org_id:
+            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(row.get("id", "")))
+            return None
         return PatAuthContext(
             user_id=str(row.get("user_id") or ""),
-            org_id=str(row.get("org_id") or ""),
+            org_id=org_id,
+            tenant_ids=tenant_ids,
             username=str(row.get("username") or ""),
             role=str(row.get("role") or "user"),
             scopes=scopes,

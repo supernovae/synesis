@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
 
 def _default_cached_multiplier() -> float:
@@ -35,4 +36,36 @@ def estimate_llm_call_cost_usd(
         + (cached / 1_000_000) * ic_rate
         + (ct / 1_000_000) * float(output_per_million),
         6,
+    )
+
+
+def parse_recorded_estimated_cost(call: Mapping[str, object]) -> float | None:
+    """Return estimated cost from trace call payload when present and valid."""
+    raw = call.get("estimated_cost")
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if value < 0:
+        return None
+    return value
+
+
+def estimate_llm_call_cost_from_payload(
+    call: Mapping[str, object],
+    *,
+    input_per_million: float,
+    output_per_million: float,
+    input_cached_per_million: float | None = None,
+) -> float:
+    """Estimate call cost from trace call payload token fields."""
+    return estimate_llm_call_cost_usd(
+        int(call.get("prompt_tokens", 0) or 0),
+        int(call.get("completion_tokens", 0) or 0),
+        int(call.get("cached_prompt_tokens", 0) or 0),
+        input_per_million=input_per_million,
+        output_per_million=output_per_million,
+        input_cached_per_million=input_cached_per_million,
     )
