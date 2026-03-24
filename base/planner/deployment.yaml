@@ -114,6 +114,12 @@ spec:
               value: "true"
             - name: SYNESIS_SANDBOX_WARM_POOL_URL
               value: "http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080"
+            - name: SYNESIS_SANDBOX_WARM_POOL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
             - name: SYNESIS_FAILURE_STORE_ENABLED
               value: "true"
             - name: SYNESIS_FAILFAST_CACHE_MAX_SIZE

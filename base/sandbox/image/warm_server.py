@@ -23,11 +23,19 @@ import tempfile
 import threading
 import time
 
+# synesis_service_auth is COPY'd into the sandbox image at build time
+# (stdlib-only, no pip install needed).
+try:
+    import synesis_service_auth as _svc_auth
+except ImportError:
+    _svc_auth = None  # type: ignore[assignment]
+
 _SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
 MAX_EXECUTIONS = int(os.environ.get("WARM_MAX_EXECUTIONS", "100"))
 PORT = int(os.environ.get("WARM_PORT", "8080"))
 EXECUTION_TIMEOUT = int(os.environ.get("WARM_EXECUTION_TIMEOUT", "30"))
+AUTH_SECRET = os.environ.get("WARM_AUTH_SECRET", "").strip()
 
 _lock = threading.Lock()
 _busy = False
@@ -50,11 +58,37 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
         else:
             self._respond(404, {"error": "not found"})
 
+    def _check_auth(self, body_bytes: bytes) -> bool:
+        """Validate HMAC-signed request. Returns True if authorized."""
+        if _svc_auth is None:
+            if AUTH_SECRET:
+                self._respond(500, {"error": "synesis_service_auth module not available"})
+                return False
+            return True
+
+        auth_header = self.headers.get("Authorization", "")
+        valid, reason = _svc_auth.verify_request(auth_header, body_bytes, AUTH_SECRET)
+        if not valid:
+            sys.stderr.write(f"[warm-server] auth_rejected: {reason}\n")
+            self._respond(401, {"error": "unauthorized", "reason": reason})
+            return False
+        return True
+
     def do_POST(self):
         global _busy, _execution_count
 
         if self.path != "/execute":
             self._respond(404, {"error": "not found"})
+            return
+
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self._respond(400, {"error": "empty request body", "exit_code": 1})
+            return
+
+        body_bytes = self.rfile.read(content_length)
+
+        if not self._check_auth(body_bytes):
             return
 
         with _lock:
@@ -65,12 +99,7 @@ class WarmHandler(http.server.BaseHTTPRequestHandler):
 
         work_dir = None
         try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            if content_length == 0:
-                self._respond(400, {"error": "empty request body", "exit_code": 1})
-                return
-
-            body = json.loads(self.rfile.read(content_length))
+            body = json.loads(body_bytes)
             language = body.get("language", "bash")
             code = body.get("code", "")
             filename = body.get("filename", "script.sh")
@@ -175,6 +204,13 @@ def _graceful_shutdown():
 def main():
     server = http.server.HTTPServer(("0.0.0.0", PORT), WarmHandler)  # nosec B104
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    if AUTH_SECRET:
+        if _svc_auth is not None:
+            sys.stderr.write("[warm-server] HMAC request auth ENABLED\n")
+        else:
+            sys.stderr.write("[warm-server] WARNING: WARM_AUTH_SECRET set but synesis_service_auth not found\n")
+    else:
+        sys.stderr.write("[warm-server] WARNING: WARM_AUTH_SECRET not set — auth disabled (dev mode only)\n")
     sys.stderr.write(f"[warm-server] Listening on :{PORT}, max_executions={MAX_EXECUTIONS}\n")
     try:
         server.serve_forever()

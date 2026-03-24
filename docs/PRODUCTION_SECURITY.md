@@ -267,3 +267,135 @@ For temporary backward compatibility during migration, you can explicitly opt in
 ```
 
 The planner will emit WARNING-level logs at startup for these settings.
+
+---
+
+## 9. Service-to-Service Authentication
+
+### Standard: Two-Tier Auth
+
+All internal Synesis services authenticate callers at the application layer. Network policies are defense-in-depth, not the sole security boundary.
+
+**Tier 1 — Bearer Token** (API services):
+Simple shared secret as `Authorization: Bearer <token>`. Used by planner, admin, yarn, indexer.
+
+**Tier 2 — HMAC-Signed Request** (execution services):
+Per-request HMAC-SHA256 signature bound to the request body. Prevents replay and tampering even if a static token leaks. Used by the warm pool sandbox.
+
+```
+Authorization: Bearer HMAC-SHA256:<hex_sig>:<unix_ts>:<nonce>
+
+sig = HMAC-SHA256(secret, "<timestamp>:<nonce>:<sha256(body)>")
+```
+
+### Shared Module
+
+`base/security/synesis_service_auth.py` provides both tiers in a single stdlib-only Python file:
+
+- `verify_bearer(token, secrets)` — Tier 1 server-side validation
+- `sign_request(body, secret)` — Tier 2 client-side signing
+- `verify_request(header, body, secret)` — Tier 2 server-side validation
+- `configured_service_tokens(env, envs)` — reads tokens from environment
+
+For app images: import from venv or PYTHONPATH. For minimal images (sandbox): COPY the file at build time.
+
+### Warm Pool Authentication
+
+The warm pool (`POST /execute`) uses Tier 2 HMAC-signed requests:
+
+```yaml
+# Warm pool deployment
+- name: WARM_AUTH_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: synesis-internal-service-auth
+      key: token
+
+# Planner deployment
+- name: SYNESIS_SANDBOX_WARM_POOL_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: synesis-internal-service-auth
+      key: token
+```
+
+When `WARM_AUTH_SECRET` is empty, auth is disabled (dev mode). The warm pool logs a startup warning.
+
+### Adding Auth to a New Service
+
+1. Determine the tier: executes untrusted input? Tier 2. Otherwise Tier 1.
+2. **Server**: call `verify_bearer()` or `verify_request()` before processing
+3. **Client**: send Bearer header (Tier 1) or call `sign_request()` (Tier 2)
+4. **Secret**: mount `synesis-internal-service-auth` or a dedicated per-service secret
+5. **deploy.sh**: ensure the secret is synced to the service's namespace
+6. **Network policy**: deny-all + allow ingress from authorized callers
+7. **Tests**: verify 401 on invalid/missing credentials
+
+### Service Auth Checklist
+
+- [ ] Warm pool `WARM_AUTH_SECRET` set from `synesis-internal-service-auth`
+- [ ] Planner `SYNESIS_SANDBOX_WARM_POOL_SECRET` set from same secret
+- [ ] Warm pool startup logs show "HMAC request auth ENABLED"
+- [ ] `synesis-internal-service-auth` synced to `synesis-sandbox` namespace
+- [ ] All new services follow the two-tier standard (cursor rule: `service-to-service-auth.mdc`)
+
+---
+
+## 10. Future: Service Mesh Adoption Roadmap
+
+### Current State (Application-Layer Auth)
+
+Synesis uses a lightweight, library-based approach to service-to-service auth:
+- ~200 lines of stdlib Python (`synesis_service_auth.py`)
+- Two tiers: Bearer tokens for APIs, HMAC-signed requests for execution services
+- Shared secret distribution via `synesis-internal-service-auth` Kubernetes secret
+- Network policies for L3/L4 access control
+
+This is appropriate for the current fleet (~8 Synesis-owned services) and avoids the operational complexity of a full service mesh.
+
+### When to Consider a Service Mesh
+
+Triggers for re-evaluating:
+- Fleet grows to **20+ internal services** where managing individual tokens becomes unwieldy
+- Requirement for **mutual TLS on all internal traffic** (zero-trust networking)
+- Need for **mesh-level observability** (distributed tracing, golden metrics) without per-service instrumentation
+- Compliance requirement for **encrypted east-west traffic** between all pods
+
+### Recommended Path: Istio Ambient Mesh
+
+Traditional Istio (sidecar mode) adds ~100-150Mi RAM per pod — disproportionate for lightweight services like the warm pool. **Ambient mesh** (Istio's sidecar-less mode) is the better fit:
+
+- **L4 mTLS via ztunnel** (node-level proxy): encrypted, authenticated transport with no per-pod sidecar overhead
+- **Optional L7 waypoint proxies**: only for services that need HTTP-level policy (rate limiting, L7 auth rules)
+- **SPIFFE workload identities**: each pod gets a cryptographic identity from the mesh CA — no shared secrets to rotate
+- **AuthorizationPolicy**: declarative YAML controls ("service A can call service B on POST /execute")
+
+### OpenShift Considerations
+
+- OpenShift Service Mesh (Maistra/Istio) is transitioning to the **Istio Sail Operator**
+- OpenShift AI includes service mesh components but not fully HA out of the box
+- Ambient mode is maturing in upstream Istio (graduated to beta in 1.22) — monitor for GA stability before adopting
+- The Sail Operator tracks upstream Istio closely, so ambient support will follow
+
+### Adoption Plan (When Ready)
+
+**Phase 1 — Ambient L4 mTLS** (low risk):
+- Install Istio Sail Operator with ambient mode
+- Enable `istio.io/dataplane-mode=ambient` on Synesis namespaces
+- All east-west traffic gets mTLS automatically via ztunnel
+- No code changes required; existing Bearer/HMAC auth continues as defense-in-depth
+
+**Phase 2 — L7 Waypoint for Execution Services** (optional):
+- Deploy waypoint proxy for `synesis-sandbox` namespace
+- Add `AuthorizationPolicy`: only `synesis-planner` ServiceAccount can `POST /execute`
+- HMAC signing remains as application-layer defense-in-depth (belt and suspenders)
+
+**Phase 3 — Migrate Tier 1 to Mesh Identity** (future):
+- Replace Bearer token checks with mesh `AuthorizationPolicy` for API services
+- `synesis_service_auth.verify_bearer()` becomes a no-op behind mesh identity
+- Simplify secret management (mesh CA handles identity, no shared secrets)
+- Keep Tier 2 HMAC for execution services (body-binding is not a mesh feature)
+
+### Key Principle
+
+The mesh handles **transport identity** (who is calling). Application-layer HMAC handles **request integrity** (the body hasn't been tampered with). These are complementary, not competing — Tier 2 HMAC signing should persist even with a mesh, because a mesh cannot prove that the request body is the same one the caller intended to send.

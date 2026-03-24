@@ -1,0 +1,47 @@
+# Service-to-Service Authentication Standard
+
+## Principle
+
+Every internal Synesis service MUST authenticate its callers at the application layer.
+Network policies are defense-in-depth, not the sole security boundary.
+
+## Two-tier model
+
+| Tier | Mechanism | When to use | Module function |
+|------|-----------|-------------|-----------------|
+| **Tier 1** | Bearer token (`Authorization: Bearer <token>`) | API services with their own input validation (admin, planner, yarn) | `synesis_service_auth.verify_bearer()` |
+| **Tier 2** | HMAC-signed request (`HMAC-SHA256:<sig>:<ts>:<nonce>`) | Services that execute untrusted input (warm pool, sandbox, future execution services) | `synesis_service_auth.sign_request()` / `verify_request()` |
+
+## Shared module
+
+**`base/security/synesis_service_auth.py`** — stdlib-only, zero dependencies.
+
+- For app images (planner, admin, yarn): import from venv or PYTHONPATH
+- For minimal images (sandbox, warm pool): COPY into the image at build time
+- Never reimplement token checking or HMAC signing ad-hoc — use this module
+
+## Adding a new internal service
+
+1. Determine the tier: does it execute untrusted input? → Tier 2, otherwise Tier 1
+2. **Server side**: call `verify_bearer()` or `verify_request()` before processing
+3. **Client side**: send `Authorization: Bearer <token>` (Tier 1) or call `sign_request()` (Tier 2)
+4. **Secret**: mount `synesis-internal-service-auth` (or a dedicated per-service secret) as env var
+5. **deploy.sh**: ensure `ensure_internal_service_auth()` syncs the secret to the new namespace
+6. **Network policy**: add deny-all + allow ingress from authorized callers (defense-in-depth)
+7. **Dev mode**: when secret env var is empty, auth is disabled with a startup warning
+8. **Tests**: verify auth rejection (401) with invalid/missing credentials
+
+## Existing services
+
+| Service | Tier | Server-side check | Client-side auth |
+|---------|------|-------------------|------------------|
+| Planner (`/v1/chat/completions`) | 1 | `_is_trusted_service_bearer()` in `main.py` | Open WebUI / Yarn send Bearer |
+| Admin (internal endpoints) | 1 | `require_service_or_platform_admin()` in `internal_auth.py` | Indexer / workers send Bearer + `x-synesis-service-name` |
+| Warm pool (`/execute`) | 2 | `verify_request()` in `warm_server.py` | Planner uses `sandbox_auth.sign_sandbox_request()` |
+
+## Future: ambient service mesh
+
+The current library-based approach is appropriate for the current service count (~8).
+If the fleet grows to 20+ services, consider Istio ambient mesh (sidecar-less L4 mTLS)
+for transport-layer auth, keeping Tier 2 HMAC signing as defense-in-depth for execution
+services. See `docs/PRODUCTION_SECURITY.md` for the mesh adoption roadmap.

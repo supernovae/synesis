@@ -177,6 +177,7 @@ class Settings(BaseSettings):
     # Warm pool (pre-warmed sandbox pods for low-latency execution)
     sandbox_warm_pool_enabled: bool = True
     sandbox_warm_pool_url: str = "http://synesis-warm-pool.synesis-sandbox.svc.cluster.local:8080"
+    sandbox_warm_pool_secret: str = ""
 
     # Failure store
     failure_store_enabled: bool = True

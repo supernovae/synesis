@@ -39,6 +39,12 @@ spec:
               value: "8080"
             - name: WARM_EXECUTION_TIMEOUT
               value: "30"
+            - name: WARM_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
