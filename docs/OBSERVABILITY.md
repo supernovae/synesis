@@ -50,6 +50,20 @@ Admin API note:
 | Critic Rejection Rate | `rate(synesis_critic_rejections_total[5m])` | How often the critic rejects executor output |
 | Token Throughput | `rate(synesis_tokens_total[5m])` | Tokens/sec by model |
 
+### Token Budget Health
+
+| Panel | PromQL | Description |
+|-------|--------|-------------|
+| Budget Remaining (last) | `synesis_token_budget_remaining` | Last observed remaining budget at request end |
+| Budget Exhausted | `rate(synesis_token_budget_exhausted_total[5m])` | Requests hitting hard-stop (0 tokens left) |
+| Budget Degraded | `rate(synesis_token_budget_degraded_total[5m])` | Requests entering degraded mode (below warn threshold) |
+| Node Overspend | `rate(synesis_token_budget_overspend_total[5m])` | Per-node calls exceeding remaining budget |
+| Anomaly Trips | `rate(synesis_token_budget_anomaly_trips_total[5m])` | Repeated overspend anomaly signals |
+
+Config SSOT: `SYNESIS_TOKEN_BUDGET_TOTAL` (falls back to `SYNESIS_MAX_TOKENS_PER_REQUEST`).
+Warn threshold: `SYNESIS_TOKEN_BUDGET_WARN_PCT` (default 0.20 = 20% remaining).
+Admin API: `/api/v1/observability/token-budget` returns budget risk signals from planner metrics.
+
 ### RAG Retrieval
 
 | Panel | PromQL | Description |

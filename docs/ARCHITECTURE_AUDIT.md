@@ -42,7 +42,7 @@ We are standardizing on a gateway-only policy:
 
 | Area | Situation | Options |
 |------|-----------|---------|
-| **Token budget** | `token_budget_remaining` is updated in **executor, writer, critic, compiler** paths; **router** and **planner** do not appear to decrement it. | Add usage-based decrements after each LLM call in those nodes, or drop the field from state if budget is intentionally soft / gateway-enforced only. |
+| **Token budget** | **RESOLVED.** `token_budget_remaining` is now enforced across all core LLM nodes (router, planner, writer, critic, compiler) and the direct-stream path. Budget accounting uses a centralized state machine (`token_utils.apply_budget_decrement`) with hybrid enforcement (degrade at warning threshold, hard-stop at zero), overspend anomaly detection, and Prometheus metrics (`synesis_token_budget_*`). Config SSOT is `settings.effective_token_budget`. | Governance tests in `test_token_budget.py` ensure all core nodes import budget accounting helpers and return `token_budget_remaining`. |
 | **Critic stop sequence** | `config.critic_stop_sequence` is **empty** with an explicit comment that truncation would break `repair_instructions` / `requirement_coverage`. | Keep as-is; revisit only if critic JSON schema is split or streaming truncation is redesigned. |
 | **Retrieval regression CI** | `.github/workflows/retrieval-regression.yml` exists but is **workflow_dispatch** + needs Milvus/embedder; **no `baseline.json`** is committed under `benchmarks/retrieval/` in this repo snapshot. | Commit a baseline + optional PR trigger; or document “run weekly from ops” and keep dispatch-only. |
 | **Prompt suite in CI** | Adversarial YAML exists; **no workflow** references `tests/prompts/run_test_suite.py`. | Add a small job (subset categories) on planner changes, or keep manual. |
@@ -63,7 +63,7 @@ The detailed severity tables, KPI tables, and phase-2 roadmap lived in git histo
 ## Suggested next actions (pick by priority)
 
 1. **Document and verify** LiteLLM resilience settings (`num_retries`, `request_timeout`, fallback lists) for every active served model in admin registry + gateway config.  
-2. **Either** enforce token budget in router/planner **or** document intentional omission.  
+2. ~~**Either** enforce token budget in router/planner **or** document intentional omission.~~ **Done** — budget enforced in all core nodes with hybrid policy.  
 3. **Commit** `benchmarks/retrieval/baseline.json` (or generate in CI first-run) if regression workflow should be reproducible from a fresh clone.  
 4. **Optional:** PR-scoped prompt-suite job for `adversarial` + `routing` categories.
 

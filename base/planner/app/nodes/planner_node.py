@@ -765,6 +765,12 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         _tok = 0
         if response is not None and getattr(response, "usage_metadata", None):
             _tok = response.usage_metadata.get("total_tokens", 0) or 0
+
+        from ..token_utils import apply_budget_decrement
+        _budget = apply_budget_decrement(
+            state, _tok, role="planner", run_id=state.get("run_id", ""),
+        )
+
         trace = NodeTrace(
             node_name=node_name,
             reasoning=parsed.reasoning,
@@ -1029,6 +1035,7 @@ async def planner_node(state: dict[str, Any]) -> dict[str, Any]:
             "error": None,
             "current_node": node_name,
             "next_node": next_node,
+            "token_budget_remaining": _budget.remaining,
             "node_traces": [trace],
         }
         if clarify_question:

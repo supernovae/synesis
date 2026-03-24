@@ -764,10 +764,12 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
     node_name = "critic"
 
     try:
-        token_budget = state.get("token_budget_remaining", settings.max_tokens_per_request)
+        from ..token_utils import check_budget_for_node
+        _budget_stop = check_budget_for_node(state, node="critic")
+        token_budget = state.get("token_budget_remaining", settings.effective_token_budget)
         if settings.max_controller_tokens > 0:
             token_budget = min(token_budget, settings.max_controller_tokens)
-        if token_budget <= 0:
+        if _budget_stop is not None:
             return {
                 "critic_approved": True,
                 "current_node": node_name,
@@ -1778,6 +1780,12 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
                 except Exception as _cache_err:
                     logger.debug("critic_cache_store_failed: %s", _cache_err)
 
+        from ..token_utils import apply_budget_decrement, extract_usage_tokens
+        _critic_used = extract_usage_tokens(response) if response else 0
+        _budget_result = apply_budget_decrement(
+            state, _critic_used, role="critic", run_id=state.get("run_id", ""),
+        )
+
         result: dict[str, Any] = {
             "what_if_analyses": what_ifs,
             "critic_feedback": parsed.revision_feedback or parsed.overall_assessment or "",
@@ -1792,6 +1800,7 @@ Set approved=false ONLY with concrete evidence. Medium/low concerns → nonblock
             "next_node": next_node,
             "iteration_count": iteration + 1 if not is_evidence_only else iteration,
             "evidence_experiments_count": evidence_count + 1 if is_evidence_only else evidence_count,
+            "token_budget_remaining": _budget_result.remaining,
             "node_traces": [trace],
             "generated_code": state.get("generated_code", ""),
             "code_explanation": state.get("code_explanation", ""),

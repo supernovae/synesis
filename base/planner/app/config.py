@@ -399,16 +399,31 @@ class Settings(BaseSettings):
     http_read_timeout_llm: float = 300.0  # LLM calls via LiteLLM/OpenRouter — must cover long generations
     http_read_timeout_web: float = 5.0  # web search, page fetch
 
-    # Budget limits
-    max_tokens_per_request: int = 100000
+    # ── Token budget (single source of truth) ──
+    # Canonical per-request budget.  ``max_tokens_per_request`` is the legacy
+    # name kept for backward-compat; ``token_budget_total`` is the new knob.
+    # If both are set, ``token_budget_total`` wins.
+    max_tokens_per_request: int = 100000  # deprecated → use token_budget_total
+    token_budget_total: int = 0  # 0 = fall back to max_tokens_per_request
+    token_budget_warn_pct: float = 0.20  # enter degraded mode at 20 % remaining
+    token_budget_hard_stop_pct: float = 0.0  # hard-stop at 0 % (budget exhausted)
+    token_budget_overspend_tolerance_pct: float = 0.10  # single-call overshoot up to 10 % tolerated
+    token_budget_anomaly_window: int = 5  # rolling window of recent calls for anomaly detection
+    token_budget_anomaly_trip_count: int = 3  # overspends in window before trip signal
+
+    # Other resource limits
     max_sandbox_minutes: float = 5.0
     max_lsp_calls: int = 5
     max_evidence_experiments: int = 3
-    # Evidence experiments: max blast radius (§8.4)
     experiment_max_commands: int = 10  # max commands per experiment_plan
     # Per-node-class (optional; 0 = use global)
     max_executor_tokens: int = 0
     max_controller_tokens: int = 0
+
+    @property
+    def effective_token_budget(self) -> int:
+        """Resolved per-request budget (canonical SSOT)."""
+        return self.token_budget_total if self.token_budget_total > 0 else self.max_tokens_per_request
 
     # Patch Integrity Gate — path and file policy
     integrity_path_denylist: list[str] = Field(

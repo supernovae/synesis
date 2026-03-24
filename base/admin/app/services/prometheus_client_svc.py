@@ -413,6 +413,39 @@ async def get_yarn_live_metrics() -> dict[str, Any]:
     }
 
 
+async def get_token_budget_metrics() -> dict[str, Any]:
+    """Aggregate token-budget health signals from planner Prometheus metrics."""
+    raw = await fetch_planner_metrics()
+    if not raw:
+        return {}
+
+    remaining = _find_metric(raw, "synesis_token_budget_remaining")
+    exhausted = _find_metric(raw, "synesis_token_budget_exhausted_total")
+    degraded = _find_metric(raw, "synesis_token_budget_degraded_total")
+    anomaly_trips = _find_metric(raw, "synesis_token_budget_anomaly_trips_total")
+
+    overspend_by_node: dict[str, int] = {}
+    for key, entry in raw.items():
+        if "synesis_token_budget_overspend_total" not in key:
+            continue
+        if isinstance(entry, dict):
+            node = (entry.get("labels") or {}).get("node", "unknown")
+            overspend_by_node[node] = overspend_by_node.get(node, 0) + int(entry.get("value", 0))
+
+    return {
+        "remaining_last": int(remaining),
+        "exhausted_total": int(exhausted),
+        "degraded_total": int(degraded),
+        "anomaly_trips_total": int(anomaly_trips),
+        "overspend_by_node": overspend_by_node,
+        "risk_level": (
+            "critical" if exhausted > 0 or anomaly_trips > 0
+            else "warning" if degraded > 0
+            else "healthy"
+        ),
+    }
+
+
 async def get_web_search_stats() -> dict[str, Any]:
     """Compute web search stats from Prometheus labeled counters and histograms."""
     raw = await fetch_planner_metrics()

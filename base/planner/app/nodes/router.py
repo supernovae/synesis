@@ -1494,6 +1494,20 @@ class RouterNode:
                 _deg_summary = _zero_note
             _any_degraded = True
 
+        # Budget accounting: sum LLM tokens consumed by router sub-calls
+        # recorded via the tracer callback during this node execution.
+        _router_tokens = 0
+        if _tracer and _tracer._current_trace:
+            for _sp in reversed(_tracer._current_trace.spans):
+                if _sp.node_name == "router":
+                    _router_tokens = _sp.tokens_used
+                    break
+
+        from ..token_utils import apply_budget_decrement
+        _budget = apply_budget_decrement(
+            state, _router_tokens, role="router", run_id=state.get("run_id", ""),
+        )
+
         result: dict[str, Any] = {
             "evidence_packets": [p.model_dump() for p in packets],
             "evidence_requests": [],
@@ -1503,6 +1517,7 @@ class RouterNode:
             "current_node": "router",
             "retrieval_degraded": _any_degraded,
             "retrieval_degradation_notes": _deg_summary,
+            "token_budget_remaining": _budget.remaining,
             "node_traces": [
                 NodeTrace(
                     node_name="router",
@@ -1514,6 +1529,7 @@ class RouterNode:
                     confidence=min((p.confidence for p in packets), default=0.0),
                     outcome=NodeOutcome.SUCCESS,
                     latency_ms=latency_ms,
+                    tokens_used=_router_tokens,
                 )
             ],
         }

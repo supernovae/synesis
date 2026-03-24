@@ -48,10 +48,25 @@ def compute_trace_links(
 
 def build_trace_context(state: dict[str, Any]) -> dict[str, Any]:
     """Structured context embedded in full_record for analytics."""
+    from .token_utils import BudgetState, classify_budget
+
+    total_budget = 0
+    try:
+        from .config import settings
+        total_budget = settings.effective_token_budget
+    except Exception:
+        pass
+    remaining = state.get("token_budget_remaining", total_budget)
+    budget_state = classify_budget(remaining, total_budget) if total_budget else BudgetState.HEALTHY
+
     return {
         "critic_turn_kind": derive_critic_turn_kind(state),
         "pending_question_continue": bool(state.get("pending_question_continue")),
         "pending_question_source": (state.get("pending_question_source") or "")[:64],
         "is_pivot": bool(state.get("is_pivot")),
         "plan_pending_approval": bool(state.get("plan_pending_approval")),
+        "token_budget_total": total_budget,
+        "token_budget_remaining": remaining,
+        "token_budget_consumed": max(0, total_budget - remaining),
+        "token_budget_state": budget_state.value,
     }

@@ -21,6 +21,11 @@ _frame_cache_hits = None
 _frame_cache_misses = None
 _frame_cache_entries = None
 _runs_by_critic_turn_kind = None
+_token_budget_remaining_gauge = None
+_token_budget_exhausted = None
+_token_budget_overspend = None
+_token_budget_degraded = None
+_token_budget_anomaly_trips = None
 
 
 def _ensure_metrics():
@@ -31,6 +36,9 @@ def _ensure_metrics():
     global _prompt_cache_hits, _prompt_cache_misses, _prompt_cache_entries
     global _frame_cache_hits, _frame_cache_misses, _frame_cache_entries
     global _runs_by_critic_turn_kind
+    global _token_budget_remaining_gauge, _token_budget_exhausted
+    global _token_budget_overspend, _token_budget_degraded
+    global _token_budget_anomaly_trips
     if _metrics_registered:
         return
     try:
@@ -101,6 +109,27 @@ def _ensure_metrics():
             "synesis_runs_by_critic_turn_kind_total",
             "Completed chat runs by critic turn kind (low-cardinality)",
             ["critic_turn_kind"],
+        )
+        _token_budget_remaining_gauge = Gauge(
+            "synesis_token_budget_remaining",
+            "Last observed token budget remaining at request end",
+        )
+        _token_budget_exhausted = Counter(
+            "synesis_token_budget_exhausted_total",
+            "Requests that hit hard-stop (budget exhausted)",
+        )
+        _token_budget_overspend = Counter(
+            "synesis_token_budget_overspend_total",
+            "Individual node calls that exceeded remaining budget",
+            ["node"],
+        )
+        _token_budget_degraded = Counter(
+            "synesis_token_budget_degraded_total",
+            "Requests that entered degraded budget state",
+        )
+        _token_budget_anomaly_trips = Counter(
+            "synesis_token_budget_anomaly_trips_total",
+            "Anomaly trip signals (repeated overspend within window)",
         )
     except Exception:  # nosec B110
         pass
@@ -201,3 +230,38 @@ def record_run_critic_turn_kind(kind: str):
     if k not in ("final", "interactive_continue", "micro_step", "skip"):
         k = "final"
     _runs_by_critic_turn_kind.labels(critic_turn_kind=k).inc()
+
+
+# ---------------------------------------------------------------------------
+# Token budget metrics
+# ---------------------------------------------------------------------------
+
+def record_budget_remaining(remaining: int) -> None:
+    """Snapshot remaining budget at request end."""
+    _ensure_metrics()
+    if _token_budget_remaining_gauge is not None:
+        _token_budget_remaining_gauge.set(max(0, remaining))
+
+
+def record_budget_exhausted() -> None:
+    _ensure_metrics()
+    if _token_budget_exhausted:
+        _token_budget_exhausted.inc()
+
+
+def record_budget_overspend(node: str) -> None:
+    _ensure_metrics()
+    if _token_budget_overspend:
+        _token_budget_overspend.labels(node=node or "unknown").inc()
+
+
+def record_budget_degraded() -> None:
+    _ensure_metrics()
+    if _token_budget_degraded:
+        _token_budget_degraded.inc()
+
+
+def record_budget_anomaly_trip() -> None:
+    _ensure_metrics()
+    if _token_budget_anomaly_trips:
+        _token_budget_anomaly_trips.inc()

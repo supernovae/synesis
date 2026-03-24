@@ -1146,9 +1146,12 @@ def snapshot_tracer_usage() -> dict[str, int]:
     return snapshot_pending_usage()
 
 
-def flush_tracer() -> None:
+def flush_tracer(run_id: str = "") -> None:
     """Flush the SynesisTracer after each graph execution."""
     flush_synesis_tracer()
+    if run_id:
+        from .token_utils import cleanup_anomaly_tracker
+        cleanup_anomaly_tracker(run_id)
 
 
 def get_graph_config(extra: dict[str, Any] | None = None, thread_id: str = "") -> dict[str, Any]:

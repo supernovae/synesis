@@ -1445,7 +1445,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "domain_soft_shift": domain_soft_shift,
         "last_active_language": last_lang or "",
         "pivot_summary": pivot_summary,
-        "token_budget_remaining": settings.max_tokens_per_request,
+        "token_budget_remaining": settings.effective_token_budget,
         "sandbox_minutes_used": 0.0,
         "lsp_calls_used": 0,
         "evidence_experiments_count": 0,
@@ -2307,6 +2307,18 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     completion_text=_ds_full_content,
                                     latency_ms=_ds_elapsed,
                                 )
+
+                            from .token_utils import apply_budget_decrement
+                            _ds_total_tokens = _ds_usage.get("total_tokens") or (
+                                _ds_usage["prompt_tokens"] + _ds_usage["completion_tokens"]
+                            )
+                            _ds_budget = apply_budget_decrement(
+                                accumulated_state,
+                                _ds_total_tokens,
+                                role="direct_stream",
+                                run_id=run_id,
+                            )
+                            accumulated_state["token_budget_remaining"] = _ds_budget.remaining
                     except Exception:
                         logger.exception("direct_stream_error")
                         yield _sse_content_delta(
@@ -2340,6 +2352,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 )
                 _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
                 record_chat_success(time.monotonic() - start)
+                from .token_utils import record_request_budget_metrics as _rec_budget
+                _rec_budget(accumulated_state)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=accumulated_state)
                 record_memory_after_request(rss_mib, cgroup_mib)
 
@@ -2608,6 +2622,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
 
     latency_ms = (time.monotonic() - start) * 1000
     record_chat_success(latency_ms / 1000)
+    from .token_utils import record_request_budget_metrics as _rec_budget_ns
+    _rec_budget_ns(result)
     rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
     record_memory_after_request(rss_mib, cgroup_mib)
     logger.info(
