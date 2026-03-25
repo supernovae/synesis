@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import time
+import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -491,6 +492,8 @@ def send_prompt(
     api_url: str,
     api_key: str,
     model: str,
+    *,
+    conversation_id: str | None = None,
 ) -> SSEMetrics:
     """Send a chat completion request with streaming and parse SSE response."""
     metrics = SSEMetrics()
@@ -501,13 +504,15 @@ def send_prompt(
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    payload = {
+    payload: dict = {
         "model": model,
         "messages": messages,
         "stream": True,
         "stream_options": {"include_usage": True},
         "temperature": 0.2,
     }
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
 
     metrics.time_request_sent = time.monotonic()
 
@@ -833,6 +838,7 @@ def run_batch(
     """Run a batch of prompts (standalone or sequence). Returns results."""
     results = []
     messages: list[dict] = []
+    conversation_id: str | None = None
 
     with httpx.Client(http2=False, follow_redirects=True) as client:
         for i, spec in enumerate(batch):
@@ -844,6 +850,7 @@ def run_batch(
 
             if not is_continuation:
                 messages = []
+                conversation_id = f"test-{uuid.uuid4().hex[:12]}" if spec.get("sequence") else None
 
             messages.append({"role": "user", "content": prompt_text})
 
@@ -851,7 +858,7 @@ def run_batch(
                 seq_label = f" [{spec.get('sequence', '')}]" if spec.get("sequence") else ""
                 print(f"  → {prompt_id}{seq_label}: {prompt_text[:60]}...", flush=True)
 
-            metrics = send_prompt(client, messages, api_url, api_key, model)
+            metrics = send_prompt(client, messages, api_url, api_key, model, conversation_id=conversation_id)
             evaluation = evaluate(spec, metrics)
 
             # Append assistant response to conversation for multi-turn

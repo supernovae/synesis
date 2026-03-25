@@ -86,15 +86,15 @@ def _normalize_prompt(prompt: str) -> str:
     return _WS_RUN.sub(" ", prompt.strip()).lower()
 
 
-def _prompt_cache_key(user_id: str, prompt: str, model: str) -> str:
-    raw = f"{user_id}\x00{_normalize_prompt(prompt)}\x00{model}"
+def _prompt_cache_key(user_id: str, prompt: str, model: str, conversation_id: str = "") -> str:
+    raw = f"{user_id}\x00{conversation_id}\x00{_normalize_prompt(prompt)}\x00{model}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
+def _prompt_cache_get(user_id: str, prompt: str, model: str, conversation_id: str = "") -> str | None:
     if not settings.prompt_cache_enabled:
         return None
-    key = _prompt_cache_key(user_id, prompt, model)
+    key = _prompt_cache_key(user_id, prompt, model, conversation_id)
     entry = _prompt_cache.get(key)
     if entry is None:
         record_prompt_cache_miss()
@@ -109,13 +109,13 @@ def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
     return text
 
 
-def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> None:
+def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str, conversation_id: str = "") -> None:
     if not settings.prompt_cache_enabled or not response:
         return
     if len(_prompt_cache) >= settings.prompt_cache_max_entries:
         oldest_key = next(iter(_prompt_cache))
         _prompt_cache.pop(oldest_key, None)
-    key = _prompt_cache_key(user_id, prompt, model)
+    key = _prompt_cache_key(user_id, prompt, model, conversation_id)
     _prompt_cache[key] = (time.monotonic() + settings.prompt_cache_ttl_seconds, response)
     record_prompt_cache_size(len(_prompt_cache))
 
@@ -1639,8 +1639,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     # reliably surface token hover/usage metadata.
     _stream_include_usage = True
 
-    # Prompt-level cache: return cached response for identical (user + prompt + model)
-    cached_response = _prompt_cache_get(user_id, last_user_content or "", response_model_id)
+    # Prompt-level cache: return cached response for identical (user + conversation + prompt + model)
+    cached_response = _prompt_cache_get(user_id, last_user_content or "", response_model_id, conversation_id or "")
     if cached_response is not None:
         logger.info(
             "prompt_cache_hit",
@@ -1922,7 +1922,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         memory_scope=memory_scope,
                                         model=response_model_id,
                                     )
-                                    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
+                                    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content, conversation_id or "")
                                     record_chat_success(time.monotonic() - start)
                                     total_elapsed_ms = int((time.monotonic() - t_start) * 1000)
                                     logger.info(
@@ -2475,7 +2475,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     memory_scope=memory_scope,
                     model=response_model_id,
                 )
-                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
+                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content, conversation_id or "")
                 record_chat_success(time.monotonic() - start)
                 from .token_utils import record_request_budget_metrics as _rec_budget
                 _rec_budget(accumulated_state)
@@ -2684,7 +2684,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 content, total_tokens = _extract_content_and_metrics(
                     result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=response_model_id
                 )
-                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
+                _prompt_cache_put(user_id, last_user_content or "", response_model_id, content, conversation_id or "")
                 record_chat_success(time.monotonic() - start)
                 rss_mib, cgroup_mib = _sample_memory_and_log("request_end", state=result)
                 record_memory_after_request(rss_mib, cgroup_mib)
@@ -2748,7 +2748,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     content, total_tokens = _extract_content_and_metrics(
         result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=response_model_id
     )
-    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content)
+    _prompt_cache_put(user_id, last_user_content or "", response_model_id, content, conversation_id or "")
 
     latency_ms = (time.monotonic() - start) * 1000
     record_chat_success(latency_ms / 1000)
