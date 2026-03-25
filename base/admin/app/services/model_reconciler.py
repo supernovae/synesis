@@ -230,6 +230,11 @@ async def reconcile() -> dict:
 
     for served_name, row in db_by_served.items():
         if served_name in PROTECTED_MODELS:
+            # Protected routes are intentionally not managed through LiteLLM CRUD.
+            # Mark active deployments as active so registry UI does not stay stuck
+            # in "activating" forever for Yarn/static aliases.
+            if row.status != "active":
+                await _update_litellm_model_id(row.id, row.litellm_model_id, "active")
             unchanged += 1
             continue
 

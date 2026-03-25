@@ -88,14 +88,29 @@ SYSTEM_PROMPT = (
 async def _try_fetch_admin_registry() -> TierRegistry | None:
     """Fetch tier config from admin API. Returns None on failure."""
     try:
+        headers: dict[str, str] = {}
+        if settings.planner_internal_token:
+            headers = {
+                "x-synesis-service-token": settings.planner_internal_token,
+                "x-synesis-service-name": "synesis-yarn",
+                "authorization": f"Bearer {settings.planner_internal_token}",
+            }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            roles_resp = await client.get(f"{settings.admin_api_url}/api/v1/models/roles")
+            roles_url = f"{settings.admin_api_url}/api/v1/models/roles/internal"
+            costs_url = f"{settings.admin_api_url}/api/v1/models/costs/active/internal"
+            if not headers:
+                # Local dev fallback when no internal token is configured.
+                roles_url = f"{settings.admin_api_url}/api/v1/models/roles"
+                costs_url = f"{settings.admin_api_url}/api/v1/models/costs/active"
+
+            roles_resp = await client.get(roles_url, headers=headers)
             roles_resp.raise_for_status()
             roles_data = roles_resp.json().get("roles", [])
 
-            costs_resp = await client.get(f"{settings.admin_api_url}/api/v1/models/costs/active")
+            costs_resp = await client.get(costs_url, headers=headers)
             costs_resp.raise_for_status()
-            costs_data = costs_resp.json().get("costs", [])
+            payload = costs_resp.json()
+            costs_data = payload.get("costs", payload.get("roles", []))
 
         return TierRegistry.from_admin_response(
             roles_data,

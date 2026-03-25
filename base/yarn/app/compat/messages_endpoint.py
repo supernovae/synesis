@@ -18,7 +18,8 @@ from ..middleware.auth import extract_bearer_token, resolve_auth
 from ..model import executor as model_executor
 from ..model.stream_handler import ToolCallAccumulator
 from ..model.tiers import TierRegistry
-from ..model.usage_tracker import UsageRecord
+from ..model.usage_tracker import UsageAggregator, UsageRecord
+from ..session.manager import record_request_usage, record_usage, resolve_or_create_session
 from .canonical import CanonicalRequest, TextBlock, ToolUseBlock, Usage
 from .claude_adapter import (
     build_content_block_delta,
@@ -69,7 +70,7 @@ async def handle_messages(
     request_id = f"msg-{uuid.uuid4().hex[:12]}"
     start_time = time.monotonic()
 
-    await resolve_auth(request)
+    auth_user = await resolve_auth(request)
     _ = extract_bearer_token(request)
 
     try:
@@ -116,6 +117,12 @@ async def handle_messages(
 
     canonical = claude_body_to_canonical(body, anthropic_version=av, anthropic_beta=ab)
     canonical.model = tier.backend_model
+    body_meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    conversation_id = (
+        (request.headers.get("x-conversation-id") or request.headers.get("x-chat-id") or "").strip()
+        or str(body_meta.get("conversation_id") or "").strip()
+    )
+    session = await resolve_or_create_session(auth_user, conversation_id=conversation_id)
 
     if canonical.tools:
         raw_tools = [
@@ -139,6 +146,7 @@ async def handle_messages(
                 request_id=request_id,
                 original_model=client_model,
                 start_time=start_time,
+                session=session,
             ),
             media_type="text/event-stream",
             headers={
@@ -154,6 +162,7 @@ async def handle_messages(
         request_id=request_id,
         original_model=client_model,
         start_time=start_time,
+        session=session,
     )
 
 
@@ -169,6 +178,7 @@ async def _non_stream_response(
     request_id: str,
     original_model: str,
     start_time: float,
+    session: Any,
 ) -> JSONResponse:
     from ..model import providers
 
@@ -192,6 +202,31 @@ async def _non_stream_response(
     claude_resp = canonical_to_claude_response(canonical_resp)
 
     elapsed = time.monotonic() - start_time
+    usage_agg = UsageAggregator()
+    usage_data = claude_resp.get("usage", {}) if isinstance(claude_resp, dict) else {}
+    rec = UsageRecord(
+        provider=tier.name,
+        model=tier.name,
+        tokens_in=int(usage_data.get("input_tokens", 0) or 0),
+        tokens_out=int(usage_data.get("output_tokens", 0) or 0),
+        latency_ms=elapsed * 1000,
+        finish_reason=str(claude_resp.get("stop_reason", "") or "") if isinstance(claude_resp, dict) else "",
+        input_per_m=tier.input_per_m,
+        output_per_m=tier.output_per_m,
+        cached_per_m=tier.cached_per_m,
+    )
+    usage_agg.add(rec)
+    await record_usage(session, usage_agg.total_tokens_in, usage_agg.total_tokens_out, usage_agg.total_tokens_cached)
+    await record_request_usage(
+        session,
+        request_id,
+        usage_agg,
+        elapsed * 1000,
+        False,
+        0,
+        str(claude_resp.get("stop_reason", "") or "") if isinstance(claude_resp, dict) else "stop",
+    )
+
     logger.info(
         "claude_messages_response",
         extra={
@@ -217,6 +252,7 @@ async def _stream_claude_response(
     request_id: str,
     original_model: str,
     start_time: float,
+    session: Any,
 ):
     """Stream upstream OpenAI SSE, re-frame as Claude Messages SSE events."""
     msg_id = generate_message_id()
@@ -224,6 +260,7 @@ async def _stream_claude_response(
     block_index = 0
     active_text_block = False
     active_tool_block = False
+    tool_calls_count = 0
     tool_accumulator = ToolCallAccumulator()
     accumulated_tool_json: dict[int, str] = {}
 
@@ -252,6 +289,7 @@ async def _stream_claude_response(
                 )
 
             if chunk.tool_calls:
+                tool_calls_count += len(chunk.tool_calls)
                 if active_text_block:
                     yield build_content_block_stop(block_index)
                     block_index += 1
@@ -317,6 +355,30 @@ async def _stream_claude_response(
     yield build_message_stop()
 
     elapsed = time.monotonic() - start_time
+    usage_agg = UsageAggregator()
+    rec = UsageRecord(
+        provider=tier.name,
+        model=tier.name,
+        tokens_in=int(usage.input_tokens or 0),
+        tokens_out=int(usage.output_tokens or 0),
+        latency_ms=elapsed * 1000,
+        finish_reason=stop_reason,
+        input_per_m=tier.input_per_m,
+        output_per_m=tier.output_per_m,
+        cached_per_m=tier.cached_per_m,
+    )
+    usage_agg.add(rec)
+    await record_usage(session, usage_agg.total_tokens_in, usage_agg.total_tokens_out, usage_agg.total_tokens_cached)
+    await record_request_usage(
+        session,
+        request_id,
+        usage_agg,
+        elapsed * 1000,
+        False,
+        tool_calls_count,
+        stop_reason,
+    )
+
     logger.info(
         "claude_messages_stream_done",
         extra={

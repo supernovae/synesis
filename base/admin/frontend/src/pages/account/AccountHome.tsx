@@ -35,8 +35,7 @@ export default function AccountHome() {
   const kcUrl = keycloakAccountUrl();
   const webUiUrl = openWebUiUrl();
   const yarnBase = yarnUrl();
-  const yarnApiUrl = `${yarnBase}/v1`;
-  const claudeEnvSnippet = `export ANTHROPIC_BASE_URL="${yarnApiUrl}"
+  const claudeEnvSnippet = `export ANTHROPIC_BASE_URL="${yarnBase}"
 export ANTHROPIC_AUTH_TOKEN="<your-synesis-pat>"
 export ENABLE_TOOL_SEARCH=true
 
@@ -274,11 +273,11 @@ export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1.5 break-all text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
               >
-                {yarnApiUrl}
+                {yarnBase}
                 <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <button
-                onClick={() => copyText("yarn-api", yarnApiUrl)}
+                onClick={() => copyText("yarn-api", yarnBase)}
                 className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
                 type="button"
               >

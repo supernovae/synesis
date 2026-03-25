@@ -14,8 +14,8 @@ backend model provider.
 Set the following environment variables before launching Claude Code:
 
 ```bash
-# Point Claude Code at your Synesis Yarn instance
-export ANTHROPIC_BASE_URL="https://yarn.synesis.example.com/v1"
+# Point Claude Code at your Synesis Yarn instance (base URL only; no /v1 suffix)
+export ANTHROPIC_BASE_URL="https://yarn.synesis.example.com"
 
 # Use your Synesis PAT as the auth token
 export ANTHROPIC_AUTH_TOKEN="your-synesis-pat-here"

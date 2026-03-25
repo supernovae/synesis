@@ -15,6 +15,7 @@ from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import ModelPolicy, Trace
 from ..deps import PLANNER_URL
+from ..internal_auth import ServicePrincipal, require_service_or_platform_admin
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.admin_audit import record_admin_audit
@@ -138,6 +139,14 @@ async def pipeline_services(_user: UserInfo = Depends(get_current_user)):
 @router.get("/roles")
 async def list_role_assignments(_user: UserInfo = Depends(get_current_user)):
     """Active model assignment per canonical role."""
+    return {"roles": await get_role_assignments()}
+
+
+@router.get("/roles/internal")
+async def list_role_assignments_internal(
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    """Internal service read path for role assignments (Yarn tier polling)."""
     return {"roles": await get_role_assignments()}
 
 
@@ -508,13 +517,8 @@ async def set_fallbacks(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/costs/active")
-async def active_costs(_user: UserInfo = Depends(get_current_user)):
-    """Rate configuration for active role assignments only.
-
-    For each active role, resolves pricing from: manual DB overrides,
-    LiteLLM proxy data, bundled API pricing, or infra cost calculator.
-    """
+async def _build_active_cost_rows() -> list[dict]:
+    """Resolve active-role pricing rows for both user and internal callers."""
     from ..services.infra_pricing import get_infra_config_for_role
     from ..services.pricing_lookup import resolve_pricing
 
@@ -611,7 +615,21 @@ async def active_costs(_user: UserInfo = Depends(get_current_user)):
             }
         )
 
-    return {"roles": result}
+    return result
+
+
+@router.get("/costs/active")
+async def active_costs(_user: UserInfo = Depends(get_current_user)):
+    """Rate configuration for active role assignments only."""
+    return {"roles": await _build_active_cost_rows()}
+
+
+@router.get("/costs/active/internal")
+async def active_costs_internal(
+    _principal: ServicePrincipal | UserInfo = Depends(require_service_or_platform_admin),
+):
+    """Internal service read path for active-role costs (Yarn tier polling)."""
+    return {"costs": await _build_active_cost_rows()}
 
 
 @router.get("/costs")
