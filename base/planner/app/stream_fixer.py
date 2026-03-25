@@ -1,15 +1,13 @@
-"""StreamingBlockFixer — inline JSON/YAML/Mermaid fixer for SSE token streams.
+"""StreamingBlockFixer — inline Mermaid fixer for SSE token streams.
 
-Sits between the LLM token stream and SSE emission.  Prose tokens pass
-through with zero added latency.  When a fenced ``json`` / ``yaml`` /
-``mermaid``
-block is detected, tokens are buffered until the closing fence arrives,
-the deterministic fixer runs, and the corrected block is emitted as a
-single burst.
+Sits between the LLM token stream and SSE emission.  Prose tokens
+(including fenced JSON/YAML) pass through with zero added latency.
+Only ``mermaid`` blocks are buffered and deterministically repaired.
 
-Typical user-perceived effect: prose streams normally → brief pause
-(0.5-2s while the structured block buffers) → clean JSON/YAML appears
-at once.
+JSON/YAML repair was disabled to eliminate the user-visible 0.5-2s
+stall that occurred while structured blocks buffered.  Models are
+expected to emit valid structured output; a long-term JSON-first
+canonical strategy replaces hot-path repair.
 """
 
 from __future__ import annotations
@@ -19,14 +17,17 @@ import re
 
 logger = logging.getLogger("synesis.stream_fixer")
 
-_FENCE_OPEN = re.compile(r"^```(json|ya?ml|mermaid)\s*$", re.MULTILINE | re.IGNORECASE)
+_FENCE_OPEN = re.compile(r"^```(mermaid)\s*$", re.MULTILINE | re.IGNORECASE)
 _FENCE_CLOSE = re.compile(r"^```\s*$", re.MULTILINE)
 
 _PARTIAL_FENCE_MAX = 10
 
 
 class StreamingBlockFixer:
-    """Buffer fenced JSON/YAML blocks during SSE streaming, fix inline."""
+    """Buffer fenced Mermaid blocks during SSE streaming, fix inline.
+
+    JSON/YAML fenced blocks pass through unbuffered to avoid stalls.
+    """
 
     __slots__ = ("_block_lang", "_buf", "_fixes", "_in_block")
 
@@ -79,8 +80,6 @@ class StreamingBlockFixer:
                     self._buf = self._buf[m.start() :]
                     self._in_block = True
                     self._block_lang = m.group(1).lower()
-                    if self._block_lang == "yml":
-                        self._block_lang = "yaml"
                     changed = True
             else:
                 first_nl = self._buf.find("\n")
@@ -99,51 +98,23 @@ class StreamingBlockFixer:
         return out
 
     def _fix_block(self, block: str, lang: str) -> str:
-        """Apply deterministic fixes; return original on failure."""
-
-        first_nl = block.find("\n")
-        if first_nl < 0:
+        """Apply deterministic Mermaid fixes; return block unchanged otherwise."""
+        if lang != "mermaid":
             return block
-        opener = block[: first_nl + 1]
-        rest = block[first_nl + 1 :]
 
-        close_idx = rest.rfind("\n```")
-        if close_idx < 0:
-            return block
-        body = rest[:close_idx]
-        closer = rest[close_idx + 1 :]
+        from .mermaid_postprocess import sanitize_mermaid
 
-        fixed: str | None = None
-        if lang == "json":
-            from .nodes.final_scrubber import _try_fix_json
-
-            fixed = _try_fix_json(body)
-        elif lang == "yaml":
-            from .nodes.final_scrubber import _try_fix_yaml
-
-            fixed = _try_fix_yaml(body)
-        elif lang == "mermaid":
-            from .mermaid_postprocess import sanitize_mermaid
-
-            repaired, mermaid_fixes, mermaid_replaced = sanitize_mermaid(block)
-            if mermaid_fixes > 0 or mermaid_replaced > 0:
-                self._fixes += mermaid_fixes + mermaid_replaced
-                logger.info(
-                    "stream_block_fixed",
-                    extra={
-                        "lang": lang,
-                        "body_len": len(body),
-                        "total_fixes": self._fixes,
-                        "mermaid_replaced": mermaid_replaced,
-                    },
-                )
-                return repaired
-
-        if fixed is not None:
-            self._fixes += 1
+        repaired, mermaid_fixes, mermaid_replaced = sanitize_mermaid(block)
+        if mermaid_fixes > 0 or mermaid_replaced > 0:
+            self._fixes += mermaid_fixes + mermaid_replaced
             logger.info(
                 "stream_block_fixed",
-                extra={"lang": lang, "body_len": len(body), "total_fixes": self._fixes},
+                extra={
+                    "lang": lang,
+                    "body_len": len(block),
+                    "total_fixes": self._fixes,
+                    "mermaid_replaced": mermaid_replaced,
+                },
             )
-            return f"{opener}{fixed}\n{closer}"
+            return repaired
         return block

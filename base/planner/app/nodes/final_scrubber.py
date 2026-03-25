@@ -20,6 +20,9 @@ from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
 logger = logging.getLogger("synesis.final_scrubber")
+logger.info("structured_output_repair_disabled", extra={
+    "note": "JSON/YAML repair in final output path is disabled; Mermaid sanitization remains active",
+})
 
 # Safety-net: combined pattern for artifacts that should NEVER appear in
 # user-facing output (compiler uses enable_thinking=False).
@@ -373,7 +376,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         }
 
     text, mermaid_fixes, mermaid_replaced = sanitize_mermaid(text)
-    text, structured_fixes = _fix_embedded_structured_blocks(text)
+    structured_fixes = 0  # JSON/YAML repair disabled — avoids output stall
     text, artifact_count, artifact_removed = _strip_artifacts(text)
     text, fp_count, fp_labeled = _detect_false_precision(text)
     text, dup_count, dup_removed = _remove_duplicate_paragraphs(text)
@@ -422,7 +425,7 @@ async def final_scrubber_node(state: dict[str, Any]) -> dict[str, Any]:
         "node_traces": [
             NodeTrace(
                 node_name=node_name,
-                reasoning=f"Scrubbed: {artifact_count} artifacts, {fp_count} false precision, {dup_count} dupes, {structured_fixes} structured blocks fixed",
+                reasoning=f"Scrubbed: {artifact_count} artifacts, {fp_count} false precision, {dup_count} dupes, {mermaid_fixes} mermaid fixes",
                 confidence=1.0,
                 outcome=NodeOutcome.SUCCESS,
                 latency_ms=latency,
