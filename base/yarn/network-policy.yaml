@@ -14,6 +14,14 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # OpenShift router (edge-terminated routes for external IDE/coder clients)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-ingress
+      ports:
+        - port: 8000
+          protocol: TCP
     # WebUI and admin call yarn chat endpoints
     - from:
         - namespaceSelector:
