@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../components/auth/useAuth";
 import {
   Building2,
+  Check,
   Coins,
+  Code2,
+  Copy,
   ExternalLink,
+  Globe,
   KeyRound,
   Shield,
   User,
@@ -14,11 +19,38 @@ function keycloakAccountUrl(): string {
   return `${window.location.origin.replace("synesis-admin", "synesis-auth")}/realms/synesis/account`;
 }
 
+function openWebUiUrl(): string {
+  return window.location.origin.replace("synesis-admin", "synesis-webui");
+}
+
+function yarnUrl(): string {
+  return window.location.origin.replace("synesis-admin", "synesis-yarn");
+}
+
 export default function AccountHome() {
   const { user } = useAuth();
   if (!user) return null;
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const kcUrl = keycloakAccountUrl();
+  const webUiUrl = openWebUiUrl();
+  const yarnBase = yarnUrl();
+  const yarnApiUrl = `${yarnBase}/v1`;
+  const claudeEnvSnippet = `export ANTHROPIC_BASE_URL="${yarnApiUrl}"
+export ANTHROPIC_AUTH_TOKEN="<your-synesis-pat>"
+export ENABLE_TOOL_SEARCH=true
+
+# Optional model picker entry in Claude Code
+export ANTHROPIC_CUSTOM_MODEL_OPTION="synesis-core"
+export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Synesis Core"
+export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Synesis balanced coder tier"`;
+
+  function copyText(key: string, value: string) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((curr) => (curr === key ? null : curr)), 1200);
+    });
+  }
 
   return (
     <div className="space-y-8">
@@ -183,6 +215,102 @@ export default function AccountHome() {
           >
             Create and manage tokens →
           </Link>
+        </div>
+
+        <div className="md:col-span-2 rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-900/20">
+              <Code2 className="h-5 w-5 text-violet-700 dark:text-violet-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-medium text-gray-900 dark:text-white">
+                Front-end & coder connectivity
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Endpoints and Claude Code setup for Synesis models
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                <Globe className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                Open WebUI
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Front-end chat interface for Synesis models.
+              </p>
+              <a
+                href={webUiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 break-all text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                {webUiUrl}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <button
+                onClick={() => copyText("webui", webUiUrl)}
+                className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                type="button"
+              >
+                {copiedKey === "webui" ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copiedKey === "webui" ? "Copied" : "Copy URL"}
+              </button>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                <Code2 className="h-4 w-4 text-violet-700 dark:text-violet-400" />
+                Coder API (Yarn)
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Claude-compatible endpoint for coding agents and IDE integrations.
+              </p>
+              <a
+                href={yarnBase}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 break-all text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+              >
+                {yarnApiUrl}
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+              <button
+                onClick={() => copyText("yarn-api", yarnApiUrl)}
+                className="mt-2 inline-flex items-center gap-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
+                type="button"
+              >
+                {copiedKey === "yarn-api" ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copiedKey === "yarn-api" ? "Copied" : "Copy URL"}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                Claude Code environment setup
+              </h3>
+              <button
+                onClick={() => copyText("claude-env", claudeEnvSnippet)}
+                className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+                type="button"
+              >
+                {copiedKey === "claude-env" ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                {copiedKey === "claude-env" ? "Copied" : "Copy snippet"}
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              Use your Synesis PAT (coder scope) and point Claude to the Yarn API.
+              Synesis maps Claude model families to tiers:
+              <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">haiku -&gt; synesis-pulse</code>
+              <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">sonnet -&gt; synesis-core</code>
+              <code className="mx-1 rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">opus -&gt; synesis-horizon</code>.
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded-md bg-gray-950 p-3 text-xs text-gray-100">{claudeEnvSnippet}</pre>
+          </div>
         </div>
       </div>
     </div>
