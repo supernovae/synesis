@@ -314,7 +314,7 @@ class TestIndexerScopeValidation:
     def test_schema_version_bumped(self):
         from app.schema import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 11
+        assert SCHEMA_VERSION == 12
 
     def test_expected_fields_include_scope(self):
         from app.schema import EXPECTED_FIELDS

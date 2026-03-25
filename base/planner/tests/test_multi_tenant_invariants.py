@@ -150,14 +150,18 @@ class TestAclModeValidation:
         assert entity["acl_mode"] == "restricted"
         assert "grp-eng" in entity["acl_groups"]
 
-    def test_schema_version_is_11(self):
+    def test_schema_version_is_12(self):
         schema = _get_indexer_schema()
-        assert schema.SCHEMA_VERSION == 11, "Schema must be v11 for ACL support"
+        assert schema.SCHEMA_VERSION == 12, "Schema must be v12 for ownership + ACL support"
 
     def test_expected_fields_include_acl(self):
         schema = _get_indexer_schema()
         assert "acl_mode" in schema.EXPECTED_FIELDS
         assert "acl_groups" in schema.EXPECTED_FIELDS
+        assert "owner_user_id" in schema.EXPECTED_FIELDS
+        assert "conversation_id" in schema.EXPECTED_FIELDS
+        assert "is_ephemeral" in schema.EXPECTED_FIELDS
+        assert "expires_at_epoch" in schema.EXPECTED_FIELDS
 
 
 class TestRetrievalBoundaryAST:

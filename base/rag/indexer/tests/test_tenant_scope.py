@@ -11,14 +11,18 @@ from __future__ import annotations
 from app.schema import EXPECTED_FIELDS, SCHEMA_VERSION, catalog_entity
 
 
-class TestSchemaV11TenancyFields:
-    def test_version_is_11(self):
-        assert SCHEMA_VERSION == 11
+class TestSchemaV12TenancyFields:
+    def test_version_is_12(self):
+        assert SCHEMA_VERSION == 12
 
     def test_expected_fields_include_scope(self):
         assert "visibility_scope" in EXPECTED_FIELDS
         assert "org_id" in EXPECTED_FIELDS
         assert "tenant_id" in EXPECTED_FIELDS
+        assert "owner_user_id" in EXPECTED_FIELDS
+        assert "conversation_id" in EXPECTED_FIELDS
+        assert "is_ephemeral" in EXPECTED_FIELDS
+        assert "expires_at_epoch" in EXPECTED_FIELDS
 
     def test_catalog_entity_defaults_to_global(self):
         entity = catalog_entity(
@@ -29,6 +33,10 @@ class TestSchemaV11TenancyFields:
         assert entity["visibility_scope"] == "global"
         assert entity["org_id"] == ""
         assert entity["tenant_id"] == ""
+        assert entity["owner_user_id"] == ""
+        assert entity["conversation_id"] == ""
+        assert entity["is_ephemeral"] is False
+        assert entity["expires_at_epoch"] == 0
 
     def test_catalog_entity_org_scope(self):
         entity = catalog_entity(

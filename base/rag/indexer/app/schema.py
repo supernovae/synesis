@@ -43,6 +43,10 @@ Version history:
             Private: only visible to exact group membership match.
             Fail-closed: chunks with acl_mode=restricted/private and no
             matching groups are excluded from retrieval.
+  v11 → v12: Personal/session upload ownership metadata — owner_user_id,
+            conversation_id, upload_batch_id, upload_mode, is_ephemeral,
+            expires_at_epoch. Enables scoped per-user collections and
+            conversation-bound temporary corpora with TTL enforcement.
 
 Research: arxiv 2601.11863 (metadata-prefixed embeddings), Anthropic Contextual
 Retrieval (35-67% failure reduction), Milvus partition key docs v2.5.
@@ -71,7 +75,7 @@ def _trunc_bytes(s: str, max_bytes: int) -> str:
 EMBEDDING_DIM = 384
 
 # Bump when fields are added/removed/renamed. Triggers automatic drop+recreate.
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Canonical field names — used for schema validation on existing collections.
 EXPECTED_FIELDS = frozenset(
@@ -110,6 +114,13 @@ EXPECTED_FIELDS = frozenset(
         # v11 — per-document ACL
         "acl_mode",
         "acl_groups",
+        # v12 — personal/session upload ownership
+        "owner_user_id",
+        "conversation_id",
+        "upload_batch_id",
+        "upload_mode",
+        "is_ephemeral",
+        "expires_at_epoch",
         # v9 — semantic ingestion / MCP filters
         "content_type",
         "quality_score",
@@ -178,6 +189,13 @@ CATALOG_FIELDS = [
     # v11 — per-document ACL (hybrid Keycloak + Admin policy)
     FieldSchema(name="acl_mode", dtype=DataType.VARCHAR, max_length=16),
     FieldSchema(name="acl_groups", dtype=DataType.VARCHAR, max_length=1024),
+    # v12 — personal/session upload ownership + lifecycle
+    FieldSchema(name="owner_user_id", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="conversation_id", dtype=DataType.VARCHAR, max_length=128),
+    FieldSchema(name="upload_batch_id", dtype=DataType.VARCHAR, max_length=64),
+    FieldSchema(name="upload_mode", dtype=DataType.VARCHAR, max_length=24),
+    FieldSchema(name="is_ephemeral", dtype=DataType.BOOL),
+    FieldSchema(name="expires_at_epoch", dtype=DataType.INT64),
     # v9 — semantic ingestion (gatekeeper + future preprocess/batch jobs)
     FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
     FieldSchema(name="quality_score", dtype=DataType.FLOAT),
@@ -359,6 +377,13 @@ def catalog_entity(
     # v11 — per-document ACL
     acl_mode: str = "open",
     acl_groups: str = "",
+    # v12 — personal/session upload ownership
+    owner_user_id: str = "",
+    conversation_id: str = "",
+    upload_batch_id: str = "",
+    upload_mode: str = "",
+    is_ephemeral: bool = False,
+    expires_at_epoch: int = 0,
     # v9
     content_type: str = "",
     quality_score: float = -1.0,
@@ -410,6 +435,12 @@ def catalog_entity(
         "tenant_id": _trunc_bytes(tenant_id or "", 64),
         "acl_mode": (acl_mode or "open")[:16],
         "acl_groups": _trunc_bytes(acl_groups or "", 1024),
+        "owner_user_id": _trunc_bytes(owner_user_id or "", 64),
+        "conversation_id": _trunc_bytes(conversation_id or "", 128),
+        "upload_batch_id": _trunc_bytes(upload_batch_id or "", 64),
+        "upload_mode": _trunc_bytes(upload_mode or "", 24),
+        "is_ephemeral": bool(is_ephemeral),
+        "expires_at_epoch": int(expires_at_epoch),
         "content_type": _trunc_bytes(content_type or "", 64),
         "quality_score": float(quality_score),
         "technical_depth": float(technical_depth),

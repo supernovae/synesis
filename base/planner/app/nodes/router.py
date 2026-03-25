@@ -783,6 +783,8 @@ class RouterNode:
         caller_org_id: str = "",
         caller_tenant_ids: list[str] | None = None,
         caller_acl_groups: list[str] | None = None,
+        caller_user_id: str = "",
+        caller_conversation_id: str = "",
     ) -> tuple[list[EvidencePacket], dict[str, Any] | None]:
         """Single-pass multi-query-fusion retrieval.
 
@@ -829,6 +831,8 @@ class RouterNode:
             caller_org_id=caller_org_id,
             caller_tenant_ids=caller_tenant_ids,
             caller_acl_groups=caller_acl_groups,
+            caller_user_id=caller_user_id,
+            caller_conversation_id=caller_conversation_id,
         )
 
         per_query_limit = 25
@@ -1400,6 +1404,8 @@ class RouterNode:
                 caller_org_id=state.get("org_id", ""),
                 caller_tenant_ids=state.get("tenant_ids"),
                 caller_acl_groups=state.get("acl_groups"),
+                caller_user_id=state.get("user_id", ""),
+                caller_conversation_id=state.get("conversation_id", ""),
             )
         else:
             dispatched_packets, cohesion_lock = [], None

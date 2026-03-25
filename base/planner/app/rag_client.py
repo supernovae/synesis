@@ -383,7 +383,7 @@ def _get_milvus_client():
 
 _catalog_ensured = False
 
-# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=11).
+# Must match EXPECTED_FIELDS in base/rag/indexer/app/schema.py (SCHEMA_VERSION=12).
 _EXPECTED_FIELDS = frozenset(
     {
         "chunk_id",
@@ -418,6 +418,13 @@ _EXPECTED_FIELDS = frozenset(
         "tenant_id",
         "acl_mode",
         "acl_groups",
+        # v12 — personal/session upload ownership
+        "owner_user_id",
+        "conversation_id",
+        "upload_batch_id",
+        "upload_mode",
+        "is_ephemeral",
+        "expires_at_epoch",
         "content_type",
         "quality_score",
         "technical_depth",
@@ -467,7 +474,7 @@ def _validate_catalog_schema(client) -> bool:
 
 
 def _recreate_catalog(client) -> bool:
-    """Drop and recreate synesis_catalog with the full v11 schema.
+    """Drop and recreate synesis_catalog with the full v12 schema.
 
     This is the nuclear option for schema drift — it drops all indexed data
     and recreates the collection with the correct schema.  The indexer will
@@ -515,6 +522,12 @@ def _recreate_catalog(client) -> bool:
         FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="acl_mode", dtype=DataType.VARCHAR, max_length=16),
         FieldSchema(name="acl_groups", dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name="owner_user_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="conversation_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="upload_batch_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="upload_mode", dtype=DataType.VARCHAR, max_length=24),
+        FieldSchema(name="is_ephemeral", dtype=DataType.BOOL),
+        FieldSchema(name="expires_at_epoch", dtype=DataType.INT64),
         FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="quality_score", dtype=DataType.FLOAT),
         FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
@@ -540,7 +553,7 @@ def _recreate_catalog(client) -> bool:
         output_field_names=["sparse_text"],
         function_type=FunctionType.BM25,
     )
-    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v11")
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description="Synesis unified catalog v12")
 
     try:
         client.drop_collection(collection_name=SYNESIS_CATALOG)
@@ -561,7 +574,7 @@ def _recreate_catalog(client) -> bool:
         client.create_index(collection_name=SYNESIS_CATALOG, index_params=idx)
         client.load_collection(collection_name=SYNESIS_CATALOG)
         logger.warning(
-            "synesis_catalog_recreated_v11",
+            "synesis_catalog_recreated_v12",
             extra={"detail": "Collection is empty — run the indexer to repopulate"},
         )
         return True
@@ -573,7 +586,7 @@ def _recreate_catalog(client) -> bool:
 def _ensure_synesis_catalog() -> None:
     """Validate synesis_catalog exists and is loaded.
 
-    On schema drift, drops and recreates the collection with the v11 schema
+    On schema drift, drops and recreates the collection with the v12 schema
     so searches don't crash on missing fields.  The indexer repopulates data.
     """
     global _catalog_ensured
@@ -586,7 +599,7 @@ def _ensure_synesis_catalog() -> None:
 
         if SYNESIS_CATALOG not in client.list_collections():
             logger.warning(
-                "synesis_catalog_not_found — creating with v11 schema",
+                "synesis_catalog_not_found — creating with v12 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -595,7 +608,7 @@ def _ensure_synesis_catalog() -> None:
 
         if not _validate_catalog_schema(client):
             logger.warning(
-                "synesis_catalog_schema_drift — recreating collection with v11 schema",
+                "synesis_catalog_schema_drift — recreating collection with v12 schema",
             )
             if _recreate_catalog(client):
                 _validate_catalog_schema(client)
@@ -661,6 +674,12 @@ async def submit_user_knowledge(
         "tenant_id": (tenant_id or "")[:64],
         "acl_mode": "open",
         "acl_groups": "",
+        "owner_user_id": "",
+        "conversation_id": "",
+        "upload_batch_id": "",
+        "upload_mode": "knowledge_submit",
+        "is_ephemeral": False,
+        "expires_at_epoch": 0,
         "content_type": "reference",
         "quality_score": -1.0,
         "technical_depth": -1.0,
@@ -706,14 +725,21 @@ def build_scope_filter(
     caller_org_id: str = "",
     caller_tenant_ids: list[str] | None = None,
     caller_acl_groups: list[str] | None = None,
+    caller_user_id: str = "",
+    caller_conversation_id: str = "",
 ) -> str:
-    """Build the mandatory three-tier visibility scope predicate.
+    """Build the mandatory visibility scope predicate.
 
     Access tiers (OR-combined):
       1. ``visibility_scope == "global"`` — always allowed
       2. ``visibility_scope == "org"`` AND ``org_id == caller_org_id``
       3. ``visibility_scope == "tenant"`` AND ``org_id == caller_org_id``
          AND ``tenant_id in caller_tenant_ids``
+      4. ``visibility_scope == "user"`` AND ``org_id == caller_org_id``
+         AND ``owner_user_id == caller_user_id``
+      5. ``visibility_scope == "session"`` AND ``org_id == caller_org_id``
+         AND ``owner_user_id == caller_user_id`` AND
+         ``conversation_id == caller_conversation_id`` and unexpired TTL
 
     Fail-closed: if caller_org_id is empty, only global content is returned.
     """
@@ -731,6 +757,20 @@ def build_scope_filter(
             clauses.append(
                 f'(visibility_scope == "tenant" and org_id == "{safe_org}" and tenant_id in [{tenant_list}])'
             )
+        if caller_user_id:
+            safe_user = caller_user_id.replace('"', "")[:64]
+            clauses.append(
+                f'(visibility_scope == "user" and org_id == "{safe_org}" and owner_user_id == "{safe_user}")'
+            )
+            if caller_conversation_id:
+                safe_conv = caller_conversation_id.replace('"', "")[:128]
+                now_epoch = int(time.time())
+                clauses.append(
+                    "(visibility_scope == \"session\""
+                    f" and org_id == \"{safe_org}\" and owner_user_id == \"{safe_user}\""
+                    f" and conversation_id == \"{safe_conv}\""
+                    f" and (expires_at_epoch <= 0 or expires_at_epoch >= {now_epoch}))"
+                )
     base_expr = f"({' or '.join(clauses)})"
 
     # ACL enforcement: deny-by-default for restricted/private content.
@@ -764,6 +804,8 @@ def build_metadata_filter(
     caller_org_id: str = "",
     caller_tenant_ids: list[str] | None = None,
     caller_acl_groups: list[str] | None = None,
+    caller_user_id: str = "",
+    caller_conversation_id: str = "",
 ) -> str:
     """Build a Milvus filter expression from metadata signals + mandatory scope.
 
@@ -780,6 +822,8 @@ def build_metadata_filter(
         caller_org_id=caller_org_id,
         caller_tenant_ids=caller_tenant_ids,
         caller_acl_groups=caller_acl_groups,
+        caller_user_id=caller_user_id,
+        caller_conversation_id=caller_conversation_id,
     )
     if scope_expr:
         parts.append(scope_expr)

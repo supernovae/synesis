@@ -5,10 +5,107 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pymilvus import CollectionSchema, DataType, FieldSchema, Function, FunctionType, MilvusClient
+
 from ..deps import get_resilient_milvus
 from ..milvus_utils import with_retry
 
 logger = logging.getLogger("synesis.admin.milvus")
+
+SCHEMA_VERSION = 12
+
+
+def recreate_synesis_catalog_v12(collection: str = "synesis_catalog") -> dict[str, Any]:
+    """Drop and recreate synesis_catalog with schema v12 immediately."""
+    embedding_dim = 384
+    fields = [
+        FieldSchema(name="chunk_id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+        FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="chunk_index", dtype=DataType.INT64),
+        FieldSchema(
+            name="text",
+            dtype=DataType.VARCHAR,
+            max_length=8192,
+            enable_analyzer=True,
+            analyzer_params={"type": "english"},
+        ),
+        FieldSchema(name="context_prefix", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="chunk_summary", dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name="heading_path", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="section", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="document_name", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="source_type", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="handler", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="domain", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="tags", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="keywords", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="origin_type", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="authority", dtype=DataType.VARCHAR, max_length=32, is_partition_key=True),
+        FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="scan_status", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="content_format", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="symbol_type", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="approval_status", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="language", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="repo_path", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="module_path", dtype=DataType.VARCHAR, max_length=256),
+        FieldSchema(name="symbol_name", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="artifact_kind", dtype=DataType.VARCHAR, max_length=32),
+        FieldSchema(name="visibility_scope", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="org_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="tenant_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="acl_mode", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="acl_groups", dtype=DataType.VARCHAR, max_length=1024),
+        FieldSchema(name="owner_user_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="conversation_id", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="upload_batch_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="upload_mode", dtype=DataType.VARCHAR, max_length=24),
+        FieldSchema(name="is_ephemeral", dtype=DataType.BOOL),
+        FieldSchema(name="expires_at_epoch", dtype=DataType.INT64),
+        FieldSchema(name="content_type", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="quality_score", dtype=DataType.FLOAT),
+        FieldSchema(name="technical_depth", dtype=DataType.FLOAT),
+        FieldSchema(name="domain_relevance", dtype=DataType.FLOAT),
+        FieldSchema(name="index_decision", dtype=DataType.VARCHAR, max_length=16),
+        FieldSchema(name="spam_score", dtype=DataType.FLOAT),
+        FieldSchema(name="simhash64", dtype=DataType.VARCHAR, max_length=24),
+        FieldSchema(name="dup_cluster_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="topic_id", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="topic_keywords", dtype=DataType.VARCHAR, max_length=512),
+        FieldSchema(name="crawl_timestamp", dtype=DataType.INT64),
+        FieldSchema(name="entities_json", dtype=DataType.VARCHAR, max_length=4096),
+        FieldSchema(name="section_boundaries_json", dtype=DataType.VARCHAR, max_length=2048),
+        FieldSchema(name="raw_content_hash", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="clean_content_hash", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="enrichment_profile", dtype=DataType.VARCHAR, max_length=64),
+        FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=embedding_dim),
+        FieldSchema(name="sparse_text", dtype=DataType.SPARSE_FLOAT_VECTOR),
+    ]
+    bm25_fn = Function(
+        name="bm25_text_fn",
+        input_field_names=["text"],
+        output_field_names=["sparse_text"],
+        function_type=FunctionType.BM25,
+    )
+    schema = CollectionSchema(fields=fields, functions=[bm25_fn], description=f"Synesis unified catalog v{SCHEMA_VERSION}")
+    client = get_resilient_milvus().get()
+    dropped = False
+    try:
+        if collection in client.list_collections():
+            client.drop_collection(collection_name=collection)
+            dropped = True
+    except Exception as exc:
+        return {"ok": False, "error": f"drop_failed: {str(exc)[:200]}", "dropped": dropped}
+    try:
+        client.create_collection(collection_name=collection, schema=schema)
+        idx = MilvusClient.prepare_index_params()
+        idx.add_index(field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 200})
+        idx.add_index(field_name="sparse_text", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
+        client.create_index(collection_name=collection, index_params=idx)
+        client.load_collection(collection_name=collection)
+        return {"ok": True, "collection": collection, "schema_version": SCHEMA_VERSION, "dropped": dropped}
+    except Exception as exc:
+        return {"ok": False, "error": f"recreate_failed: {str(exc)[:200]}", "dropped": dropped}
 
 
 def safe_query(

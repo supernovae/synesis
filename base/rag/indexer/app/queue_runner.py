@@ -111,6 +111,12 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
     tenant_id = item.get("effective_tenant_id") or item.get("tenant_id") or ""
     acl_mode = item.get("effective_acl_mode") or item.get("acl_mode") or "open"
     acl_groups = item.get("effective_acl_groups") or item.get("acl_groups") or ""
+    owner_user_id = item.get("effective_owner_user_id") or item.get("owner_user_id") or ""
+    conversation_id = item.get("effective_conversation_id") or item.get("conversation_id") or ""
+    upload_batch_id = item.get("effective_upload_batch_id") or item.get("upload_batch_id") or ""
+    upload_mode = item.get("effective_upload_mode") or item.get("upload_mode") or ""
+    is_ephemeral = bool(item.get("effective_is_ephemeral") or item.get("is_ephemeral") or False)
+    expires_at_epoch = int(item.get("effective_expires_at_epoch") or item.get("expires_at_epoch") or 0)
 
     uri = item.get("uri", "")
     if "url" not in config and uri:
@@ -138,6 +144,12 @@ def _build_source_config(item: dict[str, Any]) -> dict[str, Any]:
         "tenant_id": tenant_id,
         "acl_mode": acl_mode,
         "acl_groups": acl_groups,
+        "owner_user_id": owner_user_id,
+        "conversation_id": conversation_id,
+        "upload_batch_id": upload_batch_id,
+        "upload_mode": upload_mode,
+        "is_ephemeral": is_ephemeral,
+        "expires_at_epoch": expires_at_epoch,
     }
 
 

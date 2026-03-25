@@ -533,7 +533,7 @@ Design notes: [docs/plans/semantic_rag_ingestion_v9.md](plans/semantic_rag_inges
 
 ### Schema version
 
-Current Milvus schema: **v9** (defined in `base/rag/indexer/app/schema.py`). **Planner** and **admin** must stay aligned: `base/planner/app/rag_client.py` (`_EXPECTED_FIELDS`, `_recreate_catalog`), and deploy `SYNESIS_EXPECTED_SCHEMA_VERSION` (default **9** in code).
+Current Milvus schema: **v12** (defined in `base/rag/indexer/app/schema.py`). **Planner** and **admin** must stay aligned: `base/planner/app/rag_client.py` (`_EXPECTED_FIELDS`, `_recreate_catalog`), and deploy `SYNESIS_EXPECTED_SCHEMA_VERSION` (default **12** in code).
 
 To bump the schema: increment `SCHEMA_VERSION` in `schema.py`, update `EXPECTED_FIELDS`, `CATALOG_FIELDS`, and `catalog_entity()`. Mirror the same fields in `rag_client.py`. On next indexer run, the collection is automatically dropped, recreated, and ingestion items are reset via schema-sync (or use manual reset above).
 

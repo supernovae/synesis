@@ -1041,7 +1041,7 @@ function ResetCatalogPanel() {
       <h3 className="text-sm font-semibold text-red-800 dark:text-red-300">Danger zone — Milvus catalog</h3>
       <p className="mt-1 text-xs text-red-700 dark:text-red-400">
         Drop <code className="rounded bg-red-100 dark:bg-red-900/40 px-1">synesis_catalog</code> and optionally reset
-        all ingestion items to pending. The indexer will recreate the collection on its next run (v9 schema).
+        all ingestion items to pending. Admin recreates the collection immediately at the expected schema version.
       </p>
       {!open ? (
         <button
@@ -1073,7 +1073,7 @@ function ResetCatalogPanel() {
           ) : null}
           {reset.isSuccess ? (
             <p className="text-xs text-green-700 dark:text-green-400">
-              Catalog dropped. Items reset: {String((reset.data as { items_reset?: number })?.items_reset ?? 0)}.
+              Catalog reset. Items reset: {String((reset.data as { items_reset?: number })?.items_reset ?? 0)}.
             </p>
           ) : null}
           <div className="flex gap-2">

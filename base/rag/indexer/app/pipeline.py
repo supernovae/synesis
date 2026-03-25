@@ -148,6 +148,12 @@ def index_parsed_chunk_pairs(
     src_tenant_id = source_config.get("tenant_id", "")
     src_acl_mode = source_config.get("acl_mode", "open")
     src_acl_groups = source_config.get("acl_groups", "")
+    src_owner_user_id = source_config.get("owner_user_id", "")
+    src_conversation_id = source_config.get("conversation_id", "")
+    src_upload_batch_id = source_config.get("upload_batch_id", "")
+    src_upload_mode = source_config.get("upload_mode", "")
+    src_is_ephemeral = bool(source_config.get("is_ephemeral", False))
+    src_expires_at_epoch = int(source_config.get("expires_at_epoch", 0) or 0)
 
     try:
         handler = get_handler(handler_type or "html_document")
@@ -156,14 +162,14 @@ def index_parsed_chunk_pairs(
     else:
         source_type = source_type_override or handler.source_type
 
-    if src_visibility_scope not in ("global", "org", "tenant"):
+    if src_visibility_scope not in ("global", "org", "tenant", "user", "session"):
         logger.error(
             "indexer_invalid_visibility_scope",
             extra={"source": name, "visibility_scope": src_visibility_scope},
         )
         progress.log_error(name, f"invalid visibility_scope: {src_visibility_scope}")
         return 0, fetch_meta
-    if src_visibility_scope in ("org", "tenant") and not src_org_id:
+    if src_visibility_scope in ("org", "tenant", "user", "session") and not src_org_id:
         logger.error(
             "indexer_scope_missing_org_id",
             extra={"source": name, "visibility_scope": src_visibility_scope},
@@ -176,6 +182,20 @@ def index_parsed_chunk_pairs(
             extra={"source": name, "visibility_scope": src_visibility_scope},
         )
         progress.log_error(name, "visibility_scope=tenant requires tenant_id")
+        return 0, fetch_meta
+    if src_visibility_scope in ("user", "session") and not src_owner_user_id:
+        logger.error(
+            "indexer_scope_missing_owner_user_id",
+            extra={"source": name, "visibility_scope": src_visibility_scope},
+        )
+        progress.log_error(name, f"visibility_scope={src_visibility_scope} requires owner_user_id")
+        return 0, fetch_meta
+    if src_visibility_scope == "session" and not src_conversation_id:
+        logger.error(
+            "indexer_scope_missing_conversation_id",
+            extra={"source": name, "visibility_scope": src_visibility_scope},
+        )
+        progress.log_error(name, "visibility_scope=session requires conversation_id")
         return 0, fetch_meta
 
     if src_acl_mode not in ("open", "restricted", "private", ""):
@@ -464,6 +484,12 @@ def index_parsed_chunk_pairs(
                 tenant_id=src_tenant_id,
                 acl_mode=src_acl_mode,
                 acl_groups=src_acl_groups,
+                owner_user_id=src_owner_user_id,
+                conversation_id=src_conversation_id,
+                upload_batch_id=src_upload_batch_id,
+                upload_mode=src_upload_mode,
+                is_ephemeral=src_is_ephemeral,
+                expires_at_epoch=src_expires_at_epoch,
                 content_type=v9_content_type,
                 quality_score=v9_q,
                 technical_depth=v9_td,

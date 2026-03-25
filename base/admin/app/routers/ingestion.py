@@ -35,6 +35,7 @@ from ..rbac import (
     resolve_role,
 )
 from ..services.admin_audit import record_admin_audit
+from ..services.milvus_service import recreate_synesis_catalog_v12
 
 logger = logging.getLogger("synesis.admin.ingestion")
 
@@ -1398,7 +1399,7 @@ async def report_schema_version(
         }
 
 
-EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "11"))
+EXPECTED_SCHEMA_VERSION = int(os.environ.get("SYNESIS_EXPECTED_SCHEMA_VERSION", "12"))
 
 SYNESIS_CATALOG_NAME = "synesis_catalog"
 
@@ -1408,6 +1409,7 @@ class ResetCatalogRequest(BaseModel):
 
     confirm: str = Field(..., description="Must be exactly DELETE_SYNESIS_CATALOG")
     reset_queue: bool = Field(True, description="Reset ingestion items to pending")
+    recreate_now: bool = Field(True, description="Immediately recreate schema v12 from admin")
 
 
 @router.post("/milvus/reset-catalog")
@@ -1417,7 +1419,7 @@ async def reset_milvus_catalog(
 ):
     """Drop the unified RAG collection and optionally reset the ingestion queue.
 
-    Next indexer run will recreate the collection (v11 schema) and re-index.
+    By default, recreate happens immediately with schema v12.
     """
     if body.confirm != "DELETE_SYNESIS_CATALOG":
         raise HTTPException(
@@ -1426,6 +1428,7 @@ async def reset_milvus_catalog(
         )
     now = datetime.now(UTC)
     drop_err = ""
+    recreate_err = ""
     try:
         client = get_milvus().get()
         if SYNESIS_CATALOG_NAME in client.list_collections():
@@ -1433,6 +1436,14 @@ async def reset_milvus_catalog(
     except Exception as e:
         drop_err = str(e)[:500]
         logger.warning("milvus_reset_catalog_drop_failed", extra={"error": drop_err})
+
+    recreated = False
+    if body.recreate_now:
+        recreate_result = recreate_synesis_catalog_v12(SYNESIS_CATALOG_NAME)
+        recreated = bool(recreate_result.get("ok"))
+        if not recreated:
+            recreate_err = str(recreate_result.get("error") or "unknown")[:500]
+            logger.warning("milvus_reset_catalog_recreate_failed", extra={"error": recreate_err})
 
     from sqlalchemy import delete, update
 
@@ -1444,14 +1455,14 @@ async def reset_milvus_catalog(
             session.add(
                 MilvusSchemaSync(
                     collection=SYNESIS_CATALOG_NAME,
-                    schema_version=0,
+                    schema_version=EXPECTED_SCHEMA_VERSION if recreated else 0,
                     last_reported_by="admin_reset",
                     last_reset_at=now,
                     updated_at=now,
                 )
             )
         else:
-            row.schema_version = 0
+            row.schema_version = EXPECTED_SCHEMA_VERSION if recreated else 0
             row.last_reported_by = "admin_reset"
             row.last_reset_at = now
             row.updated_at = now
@@ -1494,15 +1505,22 @@ async def reset_milvus_catalog(
         user=user,
         source="api",
         action="ingestion.milvus.reset_catalog",
-        status="success" if not drop_err else "partial",
-        summary=f"Dropped {SYNESIS_CATALOG_NAME}; queue_reset={body.reset_queue}",
-        detail={"items_reset": items_reset, "drop_error": drop_err or None},
+        status="success" if not drop_err and not recreate_err else "partial",
+        summary=f"Dropped {SYNESIS_CATALOG_NAME}; recreated={recreated}; queue_reset={body.reset_queue}",
+        detail={
+            "items_reset": items_reset,
+            "drop_error": drop_err or None,
+            "recreate_error": recreate_err or None,
+        },
     )
     return {
         "ok": True,
         "collection": SYNESIS_CATALOG_NAME,
         "items_reset": items_reset,
         "drop_error": drop_err or None,
+        "recreated": recreated,
+        "recreate_error": recreate_err or None,
+        "schema_version": EXPECTED_SCHEMA_VERSION if recreated else 0,
     }
 
 
