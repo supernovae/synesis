@@ -81,8 +81,10 @@ class ToolOrchestrator:
 
     async def load_tools_for_token(self, auth_token: str) -> list[dict[str, Any]]:
         """Load role-filtered MCP tools for an authenticated caller."""
+        import hashlib as _hl
+
         now = time.time()
-        cache_key = auth_token[-12:]
+        cache_key = _hl.sha256(auth_token.encode()).hexdigest()
         cached = self._mcp_tool_cache.get(cache_key)
         if cached and (now - cached[0]) < 60.0:
             return self._format_tools(cached[1])
@@ -103,9 +105,11 @@ class ToolOrchestrator:
             self._mcp_tools[name] = tool_def
 
     def _tools_for_token(self, auth_token: str) -> dict[str, dict[str, Any]]:
+        import hashlib as _hl
+
         if not auth_token:
             return self._mcp_tools
-        cache_key = auth_token[-12:]
+        cache_key = _hl.sha256(auth_token.encode()).hexdigest()
         cached = self._mcp_tool_cache.get(cache_key)
         if cached:
             return cached[1]

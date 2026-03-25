@@ -154,9 +154,9 @@ class HybridRetrievalCache:
 
     # --- Public API ---
 
-    def get(self, query: str) -> EvidencePacket | None:
+    def get(self, query: str, org_id: str = "") -> EvidencePacket | None:
         """Look up evidence for a query. Returns None on miss."""
-        key = self._normalize_key(query)
+        key = self._normalize_key(query, org_id=org_id)
 
         with self._lock:
             entry = self._exact.get(key)
@@ -189,7 +189,7 @@ class HybridRetrievalCache:
             if results:
                 hit_entry, similarity = results[0]
                 if similarity >= self._sim_thresh:
-                    cache_entry = self._exact.get(self._normalize_key(hit_entry.query_string))
+                    cache_entry = self._exact.get(self._normalize_key(hit_entry.query_string, org_id=org_id))
                     if cache_entry and self._validate(cache_entry, similarity):
                         cache_entry.usage_count += 1
                         self._stats.semantic_hits += 1
@@ -200,9 +200,9 @@ class HybridRetrievalCache:
             self._emit_miss()
             return None
 
-    def put(self, query: str, packet: EvidencePacket) -> None:
+    def put(self, query: str, packet: EvidencePacket, org_id: str = "") -> None:
         """Store an evidence packet for the given query in both tiers."""
-        key = self._normalize_key(query)
+        key = self._normalize_key(query, org_id=org_id)
 
         try:
             embedding = self._embed.embed([query], normalize=True)
@@ -235,9 +235,9 @@ class HybridRetrievalCache:
             self._evict()
             self._emit_size()
 
-    async def aget(self, query: str) -> EvidencePacket | None:
+    async def aget(self, query: str, org_id: str = "") -> EvidencePacket | None:
         """Async version of get() — uses AsyncEmbedClient for semantic lookup."""
-        key = self._normalize_key(query)
+        key = self._normalize_key(query, org_id=org_id)
 
         with self._lock:
             entry = self._exact.get(key)
@@ -276,7 +276,7 @@ class HybridRetrievalCache:
             if results:
                 hit_entry, similarity = results[0]
                 if similarity >= self._sim_thresh:
-                    cache_entry = self._exact.get(self._normalize_key(hit_entry.query_string))
+                    cache_entry = self._exact.get(self._normalize_key(hit_entry.query_string, org_id=org_id))
                     if cache_entry and self._validate(cache_entry, similarity):
                         cache_entry.usage_count += 1
                         self._stats.semantic_hits += 1
@@ -287,9 +287,9 @@ class HybridRetrievalCache:
             self._emit_miss()
             return None
 
-    async def aput(self, query: str, packet: EvidencePacket) -> None:
+    async def aput(self, query: str, packet: EvidencePacket, org_id: str = "") -> None:
         """Async version of put() — uses AsyncEmbedClient for embedding."""
-        key = self._normalize_key(query)
+        key = self._normalize_key(query, org_id=org_id)
 
         try:
             embed = self._async_embed or self._embed
@@ -358,10 +358,12 @@ class HybridRetrievalCache:
     # --- Internal ---
 
     @staticmethod
-    def _normalize_key(query: str) -> str:
+    def _normalize_key(query: str, org_id: str = "") -> str:
         text = query.lower().strip()
         text = _PUNCT_RE.sub(" ", text)
         text = _WHITESPACE_RE.sub(" ", text).strip()
+        if org_id:
+            return f"{org_id}\x00{text}"
         return text
 
     def _validate(self, entry: CacheEntry, similarity: float = 1.0) -> bool:

@@ -86,15 +86,15 @@ def _normalize_prompt(prompt: str) -> str:
     return _WS_RUN.sub(" ", prompt.strip()).lower()
 
 
-def _prompt_cache_key(prompt: str, model: str) -> str:
-    raw = f"{_normalize_prompt(prompt)}\x00{model}"
+def _prompt_cache_key(user_id: str, prompt: str, model: str) -> str:
+    raw = f"{user_id}\x00{_normalize_prompt(prompt)}\x00{model}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _prompt_cache_get(user_id: str, prompt: str, model: str) -> str | None:
     if not settings.prompt_cache_enabled:
         return None
-    key = _prompt_cache_key(prompt, model)
+    key = _prompt_cache_key(user_id, prompt, model)
     entry = _prompt_cache.get(key)
     if entry is None:
         record_prompt_cache_miss()
@@ -115,7 +115,7 @@ def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str) -> N
     if len(_prompt_cache) >= settings.prompt_cache_max_entries:
         oldest_key = next(iter(_prompt_cache))
         _prompt_cache.pop(oldest_key, None)
-    key = _prompt_cache_key(prompt, model)
+    key = _prompt_cache_key(user_id, prompt, model)
     _prompt_cache[key] = (time.monotonic() + settings.prompt_cache_ttl_seconds, response)
     record_prompt_cache_size(len(_prompt_cache))
 
@@ -1655,7 +1655,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         if _tracer is not None:
             _tracer.mark_short_circuit("prompt_cache_hit")
             _tracer.record_phase_timing("prompt_cache", (time.monotonic() - start) * 1000)
-        flush_tracer()
+        flush_tracer(run_id)
         record_chat_success(time.monotonic() - start)
         record_run_critic_turn_kind(str(initial_state.get("critic_turn_kind") or "final"))
         if request.stream:
@@ -2184,13 +2184,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     # On graph errors the except block returns early and won't
                     # reach the deferred flush point — flush now.
                     if _graph_had_error:
-                        flush_tracer()
+                        flush_tracer(run_id)
                         _tracer_flushed = True
 
                 # Stream already closed (background critic mode) — skip all post-processing
                 if _stream_closed:
                     if not _tracer_flushed:
-                        flush_tracer()
+                        flush_tracer(run_id)
                     return
 
                 _msgs = accumulated_state.get("messages")
@@ -2199,7 +2199,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     if _msgs and not _has_ai_msg:
                         logger.warning("sse_no_ai_message msg_count=%d", len(_msgs))
                     if not _tracer_flushed:
-                        flush_tracer()
+                        flush_tracer(run_id)
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
@@ -2539,7 +2539,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 # then flush the trace to Postgres.
                 _tracer_usage = snapshot_tracer_usage()
                 if not _tracer_flushed:
-                    flush_tracer()
+                    flush_tracer(run_id)
                     _tracer_flushed = True
 
                 pipeline_trace = _build_pipeline_trace(accumulated_state)
@@ -2679,7 +2679,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         heartbeat_task.cancel()
                     set_sub_phase_queue(None)
                     _fb_tracer_usage = snapshot_tracer_usage()
-                    flush_tracer()
+                    flush_tracer(run_id)
 
                 if not result:
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
@@ -2749,7 +2749,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         ) from None
     finally:
         _ns_tracer_usage = snapshot_tracer_usage()
-        flush_tracer()
+        flush_tracer(run_id)
 
     content, total_tokens = _extract_content_and_metrics(
         result, user_id, last_user_content, run_id=run_id, memory_scope=memory_scope, model=response_model_id
@@ -2828,8 +2828,11 @@ class FeedbackSubmitRequest(BaseModel):
 
 
 @app.post("/v1/feedback")
-async def feedback_submit(req: FeedbackSubmitRequest):
+async def feedback_submit(req: FeedbackSubmitRequest, http_request: Request):
     """Store thumbs up/down for tuning. Associates with run context (classification_reasons, etc.)."""
+    bearer = _extract_bearer_token(http_request)
+    if not bearer:
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
     from .feedback_store import FeedbackEntry, get_feedback_store, get_run_context_cache
 
     cache = get_run_context_cache()
@@ -2860,11 +2863,15 @@ async def feedback_submit(req: FeedbackSubmitRequest):
 
 @app.get("/v1/feedback")
 async def feedback_list(
+    http_request: Request,
     vote: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
     """List stored feedback for admin/tuning. Filter by vote=up|down."""
+    bearer = _extract_bearer_token(http_request)
+    if not bearer:
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
     from .feedback_store import get_feedback_store
 
     store = get_feedback_store()

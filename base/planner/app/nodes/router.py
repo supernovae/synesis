@@ -1923,16 +1923,19 @@ def _timeout_packet(query: str, reason: str) -> EvidencePacket:
 # Module-level node function for LangGraph registration
 # ---------------------------------------------------------------------------
 
-_router_instance: RouterNode | None = None
+_shared_cache: HybridRetrievalCache | None = None
 
 
-def _get_router() -> RouterNode:
-    global _router_instance
-    if _router_instance is None:
-        _router_instance = RouterNode()
-    return _router_instance
+def _get_shared_cache() -> HybridRetrievalCache:
+    global _shared_cache
+    if _shared_cache is None:
+        _shared_cache = get_retrieval_cache()
+    return _shared_cache
 
 
 async def router_node(state: dict[str, Any]) -> dict[str, Any]:
-    """LangGraph node entry point."""
-    return await _get_router().run(state)
+    """LangGraph node entry point — creates a fresh RouterNode per request
+    to avoid shared mutable state (_difficulty) across concurrent invocations.
+    """
+    node = RouterNode(cache=_get_shared_cache())
+    return await node.run(state)

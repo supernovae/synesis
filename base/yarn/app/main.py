@@ -8,6 +8,7 @@ all see this as a standard OpenAI model endpoint.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -45,6 +46,7 @@ logger = logging.getLogger("yarn.api")
 
 # In-process session -> buffer map (hot cache; Redis is durable fallback)
 _buffers: dict[str, MemoryBuffer] = {}
+_buffers_lock = asyncio.Lock()
 _orchestrator = ToolOrchestrator()
 
 SYSTEM_PROMPT = (
@@ -139,13 +141,14 @@ class ChatCompletionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _get_buffer(session_key: str) -> MemoryBuffer:
-    if session_key not in _buffers:
-        _buffers[session_key] = MemoryBuffer(
-            max_tokens=settings.memory_window_tokens,
-            pinned_budget=settings.memory_pinned_budget_tokens,
-        )
-    return _buffers[session_key]
+async def _get_buffer(session_key: str) -> MemoryBuffer:
+    async with _buffers_lock:
+        if session_key not in _buffers:
+            _buffers[session_key] = MemoryBuffer(
+                max_tokens=settings.memory_window_tokens,
+                pinned_budget=settings.memory_pinned_budget_tokens,
+            )
+        return _buffers[session_key]
 
 
 def _build_sse_chunk(
@@ -299,7 +302,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     )
 
     # --- Memory buffer ---
-    buf = _get_buffer(session.session_key)
+    buf = await _get_buffer(session.session_key)
 
     if not buf._pinned:
         buf.set_system_prompt(SYSTEM_PROMPT)

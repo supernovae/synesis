@@ -160,18 +160,18 @@ def _word_chunk(
     After block restoration, any chunk exceeding SCHEMA_MAX_BYTES is re-split
     by character boundary so nothing is silently truncated by catalog_entity().
     """
-    protected = _protect_blocks(text)
+    protected, store = _protect_blocks(text)
     words = protected.split()
 
     if len(words) <= max_words:
-        return _enforce_byte_limit(_restore_blocks(text))
+        return _enforce_byte_limit(_restore_blocks(text, store))
 
     chunks: list[str] = []
     start = 0
     while start < len(words):
         end = min(start + max_words, len(words))
         chunk_text = " ".join(words[start:end])
-        chunks.extend(_enforce_byte_limit(_restore_blocks(chunk_text)))
+        chunks.extend(_enforce_byte_limit(_restore_blocks(chunk_text, store)))
         if end >= len(words):
             break
         start = end - overlap_words
@@ -198,30 +198,32 @@ def _enforce_byte_limit(text: str) -> list[str]:
 
 
 _PLACEHOLDER_PREFIX = "\x00PROTECTED_"
-_protected_store: dict[str, str] = {}
-_protect_counter = 0
 
 
-def _protect_blocks(text: str) -> str:
-    """Replace code blocks and tables with placeholders to prevent splitting mid-block."""
-    global _protect_counter
-    _protected_store.clear()
+def _protect_blocks(text: str) -> tuple[str, dict[str, str]]:
+    """Replace code blocks and tables with placeholders to prevent splitting mid-block.
+
+    Returns (protected_text, store) where store maps placeholder keys to originals.
+    Uses function-local state so concurrent calls never interfere.
+    """
+    store: dict[str, str] = {}
+    counter = 0
 
     def _replace(m: re.Match) -> str:
-        global _protect_counter
-        _protect_counter += 1
-        key = f"{_PLACEHOLDER_PREFIX}{_protect_counter}"
-        _protected_store[key] = m.group(0)
+        nonlocal counter
+        counter += 1
+        key = f"{_PLACEHOLDER_PREFIX}{counter}"
+        store[key] = m.group(0)
         return key
 
     text = _CODE_BLOCK_RE.sub(_replace, text)
     text = _TABLE_RE.sub(_replace, text)
-    return text
+    return text, store
 
 
-def _restore_blocks(text: str) -> str:
+def _restore_blocks(text: str, store: dict[str, str]) -> str:
     """Restore protected code blocks and tables from placeholders."""
-    for key, original in _protected_store.items():
+    for key, original in store.items():
         text = text.replace(key, original)
     return text
 

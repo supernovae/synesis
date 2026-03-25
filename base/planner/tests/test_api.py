@@ -306,9 +306,21 @@ class TestFeedbackEndpoints:
                 "run_id": "550e8400-e29b-41d4-a716-446655440000",
                 "vote": "down",
             },
+            headers={"Authorization": "Bearer test-key"},
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "stored"
+
+    def test_post_feedback_rejects_unauthenticated(self, client):
+        resp = client.post(
+            "/v1/feedback",
+            json={
+                "message_id": "msg_123",
+                "run_id": "550e8400-e29b-41d4-a716-446655440000",
+                "vote": "down",
+            },
+        )
+        assert resp.status_code == 401
 
     def test_post_feedback_invalid_vote(self, client):
         resp = client.post(
@@ -318,16 +330,17 @@ class TestFeedbackEndpoints:
                 "run_id": "550e8400-e29b-41d4-a716-446655440000",
                 "vote": "maybe",
             },
+            headers={"Authorization": "Bearer test-key"},
         )
         assert resp.status_code == 400
 
     def test_get_feedback_returns_list(self, client):
-        resp = client.get("/v1/feedback")
+        resp = client.get("/v1/feedback", headers={"Authorization": "Bearer test-key"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
         assert "data" in data
 
     def test_get_feedback_filter_by_vote(self, client):
-        resp = client.get("/v1/feedback?vote=down")
+        resp = client.get("/v1/feedback?vote=down", headers={"Authorization": "Bearer test-key"})
         assert resp.status_code == 200

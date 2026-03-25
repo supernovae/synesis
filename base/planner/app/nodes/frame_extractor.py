@@ -28,9 +28,9 @@ from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, record_frame_cache_size
 from ..config import reasoning_body, settings
-from ..model_policy import ModelContext, resolve_model
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
+from ..model_policy import ModelContext, resolve_model
 from ..schemas import (
     DomainProfile,
     DomainWeight,
@@ -51,10 +51,10 @@ logger = logging.getLogger("synesis.frame_extractor")
 _frame_cache: collections.OrderedDict[str, tuple[float, dict[str, Any]]] = collections.OrderedDict()
 
 
-def _frame_cache_get(task_description: str) -> dict[str, Any] | None:
+def _frame_cache_get(task_description: str, org_id: str = "") -> dict[str, Any] | None:
     if not settings.frame_cache_enabled:
         return None
-    key = hashlib.sha256(task_description.encode()).hexdigest()
+    key = hashlib.sha256(f"{org_id}\x00{task_description}".encode()).hexdigest()
     entry = _frame_cache.get(key)
     if entry is None:
         record_frame_cache_miss()
@@ -70,10 +70,10 @@ def _frame_cache_get(task_description: str) -> dict[str, Any] | None:
     return result
 
 
-def _frame_cache_put(task_description: str, result: dict[str, Any]) -> None:
+def _frame_cache_put(task_description: str, result: dict[str, Any], org_id: str = "") -> None:
     if not settings.frame_cache_enabled:
         return
-    key = hashlib.sha256(task_description.encode()).hexdigest()
+    key = hashlib.sha256(f"{org_id}\x00{task_description}".encode()).hexdigest()
     while len(_frame_cache) >= settings.frame_cache_max_entries:
         _frame_cache.popitem(last=False)
     _frame_cache[key] = (0.0, result)
@@ -717,7 +717,8 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             ],
         }
 
-    cached_frame = _frame_cache_get(task_description)
+    _org_id = state.get("org_id", "")
+    cached_frame = _frame_cache_get(task_description, org_id=_org_id)
     if cached_frame is not None:
         latency = (time.monotonic() - start) * 1000
         logger.info("frame_cache_hit", extra={"latency_ms": round(latency)})
@@ -797,7 +798,7 @@ async def frame_extractor_node(state: dict[str, Any]) -> dict[str, Any]:
             },
         )
 
-        _frame_cache_put(task_description, task_frame_dict)
+        _frame_cache_put(task_description, task_frame_dict, org_id=_org_id)
 
         _tracer = get_synesis_tracer()
         if _tracer:
