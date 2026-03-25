@@ -17,6 +17,7 @@ pipelines/*.yaml
 
 # Test report artifacts
 test_report_*.yaml
+test_outputs_*/
 
 # Virtual environments
 .venv/
