@@ -421,6 +421,7 @@ async def _stream_agentic_loop(
                 tools,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                org_id=session.org_id,
             ):
                 if chunk.content:
                     chunk_content += chunk.content
@@ -578,7 +579,9 @@ def _schedule_compression(
                     break
 
             messages = build_summarize_messages(evicted, existing)
-            result = await model_executor.run_model_sync(messages, temperature=0.1, max_tokens=1024)
+            result = await model_executor.run_model_sync(
+                messages, temperature=0.1, max_tokens=1024, org_id=session.org_id,
+            )
 
             choices = result.get("choices", [])
             if choices:
@@ -622,6 +625,7 @@ async def _non_streaming_loop(
                 tools,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                org_id=session.org_id,
             )
 
             if result.get("error"):

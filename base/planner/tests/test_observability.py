@@ -45,15 +45,21 @@ class TestRecordError:
 
     def test_persist_error_builds_failure_id(self):
         """_persist_error should compute a deterministic failure_id."""
+        from contextlib import contextmanager
+
         from app.failure_store import _persist_error
 
-        with patch("app.failure_store._get_error_pg") as mock_pg:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
-            mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-            mock_pg.return_value = mock_conn
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
+        @contextmanager
+        def _fake_pool(*, autocommit=True):
+            mock_conn.autocommit = autocommit
+            yield mock_conn
+
+        with patch("app.pg_pool.pg_connection", _fake_pool):
             _persist_error(
                 error_type="retrieval_timeout",
                 error_output="Retrieval timed out after 30s",
@@ -61,23 +67,25 @@ class TestRecordError:
                 trace_id="abc123",
             )
 
-            mock_cursor.execute.assert_called_once()
-            call_args = mock_cursor.execute.call_args
-            sql = call_args[0][0]
-            assert "INSERT INTO failures" in sql
-            params = call_args[0][1]
-            assert params[3] == 1  # exit_code
-            assert params[4] == "retrieval_timeout"  # error_type
+        mock_cursor.execute.assert_called_once()
+        call_args = mock_cursor.execute.call_args
+        sql = call_args[0][0]
+        assert "INSERT INTO failures" in sql
+        params = call_args[0][1]
+        assert params[3] == 1  # exit_code
+        assert params[4] == "retrieval_timeout"  # error_type
 
     def test_persist_error_no_db_url(self):
-        """_persist_error should silently no-op when SYNESIS_TRACE_DATABASE_URL is unset."""
+        """_persist_error should silently no-op when pool yields None."""
+        from contextlib import contextmanager
+
         from app.failure_store import _persist_error
 
-        with patch.dict(os.environ, {"SYNESIS_TRACE_DATABASE_URL": ""}, clear=False):
-            import app.failure_store as fs
+        @contextmanager
+        def _no_pool(*, autocommit=True):
+            yield None
 
-            fs._error_pg_conn = None
-
+        with patch("app.pg_pool.pg_connection", _no_pool):
             _persist_error(
                 error_type="graph_error",
                 error_output="some error",
@@ -100,24 +108,30 @@ class TestRecordError:
 
     def test_persist_error_trace_id_appended(self):
         """When trace_id is provided, it should be appended to the failure_id."""
+        from contextlib import contextmanager
+
         from app.failure_store import _persist_error
 
-        with patch("app.failure_store._get_error_pg") as mock_pg:
-            mock_conn = MagicMock()
-            mock_cursor = MagicMock()
-            mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
-            mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
-            mock_pg.return_value = mock_conn
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = lambda s: mock_cursor
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
 
+        @contextmanager
+        def _fake_pool(*, autocommit=True):
+            mock_conn.autocommit = autocommit
+            yield mock_conn
+
+        with patch("app.pg_pool.pg_connection", _fake_pool):
             _persist_error(
                 error_type="graph_error",
                 error_output="boom",
                 trace_id="run-abc-def",
             )
 
-            params = mock_cursor.execute.call_args[0][1]
-            fid = params[0]
-            assert "_run-abc-def" in fid
+        params = mock_cursor.execute.call_args[0][1]
+        fid = params[0]
+        assert "_run-abc-def" in fid
 
 
 # ---------------------------------------------------------------------------

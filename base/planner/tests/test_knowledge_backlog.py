@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -30,6 +31,7 @@ class _FakeCursor:
 class _FakeConn:
     def __init__(self) -> None:
         self.cursor_obj = _FakeCursor()
+        self.autocommit = False
 
     def cursor(self):
         return self.cursor_obj
@@ -38,7 +40,15 @@ class _FakeConn:
 @pytest.mark.asyncio
 async def test_publish_knowledge_gap_includes_resolution_columns(monkeypatch):
     fake_conn = _FakeConn()
-    monkeypatch.setattr(knowledge_backlog, "_get_pg", lambda: fake_conn)
+
+    @contextmanager
+    def _fake_pg_connection(*, autocommit=True):
+        fake_conn.autocommit = autocommit
+        yield fake_conn
+
+    import app.pg_pool as pg_pool_mod
+
+    monkeypatch.setattr(pg_pool_mod, "pg_connection", _fake_pg_connection)
     import app.config as cfg
 
     monkeypatch.setattr(cfg, "settings", SimpleNamespace(knowledge_backlog_enabled=True), raising=False)
@@ -57,7 +67,6 @@ async def test_publish_knowledge_gap_includes_resolution_columns(monkeypatch):
     assert "resolved_at" in fake_conn.cursor_obj.sql
     assert "resolved_by" in fake_conn.cursor_obj.sql
     assert "resolution_note" in fake_conn.cursor_obj.sql
-    # includes explicit resolution defaults + web_search_fallback + timestamp
     assert len(fake_conn.cursor_obj.params) == 12
     assert fake_conn.cursor_obj.params[7] == 0
     assert fake_conn.cursor_obj.params[8] == ""

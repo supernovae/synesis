@@ -12,21 +12,22 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from synesis_telemetry import configure_logging, get_logger
 
-from .embed_client import EMBEDDER_URL, EmbedClient
+from .embed_client import EMBEDDER_URL, AsyncEmbedClient
 from .extractor import extract_keywords, extract_keywords_batch
 
 configure_logging(service="synesis-keyword-service")
 logger = get_logger("synesis.keyword_service")
 
-_embedder: EmbedClient | None = None
+_embedder: AsyncEmbedClient | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _embedder
-    _embedder = EmbedClient(url=EMBEDDER_URL)
+    _embedder = AsyncEmbedClient(url=EMBEDDER_URL)
     logger.info("keyword-service ready (embedder=%s)", _embedder.url)
     yield
+    await _embedder.aclose()
 
 
 app = FastAPI(title="Synesis Keyword Service", lifespan=lifespan)
@@ -66,7 +67,7 @@ async def keywords_single(req: KeywordRequest):
     if not req.text or not req.text.strip():
         return KeywordResult(keywords=[])
     try:
-        kws = extract_keywords(
+        kws = await extract_keywords(
             req.text,
             _embedder,
             top_n=req.top_n,
@@ -85,7 +86,7 @@ async def keywords_batch(req: BatchKeywordRequest):
     if not req.texts:
         return BatchKeywordResult(results=[])
     try:
-        results = extract_keywords_batch(
+        results = await extract_keywords_batch(
             req.texts,
             _embedder,
             top_n=req.top_n,

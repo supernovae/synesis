@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import threading
 import time
 from typing import Any
@@ -29,9 +28,6 @@ logger = logging.getLogger("synesis.failure_store")
 # Lightweight Postgres-only error recording (no Milvus dependency)
 # ---------------------------------------------------------------------------
 
-_error_pg_conn = None
-_error_pg_lock = threading.Lock()
-
 _ERROR_INSERT_SQL = """\
 INSERT INTO failures (failure_id, code, error_output, exit_code, error_type,
                       language, task_description, resolution, timestamp)
@@ -41,31 +37,6 @@ ON CONFLICT (failure_id) DO UPDATE SET
     task_description = EXCLUDED.task_description,
     timestamp = EXCLUDED.timestamp
 """
-
-
-def _get_error_pg():
-    """Lazy-init synchronous Postgres connection for error writes."""
-    global _error_pg_conn
-    if _error_pg_conn is not None:
-        try:
-            _error_pg_conn.cursor().execute("SELECT 1")
-            return _error_pg_conn
-        except Exception:
-            _error_pg_conn = None
-
-    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return None
-    try:
-        import psycopg2
-
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        _error_pg_conn = psycopg2.connect(dsn)
-        _error_pg_conn.autocommit = True
-        return _error_pg_conn
-    except Exception:
-        logger.debug("record_error_pg_connect_failed", exc_info=True)
-        return None
 
 
 def _persist_error(
@@ -78,8 +49,9 @@ def _persist_error(
     trace_id: str = "",
 ) -> None:
     """Write error to admin Postgres failures table (synchronous, best-effort)."""
-    with _error_pg_lock:
-        conn = _get_error_pg()
+    from .pg_pool import pg_connection
+
+    with pg_connection() as conn:
         if conn is None:
             return
         try:
@@ -304,61 +276,49 @@ async def store_failure(
 
 
 def _persist_failure_pg(entity: dict) -> None:
-    """Write failure to admin Postgres (best-effort)."""
-    import os
+    """Write failure to admin Postgres (best-effort, shared pool)."""
+    from .pg_pool import pg_connection
 
-    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return
-    try:
-        import psycopg2
-
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        cur.execute(
-            """INSERT INTO failures (failure_id, code, error_output, exit_code, error_type, language, task_description, resolution, timestamp)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (failure_id) DO UPDATE SET resolution = EXCLUDED.resolution""",
-            (
-                entity["failure_id"],
-                entity.get("code", "")[:8192],
-                entity.get("error_output", "")[:4096],
-                entity.get("exit_code", 1),
-                entity.get("error_type", ""),
-                entity.get("language", ""),
-                entity.get("task_description", "")[:2048],
-                entity.get("resolution", "")[:8192],
-                entity.get("timestamp", 0),
-            ),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.debug("persist_failure_pg_failed", extra={"error": str(e)[:200]})
+    with pg_connection() as conn:
+        if conn is None:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO failures (failure_id, code, error_output, exit_code, error_type, language, task_description, resolution, timestamp)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (failure_id) DO UPDATE SET resolution = EXCLUDED.resolution""",
+                    (
+                        entity["failure_id"],
+                        entity.get("code", "")[:8192],
+                        entity.get("error_output", "")[:4096],
+                        entity.get("exit_code", 1),
+                        entity.get("error_type", ""),
+                        entity.get("language", ""),
+                        entity.get("task_description", "")[:2048],
+                        entity.get("resolution", "")[:8192],
+                        entity.get("timestamp", 0),
+                    ),
+                )
+        except Exception as e:
+            logger.debug("persist_failure_pg_failed", extra={"error": str(e)[:200]})
 
 
 def _update_resolution_pg(failure_id: str, resolution: str) -> None:
     """Update resolution in Postgres when Milvus doesn't have the entity."""
-    import os
+    from .pg_pool import pg_connection
 
-    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return
-    try:
-        import psycopg2
-
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE failures SET resolution = %s WHERE failure_id = %s",
-            (resolution[:8192], failure_id),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        logger.debug("update_resolution_pg_failed", extra={"error": str(e)[:200]})
+    with pg_connection() as conn:
+        if conn is None:
+            return
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE failures SET resolution = %s WHERE failure_id = %s",
+                    (resolution[:8192], failure_id),
+                )
+        except Exception as e:
+            logger.debug("update_resolution_pg_failed", extra={"error": str(e)[:200]})
 
 
 async def update_resolution(failure_id: str, resolution: str) -> None:

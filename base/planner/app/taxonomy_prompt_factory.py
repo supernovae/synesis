@@ -28,23 +28,18 @@ _CACHE_TTL_S = int(os.getenv("SYNESIS_TAXONOMY_CACHE_TTL", "300"))
 def _load_from_db() -> dict[str, Any] | None:
     """Load taxonomy config from the taxonomy_domains DB table.
 
-    Uses the same Postgres connection as the tracer (SYNESIS_TRACE_DATABASE_URL).
+    Uses the shared planner Postgres pool (SYNESIS_TRACE_DATABASE_URL).
     Returns None if DB is unavailable or empty.
     """
-    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return None
-    try:
-        import psycopg2
+    from .pg_pool import pg_connection
 
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute("SELECT key, raw_config FROM taxonomy_domains WHERE raw_config IS NOT NULL")
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
+    try:
+        with pg_connection() as conn:
+            if conn is None:
+                return None
+            with conn.cursor() as cur:
+                cur.execute("SELECT key, raw_config FROM taxonomy_domains WHERE raw_config IS NOT NULL")
+                rows = cur.fetchall()
 
         if not rows:
             return None

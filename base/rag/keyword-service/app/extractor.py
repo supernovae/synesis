@@ -10,7 +10,7 @@ import re
 
 import numpy as np
 
-from .embed_client import EmbedClient
+from .embed_client import AsyncEmbedClient
 
 _STOP_WORDS = frozenset(
     [
@@ -201,9 +201,9 @@ def _cosine_selection(
     return [(candidates[i], float(sims[i])) for i in top_indices]
 
 
-def extract_keywords(
+async def extract_keywords(
     text: str,
-    embedder: EmbedClient,
+    embedder: AsyncEmbedClient,
     *,
     top_n: int = 8,
     ngram_range: tuple[int, int] = (1, 2),
@@ -216,7 +216,7 @@ def extract_keywords(
         return []
 
     all_texts = [text[:500], *candidates]
-    embeddings = embedder.embed(all_texts)
+    embeddings = await embedder.embed(all_texts)
     doc_emb = embeddings[0]
     cand_embs = embeddings[1:]
 
@@ -225,9 +225,9 @@ def extract_keywords(
     return _cosine_selection(doc_emb, cand_embs, candidates, top_n)
 
 
-def extract_keywords_batch(
+async def extract_keywords_batch(
     texts: list[str],
-    embedder: EmbedClient,
+    embedder: AsyncEmbedClient,
     *,
     top_n: int = 8,
     ngram_range: tuple[int, int] = (1, 2),
@@ -255,7 +255,7 @@ def extract_keywords_batch(
     if not embed_texts:
         return [[] for _ in texts]
 
-    embeddings = embedder.embed(embed_texts)
+    embeddings = await embedder.embed(embed_texts)
     results: list[list[tuple[str, float]]] = []
 
     for i, (cands, (cstart, cend)) in enumerate(zip(all_candidates, cand_ranges)):

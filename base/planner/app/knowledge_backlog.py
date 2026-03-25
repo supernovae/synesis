@@ -13,38 +13,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import time
 
 logger = logging.getLogger("synesis.knowledge_backlog")
-
-_pg_conn = None
-
-
-def _get_pg():
-    """Lazy-init synchronous Postgres connection for gap writes."""
-    global _pg_conn
-    if _pg_conn is not None:
-        try:
-            _pg_conn.cursor().execute("SELECT 1")
-            return _pg_conn
-        except Exception:
-            _pg_conn = None
-
-    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return None
-    try:
-        import psycopg2
-
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        _pg_conn = psycopg2.connect(dsn)
-        _pg_conn.autocommit = True
-        return _pg_conn
-    except Exception:
-        logger.warning("knowledge_backlog_pg_connect_failed", exc_info=True)
-        return None
-
 
 async def publish_knowledge_gap(
     query: str,
@@ -61,6 +32,7 @@ async def publish_knowledge_gap(
     Respects ``settings.knowledge_backlog_enabled``; no-op when disabled.
     """
     from .config import settings
+    from .pg_pool import pg_connection
 
     if not settings.knowledge_backlog_enabled:
         return None
@@ -71,35 +43,35 @@ async def publish_knowledge_gap(
         raw = f"{query[:500]}:{task_desc[:500]}:{coll_str}:{time.time()}"
         chunk_id = hashlib.sha256(raw.encode()).hexdigest()[:64]
 
-        conn = _get_pg()
-        if conn is None:
-            logger.warning("publish_knowledge_gap_skipped — no DB connection")
-            return None
+        with pg_connection() as conn:
+            if conn is None:
+                logger.warning("publish_knowledge_gap_skipped — no DB connection")
+                return None
 
-        with conn.cursor() as cur:
-            cur.execute(
-                """INSERT INTO knowledge_gaps
-                       (gap_id, query, task_description, collections_queried,
-                        max_score, platform_context, language, status,
-                        resolved_at, resolved_by, resolution_note,
-                        web_search_fallback, timestamp)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s, %s, %s, %s, %s)
-                   ON CONFLICT (gap_id) DO NOTHING""",
-                (
-                    chunk_id,
-                    (query or task_desc)[:4096],
-                    task_desc,
-                    coll_str,
-                    max_score,
-                    (platform_context or "generic")[:64],
-                    (target_language or "python")[:32],
-                    0,
-                    "",
-                    "",
-                    web_search_fallback,
-                    int(time.time()),
-                ),
-            )
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO knowledge_gaps
+                           (gap_id, query, task_description, collections_queried,
+                            max_score, platform_context, language, status,
+                            resolved_at, resolved_by, resolution_note,
+                            web_search_fallback, timestamp)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s, %s, %s, %s, %s)
+                       ON CONFLICT (gap_id) DO NOTHING""",
+                    (
+                        chunk_id,
+                        (query or task_desc)[:4096],
+                        task_desc,
+                        coll_str,
+                        max_score,
+                        (platform_context or "generic")[:64],
+                        (target_language or "python")[:32],
+                        0,
+                        "",
+                        "",
+                        web_search_fallback,
+                        int(time.time()),
+                    ),
+                )
 
         logger.info(
             "knowledge_backlog_published",

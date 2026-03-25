@@ -9,7 +9,6 @@ metrics remain correct).
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from typing import Any
@@ -17,7 +16,6 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger("synesis.web_search_log")
 
-_pg_conn = None
 _MAX_SNIPPET_LEN = 500
 _MAX_ROWS_PER_SEARCH = 20
 
@@ -32,32 +30,6 @@ VALUES
 """
 
 
-def _get_pg():
-    """Lazy-init synchronous Postgres connection for search log writes."""
-    global _pg_conn
-    if _pg_conn is not None:
-        try:
-            _pg_conn.cursor().execute("SELECT 1")
-            return _pg_conn
-        except Exception:
-            _pg_conn = None
-
-    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return None
-    try:
-        import psycopg2
-
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        _pg_conn = psycopg2.connect(dsn)
-        _pg_conn.autocommit = True
-        logger.info("web_search_log_pg_ready")
-        return _pg_conn
-    except Exception:
-        logger.debug("web_search_log_pg_failed", exc_info=True)
-        return None
-
-
 def _extract_domain(url: str) -> str:
     try:
         return urlparse(url).hostname or ""
@@ -66,15 +38,17 @@ def _extract_domain(url: str) -> str:
 
 
 def _persist_rows(rows: list[dict[str, Any]]) -> None:
-    conn = _get_pg()
-    if conn is None:
-        return
-    try:
-        cur = conn.cursor()
-        for row in rows:
-            cur.execute(_INSERT_SQL, row)
-    except Exception:
-        logger.debug("web_search_log_write_failed", exc_info=True)
+    from .pg_pool import pg_connection
+
+    with pg_connection() as conn:
+        if conn is None:
+            return
+        try:
+            with conn.cursor() as cur:
+                for row in rows:
+                    cur.execute(_INSERT_SQL, row)
+        except Exception:
+            logger.debug("web_search_log_write_failed", exc_info=True)
 
 
 def log_web_search_results(

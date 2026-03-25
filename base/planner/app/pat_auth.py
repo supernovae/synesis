@@ -55,76 +55,75 @@ def pat_has_model_scope(scopes: list[str]) -> bool:
 
 
 def resolve_pat_context_sync(token: str, dsn: str) -> PatAuthContext | None:
-    """Blocking PAT lookup + last_used update. Run via asyncio.to_thread from async handlers."""
+    """Blocking PAT lookup + last_used update. Run via asyncio.to_thread from async handlers.
+
+    Uses the shared planner Postgres pool instead of opening a new connection
+    per PAT validation — critical under concurrent multi-user load.
+    """
     if not token.startswith(_PAT_PREFIX):
         return None
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-    except ImportError:
-        logger.error("pat_auth_psycopg2_missing")
-        return None
+
+    from .pg_pool import pg_connection
 
     token_hash = _hash_pat(token)
-    try:
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-    except Exception:
-        logger.exception("pat_auth_db_connect_failed")
-        return None
 
-    try:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(
-                """
-                SELECT id, user_id, org_id, tenant_ids, username, role, scopes, expires_at
-                FROM personal_access_tokens
-                WHERE token_hash = %s
-                  AND revoked = false
-                LIMIT 1
-                """,
-                (token_hash,),
-            )
-            row = cur.fetchone()
-            if row is None:
-                return None
-            expires_at = row.get("expires_at")
-            if expires_at is not None:
-                now = datetime.now(UTC)
-                if expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=UTC)
-                if expires_at < now:
-                    return None
-
-            cur.execute(
-                "UPDATE personal_access_tokens SET last_used_at = now() WHERE id = %s",
-                (row["id"],),
-            )
-            conn.commit()
-
-        raw_scopes = row.get("scopes")
-        scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
-        raw_tenants = row.get("tenant_ids") or []
-        tenant_ids = [str(t).strip()[:64] for t in raw_tenants if str(t).strip()][:50]
-        org_id = str(row.get("org_id") or "").strip()
-        if tenant_ids and not org_id:
-            logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(row.get("id", "")))  # nosemgrep: python-logger-credential-disclosure
+    with pg_connection(autocommit=False) as conn:
+        if conn is None:
+            logger.warning("pat_auth_pool_unavailable")
             return None
-        return PatAuthContext(
-            user_id=str(row.get("user_id") or ""),
-            org_id=org_id,
-            tenant_ids=tenant_ids,
-            username=str(row.get("username") or ""),
-            role=str(row.get("role") or "user"),
-            scopes=scopes,
-            token_row_id=str(row["id"]),
-        )
-    except Exception:
-        logger.exception("pat_auth_lookup_failed")
-        with contextlib.suppress(Exception):
-            conn.rollback()
-        return None
-    finally:
-        conn.close()
+        try:
+            from psycopg2.extras import RealDictCursor
+
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT id, user_id, org_id, tenant_ids, username, role, scopes, expires_at
+                    FROM personal_access_tokens
+                    WHERE token_hash = %s
+                      AND revoked = false
+                    LIMIT 1
+                    """,
+                    (token_hash,),
+                )
+                row = cur.fetchone()
+                if row is None:
+                    return None
+                expires_at = row.get("expires_at")
+                if expires_at is not None:
+                    now = datetime.now(UTC)
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=UTC)
+                    if expires_at < now:
+                        return None
+
+                cur.execute(
+                    "UPDATE personal_access_tokens SET last_used_at = now() WHERE id = %s",
+                    (row["id"],),
+                )
+                conn.commit()
+
+            raw_scopes = row.get("scopes")
+            scopes = list(raw_scopes) if raw_scopes else ["model:readonly"]
+            raw_tenants = row.get("tenant_ids") or []
+            tenant_ids = [str(t).strip()[:64] for t in raw_tenants if str(t).strip()][:50]
+            org_id = str(row.get("org_id") or "").strip()
+            if tenant_ids and not org_id:
+                logger.warning("pat_auth_invalid_scope token_id=%s reason=tenant_ids_without_org", str(row.get("id", "")))  # nosemgrep: python-logger-credential-disclosure
+                return None
+            return PatAuthContext(
+                user_id=str(row.get("user_id") or ""),
+                org_id=org_id,
+                tenant_ids=tenant_ids,
+                username=str(row.get("username") or ""),
+                role=str(row.get("role") or "user"),
+                scopes=scopes,
+                token_row_id=str(row["id"]),
+            )
+        except Exception:
+            logger.exception("pat_auth_lookup_failed")
+            with contextlib.suppress(Exception):
+                conn.rollback()
+            return None
 
 
 async def resolve_pat_or_none(token: str) -> PatAuthContext | None:

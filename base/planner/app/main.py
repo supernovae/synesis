@@ -206,23 +206,17 @@ def _sample_memory_and_log(
 
 def _load_approved_conflict_groups() -> None:
     """Load admin-approved conflict groups from Postgres into the cohesion fast-path map."""
-    import os
+    from .pg_pool import pg_connection
 
-    db_url = os.getenv("SYNESIS_TRACE_DATABASE_URL", settings.trace_database_url)
-    if not db_url:
-        return
     try:
-        import psycopg2
-
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        conn = psycopg2.connect(dsn, connect_timeout=5)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT group_name, members, exclusion_map FROM discovered_conflict_groups WHERE status = 'approved'"
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
+        with pg_connection() as conn:
+            if conn is None:
+                return
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT group_name, members, exclusion_map FROM discovered_conflict_groups WHERE status = 'approved'"
+                )
+                rows = cur.fetchall()
 
         if rows:
             from .cohesion import _merge_db_conflict_groups

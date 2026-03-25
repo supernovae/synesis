@@ -376,19 +376,47 @@ class RedisConversationMemory:
         target = pipe or self._client
         target.expire(self._key(user_id), self._ttl)
 
+    # ── Lua scripts for atomic operations ────────────────────────────
+    #
+    # KEYS[1] = hash key, ARGV[1] = turn JSON, ARGV[2] = max_turns, ARGV[3] = TTL
+    # Atomically: read turns → append → trim → write + expire
+    _LUA_STORE_TURN = """
+    local raw = redis.call('HGET', KEYS[1], 'turns')
+    local turns
+    if raw then
+        turns = cjson.decode(raw)
+    else
+        turns = {}
+    end
+    local new_turn = cjson.decode(ARGV[1])
+    table.insert(turns, new_turn)
+    local max_t = tonumber(ARGV[2])
+    while #turns > max_t do
+        table.remove(turns, 1)
+    end
+    redis.call('HSET', KEYS[1], 'turns', cjson.encode(turns))
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+    return #turns
+    """
+    _store_turn_sha: str | None = None
+
     # ── Turn history ──────────────────────────────────────────────────
 
     def store_turn(self, user_id: str, role: str, content: str) -> None:
         key = self._key(user_id)
         turn = {"role": role, "content": content[:4096], "timestamp": time.time(), "summary": ""}
-        pipe = self._client.pipeline(transaction=True)
-        raw = self._client.hget(key, "turns")
-        turns: list[dict] = _json.loads(raw) if raw else []
-        turns.append(turn)
-        turns = turns[-self._max_turns :]
-        pipe.hset(key, "turns", _json.dumps(turns))
-        pipe.expire(key, self._ttl)
-        pipe.execute()
+        turn_json = _json.dumps(turn)
+        if self._store_turn_sha is None:
+            self.__class__._store_turn_sha = self._client.script_load(self._LUA_STORE_TURN)
+        try:
+            self._client.evalsha(
+                self._store_turn_sha, 1, key, turn_json, str(self._max_turns), str(self._ttl)
+            )
+        except Exception:
+            self.__class__._store_turn_sha = self._client.script_load(self._LUA_STORE_TURN)
+            self._client.evalsha(
+                self._store_turn_sha, 1, key, turn_json, str(self._max_turns), str(self._ttl)
+            )
 
     def get_history(self, user_id: str, max_turns: int | None = None) -> list[str]:
         raw = self._client.hget(self._key(user_id), "turns")

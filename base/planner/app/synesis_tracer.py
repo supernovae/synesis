@@ -232,36 +232,8 @@ def _compute_cost(record: TraceRecord) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Postgres persistence helpers
+# Postgres persistence — uses shared planner connection pool
 # ---------------------------------------------------------------------------
-
-_pg_conn = None
-
-
-def _get_pg():
-    """Lazy-init synchronous Postgres connection for trace writes."""
-    global _pg_conn
-    if _pg_conn is not None:
-        try:
-            _pg_conn.cursor().execute("SELECT 1")
-            return _pg_conn
-        except Exception:
-            _pg_conn = None
-
-    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        return None
-    try:
-        import psycopg2
-
-        dsn = db_url.replace("postgresql+asyncpg://", "postgresql://")
-        _pg_conn = psycopg2.connect(dsn)
-        _pg_conn.autocommit = True
-        logger.info("synesis_tracer_pg_ready")
-        return _pg_conn
-    except Exception:
-        logger.warning("synesis_tracer_pg_failed", exc_info=True)
-        return None
 
 
 _INSERT_SQL = """
@@ -328,10 +300,19 @@ def _persist_trace(record: TraceRecord) -> None:
 
     Falls back to the legacy INSERT (without actual_cost_usd) if migration
     010 hasn't been applied yet, so traces are never silently dropped.
+
+    Uses the shared planner connection pool so concurrent flushes from
+    multiple requests never contend on a single socket.
     """
-    conn = _get_pg()
-    if conn is None:
-        return
+    from .pg_pool import pg_connection
+
+    with pg_connection() as conn:
+        if conn is None:
+            return
+        _persist_trace_inner(conn, record)
+
+
+def _persist_trace_inner(conn, record: TraceRecord) -> None:
     try:
         payload = asdict(record)
         payload = redact_trace_payload(payload)

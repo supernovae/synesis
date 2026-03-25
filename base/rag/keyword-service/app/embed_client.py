@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 
-from synesis_telemetry.embed import EmbedClient
+from synesis_telemetry.embed import AsyncEmbedClient, EmbedClient
 
 EMBEDDER_URL = os.getenv(
     "EMBEDDER_URL",
     "http://embedder.synesis-rag.svc.cluster.local:8080/v1",
 )
 
-__all__ = ["EMBEDDER_URL", "EmbedClient"]
+__all__ = ["EMBEDDER_URL", "AsyncEmbedClient", "EmbedClient"]
