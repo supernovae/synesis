@@ -55,6 +55,34 @@ async def delete_session(session_key: str) -> None:
     await r.delete(_key(session_key))
 
 
+# --- Memory buffer persistence (HA cross-replica recovery) ---
+
+
+def _buf_key(session_key: str) -> str:
+    return f"yarn:buf:{session_key}"
+
+
+async def load_buffer_dict(session_key: str) -> dict | None:
+    """Load a serialized MemoryBuffer dict from Redis (returns None on miss/corruption)."""
+    r = await get_redis()
+    raw = await r.get(_buf_key(session_key))
+    if raw is None:
+        return None
+    try:
+        return msgpack.unpackb(raw, raw=False)
+    except Exception:
+        logger.warning("Corrupt buffer %s, discarding", session_key)
+        await r.delete(_buf_key(session_key))
+        return None
+
+
+async def save_buffer_dict(session_key: str, buf_dict: dict) -> None:
+    """Persist a MemoryBuffer dict to Redis with the session TTL."""
+    r = await get_redis()
+    raw = msgpack.packb(buf_dict, use_bin_type=True)
+    await r.set(_buf_key(session_key), raw, ex=settings.session_ttl_seconds)
+
+
 async def close() -> None:
     global _pool
     if _pool is not None:

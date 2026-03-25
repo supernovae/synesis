@@ -41,6 +41,7 @@ async def stream_chat_completion(
     model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
     """Stream a chat completion from the configured provider.
 
@@ -60,7 +61,7 @@ async def stream_chat_completion(
 
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        payload["tool_choice"] = tool_choice or "auto"
 
     async with client.stream(
         "POST",
@@ -80,6 +81,7 @@ async def chat_completion(
     model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    tool_choice: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Non-streaming chat completion."""
     prov = provider or settings.provider
@@ -95,7 +97,7 @@ async def chat_completion(
 
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = "auto"
+        payload["tool_choice"] = tool_choice or "auto"
 
     resp = await client.post("/chat/completions", json=payload)
     resp.raise_for_status()

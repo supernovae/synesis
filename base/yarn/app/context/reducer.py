@@ -47,6 +47,7 @@ def _context_has_payload(ctx: SynesisCoderContext) -> bool:
         or ctx.validation_results is not None
         or ctx.open_questions
         or ctx.decision_trace is not None
+        or ctx.workspace is not None
     )
 
 
@@ -63,6 +64,14 @@ def build_user_turn_content(
 
     if synesis_context is not None and _context_has_payload(synesis_context):
         parts.append(SYNESIS_STRUCTURED_OPEN)
+
+        if synesis_context.workspace is not None:
+            ws = synesis_context.workspace
+            ws_data = {k: v for k, v in ws.model_dump().items() if v}
+            if ws_data:
+                parts.append("<synesis_field name=\"workspace\">")
+                parts.append(escape_evidence_text(_json_stable(ws_data)))
+                parts.append("</synesis_field>")
 
         if synesis_context.task_pack is not None:
             parts.append("<synesis_field name=\"task_pack\">")

@@ -21,10 +21,23 @@ class EvidenceObject(BaseModel):
     body: str = ""
 
 
+class WorkspaceMetadata(BaseModel):
+    """Workspace / project context — maps to Developer Hub catalog entities."""
+
+    component_name: str = ""
+    template_id: str = ""
+    repo_url: str = ""
+    owner: str = ""
+    lifecycle: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
 class SynesisCoderContext(BaseModel):
     """Optional `synesis_context` on chat completions — all fields optional."""
 
     version: Literal["1"] = "1"
+    mode: Literal["agent", "plan", "debug", "ask"] | None = None
+    workspace: WorkspaceMetadata | None = None
     task_pack: dict[str, Any] | None = None
     taxonomy: list[str] | None = None
     trust_labels: dict[str, str] | None = None

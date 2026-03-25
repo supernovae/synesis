@@ -42,6 +42,7 @@ async def run_model(
     temperature: float | None = None,
     max_tokens: int | None = None,
     org_id: str = "",
+    tool_choice: str | dict[str, Any] | None = None,
 ) -> AsyncIterator[StreamChunk]:
     """Stream a model call with retries and circuit breaker.
 
@@ -71,6 +72,7 @@ async def run_model(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                tool_choice=tool_choice,
             ):
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 data = parse_sse_line(line)
@@ -137,6 +139,7 @@ async def run_model_sync(
     """Non-streaming model call (for summarization, etc.)."""
     prov = kwargs.get("provider") or settings.provider
     org_id = kwargs.pop("org_id", "") or ""
+    tool_choice = kwargs.pop("tool_choice", None)
     prov_str = prov.value if isinstance(prov, Provider) else prov
     breaker_key = f"{prov_str}:{org_id}" if org_id else prov_str
     breaker = _get_breaker(breaker_key)
@@ -145,7 +148,9 @@ async def run_model_sync(
         if not breaker.allow_request():
             return {"error": "Circuit breaker open"}
         try:
-            result = await providers.chat_completion(messages, tools, **kwargs)
+            result = await providers.chat_completion(
+                messages, tools, tool_choice=tool_choice, **kwargs,
+            )
             breaker.record_success()
             return result
         except Exception as e:

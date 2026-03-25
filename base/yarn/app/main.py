@@ -108,6 +108,30 @@ app.add_middleware(
 )
 
 
+def _openai_error(status_code: int, message: str, error_type: str = "invalid_request_error") -> JSONResponse:
+    """Return an OpenAI-compatible error envelope."""
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"message": message, "type": error_type, "code": str(status_code)}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def _openai_http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+    if exc.status_code == 401:
+        error_type = "authentication_error"
+    elif exc.status_code == 403:
+        error_type = "permission_error"
+    elif exc.status_code == 429:
+        error_type = "rate_limit_error"
+    elif exc.status_code >= 500:
+        error_type = "server_error"
+    else:
+        error_type = "invalid_request_error"
+    return _openai_error(exc.status_code, detail, error_type)
+
+
 # ---------------------------------------------------------------------------
 # Request / Response Models
 # ---------------------------------------------------------------------------
@@ -115,10 +139,22 @@ app.add_middleware(
 
 class ChatMessage(BaseModel):
     role: str
-    content: str | None = None
+    content: str | list[dict[str, Any]] | None = None
     name: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     tool_call_id: str | None = None
+
+    def text_content(self) -> str:
+        """Extract plain text from content (handles multipart arrays)."""
+        if self.content is None:
+            return ""
+        if isinstance(self.content, str):
+            return self.content
+        parts: list[str] = []
+        for part in self.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(part.get("text", ""))
+        return "\n".join(parts)
 
 
 class ChatCompletionRequest(BaseModel):
@@ -144,11 +180,74 @@ class ChatCompletionRequest(BaseModel):
 async def _get_buffer(session_key: str) -> MemoryBuffer:
     async with _buffers_lock:
         if session_key not in _buffers:
-            _buffers[session_key] = MemoryBuffer(
-                max_tokens=settings.memory_window_tokens,
-                pinned_budget=settings.memory_pinned_budget_tokens,
-            )
+            from .session import redis_store
+
+            buf_dict = await redis_store.load_buffer_dict(session_key)
+            if buf_dict is not None:
+                _buffers[session_key] = MemoryBuffer.from_dict(buf_dict)
+                logger.info("Recovered buffer from Redis for %s", session_key)
+            else:
+                _buffers[session_key] = MemoryBuffer(
+                    max_tokens=settings.memory_window_tokens,
+                    pinned_budget=settings.memory_pinned_budget_tokens,
+                )
         return _buffers[session_key]
+
+
+async def _persist_buffer(session_key: str, buf: MemoryBuffer) -> None:
+    """Persist the in-memory buffer to Redis for cross-replica recovery."""
+    try:
+        from .session import redis_store
+
+        await redis_store.save_buffer_dict(session_key, buf.to_dict())
+    except Exception:
+        logger.debug("Buffer persist failed for %s", session_key, exc_info=True)
+
+
+_MODE_STEERING: dict[str, str] = {
+    "agent": (
+        "You are operating in AGENT mode. Execute tasks autonomously using "
+        "available tools. Make changes, run commands, and iterate until the task is complete."
+    ),
+    "plan": (
+        "You are operating in PLAN mode. Analyze the request and propose a detailed "
+        "implementation plan. Do NOT make changes or execute tools yet — present "
+        "your approach for review first."
+    ),
+    "debug": (
+        "You are operating in DEBUG mode. Systematically investigate the issue: "
+        "gather evidence, form hypotheses, and verify fixes. Focus on root cause."
+    ),
+    "ask": (
+        "You are operating in ASK mode. Answer questions and explain code. "
+        "Do NOT make changes. Provide clear, informative explanations."
+    ),
+}
+
+
+def _apply_mode_steering(
+    buf: MemoryBuffer,
+    synesis_context: SynesisCoderContext | None,
+    tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Apply mode-specific prompt suffix and tool policy.
+
+    Returns the (possibly filtered) tools list.  Sets the system prompt
+    with the appropriate mode suffix on the buffer.
+    """
+    if synesis_context is None or synesis_context.mode is None:
+        return tools
+
+    mode = synesis_context.mode
+    steering = _MODE_STEERING.get(mode)
+    if not steering:
+        return tools
+
+    buf.set_system_prompt(SYSTEM_PROMPT + f"\n\n[Mode: {mode.upper()}]\n{steering}")
+
+    if mode in ("plan", "ask"):
+        return []
+    return tools
 
 
 def _build_sse_chunk(
@@ -191,6 +290,17 @@ async def health():
 @app.get("/health/readiness")
 async def readiness():
     return {"status": "ready"}
+
+
+@app.get("/v1")
+async def api_root():
+    """OpenAI-compatible API root — liveness check for IDE clients."""
+    return {
+        "status": "ok",
+        "service": "synesis-yarn",
+        "version": "0.1.0",
+        "endpoints": ["/v1/models", "/v1/chat/completions"],
+    }
 
 
 @app.get("/v1/models")
@@ -266,10 +376,28 @@ async def get_diagnostics_snapshot(request_id: str, request: Request):
 
 
 def _require_coder_scope(user: AuthUser) -> None:
-    """Reject PAT-authenticated requests that lack a coder scope."""
+    """Ensure the caller has a scope that permits coder/chat access.
+
+    Permissive for IDE onboarding: Keycloak JWTs (empty scopes) pass,
+    PATs with ``coder*``, ``model:*``, or ``chat:*`` pass, and PATs
+    with no scopes at all pass (default open).  Only PATs that have an
+    explicit scope list *without* any coder/model/chat entry are rejected.
+    """
     scopes = user.token_scopes
-    if scopes and not any(s.startswith("coder") for s in scopes):
-        raise HTTPException(status_code=403, detail="Token missing required scope: coder")
+    if not scopes:
+        return
+    allowed_prefixes = ("coder", "model:", "chat:")
+    if any(s.startswith(allowed_prefixes) for s in scopes):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Token scopes do not include coder access. "
+            "Required: a scope starting with 'coder', 'model:', or 'chat:'. "
+            f"Current scopes: {scopes}. "
+            "Generate a new PAT with the 'coder' scope in Admin > Security > PATs."
+        ),
+    )
 
 
 @app.post("/v1/chat/completions")
@@ -315,12 +443,39 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     if injection_detected:
         logger.warning("Injection detected in request %s", request_id)
 
+    # Seed buffer from full transcript when the buffer has no stable turns
+    # (cold start or new session). This makes Yarn behave like a stateless
+    # OpenAI endpoint on first contact while remaining session-aware for
+    # subsequent turns.
+    if buf.stable_turn_count == 0 and len(client_messages) > 1:
+        for msg in client_messages[:-1]:
+            role = msg.get("role", "")
+            content = msg.get("content", "") or ""
+            if isinstance(content, list):
+                content = "\n".join(
+                    p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+                )
+            if role == "user" and content:
+                buf.append_user(content)
+            elif role == "assistant" and content:
+                buf.append_model(content, tool_calls=msg.get("tool_calls"))
+            elif role == "tool" and content:
+                buf.append_tool_result(
+                    msg.get("tool_call_id", ""),
+                    msg.get("name", ""),
+                    content,
+                )
+        logger.info(
+            "Seeded buffer from %d client messages for session %s",
+            len(client_messages) - 1,
+            session.session_key,
+        )
+
     # Extract the latest user message and append to buffer
     user_content = ""
-    for msg in reversed(client_messages):
-        if msg.get("role") == "user":
-            user_content = msg.get("content", "")
-            break
+    last_msg = body.messages[-1] if body.messages else None
+    if last_msg and last_msg.role == "user":
+        user_content = last_msg.text_content()
 
     if user_content:
         user_body = build_user_turn_content(user_content, body.synesis_context)
@@ -335,6 +490,10 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     else:
         tools = authorized_tools
     allowed_tool_names = {t.get("function", {}).get("name", "") for t in tools if isinstance(t, dict)}
+    # Mode-based steering and tool policy
+    tools = _apply_mode_steering(buf, body.synesis_context, tools)
+    allowed_tool_names = {t.get("function", {}).get("name", "") for t in tools if isinstance(t, dict)}
+
     if tools and not any(t.get("_yarn_pin") == "tools" for t in buf._pinned):
         buf.set_tool_definitions(tools)
 
@@ -349,6 +508,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
                 model=body.model,
                 temperature=body.temperature,
                 max_tokens=body.max_tokens,
+                tool_choice=body.tool_choice,
                 start_time=start_time,
                 auth_token=bearer_token,
                 allowed_tool_names=allowed_tool_names,
@@ -369,6 +529,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
             model=body.model,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
+            tool_choice=body.tool_choice,
             start_time=start_time,
             auth_token=bearer_token,
             allowed_tool_names=allowed_tool_names,
@@ -389,6 +550,7 @@ async def _stream_agentic_loop(
     model: str,
     temperature: float | None,
     max_tokens: int | None,
+    tool_choice: str | dict[str, Any] | None,
     start_time: float,
     auth_token: str,
     allowed_tool_names: set[str],
@@ -422,6 +584,7 @@ async def _stream_agentic_loop(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 org_id=session.org_id,
+                tool_choice=tool_choice,
             ):
                 if chunk.content:
                     chunk_content += chunk.content
@@ -540,11 +703,13 @@ async def _stream_agentic_loop(
             "stop",
         )
 
+        # --- Persist buffer for HA recovery ---
+        await _persist_buffer(session.session_key, buf)
+
         # --- Eviction / compression check ---
         evicted = buf.get_evicted_turns()
         if evicted:
             logger.info("Compressing %d evicted turns", len(evicted))
-            # Fire-and-forget compression using a cheap model call
             _schedule_compression(buf, evicted, session)
     except Exception as exc:
         status = "error"
@@ -604,6 +769,7 @@ async def _non_streaming_loop(
     model: str,
     temperature: float | None,
     max_tokens: int | None,
+    tool_choice: str | dict[str, Any] | None,
     start_time: float,
     auth_token: str,
     allowed_tool_names: set[str],
@@ -626,6 +792,7 @@ async def _non_streaming_loop(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 org_id=session.org_id,
+                tool_choice=tool_choice,
             )
 
             if result.get("error"):
@@ -691,6 +858,7 @@ async def _non_streaming_loop(
             # Content response
             content = message.get("content", "")
             buf.append_model(content)
+            await _persist_buffer(session.session_key, buf)
 
             elapsed = time.monotonic() - start_time
             record_request("success", settings.provider.value, elapsed)

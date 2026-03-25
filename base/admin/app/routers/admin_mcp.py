@@ -221,6 +221,55 @@ _TOOLS: list[dict[str, Any]] = [
             "required": ["item_id"],
         },
     },
+    # ── Developer value-add tools (Yarn/Coder agents) ────────────────────
+    {
+        "name": "synesis_search",
+        "description": (
+            "Search the Synesis knowledge corpus (RAG). Returns relevant evidence "
+            "packets for coding, architecture, or operational questions."
+        ),
+        "min_role": Role.user,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Natural language search query"},
+                "top_k": {"type": "integer", "default": 5, "description": "Max results"},
+                "domain": {"type": "string", "description": "Optional domain filter"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "synesis_classify_intent",
+        "description": (
+            "Classify a developer query into Synesis taxonomy categories "
+            "(task type, complexity, domain). Useful for routing and steering."
+        ),
+        "min_role": Role.user,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The developer query to classify"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "synesis_retrieval_gaps",
+        "description": (
+            "Report a retrieval gap — a question the corpus could not answer. "
+            "Feeds the curator pipeline for knowledge improvement."
+        ),
+        "min_role": Role.user,
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The question that had no good answer"},
+                "context": {"type": "string", "description": "What was the user trying to do"},
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 
@@ -619,6 +668,92 @@ async def _ingestion_requeue_item(user: UserInfo, args: dict) -> Any:
     return await requeue_item(item_id, reset_retries=args.get("reset_retries", False), _user=user)
 
 
+async def _synesis_search(user: UserInfo, args: dict) -> Any:
+    """Search the Synesis RAG corpus via the planner's search endpoint."""
+    query = args.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+
+    import httpx
+
+    from ..config import get_settings
+
+    cfg = get_settings()
+    planner_url = cfg.planner_url or "http://synesis-planner.synesis-planner.svc.cluster.local:8000"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{planner_url}/v1/search",
+                json={
+                    "query": query,
+                    "top_k": args.get("top_k", 5),
+                    "domain": args.get("domain", ""),
+                },
+                headers={"Authorization": f"Bearer {cfg.internal_service_token}"},
+            )
+            if resp.status_code == 200:
+                return resp.json()
+            return {"results": [], "note": f"Planner search returned {resp.status_code}"}
+    except Exception as exc:
+        return {"results": [], "error": str(exc)}
+
+
+async def _synesis_classify_intent(user: UserInfo, args: dict) -> Any:
+    """Classify a developer query using lightweight heuristics."""
+    query = (args.get("query") or "").lower().strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+
+    categories: list[str] = []
+    if any(w in query for w in ("debug", "error", "fix", "crash", "traceback", "exception")):
+        categories.append("debugging")
+    if any(w in query for w in ("deploy", "kubernetes", "openshift", "helm", "container")):
+        categories.append("operations")
+    if any(w in query for w in ("test", "pytest", "coverage", "assert")):
+        categories.append("testing")
+    if any(w in query for w in ("refactor", "rename", "extract", "clean")):
+        categories.append("refactoring")
+    if any(w in query for w in ("api", "endpoint", "route", "rest", "graphql")):
+        categories.append("api_design")
+    if any(w in query for w in ("security", "auth", "rbac", "token", "jwt")):
+        categories.append("security")
+    if not categories:
+        categories.append("general_coding")
+
+    complexity = "simple"
+    if len(query.split()) > 20:
+        complexity = "moderate"
+    if len(query.split()) > 50 or any(w in query for w in ("architecture", "design", "system")):
+        complexity = "complex"
+
+    return {"categories": categories, "complexity": complexity, "query_length": len(query)}
+
+
+async def _synesis_retrieval_gaps(user: UserInfo, args: dict) -> Any:
+    """Record a retrieval gap for the curator pipeline."""
+    query = args.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query required")
+
+    from sqlalchemy import text as sa_text
+
+    from ..db.engine import async_session as db_session
+
+    context = args.get("context", "")
+    async with db_session() as session:
+        await session.execute(
+            sa_text(
+                """
+                INSERT INTO knowledge_gaps (query, context_snippet, status, source, reported_by)
+                VALUES (:query, :context, 'open', 'mcp_tool', :user_id)
+                """
+            ),
+            {"query": query[:2000], "context": context[:2000], "user_id": getattr(user, "sub", "")},
+        )
+        await session.commit()
+    return {"recorded": True, "query": query[:200]}
+
+
 _HANDLERS: dict[str, Any] = {
     "list_traces": _list_traces,
     "get_trace": _get_trace,
@@ -638,4 +773,7 @@ _HANDLERS: dict[str, Any] = {
     "ingestion_discover_url": _ingestion_discover_url,
     "ingestion_retry_item": _ingestion_retry_item,
     "ingestion_requeue_item": _ingestion_requeue_item,
+    "synesis_search": _synesis_search,
+    "synesis_classify_intent": _synesis_classify_intent,
+    "synesis_retrieval_gaps": _synesis_retrieval_gaps,
 }
