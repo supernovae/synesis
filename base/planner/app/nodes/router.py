@@ -277,7 +277,7 @@ def _get_router_llm(difficulty: float = 0.5) -> ChatOpenAI:
         temperature=0.0,
         max_completion_tokens=settings.router_max_summary_tokens,
         use_responses_api=False,
-        model_kwargs=_router_summary_kw or None,
+        model_kwargs=_router_summary_kw,
         http_client=_router_http_client,
     )
 

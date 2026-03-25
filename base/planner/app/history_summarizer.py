@@ -85,7 +85,7 @@ def _get_summarizer_llm():
             max_completion_tokens=1024,
             use_responses_api=False,
             http_client=get_llm_http_client(),
-            model_kwargs=_hs_kw or None,
+            model_kwargs=_hs_kw,
         )
         return _summarizer_llm
     except Exception as e:
