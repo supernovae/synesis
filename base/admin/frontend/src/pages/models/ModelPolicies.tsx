@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   GitBranch,
   Plus,
@@ -23,12 +23,27 @@ import {
 } from "../../api/hooks";
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
+import { EffortRoutingPreviewPanel } from "../../components/models/EffortRoutingPreviewPanel";
 
-const KNOWN_ROLES = ["router", "general", "critic", "coder-pulse", "coder-core", "coder-horizon", "summarizer"] as const;
+const KNOWN_ROLES = [
+  "router",
+  "general",
+  "general-pulse",
+  "general-core",
+  "general-horizon",
+  "critic",
+  "coder-pulse",
+  "coder-core",
+  "coder-horizon",
+  "summarizer",
+] as const;
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   router: "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
   general: "Writer + final_scrubber — general reasoning & synthesis",
+  "general-pulse": "Front-end fast effort tier — lightweight synthesis, lower-latency responses",
+  "general-core": "Front-end balanced effort tier — default quality/cost trade-off",
+  "general-horizon": "Front-end deep effort tier — broad synthesis and deeper reasoning",
   critic: "Deep reasoning — critic node evaluates drafts",
   "coder-pulse": "Fast coder tier — lightweight completions, tab-complete (Claude Haiku class)",
   "coder-core": "Balanced coder tier — agentic tasks, IDE default (Claude Sonnet class)",
@@ -415,6 +430,14 @@ function RoleCard({ role }: { role: string }) {
 
 export default function ModelPolicies() {
   const { data: allPolicies, isLoading } = useModelPolicies();
+  const [searchParams] = useSearchParams();
+  const [showEffortPreview, setShowEffortPreview] = useState(searchParams.get("preview") === "1");
+
+  useEffect(() => {
+    if (searchParams.get("preview") === "1") {
+      setShowEffortPreview(true);
+    }
+  }, [searchParams]);
   const configuredRoles = useMemo(
     () =>
       allPolicies?.policies
@@ -436,10 +459,23 @@ export default function ModelPolicies() {
             Roles without policies use the{" "}
             <Link to="/models" className="text-blue-600 dark:text-blue-400 hover:underline">
               registry default
+            </Link>{" "}
+            and you can tune Auto effort mode in{" "}
+            <Link to="/models/effort-routing" className="text-blue-600 dark:text-blue-400 hover:underline">
+              Effort Routing
             </Link>.
           </p>
         </div>
+        <button
+          onClick={() => setShowEffortPreview((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+        >
+          {showEffortPreview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {showEffortPreview ? "Hide Effort Preview" : "Show Effort Preview"}
+        </button>
       </div>
+
+      {showEffortPreview && <EffortRoutingPreviewPanel showTitle={false} />}
 
       {isLoading && (
         <EmptyState

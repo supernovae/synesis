@@ -64,6 +64,10 @@ class TestNormalizePlannerModel:
         assert normalize_planner_client_model("synesis-thinking-chat") == ("Synesis Thinking", True)
         assert normalize_planner_client_model("openai/Synesis") == ("Synesis", False)
         assert normalize_planner_client_model("openai/synesis thinking") == ("Synesis Thinking", True)
+        assert normalize_planner_client_model("synesis-auto") == ("Synesis Auto", False)
+        assert normalize_planner_client_model("synesis-pulse") == ("Synesis Pulse", False)
+        assert normalize_planner_client_model("synesis-core") == ("Synesis Core", False)
+        assert normalize_planner_client_model("synesis-horizon") == ("Synesis Horizon", False)
 
 
 class TestHealthEndpoints:
@@ -86,6 +90,10 @@ class TestModelsEndpoint:
         assert data["object"] == "list"
         assert len(data["data"]) >= 1
         ids = {m["id"] for m in data["data"]}
+        assert "Synesis Auto" in ids
+        assert "Synesis Pulse" in ids
+        assert "Synesis Core" in ids
+        assert "Synesis Horizon" in ids
         assert "Synesis" in ids
         assert "Synesis Thinking" in ids
         for m in data["data"]:
@@ -346,6 +354,38 @@ class TestFeedbackEndpoints:
     def test_get_feedback_filter_by_vote(self, client):
         resp = client.get("/v1/feedback?vote=down", headers={"Authorization": "Bearer test-key"})
         assert resp.status_code == 200
+
+
+class TestEffortRecommendationEndpoint:
+    def test_requires_bearer(self, client):
+        resp = client.post("/v1/effort/recommend", json={"prompt": "design a system"})
+        assert resp.status_code == 401
+
+    def test_returns_recommendation_payload(self, client):
+        resp = client.post(
+            "/v1/effort/recommend",
+            headers={"Authorization": "Bearer test-key"},
+            json={"prompt": "design a production architecture for multi-tenant platform", "effort_mode": "auto"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["requested_mode"] == "auto"
+        assert body["selected_mode"] in {"pulse", "core", "horizon"}
+        assert "recommendation" in body
+        assert "classification" in body
+        assert "policy" in body
+
+    def test_manual_mode_override(self, client):
+        resp = client.post(
+            "/v1/effort/recommend",
+            headers={"Authorization": "Bearer test-key"},
+            json={"prompt": "small rewrite", "effort_mode": "pulse"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["requested_mode"] == "pulse"
+        assert body["selected_mode"] == "pulse"
+        assert body["policy"]["retrieval_depth"] <= 2
 
 
 # ---------------------------------------------------------------------------

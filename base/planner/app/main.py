@@ -123,6 +123,16 @@ def _prompt_cache_put(user_id: str, prompt: str, model: str, response: str, conv
 # Open WebUI / LiteLLM: display model ids (do not use "synesis-thinking" here — that id is the separate R1 route).
 _SYNESIS_PIPELINE_IDS = frozenset({"synesis", "synesis-agent", "synesis_agent"})
 _SYNESIS_PIPELINE_THINKING_SLUGS = frozenset({"synesis-thinking-chat", "synesis-pipeline-thinking"})
+_EFFORT_MODEL_IDS = frozenset({
+    "synesis-auto",
+    "synesis-pulse",
+    "synesis-core",
+    "synesis-horizon",
+    "auto",
+    "pulse",
+    "core",
+    "horizon",
+})
 
 
 def normalize_planner_client_model(model: str | None) -> tuple[str, bool]:
@@ -148,7 +158,40 @@ def normalize_planner_client_model(model: str | None) -> tuple[str, bool]:
             return ("Synesis Thinking", True)
         if inner_dash in _SYNESIS_PIPELINE_IDS:
             return ("Synesis", False)
+        if inner_dash in _EFFORT_MODEL_IDS:
+            if inner_dash in {"synesis-pulse", "pulse"}:
+                return ("Synesis Pulse", False)
+            if inner_dash in {"synesis-horizon", "horizon"}:
+                return ("Synesis Horizon", False)
+            if inner_dash in {"synesis-core", "core"}:
+                return ("Synesis Core", False)
+            return ("Synesis Auto", False)
+    if low in _EFFORT_MODEL_IDS:
+        if low in {"synesis-pulse", "pulse"}:
+            return ("Synesis Pulse", False)
+        if low in {"synesis-horizon", "horizon"}:
+            return ("Synesis Horizon", False)
+        if low in {"synesis-core", "core"}:
+            return ("Synesis Core", False)
+        return ("Synesis Auto", False)
     return (raw, False)
+
+
+def resolve_requested_effort_mode(model: str | None, explicit_effort_mode: str | None) -> str:
+    """Resolve requested effort mode from explicit field, then model id."""
+    explicit = (explicit_effort_mode or "").strip().lower()
+    if explicit in {"auto", "pulse", "core", "horizon"}:
+        return explicit
+    low = (model or "").strip().lower()
+    if low.startswith("openai/"):
+        low = low[7:].strip().replace(" ", "-")
+    if low in {"synesis-pulse", "pulse"}:
+        return "pulse"
+    if low in {"synesis-core", "core"}:
+        return "core"
+    if low in {"synesis-horizon", "horizon"}:
+        return "horizon"
+    return "auto"
 
 
 def _get_rss_mib() -> float:
@@ -441,6 +484,7 @@ class StreamOptions(BaseModel):
 
 class ChatCompletionRequest(BaseModel):
     model: str = "Synesis"
+    effort_mode: str | None = None
     messages: list[ChatMessage]
     temperature: float = 0.2
     max_tokens: int | None = None
@@ -490,6 +534,21 @@ class ChatCompletionResponse(BaseModel):
     usage: Usage
     run_id: str | None = None  # For feedback association (echo in POST /v1/feedback)
     pipeline_trace: dict[str, Any] | None = None
+
+
+class EffortRecommendationRequest(BaseModel):
+    prompt: str
+    effort_mode: str | None = None
+    include_frame: bool = False
+    operational_health: float | None = None
+
+
+class EffortRecommendationResponse(BaseModel):
+    requested_mode: str
+    selected_mode: str
+    recommendation: dict[str, Any]
+    classification: dict[str, Any]
+    policy: dict[str, Any]
 
 
 def _is_coding_client(http_request: Request) -> bool:
@@ -1071,6 +1130,12 @@ def _build_pipeline_trace(state: dict[str, Any]) -> dict[str, Any]:
 
     trace["task_size"] = state.get("task_size", "")
     trace["iteration_count"] = state.get("iteration_count", 1)
+    trace["effort"] = {
+        "requested_mode": state.get("requested_effort_mode", "auto"),
+        "recommended_mode": state.get("recommended_effort_mode", "core"),
+        "selected_mode": state.get("selected_effort_mode", "core"),
+        "recommendation": state.get("effort_recommendation") or {},
+    }
 
     if state.get("retrieval_degraded"):
         trace["retrieval"] = {
@@ -1288,6 +1353,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     last_user_content = user_messages[-1].content if user_messages else ""
     task_size_override: str | None = None
     response_model_id, general_model_enable_thinking = normalize_planner_client_model(request.model)
+    requested_effort_mode = resolve_requested_effort_mode(request.model, request.effort_mode)
 
     # A) UI-helper filter: reject follow-up suggestions, title/tag generators EARLY
     # Must run before pivot detection to prevent UI meta-requests from triggering
@@ -1572,6 +1638,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
         "conversation_id": conversation_id or "",
         "request_max_tokens": request.effective_max_tokens,
         "general_model_enable_thinking": general_model_enable_thinking,
+        "requested_effort_mode": requested_effort_mode,
+        "selected_effort_mode": "core" if requested_effort_mode == "auto" else requested_effort_mode,
+        "recommended_effort_mode": "core",
     }
     if request.output_controls:
         oc = request.output_controls
@@ -2844,21 +2913,99 @@ async def list_models():
         "object": "list",
         "data": [
             {
+                "id": "Synesis Auto",
+                "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
+                "owned_by": "synesis",
+                "description": "Auto effort mode: routes among Pulse/Core/Horizon based on task signals and policy.",
+            },
+            {
+                "id": "Synesis Pulse",
+                "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
+                "owned_by": "synesis",
+                "description": "Fast effort mode: efficient, lower-cost, lighter-depth responses.",
+            },
+            {
+                "id": "Synesis Core",
+                "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
+                "owned_by": "synesis",
+                "description": "Balanced effort mode: default depth and quality/cost trade-off.",
+            },
+            {
+                "id": "Synesis Horizon",
+                "object": "model",
+                "created": _SYNESIS_MODEL_CREATED_EPOCH,
+                "owned_by": "synesis",
+                "description": "Deep effort mode: broadest synthesis and deepest reasoning.",
+            },
+            {
                 "id": "Synesis",
                 "object": "model",
                 "created": _SYNESIS_MODEL_CREATED_EPOCH,
                 "owned_by": "synesis",
-                "description": "Full Synesis pipeline: router, planner, evidence, writer, critic.",
+                "description": "Legacy alias for Synesis Auto.",
             },
             {
                 "id": "Synesis Thinking",
                 "object": "model",
                 "created": _SYNESIS_MODEL_CREATED_EPOCH,
                 "owned_by": "synesis",
-                "description": "Same pipeline with extended thinking on the general (writer) model when supported.",
+                "description": "Legacy alias emphasizing extended thinking behavior on compatible models.",
             },
         ],
     }
+
+
+@app.post("/v1/effort/recommend", response_model=EffortRecommendationResponse)
+async def effort_recommend(req: EffortRecommendationRequest, http_request: Request):
+    """Preview effort routing for a prompt without running the full graph."""
+    _bearer_token, _trust_forwarded_identity = _enforce_auth_and_header_trust(http_request)
+    if not _bearer_token:
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+
+    from .effort_modes import policy_for_effort
+    from .effort_router import recommend_effort_mode
+    from .nodes.entry_classifier import entry_classifier_node
+
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    # Reuse existing classifier/taxonomy pipeline (no graph run).
+    classifier_state: dict[str, Any] = {"messages": [{"role": "user", "content": prompt}], "task_description": prompt}
+    if req.operational_health is not None:
+        classifier_state["operational_health_score"] = max(0.0, min(1.0, float(req.operational_health)))
+    classified = entry_classifier_node(classifier_state)
+
+    frame_result: dict[str, Any] | None = None
+    if req.include_frame:
+        from .nodes.frame_extractor import frame_extractor_node
+
+        maybe = frame_extractor_node({**classifier_state, **classified})
+        frame_result = await maybe if asyncio.iscoroutine(maybe) else maybe
+
+    recommendation = recommend_effort_mode(classifier_state, classified, frame_result)
+    requested_mode = resolve_requested_effort_mode("synesis-auto", req.effort_mode)
+    selected_mode = requested_mode if requested_mode != "auto" else recommendation.recommended_mode
+    policy = policy_for_effort(selected_mode)
+
+    return EffortRecommendationResponse(
+        requested_mode=requested_mode,
+        selected_mode=selected_mode,
+        recommendation=recommendation.as_dict(),
+        classification={
+            "task_size": classified.get("task_size"),
+            "difficulty": classified.get("difficulty"),
+            "intent_class": classified.get("intent_class"),
+            "complexity_score": classified.get("complexity_score"),
+            "risk_score": classified.get("risk_score"),
+            "rag_mode": classified.get("rag_mode"),
+            "taxonomy_metadata": classified.get("taxonomy_metadata") or {},
+        },
+        policy=policy.as_dict(),
+    )
 
 
 class FeedbackSubmitRequest(BaseModel):

@@ -30,7 +30,7 @@ from ..api_metrics import record_frame_cache_hit, record_frame_cache_miss, recor
 from ..config import reasoning_body, settings
 from ..gliner_client import get_gliner_client
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..schemas import (
     DomainProfile,
     DomainWeight,
@@ -117,7 +117,7 @@ async def _llm_segment(raw_text: str, *, difficulty: float = 0.5) -> list[FrameU
     if _eb:
         _kw["extra_body"] = _eb
 
-    _fe_res = resolve_model("router", ModelContext(difficulty=difficulty))
+    _fe_res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     llm = ChatOpenAI(
         base_url=_fe_res.base_url,
         api_key=settings.model_api_key,

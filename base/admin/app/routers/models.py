@@ -8,11 +8,13 @@ from datetime import date as date_type
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import func, text
+from pydantic import BaseModel
+from sqlalchemy import func, select, text
 
 from ..auth import UserInfo, get_current_user
 from ..db.engine import async_session
 from ..db.models import ModelPolicy, Trace
+from ..deps import PLANNER_URL
 from ..rbac import require_org_admin, require_platform_admin, trace_scope_filters
 from ..services import prometheus_client_svc as prom
 from ..services.admin_audit import record_admin_audit
@@ -1140,6 +1142,62 @@ async def performance_by_role(
 # ---------------------------------------------------------------------------
 
 CONDITION_TYPES = ("difficulty_lt", "difficulty_gte", "account_tier", "user_preference", "always")
+
+
+class EffortRecommendationPreviewRequest(BaseModel):
+    prompt: str
+    effort_mode: str | None = None
+    include_frame: bool = False
+    operational_health: float | None = None
+
+
+def _internal_service_token() -> str:
+    token = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "").strip()
+    if token:
+        return token
+    many = os.getenv("SYNESIS_INTERNAL_SERVICE_TOKENS", "").strip()
+    if not many:
+        return ""
+    return next((t.strip() for t in many.split(",") if t.strip()), "")
+
+
+@router.post("/effort/recommend")
+async def preview_effort_recommendation(
+    req: EffortRecommendationPreviewRequest,
+    _user: UserInfo = Depends(get_current_user),
+):
+    """Proxy planner /v1/effort/recommend for admin tuning UI."""
+    prompt = (req.prompt or "").strip()
+    if not prompt:
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    service_token = _internal_service_token()
+    if not service_token:
+        raise HTTPException(status_code=503, detail="Internal service token is not configured")
+
+    planner_url = f"{PLANNER_URL.rstrip('/')}/v1/effort/recommend"
+    payload = {
+        "prompt": prompt,
+        "effort_mode": req.effort_mode,
+        "include_frame": req.include_frame,
+        "operational_health": req.operational_health,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                planner_url,
+                json=payload,
+                headers={"Authorization": f"Bearer {service_token}"},
+            )
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail=f"Planner request timed out: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Planner request failed: {exc}") from exc
+
+    if resp.status_code != 200:
+        detail = resp.text[:300] if getattr(resp, "text", "") else f"planner returned {resp.status_code}"
+        raise HTTPException(status_code=502, detail=detail)
+    return resp.json()
 
 
 @router.get("/policies")

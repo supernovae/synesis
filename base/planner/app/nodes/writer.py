@@ -25,6 +25,7 @@ from ..context_curation import curate_evidence_for_writer
 from ..contract_validator import fingerprint_draft
 from ..llm_telemetry import get_llm_http_client
 from ..llm_usage_extract import normalize_usage_dict, normalize_usage_metadata
+from ..model_policy import model_context_from_state, resolve_model
 from ..prompt_spine import (
     EPISTEMIC_WRITER,
     REGULATED_FLOOR_UNIVERSAL,
@@ -35,7 +36,6 @@ from ..short_followup_context import (
     conversation_history_to_openai_messages,
     effective_user_query,
 )
-from ..model_policy import ModelContext, resolve_model
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -740,7 +740,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
     if task_is_trivial or difficulty < trivial_threshold or no_retrieval_easy:
         raw_question = _effective_user_query(state)
         if raw_question:
-            _fast_res = resolve_model("general", ModelContext(difficulty=difficulty))
+            _fast_res = resolve_model("general", model_context_from_state(state, difficulty=difficulty))
             writer_url = _fast_res.base_url
             writer_name = _fast_res.model_name
 
@@ -794,7 +794,7 @@ async def writer_node(state: dict[str, Any]) -> dict[str, Any]:
                 ],
             }
 
-    _wr_res = resolve_model("general", ModelContext(difficulty=difficulty))
+    _wr_res = resolve_model("general", model_context_from_state(state, difficulty=difficulty))
     writer_url = _wr_res.base_url
     writer_name = _wr_res.model_name
 

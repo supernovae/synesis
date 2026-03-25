@@ -274,6 +274,12 @@ class GraphState(TypedDict, total=False):
     coding_client_detected: bool
     memory_scope: str
     general_model_enable_thinking: bool
+    requested_effort_mode: str
+    recommended_effort_mode: str
+    selected_effort_mode: str
+    effort_recommendation: dict[str, Any]
+    effort_routing_signals: dict[str, Any]
+    execution_policy: dict[str, Any]
 
     # --- Entry classifier observability ---
     classification_reasons: list[str]
@@ -515,6 +521,14 @@ class SynesisState(BaseModel):
 
     # Output controls (Phase 2)
     output_controls: dict[str, Any] = Field(default_factory=dict)
+
+    # Effort-mode abstraction
+    requested_effort_mode: str = "auto"
+    recommended_effort_mode: str = "core"
+    selected_effort_mode: str = "core"
+    effort_recommendation: dict[str, Any] = Field(default_factory=dict)
+    effort_routing_signals: dict[str, Any] = Field(default_factory=dict)
+    execution_policy: dict[str, Any] = Field(default_factory=dict)
 
     # Anti-oscillation
     style_contract_locked: dict[str, Any] = Field(default_factory=dict)

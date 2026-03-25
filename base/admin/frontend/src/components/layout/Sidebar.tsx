@@ -52,6 +52,7 @@ const navigation: NavItem[] = [
       { label: "Usage & spend", path: "/models/costs" },
       { label: "Reconciliation", path: "/models/reconcile" },
       { label: "Policies", path: "/models/policies" },
+      { label: "Effort Routing", path: "/models/effort-routing" },
       { label: "Performance", path: "/models/performance" },
     ],
   },

@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..state import NodeOutcome, NodeTrace
 
 logger = logging.getLogger("synesis.strategic_advisor")
@@ -48,7 +48,7 @@ _advisor_http_client = get_llm_http_client(uds_path=settings.advisor_model_uds o
 
 
 def _get_advisor_llm(difficulty: float = 0.5) -> ChatOpenAI:
-    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,

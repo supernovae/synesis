@@ -25,7 +25,7 @@ from langchain_openai import ChatOpenAI
 
 from ..config import settings
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..prompt_spine import EPISTEMIC_WRITER, REGULATED_FLOOR_UNIVERSAL, TRUST_UNTRUSTED_CONTEXT
 from ..state import NodeOutcome, NodeTrace
 
@@ -371,7 +371,7 @@ async def final_answer_compiler_node(state: dict[str, Any]) -> dict[str, Any]:
     writer_budget = settings.scaled_writer_budget(difficulty)
     writer_budget = max(2048, min(writer_budget, 12288))
 
-    _fac_res = resolve_model("general", ModelContext(difficulty=difficulty))
+    _fac_res = resolve_model("general", model_context_from_state(state, difficulty=difficulty))
     writer_url = _fac_res.base_url
     writer_name = _fac_res.model_name
 

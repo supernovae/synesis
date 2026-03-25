@@ -44,11 +44,25 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
     ]
 }
 
-KNOWN_ROLES = ("router", "general", "critic", "coder-pulse", "coder-core", "coder-horizon", "summarizer")
+KNOWN_ROLES = (
+    "router",
+    "general",
+    "general-pulse",
+    "general-core",
+    "general-horizon",
+    "critic",
+    "coder-pulse",
+    "coder-core",
+    "coder-horizon",
+    "summarizer",
+)
 
 ROLE_DESCRIPTIONS = {
     "router": "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
     "general": "Writer + final_scrubber — general reasoning & synthesis",
+    "general-pulse": "Front-end fast effort tier — lightweight synthesis and lower-latency responses",
+    "general-core": "Front-end balanced effort tier — default quality/cost trade-off",
+    "general-horizon": "Front-end deep effort tier — broad synthesis and deeper reasoning",
     "critic": "Deep reasoning — critic node evaluates drafts",
     "coder-pulse": "Fast coder tier — lightweight completions, refactors, tab-complete (maps to Claude Haiku class)",
     "coder-core": "Balanced coder tier — multi-step agentic tasks, default for IDE sessions (maps to Claude Sonnet class)",
@@ -57,6 +71,9 @@ ROLE_DESCRIPTIONS = {
 }
 
 ROLE_SERVED_NAMES = {
+    "general-pulse": "synesis-general-pulse",
+    "general-core": "synesis-general-core",
+    "general-horizon": "synesis-general-horizon",
     "coder-pulse": "synesis-pulse",
     "coder-core": "synesis-core",
     "coder-horizon": "synesis-horizon",

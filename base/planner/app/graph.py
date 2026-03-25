@@ -264,6 +264,9 @@ def route_after_critic(state: dict[str, Any]) -> str:
 
     iteration = state.get("iteration_count", 0)
     max_iter = state.get("max_iterations", settings.max_iterations)
+    exec_policy = state.get("execution_policy") or {}
+    critique_passes = int(exec_policy.get("critique_passes", 1) or 1)
+    max_iter = min(max_iter, max(1, critique_passes + 1))
 
     approved = state.get("critic_approved", True)
     need_evidence = state.get("need_more_evidence", False)

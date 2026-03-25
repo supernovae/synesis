@@ -7,11 +7,7 @@ import os
 from unittest.mock import patch
 
 import pytest
-
 from app.model_policy import (
-    COND_ALWAYS,
-    COND_DIFFICULTY_GTE,
-    COND_DIFFICULTY_LT,
     ModelContext,
     PolicyResolution,
     PolicyRule,
@@ -226,3 +222,24 @@ class TestCacheInvalidation:
             invalidate_cache()
             res2 = resolve_model("general", ModelContext())
             assert res2.source == "static"
+
+
+class TestEffortModeResolution:
+    def test_general_effort_mode_routes_to_effort_role(self):
+        policy = json.dumps([
+            {"condition": {"always": True}, "model": "general-pulse-model"},
+        ])
+        with patch.dict(os.environ, {"SYNESIS_GENERAL-PULSE_MODEL_POLICY": policy}):
+            invalidate_cache()
+            res = resolve_model("general", ModelContext(difficulty=0.2, selected_effort_mode="pulse"))
+            assert res.role == "general-pulse"
+            assert res.model_name == "general-pulse-model"
+
+    def test_provider_degradation_falls_back_to_general_without_effort_change(self):
+        """If effort-specific role has no configured route, resolver falls back to static general mapping."""
+        with patch.dict(os.environ, {"SYNESIS_GENERAL-PULSE_MODEL_POLICY": ""}):
+            invalidate_cache()
+            res = resolve_model("general", ModelContext(difficulty=0.2, selected_effort_mode="pulse"))
+            assert res.role == "general-pulse"
+            # static fallback remains available (implementation detail hidden behind effort contract)
+            assert res.model_name != ""

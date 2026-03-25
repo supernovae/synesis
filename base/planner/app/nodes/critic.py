@@ -25,7 +25,7 @@ from ..critic_policy import (
     should_force_pass,
 )
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..prompt_spine import (
     CRITIC_QUALITY_PRINCIPLES,
     CRITIC_TRUST_REVIEW,
@@ -332,7 +332,7 @@ _critic_http_client = get_llm_http_client(uds_path=settings.critic_model_uds or 
 
 
 def _get_critic_llm(difficulty: float = 0.5) -> ChatOpenAI:
-    res = resolve_model("critic", ModelContext(difficulty=difficulty))
+    res = resolve_model("critic", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,

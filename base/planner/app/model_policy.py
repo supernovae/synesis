@@ -20,10 +20,11 @@ import logging
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from .config import settings
+from .effort_modes import EffortMode
 
 logger = logging.getLogger("synesis.model_policy")
 
@@ -61,6 +62,13 @@ class ModelContext:
     difficulty: float = 0.5
     account_tier: str = "standard"
     user_preference: str | None = None
+    selected_effort_mode: EffortMode | None = None
+    recommended_effort_mode: EffortMode | None = None
+    ambiguity: float = 0.0
+    risk: float = 0.0
+    scope: float = 0.0
+    user_intent: float = 0.0
+    operational_health: float = 1.0
 
 
 @dataclass
@@ -81,6 +89,9 @@ class PolicyResolution:
 _ROLE_SETTINGS_MAP: dict[str, tuple[str, str, str]] = {
     "router": ("router_model_name", "router_model_url", "router_model_uds"),
     "general": ("general_model_name", "general_model_url", "general_model_uds"),
+    "general-pulse": ("general_model_name", "general_model_url", "general_model_uds"),
+    "general-core": ("general_model_name", "general_model_url", "general_model_uds"),
+    "general-horizon": ("general_model_name", "general_model_url", "general_model_uds"),
     "critic": ("critic_model_name", "critic_model_url", "critic_model_uds"),
     "summarizer": ("summarizer_model_name", "summarizer_model_url", ""),
 }
@@ -130,7 +141,11 @@ def _eval_account_tier(value: str, ctx: ModelContext) -> bool:
 
 
 def _eval_user_preference(value: str, ctx: ModelContext) -> bool:
-    return ctx.user_preference is not None and ctx.user_preference != ""
+    if ctx.user_preference is None or ctx.user_preference == "":
+        return False
+    if not value:
+        return True
+    return ctx.user_preference.lower() == value.lower()
 
 
 def _eval_always(_value: str, _ctx: ModelContext) -> bool:
@@ -250,7 +265,7 @@ def _load_policies() -> dict[str, list[PolicyRule]]:
             result.update(db_policies)
             logger.info("Loaded model policies from DB for roles: %s", list(db_policies.keys()))
 
-        for role in ("router", "general", "critic", "summarizer"):
+        for role in ("router", "general", "general-pulse", "general-core", "general-horizon", "critic", "summarizer"):
             if role not in result:
                 env_rules = _parse_env_policy(role)
                 if env_rules:
@@ -274,13 +289,20 @@ def invalidate_cache() -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _canonical_role_for_effort(role: str, ctx: ModelContext) -> str:
+    canonical = _ROLE_ALIASES.get(role, role)
+    if canonical == "general" and ctx.selected_effort_mode in {"pulse", "core", "horizon"}:
+        return f"general-{ctx.selected_effort_mode}"
+    return canonical
+
+
 def resolve_model(role: str, ctx: ModelContext) -> PolicyResolution:
     """Resolve the actual model name + base_url for a role given runtime context.
 
     Returns a PolicyResolution with the resolved model, base_url, and which
     rule matched (for tracing).
     """
-    canonical = _ROLE_ALIASES.get(role, role)
+    canonical = _canonical_role_for_effort(role, ctx)
     default_name, default_url = _static_defaults(role)
 
     policies = _load_policies()
@@ -304,6 +326,23 @@ def resolve_model(role: str, ctx: ModelContext) -> PolicyResolution:
         role=canonical,
         matched_rule=None,
         source="static",
+    )
+
+
+def model_context_from_state(state: dict[str, Any], *, difficulty: float | None = None) -> ModelContext:
+    """Build ModelContext from graph state for consistent policy evaluation."""
+    signals = state.get("effort_routing_signals") or {}
+    return ModelContext(
+        difficulty=float(difficulty if difficulty is not None else state.get("difficulty", 0.5)),
+        account_tier=str(state.get("account_tier", "standard")),
+        user_preference=(state.get("user_preference") or state.get("requested_effort_mode")),
+        selected_effort_mode=state.get("selected_effort_mode"),
+        recommended_effort_mode=state.get("recommended_effort_mode"),
+        ambiguity=float(signals.get("ambiguity", 0.0) or 0.0),
+        risk=float(signals.get("risk", state.get("risk_score", 0.0)) or 0.0),
+        scope=float(signals.get("scope", 0.0) or 0.0),
+        user_intent=float(signals.get("user_intent", 0.0) or 0.0),
+        operational_health=float(signals.get("operational_health", 1.0) or 1.0),
     )
 
 

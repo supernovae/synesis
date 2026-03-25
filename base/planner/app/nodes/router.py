@@ -27,7 +27,7 @@ from langchain_openai import ChatOpenAI
 from ..config import reasoning_body, settings
 from ..failure_store import record_error
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..rag_client import build_metadata_filter, ensure_milvus_keepalive, retrieve_multi_query_fused, warm_milvus_pool
 from ..retrieval_cache import HybridRetrievalCache, get_retrieval_cache
 from ..schemas import safe_parse_json
@@ -48,11 +48,17 @@ MAX_REFINEMENT_ROUNDS = 2
 LOW_CONFIDENCE_THRESHOLD = 0.4
 
 
-def max_docs_for_difficulty(difficulty: float = 0.5) -> int:
-    """Scale per-query doc cap: 5 for easy tasks, up to 8 for difficulty >= 0.7."""
+def max_docs_for_difficulty(difficulty: float = 0.5, retrieval_depth: int = 2) -> int:
+    """Scale per-query doc cap by difficulty and effort retrieval depth."""
     if difficulty >= 0.7:
-        return _MAX_DOCS_HARD
-    return _MAX_DOCS_BASE
+        base = _MAX_DOCS_HARD
+    else:
+        base = _MAX_DOCS_BASE
+    if retrieval_depth <= 1:
+        return max(4, base - 1)
+    if retrieval_depth >= 3:
+        return min(10, base + 1)
+    return base
 
 
 # Backwards-compat alias used by tests
@@ -254,7 +260,7 @@ if _summarizer_extra:
 
 def _get_router_query_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Tight LLM for short-form outputs: query gen, HyDE, expansion, refine."""
-    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,
@@ -269,7 +275,7 @@ def _get_router_query_llm(difficulty: float = 0.5) -> ChatOpenAI:
 
 def _get_router_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Router LLM for summarization (larger output budget)."""
-    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,
@@ -284,7 +290,7 @@ def _get_router_llm(difficulty: float = 0.5) -> ChatOpenAI:
 
 def _get_summarizer_llm(difficulty: float = 0.5) -> ChatOpenAI:
     """Evidence packet summarization — uses summarizer route (synesis-summarizer) via LiteLLM."""
-    res = resolve_model("summarizer", ModelContext(difficulty=difficulty))
+    res = resolve_model("summarizer", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,
@@ -312,6 +318,7 @@ class RouterNode:
     ) -> None:
         self.cache = cache or get_retrieval_cache()
         self._difficulty: float = 0.5
+        self._retrieval_depth: int = 2
         timeout = float(getattr(settings, "node_timeout_seconds", 180.0))
         self.request_timeout_seconds = max(30.0, timeout * 0.7)
         self.retrieve_timeout_seconds = max(15.0, min(90.0, timeout * 0.4))
@@ -587,7 +594,7 @@ class RouterNode:
         """Call unified retrieval with bounds enforcement and taxonomy-driven filtering."""
         web_query = query[:80]
 
-        doc_cap = max_docs_for_difficulty(difficulty)
+        doc_cap = max_docs_for_difficulty(difficulty, self._retrieval_depth)
         bundle = await retrieve_unified(
             query=query,
             difficulty=difficulty,
@@ -836,7 +843,7 @@ class RouterNode:
         )
 
         per_query_limit = 25
-        final_top_k = max_docs_for_difficulty(difficulty) * 6
+        final_top_k = max_docs_for_difficulty(difficulty, self._retrieval_depth) * 6
 
         t_retrieve = time.monotonic()
         emit_sub_phase(f"Retrieving evidence ({len(queries)} queries, fused)\u2026")
@@ -1282,6 +1289,8 @@ class RouterNode:
         task_frame = state.get("task_frame") or {}
         difficulty = state.get("difficulty", 0.5)
         self._difficulty = difficulty
+        execution_policy = state.get("execution_policy") or {}
+        self._retrieval_depth = int(execution_policy.get("retrieval_depth", 2) or 2)
         rag_mode = state.get("rag_mode", "normal")
         taxonomy_metadata = state.get("taxonomy_metadata") or {}
         task_context = f"{task_desc}\n{json.dumps(task_frame, default=str)[:500]}"

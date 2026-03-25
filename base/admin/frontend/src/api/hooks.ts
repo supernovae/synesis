@@ -2185,3 +2185,44 @@ export function useDeleteRolePolicies() {
     },
   });
 }
+
+export interface EffortRecommendationPreviewRequest {
+  prompt: string;
+  effort_mode?: "auto" | "pulse" | "core" | "horizon" | null;
+  include_frame?: boolean;
+  operational_health?: number | null;
+}
+
+export interface EffortRecommendationPreviewResponse {
+  requested_mode: "auto" | "pulse" | "core" | "horizon";
+  selected_mode: "pulse" | "core" | "horizon";
+  recommendation: {
+    recommended_mode: "pulse" | "core" | "horizon";
+    confidence: number;
+    reasons: string[];
+    routing_signals: {
+      complexity: number;
+      ambiguity: number;
+      risk: number;
+      scope: number;
+      user_intent: number;
+      operational_health: number;
+    };
+  };
+  classification: Record<string, unknown>;
+  policy: {
+    retrieval_depth: number;
+    tool_budget: number;
+    critique_passes: number;
+    planner_depth: number;
+    context_budget: number;
+    graph_variant: string;
+    response_depth: string;
+  };
+}
+
+export function useEffortRecommendationPreview() {
+  return useMutation<EffortRecommendationPreviewResponse, Error, EffortRecommendationPreviewRequest>({
+    mutationFn: (data) => client.post("/models/effort/recommend", data).then((r) => r.data),
+  });
+}

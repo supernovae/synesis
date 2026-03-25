@@ -254,3 +254,56 @@ def test_traces_hallucination_filter(client):
 def test_traces_stats(client):
     resp = client.get("/api/v1/traces/stats")
     assert resp.status_code == 200
+
+
+def test_models_effort_recommend_preview(client, monkeypatch):
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {
+                "requested_mode": "auto",
+                "selected_mode": "core",
+                "recommendation": {
+                    "recommended_mode": "core",
+                    "confidence": 0.8,
+                    "reasons": ["test"],
+                    "routing_signals": {
+                        "complexity": 0.5,
+                        "ambiguity": 0.4,
+                        "risk": 0.3,
+                        "scope": 0.4,
+                        "user_intent": 0.5,
+                        "operational_health": 1.0,
+                    },
+                },
+                "classification": {"difficulty": "moderate"},
+                "policy": {"retrieval_depth": 5},
+            }
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            return _Resp()
+
+    monkeypatch.setenv("SYNESIS_INTERNAL_SERVICE_TOKEN", "test-token")
+    monkeypatch.setattr("app.routers.models.httpx.AsyncClient", lambda timeout=20.0: _Client())
+
+    resp = client.post(
+        "/api/v1/models/effort/recommend",
+        json={
+            "prompt": "Design a scalable architecture",
+            "effort_mode": "auto",
+            "include_frame": False,
+            "operational_health": 1.0,
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["selected_mode"] == "core"

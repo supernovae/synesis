@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from ..config import reasoning_body, settings
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..state import NodeOutcome, NodeTrace
 from ..synesis_tracer import get_synesis_tracer
 
@@ -238,7 +238,7 @@ async def _shallow_coherence_check(
     _pg_rb = reasoning_body(settings.router_reasoning_effort)
     if _pg_rb:
         _pg_kw["extra_body"] = _pg_rb
-    _pg_res = resolve_model("router", ModelContext(difficulty=difficulty))
+    _pg_res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     llm = ChatOpenAI(
         base_url=_pg_res.base_url,
         api_key=settings.model_api_key,

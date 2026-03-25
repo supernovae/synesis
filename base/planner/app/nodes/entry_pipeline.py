@@ -32,6 +32,8 @@ from typing import Any
 import httpx
 
 from ..config import settings
+from ..effort_modes import EffortMode, EffortRecommendation, policy_for_effort
+from ..effort_router import recommend_effort_mode
 from ..streaming_events import emit_sub_phase
 from ..synesis_tracer import get_synesis_tracer
 from .entry_classifier import entry_classifier_node
@@ -39,6 +41,35 @@ from .frame_extractor import frame_extractor_node
 from .strategic_advisor import strategic_advisor_node
 
 logger = logging.getLogger("synesis.entry_pipeline")
+
+
+def _normalize_effort_mode(raw: Any) -> EffortMode:
+    val = str(raw or "auto").strip().lower()
+    if val in {"pulse", "core", "horizon"}:
+        return val  # type: ignore[return-value]
+    return "auto"
+
+
+def _to_effort_state(requested_mode: EffortMode, recommendation: EffortRecommendation) -> dict[str, Any]:
+    selected_mode: EffortMode = requested_mode if requested_mode != "auto" else recommendation.recommended_mode
+    if requested_mode != "auto":
+        rec = EffortRecommendation(
+            recommended_mode=requested_mode,
+            confidence=1.0,
+            reasons=["manual_effort_override"],
+            routing_signals=recommendation.routing_signals,
+        )
+    else:
+        rec = recommendation
+    rec_dict = rec.as_dict()
+    return {
+        "requested_effort_mode": requested_mode,
+        "recommended_effort_mode": rec.recommended_mode,
+        "selected_effort_mode": selected_mode,
+        "effort_recommendation": rec_dict,
+        "effort_routing_signals": rec_dict.get("routing_signals", {}),
+        "execution_policy": policy_for_effort(selected_mode).as_dict(),
+    }
 
 
 def _has_session_context(state: dict[str, Any]) -> bool:
@@ -73,6 +104,9 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     _difficulty = classified.get("difficulty", 0)
     _intent = classified.get("intent_class", "")
     emit_sub_phase(f"Classified: {_intent} (difficulty {_difficulty:.1f})")
+    requested_mode = _normalize_effort_mode(state.get("requested_effort_mode"))
+    recommendation = recommend_effort_mode(state, classified, None)
+    effort_state = _to_effort_state(requested_mode, recommendation)
 
     # Session resume: if a prior checkpoint already set semantic_frame and
     # style_contract_locked, skip the expensive advisor + frame_extractor.
@@ -84,6 +118,7 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
         )
         emit_sub_phase("Resuming session context\u2026")
         classified["current_node"] = "entry_pipeline"
+        classified.update(effort_state)
         return classified
 
     # Fast-path: skip advisor (~1s) and frame_extractor (~4-8s) when:
@@ -118,6 +153,7 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
                 },
             )
         classified["current_node"] = "entry_pipeline"
+        classified.update(effort_state)
         return classified
 
     # Build intermediate state visible to the parallel branches
@@ -140,6 +176,8 @@ async def entry_pipeline_node(state: dict[str, Any]) -> dict[str, Any]:
     combined.update(classified)
     combined.update(advisor_result)
     combined.update(frame_result)
+    recommendation = recommend_effort_mode(state, classified, frame_result)
+    combined.update(_to_effort_state(requested_mode, recommendation))
 
     # Merge node_traces from all three phases
     traces: list[Any] = []

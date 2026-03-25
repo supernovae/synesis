@@ -43,6 +43,36 @@ roles:
     pvc_subpath: "general-model"
     deployment_name: "synesis-general"
 
+  general-pulse:
+    description: "Front-end fast effort tier — lightweight synthesis and lower-latency responses"
+    default_model: "meta-llama/Llama-3.3-70B-Instruct"
+    served_model_name: "synesis-general-pulse"
+    service_name: "synesis-general-pulse"
+    namespace: "synesis-models"
+    pvc_name: "synesis-models-efs"
+    pvc_subpath: "general-pulse-model"
+    deployment_name: "synesis-general-pulse"
+
+  general-core:
+    description: "Front-end balanced effort tier — default quality/cost trade-off"
+    default_model: "deepseek-ai/DeepSeek-R1-0528"
+    served_model_name: "synesis-general-core"
+    service_name: "synesis-general-core"
+    namespace: "synesis-models"
+    pvc_name: "synesis-models-efs"
+    pvc_subpath: "general-core-model"
+    deployment_name: "synesis-general-core"
+
+  general-horizon:
+    description: "Front-end deep effort tier — broad synthesis and deeper reasoning"
+    default_model: "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo"
+    served_model_name: "synesis-general-horizon"
+    service_name: "synesis-general-horizon"
+    namespace: "synesis-models"
+    pvc_name: "synesis-models-efs"
+    pvc_subpath: "general-horizon-model"
+    deployment_name: "synesis-general-horizon"
+
   coder-pulse:
     description: "Fast coder tier — lightweight completions, tab-complete (Haiku class)"
     default_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"

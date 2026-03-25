@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 from ..clarification_helpers import is_clarification_proceed_waiver
 from ..config import reasoning_body, settings
 from ..llm_telemetry import get_llm_http_client
-from ..model_policy import ModelContext, resolve_model
+from ..model_policy import model_context_from_state, resolve_model
 from ..prompt_spine import TRUST_UNTRUSTED_CONTEXT
 from ..schemas import DecisionEntry, PlanBody, PlannerOut, StyleContract, parse_and_validate, safe_parse_json
 from ..state import NodeOutcome, NodeTrace
@@ -244,7 +244,7 @@ _planner_http_client = get_llm_http_client(uds_path=settings.planner_model_uds o
 
 
 def _get_planner_llm(difficulty: float = 0.5) -> ChatOpenAI:
-    res = resolve_model("router", ModelContext(difficulty=difficulty))
+    res = resolve_model("router", model_context_from_state({}, difficulty=difficulty))
     return ChatOpenAI(
         base_url=res.base_url,
         api_key=settings.model_api_key,
