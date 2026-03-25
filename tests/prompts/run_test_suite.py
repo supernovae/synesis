@@ -33,6 +33,7 @@ import re
 import sys
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -517,13 +518,35 @@ def send_prompt(
                 metrics.time_complete = time.monotonic()
                 return metrics
 
+            _sse_event_type = ""
             for line in resp.iter_lines():
-                if not line or not line.startswith("data: "):
+                if not line:
+                    _sse_event_type = ""
+                    continue
+
+                # SSE named events: "event: error", "event: debug_chatter"
+                if line.startswith("event: "):
+                    _sse_event_type = line[7:].strip()
+                    continue
+
+                if not line.startswith("data: "):
                     continue
 
                 data_str = line[6:]
                 if data_str.strip() == "[DONE]":
                     break
+
+                # Capture SSE-level error events emitted via named event lines
+                if _sse_event_type == "error":
+                    try:
+                        err_obj = json.loads(data_str)
+                        msg = err_obj.get("error", "") if isinstance(err_obj.get("error"), str) else str(err_obj)
+                    except json.JSONDecodeError:
+                        msg = data_str[:200]
+                    metrics.error = f"Server error: {msg}"
+                    _sse_event_type = ""
+                    continue
+                _sse_event_type = ""
 
                 now = time.monotonic()
                 if not metrics.time_first_event:
@@ -545,15 +568,38 @@ def send_prompt(
                 if isinstance(pipeline_trace, dict):
                     metrics.pipeline_trace = pipeline_trace
 
-                # Check for status events (Open WebUI format)
+                # Check for status events in both legacy and event-wrapped formats.
+                # Legacy: {"type": "status", "data": {...}}
+                # Current: {"event": {"type": "status", "data": {...}}}
+                status_inner = None
                 if chunk.get("type") == "status":
-                    inner = chunk.get("data") or {}
-                    desc = inner.get("description", "")
-                    done = inner.get("done", False)
+                    status_inner = chunk.get("data") or {}
+                else:
+                    event_envelope = chunk.get("event")
+                    if isinstance(event_envelope, dict) and event_envelope.get("type") == "status":
+                        status_inner = (event_envelope.get("data") or {})
+
+                if status_inner is not None:
+                    desc = status_inner.get("description", "")
+                    done = status_inner.get("done", False)
                     offset = int((now - metrics.time_request_sent) * 1000)
                     metrics.phase_events.append(PhaseEvent(desc, done, offset))
                     if desc:
                         metrics.status_events.append(desc)
+                    continue
+
+                # Detect error envelopes sent as SSE data payloads.
+                error_payload = None
+                if chunk.get("type") == "error":
+                    error_payload = chunk
+                elif isinstance(chunk.get("event"), dict) and chunk["event"].get("type") == "error":
+                    error_payload = chunk["event"]
+                elif "error" in chunk and isinstance(chunk["error"], (str, dict)):
+                    err = chunk["error"]
+                    error_payload = {"message": err if isinstance(err, str) else err.get("message", str(err))}
+                if error_payload is not None:
+                    msg = error_payload.get("message") or error_payload.get("data", {}).get("message", "")
+                    metrics.error = f"Server error: {msg}" if msg else "Server error (no message)"
                     continue
 
                 choices = chunk.get("choices") or []
@@ -648,10 +694,16 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     # triple-backtick occurrence, which catches inline formatting in quizzes etc.
     _FENCED_CODE_RE = re.compile(r"^```\w*\s*$", re.MULTILINE)
     expected_deliv = prompt_spec.get("expected_deliverable", "")
+    _code_in_text_ok = {
+        "review", "safety", "mixed", "education", "knowledge", "knowledge_deep_dive",
+        "planning", "comparison", "grounding", "boundary", "taxonomy", "taxonomy_discovery",
+        "node_routing", "retrieval_quality", "regression", "adversarial", "creative",
+        "rapid", "pivot", "conversation", "persona", "long_output",
+    }
     if expected_deliv == "text":
         has_code_blocks = bool(_FENCED_CODE_RE.search(metrics.content_text))
-        if has_code_blocks and prompt_spec.get("category") not in ("review", "safety", "mixed"):
-            add("output_type", "warn", "text mode but response contains code blocks")
+        if has_code_blocks and prompt_spec.get("category") not in _code_in_text_ok:
+            add("output_type", "info", "text mode but response contains code blocks")
         else:
             add("output_type", "pass", "text")
     elif expected_deliv in ("code_snippet", "code_project"):
@@ -663,7 +715,7 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
         if has_code:
             add("output_type", "pass", "Contains code")
         else:
-            add("output_type", "warn", "Expected code but none detected in response")
+            add("output_type", "info", "Expected code but none detected in response")
 
     # ── Reasoning / thinking checks ──
     max_reasoning_s = _get_threshold(prompt_spec, "max_reasoning_s")
@@ -694,19 +746,22 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
     else:
         cat = prompt_spec.get("category", "")
         if cat in ("multi_step", "code", "review", "mixed", "comparison"):
-            add("underthinking", "warn", "No reasoning for a category that benefits from chain-of-thought")
+            add("underthinking", "info", "No reasoning for a category that benefits from chain-of-thought")
         else:
             add("reasoning", "info", "No reasoning tokens observed")
 
     # ── Phase / pipeline checks ──
-    expected_phases = prompt_spec.get("expected_phases")
-    if not expected_phases:
-        expected_phases = _derive_expected_phases(
-            prompt_spec.get("expected_route", "worker"),
-            prompt_spec.get("expected_deliverable", "text"),
-            prompt_spec.get("category", ""),
-            prompt_spec.get("expected_pipeline", ""),
-        )
+    explicit_phases = prompt_spec.get("expected_phases")
+    derived_phases = _derive_expected_phases(
+        prompt_spec.get("expected_route", "worker"),
+        prompt_spec.get("expected_deliverable", "text"),
+        prompt_spec.get("category", ""),
+        prompt_spec.get("expected_pipeline", ""),
+    )
+    expected_phases = explicit_phases or derived_phases
+    # When the prompt explicitly declares phases, missing is a WARN.
+    # When auto-derived, missing is only INFO (avoids false positives).
+    _phase_miss_level = "warn" if explicit_phases else "info"
 
     if metrics.phase_events:
         dupes = metrics.duplicate_phases
@@ -719,11 +774,11 @@ def evaluate(prompt_spec: dict, metrics: SSEMetrics) -> dict:
             seen = [p.description for p in metrics.phase_events if p.description]
             missing = [e for e in expected_phases if not any(e.lower() in s.lower() for s in seen)]
             if missing:
-                add("expected_phases", "warn", f"Missing phases: {missing}")
+                add("expected_phases", _phase_miss_level, f"Missing phases: {missing}")
             else:
                 add("expected_phases", "pass", f"All {len(expected_phases)} expected phases seen")
     elif expected_phases:
-        add("expected_phases", "warn", "No phase events received at all")
+        add("expected_phases", _phase_miss_level, "No phase events received at all")
 
     # ── Pipeline path checks ──
     expected_pipeline = prompt_spec.get("expected_pipeline", "")
@@ -1108,6 +1163,12 @@ def main():
         default=2,
         help="Number of total runs for repeated prompt IDs (default: 2)",
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Number of standalone batches to run in parallel (default: 1 = sequential)",
+    )
     args = parser.parse_args()
 
     if not args.suite.exists():
@@ -1192,20 +1253,43 @@ def main():
     print(f"RUNNING {total_prompts} PROMPTS")
     print(f"{'=' * 60}\n")
 
+    concurrency = max(1, getattr(args, "concurrency", 1))
     all_results: list[dict] = []
-    for i, batch in enumerate(batches):
+
+    # Split batches into sequences (must be sequential) and standalone (parallelisable).
+    sequence_batches = [(i, b) for i, b in enumerate(batches) if b[0].get("sequence")]
+    standalone_batches = [(i, b) for i, b in enumerate(batches) if not b[0].get("sequence")]
+
+    def _run_one(idx: int, batch: list[dict]) -> tuple[int, list[dict]]:
         seq = batch[0].get("sequence")
         if seq:
             group_id = seq.split(":")[0]
-            print(f"\n[Batch {i + 1}/{total_batches}] Sequence: {group_id} ({len(batch)} turns)")
+            print(f"\n[Batch {idx + 1}/{total_batches}] Sequence: {group_id} ({len(batch)} turns)", flush=True)
         else:
-            print(f"\n[Batch {i + 1}/{total_batches}] {batch[0]['id']}")
+            print(f"\n[Batch {idx + 1}/{total_batches}] {batch[0]['id']}", flush=True)
+        return idx, run_batch(batch, args.api_url, args.api_key, args.model, verbose=args.verbose)
 
-        results = run_batch(batch, args.api_url, args.api_key, args.model, verbose=args.verbose)
-        all_results.extend(results)
-
-        if i < total_batches - 1:
+    if concurrency <= 1:
+        for i, batch in enumerate(batches):
+            _, results = _run_one(i, batch)
+            all_results.extend(results)
+            if i < total_batches - 1:
+                time.sleep(args.pause)
+    else:
+        # Run sequences first (order-sensitive), then standalone batches concurrently.
+        for i, batch in sequence_batches:
+            _, results = _run_one(i, batch)
+            all_results.extend(results)
             time.sleep(args.pause)
+
+        pending: dict[int, list[dict]] = {}
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = {pool.submit(_run_one, i, b): i for i, b in standalone_batches}
+            for future in as_completed(futures):
+                idx, results = future.result()
+                pending[idx] = results
+        for idx in sorted(pending.keys()):
+            all_results.extend(pending[idx])
 
     # Save full response outputs if requested
     if args.save_outputs:

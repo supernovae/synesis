@@ -1769,6 +1769,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _pending_next: asyncio.Task | None = None
 
                 _block_fixer = StreamingBlockFixer() if stream_content else None
+                _graph_had_error = False
 
                 try:
                     _event_iter = graph.astream_events(
@@ -2138,6 +2139,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             )
 
                 except Exception as _graph_exc:
+                    _graph_had_error = True
                     _cur_node = accumulated_state.get("current_node", "unknown") if accumulated_state else "unknown"
                     _nxt_node = accumulated_state.get("next_node", "unknown") if accumulated_state else "unknown"
                     _err_state = accumulated_state.get("error", "") if accumulated_state else ""
@@ -2178,10 +2180,17 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     if _pending_next is not None and not _pending_next.done():
                         _pending_next.cancel()
                     _tracer_usage = snapshot_tracer_usage()
-                    flush_tracer()
+                    _tracer_flushed = False
+                    # On graph errors the except block returns early and won't
+                    # reach the deferred flush point — flush now.
+                    if _graph_had_error:
+                        flush_tracer()
+                        _tracer_flushed = True
 
                 # Stream already closed (background critic mode) — skip all post-processing
                 if _stream_closed:
+                    if not _tracer_flushed:
+                        flush_tracer()
                     return
 
                 _msgs = accumulated_state.get("messages")
@@ -2189,6 +2198,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 if not _msgs or not _has_ai_msg:
                     if _msgs and not _has_ai_msg:
                         logger.warning("sse_no_ai_message msg_count=%d", len(_msgs))
+                    if not _tracer_flushed:
+                        flush_tracer()
                     yield f"event: error\ndata: {json.dumps({'error': 'Graph produced no result'})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
@@ -2366,42 +2377,55 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                 },
                             )
 
-                        if _ds_usage:
-                            _ds_node = accumulated_state.get("current_node") or "writer"
-                            _ds_elapsed = (time.monotonic() - _ds_t0) * 1000
-                            _ds_prompt_text = ""
-                            _ds_msgs = _stream_req.get("messages") or []
-                            if _ds_msgs:
-                                _last_msg = _ds_msgs[-1]
-                                _ds_prompt_text = (
-                                    _last_msg.get("content", "") if isinstance(_last_msg, dict) else str(_last_msg)
-                                )
-                            from .synesis_tracer import get_synesis_tracer as _get_ds_tracer
-
-                            _ds_tracer = _get_ds_tracer()
-                            if _ds_tracer is not None:
-                                _ds_tracer.record_direct_stream_usage(
-                                    node=_ds_node,
-                                    model=_ds_model,
-                                    prompt_tokens=_ds_usage["prompt_tokens"],
-                                    completion_tokens=_ds_usage["completion_tokens"],
-                                    cached_prompt_tokens=_ds_usage.get("cached_prompt_tokens", 0),
-                                    prompt_text=_ds_prompt_text,
-                                    completion_text=_ds_full_content,
-                                    latency_ms=_ds_elapsed,
-                                )
-
-                            from .token_utils import apply_budget_decrement
-                            _ds_total_tokens = _ds_usage.get("total_tokens") or (
-                                _ds_usage["prompt_tokens"] + _ds_usage["completion_tokens"]
+                        # Always record the direct-stream LLM call in traces,
+                        # using provider usage when available or a content-length
+                        # estimate when the provider didn't return a usage payload.
+                        _ds_node = accumulated_state.get("current_node") or "writer"
+                        _ds_elapsed = (time.monotonic() - _ds_t0) * 1000
+                        _ds_prompt_text = ""
+                        _ds_msgs = _stream_req.get("messages") or []
+                        if _ds_msgs:
+                            _last_msg = _ds_msgs[-1]
+                            _ds_prompt_text = (
+                                _last_msg.get("content", "") if isinstance(_last_msg, dict) else str(_last_msg)
                             )
-                            _ds_budget = apply_budget_decrement(
-                                accumulated_state,
-                                _ds_total_tokens,
-                                role="direct_stream",
-                                run_id=run_id,
+
+                        if not _ds_usage:
+                            _est_comp = max(len(_ds_full_content) // 4, 1) if _ds_full_content else 0
+                            _est_prompt = max(sum(len(str(m.get("content", ""))) for m in _ds_msgs) // 4, 1)
+                            _ds_usage = {
+                                "prompt_tokens": _est_prompt,
+                                "completion_tokens": _est_comp,
+                                "cached_prompt_tokens": 0,
+                            }
+                            _ds_usage["_estimated"] = True  # type: ignore[assignment]
+
+                        from .synesis_tracer import get_synesis_tracer as _get_ds_tracer
+
+                        _ds_tracer = _get_ds_tracer()
+                        if _ds_tracer is not None:
+                            _ds_tracer.record_direct_stream_usage(
+                                node=_ds_node,
+                                model=_ds_model,
+                                prompt_tokens=_ds_usage["prompt_tokens"],
+                                completion_tokens=_ds_usage["completion_tokens"],
+                                cached_prompt_tokens=_ds_usage.get("cached_prompt_tokens", 0),
+                                prompt_text=_ds_prompt_text,
+                                completion_text=_ds_full_content,
+                                latency_ms=_ds_elapsed,
                             )
-                            accumulated_state["token_budget_remaining"] = _ds_budget.remaining
+
+                        from .token_utils import apply_budget_decrement
+                        _ds_total_tokens = _ds_usage.get("total_tokens") or (
+                            _ds_usage["prompt_tokens"] + _ds_usage["completion_tokens"]
+                        )
+                        _ds_budget = apply_budget_decrement(
+                            accumulated_state,
+                            _ds_total_tokens,
+                            role="direct_stream",
+                            run_id=run_id,
+                        )
+                        accumulated_state["token_budget_remaining"] = _ds_budget.remaining
                     except Exception:
                         _ds_node = accumulated_state.get("current_node") or "writer"
                         _ds_prompt_text = ""
@@ -2510,6 +2534,13 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                         "first_content_ms": _diag_first_content_ms,
                     },
                 )
+
+                # Re-snapshot tracer usage to include any direct-stream call,
+                # then flush the trace to Postgres.
+                _tracer_usage = snapshot_tracer_usage()
+                if not _tracer_flushed:
+                    flush_tracer()
+                    _tracer_flushed = True
 
                 pipeline_trace = _build_pipeline_trace(accumulated_state)
                 _final_finish = "length" if accumulated_state.get("writer_truncated") else "stop"
