@@ -1,0 +1,11 @@
+{
+  "model": "claude-opus-4-6",
+  "max_tokens": 16384,
+  "thinking": {
+    "type": "enabled",
+    "budget_tokens": 10000
+  },
+  "messages": [
+    {"role": "user", "content": "What is the GCD of 1071 and 462?"}
+  ]
+}

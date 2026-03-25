@@ -24,13 +24,15 @@ import {
 import { ApiErrorBanner } from "../../components/common/ApiErrorBanner";
 import EmptyState from "../../components/common/EmptyState";
 
-const KNOWN_ROLES = ["router", "general", "critic", "coder", "summarizer"] as const;
+const KNOWN_ROLES = ["router", "general", "critic", "coder-pulse", "coder-core", "coder-horizon", "summarizer"] as const;
 
 const ROLE_DESCRIPTIONS: Record<string, string> = {
   router: "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
   general: "Writer + final_scrubber — general reasoning & synthesis",
   critic: "Deep reasoning — critic node evaluates drafts",
-  coder: "IDE direct endpoint (Cursor, Claude Code) — not in planner graph",
+  "coder-pulse": "Fast coder tier — lightweight completions, tab-complete (Claude Haiku class)",
+  "coder-core": "Balanced coder tier — agentic tasks, IDE default (Claude Sonnet class)",
+  "coder-horizon": "Deep reasoning coder tier — architecture, complex debugging (Claude Opus class)",
   summarizer: "Pivot history summarization — router evidence compression",
 };
 

@@ -7,8 +7,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..config import settings
-
 logger = logging.getLogger("yarn.model.usage")
 
 
@@ -26,20 +24,20 @@ class UsageRecord:
     timestamp: float = field(default_factory=time.time)
     escalated: bool = False
     finish_reason: str = ""
+    input_per_m: float = 0.0
+    output_per_m: float = 0.0
+    cached_per_m: float = 0.0
 
     @property
     def tokens_uncached(self) -> int:
         return max(0, self.tokens_in - self.tokens_cached)
 
     def compute_cost(self) -> float:
-        """Compute cost based on provider pricing."""
-        if self.provider == "deepinfra":
-            cached_cost = (self.tokens_cached / 1_000_000) * settings.deepinfra_cached_per_m
-            uncached_cost = (self.tokens_uncached / 1_000_000) * settings.deepinfra_input_per_m
-            output_cost = (self.tokens_out / 1_000_000) * settings.deepinfra_output_per_m
-            self.cost_usd = cached_cost + uncached_cost + output_cost
-        elif self.provider == "local":
-            self.cost_usd = 0.0
+        """Compute cost using per-tier rates."""
+        cached_cost = (self.tokens_cached / 1_000_000) * self.cached_per_m
+        uncached_cost = (self.tokens_uncached / 1_000_000) * self.input_per_m
+        output_cost = (self.tokens_out / 1_000_000) * self.output_per_m
+        self.cost_usd = cached_cost + uncached_cost + output_cost
         return self.cost_usd
 
     def to_dict(self) -> dict[str, Any]:

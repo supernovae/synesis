@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 
 from pydantic import Field
@@ -14,6 +15,11 @@ class Provider(str, Enum):
     LITELLM = "litellm"
 
 
+class ToolSearchMode(str, Enum):
+    PASSTHROUGH = "passthrough"
+    DISABLE = "disable"
+
+
 class Settings(BaseSettings):
     model_config = {"env_prefix": "SYNESIS_YARN_"}
 
@@ -24,14 +30,23 @@ class Settings(BaseSettings):
     deepinfra_api_key: str = Field(default="", alias="DEEPINFRA_API_KEY")
     deepinfra_base_url: str = "https://api.deepinfra.com/v1/openai"
 
-    # --- Model ---
-    model: str = "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo"
-    model_url: str = "http://synesis-coder.synesis-models.svc.cluster.local:8080/v1"
+    # --- Model tiers (env-var fallback; admin API is authoritative when reachable) ---
+    pulse_model: str = "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+    pulse_url: str = ""
+    pulse_api_key: str = ""
+    core_model: str = "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo"
+    core_url: str = ""
+    core_api_key: str = ""
+    horizon_model: str = "deepseek-ai/DeepSeek-R1-0528"
+    horizon_url: str = ""
+    horizon_api_key: str = ""
+    default_tier: str = "synesis-core"
+    claude_tier_map: str = ""
+    tier_poll_interval: int = 60
+
     litellm_url: str = "http://litellm-proxy.synesis-gateway.svc.cluster.local:4000/v1"
     litellm_api_key: str = Field(default="", alias="LITELLM_MASTER_KEY")
 
-    # Default max *completion* tokens per upstream call (IDE may override per request).
-    # Coder workloads often need large single replies; cap lower if your provider/model rejects high values.
     max_tokens: int = 65536
     temperature: float = 0.2
     request_timeout: float = 300.0
@@ -90,10 +105,10 @@ class Settings(BaseSettings):
     diagnostics_max_tool_events: int = 20
     diagnostics_snapshot_ttl_seconds: int = 86400
 
-    # --- Cost tracking ---
-    deepinfra_input_per_m: float = 0.22
-    deepinfra_output_per_m: float = 1.00
-    deepinfra_cached_per_m: float = 0.022
+    # --- Claude Code compatibility ---
+    claude_compat_enabled: bool = False
+    claude_custom_model_ids: str = ""
+    claude_tool_search_mode: ToolSearchMode = ToolSearchMode.DISABLE
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -116,9 +131,27 @@ class Settings(BaseSettings):
     def effective_base_url(self) -> str:
         if self.provider == Provider.DEEPINFRA:
             return self.deepinfra_base_url
-        if self.provider == Provider.LOCAL:
-            return self.model_url
         return self.litellm_url
+
+    @property
+    def claude_custom_model_ids_set(self) -> set[str]:
+        raw = self.claude_custom_model_ids.strip()
+        if not raw:
+            return set()
+        return {x.strip() for x in raw.split(",") if x.strip()}
+
+    @property
+    def claude_tier_map_parsed(self) -> dict[str, str]:
+        raw = self.claude_tier_map.strip()
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return {str(k): str(v) for k, v in parsed.items()}
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return {}
 
     @property
     def effective_api_key(self) -> str:

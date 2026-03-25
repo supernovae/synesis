@@ -100,12 +100,15 @@ class TestToolCallAccumulator:
 
 
 class TestUsageTracker:
-    def test_cost_computation_deepinfra(self):
+    def test_cost_computation_with_rates(self):
         record = UsageRecord(
-            provider="deepinfra",
+            provider="synesis-core",
             tokens_in=100_000,
             tokens_out=1_000,
             tokens_cached=80_000,
+            input_per_m=0.22,
+            output_per_m=1.00,
+            cached_per_m=0.022,
         )
         cost = record.compute_cost()
         assert cost > 0
@@ -116,14 +119,14 @@ class TestUsageTracker:
         expected = 0.00176 + 0.0044 + 0.001
         assert abs(cost - expected) < 0.001
 
-    def test_local_provider_free(self):
-        record = UsageRecord(provider="local", tokens_in=100_000, tokens_out=1000)
+    def test_zero_rates_free(self):
+        record = UsageRecord(provider="synesis-pulse", tokens_in=100_000, tokens_out=1000)
         assert record.compute_cost() == 0.0
 
     def test_aggregator(self):
         agg = UsageAggregator()
-        agg.add(UsageRecord(provider="deepinfra", tokens_in=100, tokens_out=10, tokens_cached=80))
-        agg.add(UsageRecord(provider="deepinfra", tokens_in=200, tokens_out=20, tokens_cached=160))
+        agg.add(UsageRecord(provider="synesis-core", tokens_in=100, tokens_out=10, tokens_cached=80, input_per_m=1.0, output_per_m=2.0))
+        agg.add(UsageRecord(provider="synesis-core", tokens_in=200, tokens_out=20, tokens_cached=160, input_per_m=1.0, output_per_m=2.0))
         assert agg.total_tokens_in == 300
         assert agg.total_tokens_out == 30
         assert agg.total_tokens_cached == 240

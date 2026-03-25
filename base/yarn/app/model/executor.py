@@ -1,4 +1,4 @@
-"""Model execution layer — provider-agnostic streaming with retries and circuit breaker.
+"""Model execution layer — tier-based streaming with retries and circuit breaker.
 
 This is the core transport: it sends messages to the model, streams back chunks,
 detects tool calls, and tracks usage. The agentic loop in main.py drives this.
@@ -12,10 +12,11 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from ..config import Provider, settings
+from ..config import settings
 from . import providers
 from .circuit_breaker import CircuitBreaker
 from .stream_handler import StreamChunk, ToolCallAccumulator, extract_chunk, parse_sse_line
+from .tiers import ModelTier
 from .usage_tracker import UsageRecord
 
 logger = logging.getLogger("yarn.model.executor")
@@ -34,11 +35,10 @@ def _get_breaker(name: str) -> CircuitBreaker:
 
 
 async def run_model(
+    tier: ModelTier,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
     *,
-    provider: Provider | None = None,
-    model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     org_id: str = "",
@@ -47,16 +47,15 @@ async def run_model(
     """Stream a model call with retries and circuit breaker.
 
     Yields StreamChunk objects. The final chunk contains usage data.
-    Breakers are scoped per (provider, org_id) so one tenant's failures
+    Breakers are scoped per (tier, org_id) so one tenant's failures
     cannot deny service to other tenants.
     """
-    prov = provider or settings.provider
-    breaker_key = f"{prov.value}:{org_id}" if org_id else prov.value
+    breaker_key = f"{tier.name}:{org_id}" if org_id else tier.name
     breaker = _get_breaker(breaker_key)
 
     for attempt in range(settings.model_retries + 1):
         if not breaker.allow_request():
-            logger.warning("Circuit breaker OPEN for %s, skipping", prov.value)
+            logger.warning("Circuit breaker OPEN for %s, skipping", tier.name)
             chunk = StreamChunk(content="[Service temporarily unavailable]", finish_reason="error")
             yield chunk
             return
@@ -65,11 +64,10 @@ async def run_model(
             accumulator = ToolCallAccumulator()
             start = time.monotonic()
 
-            async for raw_line in providers.stream_chat_completion(
+            async for raw_line in providers.stream_chat(
+                tier,
                 messages,
                 tools,
-                provider=prov,
-                model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 tool_choice=tool_choice,
@@ -92,13 +90,16 @@ async def run_model(
                 if chunk.usage:
                     elapsed = (time.monotonic() - start) * 1000
                     record = UsageRecord(
-                        provider=prov.value,
-                        model=model or settings.model,
+                        provider=tier.name,
+                        model=tier.name,
                         tokens_in=chunk.usage.get("prompt_tokens", 0),
                         tokens_out=chunk.usage.get("completion_tokens", 0),
                         tokens_cached=chunk.usage.get("prompt_tokens_details", {}).get("cached_tokens", 0),
                         latency_ms=elapsed,
                         finish_reason=chunk.finish_reason or "",
+                        input_per_m=tier.input_per_m,
+                        output_per_m=tier.output_per_m,
+                        cached_per_m=tier.cached_per_m,
                     )
                     record.compute_cost()
                     chunk.raw["_usage_record"] = record
@@ -132,24 +133,28 @@ async def run_model(
 
 
 async def run_model_sync(
+    tier: ModelTier,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
-    **kwargs: Any,
+    *,
+    org_id: str = "",
+    tool_choice: str | dict[str, Any] | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Non-streaming model call (for summarization, etc.)."""
-    prov = kwargs.get("provider") or settings.provider
-    org_id = kwargs.pop("org_id", "") or ""
-    tool_choice = kwargs.pop("tool_choice", None)
-    prov_str = prov.value if isinstance(prov, Provider) else prov
-    breaker_key = f"{prov_str}:{org_id}" if org_id else prov_str
+    breaker_key = f"{tier.name}:{org_id}" if org_id else tier.name
     breaker = _get_breaker(breaker_key)
 
     for attempt in range(settings.model_retries + 1):
         if not breaker.allow_request():
             return {"error": "Circuit breaker open"}
         try:
-            result = await providers.chat_completion(
-                messages, tools, tool_choice=tool_choice, **kwargs,
+            result = await providers.chat(
+                tier, messages, tools,
+                tool_choice=tool_choice,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
             breaker.record_success()
             return result

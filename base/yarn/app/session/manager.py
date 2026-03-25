@@ -118,8 +118,8 @@ async def record_request_usage(
     session.metadata["total_cost_usd"] = base + usage_agg.total_cost_usd
     await redis_store.save_session(session)
 
-    prov = settings.provider.value
-    mdl = settings.model
+    prov = settings.default_tier
+    mdl = settings.default_tier
     if usage_agg.records:
         prov = usage_agg.records[0].provider or prov
         mdl = usage_agg.records[0].model or mdl

@@ -43,16 +43,38 @@ roles:
     pvc_subpath: "general-model"
     deployment_name: "synesis-general"
 
-  coder:
-    description: "IDE direct endpoint (Cursor, Claude Code) — not in planner graph"
+  coder-pulse:
+    description: "Fast coder tier — lightweight completions, tab-complete (Haiku class)"
     default_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-    served_model_name: "synesis-coder"
-    service_name: "synesis-coder"
+    served_model_name: "synesis-pulse"
+    service_name: "synesis-coder-pulse"
     namespace: "synesis-models"
     separate_endpoint: true
     pvc_name: "synesis-models-efs"
-    pvc_subpath: "coder-model"
-    deployment_name: "synesis-coder"
+    pvc_subpath: "coder-pulse-model"
+    deployment_name: "synesis-coder-pulse"
+
+  coder-core:
+    description: "Balanced coder tier — agentic tasks, default IDE sessions (Sonnet class)"
+    default_model: "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo"
+    served_model_name: "synesis-core"
+    service_name: "synesis-coder-core"
+    namespace: "synesis-models"
+    separate_endpoint: true
+    pvc_name: "synesis-models-efs"
+    pvc_subpath: "coder-core-model"
+    deployment_name: "synesis-coder-core"
+
+  coder-horizon:
+    description: "Deep reasoning coder tier — architecture, complex debugging (Opus class)"
+    default_model: "deepseek-ai/DeepSeek-R1-0528"
+    served_model_name: "synesis-horizon"
+    service_name: "synesis-coder-horizon"
+    namespace: "synesis-models"
+    separate_endpoint: true
+    pvc_name: "synesis-models-efs"
+    pvc_subpath: "coder-horizon-model"
+    deployment_name: "synesis-coder-horizon"
 
   critic:
     description: "Deep reasoning — critic node evaluates drafts"
@@ -164,7 +186,7 @@ profiles:
           quality than MoE at the cost of lower concurrency. Interim
           choice until vLLM supports Qwen3.5 MoE architecture.
 
-      coder:
+      coder-pulse:
         model_override: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
         quant: "FP8"
         device: "gpu"
@@ -172,7 +194,7 @@ profiles:
         tp: 1
         replicas: 1
         pvc: "synesis-models-efs"
-        pvc_subpath: "coder-model"
+        pvc_subpath: "coder-pulse-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
@@ -181,11 +203,10 @@ profiles:
           - "--enable-prefix-caching"
           - "--enable-chunked-prefill"
         notes: >
-          Qwen3-Coder-30B-A3B MoE (3B active) at FP8 (~15 GB weights).
-          Fits easily on single L40S with full 65K context and ~28 GB
-          headroom. Same Qwen3-Coder family as the 80B Next — smaller
-          but strong agentic coding. Medium/large upgrade to Next (TP=2)
-          for max quality.
+          Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active) at FP8 (~15 GB).
+          Lightweight completions and tab-complete. In the small profile,
+          Core and Horizon are API-routed (DeepInfra or OpenRouter) since
+          only 3 GPUs are available.
 
       critic:
         quant: "FP8"
@@ -251,7 +272,26 @@ profiles:
           Qwen3.5-35B-A3B at BF16. MoE with 3B active params fits
           on one L40S. Serves both general queries and writer role.
 
-      coder:
+      coder-pulse:
+        model_override: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+        quant: "FP8"
+        device: "gpu"
+        gpu: 1
+        tp: 1
+        replicas: 1
+        pvc: "synesis-models-efs"
+        pvc_subpath: "coder-pulse-model"
+        vllm_args:
+          - "--gpu-memory-utilization=0.45"
+          - "--max-model-len=65536"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=hermes"
+          - "--enable-prefix-caching"
+        notes: >
+          Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active, ~15 GB weights).
+          Shares GPU 1 with Core via memory budgeting.
+
+      coder-core:
         model_override: "Qwen/Qwen3-Coder-Next-FP8"
         quant: "FP8"
         device: "gpu"
@@ -261,14 +301,14 @@ profiles:
         tp: 2
         replicas: 1
         pvc: "synesis-models-efs"
-        pvc_subpath: "coder-model"
+        pvc_subpath: "coder-core-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
           - "--enable-auto-tool-choice"
           - "--tool-call-parser=hermes"
         notes: >
-          FP8 pre-quantized across 2 L40S with TP=2. Full 65K context.
+          Core tier: Qwen3-Coder-Next FP8 across 2 L40S with TP=2. Full 65K context.
 
       critic:
         quant: "FP8"
@@ -332,17 +372,35 @@ profiles:
           Upgraded to Qwen3-235B-A22B (22B active) for production.
           TP=2 across 2 GPUs. Serves general and writer roles.
 
-      coder:
+      coder-pulse:
+        model_override: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+        quant: "FP8"
+        device: "gpu"
+        gpu: 2
+        tp: 1
+        replicas: 1
+        pvc: "synesis-models-efs"
+        pvc_subpath: "coder-pulse-model"
+        vllm_args:
+          - "--gpu-memory-utilization=0.90"
+          - "--max-model-len=65536"
+          - "--enable-auto-tool-choice"
+          - "--tool-call-parser=hermes"
+          - "--enable-prefix-caching"
+        notes: >
+          Pulse tier: Qwen3-Coder-30B-A3B MoE (3B active) on dedicated GPU.
+
+      coder-core:
         model_override: "Qwen/Qwen3-Coder-Next-FP8"
         quant: "FP8"
         device: "gpu"
         gpu:
-          - 2
           - 3
+          - 4
         tp: 2
         replicas: 2
         pvc: "synesis-models-efs"
-        pvc_subpath: "coder-model"
+        pvc_subpath: "coder-core-model"
         vllm_args:
           - "--gpu-memory-utilization=0.90"
           - "--max-model-len=65536"
@@ -354,9 +412,26 @@ profiles:
           metric: "vllm:num_requests_waiting"
           target_value: 5
         notes: >
-          HPA scales coder replicas based on queue depth. Each replica
-          gets its own GPU pair (TP=2). Topology spread ensures replicas
-          land on different nodes.
+          Core tier: HPA scales replicas based on queue depth. TP=2 per replica.
+
+      coder-horizon:
+        model_override: "deepseek-ai/DeepSeek-R1-0528"
+        quant: "FP8"
+        device: "gpu"
+        gpu:
+          - 5
+          - 6
+        tp: 2
+        replicas: 1
+        pvc: "synesis-models-efs"
+        pvc_subpath: "coder-horizon-model"
+        vllm_args:
+          - "--reasoning-parser=deepseek_r1"
+          - "--gpu-memory-utilization=0.90"
+          - "--max-model-len=65536"
+          - "--enable-prefix-caching"
+        notes: >
+          Horizon tier: DeepSeek-R1 for deep reasoning coder tasks.
 
       critic:
         model_override: "deepseek-ai/DeepSeek-R1-Distill-Qwen-70B"
@@ -405,8 +480,9 @@ profiles:
 # Service URL pattern:
 #   http://<service_name>.<namespace>.svc.cluster.local:8080/v1
 #
-# The coder endpoint is NOT routed through the planner. IDEs connect
-# directly to synesis-coder via LiteLLM or direct vLLM.
+# The coder tiers (coder-pulse, coder-core, coder-horizon) are NOT routed
+# through the planner. IDEs connect to synesis-pulse / synesis-core /
+# synesis-horizon via the Yarn gateway.
 
 # ---------------------------------------------------------------------------
 # OpenRouter API profiles — no GPU hardware required
@@ -445,11 +521,20 @@ openrouter_profiles:
         notes: >
           DeepSeek V3.2: GPT-5 class reasoning at $0.26/M in, $0.38/M out.
           Strong first-pass quality reduces critic retries. 163K context.
-      coder:
+      coder-pulse:
         openrouter_model: "qwen/qwen-2.5-coder-32b-instruct"
         notes: >
-          Qwen2.5-Coder-32B-Instruct: solid code generation at $0.20/M.
-          32K context. Good tool-use support.
+          Pulse tier: Qwen2.5-Coder-32B at $0.20/M. Fast, lightweight.
+      coder-core:
+        openrouter_model: "qwen/qwen3-coder-plus"
+        notes: >
+          Core tier: Qwen3-Coder-Plus at $0.65/M in, $3.25/M out.
+          Balanced agentic coding. 1M context.
+      coder-horizon:
+        openrouter_model: "deepseek/deepseek-r1-0528"
+        notes: >
+          Horizon tier: DeepSeek-R1 at $0.45/M in, $2.15/M out.
+          Deep reasoning for architecture and complex debugging.
       critic:
         openrouter_model: "deepseek/deepseek-r1-distill-qwen-32b"
         notes: >
@@ -476,11 +561,19 @@ openrouter_profiles:
         notes: >
           Qwen3-235B-A22B MoE: flagship quality at $0.14/M in, $0.34/M out.
           22B active params, 235B total. 41K context (131K extended).
-      coder:
+      coder-pulse:
         openrouter_model: "qwen/qwen3-coder-plus"
         notes: >
-          Qwen3-Coder-Plus: proprietary Alibaba coding model at $0.65/M in,
-          $3.25/M out. 1M context. Strongest Qwen coding model.
+          Pulse tier (quality profile): Qwen3-Coder-Plus for fast completions.
+      coder-core:
+        openrouter_model: "qwen/qwen3-coder-plus"
+        notes: >
+          Core tier: Qwen3-Coder-Plus at $0.65/M in, $3.25/M out.
+          1M context. Strongest Qwen coding model.
+      coder-horizon:
+        openrouter_model: "deepseek/deepseek-r1-0528"
+        notes: >
+          Horizon tier: Full DeepSeek-R1 for deep reasoning coder tasks.
       critic:
         openrouter_model: "deepseek/deepseek-r1-0528"
         notes: >

@@ -14,7 +14,7 @@ from ..db.engine import async_session
 from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
 from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
-from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, build_litellm_params
+from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, ROLE_SERVED_NAMES, build_litellm_params
 from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
 
 logger = logging.getLogger("synesis.admin.models")
@@ -107,7 +107,7 @@ async def seed_model_deployments(*, force: bool = False) -> int:
 
         for role_name in KNOWN_ROLES:
             role_def = roles_cfg.get(role_name, {})
-            served_name = role_def.get("served_model_name", f"synesis-{role_name}")
+            served_name = role_def.get("served_model_name", ROLE_SERVED_NAMES.get(role_name, f"synesis-{role_name}"))
             description = role_def.get("description", "")
 
             # Try OpenRouter assignment first (lower friction day-0).
@@ -310,7 +310,7 @@ async def get_role_assignments() -> list[dict]:
                 "role": role,
                 "model": "",
                 "endpoint": "",
-                "served_name": f"synesis-{role}",
+                "served_name": ROLE_SERVED_NAMES.get(role, f"synesis-{role}"),
                 "status": "unassigned",
                 "provider": "",
                 "api_key_env": "",
@@ -352,7 +352,7 @@ async def assign_role(
     if role not in KNOWN_ROLES:
         raise ValueError(f"Unknown role: {role}")
 
-    served_name = f"synesis-{role}"
+    served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
     lp = build_litellm_params(
@@ -557,7 +557,7 @@ async def get_cost_estimates() -> list[dict]:
                     "profile": prof,
                     "source": src or db_row.source or "local",
                     "provider": provider,
-                    "served_name": a.get("served_name", f"synesis-{role}"),
+                    "served_name": a.get("served_name", ROLE_SERVED_NAMES.get(role, f"synesis-{role}")),
                     "input_per_million": db_row.input_per_million,
                     "input_cached_per_million": db_row.input_cached_per_million,
                     "output_per_million": db_row.output_per_million,
@@ -574,7 +574,7 @@ async def get_cost_estimates() -> list[dict]:
                     "profile": prof,
                     "source": src or "local",
                     "provider": provider,
-                    "served_name": a.get("served_name", f"synesis-{role}"),
+                    "served_name": a.get("served_name", ROLE_SERVED_NAMES.get(role, f"synesis-{role}")),
                     "input_per_million": 0.0,
                     "input_cached_per_million": None,
                     "output_per_million": 0.0,

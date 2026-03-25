@@ -1,26 +1,36 @@
-"""Model provider implementations — DeepInfra, local vLLM, LiteLLM."""
+"""Model provider transport — tier-based client routing.
+
+Clients are cached by (base_url, api_key_prefix) for connection reuse.
+All public functions accept a ModelTier which determines the upstream
+endpoint and model ID.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from ..config import Provider, settings
+from ..config import settings
+from .tiers import ModelTier
 
 logger = logging.getLogger("yarn.model.providers")
 
 _clients: dict[str, httpx.AsyncClient] = {}
 
 
-def _get_client(provider: Provider) -> httpx.AsyncClient:
-    key = provider.value
+def _client_key(base_url: str, api_key: str) -> str:
+    prefix = api_key[:8] if api_key else "none"
+    return hashlib.sha256(f"{base_url}:{prefix}".encode()).hexdigest()[:16]
+
+
+def _get_client(base_url: str, api_key: str) -> httpx.AsyncClient:
+    key = _client_key(base_url, api_key)
     if key not in _clients:
-        base_url = settings.effective_base_url
         headers: dict[str, str] = {}
-        api_key = settings.effective_api_key
         if api_key and api_key != "not-needed":
             headers["Authorization"] = f"Bearer {api_key}"
 
@@ -33,25 +43,20 @@ def _get_client(provider: Provider) -> httpx.AsyncClient:
     return _clients[key]
 
 
-async def stream_chat_completion(
+async def stream_chat(
+    tier: ModelTier,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
     *,
-    provider: Provider | None = None,
-    model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     tool_choice: str | dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
-    """Stream a chat completion from the configured provider.
-
-    Yields raw SSE bytes suitable for forwarding or parsing.
-    """
-    prov = provider or settings.provider
-    client = _get_client(prov)
+    """Stream a chat completion using the tier's backend config."""
+    client = _get_client(tier.base_url, tier.api_key)
 
     payload: dict[str, Any] = {
-        "model": model or settings.model,
+        "model": tier.backend_model,
         "messages": messages,
         "stream": True,
         "stream_options": {"include_usage": True},
@@ -73,22 +78,20 @@ async def stream_chat_completion(
             yield (line + "\n").encode()
 
 
-async def chat_completion(
+async def chat(
+    tier: ModelTier,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None = None,
     *,
-    provider: Provider | None = None,
-    model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     tool_choice: str | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Non-streaming chat completion."""
-    prov = provider or settings.provider
-    client = _get_client(prov)
+    """Non-streaming chat completion using the tier's backend config."""
+    client = _get_client(tier.base_url, tier.api_key)
 
     payload: dict[str, Any] = {
-        "model": model or settings.model,
+        "model": tier.backend_model,
         "messages": messages,
         "stream": False,
         "temperature": temperature if temperature is not None else settings.temperature,

@@ -86,11 +86,14 @@ class TestHealthEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["object"] == "list"
-        assert any(m["id"] == "synesis-yarn" for m in data["data"])
-        yarn = next(m for m in data["data"] if m["id"] == "synesis-yarn")
-        assert yarn.get("object") == "model"
-        assert isinstance(yarn.get("created"), int)
-        assert yarn.get("owned_by")
+        ids = {m["id"] for m in data["data"]}
+        assert "synesis-pulse" in ids
+        assert "synesis-core" in ids
+        assert "synesis-horizon" in ids
+        core = next(m for m in data["data"] if m["id"] == "synesis-core")
+        assert core.get("object") == "model"
+        assert isinstance(core.get("created"), int)
+        assert core.get("owned_by") == "synesis"
 
     def test_v1_root_returns_ok(self):
         """GET /v1 should return a liveness probe for IDE clients."""

@@ -38,8 +38,14 @@ spec:
           env:
             - name: SYNESIS_YARN_PROVIDER
               value: "deepinfra"
-            - name: SYNESIS_YARN_MODEL
+            - name: SYNESIS_YARN_PULSE_MODEL
+              value: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+            - name: SYNESIS_YARN_CORE_MODEL
               value: "Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo"
+            - name: SYNESIS_YARN_HORIZON_MODEL
+              value: "deepseek-ai/DeepSeek-R1-0528"
+            - name: SYNESIS_YARN_DEFAULT_TIER
+              value: "synesis-core"
             - name: SYNESIS_YARN_SESSION_REDIS_URL
               value: "redis://synesis-redis.synesis-rag.svc.cluster.local:6379/3"
             - name: SYNESIS_YARN_MEMORY_REDIS_URL

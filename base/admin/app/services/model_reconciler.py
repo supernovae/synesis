@@ -23,9 +23,10 @@ PROTECTED_MODELS = frozenset(
         "synesis-agent",
         "Synesis",
         "Synesis Thinking",
-        "Synesis Coder",
         "synesis-thinking",
-        "synesis-yarn",
+        "synesis-pulse",
+        "synesis-core",
+        "synesis-horizon",
     }
 )
 

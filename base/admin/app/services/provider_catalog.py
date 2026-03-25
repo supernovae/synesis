@@ -44,14 +44,22 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
     ]
 }
 
-KNOWN_ROLES = ("router", "general", "critic", "coder", "summarizer")
+KNOWN_ROLES = ("router", "general", "critic", "coder-pulse", "coder-core", "coder-horizon", "summarizer")
 
 ROLE_DESCRIPTIONS = {
     "router": "Fast LLM — entry_pipeline, planner, plan_gate, router nodes",
     "general": "Writer + final_scrubber — general reasoning & synthesis",
     "critic": "Deep reasoning — critic node evaluates drafts",
-    "coder": "IDE direct endpoint (Cursor, Claude Code) — not in planner graph",
+    "coder-pulse": "Fast coder tier — lightweight completions, refactors, tab-complete (maps to Claude Haiku class)",
+    "coder-core": "Balanced coder tier — multi-step agentic tasks, default for IDE sessions (maps to Claude Sonnet class)",
+    "coder-horizon": "Deep reasoning coder tier — architecture decisions, complex debugging (maps to Claude Opus class)",
     "summarizer": "Pivot history summarization — router evidence compression",
+}
+
+ROLE_SERVED_NAMES = {
+    "coder-pulse": "synesis-pulse",
+    "coder-core": "synesis-core",
+    "coder-horizon": "synesis-horizon",
 }
 
 
@@ -80,7 +88,12 @@ def get_catalog() -> dict:
     return {
         "providers": providers_out,
         "roles": [
-            {"key": r, "served_name": f"synesis-{r}", "description": ROLE_DESCRIPTIONS.get(r, "")} for r in KNOWN_ROLES
+            {
+                "key": r,
+                "served_name": ROLE_SERVED_NAMES.get(r, f"synesis-{r}"),
+                "description": ROLE_DESCRIPTIONS.get(r, ""),
+            }
+            for r in KNOWN_ROLES
         ],
     }
 

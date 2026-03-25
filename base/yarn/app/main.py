@@ -16,12 +16,15 @@ import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .client_identity import client_identity_log_extra
+from .compat.claude_detect import ClaudeCompatConfig
+from .compat.messages_endpoint import handle_messages
 from .config import settings
 from .context import SynesisCoderContext, build_user_turn_content
 from .escalation import bridge as escalation_bridge
@@ -34,6 +37,7 @@ from .middleware.injection_scanner import scan_messages
 from .middleware.rate_limiter import enforce_rate_limit
 from .model import executor as model_executor
 from .model.stream_handler import ToolCallAccumulator
+from .model.tiers import ModelTier, TierRegistry
 from .model.usage_tracker import UsageAggregator, UsageRecord
 from .session.manager import record_request_usage, record_usage, resolve_or_create_session
 from .session.models import AuthUser, SessionState
@@ -48,6 +52,17 @@ logger = logging.getLogger("yarn.api")
 _buffers: dict[str, MemoryBuffer] = {}
 _buffers_lock = asyncio.Lock()
 _orchestrator = ToolOrchestrator()
+
+_claude_compat = ClaudeCompatConfig(
+    enabled=settings.claude_compat_enabled,
+    custom_model_ids=settings.claude_custom_model_ids_set,
+    model_overrides={},
+    tool_search_mode=settings.claude_tool_search_mode.value,
+)
+
+_registry: TierRegistry = TierRegistry.from_env(
+    settings, claude_family_overrides=settings.claude_tier_map_parsed or None,
+)
 
 SYSTEM_PROMPT = (
     "You are Synesis Coder, an expert AI coding assistant. "
@@ -70,17 +85,64 @@ SYSTEM_PROMPT = (
 # ---------------------------------------------------------------------------
 
 
+async def _try_fetch_admin_registry() -> TierRegistry | None:
+    """Fetch tier config from admin API. Returns None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            roles_resp = await client.get(f"{settings.admin_api_url}/api/v1/models/roles")
+            roles_resp.raise_for_status()
+            roles_data = roles_resp.json().get("roles", [])
+
+            costs_resp = await client.get(f"{settings.admin_api_url}/api/v1/models/costs/active")
+            costs_resp.raise_for_status()
+            costs_data = costs_resp.json().get("costs", [])
+
+        return TierRegistry.from_admin_response(
+            roles_data,
+            costs_data,
+            fallback_url=settings.effective_base_url,
+            fallback_key=settings.effective_api_key,
+            default_tier=settings.default_tier,
+            claude_family_overrides=settings.claude_tier_map_parsed or None,
+        )
+    except Exception:
+        logger.debug("admin_tier_fetch_failed", exc_info=True)
+        return None
+
+
+async def _tier_poll_loop() -> None:
+    """Background task: poll admin for tier config every N seconds."""
+    global _registry
+    await asyncio.sleep(15)
+    while True:
+        try:
+            new_reg = await _try_fetch_admin_registry()
+            if new_reg is not None and new_reg.available_ids:
+                _registry = new_reg
+                logger.debug("tier_registry_refreshed tiers=%s", new_reg.available_ids)
+        except Exception:
+            logger.debug("tier_poll_error", exc_info=True)
+        await asyncio.sleep(settings.tier_poll_interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # type: ignore[override]
+    global _registry
     setup_logging()
     setup_otel()
     await _orchestrator.initialize()
-    logger.info(
-        "Yarn runtime started (provider=%s, model=%s)",
-        settings.provider.value,
-        settings.model,
-    )
+
+    admin_reg = await _try_fetch_admin_registry()
+    if admin_reg is not None and admin_reg.available_ids:
+        _registry = admin_reg
+        logger.info("tier_registry_from_admin tiers=%s", _registry.available_ids)
+    else:
+        logger.info("tier_registry_from_env tiers=%s", _registry.available_ids)
+
+    poll_task = asyncio.create_task(_tier_poll_loop())
+    logger.info("Yarn runtime started (default_tier=%s)", settings.default_tier)
     yield
+    poll_task.cancel()
     from . import db
     from .model import providers
     from .session import redis_store
@@ -158,7 +220,7 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "synesis-yarn"
+    model: str = "synesis-core"
     messages: list[ChatMessage]
     stream: bool = True
     temperature: float | None = None
@@ -299,27 +361,13 @@ async def api_root():
         "status": "ok",
         "service": "synesis-yarn",
         "version": "0.1.0",
-        "endpoints": ["/v1/models", "/v1/chat/completions"],
+        "endpoints": ["/v1/models", "/v1/chat/completions", "/v1/messages"],
     }
 
 
 @app.get("/v1/models")
 async def list_models():
-    return {
-        "object": "list",
-        "data": [
-            {
-                "id": "synesis-yarn",
-                "object": "model",
-                "created": 1704067200,
-                "owned_by": "synesis",
-                "description": (
-                    "Synesis Coder — Yarn agent runtime with tool orchestration, session memory, "
-                    "and prefix-cache-friendly long context for IDE clients."
-                ),
-            },
-        ],
-    }
+    return _registry.list_models()
 
 
 @app.get("/v1/mcp/tools")
@@ -349,6 +397,12 @@ async def call_mcp_tool(request: Request):
         allowed_tools=allowed_tools,
     )
     return {"content": [{"type": "text", "text": result.content}]}
+
+
+@app.post("/v1/messages")
+async def messages(request: Request):
+    """Anthropic Messages API endpoint — Claude Code compatibility."""
+    return await handle_messages(request, _claude_compat, _registry)
 
 
 @app.get("/metrics")
@@ -406,6 +460,12 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     start_time = time.monotonic()
     request_id = f"yarn-{uuid.uuid4().hex[:12]}"
 
+    # --- Tier resolution ---
+    try:
+        tier = _registry.resolve(body.model)
+    except ValueError as exc:
+        return _openai_error(400, str(exc))
+
     # --- Auth ---
     auth_user = await resolve_auth(request)
     _require_coder_scope(auth_user)
@@ -413,7 +473,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     _cid = client_identity_log_extra(request)
     logger.info(
         "chat_completions_start",
-        extra={**_cid, "request_id": request_id, "user_id": auth_user.user_id[:16] if auth_user.user_id else ""},
+        extra={**_cid, "request_id": request_id, "tier": tier.name, "user_id": auth_user.user_id[:16] if auth_user.user_id else ""},
     )
 
     # --- Session ---
@@ -505,7 +565,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
                 tools=tools,
                 session=session,
                 request_id=request_id,
-                model=body.model,
+                tier=tier,
                 temperature=body.temperature,
                 max_tokens=body.max_tokens,
                 tool_choice=body.tool_choice,
@@ -526,7 +586,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
             tools=tools,
             session=session,
             request_id=request_id,
-            model=body.model,
+            tier=tier,
             temperature=body.temperature,
             max_tokens=body.max_tokens,
             tool_choice=body.tool_choice,
@@ -547,7 +607,7 @@ async def _stream_agentic_loop(
     tools: list[dict[str, Any]],
     session: SessionState,
     request_id: str,
-    model: str,
+    tier: ModelTier,
     temperature: float | None,
     max_tokens: int | None,
     tool_choice: str | dict[str, Any] | None,
@@ -579,6 +639,7 @@ async def _stream_agentic_loop(
             has_tool_calls = False
 
             async for chunk in model_executor.run_model(
+                tier,
                 context,
                 tools,
                 temperature=temperature,
@@ -588,7 +649,7 @@ async def _stream_agentic_loop(
             ):
                 if chunk.content:
                     chunk_content += chunk.content
-                    yield _build_sse_chunk(request_id, model, content=chunk.content)
+                    yield _build_sse_chunk(request_id, tier.name, content=chunk.content)
 
                 if chunk.tool_calls:
                     tool_accumulator.feed(chunk.tool_calls)
@@ -640,7 +701,7 @@ async def _stream_agentic_loop(
 
                         yield "data: [DONE]\n\n"
                         elapsed = time.monotonic() - start_time
-                        record_request("escalated", settings.provider.value, elapsed)
+                        record_request("escalated", tier.name, elapsed)
                         await record_usage(
                             session,
                             usage_agg.total_tokens_in,
@@ -667,7 +728,7 @@ async def _stream_agentic_loop(
 
             yield _build_sse_chunk(
                 request_id,
-                model,
+                tier.name,
                 finish_reason="stop",
                 usage={
                     "prompt_tokens": usage_agg.total_tokens_in,
@@ -680,12 +741,12 @@ async def _stream_agentic_loop(
 
         # --- Post-request bookkeeping ---
         elapsed = time.monotonic() - start_time
-        record_request("success", settings.provider.value, elapsed)
+        record_request("success", tier.name, elapsed)
         record_tokens(
             usage_agg.total_tokens_in,
             usage_agg.total_tokens_out,
             usage_agg.total_tokens_cached,
-            settings.provider.value,
+            tier.name,
         )
         await record_usage(
             session,
@@ -766,7 +827,7 @@ async def _non_streaming_loop(
     tools: list[dict[str, Any]],
     session: SessionState,
     request_id: str,
-    model: str,
+    tier: ModelTier,
     temperature: float | None,
     max_tokens: int | None,
     tool_choice: str | dict[str, Any] | None,
@@ -787,6 +848,7 @@ async def _non_streaming_loop(
             context = buf.get_context()
 
             result = await model_executor.run_model_sync(
+                tier,
                 context,
                 tools,
                 temperature=temperature,
@@ -816,11 +878,14 @@ async def _non_streaming_loop(
             if result.get("usage"):
                 u = result["usage"]
                 record = UsageRecord(
-                    provider=settings.provider.value,
-                    model=model,
+                    provider=tier.name,
+                    model=tier.name,
                     tokens_in=u.get("prompt_tokens", 0),
                     tokens_out=u.get("completion_tokens", 0),
                     tokens_cached=u.get("prompt_tokens_details", {}).get("cached_tokens", 0),
+                    input_per_m=tier.input_per_m,
+                    output_per_m=tier.output_per_m,
+                    cached_per_m=tier.cached_per_m,
                 )
                 usage_agg.add(record)
 
@@ -861,7 +926,7 @@ async def _non_streaming_loop(
             await _persist_buffer(session.session_key, buf)
 
             elapsed = time.monotonic() - start_time
-            record_request("success", settings.provider.value, elapsed)
+            record_request("success", tier.name, elapsed)
             await record_usage(
                 session,
                 usage_agg.total_tokens_in,
@@ -883,7 +948,7 @@ async def _non_streaming_loop(
                     "id": request_id,
                     "object": "chat.completion",
                     "created": int(time.time()),
-                    "model": model,
+                    "model": tier.name,
                     "choices": [
                         {
                             "index": 0,

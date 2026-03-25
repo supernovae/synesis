@@ -34,8 +34,8 @@ async def persist_session_upsert(session: SessionState) -> None:
         factory = get_session_factory()
         created_at = datetime.fromtimestamp(session.created_at, tz=UTC)
         last_active_at = datetime.fromtimestamp(session.last_active_at, tz=UTC)
-        provider = settings.provider.value
-        model = settings.model
+        provider = settings.default_tier
+        model = settings.default_tier
         total_cost = _session_total_cost_usd(session)
 
         async with factory() as db:
