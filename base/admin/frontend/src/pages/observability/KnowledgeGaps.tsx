@@ -1,9 +1,11 @@
 import { useState } from "react";
 import {
+  useBulkGapAction,
   useObservabilityKnowledgeGaps,
   useKnowledgeGapStats,
   useResolveGap,
   useReopenGap,
+  usePurgeGapsByStatus,
   usePurgeGap,
 } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
@@ -31,9 +33,16 @@ export default function KnowledgeGaps() {
   const resolveGap = useResolveGap();
   const reopenGap = useReopenGap();
   const purgeGap = usePurgeGap();
+  const bulkAction = useBulkGapAction();
+  const purgeByStatus = usePurgeGapsByStatus();
 
   const [resolveId, setResolveId] = useState<string | null>(null);
   const [resolveNote, setResolveNote] = useState("");
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [detailGap, setDetailGap] = useState<Record<string, unknown> | null>(null);
+  const selectedIds = Object.entries(selected)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
 
   function handleResolve(chunkId: string) {
     resolveGap.mutate(
@@ -46,7 +55,7 @@ export default function KnowledgeGaps() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">
-          Knowledge Gaps
+          Retrieval Gaps
         </h1>
         <p className="mt-1 text-sm text-gray-500">
           Queries where local RAG confidence was low — candidates for corpus
@@ -107,6 +116,55 @@ export default function KnowledgeGaps() {
             {s || "All"}
           </button>
         ))}
+        {isAdmin ? (
+          <>
+            <button
+              type="button"
+              disabled={selectedIds.length === 0 || bulkAction.isPending}
+              onClick={() => {
+                if (!selectedIds.length) return;
+                bulkAction.mutate({ gap_ids: selectedIds, action: "resolve" }, { onSuccess: () => setSelected({}) });
+              }}
+              className="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Resolve selected
+            </button>
+            <button
+              type="button"
+              disabled={selectedIds.length === 0 || bulkAction.isPending}
+              onClick={() => {
+                if (!selectedIds.length) return;
+                bulkAction.mutate({ gap_ids: selectedIds, action: "reopen" }, { onSuccess: () => setSelected({}) });
+              }}
+              className="rounded-md bg-orange-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Reopen selected
+            </button>
+            <button
+              type="button"
+              disabled={selectedIds.length === 0 || bulkAction.isPending}
+              onClick={() => {
+                if (!selectedIds.length) return;
+                if (!window.confirm(`Permanently purge ${selectedIds.length} selected gap(s)?`)) return;
+                bulkAction.mutate({ gap_ids: selectedIds, action: "purge" }, { onSuccess: () => setSelected({}) });
+              }}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Purge selected
+            </button>
+            <button
+              type="button"
+              disabled={purgeByStatus.isPending}
+              onClick={() => {
+                if (!window.confirm("Purge all resolved gaps?")) return;
+                purgeByStatus.mutate("resolved");
+              }}
+              className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 disabled:opacity-50"
+            >
+              Purge resolved
+            </button>
+          </>
+        ) : null}
       </div>
 
       {resolveId && (
@@ -147,6 +205,23 @@ export default function KnowledgeGaps() {
         <>
           <DataTable
             columns={[
+              {
+                key: "_select",
+                label: "",
+                render: (row) => (
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selected[String(row.chunk_id)])}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      setSelected((prev) => ({
+                        ...prev,
+                        [String(row.chunk_id)]: e.target.checked,
+                      }))
+                    }
+                  />
+                ),
+              },
               {
                 key: "status",
                 label: "Status",
@@ -248,7 +323,23 @@ export default function KnowledgeGaps() {
             ]}
             data={gaps}
             keyField="chunk_id"
+            onRowClick={(row) => setDetailGap(row)}
           />
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={gaps.length > 0 && gaps.every((g) => selected[String(g.chunk_id)])}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setSelected((prev) => {
+                  const next = { ...prev };
+                  for (const g of gaps) next[String(g.chunk_id)] = checked;
+                  return next;
+                });
+              }}
+            />
+            Select all visible
+          </label>
           <div className="flex gap-2">
             <button
               disabled={page <= 1}
@@ -268,6 +359,31 @@ export default function KnowledgeGaps() {
           </div>
         </>
       )}
+      {detailGap ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl dark:bg-gray-900">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Gap Detail</h3>
+            <div className="mt-3 space-y-2 text-sm">
+              <p><span className="font-medium">ID:</span> {String(detailGap.chunk_id ?? "")}</p>
+              <p><span className="font-medium">Query:</span> {String(detailGap.query ?? "")}</p>
+              <p><span className="font-medium">Task:</span> {String(detailGap.task_description ?? "")}</p>
+              <p><span className="font-medium">Context:</span> {String(detailGap.platform_context ?? "")}</p>
+              <p><span className="font-medium">Language:</span> {String(detailGap.language ?? "")}</p>
+              <p><span className="font-medium">Status:</span> {String(detailGap.status ?? "")}</p>
+              <p><span className="font-medium">Resolution Note:</span> {String(detailGap.resolution_note ?? "—")}</p>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDetailGap(null)}
+                className="rounded border border-gray-300 px-3 py-1.5 text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

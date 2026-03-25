@@ -14,7 +14,7 @@ import type {
   FeedbackEntry,
   KnowledgeGap,
   CuratorProposal,
-  ServiceStatus,
+  ServiceHealthSnapshot,
   FailureRecord,
   CacheMetrics,
   CircuitBreakerState,
@@ -1138,7 +1138,7 @@ export function useCuratorAction() {
 // --- Observability ---
 
 export function useServiceHealth() {
-  return useQuery<{ services: ServiceStatus[] }>({
+  return useQuery<ServiceHealthSnapshot>({
     queryKey: ["observability", "health"],
     queryFn: () => client.get("/observability/health").then((r) => r.data),
     refetchInterval: 15_000,
@@ -1175,6 +1175,39 @@ export function useFailures(params?: {
     queryKey: ["observability", "failures", params],
     queryFn: () =>
       client.get("/observability/failures", { params }).then((r) => r.data),
+  });
+}
+
+export function useDeleteFailure() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (failureId: string) =>
+      client.delete(`/observability/failures/${failureId}`).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "failures"] });
+    },
+  });
+}
+
+export function useBulkDeleteFailures() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (failureIds: string[]) =>
+      client.post("/observability/failures/bulk-delete", { failure_ids: failureIds }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "failures"] });
+    },
+  });
+}
+
+export function usePurgeFailures() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: number; resolved_only: boolean }, Error, boolean>({
+    mutationFn: (resolvedOnly) =>
+      client.delete("/observability/failures", { params: { resolved_only: resolvedOnly } }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "failures"] });
+    },
   });
 }
 
@@ -1248,6 +1281,33 @@ export function usePurgeGap() {
   return useMutation({
     mutationFn: (chunk_id: string) =>
       client.delete(`/observability/knowledge-gaps/${chunk_id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
+    },
+  });
+}
+
+export function useBulkGapAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      gap_ids: string[];
+      action: "resolve" | "reopen" | "purge";
+      resolution_note?: string;
+    }) => client.post("/observability/knowledge-gaps/bulk-action", data).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
+      qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });
+    },
+  });
+}
+
+export function usePurgeGapsByStatus() {
+  const qc = useQueryClient();
+  return useMutation<{ deleted: number; status: string }, Error, "resolved" | "reopened" | "open">({
+    mutationFn: (status) =>
+      client.delete("/observability/knowledge-gaps", { params: { status } }).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["observability", "knowledge-gaps"] });
       qc.invalidateQueries({ queryKey: ["feedback", "knowledge-gaps"] });

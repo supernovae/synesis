@@ -29,7 +29,7 @@ export default function ModelPerformance() {
   const { data: perfData, isLoading: perfLoading } = usePerformanceByRole(days);
   const { data: trendData, isLoading: trendLoading } = useLatencyTrend(days);
 
-  const roles: RolePerformance[] = perfData?.roles ?? [];
+  const roles: RolePerformance[] = useMemo(() => perfData?.roles ?? [], [perfData]);
   const trend = useMemo(() => trendData?.trend ?? [], [trendData]);
   const activeRoles = useMemo(() => roles.filter((r) => r.assigned), [roles]);
   const activeWithTraffic = useMemo(

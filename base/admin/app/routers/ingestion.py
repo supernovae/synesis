@@ -156,6 +156,8 @@ def _scope_clauses(model: Any, user: UserInfo) -> list[Any]:
             model.visibility_scope == "global",
             and_(model.visibility_scope == "org", model.org_id == caller_org),
             and_(model.visibility_scope == "tenant", model.org_id == caller_org),
+            and_(model.visibility_scope == "user", model.org_id == caller_org),
+            and_(model.visibility_scope == "session", model.org_id == caller_org),
         ]
     tenant_ids = [t for t in (user.tenant_ids or []) if t]
     if not tenant_ids:
@@ -195,8 +197,11 @@ def _normalize_and_authorize_scope(
     acl_g = (acl_groups or "").strip()[:1024]
     if acl_m in ("restricted", "private") and not acl_g:
         raise HTTPException(status_code=400, detail=f"acl_mode={acl_m} requires at least one acl_groups entry")
-    if scope not in {"global", "org", "tenant"}:
-        raise HTTPException(status_code=400, detail="visibility_scope must be one of: global, org, tenant")
+    if scope not in {"global", "org", "tenant", "user", "session"}:
+        raise HTTPException(
+            status_code=400,
+            detail="visibility_scope must be one of: global, org, tenant, user, session",
+        )
     if not can_manage_visibility_scope(
         user,
         visibility_scope=scope,
@@ -209,7 +214,9 @@ def _normalize_and_authorize_scope(
         return scope, "", "", acl_m, acl_g
     if scope == "org":
         return scope, (target_org or caller_org), "", acl_m, acl_g
-    # tenant
+    if scope == "tenant":
+        return scope, (target_org or caller_org), target_tenant, acl_m, acl_g
+    # user/session currently carry owner/conversation in config payload for indexer mapping.
     return scope, (target_org or caller_org), target_tenant, acl_m, acl_g
 
 

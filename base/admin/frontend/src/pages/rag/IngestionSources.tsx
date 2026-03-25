@@ -21,6 +21,11 @@ export default function IngestionSources() {
     visibility_scope: "global",
     org_id: "",
     tenant_id: "",
+    owner_user_id: "",
+    conversation_id: "",
+    upload_mode: "persistent",
+    is_ephemeral: false,
+    expires_at_epoch: "",
     acl_mode: "open",
     acl_groups: "",
   });
@@ -39,6 +44,13 @@ export default function IngestionSources() {
         visibility_scope: form.visibility_scope,
         org_id: form.org_id || undefined,
         tenant_id: form.tenant_id || undefined,
+        config: {
+          owner_user_id: form.owner_user_id || "",
+          conversation_id: form.conversation_id || "",
+          upload_mode: form.upload_mode || "",
+          is_ephemeral: form.is_ephemeral,
+          expires_at_epoch: form.expires_at_epoch ? Number(form.expires_at_epoch) : 0,
+        },
         acl_mode: form.acl_mode,
         acl_groups: form.acl_groups || undefined,
       },
@@ -55,6 +67,11 @@ export default function IngestionSources() {
             visibility_scope: "global",
             org_id: "",
             tenant_id: "",
+            owner_user_id: "",
+            conversation_id: "",
+            upload_mode: "persistent",
+            is_ephemeral: false,
+            expires_at_epoch: "",
             acl_mode: "open",
             acl_groups: "",
           });
@@ -69,7 +86,7 @@ export default function IngestionSources() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ingestion Sources</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Manage named content sources with scope, ACL, and handler configuration
+            Configure ingestion inputs and policies. Use Queue for execution state and retry operations.
           </p>
         </div>
         <button
@@ -168,7 +185,8 @@ export default function IngestionSources() {
                   <option value="global">global</option>
                   <option value="org">org</option>
                   <option value="tenant">tenant</option>
-                  <option value="private">private</option>
+                  <option value="user">user</option>
+                  <option value="session">session</option>
                 </select>
               </label>
               <label className="block">
@@ -188,6 +206,53 @@ export default function IngestionSources() {
                   placeholder="optional"
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                 />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Owner user ID</span>
+                <input
+                  value={form.owner_user_id}
+                  onChange={(e) => setForm({ ...form, owner_user_id: e.target.value })}
+                  placeholder="required for user/session scope"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Conversation ID</span>
+                <input
+                  value={form.conversation_id}
+                  onChange={(e) => setForm({ ...form, conversation_id: e.target.value })}
+                  placeholder="required for session scope"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Upload mode</span>
+                <select
+                  value={form.upload_mode}
+                  onChange={(e) => setForm({ ...form, upload_mode: e.target.value })}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="persistent">persistent</option>
+                  <option value="quick_summary">quick_summary</option>
+                  <option value="session_rag">session_rag</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-gray-600 dark:text-gray-300">Expires at epoch</span>
+                <input
+                  value={form.expires_at_epoch}
+                  onChange={(e) => setForm({ ...form, expires_at_epoch: e.target.value })}
+                  placeholder="0 for no TTL"
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </label>
+              <label className="flex items-center gap-2 pt-6 text-xs font-medium text-gray-600 dark:text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={form.is_ephemeral}
+                  onChange={(e) => setForm({ ...form, is_ephemeral: e.target.checked })}
+                />
+                Ephemeral session content
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-300">ACL mode</span>

@@ -51,6 +51,13 @@ export interface ServiceStatus {
   category?: "infrastructure" | "model" | "model-gateway";
 }
 
+export interface ServiceHealthSnapshot {
+  services: ServiceStatus[];
+  captured_at_epoch: number;
+  stale: boolean;
+  refreshing: boolean;
+}
+
 export interface DashboardSummary {
   services: ServiceStatus[];
   metrics: {

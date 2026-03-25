@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useFailures } from "../../api/hooks";
+import { useBulkDeleteFailures, useDeleteFailure, useFailures, usePurgeFailures } from "../../api/hooks";
 import DataTable from "../../components/common/DataTable";
 import EmptyState from "../../components/common/EmptyState";
 
@@ -17,6 +17,10 @@ export default function ErrorLog() {
   const [language, setLanguage] = useState("");
   const [errorType, setErrorType] = useState("");
   const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const delOne = useDeleteFailure();
+  const delBulk = useBulkDeleteFailures();
+  const purgeResolved = usePurgeFailures();
   const { data, isLoading } = useFailures({
     language: language || undefined,
     error_type: errorType || undefined,
@@ -35,6 +39,10 @@ export default function ErrorLog() {
       })),
     [failures],
   );
+  const selectedIds = Object.entries(selected)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+  const allVisibleSelected = rows.length > 0 && rows.every((r) => selected[r.failure_id]);
 
   return (
     <div className="space-y-6">
@@ -67,6 +75,29 @@ export default function ErrorLog() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (!selectedIds.length) return;
+            if (!window.confirm(`Delete ${selectedIds.length} selected error(s)?`)) return;
+            delBulk.mutate(selectedIds, { onSuccess: () => setSelected({}) });
+          }}
+          disabled={!selectedIds.length || delBulk.isPending}
+          className="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+        >
+          Delete selected
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (!window.confirm("Purge resolved error history?")) return;
+            purgeResolved.mutate(true);
+          }}
+          disabled={purgeResolved.isPending}
+          className="rounded-md border border-amber-300 px-3 py-1.5 text-sm text-amber-800 disabled:opacity-50"
+        >
+          Purge resolved
+        </button>
       </div>
 
       {isLoading ? (
@@ -77,16 +108,62 @@ export default function ErrorLog() {
         <>
           <DataTable
             columns={[
+              {
+                key: "_select",
+                label: "",
+                render: (r) => (
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selected[r.failure_id])}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      setSelected((prev) => ({ ...prev, [r.failure_id]: e.target.checked }))
+                    }
+                  />
+                ),
+              },
               { key: "_id_short", label: "ID", className: "font-mono text-xs" },
               { key: "error_type", label: "Error Type", sortable: true },
               { key: "language", label: "Language", sortable: true },
               { key: "_task_short", label: "Task", className: "max-w-xs truncate" },
               { key: "_time", label: "Time", sortable: true },
+              {
+                key: "_actions",
+                label: "Actions",
+                render: (r) => (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!window.confirm("Delete this error record?")) return;
+                      delOne.mutate(String(r.failure_id));
+                    }}
+                    className="rounded px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                ),
+              },
             ]}
             data={rows}
             keyField="failure_id"
             onRowClick={(r) => navigate(`/observability/errors/${r.failure_id}`)}
           />
+          <label className="flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setSelected((prev) => {
+                  const next = { ...prev };
+                  for (const row of rows) next[row.failure_id] = checked;
+                  return next;
+                });
+              }}
+            />
+            Select all visible
+          </label>
           <div className="flex gap-2 items-center">
             <button
               disabled={page <= 1}

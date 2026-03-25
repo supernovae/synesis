@@ -1,13 +1,11 @@
 import { useState, useCallback } from "react";
 import { clsx } from "clsx";
 import {
-  AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
   Clock,
   Shield,
-  ShieldAlert,
 } from "lucide-react";
 import {
   useSecurityEvents,

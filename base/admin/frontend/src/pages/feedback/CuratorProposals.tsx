@@ -14,7 +14,7 @@ export default function CuratorProposals() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Curator Proposals</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Auto-discovered sources for weak domains -- review and approve
+          Source recommendations generated from retrieval gaps. Review quality and approve for ingestion.
         </p>
       </div>
 

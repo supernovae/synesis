@@ -90,6 +90,8 @@ const navigation: NavItem[] = [
       { label: "Review Queue", path: "/rag/review" },
       { label: "Ingestion Queue", path: "/rag/ingestion" },
       { label: "Ingestion Sources", path: "/rag/ingestion/sources" },
+      { label: "Retrieval Gaps", path: "/rag/retrieval-gaps" },
+      { label: "Curator", path: "/rag/curator" },
       { label: "Testing Labs", path: "/rag/testing-labs" },
     ],
   },
@@ -135,9 +137,7 @@ const navigation: NavItem[] = [
     icon: MessageSquare,
     minRole: "org_admin",
     children: [
-      { label: "Feedback", path: "/feedback" },
-      { label: "Knowledge Gaps", path: "/feedback/knowledge-gaps" },
-      { label: "Curator", path: "/feedback/curator" },
+      { label: "RAG Gap Handoff", path: "/feedback" },
     ],
   },
   {
@@ -149,7 +149,6 @@ const navigation: NavItem[] = [
       { label: "Cache", path: "/observability/cache" },
       { label: "Circuit Breakers", path: "/observability/circuit-breakers" },
       { label: "Errors", path: "/observability/errors" },
-      { label: "Retrieval Gaps", path: "/observability/retrieval-gaps" },
     ],
   },
   { label: "Assistant", icon: Bot, path: "/assistant", minRole: "user" },

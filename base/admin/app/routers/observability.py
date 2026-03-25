@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from asyncio import Lock, create_task
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -21,11 +22,44 @@ logger = logging.getLogger("synesis.admin.observability")
 
 router = APIRouter(prefix="/api/v1/observability", tags=["observability"])
 
+_HEALTH_CACHE_TTL_SECONDS = 15.0
+_health_cache_lock = Lock()
+_health_cache: dict[str, object] = {
+    "services": [],
+    "captured_at_epoch": 0.0,
+    "refreshing": False,
+}
+
+
+async def _refresh_health_snapshot() -> None:
+    services = await probe_all()
+    async with _health_cache_lock:
+        _health_cache["services"] = services
+        _health_cache["captured_at_epoch"] = time.time()
+        _health_cache["refreshing"] = False
+
 
 @router.get("/health")
 async def service_health(_user: UserInfo = Depends(get_current_user)):
-    services = await probe_all()
-    return {"services": services}
+    now = time.time()
+    async with _health_cache_lock:
+        cached_services = list(_health_cache.get("services") or [])
+        captured_at = float(_health_cache.get("captured_at_epoch") or 0.0)
+        refreshing = bool(_health_cache.get("refreshing"))
+        stale = (now - captured_at) > _HEALTH_CACHE_TTL_SECONDS
+        should_refresh = stale and not refreshing
+        if should_refresh:
+            _health_cache["refreshing"] = True
+
+    if should_refresh:
+        create_task(_refresh_health_snapshot())
+
+    return {
+        "services": cached_services,
+        "captured_at_epoch": captured_at,
+        "stale": stale,
+        "refreshing": bool(_health_cache.get("refreshing")),
+    }
 
 
 @router.get("/cache")
@@ -130,6 +164,51 @@ async def failure_detail(
         "resolution": row.resolution,
         "timestamp": row.timestamp,
     }
+
+
+@router.delete("/failures/{failure_id}")
+async def delete_failure(
+    failure_id: str,
+    _user: UserInfo = Depends(require_admin),
+):
+    async with async_session() as session:
+        stmt = delete(Failure).where(Failure.failure_id == failure_id[:64])
+        result = await session.execute(stmt)
+        await session.commit()
+    return {"deleted": int(result.rowcount or 0), "failure_id": failure_id[:64]}
+
+
+class FailureBulkDeleteRequest(BaseModel):
+    failure_ids: list[str]
+
+
+@router.post("/failures/bulk-delete")
+async def bulk_delete_failures(
+    req: FailureBulkDeleteRequest,
+    _user: UserInfo = Depends(require_admin),
+):
+    ids = [str(x)[:64] for x in req.failure_ids if str(x).strip()]
+    if not ids:
+        return {"deleted": 0, "requested": 0}
+    async with async_session() as session:
+        stmt = delete(Failure).where(Failure.failure_id.in_(ids))
+        result = await session.execute(stmt)
+        await session.commit()
+    return {"deleted": int(result.rowcount or 0), "requested": len(ids)}
+
+
+@router.delete("/failures")
+async def purge_failures(
+    resolved_only: bool = Query(True),
+    _user: UserInfo = Depends(require_admin),
+):
+    async with async_session() as session:
+        stmt = delete(Failure)
+        if resolved_only:
+            stmt = stmt.where(Failure.resolution != "")
+        result = await session.execute(stmt)
+        await session.commit()
+    return {"deleted": int(result.rowcount or 0), "resolved_only": resolved_only}
 
 
 # ── Knowledge Gaps (Postgres) ──
@@ -290,6 +369,62 @@ async def purge_gap(
         await session.execute(stmt)
         await session.commit()
     return {"status": "purged", "chunk_id": chunk_id}
+
+
+class GapBulkActionRequest(BaseModel):
+    gap_ids: list[str]
+    action: str
+    resolution_note: str = ""
+
+
+@router.post("/knowledge-gaps/bulk-action")
+async def bulk_action_gaps(
+    req: GapBulkActionRequest,
+    user: UserInfo = Depends(require_admin),
+):
+    ids = [str(x)[:64] for x in req.gap_ids if str(x).strip()]
+    if not ids:
+        return {"updated": 0, "requested": 0, "action": req.action}
+    now = float(time.time())
+    async with async_session() as session:
+        if req.action == "resolve":
+            stmt = (
+                update(KnowledgeGap)
+                .where(KnowledgeGap.gap_id.in_(ids))
+                .values(
+                    status="resolved",
+                    resolved_at=now,
+                    resolved_by=user.username[:128],
+                    resolution_note=req.resolution_note[:8192],
+                )
+            )
+        elif req.action == "reopen":
+            stmt = (
+                update(KnowledgeGap)
+                .where(KnowledgeGap.gap_id.in_(ids))
+                .values(status="reopened", resolved_at=0.0, resolved_by="", resolution_note="")
+            )
+        elif req.action == "purge":
+            result = await session.execute(delete(KnowledgeGap).where(KnowledgeGap.gap_id.in_(ids)))
+            await session.commit()
+            return {"updated": int(result.rowcount or 0), "requested": len(ids), "action": req.action}
+        else:
+            return {"updated": 0, "requested": len(ids), "action": req.action, "error": "unsupported_action"}
+        result = await session.execute(stmt)
+        await session.commit()
+    return {"updated": int(result.rowcount or 0), "requested": len(ids), "action": req.action}
+
+
+@router.delete("/knowledge-gaps")
+async def purge_gaps(
+    status: str = Query("resolved"),
+    _user: UserInfo = Depends(require_admin),
+):
+    async with async_session() as session:
+        stmt = delete(KnowledgeGap).where(KnowledgeGap.status == status)
+        result = await session.execute(stmt)
+        await session.commit()
+    return {"deleted": int(result.rowcount or 0), "status": status}
 
 
 class GapValidateRequest(BaseModel):

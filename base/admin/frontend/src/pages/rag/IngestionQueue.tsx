@@ -1,17 +1,12 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import {
   useIngestionStats,
   useIngestionItems,
   useIngestionRuns,
-  useAddIngestionItem,
-  useAddIngestionItemsBulk,
   useDeleteIngestionItem,
   useRetryIngestionItem,
   usePatchIngestionItem,
   useRequeueIngestionItem,
-  useDiscoverUrl,
-  useBootstrapIngestion,
-  useIngestionHandlers,
   useSchemaSync,
   useResetMilvusCatalog,
   useRerunStagedItem,
@@ -19,10 +14,8 @@ import {
   useStagedItemDocuments,
   useEditStagedDocument,
 } from "../../api/hooks";
-import type { DiscoveryResult } from "../../api/hooks";
 import { useAuth } from "../../components/auth/useAuth";
 import { apiErrorMessage } from "../../api/errorMessage";
-import type { HandlerMetadata } from "../../api/hooks";
 import type { IngestionItem, IngestionRun, IndexerIngestionStats, StagedIngestionDocument } from "../../types";
 
 function numConfig(cfg: Record<string, unknown> | null, key: string, fallback: number): number {
@@ -193,277 +186,14 @@ function StatsBar() {
   );
 }
 
-function DiscoveryReview({ result, onEnqueue, onCancel, isPending }: {
-  result: DiscoveryResult;
-  onEnqueue: (data: { uri: string; handler: string; title: string; domain: string; tags: string[]; config: Record<string, unknown> }) => void;
-  onCancel: () => void;
-  isPending: boolean;
-}) {
-  const [title, setTitle] = useState(result.title);
-  const [handler, setHandler] = useState(result.handler);
-  const [domain, setDomain] = useState(result.domain);
-  const [tags, setTags] = useState(result.tags.join(", "));
-  const [configText, setConfigText] = useState(JSON.stringify(result.config, null, 2));
-
-  const save = () => {
-    let parsedConfig: Record<string, unknown>;
-    try {
-      parsedConfig = JSON.parse(configText || "{}");
-    } catch {
-      window.alert("Config must be valid JSON.");
-      return;
-    }
-    onEnqueue({
-      uri: result.url,
-      handler,
-      title,
-      domain,
-      tags: tags.split(",").map((t) => t.trim()).filter(Boolean),
-      config: parsedConfig,
-    });
-  };
-
+function QueueIntakeGuide() {
   return (
-    <div className="mt-3 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/10 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">Discovery result</h4>
-        <span className={`text-xs font-medium px-2 py-0.5 rounded ${result.recommended_mode === "batch" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" : "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"}`}>
-          {result.recommended_mode}
-        </span>
-      </div>
-
-      {result.risk_flags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
-          {result.risk_flags.map((f) => (
-            <span key={f} className="text-xs rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-1.5 py-0.5">{f}</span>
-          ))}
-        </div>
-      )}
-      {result.notes && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{result.notes}</p>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs mb-3">
-        <label className="block">
-          <span className="text-gray-600 dark:text-gray-300">Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
-        </label>
-        <label className="block">
-          <span className="text-gray-600 dark:text-gray-300">Handler</span>
-          <input value={handler} onChange={(e) => setHandler(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
-        </label>
-        <label className="block">
-          <span className="text-gray-600 dark:text-gray-300">Domain</span>
-          <input value={domain} onChange={(e) => setDomain(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
-        </label>
-        <label className="block">
-          <span className="text-gray-600 dark:text-gray-300">Tags</span>
-          <input value={tags} onChange={(e) => setTags(e.target.value)} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm" />
-        </label>
-      </div>
-      <label className="block text-xs mb-3">
-        <span className="text-gray-600 dark:text-gray-300">Config (JSON)</span>
-        <textarea value={configText} onChange={(e) => setConfigText(e.target.value)} rows={6} className="mt-1 w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 text-sm font-mono" />
-      </label>
-
-      <div className="flex gap-2 justify-end">
-        <button onClick={onCancel} className="px-3 py-1.5 rounded text-xs text-gray-700 dark:text-gray-300">Cancel</button>
-        <button onClick={save} disabled={isPending} className="px-4 py-1.5 rounded bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 disabled:opacity-50">
-          {isPending ? "Adding…" : "Enqueue"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function AddItemForm() {
-  const addItem = useAddIngestionItem();
-  const addBulk = useAddIngestionItemsBulk();
-  const bootstrap = useBootstrapIngestion();
-  const discover = useDiscoverUrl();
-  const { data: handlersData } = useIngestionHandlers();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [uri, setUri] = useState("");
-  const [handler, setHandler] = useState("html_document");
-  const [domain, setDomain] = useState("");
-  const [bulkText, setBulkText] = useState("");
-  const [tab, setTab] = useState<"single" | "bulk" | "file">("single");
-  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
-  const [useLlm, setUseLlm] = useState(false);
-
-  const handlers: HandlerMetadata[] = handlersData?.handlers ?? [];
-  const selectedHandler = handlers.find((h) => h.handler_type === handler);
-  const uriHint = selectedHandler?.uri_hint ?? "Enter a URI";
-
-  const handleSingle = () => {
-    if (!uri.trim()) return;
-    addItem.mutate({ uri: uri.trim(), handler, domain: domain || undefined }, {
-      onSuccess: () => setUri(""),
-    });
-  };
-
-  const handleDiscover = () => {
-    if (!uri.trim()) return;
-    discover.mutate({ url: uri.trim(), use_llm: useLlm }, {
-      onSuccess: (data) => setDiscoveryResult(data),
-    });
-  };
-
-  const handleEnqueue = (data: { uri: string; handler: string; title: string; domain: string; tags: string[]; config: Record<string, unknown> }) => {
-    addItem.mutate(data, {
-      onSuccess: () => {
-        setDiscoveryResult(null);
-        setUri("");
-      },
-    });
-  };
-
-  const handleBulk = () => {
-    const lines = bulkText.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return;
-    addBulk.mutate({
-      items: lines.map((line) => ({ uri: line, handler, domain: domain || undefined })),
-    });
-    setBulkText("");
-  };
-
-  const handleFile = () => {
-    const f = fileRef.current?.files?.[0];
-    if (!f) return;
-    bootstrap.mutate({ file: f, status_override: "pending" });
-  };
-
-  return (
-    <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-4 mb-6">
-      <div className="flex gap-2 mb-3">
-        {(["single", "bulk", "file"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => { setTab(t); setDiscoveryResult(null); }}
-            className={`px-3 py-1 rounded text-sm font-medium ${tab === t ? "bg-indigo-600 text-white" : "bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300"}`}
-          >
-            {t === "single" ? "Add URI" : t === "bulk" ? "Bulk Paste" : "Upload YAML"}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2 mb-2">
-        <select
-          value={handler}
-          onChange={(e) => setHandler(e.target.value)}
-          className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-2 py-1 text-sm"
-        >
-          {handlers.length > 0
-            ? handlers.map((h) => (
-                <option key={h.handler_type} value={h.handler_type}>
-                  {h.label}
-                </option>
-              ))
-            : (
-                <option value="html_document">HTML Document</option>
-              )}
-        </select>
-        <input
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          placeholder="domain (optional)"
-          className="rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-2 py-1 text-sm w-40"
-        />
-      </div>
-
-      {selectedHandler && (
-        <div className="flex items-center gap-3 mb-3 text-xs text-gray-500 dark:text-gray-400">
-          <span className="inline-flex items-center rounded bg-gray-100 dark:bg-slate-700 px-1.5 py-0.5 font-mono">
-            {selectedHandler.artifact_kind}
-          </span>
-          <span>URI pattern: <code className="text-gray-600 dark:text-gray-300">{selectedHandler.uri_pattern}</code></span>
-          {Object.keys(selectedHandler.config_hints).length > 0 && (
-            <span>Config: <code className="text-gray-600 dark:text-gray-300">{JSON.stringify(selectedHandler.config_hints)}</code></span>
-          )}
-        </div>
-      )}
-
-      {tab === "single" && !discoveryResult && (
-        <div>
-          <div className="flex gap-2">
-            <input
-              value={uri}
-              onChange={(e) => setUri(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSingle()}
-              placeholder={uriHint}
-              className="flex-1 rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-1.5 text-sm"
-            />
-            <button
-              onClick={handleDiscover}
-              disabled={discover.isPending || !uri.trim()}
-              className="px-4 py-1.5 rounded bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
-            >
-              {discover.isPending ? "Discovering…" : "Discover"}
-            </button>
-            <button
-              onClick={handleSingle}
-              disabled={addItem.isPending}
-              className="px-4 py-1.5 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
-          <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer">
-            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
-            Use LLM enrichment during discovery
-          </label>
-        </div>
-      )}
-
-      {tab === "single" && discover.isError && (
-        <p className="mt-2 text-xs text-red-600 dark:text-red-400">{apiErrorMessage(discover.error)}</p>
-      )}
-
-      {tab === "single" && discoveryResult && (
-        <DiscoveryReview
-          result={discoveryResult}
-          onEnqueue={handleEnqueue}
-          onCancel={() => setDiscoveryResult(null)}
-          isPending={addItem.isPending}
-        />
-      )}
-
-      {tab === "bulk" && (
-        <div>
-          <textarea
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-            placeholder={`Paste one URI per line (${uriHint})`}
-            rows={5}
-            className="w-full rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-2 text-sm font-mono mb-2"
-          />
-          <button
-            onClick={handleBulk}
-            disabled={addBulk.isPending}
-            className="px-4 py-1.5 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
-            Add {bulkText.split("\n").filter((l) => l.trim()).length} URIs
-          </button>
-        </div>
-      )}
-
-      {tab === "file" && (
-        <div className="flex gap-2 items-center">
-          <input ref={fileRef} type="file" accept=".yaml,.yml,.json" className="text-sm text-gray-700 dark:text-gray-300" />
-          <button
-            onClick={handleFile}
-            disabled={bootstrap.isPending}
-            className="px-4 py-1.5 rounded bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {bootstrap.isPending ? "Importing..." : "Import"}
-          </button>
-          {bootstrap.data && (
-            <span className="text-sm text-green-600 dark:text-green-400">
-              Added {(bootstrap.data as Record<string, number>).added}, skipped {(bootstrap.data as Record<string, number>).skipped}
-            </span>
-          )}
-        </div>
-      )}
+    <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-700 dark:bg-indigo-900/20">
+      <h3 className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">Inputs live in Sources</h3>
+      <p className="mt-1 text-sm text-indigo-800 dark:text-indigo-300">
+        Configure and enqueue ingestion inputs in <code>/rag/ingestion/sources</code>. This Queue page is focused on
+        execution state, retries, staging phases, and outcomes.
+      </p>
     </div>
   );
 }
@@ -1164,7 +894,7 @@ export default function IngestionQueue() {
       </div>
       <SchemaUpgradeBanner />
       <StatsBar />
-      <AddItemForm />
+      <QueueIntakeGuide />
       <ItemsTable />
       <RunsHistory />
       <ResetCatalogPanel />

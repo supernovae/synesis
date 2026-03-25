@@ -16,6 +16,9 @@ import { Activity, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
 export default function ServiceHealth() {
   const { data, isLoading } = useServiceHealth();
   const services = data?.services ?? [];
+  const capturedAt = data?.captured_at_epoch
+    ? new Date(data.captured_at_epoch * 1000).toLocaleTimeString()
+    : "—";
 
   const healthy = services.filter((s) => s.status === "ok").length;
   const degraded = services.filter((s) => s.status === "degraded").length;
@@ -34,8 +37,15 @@ export default function ServiceHealth() {
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Service Health</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Live health probes for all platform services
+          Snapshot-first health probes with background refresh
         </p>
+        {!isLoading ? (
+          <p className="mt-1 text-xs text-gray-500">
+            Last probe: {capturedAt}
+            {data?.stale ? " (refreshing stale snapshot)" : ""}
+            {data?.refreshing ? " (refresh in progress)" : ""}
+          </p>
+        ) : null}
       </div>
 
       {isLoading ? (

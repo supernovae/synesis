@@ -69,7 +69,8 @@ export default function FeedbackList() {
         <div>
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Feedback</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Planner thumbs (run context) and Open WebUI evaluation feedback — triage, notes, trace links.
+            Planner thumbs and Open WebUI feedback triage. Route retrieval issues to RAG Retrieval Gaps and source
+            recommendations to Curator.
           </p>
           {error ? (
             <p className="mt-2 text-sm text-red-600">{apiErrorMessage(error)}</p>
@@ -138,6 +139,18 @@ export default function FeedbackList() {
         <span className="self-center text-sm text-gray-500 dark:text-gray-400">
           {total} row{total === 1 ? "" : "s"}
         </span>
+      </div>
+
+      <div className="rounded-lg border border-indigo-200 bg-indigo-50/70 p-3 text-sm text-indigo-900 dark:border-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-200">
+        <span className="font-medium">Handoff:</span>{" "}
+        <Link to="/rag/retrieval-gaps" className="underline underline-offset-2">
+          Retrieval Gaps
+        </Link>{" "}
+        for confidence failures and{" "}
+        <Link to="/rag/curator" className="underline underline-offset-2">
+          Curator
+        </Link>{" "}
+        for proposed source additions.
       </div>
 
       {isLoading ? (

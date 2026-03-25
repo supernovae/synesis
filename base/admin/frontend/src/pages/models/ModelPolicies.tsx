@@ -42,14 +42,6 @@ const CONDITION_TYPES = [
   { value: "always", label: "Always (default fallback)", placeholder: "" },
 ] as const;
 
-function conditionLabel(ct: string, cv: string): string {
-  const t = CONDITION_TYPES.find((c) => c.value === ct);
-  if (!t) return `${ct}: ${cv}`;
-  if (ct === "always") return "Always";
-  if (ct === "user_preference") return "User preference set";
-  return `${t.label} ${cv}`;
-}
-
 interface DraftRule {
   key: string;
   condition_type: string;
@@ -140,8 +132,8 @@ function RoleCard({ role }: { role: string }) {
   const [draft, setDraft] = useState<DraftRule[] | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const currentRules = data?.rules ?? [];
-  const preview = data?.preview ?? {};
+  const currentRules = useMemo(() => data?.rules ?? [], [data]);
+  const preview = useMemo(() => data?.preview ?? {}, [data]);
   const assignment = assignments?.roles?.find((r) => r.role === role);
   const defaultModel = assignment?.served_name || `synesis-${role}`;
 

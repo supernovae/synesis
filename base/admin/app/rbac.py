@@ -179,6 +179,9 @@ def can_manage_visibility_scope(
         if role >= Role.org_admin:
             return True
         return tenant_id in set(user.tenant_ids or [])
+    if scope in {"user", "session"}:
+        target_org = (org_id or caller_org).strip()
+        return role >= Role.org_admin and bool(caller_org) and target_org == caller_org
     return False
 
 

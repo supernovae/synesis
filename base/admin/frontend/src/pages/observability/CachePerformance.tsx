@@ -45,6 +45,7 @@ export default function CachePerformance() {
     { name: "Semantic Hits", value: data.semantic_hits },
     { name: "Misses", value: data.misses },
   ].filter((d) => d.value > 0);
+  const noRetrievalSamples = retrievalPie.length === 0;
 
   const promptPie = pc
     ? [
@@ -135,6 +136,11 @@ export default function CachePerformance() {
         <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-gray-500">
           Retrieval Cache
         </h2>
+        {noRetrievalSamples ? (
+          <p className="mb-3 text-xs text-amber-700 dark:text-amber-300">
+            No retrieval cache samples observed yet. Metrics populate after planner retrieval traffic.
+          </p>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <MetricCard
             label="Hit Rate"

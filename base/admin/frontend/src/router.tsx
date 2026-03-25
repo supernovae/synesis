@@ -28,6 +28,8 @@ const Benchmarks = lazy(() => import("./pages/rag/Benchmarks"));
 const ReviewQueue = lazy(() => import("./pages/rag/ReviewQueue"));
 const IngestionQueue = lazy(() => import("./pages/rag/IngestionQueue"));
 const IngestionSources = lazy(() => import("./pages/rag/IngestionSources"));
+const RetrievalGaps = lazy(() => import("./pages/rag/RetrievalGaps"));
+const CuratorProposals = lazy(() => import("./pages/rag/CuratorProposals"));
 const TestingLabs = lazy(() => import("./pages/rag/TestingLabs"));
 
 const DomainBrowser = lazy(() => import("./pages/taxonomy/DomainBrowser"));
@@ -45,15 +47,12 @@ const McpTools = lazy(() => import("./pages/integrations/McpTools"));
 const WebSearch = lazy(() => import("./pages/integrations/WebSearch"));
 
 const FeedbackList = lazy(() => import("./pages/feedback/FeedbackList"));
-const KnowledgeGaps = lazy(() => import("./pages/feedback/KnowledgeGaps"));
-const CuratorProposals = lazy(() => import("./pages/feedback/CuratorProposals"));
 
 const ServiceHealth = lazy(() => import("./pages/observability/ServiceHealth"));
 const CachePerformance = lazy(() => import("./pages/observability/CachePerformance"));
 const CircuitBreakers = lazy(() => import("./pages/observability/CircuitBreakers"));
 const ErrorLog = lazy(() => import("./pages/observability/ErrorLog"));
 const ErrorDetail = lazy(() => import("./pages/observability/ErrorDetail"));
-const RetrievalGaps = lazy(() => import("./pages/observability/KnowledgeGaps"));
 
 const AdminAssistant = lazy(() => import("./pages/assistant/AdminAssistant"));
 const SystemConfig = lazy(() => import("./pages/settings/SystemConfig"));
@@ -110,6 +109,8 @@ export const router = createBrowserRouter([
       { path: "rag/review", element: <ReviewQueue /> },
       { path: "rag/ingestion", element: <IngestionQueue /> },
       { path: "rag/ingestion/sources", element: <IngestionSources /> },
+      { path: "rag/retrieval-gaps", element: <RetrievalGaps /> },
+      { path: "rag/curator", element: <CuratorProposals /> },
       { path: "rag/testing-labs", element: <TestingLabs /> },
 
       { path: "taxonomy", element: <DomainBrowser /> },
@@ -127,15 +128,12 @@ export const router = createBrowserRouter([
       { path: "integrations/search", element: <WebSearch /> },
 
       { path: "feedback", element: <FeedbackList /> },
-      { path: "feedback/knowledge-gaps", element: <KnowledgeGaps /> },
-      { path: "feedback/curator", element: <CuratorProposals /> },
 
       { path: "observability/health", element: <ServiceHealth /> },
       { path: "observability/cache", element: <CachePerformance /> },
       { path: "observability/circuit-breakers", element: <CircuitBreakers /> },
       { path: "observability/errors", element: <ErrorLog /> },
       { path: "observability/errors/:failureId", element: <ErrorDetail /> },
-      { path: "observability/retrieval-gaps", element: <RetrievalGaps /> },
 
       { path: "security", element: <SecurityDashboard /> },
       { path: "security/events", element: <SecurityEvents /> },
