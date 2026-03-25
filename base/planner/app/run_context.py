@@ -58,6 +58,21 @@ def build_trace_context(state: dict[str, Any]) -> dict[str, Any]:
         pass
     remaining = state.get("token_budget_remaining", total_budget)
     budget_state = classify_budget(remaining, total_budget) if total_budget else BudgetState.HEALTHY
+    err = (state.get("error") or "").strip() if isinstance(state.get("error"), str) else ""
+    stop_reason = (state.get("stop_reason") or "").strip()
+    failure_reason = err or stop_reason
+    failure_stage = (state.get("current_node") or state.get("next_node") or "").strip()
+    failure_type = ""
+    if budget_state == BudgetState.EXHAUSTED:
+        failure_type = "budget_exhausted"
+    elif failure_reason:
+        low = failure_reason.lower()
+        if "timed out" in low or "timeout" in low:
+            failure_type = "timeout"
+        elif "auth" in low or "forbidden" in low or "unauthorized" in low:
+            failure_type = "auth"
+        else:
+            failure_type = "runtime_error"
 
     return {
         "critic_turn_kind": derive_critic_turn_kind(state),
@@ -69,4 +84,8 @@ def build_trace_context(state: dict[str, Any]) -> dict[str, Any]:
         "token_budget_remaining": remaining,
         "token_budget_consumed": max(0, total_budget - remaining),
         "token_budget_state": budget_state.value,
+        "budget_exhausted": budget_state == BudgetState.EXHAUSTED,
+        "failure_stage": failure_stage[:64],
+        "failure_type": failure_type,
+        "failure_reason": failure_reason[:256],
     }

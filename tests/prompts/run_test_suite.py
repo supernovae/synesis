@@ -48,9 +48,9 @@ except ImportError:
 
 
 SUITE_PATH = Path(__file__).parent / "test_prompts.yaml"
-DEFAULT_API_URL = os.environ.get("SYNESIS_API_URL", "https://synesis-api.apps.openshiftdemo.dev")
-DEFAULT_API_KEY = os.environ.get("SYNESIS_API_KEY", "sk-synesis-test")
-DEFAULT_MODEL = os.environ.get("SYNESIS_MODEL", "synesis-agent")
+DEFAULT_API_URL = os.environ.get("SYNESIS_PLANNER_BASE_URL", os.environ.get("SYNESIS_API_URL", "http://127.0.0.1:8000"))
+DEFAULT_API_KEY = os.environ.get("SYNESIS_TEST_AUTH", os.environ.get("SYNESIS_API_KEY", ""))
+DEFAULT_MODEL = os.environ.get("SYNESIS_MODEL", "Synesis")
 TIMEOUT_S = 120
 
 # ── Category-level defaults for reasoning/phase evaluation ──────────────────
@@ -294,6 +294,29 @@ def group_sequences(prompts: list[dict]) -> list[list[dict]]:
     return standalone + list(sequences.values())
 
 
+def expand_repeats(prompts: list[dict], repeat_ids: set[str], repeat_count: int) -> list[dict]:
+    """Clone standalone prompts so selected IDs can be re-run for cache checks."""
+    if not repeat_ids or repeat_count <= 1:
+        return prompts
+
+    expanded: list[dict] = []
+    for p in prompts:
+        prompt_id = str(p.get("id", ""))
+        expanded.append(p)
+
+        # Keep sequence semantics deterministic; only duplicate standalone prompts.
+        if prompt_id not in repeat_ids or p.get("sequence"):
+            continue
+
+        for idx in range(2, repeat_count + 1):
+            dup = dict(p)
+            dup["_repeat_of"] = prompt_id
+            dup["_repeat_index"] = idx
+            dup["id"] = f"{prompt_id}__run{idx}"
+            expanded.append(dup)
+    return expanded
+
+
 class PhaseEvent:
     """A single pipeline status event with arrival timing."""
 
@@ -329,6 +352,9 @@ class SSEMetrics:
         self.content_text: str = ""
         self.finish_reason: str = ""
         self.model_used: str = ""
+        self.run_id: str = ""
+        self.pipeline_trace: dict = {}
+        self.usage: dict = {}
         self.error: str | None = None
 
     @property
@@ -449,6 +475,9 @@ class SSEMetrics:
             "status_events": self.status_events,
             "finish_reason": self.finish_reason,
             "model": self.model_used,
+            "run_id": self.run_id,
+            "usage": self.usage,
+            "pipeline_trace": self.pipeline_trace,
             "streamed": self.content_chunks > 1,
             "had_reasoning": self.reasoning_chunks > 0,
             "error": self.error,
@@ -466,14 +495,16 @@ def send_prompt(
     metrics = SSEMetrics()
     url = f"{api_url.rstrip('/')}/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
     }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     payload = {
         "model": model,
         "messages": messages,
         "stream": True,
+        "stream_options": {"include_usage": True},
         "temperature": 0.2,
     }
 
@@ -505,6 +536,14 @@ def send_prompt(
 
                 if not metrics.model_used:
                     metrics.model_used = chunk.get("model", "")
+                if not metrics.run_id:
+                    metrics.run_id = str(chunk.get("run_id") or "")
+                usage = chunk.get("usage")
+                if isinstance(usage, dict):
+                    metrics.usage = usage
+                pipeline_trace = chunk.get("pipeline_trace")
+                if isinstance(pipeline_trace, dict):
+                    metrics.pipeline_trace = pipeline_trace
 
                 # Check for status events (Open WebUI format)
                 if chunk.get("type") == "status":
@@ -528,6 +567,14 @@ def send_prompt(
 
                 reasoning = delta.get("reasoning_content") or ""
                 content = delta.get("content") or ""
+                if not metrics.run_id:
+                    metrics.run_id = str(delta.get("run_id") or "")
+                d_usage = delta.get("usage")
+                if isinstance(d_usage, dict):
+                    metrics.usage = d_usage
+                d_pipeline_trace = delta.get("pipeline_trace")
+                if isinstance(d_pipeline_trace, dict):
+                    metrics.pipeline_trace = d_pipeline_trace
 
                 if reasoning:
                     metrics.reasoning_chunks += 1
@@ -735,6 +782,8 @@ def run_batch(
     with httpx.Client(http2=False, follow_redirects=True) as client:
         for i, spec in enumerate(batch):
             prompt_id = spec["id"]
+            base_id = str(spec.get("_repeat_of") or spec["id"])
+            repeat_index = int(spec.get("_repeat_index") or 1)
             prompt_text = spec["prompt"]
             is_continuation = spec.get("sequence") and i > 0
 
@@ -756,6 +805,8 @@ def run_batch(
 
             result = {
                 "id": prompt_id,
+                "base_id": base_id,
+                "repeat_index": repeat_index,
                 "category": spec.get("category", ""),
                 "sequence": spec.get("sequence"),
                 "prompt_preview": prompt_text[:80],
@@ -778,6 +829,11 @@ def run_batch(
             timing = f"{metrics.total_s}s" if metrics.total_s > 0 else "err"
             ttfc_info = f" ttfc:{metrics.ttfc_ms}ms" if metrics.ttfc_ms > 0 else ""
             tps_info = f" {metrics.tokens_per_second}tok/s" if metrics.tokens_per_second > 0 else ""
+            run_info = f" run:{metrics.run_id[:8]}" if metrics.run_id else ""
+            cached_prompt = 0
+            if isinstance(metrics.usage, dict):
+                cached_prompt = int(metrics.usage.get("cached_prompt_tokens") or 0)
+            cache_info = f" cache:{cached_prompt}" if cached_prompt > 0 else ""
             reason_info = ""
             if metrics.had_reasoning:
                 reason_info = f" think:{metrics.reasoning_duration_ms}ms"
@@ -789,7 +845,7 @@ def run_batch(
                 f"  {status_icon} {prompt_id}: {evaluation['overall'].upper()} "
                 f"({timing},{ttfc_info}{tps_info}, {metrics.content_chunks} chunks, "
                 f"{len(metrics.content_text)} chars,"
-                f" phases:{metrics.phase_count}{reason_info}{phase_info})",
+                f" phases:{metrics.phase_count}{reason_info}{phase_info}{run_info}{cache_info})",
                 flush=True,
             )
 
@@ -868,6 +924,34 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
                 f"{cat}: zero reasoning tokens across {n} prompts — model may not be engaging chain-of-thought"
             )
 
+    repeat_analysis: dict[str, dict] = {}
+    by_base: dict[str, list[dict]] = defaultdict(list)
+    for r in all_results:
+        by_base[str(r.get("base_id") or r["id"])].append(r)
+    for base_id, runs in by_base.items():
+        if len(runs) < 2:
+            continue
+        ordered = sorted(runs, key=lambda r: int(r.get("repeat_index") or 1))
+        cache_samples = []
+        for row in ordered:
+            usage = row.get("metrics", {}).get("usage", {}) or {}
+            cache_samples.append(
+                {
+                    "id": row["id"],
+                    "repeat_index": int(row.get("repeat_index") or 1),
+                    "run_id": row.get("metrics", {}).get("run_id") or "",
+                    "cached_prompt_tokens": int(usage.get("cached_prompt_tokens") or 0),
+                    "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+                    "total_tokens": int(usage.get("total_tokens") or 0),
+                    "total_s": row.get("metrics", {}).get("total_s", -1),
+                }
+            )
+        later_cached = any(sample["cached_prompt_tokens"] > 0 for sample in cache_samples[1:])
+        repeat_analysis[base_id] = {
+            "runs": cache_samples,
+            "observed_cache_after_first_run": later_cached,
+        }
+
     report = {
         "metadata": {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -877,6 +961,7 @@ def generate_report(all_results: list[dict], api_url: str, output_path: Path) ->
         "summary": summary,
         "category_breakdown": dict(category_breakdown),
         "tuning_recommendations": tuning,
+        "repeat_analysis": repeat_analysis,
         "failures": [r for r in all_results if r["verdict"] == "fail"],
         "warnings": [r for r in all_results if r["verdict"] == "warn"],
         "all_results": all_results,
@@ -932,6 +1017,20 @@ def print_summary(report: dict) -> None:
         print(f"TUNING RECOMMENDATIONS ({len(tuning)}):")
         for t in tuning:
             print(f"  → {t}")
+
+    repeat_analysis = report.get("repeat_analysis", {}) or {}
+    if repeat_analysis:
+        print(f"\n{'─' * 60}")
+        print(f"REPEAT-RUN CACHE CHECKS ({len(repeat_analysis)} prompt IDs):")
+        for base_id, details in sorted(repeat_analysis.items()):
+            observed = "yes" if details.get("observed_cache_after_first_run") else "no"
+            print(f"  {base_id}: cache_after_first={observed}")
+            for run in details.get("runs", []):
+                print(
+                    f"    run{run['repeat_index']}: cached={run['cached_prompt_tokens']} "
+                    f"prompt={run['prompt_tokens']} total={run['total_tokens']} "
+                    f"latency={run['total_s']}s id={run['id']} trace={run['run_id'][:8]}"
+                )
 
     print()
 
@@ -997,6 +1096,18 @@ def main():
         action="store_true",
         help="Save full response text for each prompt to a directory alongside the report",
     )
+    parser.add_argument(
+        "--repeat-ids",
+        nargs="*",
+        default=[],
+        help="Prompt IDs to repeat (standalone prompts only) for cache checks",
+    )
+    parser.add_argument(
+        "--repeat-count",
+        type=int,
+        default=2,
+        help="Number of total runs for repeated prompt IDs (default: 2)",
+    )
     args = parser.parse_args()
 
     if not args.suite.exists():
@@ -1015,6 +1126,26 @@ def main():
     if not prompts:
         sys.exit("No prompts to run after filtering.")
 
+    repeat_ids = set(args.repeat_ids or [])
+    if repeat_ids and args.repeat_count < 2:
+        sys.exit("--repeat-count must be >= 2 when --repeat-ids is used.")
+
+    selected_ids = {str(p.get("id")) for p in prompts}
+    unknown_repeat_ids = sorted(repeat_ids - selected_ids)
+    if unknown_repeat_ids:
+        print(f"Warning: repeat IDs not present after filtering: {', '.join(unknown_repeat_ids)}")
+
+    sequence_repeat_ids = sorted(
+        str(p["id"]) for p in prompts if str(p.get("id")) in repeat_ids and bool(p.get("sequence"))
+    )
+    if sequence_repeat_ids:
+        print(
+            "Warning: repeat IDs in sequence prompts are ignored to preserve conversation flow: "
+            + ", ".join(sequence_repeat_ids)
+        )
+
+    prompts = expand_repeats(prompts, repeat_ids=repeat_ids, repeat_count=args.repeat_count)
+
     # Group into execution batches
     batches = group_sequences(prompts)
     total_batches = len(batches)
@@ -1031,7 +1162,10 @@ def main():
             label = f"sequence '{seq.split(':')[0]}'" if seq else "standalone"
             print(f"\nBatch {i + 1} ({label}):")
             for p in batch:
-                print(f"  {p['id']:15s} [{p.get('category', '?'):12s}] {p['prompt'][:65]}")
+                repeat_info = ""
+                if p.get("_repeat_index"):
+                    repeat_info = f" (repeat {p['_repeat_index']} of {p.get('_repeat_of')})"
+                print(f"  {p['id']:15s} [{p.get('category', '?'):12s}] {p['prompt'][:65]}{repeat_info}")
         print(f"\nTotal: {total_prompts} prompts, {total_batches} batches")
         return
 
@@ -1039,9 +1173,10 @@ def main():
     print(f"\nTarget: {args.api_url}")
     try:
         with httpx.Client(follow_redirects=True) as c:
-            r = c.get(
-                f"{args.api_url.rstrip('/')}/v1/models", headers={"Authorization": f"Bearer {args.api_key}"}, timeout=10
-            )
+            probe_headers = {}
+            if args.api_key:
+                probe_headers["Authorization"] = f"Bearer {args.api_key}"
+            r = c.get(f"{args.api_url.rstrip('/')}/v1/models", headers=probe_headers, timeout=10)
             if r.status_code == 200:
                 models = r.json().get("data", [])
                 model_ids = [m.get("id", "") for m in models]

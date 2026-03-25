@@ -177,6 +177,9 @@ def classify_budget(remaining: int, total: int) -> BudgetState:
     if remaining <= 0:
         return BudgetState.EXHAUSTED
     fraction_remaining = remaining / max(total, 1)
+    hard_stop_pct = max(0.0, min(1.0, float(settings.token_budget_hard_stop_pct)))
+    if hard_stop_pct > 0 and fraction_remaining <= hard_stop_pct:
+        return BudgetState.EXHAUSTED
     if fraction_remaining <= settings.token_budget_warn_pct:
         return BudgetState.DEGRADED
     return BudgetState.HEALTHY

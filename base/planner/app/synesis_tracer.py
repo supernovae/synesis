@@ -72,6 +72,7 @@ class LLMCallRecord:
     estimated_cost: float | None = None
     policy_source: str = ""  # "policy", "env", "static", or "" if not tracked
     policy_rule_label: str = ""  # human label from matched policy rule
+    error_message: str = ""
 
 
 @dataclass
@@ -690,6 +691,45 @@ class SynesisTracer(BaseCallbackHandler):
             target_span.llm_calls.append(call)
             target_span.tokens_used += total
 
+    def record_direct_stream_failure(
+        self,
+        *,
+        node: str,
+        model: str,
+        prompt_text: str = "",
+        error_message: str = "",
+    ) -> None:
+        """Record a direct-stream model failure that produced no usage payload."""
+        if self._current_trace is None:
+            return
+        call = LLMCallRecord(
+            model=model,
+            node=node,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            cached_prompt_tokens=0,
+            latency_ms=0.0,
+            prompt_snippet=prompt_text[:_MAX_SNIPPET],
+            completion_snippet="",
+            prompt_full=prompt_text[:_MAX_FULL_CHARS],
+            completion_full="",
+            timestamp=time.time(),
+            actual_cost=0.0,
+            estimated_cost=0.0,
+            error_message=(error_message or "")[:_MAX_SNIPPET],
+        )
+        target_span = None
+        for span in reversed(self._current_trace.spans):
+            if span.node_name == node:
+                target_span = span
+                break
+        if target_span is None and self._current_trace.spans:
+            target_span = self._current_trace.spans[-1]
+        if target_span is not None:
+            target_span.llm_calls.append(call)
+            target_span.metadata["llm_error"] = (error_message or "")[:_MAX_SNIPPET]
+
     def annotate_span(self, node_name: str, annotations: dict[str, Any]) -> None:
         """Attach structured metadata to the most recent span matching *node_name*.
 
@@ -1035,7 +1075,35 @@ class SynesisTracer(BaseCallbackHandler):
         parent_run_id: uuid.UUID | None = None,
         **kwargs: Any,
     ) -> None:
-        self._llm_starts.pop(str(run_id), None)
+        if self._current_trace is None:
+            self._llm_starts.pop(str(run_id), None)
+            return
+        rid = str(run_id)
+        start_time, node, prompt_snippet, prompt_full, stored_model = self._unpack_llm_start(rid)
+        call = LLMCallRecord(
+            model=stored_model or "",
+            node=node,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            cached_prompt_tokens=0,
+            latency_ms=max(0.0, (time.monotonic() - start_time) * 1000),
+            prompt_snippet=prompt_snippet,
+            completion_snippet="",
+            prompt_full=prompt_full,
+            completion_full="",
+            timestamp=time.time(),
+            actual_cost=0.0,
+            estimated_cost=0.0,
+            error_message=str(error)[:_MAX_SNIPPET],
+        )
+        parent_span = self._active_spans.get(str(parent_run_id)) if parent_run_id else None
+        if parent_span:
+            parent_span.llm_calls.append(call)
+            parent_span.metadata["llm_error"] = str(error)[:_MAX_SNIPPET]
+        elif self._current_trace.spans:
+            self._current_trace.spans[-1].llm_calls.append(call)
+            self._current_trace.spans[-1].metadata["llm_error"] = str(error)[:_MAX_SNIPPET]
 
 
 # ---------------------------------------------------------------------------

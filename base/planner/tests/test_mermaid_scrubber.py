@@ -33,3 +33,11 @@ class TestMermaidScrubber:
         assert replaced == 1
         assert "```mermaid" not in out
         assert "could not be rendered reliably" in out
+
+    def test_repairs_dangling_node_tail_into_edge(self) -> None:
+        src = "```mermaid\ngraph TD\n    Ingress[Ingress (ALB)] A\n```"
+        out, fixes, replaced = sanitize_mermaid(src)
+        assert replaced == 0
+        assert "Ingress[\"Ingress (ALB)\"] --> A" in out
+        assert fixes > 0
+

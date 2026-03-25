@@ -31,6 +31,8 @@ _MERMAID_PLACEHOLDER = (
 _FLOWCHART_HEAD_RE = re.compile(r"^\s*(graph\b|flowchart\b)", re.IGNORECASE)
 # Markdown list line accidentally pasted inside a flowchart (often yields parse error: got MINUS).
 _SPURIOUS_BULLET_LINE_RE = re.compile(r"^(\s*)-\s+(\S.*)$")
+# Common malformed tail: `Ingress[Ingress (ALB)] A` (missing edge operator).
+_DANGLING_NODE_TAIL_RE = re.compile(r"^(\s*.*?[\]\}\)])\s+([A-Za-z][\w-]*)\s*$")
 
 
 def _mermaid_first_non_comment_line(body: str) -> str:
@@ -96,6 +98,20 @@ def _fix_odd_quotes_in_bracket_nodes(line: str) -> tuple[str, int]:
     return _MERMAID_BRACKET_NODE_RE.sub(_fix, line), fixes
 
 
+def _repair_dangling_node_tail(line: str) -> tuple[str, int]:
+    """Repair `Node[label] Next` into `Node[label] --> Next` for flowcharts."""
+    raw = line.strip()
+    if not raw or raw.startswith("%%"):
+        return line, 0
+    # Already has an explicit link/class/style continuation.
+    if any(op in line for op in ("-->", "==>", "-.->", "---", ":::")):
+        return line, 0
+    m = _DANGLING_NODE_TAIL_RE.match(line)
+    if not m:
+        return line, 0
+    return f"{m.group(1)} --> {m.group(2)}", 1
+
+
 def _quote_special_mermaid_labels(content: str) -> tuple[str, int]:
     """Quote node labels that confuse the parser (parens, pipes, colons, etc.)."""
     fixes = 0
@@ -136,6 +152,9 @@ def _mermaid_basic_ok(body: str) -> bool:
                 continue
             if _SPURIOUS_BULLET_LINE_RE.match(line) and not line.lstrip().startswith("%%"):
                 return False
+            # Reject residual malformed tails like `Node[label] Other`.
+            if _DANGLING_NODE_TAIL_RE.match(line) and not any(op in line for op in ("-->", "==>", "-.->", "---", ":::")):
+                return False
     return True
 
 
@@ -158,11 +177,15 @@ def sanitize_mermaid(text: str) -> tuple[str, int, int]:
         label_fixes += bullet_fixes
 
         repaired_lines: list[str] = []
+        is_flowchart = _mermaid_is_flowchart_like(content)
         for line in content.splitlines():
             ln, u1 = _repair_line_unclosed_bracket_quote(line)
             label_fixes += u1
             ln, u2 = _fix_odd_quotes_in_bracket_nodes(ln)
             label_fixes += u2
+            if is_flowchart:
+                ln, u3 = _repair_dangling_node_tail(ln)
+                label_fixes += u3
             repaired_lines.append(ln)
         content = "\n".join(repaired_lines)
 

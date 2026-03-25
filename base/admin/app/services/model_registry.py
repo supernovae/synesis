@@ -22,6 +22,31 @@ logger = logging.getLogger("synesis.admin.models")
 _yaml_cache: dict[str, Any] | None = None
 
 
+def _normalize_fallbacks(raw: Any, served_name: str = "") -> list[str] | None:
+    """Normalize fallback route names from API/UI payloads."""
+    if raw is None:
+        return None
+    vals: list[str] = []
+    if isinstance(raw, str):
+        vals = [v.strip() for v in raw.split(",")]
+    elif isinstance(raw, list):
+        vals = [str(v).strip() for v in raw]
+    else:
+        return None
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in vals:
+        if not v:
+            continue
+        if served_name and v == served_name:
+            continue
+        if v in seen:
+            continue
+        out.append(v)
+        seen.add(v)
+    return out or None
+
+
 def _load_models_yaml() -> dict[str, Any]:
     global _yaml_cache
     if _yaml_cache is not None:
@@ -203,7 +228,10 @@ async def update_deployment(deployment_id: int, data: dict) -> dict | None:
             "fallbacks",
         ):
             if field in data:
-                setattr(row, field, data[field])
+                if field == "fallbacks":
+                    setattr(row, field, _normalize_fallbacks(data[field], row.served_name))
+                else:
+                    setattr(row, field, data[field])
         await session.commit()
         await session.refresh(row)
         return _deployment_to_dict(row)
@@ -325,6 +353,7 @@ async def assign_role(
         raise ValueError(f"Unknown role: {role}")
 
     served_name = f"synesis-{role}"
+    norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
     lp = build_litellm_params(
         provider,
@@ -373,7 +402,7 @@ async def assign_role(
             is_active=True,
             description=description,
             notes=notes,
-            fallbacks=fallbacks,
+            fallbacks=norm_fallbacks,
         )
         session.add(row)
         await session.commit()

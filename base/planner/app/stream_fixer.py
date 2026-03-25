@@ -1,7 +1,8 @@
-"""StreamingBlockFixer — inline JSON/YAML fixer for SSE token streams.
+"""StreamingBlockFixer — inline JSON/YAML/Mermaid fixer for SSE token streams.
 
 Sits between the LLM token stream and SSE emission.  Prose tokens pass
-through with zero added latency.  When a fenced ``json`` or ``yaml``
+through with zero added latency.  When a fenced ``json`` / ``yaml`` /
+``mermaid``
 block is detected, tokens are buffered until the closing fence arrives,
 the deterministic fixer runs, and the corrected block is emitted as a
 single burst.
@@ -18,7 +19,7 @@ import re
 
 logger = logging.getLogger("synesis.stream_fixer")
 
-_FENCE_OPEN = re.compile(r"^```(json|ya?ml)\s*$", re.MULTILINE | re.IGNORECASE)
+_FENCE_OPEN = re.compile(r"^```(json|ya?ml|mermaid)\s*$", re.MULTILINE | re.IGNORECASE)
 _FENCE_CLOSE = re.compile(r"^```\s*$", re.MULTILINE)
 
 _PARTIAL_FENCE_MAX = 10
@@ -99,7 +100,6 @@ class StreamingBlockFixer:
 
     def _fix_block(self, block: str, lang: str) -> str:
         """Apply deterministic fixes; return original on failure."""
-        from .nodes.final_scrubber import _try_fix_json, _try_fix_yaml
 
         first_nl = block.find("\n")
         if first_nl < 0:
@@ -115,9 +115,29 @@ class StreamingBlockFixer:
 
         fixed: str | None = None
         if lang == "json":
+            from .nodes.final_scrubber import _try_fix_json
+
             fixed = _try_fix_json(body)
         elif lang == "yaml":
+            from .nodes.final_scrubber import _try_fix_yaml
+
             fixed = _try_fix_yaml(body)
+        elif lang == "mermaid":
+            from .mermaid_postprocess import sanitize_mermaid
+
+            repaired, mermaid_fixes, mermaid_replaced = sanitize_mermaid(block)
+            if mermaid_fixes > 0 or mermaid_replaced > 0:
+                self._fixes += mermaid_fixes + mermaid_replaced
+                logger.info(
+                    "stream_block_fixed",
+                    extra={
+                        "lang": lang,
+                        "body_len": len(body),
+                        "total_fixes": self._fixes,
+                        "mermaid_replaced": mermaid_replaced,
+                    },
+                )
+                return repaired
 
         if fixed is not None:
             self._fixes += 1

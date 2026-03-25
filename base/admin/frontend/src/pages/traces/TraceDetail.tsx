@@ -206,6 +206,11 @@ function LLMCallRow({ call }: { call: LLMCallRecord }) {
             ? `${call.prompt_tokens} in (${call.cached_prompt_tokens} cached) + ${call.completion_tokens} out`
             : `${call.prompt_tokens}+${call.completion_tokens} tok`}
         </span>
+        {typeof call.actual_cost === "number" || typeof call.estimated_cost === "number" ? (
+          <span className="text-xs text-gray-400">
+            {fmtCost(call.actual_cost ?? call.estimated_cost ?? 0)}
+          </span>
+        ) : null}
         <span className="text-xs text-gray-400">
           {fmtDuration(call.latency_ms)}
         </span>
@@ -367,15 +372,16 @@ function CriticScoresPanel({ scores }: { scores: Record<string, unknown> }) {
 }
 
 function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
-  const byModel: Record<string, { tokens: number; prompt: number; completion: number; cached: number }> = {};
+  const byModel: Record<string, { tokens: number; prompt: number; completion: number; cached: number; cost: number }> = {};
   for (const span of spans || []) {
     for (const call of span.llm_calls || []) {
       const model = call.model || "unknown";
-      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0, cached: 0 };
+      if (!byModel[model]) byModel[model] = { tokens: 0, prompt: 0, completion: 0, cached: 0, cost: 0 };
       byModel[model].tokens += call.total_tokens || 0;
       byModel[model].prompt += call.prompt_tokens || 0;
       byModel[model].completion += call.completion_tokens || 0;
       byModel[model].cached += call.cached_prompt_tokens ?? 0;
+      byModel[model].cost += (call.actual_cost ?? call.estimated_cost ?? 0);
     }
   }
   const entries = Object.entries(byModel);
@@ -383,19 +389,20 @@ function TokenCostByRole({ spans }: { spans: SpanRecord[] }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">
-        Token cost by role
+        Token usage and cost by model
       </h3>
       <div className="space-y-1.5 text-sm">
         {entries.map(([model, v]) => (
           <div key={model} className="flex items-center justify-between gap-4">
             <span className="font-mono text-gray-700 dark:text-gray-300">{model}</span>
-            <span className="text-gray-500 dark:text-gray-400">
-              {v.tokens.toLocaleString()} tok
-              <span className="ml-2 text-xs">
+            <div className="text-right text-gray-500 dark:text-gray-400">
+              <div>{v.tokens.toLocaleString()} tok</div>
+              <div className="text-xs">
                 ({v.prompt.toLocaleString()} in
                 {v.cached > 0 ? `, ${v.cached.toLocaleString()} cached` : ""} / {v.completion.toLocaleString()} out)
-              </span>
-            </span>
+              </div>
+              <div className="text-xs">{fmtCost(v.cost)}</div>
+            </div>
           </div>
         ))}
       </div>
@@ -786,6 +793,9 @@ export default function TraceDetail() {
           <p className="mt-0.5 text-sm font-medium text-gray-900 dark:text-white">
             {fmtCost(trace.estimated_cost_usd)}
           </p>
+          <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+            actual: {fmtCost(trace.actual_cost_usd ?? 0)}
+          </p>
         </div>
         <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
           <p className="text-xs text-gray-500">Difficulty</p>
@@ -827,6 +837,39 @@ export default function TraceDetail() {
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Trace context (budget/failure state) */}
+      {trace.trace_context && Object.keys(trace.trace_context).length > 0 && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Trace context</h3>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              ["token_budget_total", "Budget total"],
+              ["token_budget_remaining", "Budget remaining"],
+              ["token_budget_consumed", "Budget consumed"],
+              ["token_budget_state", "Budget state"],
+              ["failure_stage", "Failure stage"],
+              ["failure_type", "Failure type"],
+            ].map(([key, label]) => {
+              const value = trace.trace_context?.[key];
+              if (value === undefined || value === null || value === "") return null;
+              return (
+                <div key={key} className="flex justify-between gap-2 border-b border-gray-100 pb-1 dark:border-gray-800">
+                  <dt className="text-gray-500 dark:text-gray-400">{label}</dt>
+                  <dd className="font-mono font-medium text-gray-900 dark:text-white">
+                    {typeof value === "number" ? value.toLocaleString() : String(value)}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+          {trace.trace_context.failure_reason ? (
+            <p className="mt-3 text-xs text-gray-600 dark:text-gray-300">
+              <span className="font-semibold">Failure reason:</span> {String(trace.trace_context.failure_reason)}
+            </p>
+          ) : null}
         </div>
       )}
 

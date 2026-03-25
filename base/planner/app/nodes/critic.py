@@ -18,7 +18,6 @@ from langchain_openai import ChatOpenAI
 
 from ..api_metrics import record_critic_rejection
 from ..config import settings
-from ..model_policy import ModelContext, resolve_model
 from ..critic_policy import (
     build_evidence_needed_query_plan,
     check_evidence_gate,
@@ -26,6 +25,7 @@ from ..critic_policy import (
     should_force_pass,
 )
 from ..llm_telemetry import get_llm_http_client
+from ..model_policy import ModelContext, resolve_model
 from ..prompt_spine import (
     CRITIC_QUALITY_PRINCIPLES,
     CRITIC_TRUST_REVIEW,
@@ -775,6 +775,10 @@ async def critic_node(state: dict[str, Any]) -> dict[str, Any]:
                 "current_node": node_name,
                 "next_node": "respond",
                 "reasoning": "Controller token budget exhausted",
+                "token_budget_remaining": _budget_stop.remaining,
+                "failure_type": "budget_exhausted",
+                "failure_stage": node_name,
+                "failure_reason": "Controller token budget exhausted",
                 "generated_code": state.get("generated_code", ""),
                 "code_explanation": state.get("code_explanation", ""),
                 "patch_ops": state.get("patch_ops", []) or [],

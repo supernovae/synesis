@@ -81,8 +81,9 @@ async def publish_knowledge_gap(
                 """INSERT INTO knowledge_gaps
                        (gap_id, query, task_description, collections_queried,
                         max_score, platform_context, language, status,
+                        resolved_at, resolved_by, resolution_note,
                         web_search_fallback, timestamp)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s, %s)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s, %s, %s, %s, %s)
                    ON CONFLICT (gap_id) DO NOTHING""",
                 (
                     chunk_id,
@@ -92,6 +93,9 @@ async def publish_knowledge_gap(
                     max_score,
                     (platform_context or "generic")[:64],
                     (target_language or "python")[:32],
+                    0,
+                    "",
+                    "",
                     web_search_fallback,
                     int(time.time()),
                 ),

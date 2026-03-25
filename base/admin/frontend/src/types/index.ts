@@ -649,6 +649,9 @@ export interface LLMCallRecord {
   completion_full?: string;
   timestamp: number;
   actual_cost?: number;
+  estimated_cost?: number;
+  policy_source?: string;
+  policy_rule_label?: string;
 }
 
 export interface SpanRecord {
@@ -693,6 +696,17 @@ export interface TraceRecord {
   context_curation?: Record<string, unknown>;
   taxonomy: Record<string, unknown>;
   phase_timings?: Record<string, number>;
+  trace_context?: {
+    token_budget_total?: number;
+    token_budget_remaining?: number;
+    token_budget_consumed?: number;
+    token_budget_state?: string;
+    budget_exhausted?: boolean;
+    failure_stage?: string;
+    failure_type?: string;
+    failure_reason?: string;
+    [key: string]: unknown;
+  };
   short_circuit_reason?: string;
 }
 

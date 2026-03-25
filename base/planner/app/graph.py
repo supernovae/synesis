@@ -117,6 +117,9 @@ def with_timeout(timeout_seconds: float):
                     "current_node": node_name,
                     "next_node": "respond",
                     "error": f"Node '{node_name}' timed out after {timeout_seconds}s",
+                    "failure_type": "timeout",
+                    "failure_stage": node_name,
+                    "failure_reason": f"Node '{node_name}' timed out after {timeout_seconds}s",
                     "generated_code": state.get("generated_code", ""),
                     "code_explanation": state.get("code_explanation", ""),
                     "patch_ops": state.get("patch_ops", []) or [],
@@ -471,6 +474,7 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
     from .config import settings
     from .conversation_memory import memory
     from .decision_summary import build_decision_summary
+    from .mermaid_postprocess import sanitize_mermaid
     from .run_context import build_trace_context
     from .synesis_tracer import get_synesis_tracer
 
@@ -626,6 +630,13 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         )
     elif compiled:
         content = compiled
+        # Defensive pass: compiled fallback can bypass final_scrubber output.
+        content, mfix, mrepl = sanitize_mermaid(content)
+        if mfix > 0 or mrepl > 0:
+            logger.info(
+                "respond_compiled_mermaid_sanitized",
+                extra={"label_fixes": mfix, "blocks_replaced": mrepl},
+            )
         logger.info(
             "respond_using_compiled_answer",
             extra={"len": len(content)},
@@ -824,6 +835,17 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
         and _ctk not in ("skip", "micro_step")
     ):
         _fire_background_critic(dict(state))
+
+    if _tr_ctx:
+        _tr_ctx.set_trace_context(
+            build_trace_context(
+                {
+                    **state,
+                    "token_budget_remaining": token_budget_remaining,
+                    "current_node": "respond",
+                }
+            )
+        )
 
     return {
         "messages": [AIMessage(content=content)],

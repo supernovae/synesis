@@ -210,7 +210,7 @@ class TestChatCompletions:
             assert key in usage
 
     @patch("app.main.graph")
-    def test_streaming_without_include_usage_omits_usage_on_final_chunk(self, mock_graph, client, monkeypatch):
+    def test_streaming_without_include_usage_includes_usage_on_final_chunk(self, mock_graph, client, monkeypatch):
         _s = planner_settings.model_copy(update={"streaming_events_enabled": False})
         monkeypatch.setattr(planner_main_module, "settings", _s)
 
@@ -232,7 +232,9 @@ class TestChatCompletions:
         assert resp.status_code == 200
         chunks = _sse_completion_chunks(resp.text)
         assert chunks
-        assert "usage" not in chunks[-1]
+        usage = chunks[-1].get("usage") or {}
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cached_prompt_tokens"):
+            assert key in usage
 
     @patch("app.main.graph")
     def test_graph_error_returns_500(self, mock_graph, client):

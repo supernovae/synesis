@@ -46,7 +46,7 @@ from .entry_classifier_engine import get_scoring_engine
 from .failure_store import record_error
 from .graph import flush_tracer, get_graph_config, graph, snapshot_tracer_usage, upgrade_checkpointer_to_redis
 from .history_summarizer import archive_to_l2, summarize_pivot_history
-from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_text, scan_user_input
+from .injection_scanner import reduce_context_on_injection, scan_model_output, scan_user_input
 from .message_filter import classify_ui_helper_type
 from .nodes.entry_classifier import detect_language_deterministic
 from .pat_auth import PatAuthContext, resolve_pat_or_none
@@ -363,7 +363,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from .routers.knowledge import router as knowledge_router, set_knowledge_scope_resolver  # noqa: E402
+from .routers.knowledge import router as knowledge_router
+from .routers.knowledge import set_knowledge_scope_resolver
 
 app.include_router(knowledge_router)
 
@@ -1640,8 +1641,9 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
             root_trace_id=_root_tid or run_id,
         )
 
-    # OpenAI streaming: include ``usage`` on the final chunk only when requested.
-    _stream_include_usage = bool(request.stream_options and request.stream_options.include_usage)
+    # Always include final usage on streaming responses so Open WebUI can
+    # reliably surface token hover/usage metadata.
+    _stream_include_usage = True
 
     # Prompt-level cache: return cached response for identical (user + prompt + model)
     cached_response = _prompt_cache_get(user_id, last_user_content or "", response_model_id)
@@ -1672,12 +1674,12 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                     "run_id": run_id,
                 }
-                if _stream_include_usage:
-                    _cache_final["usage"] = {
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                        "total_tokens": 0,
-                    }
+                _cache_final["usage"] = {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                    "cached_prompt_tokens": 0,
+                }
                 yield _sse_chunk(_cache_final)
                 yield "data: [DONE]\n\n"
 
@@ -1947,8 +1949,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                         "run_id": run_id,
                                         "pipeline_trace": pipeline_trace,
                                     }
-                                    if _stream_include_usage:
-                                        _early_chunk["usage"] = _early_usage
+                                    _early_chunk["usage"] = _early_usage
                                     yield _sse_chunk(_early_chunk)
                                     yield "data: [DONE]\n\n"
                                     _stream_closed = True
@@ -2402,6 +2403,30 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                             )
                             accumulated_state["token_budget_remaining"] = _ds_budget.remaining
                     except Exception:
+                        _ds_node = accumulated_state.get("current_node") or "writer"
+                        _ds_prompt_text = ""
+                        try:
+                            _ds_msgs = _stream_req.get("messages") or []
+                            if _ds_msgs:
+                                _last_msg = _ds_msgs[-1]
+                                _ds_prompt_text = (
+                                    _last_msg.get("content", "") if isinstance(_last_msg, dict) else str(_last_msg)
+                                )
+                        except Exception:
+                            _ds_prompt_text = ""
+                        from .synesis_tracer import get_synesis_tracer as _get_ds_tracer
+
+                        _ds_tracer = _get_ds_tracer()
+                        if _ds_tracer is not None:
+                            _ds_tracer.record_direct_stream_failure(
+                                node=_ds_node,
+                                model=_ds_model,
+                                prompt_text=_ds_prompt_text,
+                                error_message="direct_stream_error",
+                            )
+                        accumulated_state["failure_type"] = "upstream_bad_gateway"
+                        accumulated_state["failure_stage"] = _ds_node
+                        accumulated_state["failure_reason"] = "direct_stream_error"
                         logger.exception("direct_stream_error")
                         yield _sse_content_delta(
                             chat_id,
@@ -2496,8 +2521,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "run_id": run_id,
                     "pipeline_trace": pipeline_trace,
                 }
-                if _stream_include_usage:
-                    _final_chunk["usage"] = _final_usage
+                _final_chunk["usage"] = _final_usage
                 yield _sse_chunk(_final_chunk)
                 yield "data: [DONE]\n\n"
 
@@ -2654,8 +2678,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                     "run_id": run_id,
                     "pipeline_trace": pipeline_trace,
                 }
-                if _stream_include_usage:
-                    _fb_chunk["usage"] = _fb_final_usage
+                _fb_chunk["usage"] = _fb_final_usage
                 yield _sse_chunk(_fb_chunk)
                 yield "data: [DONE]\n\n"
 

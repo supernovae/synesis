@@ -337,6 +337,45 @@ class TestStreamingChatDoubleCallback:
         assert str(run_id) not in tracer._llm_starts
 
 
+class TestErrorRecording:
+    def test_on_llm_error_records_failed_call(self, tracer: SynesisTracer):
+        span = SpanRecord(node_name="writer", start_time=time.time())
+        tracer._current_trace.spans.append(span)
+        run_id = uuid.uuid4()
+        tracer._llm_starts[str(run_id)] = (
+            time.monotonic(),
+            "writer",
+            "prompt snippet",
+            "prompt full",
+            "synesis-general",
+        )
+        tracer.on_llm_error(RuntimeError("provider 502"), run_id=run_id, parent_run_id=None)
+
+        assert span.llm_calls
+        call = span.llm_calls[-1]
+        assert call.model == "synesis-general"
+        assert call.total_tokens == 0
+        assert "provider 502" in call.error_message
+
+    def test_record_direct_stream_failure_appends_error_call(self, tracer: SynesisTracer):
+        span = SpanRecord(node_name="writer", start_time=time.time())
+        tracer._current_trace.spans.append(span)
+
+        tracer.record_direct_stream_failure(
+            node="writer",
+            model="synesis-general",
+            prompt_text="hello",
+            error_message="direct_stream_error",
+        )
+
+        assert len(span.llm_calls) == 1
+        call = span.llm_calls[0]
+        assert call.total_tokens == 0
+        assert call.model == "synesis-general"
+        assert call.error_message == "direct_stream_error"
+        assert span.metadata.get("llm_error") == "direct_stream_error"
+
+
 # ---------------------------------------------------------------------------
 # Flush lifecycle
 # ---------------------------------------------------------------------------
