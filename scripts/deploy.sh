@@ -1010,6 +1010,31 @@ _patch_deployment_env() {
     fi
 }
 
+# Post-apply: enforce Claude compatibility env defaults on Yarn so
+# Claude Code / Agent SDK behavior is deterministic across redeploys.
+patch_yarn_claude_compat() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local claude_enabled="${SYNESIS_YARN_CLAUDE_COMPAT_ENABLED:-true}"
+    local claude_tool_search_mode="${SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE:-passthrough}"
+    local claude_custom_model_ids="${SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS:-synesis-pulse,synesis-core,synesis-horizon}"
+
+    log "  Enforcing Yarn Claude compatibility env:"
+    log "    SYNESIS_YARN_CLAUDE_COMPAT_ENABLED=$claude_enabled"
+    log "    SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE=$claude_tool_search_mode"
+    log "    SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS=$claude_custom_model_ids"
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_COMPAT_ENABLED" "$claude_enabled" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE" "$claude_tool_search_mode" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS" "$claude_custom_model_ids" "$container"
+}
+
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
@@ -1546,6 +1571,10 @@ reconcile_provider_api_keys
 log ""
 log "Refreshing Yarn secrets from gateway (post-apply)..."
 ensure_yarn_secrets_from_gateway
+
+log ""
+log "Configuring Yarn Claude compatibility (post-apply)..."
+patch_yarn_claude_compat
 
 log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
