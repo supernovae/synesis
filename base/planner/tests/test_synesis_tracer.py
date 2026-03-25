@@ -397,3 +397,61 @@ class TestFlushLifecycle:
         with patch("app.synesis_tracer._persist_trace"):
             tracer.flush()
             tracer.flush()  # second flush should be noop
+
+
+# ---------------------------------------------------------------------------
+# Per-request isolation via ContextVar
+# ---------------------------------------------------------------------------
+
+
+class TestContextVarIsolation:
+    """Verify that concurrent requests get independent tracer instances."""
+
+    def test_create_request_tracer_returns_fresh_instance(self):
+        from app.synesis_tracer import create_request_tracer, get_synesis_tracer
+
+        with patch.dict("os.environ", {"SYNESIS_TRACE_DATABASE_URL": "postgresql://fake"}):
+            import app.synesis_tracer as mod
+            mod._tracing_enabled = None  # force re-check
+
+            t1 = create_request_tracer()
+            assert t1 is not None
+            assert get_synesis_tracer() is t1
+
+            t2 = create_request_tracer()
+            assert t2 is not None
+            assert t2 is not t1
+            assert get_synesis_tracer() is t2
+
+            mod._tracing_enabled = None
+
+    def test_concurrent_tasks_isolated(self):
+        """Simulate two asyncio tasks and verify they get separate tracers."""
+        import asyncio
+
+        from app.synesis_tracer import create_request_tracer, get_synesis_tracer
+
+        results: dict[str, str] = {}
+
+        async def _simulate_request(req_id: str, query: str):
+            with patch.dict("os.environ", {"SYNESIS_TRACE_DATABASE_URL": "postgresql://fake"}):
+                import app.synesis_tracer as mod
+                mod._tracing_enabled = True
+
+                t = create_request_tracer()
+                t.start_trace(trace_id=req_id, user_id="u1", query=query)
+                await asyncio.sleep(0.01)  # yield to other task
+                current = get_synesis_tracer()
+                results[req_id] = current._current_trace.query_snippet
+                with patch("app.synesis_tracer._persist_trace"):
+                    current.flush()
+
+        async def _run():
+            await asyncio.gather(
+                _simulate_request("req-A", "public speaking"),
+                _simulate_request("req-B", "indoor plants"),
+            )
+
+        asyncio.run(_run())
+        assert results["req-A"] == "public speaking"
+        assert results["req-B"] == "indoor plants"

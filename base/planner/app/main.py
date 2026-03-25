@@ -56,7 +56,7 @@ from .short_followup_context import pick_richer_conversation_transcript, prior_t
 from .state import RetrievalParams
 from .stream_fixer import StreamingBlockFixer
 from .streaming_events import StatusQueueCallback, emit_sub_phase, set_sub_phase_queue
-from .synesis_tracer import get_synesis_tracer
+from .synesis_tracer import create_request_tracer
 
 # /why and /reclassify command patterns
 _WHY_PATTERN = re.compile(r"^\s*\/why\s*$", re.IGNORECASE)
@@ -1625,7 +1625,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
     initial_state["trace_root_id"] = _trace_root
     initial_state["critic_turn_kind"] = derive_critic_turn_kind(initial_state)
 
-    _tracer = get_synesis_tracer()
+    _tracer = create_request_tracer()
     if _tracer is not None:
         _tracer.start_trace(
             trace_id=run_id,

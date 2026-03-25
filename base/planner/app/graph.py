@@ -804,8 +804,9 @@ async def respond_node(state: dict[str, Any]) -> dict[str, Any]:
             "context_curation_low_utilization": _ec.get("low_utilization"),
         },
     )
-    if _synesis_tracer is not None:
-        _synesis_tracer.set_request_metadata(
+    _respond_tracer = get_synesis_tracer()
+    if _respond_tracer is not None:
+        _respond_tracer.set_request_metadata(
             run_id=_fb_run_id,
             difficulty=_fb_difficulty,
             task_type=_fb_task_type,
@@ -1165,8 +1166,6 @@ _log_graph_init_memory("after_graph_compile")
 
 from .synesis_tracer import flush_synesis_tracer, get_synesis_tracer, snapshot_pending_usage
 
-_synesis_tracer = get_synesis_tracer()
-
 
 def snapshot_tracer_usage() -> dict[str, int]:
     """Capture token breakdown from the in-flight trace before flush."""
@@ -1182,12 +1181,13 @@ def flush_tracer(run_id: str = "") -> None:
 
 
 def get_graph_config(extra: dict[str, Any] | None = None, thread_id: str = "") -> dict[str, Any]:
-    """Build graph invocation config with SynesisTracer callback and session thread_id."""
+    """Build graph invocation config with per-request SynesisTracer callback and session thread_id."""
     cfg: dict[str, Any] = {"recursion_limit": 50}
     if extra:
         cfg.update(extra)
     if thread_id:
         cfg.setdefault("configurable", {})["thread_id"] = thread_id
-    if _synesis_tracer is not None:
-        cfg.setdefault("callbacks", []).append(_synesis_tracer)
+    _tracer = get_synesis_tracer()
+    if _tracer is not None:
+        cfg.setdefault("callbacks", []).append(_tracer)
     return cfg

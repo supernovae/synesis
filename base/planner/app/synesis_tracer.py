@@ -15,6 +15,7 @@ Storage: synesis_admin.traces table (see base/admin/app/db/models.py).
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -1107,40 +1108,63 @@ class SynesisTracer(BaseCallbackHandler):
 
 
 # ---------------------------------------------------------------------------
-# Module-level singleton
+# Per-request tracer via ContextVar (replaces the old module-level singleton
+# that caused cross-contamination between concurrent requests)
 # ---------------------------------------------------------------------------
 
-_synesis_tracer: SynesisTracer | None = None
+_request_tracer: contextvars.ContextVar[SynesisTracer | None] = contextvars.ContextVar(
+    "_request_tracer", default=None,
+)
+
+_tracing_enabled: bool | None = None
+
+
+def _is_tracing_enabled() -> bool:
+    """Check once whether the trace database URL is configured."""
+    global _tracing_enabled
+    if _tracing_enabled is not None:
+        return _tracing_enabled
+    _tracing_enabled = bool(os.environ.get("SYNESIS_TRACE_DATABASE_URL", ""))
+    if not _tracing_enabled:
+        logger.info("synesis_tracer_disabled reason=no_database_url")
+    return _tracing_enabled
+
+
+def create_request_tracer() -> SynesisTracer | None:
+    """Create a fresh per-request tracer and store it in the ContextVar.
+
+    Call this at the start of each request handler. The returned instance
+    is scoped to the current asyncio task so concurrent requests never
+    share mutable trace state.
+    """
+    if not _is_tracing_enabled():
+        return None
+    tracer = SynesisTracer()
+    _request_tracer.set(tracer)
+    return tracer
 
 
 def get_synesis_tracer() -> SynesisTracer | None:
-    """Return the module-level tracer singleton (None when Postgres is unavailable)."""
-    global _synesis_tracer
-    if _synesis_tracer is not None:
-        return _synesis_tracer
-    db_url = os.environ.get("SYNESIS_TRACE_DATABASE_URL", "")
-    if not db_url:
-        logger.info("synesis_tracer_disabled reason=no_database_url")
-        return None
-    _synesis_tracer = SynesisTracer()
-    logger.info("synesis_tracer_ready")
-    return _synesis_tracer
+    """Return the per-request tracer (or None outside a traced request)."""
+    return _request_tracer.get(None)
 
 
 def snapshot_pending_usage() -> dict[str, int]:
     """Return token breakdown from the active (pre-flush) trace, or zeros."""
-    if _synesis_tracer is not None:
+    tracer = _request_tracer.get(None)
+    if tracer is not None:
         try:
-            return _synesis_tracer.pending_usage()
+            return tracer.pending_usage()
         except Exception:
             logger.debug("synesis_tracer_pending_usage_failed", exc_info=True)
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "cached_prompt_tokens": 0}
 
 
 def flush_synesis_tracer() -> None:
-    """Flush the current trace to Postgres. Safe to call when tracer is None."""
-    if _synesis_tracer is not None:
+    """Flush the current request's trace to Postgres. Safe to call when tracer is None."""
+    tracer = _request_tracer.get(None)
+    if tracer is not None:
         try:
-            _synesis_tracer.flush()
+            tracer.flush()
         except Exception:
             logger.debug("synesis_tracer_flush_failed", exc_info=True)
