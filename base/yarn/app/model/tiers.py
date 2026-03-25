@@ -11,6 +11,7 @@ or from env-var config (fallback for local dev / admin-down).
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +38,11 @@ _TIER_DISPLAY: dict[str, tuple[str, str]] = {
     TIER_PULSE: ("Synesis Pulse", "Fast coder — lightweight completions, refactors, tab-complete"),
     TIER_CORE: ("Synesis Core", "Balanced coder — multi-step agentic tasks, default for IDE sessions"),
     TIER_HORIZON: ("Synesis Horizon", "Deep reasoning coder — architecture decisions, complex debugging"),
+}
+
+_PROVIDER_DEFAULT_BASE_URLS: dict[str, str] = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "deepinfra": "https://api.deepinfra.com/v1/openai",
 }
 
 
@@ -154,7 +160,18 @@ class TierRegistry:
                 continue
 
             display, desc = _TIER_DISPLAY.get(tier_name, (tier_name, ""))
-            endpoint = assignment.get("endpoint", "") or fallback_url
+            provider = str(assignment.get("provider", "") or "").strip().lower()
+            lp = assignment.get("litellm_params") if isinstance(assignment.get("litellm_params"), dict) else {}
+            endpoint = (
+                str(assignment.get("endpoint", "") or "").strip()
+                or str(lp.get("api_base", "") or "").strip()
+                or _PROVIDER_DEFAULT_BASE_URLS.get(provider, "")
+                or fallback_url
+            )
+            api_key_env = str(assignment.get("api_key_env", "") or "").strip()
+            api_key = os.environ.get(api_key_env, "").strip() if api_key_env else ""
+            if not api_key:
+                api_key = fallback_key
             cost_info = cost_by_role.get(role, {})
 
             tiers[tier_name] = ModelTier(
@@ -163,7 +180,7 @@ class TierRegistry:
                 description=desc,
                 backend_model=assignment.get("model", ""),
                 base_url=endpoint,
-                api_key=fallback_key,
+                api_key=api_key,
                 input_per_m=cost_info.get("input_per_million", 0.0),
                 output_per_m=cost_info.get("output_per_million", 0.0),
                 cached_per_m=cost_info.get("input_cached_per_million") or 0.0,

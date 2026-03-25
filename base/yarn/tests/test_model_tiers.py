@@ -124,7 +124,7 @@ class TestFromAdminResponse:
         roles = [
             {"role": "coder-pulse", "assigned": True, "model": "test/pulse", "endpoint": "http://pulse:8080/v1"},
             {"role": "coder-core", "assigned": True, "model": "test/core", "endpoint": "http://core:8080/v1"},
-            {"role": "coder-horizon", "assigned": True, "model": "test/horizon", "endpoint": ""},
+            {"role": "coder-horizon", "assigned": True, "model": "test/horizon", "endpoint": "", "provider": "openrouter"},
         ]
         costs = [
             {"role": "coder-pulse", "input_per_million": 0.1, "output_per_million": 0.5, "input_cached_per_million": 0.01},
@@ -141,8 +141,30 @@ class TestFromAdminResponse:
         assert pulse.input_per_m == 0.1
 
         horizon = reg.resolve(TIER_HORIZON)
-        assert horizon.base_url == "http://fallback:4000/v1"
+        assert horizon.base_url == "https://openrouter.ai/api/v1"
         assert horizon.output_per_m == 0.0
+
+    def test_uses_api_key_env_from_assignment(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "or-test-key")
+        roles = [
+            {
+                "role": "coder-core",
+                "assigned": True,
+                "provider": "openrouter",
+                "model": "test/core",
+                "endpoint": "",
+                "api_key_env": "OPENROUTER_API_KEY",
+            },
+        ]
+        reg = TierRegistry.from_admin_response(
+            roles,
+            [],
+            fallback_url="http://fallback:4000/v1",
+            fallback_key="fallback-key",
+        )
+        core = reg.resolve(TIER_CORE)
+        assert core.base_url == "https://openrouter.ai/api/v1"
+        assert core.api_key == "or-test-key"
 
     def test_skips_unassigned_roles(self):
         roles = [

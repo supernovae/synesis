@@ -44,6 +44,12 @@ PROVIDER_CATALOG: dict[str, ProviderInfo] = {
     ]
 }
 
+PROVIDER_DEFAULT_ENDPOINTS: dict[str, str] = {
+    # OpenAI-compatible base URLs used when a role assignment omits endpoint.
+    "openrouter": "https://openrouter.ai/api/v1",
+    "deepinfra": "https://api.deepinfra.com/v1/openai",
+}
+
 KNOWN_ROLES = (
     "router",
     "general",
@@ -139,3 +145,8 @@ def build_litellm_params(
     if info.needs_endpoint and endpoint:
         params["api_base"] = endpoint
     return params
+
+
+def default_endpoint_for_provider(provider: str) -> str:
+    """Return the canonical OpenAI-compatible base URL for known providers."""
+    return PROVIDER_DEFAULT_ENDPOINTS.get((provider or "").strip().lower(), "")

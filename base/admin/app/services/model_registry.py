@@ -14,7 +14,13 @@ from ..db.engine import async_session
 from ..db.models import CostRateSnapshot, ModelDeployment, ModelRoleHistory
 from ..db.models import ModelCost as ModelCostRow
 from ..deps import MODELS_YAML_PATH
-from .provider_catalog import KNOWN_ROLES, PROVIDER_CATALOG, ROLE_SERVED_NAMES, build_litellm_params
+from .provider_catalog import (
+    KNOWN_ROLES,
+    PROVIDER_CATALOG,
+    ROLE_SERVED_NAMES,
+    build_litellm_params,
+    default_endpoint_for_provider,
+)
 from .token_cost import estimate_llm_call_cost_from_payload, parse_recorded_estimated_cost
 
 logger = logging.getLogger("synesis.admin.models")
@@ -264,19 +270,28 @@ async def set_deployment_active(deployment_id: int, active: bool) -> dict | None
 
 
 def _deployment_to_dict(row: ModelDeployment) -> dict:
+    provider = row.provider or row.source
+    lp = dict(row.litellm_params or {})
+    resolved_endpoint = (
+        (row.endpoint or "").strip()
+        or str(lp.get("api_base") or "").strip()
+        or default_endpoint_for_provider(provider)
+    )
+    if resolved_endpoint and not lp.get("api_base"):
+        lp["api_base"] = resolved_endpoint
     return {
         "id": row.id,
         "environment": row.environment or "",
         "role": row.role,
         "model": row.model,
-        "endpoint": row.endpoint,
+        "endpoint": resolved_endpoint,
         "served_name": row.served_name,
         "status": row.status,
         "profile": row.profile,
-        "provider": row.provider or row.source,
+        "provider": provider,
         "source": row.source,
         "api_key_env": row.api_key_env or "",
-        "litellm_params": row.litellm_params,
+        "litellm_params": lp,
         "is_active": row.is_active,
         "description": row.description,
         "notes": row.notes,
@@ -355,10 +370,11 @@ async def assign_role(
     served_name = ROLE_SERVED_NAMES.get(role, f"synesis-{role}")
     norm_fallbacks = _normalize_fallbacks(fallbacks, served_name)
     prov_info = PROVIDER_CATALOG.get(provider, PROVIDER_CATALOG["custom"])
+    resolved_endpoint = (endpoint or "").strip() or default_endpoint_for_provider(provider)
     lp = build_litellm_params(
         provider,
         model,
-        endpoint=endpoint,
+        endpoint=resolved_endpoint,
         api_key_env=api_key_env,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -392,7 +408,7 @@ async def assign_role(
         row = ModelDeployment(
             role=role,
             model=model,
-            endpoint=endpoint if prov_info.needs_endpoint else "",
+            endpoint=resolved_endpoint,
             served_name=served_name,
             status="activating",
             source=provider if provider in ("vllm", "kserve", "openrouter") else "external",
