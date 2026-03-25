@@ -357,6 +357,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse as _JSONResponse
+
+
+def _openai_error_response(status_code: int, message: str, error_type: str = "invalid_request_error") -> _JSONResponse:
+    """Return an OpenAI-compatible error envelope."""
+    return _JSONResponse(
+        status_code=status_code,
+        content={"error": {"message": message, "type": error_type, "code": str(status_code)}},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def _openai_http_exception_handler(_request: Request, exc: HTTPException):
+    detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
+    if exc.status_code == 401:
+        etype = "authentication_error"
+    elif exc.status_code == 403:
+        etype = "permission_error"
+    elif exc.status_code == 429:
+        etype = "rate_limit_error"
+    elif exc.status_code >= 500:
+        etype = "server_error"
+    else:
+        etype = "invalid_request_error"
+    return _openai_error_response(exc.status_code, detail, etype)
+
+
+@app.exception_handler(RequestValidationError)
+async def _openai_validation_handler(_request: Request, exc: RequestValidationError):
+    messages = []
+    for err in exc.errors():
+        loc = " -> ".join(str(x) for x in err.get("loc", []))
+        messages.append(f"{loc}: {err.get('msg', 'validation error')}")
+    return _openai_error_response(422, "; ".join(messages), "invalid_request_error")
+
+
 from .routers.knowledge import router as knowledge_router
 from .routers.knowledge import set_knowledge_scope_resolver
 
@@ -648,11 +685,17 @@ def _sse_chunk(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-def _sse_content_delta(chat_id: str, delta: dict, run_id: str = "") -> str:
-    """Format a single content-delta SSE chunk (OpenAI streaming format)."""
+def _sse_content_delta(chat_id: str, delta: dict, run_id: str = "", model: str = "Synesis") -> str:
+    """Format a single content-delta SSE chunk (OpenAI streaming format).
+
+    Includes ``model`` and ``created`` on every chunk so strict OpenAI SDK
+    parsers don't reject the payload.
+    """
     payload: dict[str, Any] = {
         "id": chat_id,
         "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
         "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
     }
     if run_id:
@@ -1664,6 +1707,7 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _cache_final: dict[str, Any] = {
                     "id": _cache_chat_id,
                     "object": "chat.completion.chunk",
+                    "created": int(time.time()),
                     "model": response_model_id,
                     "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
                     "run_id": run_id,
@@ -1940,6 +1984,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                                     _early_chunk: dict[str, Any] = {
                                         "id": chat_id,
                                         "object": "chat.completion.chunk",
+                                        "created": int(time.time()),
+                                        "model": response_model_id,
                                         "choices": [{"index": 0, "delta": {}, "finish_reason": _early_finish}],
                                         "run_id": run_id,
                                         "pipeline_trace": pipeline_trace,
@@ -2542,6 +2588,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _final_chunk: dict[str, Any] = {
                     "id": chat_id,
                     "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": response_model_id,
                     "choices": [{"index": 0, "delta": {}, "finish_reason": _final_finish}],
                     "run_id": run_id,
                     "pipeline_trace": pipeline_trace,
@@ -2699,6 +2747,8 @@ async def chat_completions(request: ChatCompletionRequest, http_request: Request
                 _fb_chunk: dict[str, Any] = {
                     "id": chat_id,
                     "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": response_model_id,
                     "choices": [{"index": 0, "delta": {}, "finish_reason": _fb_finish}],
                     "run_id": run_id,
                     "pipeline_trace": pipeline_trace,
