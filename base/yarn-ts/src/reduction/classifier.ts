@@ -90,12 +90,17 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   if (hasAny(tc, ["journalctl", "tail -f", "docker logs"])) return "log-stream";
 
   // ── Phase 2: raw content patterns ─────────────────────────────────
-  // For generic tool names like "bash" / "shell". Order: specific first, generic last.
+  // For generic tool names like "bash" / "shell".
+  // ORDERING RULE: specific families MUST precede their generic superset.
+  //   e.g. phpunit / python-unittest / pylint before pytest,
+  //        yarn-install / pnpm before npm-install,
+  //        cppcheck before the make ": error:" heuristic,
+  //        git (status markers) before git-diff.
 
-  // VCS
+  // VCS — git status markers are very specific; check before diff markers
+  if (hasAny(r, ["on branch", "changes not staged", "changes to be committed"])) return "git";
   if (/^diff --git /m.test(r) || (/^--- /m.test(r) && /^\+\+\+ /m.test(r) && /^@@/m.test(r))) return "git-diff";
   if (/^commit [0-9a-f]{7,64}\b/m.test(r) && hasAny(r, ["author:", "date:"])) return "git-log";
-  if (hasAny(r, ["on branch", "changes not staged", "changes to be committed"])) return "git";
 
   // Container
   if ((hasAny(r, ["attaching to", " exited with code "]) && hasAny(r, ["compose", "creating", "started", "recreating"])) ||
@@ -105,33 +110,39 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
       (/step\s+\d+\/\d+\s*:/i.test(r) && hasAny(r, [": from ", ": run ", ": copy ", ": add ", ": cmd "])) ||
       /^#\d+\s+\[/m.test(r)) return "docker-build";
 
-  // Test runners (specific frameworks first)
-  if (hasAny(r, ["=== failures", "failed", "assert "]) && hasAny(r, ["test_", "::test"])) return "pytest";
-  if (hasAny(r, ["error ts"]) && hasAny(r, ["): error ts"])) return "tsc";
-  if (hasAny(r, ["fail ", "✕", "●"]) && hasAny(r, ["test suites:", "tests:"])) return "jest";
-  if (/\d+\s+passing/m.test(r) && (hasAny(r, ["failing", "pending"]) || r.includes("✓"))) return "mocha";
-  if (/\d+\s+examples?,\s*\d+\s+failures?/m.test(r) || hasAny(r, ["rspec ./", "failure/error:"])) return "rspec";
-  if (hasAny(r, ["phpunit"]) || (/tests?:/i.test(r) && /assertions?:/i.test(r))) return "phpunit";
-  if (/ran \d+ tests? in/i.test(r) && (hasAny(r, ["ok", "failed (failures=", "failed (errors="]))) return "python-unittest";
-  if ((hasAny(r, ["build succeeded", "build failed"]) && hasAny(r, ["error cs", "warning cs", "msbuild"])) ||
-      (hasAny(r, ["total tests:", "total:"]) && hasAny(r, ["passed:", "failed:"]))) return "dotnet";
-
-  // Coverage (before generic linters)
-  if (/\bStmts\b/.test(r) && /\bMiss\b/.test(r) && /\bCover\b/.test(r)) return "coverage";
-  if (/\b%?\s*Stmts\b/i.test(r) && r.includes("|") && /\d+\s*\|\s*\d+/.test(r)) return "coverage";
-
-  // Linters / static analysis
+  // Linters / static analysis — BEFORE test runners because test runners' "failed" + "test_"
+  // patterns are too broad and catch linter/unittest output.
   if (hasAny(r, ["f401", "e501", "e711", "e722"]) || (hasAny(r, ["warning  ", " error  "]) && hasAny(r, ["eslint", "ruff"]))) return "lint";
   if (hasAny(r, ["rated at"]) && /\*{5,}\s*module/i.test(r)) return "pylint";
   if (/\.py:\d+:\d+:\s*\[[crwef]\d+/i.test(r)) return "pylint";
   if (/in .+\s+line \d+:/m.test(r) && /sc\d{4}/i.test(r)) return "shellcheck";
   if (hasAny(r, ["clippy::", "#[warn(clippy::", "#[deny(clippy::"])) return "clippy";
   if (/\.rb:\d+:\d+:\s*[cwef]:/i.test(r) && (hasAny(r, ["offenses", "inspected"]))) return "rubocop";
-  if (/\(error\)|\(warning\)|\(style\)|\(performance\)/.test(r) && /\[\w+:\d+\]/.test(r)) return "cppcheck";
+  if (/\(error\)|\(warning\)|\(style\)|\(performance\)/.test(r) && /\[\w+\]/.test(r)) return "cppcheck";
   if (/\.py:\d+: error:/.test(r) && hasAny(r, ["found ", "incompatible", "has no attribute"])) return "mypy";
 
-  // Build tools — cmake before make (cmake filenames contain "make:" as substring)
+  // Test runners — specific frameworks before generic pytest
+  if (hasAny(r, ["phpunit"]) || (/tests?:/i.test(r) && /assertions?:/i.test(r))) return "phpunit";
+  if (/ran \d+ tests? in/i.test(r) && (hasAny(r, ["ok", "failed (failures=", "failed (errors="]))) return "python-unittest";
+  if (hasAny(r, ["=== failures", "failed", "assert "]) && hasAny(r, ["test_", "::test"])) return "pytest";
+  if (hasAny(r, ["error ts"]) && hasAny(r, ["): error ts"])) return "tsc";
+  if (hasAny(r, ["fail ", "✕", "●"]) && hasAny(r, ["test suites:", "tests:"])) return "jest";
+  if (/\d+\s+passing/m.test(r) && (hasAny(r, ["failing", "pending"]) || r.includes("✓"))) return "mocha";
+  if (/\d+\s+examples?,\s*\d+\s+failures?/m.test(r) || hasAny(r, ["rspec ./", "failure/error:"])) return "rspec";
+  if ((hasAny(r, ["build succeeded", "build failed"]) && hasAny(r, ["error cs", "warning cs", "msbuild"])) ||
+      (hasAny(r, ["total tests:", "total:"]) && hasAny(r, ["passed:", "failed:"]))) return "dotnet";
+
+  // Coverage (before generic build tools)
+  if (/\bStmts\b/.test(r) && /\bMiss\b/.test(r) && /\bCover\b/.test(r)) return "coverage";
+  if (/\b%?\s*Stmts\b/i.test(r) && r.includes("|") && /\d+\s*\|\s*\d+/.test(r)) return "coverage";
+
+  // Package managers — pnpm's "packages: +" is unique; check before yarn-install
+  // whose "resolution step" + "done in" pattern also matches pnpm output.
+  if (hasAny(r, ["packages: +", "progress: resolved"]) || (hasAny(r, ["dependencies:", "devdependencies:"]) && r.includes("pnpm"))) return "pnpm";
+  if (hasAny(r, ["yn0", "➤ yn"]) || (hasAny(r, ["resolution step", "fetch step"]) && hasAny(r, ["done in"]))) return "yarn-install";
   if (hasAny(r, ["npm warn", "npm err!", "added "]) && hasAny(r, [" packages", "peer dep"])) return "npm-install";
+
+  // Build tools — cppcheck already matched above; cmake before make
   if (hasAny(r, ["compiling ", "downloading "]) && hasAny(r, ["cargo", "crate"])) return "cargo";
   if (/error\[e\d+\]/.test(r) && hasAny(r, ["-->"])) return "cargo";
   if ((hasAny(r, ["-- configuring done"]) && (hasAny(r, ["-- found", "-- generating"]))) ||
