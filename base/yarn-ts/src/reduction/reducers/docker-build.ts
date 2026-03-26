@@ -13,19 +13,19 @@ export class DockerBuildReducer implements Reducer {
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (/^(STEP|Step)\s+\d+/i.test(trimmed) || /^#\d+\s/.test(trimmed)) {
+      if (/^(\[\d+\/\d+\]\s+)?(STEP|Step)\s+\d+/i.test(trimmed) || /^#\d+\s/.test(trimmed)) {
         stepCount++;
         if (/cached/i.test(trimmed)) cachedCount++;
       } else if (/^(ERROR|error)\b/i.test(trimmed) || trimmed.includes("returned a non-zero code")) {
         errors.push(trimmed);
       } else if (trimmed.startsWith("WARNING") || trimmed.startsWith("[WARNING]")) {
         warnings.push(trimmed);
-      } else if (/^Successfully (built|tagged)/i.test(trimmed) || /^naming to/i.test(trimmed)) {
+      } else if (/^(\[\d+\/\d+\]\s+)?(Successfully (built|tagged)|naming to)/i.test(trimmed) || /^(exporting to image)/i.test(trimmed)) {
         finalImage = trimmed;
       }
     }
 
-    if (stepCount === 0 && errors.length === 0) return null;
+    if (stepCount === 0 && errors.length === 0 && !finalImage) return null;
     const parts: string[] = [`<TOOL_REDUCED family="docker-build" steps="${stepCount}" cached="${cachedCount}">`];
     if (finalImage) parts.push(`result: ${finalImage}`);
     if (errors.length > 0) {

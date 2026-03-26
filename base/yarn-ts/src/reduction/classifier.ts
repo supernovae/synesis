@@ -47,18 +47,19 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   if (hasAny(tc, ["journalctl", "tail -f", "docker logs"])) return "log-stream";
 
   // Phase 2: raw content patterns (for generic tool names like "bash", "shell")
+  // Order matters — specific patterns first, generic fallbacks last.
 
-  // Original 5
+  // Original 5 (except search, which is a generic fallback and moved to end)
   if (hasAny(r, ["=== failures", "failed", "assert "]) && hasAny(r, ["test_", "::test"])) return "pytest";
   if (hasAny(r, ["error ts"]) && hasAny(r, ["): error ts"])) return "tsc";
   if (hasAny(r, ["f401", "e501", "e711", "e722"]) || (hasAny(r, ["warning  ", " error  "]) && hasAny(r, ["eslint", "ruff"]))) return "lint";
   if (hasAny(r, ["on branch", "changes not staged", "changes to be committed"])) return "git";
-  const searchLineCount = (r.match(/^[^\s:]+:\d+:/gm) ?? []).length;
-  if (searchLineCount >= 3) return "search";
 
   // Batch A: raw patterns
   if (hasAny(r, ["npm warn", "npm err!", "added "]) && hasAny(r, [" packages", "peer dep"])) return "npm-install";
-  if ((hasAny(r, ["step ", "#"]) && hasAny(r, ["run ", "copy ", "from "])) || hasAny(r, ["successfully built", "successfully tagged", "naming to"])) return "docker-build";
+  if (hasAny(r, ["successfully built", "successfully tagged", "naming to", "exporting to image"]) ||
+      (/step\s+\d+\/\d+\s*:/i.test(r) && hasAny(r, [": from ", ": run ", ": copy ", ": add ", ": cmd "])) ||
+      /^#\d+\s+\[/m.test(r)) return "docker-build";
   if (hasAny(r, ["compiling ", "downloading "]) && hasAny(r, ["cargo", "crate"])) return "cargo";
   if (/error\[e\d+\]/.test(r) && hasAny(r, ["-->"])) return "cargo";
   if (hasAny(r, ["make[", "make:"])) return "make";
@@ -71,7 +72,7 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
 
   // Batch B: raw patterns
   if (hasAny(r, ["fail ", "✕", "●"]) && hasAny(r, ["test suites:", "tests:"])) return "jest";
-  if (/\.(go):\d+:\d+:/.test(r) && hasAny(r, ["cannot ", "undefined:", "declared"])) return "go-build";
+  if (/\.go:\d+:\d+:/.test(r) && hasAny(r, ["cannot ", "undefined:", "declared"])) return "go-build";
   if (hasAny(r, ["--- fail:", "fail\t"])) return "go-build";
   if (hasAny(r, ["successfully installed", "requirement already satisfied", "collecting "])) return "pip-install";
   if (/^(HTTP\/[\d.]+)\s+\d{3}/m.test(r) && (hasAny(r, ["content-type:", "< "]) || /^[*>]\s/m.test(r))) return "curl-http";
@@ -95,6 +96,10 @@ export function classifyReducerFamily(toolName?: string, command?: string, raw?:
   // Log stream: many lines with log-level patterns
   const logLevelCount = (r.match(/\b(ERROR|WARN|INFO|DEBUG|FATAL)\b/gi) ?? []).length;
   if (logLevelCount >= 10) return "log-stream";
+
+  // Search / grep: generic file:line: pattern — checked last because many tools produce this format
+  const searchLineCount = (r.match(/^[^\s:]+:\d+:/gm) ?? []).length;
+  if (searchLineCount >= 3) return "search";
 
   return "generic";
 }

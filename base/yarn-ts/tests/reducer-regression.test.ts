@@ -76,6 +76,26 @@ describe("ReducerRegistry: all families produce non-null output", () => {
   }
 });
 
+function liveFixture(name: string): string {
+  return readFileSync(join(process.cwd(), "tests", "fixtures", "live", `${name}-large.txt`), "utf8");
+}
+
+describe("Classifier: raw-content-only fallback (toolName=bash, no command)", () => {
+  const PHASE2_FAMILIES: Array<Exclude<ReducerFamily, "generic">> = [
+    "docker-build", "go-build", "terraform", "network-diag",
+    "npm-install", "cargo", "make", "stack-trace", "jest",
+    "pip-install", "kubectl", "java-build", "ansible", "helm",
+    "strace-perf", "log-stream",
+  ];
+  for (const family of PHASE2_FAMILIES) {
+    it(`classifies ${family} from raw content alone (live fixture)`, () => {
+      const raw = liveFixture(family);
+      const result = classifyReducerFamily("bash", undefined, raw);
+      expect(result).toBe(family);
+    });
+  }
+});
+
 describe("Reducer output quality", () => {
   it("pytest extracts failures", () => {
     const out = registry.reduce({ raw: fixture("pytest"), context: { toolName: "pytest", command: "pytest", profile: "balanced", maxChars: 12000, minConfidence: 0.6 } });
