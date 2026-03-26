@@ -1,10 +1,10 @@
 {
   "metadata": {
     "date": "2026-03-26T23:16:24.954Z",
-    "environment": "",
-    "operator": "",
-    "planner_ts_image_tag": "",
-    "python_fallback_image_tag": ""
+    "environment": "openshift:synesis-planner",
+    "operator": "cursor-agent",
+    "planner_ts_image_tag": "unavailable",
+    "python_fallback_image_tag": "ghcr.io/supernovae/synesis/planner:latest"
   },
   "checks": [
     {
@@ -111,6 +111,6 @@
   },
   "outcome": {
     "result": "pending",
-    "notes": "All local/verifiable gate, contract, auth boundary, and perf checks passed. Remaining blocker: staging rollback rehearsal."
+    "notes": "Commit pushed: 4d9b6217bbd2cd8a19fc780440f8e0092994f2b5. GitHub Actions build run 23622954919 succeeded, but probe for ghcr.io/supernovae/synesis/planner:sha-4d9b6217 failed with manifest unknown. No planner-ts standby deployment/image is currently available in-cluster, so live promote+rollback remains blocked."
   }
 }

@@ -1,0 +1,20 @@
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest
+
+WORKDIR /opt/app-root/src
+
+COPY planner-ts/package.json planner-ts/package-lock.json ./
+RUN npm ci
+
+COPY planner-ts/tsconfig.json ./tsconfig.json
+COPY planner-ts/src ./src
+COPY planner-ts/tests ./tests
+COPY planner-ts/scripts ./scripts
+RUN npm run build
+RUN npm ci --omit=dev
+
+EXPOSE 8080
+
+ENV NODE_ENV=production
+ENV PORT=8080
+
+CMD ["node", "--enable-source-maps", "dist/index.js"]

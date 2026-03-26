@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'base/**/Dockerfile'
+      - 'base/**/Containerfile'
       - 'base/**/requirements.txt'
       - 'base/**/requirements.lock'
       - 'base/**/app/**'
@@ -22,6 +23,7 @@ on:
       - 'base/mcp/**'
       - 'base/yarn/**'
       - 'base/yarn-ts/**'
+      - 'base/planner-ts/**'
       - 'base/security/**'
       - 'base/quality-runner/**'
       - 'base/webui/Dockerfile'
@@ -73,6 +75,7 @@ jobs:
       mcp: ${{ steps.filter.outputs.mcp }}
       yarn: ${{ steps.filter.outputs.yarn }}
       yarn-ts: ${{ steps.filter.outputs.yarn-ts }}
+      planner-ts: ${{ steps.filter.outputs.planner-ts }}
       any-base: ${{ steps.aggregate.outputs.any-base }}
     steps:
       - name: Checkout
@@ -132,6 +135,8 @@ jobs:
               - 'base/security/**'
             yarn-ts:
               - 'base/yarn-ts/**'
+            planner-ts:
+              - 'base/planner-ts/**'
 
       - name: Aggregate base changes
         id: aggregate
@@ -457,6 +462,12 @@ jobs:
             context: base
             base_arg: ""
             change_key: yarn-ts
+            base_change_key: ""
+          - name: planner-ts
+            dockerfile: base/planner-ts/Containerfile
+            context: base
+            base_arg: ""
+            change_key: planner-ts
             base_change_key: ""
 
     steps:
