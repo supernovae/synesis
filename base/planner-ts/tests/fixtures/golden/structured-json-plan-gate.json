@@ -1,0 +1,29 @@
+{
+  "name": "structured_json_plan_gate_contract",
+  "input": {
+    "task_description": "Return a structured migration report",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Migration report"
+        }
+      ],
+      "requested_format": "json",
+      "output_schema": [
+        "summary",
+        "actions"
+      ]
+    }
+  },
+  "expect": {
+    "next_node": "respond",
+    "plan_gate_passed": true,
+    "critic_approved": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6,
+    "generated_contains_all": [
+      "## Plan",
+      "## Evidence"
+    ]
+  }
+}

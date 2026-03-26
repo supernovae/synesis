@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "date": "",
+    "environment": "",
+    "operator": "",
+    "planner_ts_image_tag": "",
+    "python_fallback_image_tag": ""
+  },
+  "checks": [
+    {
+      "id": "gate_verify",
+      "title": "Run consolidated gates",
+      "command": "npm run verify:gates",
+      "expected": "exit_code_0",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "gate_verify_py_compare",
+      "title": "Optional Python baseline comparator gate",
+      "command": "SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates",
+      "expected": "exit_code_0_or_documented_exception",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "health_main",
+      "title": "Health endpoint check",
+      "command": "GET /health",
+      "expected": "status_ok_with_auth_policy_stats",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "health_authz_events",
+      "title": "Authz events endpoint check",
+      "command": "GET /health/authz-events",
+      "expected": "status_ok_with_recent_events",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "api_non_stream",
+      "title": "Non-stream contract check",
+      "command": "POST /v1/chat/completions stream=false",
+      "expected": "openai_envelope_with_authz_trace_id",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "api_stream",
+      "title": "Stream contract check",
+      "command": "POST /v1/chat/completions stream=true",
+      "expected": "sse_event_json_with_authz_trace_id_and_done",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "auth_missing_bearer",
+      "title": "Missing bearer enforcement",
+      "command": "POST /v1/chat/completions without bearer",
+      "expected": "401_authentication_error_when_required",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "auth_scope_deny",
+      "title": "Invalid scope deny",
+      "command": "POST /v1/chat/completions with non-model scope",
+      "expected": "403_with_deny_rule",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "auth_trusted_forwarded_identity",
+      "title": "Trusted forwarded identity lineage",
+      "command": "POST /v1/chat/completions with internal service token and forwarded user",
+      "expected": "allow_with_traceid_and_userid_in_authz_events",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "perf_latency_budget",
+      "title": "Latency budget smoke",
+      "command": "npm test -- tests/latency-budget.test.ts",
+      "expected": "pass",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "perf_sse_conformance",
+      "title": "SSE conformance smoke",
+      "command": "npm test -- tests/sse-conformance.test.ts",
+      "expected": "pass",
+      "status": "pending",
+      "evidence": ""
+    },
+    {
+      "id": "rollback_rehearsal",
+      "title": "Staging rollback rehearsal",
+      "command": "switch traffic back to python planner and validate",
+      "expected": "successful_rollback_and_recovery",
+      "status": "pending",
+      "evidence": ""
+    }
+  ],
+  "signoff": {
+    "engineering": "",
+    "platform_ops": "",
+    "security": ""
+  },
+  "outcome": {
+    "result": "pending",
+    "notes": ""
+  }
+}

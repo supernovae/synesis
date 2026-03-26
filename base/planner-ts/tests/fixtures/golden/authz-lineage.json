@@ -1,0 +1,23 @@
+{
+  "name": "authz_trace_lineage",
+  "input": {
+    "authz_trace_id": "trace-fixture-123",
+    "task_description": "Summarize migration status for leadership",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Migration status summary"
+        }
+      ],
+      "requested_format": "prose"
+    }
+  },
+  "expect": {
+    "next_node": "respond",
+    "plan_gate_passed": true,
+    "critic_approved": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6,
+    "authz_trace_all_nodes": true
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "citation_gap_needs_evidence",
+  "input": {
+    "task_description": "Summarize architecture guidance with citations",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Architecture summary"
+        }
+      ],
+      "requested_format": "prose"
+    },
+    "draft_fingerprints": [
+      "prior-a",
+      "prior-b"
+    ],
+    "rag_source_urls": [
+      "https://docs.example.com/arch"
+    ]
+  },
+  "expect": {
+    "next_node": "respond",
+    "critic_approved": false,
+    "need_more_evidence": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6
+  }
+}

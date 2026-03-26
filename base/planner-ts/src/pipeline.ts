@@ -1,0 +1,229 @@
+import { randomUUID } from "node:crypto";
+import { routeAfterCritic } from "./nodes/critic-routing.js";
+import {
+  annotateViolations,
+  fingerprintDraft,
+  validateCitationPreservation,
+  validateDecisionDrift,
+  validateStyleCompliance
+} from "./nodes/contract-validator.js";
+import { evaluateCritic } from "./nodes/critic-evaluator.js";
+import { planGate } from "./nodes/plan-gate.js";
+import { runRouter } from "./nodes/router.js";
+import { validatedNode } from "./nodes/validated-node.js";
+import { composeWriterDraft } from "./nodes/writer-compose.js";
+import type { DecisionEntry } from "./contracts/schemas.js";
+import type { GraphState } from "./state/types.js";
+
+function ensureForwarded(state: GraphState): GraphState {
+  return {
+    ...state,
+    evidence_packets: state.evidence_packets ?? [],
+    generated_code: state.generated_code ?? "",
+    code_explanation: state.code_explanation ?? "",
+    patch_ops: state.patch_ops ?? []
+  };
+}
+
+function withNodeTrace(state: GraphState, nodeName: string): GraphState {
+  const traces = state.node_traces ?? [];
+  return {
+    ...state,
+    node_traces: [...traces, { node_name: nodeName, authz_trace_id: state.authz_trace_id ?? "" }]
+  };
+}
+
+function appendDecisionLedger(
+  state: GraphState,
+  entry: Omit<DecisionEntry, "decision_id"> & { decision_id?: string }
+): GraphState {
+  const ledger = state.decision_ledger ?? [];
+  const nextId = entry.decision_id ?? `${state.run_id ?? "run"}:${ledger.length + 1}`;
+  return {
+    ...state,
+    decision_ledger: [...ledger, { ...entry, decision_id: nextId }]
+  };
+}
+
+export async function entryPipelineNode(state: GraphState): Promise<GraphState> {
+  return ensureForwarded(withNodeTrace({
+    ...state,
+    next_node: "planner",
+    iteration_count: state.iteration_count ?? 0,
+    max_iterations: state.max_iterations ?? 4
+  }, "entry_pipeline"));
+}
+
+export async function plannerNode(state: GraphState): Promise<GraphState> {
+  const task = state.task_description ?? "User request";
+  const feedback = state.plan_gate_feedback ? `\n\nPlan gate feedback:\n${state.plan_gate_feedback}` : "";
+  const taskFrame = (state.task_frame ?? {}) as Record<string, unknown>;
+  const requestedFormat = String(taskFrame.requested_format ?? "prose");
+  const outputSchema = Array.isArray(taskFrame.output_schema) ? taskFrame.output_schema.map(String) : [];
+  const deliverableLabels = Array.isArray(taskFrame.tasks)
+    ? (taskFrame.tasks as Array<Record<string, unknown>>).map((t) => String(t.description ?? "")).filter(Boolean)
+    : [];
+  const schemaHint = outputSchema.length > 0 ? ` with schema fields ${outputSchema.join(", ")}` : "";
+  const deliverableHint = deliverableLabels.length > 0 ? ` covering deliverables ${deliverableLabels.join(", ")}` : "";
+  const stepAction = `Produce a grounded ${requestedFormat} response${schemaHint}${deliverableHint} for: ${task}`;
+  const planned = ensureForwarded(withNodeTrace({
+    ...state,
+    execution_plan: {
+      steps: [{ id: 1, action: stepAction, files: [], dependencies: [] }],
+      open_questions: [],
+      assumptions: []
+    },
+    next_node: "plan_gate",
+    plan_gate_feedback: `Plan drafted for: ${task}${feedback}`
+  }, "planner"));
+  return appendDecisionLedger(planned, {
+    category: "approach",
+    chosen: "plan_then_gate",
+    rejected_alternatives: ["direct_writer_without_plan"],
+    rationale: `Planner generated execution plan before writer handoff (authz_trace_id=${state.authz_trace_id ?? "none"})`,
+    decided_by: "planner",
+    frozen: false
+  });
+}
+
+export async function routerNode(state: GraphState): Promise<GraphState> {
+  const routed = await runRouter(state);
+  const traced = ensureForwarded(withNodeTrace(routed, "router"));
+  const chosen = traced.need_more_evidence ? "retrieve_more_evidence" : "use_current_evidence";
+  return appendDecisionLedger(traced, {
+    category: "scope",
+    chosen,
+    rejected_alternatives: traced.need_more_evidence ? ["proceed_without_retrieval"] : ["retrieve_more_evidence"],
+    rationale: `Router set evidence policy based on retrieval confidence (authz_trace_id=${state.authz_trace_id ?? "none"})`,
+    decided_by: "router",
+    frozen: false
+  });
+}
+
+async function writerNodeCore(state: GraphState): Promise<GraphState> {
+  const generated = await composeWriterDraft(state);
+  const fingerprint = fingerprintDraft(generated);
+  return ensureForwarded(withNodeTrace({
+    ...state,
+    generated_code: generated,
+    draft_fingerprints: [...(state.draft_fingerprints ?? []), fingerprint],
+    next_node: "critic"
+  }, "writer"));
+}
+
+async function criticNodeCore(state: GraphState): Promise<GraphState> {
+  const iteration = (state.iteration_count ?? 0) + 1;
+  const critic = await evaluateCritic(state);
+  const style = validateStyleCompliance(state);
+  const drift = validateDecisionDrift(state);
+  const citations = validateCitationPreservation(state);
+  const allViolations = [...style.violations, ...drift.violations, ...citations.violations];
+  const approved = allViolations.length === 0 && critic.approved;
+  const needMoreEvidence = citations.violations.length > 0 || critic.need_more_evidence || (state.need_more_evidence ?? false);
+  const shouldContinue = !approved;
+  const routed = routeAfterCritic({
+    ...state,
+    iteration_count: iteration,
+    critic_approved: approved,
+    need_more_evidence: needMoreEvidence,
+    critic_should_continue: shouldContinue
+  });
+  const critiqued = ensureForwarded(withNodeTrace({
+    ...state,
+    iteration_count: iteration,
+    critic_approved: approved,
+    need_more_evidence: needMoreEvidence,
+    critic_should_continue: shouldContinue,
+    critic_scores: critic.scores as unknown as Record<string, number>,
+    blocking_issues: critic.blocking_issues as unknown as Array<Record<string, unknown>>,
+    critic_nonblocking: critic.nonblocking as unknown as Array<Record<string, unknown>>,
+    critic_feedback: critic.continue_reason ?? "",
+    critic_continue_reason: critic.continue_reason ?? null,
+    next_node: routed
+  }, "critic"));
+  return appendDecisionLedger(critiqued, {
+    category: "approach",
+    chosen: routed,
+    rejected_alternatives: ["respond"],
+    rationale: `Critic routed workflow to '${routed}' after validation (authz_trace_id=${state.authz_trace_id ?? "none"})`,
+    decided_by: "critic",
+    frozen: false
+  });
+}
+
+export const writerNode = validatedNode(
+  writerNodeCore,
+  [],
+  [validateStyleCompliance],
+  {
+    onPostViolations: (result, violations) => ({
+      ...result,
+      _validation_warnings: [...(result._validation_warnings ?? []), ...violations]
+    })
+  }
+);
+
+export const criticNode = validatedNode(
+  criticNodeCore,
+  [validateStyleCompliance, validateDecisionDrift, validateCitationPreservation],
+  [validateStyleCompliance, validateDecisionDrift, validateCitationPreservation],
+  {
+    onPostViolations: (result, violations) => {
+      const citationsDropped = violations.some((violation) => violation.startsWith("citation_dropped"));
+      const annotated = annotateViolations(result, violations);
+      return {
+        ...result,
+        critique_register: annotated.critique_register,
+        critic_approved: false,
+        critic_should_continue: true,
+        need_more_evidence: result.need_more_evidence || citationsDropped
+      };
+    }
+  }
+);
+
+export async function finalScrubberNode(state: GraphState): Promise<GraphState> {
+  return ensureForwarded(withNodeTrace({
+    ...state,
+    generated_code: (state.generated_code ?? "").trim(),
+    next_node: "respond"
+  }, "final_scrubber"));
+}
+
+export async function respondNode(state: GraphState): Promise<GraphState> {
+  return ensureForwarded(withNodeTrace({
+    ...state,
+    next_node: "respond"
+  }, "respond"));
+}
+
+export async function runCanonicalPipeline(input: GraphState): Promise<GraphState> {
+  let state: GraphState = { ...input, run_id: input.run_id ?? randomUUID() };
+  state = await entryPipelineNode(state);
+  while (state.next_node === "planner") {
+    state = await plannerNode(state);
+    state = ensureForwarded(planGate(state));
+    if (state.next_node === "respond") return state;
+    if (state.next_node === "router") break;
+  }
+  state = await routerNode(state);
+  state = await writerNode(state);
+  state = await criticNode(state);
+  if (state.next_node === "respond") {
+    return ensureForwarded(state);
+  }
+  if (state.next_node === "router") {
+    state = await routerNode(state);
+    state = await writerNode(state);
+    state = await criticNode(state);
+  }
+  if (state.next_node === "writer") {
+    state = await writerNode(state);
+    state = await criticNode(state);
+  }
+  if (state.next_node === "respond") {
+    return ensureForwarded(state);
+  }
+  state = await finalScrubberNode(state);
+  return { ...state, next_node: "respond" };
+}

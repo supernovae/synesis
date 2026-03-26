@@ -1,0 +1,28 @@
+{
+  "name": "synesis-planner-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node --enable-source-maps dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "bun:smoke": "bash ./scripts/bun-smoke.sh",
+    "verify:gates": "bash ./scripts/verify-gates.sh",
+    "rehearsal:new": "bash ./scripts/new-rehearsal-record.sh"
+  },
+  "dependencies": {
+    "@langchain/core": "*",
+    "@langchain/langgraph": "*",
+    "fastify": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "tsx": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

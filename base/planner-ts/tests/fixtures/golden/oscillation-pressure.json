@@ -1,0 +1,42 @@
+{
+  "name": "oscillation_pressure_scrubs",
+  "input": {
+    "task_description": "Keep revising this architecture recommendation",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Architecture recommendation"
+        }
+      ],
+      "requested_format": "prose"
+    },
+    "draft_fingerprints": [
+      "fp-a",
+      "fp-b",
+      "fp-c"
+    ],
+    "override_log": [
+      {
+        "target_decision_id": "arch_choice",
+        "override_reason": "",
+        "approved": false
+      },
+      {
+        "target_decision_id": "arch_choice",
+        "override_reason": "",
+        "approved": false
+      },
+      {
+        "target_decision_id": "arch_choice",
+        "override_reason": "",
+        "approved": false
+      }
+    ]
+  },
+  "expect": {
+    "next_node": "respond",
+    "plan_gate_passed": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6
+  }
+}

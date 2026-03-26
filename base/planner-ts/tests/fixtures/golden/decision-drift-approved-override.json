@@ -1,0 +1,41 @@
+{
+  "name": "decision_drift_approved_override_allows_revision",
+  "input": {
+    "task_description": "We recommend using MongoDB for this migration design",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Architecture recommendation"
+        }
+      ],
+      "requested_format": "prose"
+    },
+    "decision_ledger": [
+      {
+        "decision_id": "db_choice",
+        "category": "architecture",
+        "chosen": "PostgreSQL",
+        "rejected_alternatives": [
+          "MongoDB"
+        ],
+        "rationale": "Operational consistency",
+        "decided_by": "planner",
+        "frozen": true
+      }
+    ],
+    "override_log": [
+      {
+        "target_decision_id": "db_choice",
+        "override_reason": "approved-exception",
+        "approved": true
+      }
+    ]
+  },
+  "expect": {
+    "next_node": "respond",
+    "critic_approved": true,
+    "plan_gate_passed": true,
+    "decision_ledger_min_items": 4,
+    "node_traces_min_items": 6
+  }
+}

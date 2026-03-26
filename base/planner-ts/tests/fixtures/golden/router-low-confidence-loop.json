@@ -1,0 +1,27 @@
+{
+  "name": "router_low_confidence_loops_then_stops_at_iteration_cap",
+  "input": {
+    "task_description": "Provide evidence-backed migration advice for a new project",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Migration advice"
+        }
+      ],
+      "requested_format": "prose"
+    },
+    "evidence_requests": [
+      {
+        "description": "project migration baseline evidence"
+      }
+    ]
+  },
+  "expect": {
+    "next_node": "respond",
+    "critic_approved": true,
+    "need_more_evidence": true,
+    "plan_gate_passed": true,
+    "decision_ledger_min_items": 5,
+    "node_traces_min_items": 9
+  }
+}

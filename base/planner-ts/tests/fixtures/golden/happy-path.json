@@ -1,0 +1,25 @@
+{
+  "name": "happy_path_basic",
+  "input": {
+    "task_description": "Design a migration strategy for planner TypeScript rewrite",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Migration strategy"
+        }
+      ],
+      "requested_format": "prose"
+    }
+  },
+  "expect": {
+    "next_node": "respond",
+    "critic_approved": true,
+    "plan_gate_passed": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6,
+    "generated_contains_all": [
+      "## Plan",
+      "## Evidence"
+    ]
+  }
+}

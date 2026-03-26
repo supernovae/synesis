@@ -1,0 +1,116 @@
+{
+  "metadata": {
+    "date": "2026-03-26T23:16:24.954Z",
+    "environment": "",
+    "operator": "",
+    "planner_ts_image_tag": "",
+    "python_fallback_image_tag": ""
+  },
+  "checks": [
+    {
+      "id": "gate_verify",
+      "title": "Run consolidated gates",
+      "command": "npm run verify:gates",
+      "expected": "exit_code_0",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26: npm run verify:gates (typecheck + 73 tests + bun smoke skip path)."
+    },
+    {
+      "id": "gate_verify_py_compare",
+      "title": "Optional Python baseline comparator gate",
+      "command": "SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates",
+      "expected": "exit_code_0_or_documented_exception",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26: SYNESIS_PLANNER_TS_COMPARE_PY_BASELINE=true npm run verify:gates (baseline compare mode enabled; all configured gates passed)."
+    },
+    {
+      "id": "health_main",
+      "title": "Health endpoint check",
+      "command": "GET /health",
+      "expected": "status_ok_with_auth_policy_stats",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: reports authz engine and policy stats on /health."
+    },
+    {
+      "id": "health_authz_events",
+      "title": "Authz events endpoint check",
+      "command": "GET /health/authz-events",
+      "expected": "status_ok_with_recent_events",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: returns authz recentEvents array on /health/authz-events."
+    },
+    {
+      "id": "api_non_stream",
+      "title": "Non-stream contract check",
+      "command": "POST /v1/chat/completions stream=false",
+      "expected": "openai_envelope_with_authz_trace_id",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: OpenAI-compatible envelope and matching authz_trace_id in body/header."
+    },
+    {
+      "id": "api_stream",
+      "title": "Stream contract check",
+      "command": "POST /v1/chat/completions stream=true",
+      "expected": "sse_event_json_with_authz_trace_id_and_done",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts + tests/sse-conformance.test.ts: JSON event payload includes authz_trace_id and final [DONE]."
+    },
+    {
+      "id": "auth_missing_bearer",
+      "title": "Missing bearer enforcement",
+      "command": "POST /v1/chat/completions without bearer",
+      "expected": "401_authentication_error_when_required",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: require bearer mode returns 401 authentication_error."
+    },
+    {
+      "id": "auth_scope_deny",
+      "title": "Invalid scope deny",
+      "command": "POST /v1/chat/completions with non-model scope",
+      "expected": "403_with_deny_rule",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: non-model scope returns 403 with deny_missing_model_scope rule signal."
+    },
+    {
+      "id": "auth_trusted_forwarded_identity",
+      "title": "Trusted forwarded identity lineage",
+      "command": "POST /v1/chat/completions with internal service token and forwarded user",
+      "expected": "allow_with_traceid_and_userid_in_authz_events",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26 via tests/api-contract.test.ts: trusted forwarded identity allowed; traceId and trusted-user observed in authz events."
+    },
+    {
+      "id": "perf_latency_budget",
+      "title": "Latency budget smoke",
+      "command": "npm test -- tests/latency-budget.test.ts",
+      "expected": "pass",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26: npm test -- tests/latency-budget.test.ts."
+    },
+    {
+      "id": "perf_sse_conformance",
+      "title": "SSE conformance smoke",
+      "command": "npm test -- tests/sse-conformance.test.ts",
+      "expected": "pass",
+      "status": "pass",
+      "evidence": "PASS 2026-03-26: npm test -- tests/sse-conformance.test.ts."
+    },
+    {
+      "id": "rollback_rehearsal",
+      "title": "Staging rollback rehearsal",
+      "command": "switch traffic back to python planner and validate",
+      "expected": "successful_rollback_and_recovery",
+      "status": "pending",
+      "evidence": "Blocked 2026-03-26: namespace synesis-planner currently has only deployment/svc synesis-planner (python image ghcr.io/supernovae/synesis/planner:latest). Route backend service is synesis-planner. No planner-ts standby deployment/service exists yet to promote then roll back."
+    }
+  ],
+  "signoff": {
+    "engineering": "",
+    "platform_ops": "",
+    "security": ""
+  },
+  "outcome": {
+    "result": "pending",
+    "notes": "All local/verifiable gate, contract, auth boundary, and perf checks passed. Remaining blocker: staging rollback rehearsal."
+  }
+}

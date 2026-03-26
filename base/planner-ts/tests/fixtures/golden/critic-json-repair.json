@@ -1,0 +1,23 @@
+{
+  "name": "critic_raw_json_repair_path",
+  "input": {
+    "task_description": "Return a concise migration recommendation with clear rationale",
+    "task_frame": {
+      "tasks": [
+        {
+          "description": "Recommendation"
+        }
+      ],
+      "requested_format": "prose"
+    },
+    "critic_raw_json": "{ \"approved\": true, \"need_more_evidence\": false, \"continue_reason\": \"\", \"blocking_issues\": [], \"nonblocking\": [], \"repair_instructions\": [], \"scores\": { \"grounding\": 7, \"correctness\": 8, \"actionability\": 7, \"clarity\": 8, \"weighted_overall\": 7.5, }, }"
+  },
+  "expect": {
+    "next_node": "respond",
+    "critic_approved": true,
+    "need_more_evidence": true,
+    "plan_gate_passed": true,
+    "decision_ledger_min_items": 3,
+    "node_traces_min_items": 6
+  }
+}
