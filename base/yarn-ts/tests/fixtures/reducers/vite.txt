@@ -1,0 +1,7 @@
+vite v5.4.2 building for production...
+transforming (42) src/routes/dashboard.tsx
+✓ 128 modules transformed.
+dist/index.html                   0.52 kB │ gzip: 0.34 kB
+dist/assets/index-Cm3KizWx.js   156.40 kB │ gzip: 48.10 kB
+dist/assets/vendor-D2aYQ6uP.js  312.08 kB │ gzip: 98.20 kB
+✓ built in 2.87s

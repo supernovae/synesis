@@ -1,0 +1,10 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+Microsoft (R) Build Engine version 17.8.3+0e8b0e63f for .NET
+Build succeeded.
+    1 Warning(s)
+    0 Error(s)
+
+Total tests: 6
+     Passed: 5
+     Failed: 1

@@ -1,0 +1,62 @@
+Name:               planner-5f7b9c4d8-xk2mq
+Namespace:          synesis-pipeline
+Priority:           0
+Service Account:    default
+Node:               worker-03.oc.example.com/10.0.20.15
+Start Time:         Wed, 26 Mar 2025 09:12:33 +0000
+Labels:             app=planner
+                    app.kubernetes.io/component=planner
+                    app.openshift.io/runtime=python
+                    deploymentconfig=planner
+Annotations:        openshift.io/deployment-config.latest-version: 12
+                    openshift.io/scc: restricted-v2
+                    image.openshift.io/triggers: [{"from":{"kind":"ImageStreamTag","name":"planner:latest"},"fieldPath":"spec.template.spec.containers[0].image"}]
+Status:             Running
+IP:                 10.128.4.88
+IPs:
+  IP:               10.128.4.88
+Controlled By:      ReplicationController/planner-12
+Containers:
+  planner:
+    Container ID:   cri-o://deadbeef...
+    Image:          image-registry.openshift-image-registry.svc:5000/synesis-pipeline/planner@sha256:abc123
+    Image ID:       image-registry.openshift-image-registry.svc:5000/synesis-pipeline/planner@sha256:abc123
+    Port:           8080/TCP
+    Host Port:      0/TCP
+    State:          Running
+      Started:      Wed, 26 Mar 2025 09:12:45 +0000
+    Ready:          False
+    Restart Count:  0
+    Limits:
+      cpu:     2
+      memory:  4Gi
+    Requests:
+      cpu:     500m
+      memory:  1Gi
+    Liveness:   http-get http://:8080/healthz delay=30s timeout=5s period=10s
+    Readiness:  http-get http://:8080/ready delay=5s timeout=3s period=5s
+    Environment:
+      SYNESIS_ROUTER_MODEL_URL:  http://synesis-router.synesis-pipeline.svc:8080/v1
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from kube-api-access (ro)
+Conditions:
+  Type              Status
+  Initialized       True
+  Ready             False
+  ContainersReady   False
+  PodScheduled      True
+Volumes:
+  kube-api-access:
+    Type:                    Projected
+QoS Class:                   Burstable
+Node-Selectors:              node-role.kubernetes.io/worker=
+Tolerations:                 node.kubernetes.io/memory-pressure:NoSchedule op=Exists
+Events:
+  Type     Reason          Age   From               Message
+  ----     ------          ----  ----               -------
+  Normal   Scheduled       5m    default-scheduler  Successfully assigned synesis-pipeline/planner-5f7b9c4d8-xk2mq to worker-03
+  Normal   Pulled          5m    kubelet            Container image already present on machine
+  Normal   Created         5m    kubelet            Created container planner
+  Normal   Started         5m    kubelet            Started container planner
+  Warning  Unhealthy       2m    kubelet            Readiness probe failed: Get "http://10.128.4.88:8080/ready": context deadline exceeded
+  Warning  FailedGetScale  1m    deploymentconfig-controller  replicationcontrollers "planner-12" not found

@@ -1,0 +1,8 @@
+In deploy.sh line 14:
+rm -rf $TARGET_DIR
+       ^-- SC2086 (warning): Double quote to prevent globbing and word splitting.
+
+In deploy.sh line 21:
+source $CONFIG
+       ^-- SC1090 (warning): ShellCheck can't follow non-constant source; specify path directly.
+lib/helpers.sh:3:1: error: VAR is referenced but not assigned [SC2154]

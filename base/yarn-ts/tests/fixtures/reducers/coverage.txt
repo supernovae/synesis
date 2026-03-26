@@ -1,0 +1,6 @@
+File           Stmts   Miss  Cover
+lib/config.ts     42     28    33%
+lib/util.ts       15      2    87%
+tests/setup.ts     8      1    88%
+lib/extra.ts      20     15    25%
+TOTAL             65     31    52%

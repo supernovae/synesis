@@ -1,0 +1,7 @@
+************* Module app.util
+src/app/util.py:3:0: C0301: Line too long (92/88) (line-too-long)
+src/app/util.py:7:0: W0611: Unused import json (unused-import)
+src/app/util.py:10:0: E0602: Undefined variable 'typo' (undefined-variable)
+
+------------------------------------------------------------------
+Your code has been rated at 7.12/10

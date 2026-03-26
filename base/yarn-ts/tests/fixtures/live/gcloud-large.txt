@@ -1,0 +1,42 @@
+NAME                     ZONE           MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP    STATUS
+planner-7d9f8c6b4-xk2m   us-central1-a  n2-standard-4               10.128.0.12  34.123.45.67   RUNNING
+indexer-0                us-central1-a  n2-highmem-8                10.128.0.18                  RUNNING
+redis-cache-5c8bbf7d-hn  us-central1-b  e2-medium                   10.128.1.4                   RUNNING
+embedder-svc             us-central1-c  a2-highgpu-1g               10.128.2.9   35.201.9.10    RUNNING
+bastion-jump             us-east1-b     e2-small                    10.150.0.3   104.196.1.2    RUNNING
+
+Listed 5 items.
+
+{
+  "kind": "compute#instanceAggregatedList",
+  "items": {
+    "zones/us-central1-a": {
+      "instances": [
+        {
+          "name": "planner-7d9f8c6b4-xk2m",
+          "status": "RUNNING",
+          "zone": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-a",
+          "machineType": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-a/machineTypes/n2-standard-4"
+        },
+        {
+          "name": "indexer-0",
+          "status": "RUNNING",
+          "zone": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-a",
+          "machineType": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-a/machineTypes/n2-highmem-8"
+        }
+      ]
+    },
+    "zones/us-central1-b": {
+      "instances": [
+        {
+          "name": "redis-cache-5c8bbf7d-hn",
+          "status": "RUNNING",
+          "zone": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-b",
+          "machineType": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/zones/us-central1-b/machineTypes/e2-medium"
+        }
+      ]
+    }
+  },
+  "id": "projects/acme-prod-123/aggregated/instances",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/acme-prod-123/aggregated/instances"
+}

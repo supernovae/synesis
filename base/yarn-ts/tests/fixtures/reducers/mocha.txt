@@ -1,0 +1,10 @@
+  Stack
+    ✓ pushes and pops values in LIFO order
+    ✗ rejects pop when stack is empty
+
+  1 passing (8ms)
+  1 failing
+
+  1) Stack
+       rejects pop when stack is empty:
+     Error: stack empty — cannot pop

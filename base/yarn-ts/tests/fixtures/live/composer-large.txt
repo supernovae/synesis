@@ -1,0 +1,35 @@
+Composer version 2.8.4 2024-12-11 11:31:22
+
+Running composer update symfony/console --with-all-dependencies
+Loading composer repositories with package information
+Updating dependencies
+Lock file operations: 4 installs, 2 updates, 1 removal
+  - Locking symfony/console (v7.2.1)
+  - Locking symfony/string (v7.2.0)
+  - Locking symfony/service-contracts (v3.5.2)
+  - Locking psr/container (2.0.2)
+  - Upgrading symfony/deprecation-contracts (v3.4.0 => v3.5.1)
+  - Upgrading symfony/polyfill-mbstring (v1.29.0 => v1.31.0)
+  - Removing symfony/polyfill-php72 (v1.29.0)
+Writing lock file
+Installing dependencies from lock file (including require-dev)
+Package operations: 4 installs, 2 updates, 1 removal
+  - Downloading symfony/string (v7.2.0)
+  - Downloading symfony/console (v7.2.1)
+  - Installing symfony/string (v7.2.0): Extracting archive
+  - Installing symfony/console (v7.2.1): Extracting archive
+  - Installing symfony/service-contracts (v3.5.2): Extracting archive
+  - Installing psr/container (2.0.2): Extracting archive
+  - Removing symfony/polyfill-php72 (v1.29.0)
+  - Upgrading symfony/deprecation-contracts (v3.4.0 => v3.5.1): Extracting archive
+  - Upgrading symfony/polyfill-mbstring (v1.29.0 => v1.31.0): Extracting archive
+Generating autoload files
+62 packages you are using are looking for funding.
+Use the `composer fund` command to find out more!
+
+Found 1 security vulnerability advisory affecting 1 package.
+Run "composer audit" for a full list of advisories.
+
+Package doctrine/cache is abandoned, you should avoid using it. No replacement was suggested.
+
+No security vulnerability advisories found.

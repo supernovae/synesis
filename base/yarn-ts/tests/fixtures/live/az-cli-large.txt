@@ -1,0 +1,42 @@
+Name              ResourceGroup    Location    Type
+vm-planner        rg-synesis-prod  eastus      Microsoft.Compute/virtualMachines
+vm-indexer        rg-synesis-prod  eastus      Microsoft.Compute/virtualMachines
+acr-synesis       rg-shared        eastus      Microsoft.ContainerRegistry/registries
+aks-cluster       rg-synesis-prod  eastus      Microsoft.ContainerService/managedClusters
+synesis-kv        rg-shared        eastus2     Microsoft.KeyVault/vaults
+
+[
+  {
+    "name": "vm-planner",
+    "id": "/subscriptions/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/resourceGroups/rg-synesis-prod/providers/Microsoft.Compute/virtualMachines/vm-planner",
+    "type": "Microsoft.Compute/virtualMachines",
+    "location": "eastus",
+    "properties": {
+      "provisioningState": "Succeeded",
+      "powerState": {
+        "displayStatus": "VM running"
+      }
+    }
+  },
+  {
+    "name": "vm-indexer",
+    "type": "Microsoft.Compute/virtualMachines",
+    "location": "eastus",
+    "properties": {
+      "provisioningState": "Succeeded",
+      "powerState": { "displayStatus": "VM running" }
+    }
+  },
+  {
+    "name": "acr-synesis",
+    "type": "Microsoft.ContainerRegistry/registries",
+    "location": "eastus",
+    "properties": { "provisioningState": "Succeeded" }
+  },
+  {
+    "name": "synesis-kv",
+    "type": "Microsoft.KeyVault/vaults",
+    "location": "eastus2",
+    "properties": { "provisioningState": "Succeeded" }
+  }
+]

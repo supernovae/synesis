@@ -1,0 +1,37 @@
+(node:88421) ExperimentalWarning: Importing JSON modules is an experimental feature
+
+  AuthService
+    ✓ returns token for valid credentials
+    ✓ rejects missing password
+    ✗ locks account after five failures
+    - skips MFA when disabled in config
+
+  OrderRepository
+    ✓ finds order by id
+    ✓ lists open orders
+    ✗ applies pagination cursor correctly
+
+  PaymentGateway
+    ✓ charges card with idempotency key
+    ✓ surfaces processor timeouts as retryable
+    ✓ maps decline codes to user-facing errors
+
+  Notifications
+    ✓ enqueues email when template exists
+    ✓ skips send when user opted out
+
+  11 passing (124ms)
+  2 failing
+  1 pending
+
+  1) AuthService
+       locks account after five failures:
+     AssertionError: expected 'active' to equal 'locked'
+      at Context.<anonymous> (test/auth.spec.js:88:14)
+
+  2) OrderRepository
+       applies pagination cursor correctly:
+     Error: cursor decode failed: invalid base64
+      at decodeCursor (src/repo/order.js:41:11)
+
+

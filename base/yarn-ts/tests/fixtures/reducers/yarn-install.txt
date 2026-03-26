@@ -1,0 +1,7 @@
+➤ YN0000: · Yarn 4.2.2
+➤ YN0000: ┌ Resolution step
+➤ YN0000: └ Completed in 0s 198ms
+➤ YN0000: ┌ Fetch step
+➤ YN0002: │ react-router@npm:6.28.0 doesn't provide react-dom (p1234)
+➤ YN0000: └ Completed in 0s 887ms
+➤ YN0000: · Done in 1s 120ms

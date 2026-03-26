@@ -1,0 +1,40 @@
+DEPRECATION WARNING: `config.raise_errors_for_deprecations!` is deprecated.
+
+Randomized with seed 44821
+
+User
+  validations
+    is expected to validate that :email cannot be empty/falsy
+    is expected to validate that :email is case-insensitively unique
+  #activate!
+    marks the user active and timestamps activated_at (FAILED - 1)
+  #deactivate!
+    marks the user inactive
+
+Order
+  #total
+    sums line items with tax (FAILED - 2)
+  scopes
+    returns only paid orders
+
+Failures:
+
+  1) User#activate! marks the user active and timestamps activated_at
+     Failure/Error: expect(user.activated_at).to be_present
+       expected `nil.present?` to be truthy, got false
+     # ./spec/models/user_spec.rb:37:in `block (3 levels) in <top (required)>'
+
+  2) Order#total sums line items with tax
+     Failure/Error: expect(order.total).to eq(Money.new(12_50))
+       expected: #<Money fractional:1250 currency:USD>
+            got: #<Money fractional:1180 currency:USD>
+     # ./spec/models/order_spec.rb:52:in `block (3 levels) in <top (required)>'
+
+Finished in 0.2847 seconds (files took 1.92 seconds to load)
+8 examples, 2 failures, 0 pending
+
+Failed examples:
+
+rspec ./spec/models/user_spec.rb:33 # User#activate! marks the user active and timestamps activated_at
+rspec ./spec/models/order_spec.rb:48 # Order#total sums line items with tax
+

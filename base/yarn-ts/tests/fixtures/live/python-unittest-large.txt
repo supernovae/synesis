@@ -1,0 +1,27 @@
+test_cache_hit (__main__.TestCache) ... ok
+test_cache_miss (__main__.TestCache) ... ok
+test_ttl_expiry (__main__.TestCache) ... FAIL
+test_invalidation (__main__.TestCache) ... ok
+test_metrics (__main__.TestMetrics) ... ERROR
+
+======================================================================
+FAIL: test_ttl_expiry (__main__.TestCache)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/tests/test_cache.py", line 56, in test_ttl_expiry
+    self.assertIsNone(cache.get("k"))
+AssertionError: 'stale' is not None
+
+======================================================================
+ERROR: test_metrics (__main__.TestMetrics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/app/tests/test_metrics.py", line 19, in test_metrics
+    emit("req", labels=None)
+TypeError: emit() got an unexpected keyword argument 'labels'
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.018s
+
+FAILED (failures=1, errors=1)
+

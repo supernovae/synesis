@@ -1,6 +1,6 @@
 import type { AppConfig } from "../config.js";
 import { ArtifactStore } from "../state/artifact-store.js";
-import { ReducerRegistry } from "./registry.js";
+import { ReducerRegistry, registeredFamilies } from "./registry.js";
 import type { ReducerFamily } from "./types.js";
 
 export interface ToolResultLike {
@@ -18,7 +18,7 @@ export interface ToolResultReductionStats {
   tokensSavedEstimateTotal: number;
   fallbackToArtifactCount: number;
   reducerFailures: number;
-  byFamily: Record<ReducerFamily, number>;
+  byFamily: Record<string, number>;
   lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
 }
 
@@ -40,6 +40,12 @@ function toStringContent(content: unknown): string {
   }
 }
 
+function buildByFamilyStats(): Record<string, number> {
+  const stats: Record<string, number> = { generic: 0 };
+  for (const f of registeredFamilies()) stats[f] = 0;
+  return stats;
+}
+
 export class ToolResultReductionService {
   private readonly stats: ToolResultReductionStats = {
     rawCharsTotal: 0,
@@ -49,14 +55,7 @@ export class ToolResultReductionService {
     tokensSavedEstimateTotal: 0,
     fallbackToArtifactCount: 0,
     reducerFailures: 0,
-    byFamily: {
-      pytest: 0, tsc: 0, lint: 0, git: 0, search: 0,
-      "npm-install": 0, "docker-build": 0, cargo: 0, make: 0, "stack-trace": 0,
-      jest: 0, "go-build": 0, "pip-install": 0, "ls-tree": 0, "curl-http": 0,
-      kubectl: 0, terraform: 0, "sql-result": 0, mypy: 0, "java-build": 0,
-      ansible: 0, helm: 0, "network-diag": 0, "strace-perf": 0, "log-stream": 0,
-      generic: 0
-    },
+    byFamily: buildByFamilyStats(),
     lifecycle: {}
   };
   private readonly registry: ReducerRegistry;
@@ -65,14 +64,14 @@ export class ToolResultReductionService {
     private readonly config: AppConfig,
     private readonly artifactStore: ArtifactStore
   ) {
-    const enabledFamilies = new Set<ReducerFamily>(
-      config.SYNESIS_YARN_REDUCER_FAMILIES.split(",")
+    const disabledFamilies = new Set<string>(
+      config.SYNESIS_YARN_REDUCER_DISABLED_FAMILIES.split(",")
         .map((s) => s.trim())
-        .filter(Boolean) as ReducerFamily[]
+        .filter(Boolean)
     );
     this.registry = new ReducerRegistry({
       enabled: config.SYNESIS_YARN_REDUCERS_ENABLED,
-      enabledFamilies,
+      disabledFamilies,
       minConfidence: config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
     });
   }

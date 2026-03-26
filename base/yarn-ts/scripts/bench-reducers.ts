@@ -1,21 +1,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { ReducerRegistry } from "../src/reduction/registry.js";
-import type { ReducerFamily } from "../src/reduction/types.js";
-
-const ALL_FAMILIES: ReducerFamily[] = [
-  "pytest", "tsc", "lint", "git", "search",
-  "npm-install", "docker-build", "cargo", "make", "stack-trace",
-  "jest", "go-build", "pip-install", "ls-tree", "curl-http",
-  "kubectl", "terraform", "sql-result", "mypy", "java-build",
-  "ansible", "helm", "network-diag", "strace-perf", "log-stream"
-];
+import { ReducerRegistry, registeredFamilies } from "../src/reduction/registry.js";
 
 const root = join(process.cwd(), "tests", "fixtures", "reducers");
 const files = readdirSync(root).filter((f) => f.endsWith(".txt"));
 const registry = new ReducerRegistry({
   enabled: true,
-  enabledFamilies: new Set(ALL_FAMILIES),
+  disabledFamilies: new Set<string>(),
   minConfidence: 0.6
 });
 

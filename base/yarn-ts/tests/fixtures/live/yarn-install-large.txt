@@ -1,0 +1,21 @@
+
+➤ YN0000: · Yarn 4.4.1
+➤ YN0000: ┌ Resolution step
+➤ YN0085: │ + @types/node@npm:22.7.4, typescript@npm:5.6.3, vite@npm:5.4.10, and 21 more.
+➤ YN0000: └ Completed in 0s 412ms
+➤ YN0000: ┌ Fetch step
+➤ YN0013: │ 24 packages were added to the project (+ 12.45 MiB).
+➤ YN0000: └ Completed in 2s 890ms
+➤ YN0000: ┌ Link step
+➤ YN0007: │ esbuild@npm:0.24.0 must be built because it never has been before
+➤ YN0000: └ Completed in 3s 120ms
+➤ YN0000: · Done with warnings in 6s 502ms
+➤ YN0002: │ @app/ui@workspace:packages/ui doesn't provide react (pabcdef)
+➤ YN0060: │ provides typescript (p999) with version 5.6.3, which doesn't satisfy requests
+➤ YN0002: │ eslint-plugin-react@npm:7.37.0 [abcd] doesn't provide eslint (p8888)
+➤ YN0000: · Done in 6s 502ms
+➤ YN0000: ┌ Post-resolution validation
+➤ YN0000: └ Completed
+➤ YN0000: ┌ Generating project install stamp
+➤ YN0000: └ Completed in 0s 010ms
+➤ YN0000: · Fresh install completed — run `yarn explain peer-requirements` for details

@@ -1,0 +1,29 @@
+assets by path static/js/*.js 2.41 MiB
+  asset static/js/main.8f3c2a1b.chunk.js 892 KiB [emitted] [immutable]
+  asset static/js/vendors.1a2b3c4d.chunk.js 1.12 MiB [emitted] [immutable]
+  asset static/js/runtime.9e8d7c6b.js 14.2 KiB [emitted] [immutable]
+asset static/css/main.a1b2c3d4.css 128 KiB [emitted]
+asset index.html 2.45 KiB [emitted]
+
+WARNING in ./src/components/LegacyPanel.tsx 88:10-24
+export 'oldApi' (imported as 'oldApi') was not found in './api' (possible exports: fetchUser, postForm)
+
+WARNING in ./node_modules/some-pkg/dist/index.js
+Module not found: Error: Can't resolve 'optional-dep' in '/app/node_modules/some-pkg/dist'
+
+ERROR in ./src/routes/Dashboard.tsx 12:4-18
+TS2304: Cannot find name 'useSynesisRouter'.
+
+ERROR in ./src/hooks/useTelemetry.ts
+Module parse failed: Unexpected token (45:0)
+You may need an appropriate loader to handle this file type.
+
+3247 modules
+webpack 5.91.0 compiled with 2 errors and 2 warnings in 18432 ms
+
+Entrypoint main [big] 2.01 MiB = static/js/runtime.9e8d7c6b.js 14.2 KiB static/js/vendors.1a2b3c4d.chunk.js 1.12 MiB static/js/main.8f3c2a1b.chunk.js 892 KiB static/css/main.a1b2c3d4.css 128 KiB
+
+LOG from webpack.FileSystemInfo
+<w> Managed item /app/node_modules/webpack isn't a directory or doesn't contain a package.json
+
+webpack compiled with 2 errors and 2 warnings in 18.4 s

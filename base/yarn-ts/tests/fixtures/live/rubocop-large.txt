@@ -1,0 +1,16 @@
+Inspecting 6 files
+.....C.W
+
+Offenses:
+
+app/controllers/api/v1/users_controller.rb:14:7: C: Layout/LineLength: Line is too long. [120/100]
+app/controllers/api/v1/users_controller.rb:22:5: W: Rails/I18nLocaleTexts: Move locale texts to the locale file in config/locales.
+app/models/concerns/trackable.rb:5:1: C: Style/Documentation: Missing top-level documentation comment for `module Trackable`.
+app/models/concerns/trackable.rb:31:9: E: Lint/Syntax: unexpected token tCOMMA
+app/services/billing/invoice_builder.rb:8:3: C: Metrics/MethodLength: Method has too many lines. [18/15]
+app/services/billing/invoice_builder.rb:40:7: W: Lint/UnusedMethodArgument: Unused method argument - `opts`.
+lib/tasks/maintenance.rake:12:1: C: Style/FrozenStringLiteralComment: Missing frozen string literal comment.
+spec/requests/api/v1/users_spec.rb:6:5: W: RSpec/MultipleExpectations: Example has too many expectations [3/1].
+spec/requests/api/v1/users_spec.rb:44:7: C: RSpec/ExampleLength: Example has too many lines. [7/5]
+
+6 files inspected, 9 offenses detected

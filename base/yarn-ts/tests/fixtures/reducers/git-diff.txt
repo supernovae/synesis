@@ -1,0 +1,15 @@
+diff --git a/lib/config.ts b/lib/config.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/lib/config.ts
++++ b/lib/config.ts
+@@ -4,6 +4,7 @@ export const defaults = {
+   host: "localhost",
+   port: 8080,
++  timeout: 30,
+ };
+diff --git a/lib/util.ts b/lib/util.ts
+--- a/lib/util.ts
++++ b/lib/util.ts
+@@ -1,2 +1,3 @@
+ export function id(x: string) { return x; }
++export const VERSION = "1.0";

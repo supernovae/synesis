@@ -1,0 +1,3 @@
+CONTAINER ID  IMAGE                         COMMAND        CREATED      STATUS          PORTS
+a1b2c3d4e5f6  quay.io/synesis/yarn:latest   "uvicorn ..."  2 hours ago  Up 2 hours      0.0.0.0:8787->8080/tcp
+f9e8d7c6b5a4  postgres:15-alpine            "docker-..."   3 days ago   Up 3 days       5432/tcp

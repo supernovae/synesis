@@ -1,0 +1,49 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -scheme SynesisCore -destination "platform=macOS" build
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (3 targets)
+    Target 'SynesisCore' in project 'Synesis'
+        ➜ Explicit dependency on target 'SynesisCoreTests'
+    Target 'SynesisCoreTests' in project 'Synesis'
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache
+
+CompileSwift normal arm64 /Users/ci/src/SynesisCore/Sources/Auth/TokenParser.swift (in target 'SynesisCore' from project 'Synesis')
+    cd /Users/ci/src/SynesisCore
+    
+
+CompileSwift normal arm64 /Users/ci/src/SynesisCore/Sources/Net/HTTPClient.swift (in target 'SynesisCore' from project 'Synesis')
+    cd /Users/ci/src/SynesisCore
+    
+
+/Users/ci/src/SynesisCore/Sources/Auth/TokenParser.swift:44:18: error: value of optional type 'String?' must be unwrapped to a value of type 'String'
+        return raw.split(separator: ".")[1].base64Decoded()
+                 ^
+/Users/ci/src/SynesisCore/Sources/Auth/TokenParser.swift:44:18: note: coalesce using '??' to provide a default when the optional value contains 'nil'
+        return raw.split(separator: ".")[1].base64Decoded()
+                 ^
+
+SwiftDriverJobDiscovery normal arm64 Compiling HTTPClient.swift (in target 'SynesisCore' from project 'Synesis')
+
+** BUILD FAILED **
+
+
+The following build commands failed:
+	CompileSwift normal arm64 /Users/ci/src/SynesisCore/Sources/Auth/TokenParser.swift (in target 'SynesisCore' from project 'Synesis')
+(1 failure)

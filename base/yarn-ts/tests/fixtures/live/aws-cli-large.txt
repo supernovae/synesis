@@ -1,0 +1,48 @@
+{
+  "Reservations": [
+    {
+      "OwnerId": "123456789012",
+      "Instances": [
+        {
+          "InstanceId": "i-0deadbeef0000001",
+          "State": { "Name": "running" },
+          "InstanceType": "m6i.large",
+          "Placement": { "AvailabilityZone": "us-east-1a" },
+          "Tags": [ { "Key": "Name", "Value": "synesis-api" }, { "Key": "env", "Value": "prod" } ],
+          "VpcId": "vpc-0abc123",
+          "SubnetId": "subnet-0def456"
+        },
+        {
+          "InstanceId": "i-0cafebabe0000002",
+          "State": { "Name": "stopped" },
+          "InstanceType": "t3.medium",
+          "Tags": [ { "Key": "Name", "Value": "batch-indexer" } ]
+        },
+        {
+          "InstanceId": "i-0feedface0000003",
+          "State": { "Name": "pending" },
+          "InstanceType": "c6g.xlarge",
+          "Tags": [ { "Key": "Name", "Value": "embedder-gpu" } ]
+        }
+      ]
+    },
+    {
+      "Instances": [
+        {
+          "InstanceId": "i-0badf00d00000004",
+          "State": { "Name": "running" },
+          "Tags": [ { "Key": "Name", "Value": "bastion" } ]
+        }
+      ]
+    }
+  ]
+}
+-----------------------------------------------------------------------------------------------
+|                                    DescribeInstances                                      |
++-----------------------------+--------------+----------+-------------------------------------+
+|  InstanceId                 |  State       |  Type    |  Name                               |
++-----------------------------+--------------+----------+-------------------------------------+
+|  i-0deadbeef0000001         |  running     |  m6i     |  synesis-api                        |
+|  i-0cafebabe0000002         |  stopped     |  t3      |  batch-indexer                    |
+|  i-0feedface0000003         |  pending     |  c6g     |  embedder-gpu                     |
++-----------------------------+--------------+----------+-------------------------------------+

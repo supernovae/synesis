@@ -1,0 +1,5 @@
+Attaching to web_1, api_1, redis_1
+web_1  | INFO  Listening on :3000
+api_1  | ERROR connect ECONNREFUSED 127.0.0.1:5432
+redis_1  | WARNING overcommit_memory is 0
+Container api_1  Exited (1) 2 seconds ago

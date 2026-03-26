@@ -1,0 +1,39 @@
+# npm audit report
+
+lodash  4.17.20
+Severity: high
+Prototype Pollution in lodash - https://github.com/advisories/GHSA-xxxx
+fix available via `npm audit fix --force`
+Will install lodash@4.17.21, which is a breaking change
+
+axios  1.6.2
+Severity: critical
+Server-Side Request Forgery in axios - https://github.com/advisories/GHSA-yyyy
+fix available via `npm audit fix`
+
+minimatch  9.0.0
+Severity: moderate
+Regular Expression Denial of Service - https://github.com/advisories/GHSA-zzzz
+fix available via `npm audit fix`
+
+semver  7.5.1
+Severity: low
+semver vulnerable to Regular Expression Denial of Service
+fix available via `npm audit fix`
+
+glob  10.2.0
+Severity: high
+glob CLI: command injection via -c/--cmd
+No fix available
+
+found 12 vulnerabilities (2 low, 3 moderate, 4 high, 3 critical) in 847 packages
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+
+Also consider enabling Dependabot or Renovate for ongoing monitoring of transitive dependencies in CI.

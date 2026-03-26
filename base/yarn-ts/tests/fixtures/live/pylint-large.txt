@@ -1,0 +1,21 @@
+************* Module services.api.handlers
+************* Module lib.db.pool
+
+-------------------------------------------------------------------
+Your code has been rated at 6.83/10 (previous run: 7.10/10, -0.27)
+
+
+Report
+======
+services/api/handlers.py:18:0: C0301: Line too long (104/88) (line-too-long)
+services/api/handlers.py:22:0: W0612: Unused variable 'ctx' (unused-variable)
+services/api/handlers.py:45:0: R0911: Too many return statements (7/6) (too-many-return-statements)
+lib/db/pool.py:3:0: W0611: Unused import threading (unused-import)
+lib/db/pool.py:40:0: C0116: Missing function or method docstring (missing-function-docstring)
+lib/cache/redis.py:12:0: E1101: Instance of 'Redis' has no member 'xadd' (no-member)
+tests/test_handlers.py:1:0: C0114: Missing module docstring (missing-module-docstring)
+tests/test_handlers.py:55:0: W0212: Access to a protected member _parse of a client class (protected-access)
+tools/migrate.py:8:0: F0001: Failed to parse: expected ':' (<unknown>, line 8) (syntax-error)
+
+------------------------------------------------------------------
+Your code has been rated at 6.83/10

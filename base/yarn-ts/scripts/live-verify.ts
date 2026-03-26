@@ -188,6 +188,42 @@ function buildScenarios(): Scenario[] {
     { name: "network-diag-openai", family: "network-diag", toolName: "bash", toolOutput: loadFixture("network-diag"), protocol: "openai", expectedDelta: { "family.network-diag": 1 } },
     { name: "strace-perf-openai", family: "strace-perf", toolName: "bash", toolOutput: loadFixture("strace-perf"), protocol: "openai", expectedDelta: { "family.strace-perf": 1 } },
     { name: "log-stream-openai", family: "log-stream", toolName: "bash", toolOutput: loadFixture("log-stream"), protocol: "openai", expectedDelta: { "family.log-stream": 1 } },
+    // Batch 3: container/infra + VCS
+    { name: "git-diff-openai", family: "git-diff", toolName: "bash", toolOutput: loadFixture("git-diff"), protocol: "openai", expectedDelta: { "family.git-diff": 1 } },
+    { name: "podman-openai", family: "podman", toolName: "bash", toolOutput: loadFixture("podman"), protocol: "openai", expectedDelta: { "family.podman": 1 } },
+    { name: "oc-openai", family: "oc", toolName: "bash", toolOutput: loadFixture("oc"), protocol: "openai", expectedDelta: { "family.oc": 1 } },
+    { name: "docker-compose-openai", family: "docker-compose", toolName: "bash", toolOutput: loadFixture("docker-compose"), protocol: "openai", expectedDelta: { "family.docker-compose": 1 } },
+    { name: "coverage-openai", family: "coverage", toolName: "bash", toolOutput: loadFixture("coverage"), protocol: "openai", expectedDelta: { "family.coverage": 1 } },
+    // Batch 4: cloud CLIs + audit
+    { name: "aws-cli-openai", family: "aws-cli", toolName: "bash", toolOutput: loadFixture("aws-cli"), protocol: "openai", expectedDelta: { "family.aws-cli": 1 } },
+    { name: "gcloud-openai", family: "gcloud", toolName: "bash", toolOutput: loadFixture("gcloud"), protocol: "openai", expectedDelta: { "family.gcloud": 1 } },
+    { name: "az-cli-openai", family: "az-cli", toolName: "bash", toolOutput: loadFixture("az-cli"), protocol: "openai", expectedDelta: { "family.az-cli": 1 } },
+    { name: "npm-audit-openai", family: "npm-audit", toolName: "bash", toolOutput: loadFixture("npm-audit"), protocol: "openai", expectedDelta: { "family.npm-audit": 1 } },
+    { name: "webpack-openai", family: "webpack", toolName: "bash", toolOutput: loadFixture("webpack"), protocol: "openai", expectedDelta: { "family.webpack": 1 } },
+    // Batch 5: JS build + package managers
+    { name: "vite-openai", family: "vite", toolName: "bash", toolOutput: loadFixture("vite"), protocol: "openai", expectedDelta: { "family.vite": 1 } },
+    { name: "esbuild-openai", family: "esbuild", toolName: "bash", toolOutput: loadFixture("esbuild"), protocol: "openai", expectedDelta: { "family.esbuild": 1 } },
+    { name: "yarn-install-openai", family: "yarn-install", toolName: "bash", toolOutput: loadFixture("yarn-install"), protocol: "openai", expectedDelta: { "family.yarn-install": 1 } },
+    { name: "pnpm-openai", family: "pnpm", toolName: "bash", toolOutput: loadFixture("pnpm"), protocol: "openai", expectedDelta: { "family.pnpm": 1 } },
+    { name: "apt-pkg-openai", family: "apt-pkg", toolName: "bash", toolOutput: loadFixture("apt-pkg"), protocol: "openai", expectedDelta: { "family.apt-pkg": 1 } },
+    // Batch 6: test runners
+    { name: "mocha-openai", family: "mocha", toolName: "bash", toolOutput: loadFixture("mocha"), protocol: "openai", expectedDelta: { "family.mocha": 1 } },
+    { name: "rspec-openai", family: "rspec", toolName: "bash", toolOutput: loadFixture("rspec"), protocol: "openai", expectedDelta: { "family.rspec": 1 } },
+    { name: "phpunit-openai", family: "phpunit", toolName: "bash", toolOutput: loadFixture("phpunit"), protocol: "openai", expectedDelta: { "family.phpunit": 1 } },
+    { name: "python-unittest-openai", family: "python-unittest", toolName: "bash", toolOutput: loadFixture("python-unittest"), protocol: "openai", expectedDelta: { "family.python-unittest": 1 } },
+    { name: "dotnet-openai", family: "dotnet", toolName: "bash", toolOutput: loadFixture("dotnet"), protocol: "openai", expectedDelta: { "family.dotnet": 1 } },
+    // Batch 7: linters
+    { name: "pylint-openai", family: "pylint", toolName: "bash", toolOutput: loadFixture("pylint"), protocol: "openai", expectedDelta: { "family.pylint": 1 } },
+    { name: "shellcheck-openai", family: "shellcheck", toolName: "bash", toolOutput: loadFixture("shellcheck"), protocol: "openai", expectedDelta: { "family.shellcheck": 1 } },
+    { name: "clippy-openai", family: "clippy", toolName: "bash", toolOutput: loadFixture("clippy"), protocol: "openai", expectedDelta: { "family.clippy": 1 } },
+    { name: "rubocop-openai", family: "rubocop", toolName: "bash", toolOutput: loadFixture("rubocop"), protocol: "openai", expectedDelta: { "family.rubocop": 1 } },
+    { name: "cppcheck-openai", family: "cppcheck", toolName: "bash", toolOutput: loadFixture("cppcheck"), protocol: "openai", expectedDelta: { "family.cppcheck": 1 } },
+    // Batch 8: remaining build + VCS
+    { name: "gradle-openai", family: "gradle", toolName: "bash", toolOutput: loadFixture("gradle"), protocol: "openai", expectedDelta: { "family.gradle": 1 } },
+    { name: "swift-build-openai", family: "swift-build", toolName: "bash", toolOutput: loadFixture("swift-build"), protocol: "openai", expectedDelta: { "family.swift-build": 1 } },
+    { name: "cmake-openai", family: "cmake", toolName: "bash", toolOutput: loadFixture("cmake"), protocol: "openai", expectedDelta: { "family.cmake": 1 } },
+    { name: "composer-openai", family: "composer", toolName: "bash", toolOutput: loadFixture("composer"), protocol: "openai", expectedDelta: { "family.composer": 1 } },
+    { name: "git-log-openai", family: "git-log", toolName: "bash", toolOutput: loadFixture("git-log"), protocol: "openai", expectedDelta: { "family.git-log": 1 } },
   ];
 
   if (MODE === "full") {

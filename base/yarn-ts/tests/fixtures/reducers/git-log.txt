@@ -1,0 +1,8 @@
+commit 7a3f2c1d9e8b4a5f6c0d1e2f3a4b5c6d7e8f9a0b
+Author: Alex Dev <alex@example.com>
+Date:   Mon Mar 10 14:22:01 2025 +0000
+
+    fix: handle null payload in parser
+
+    Guard against missing fields when decoding JSON so downstream
+    handlers never dereference undefined.

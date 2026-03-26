@@ -1,0 +1,12 @@
+Welcome to Gradle 8.7!
+
+> Task :app:compileJava UP-TO-DATE
+> Task :app:processResources
+> Task :app:classes
+> Task :app:test
+OpenJDK 64-Bit Server VM warning: Sharing is only supported for boot loader classes
+
+test result: 3 tests completed, 3 succeeded
+
+BUILD SUCCESSFUL in 4s
+4 actionable tasks: 3 executed, 1 up-to-date

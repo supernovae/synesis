@@ -1,0 +1,15 @@
+PHPUnit 10.5.9 by Sebastian Bergmann and contributors.
+
+Runtime: PHP 8.2.12
+
+..F                                                                  3 / 3 (100%)
+
+Time: 00:00.021, Memory: 6.00 MB
+
+There was 1 failure:
+
+1) CartTest::test_totals
+Failed asserting that 42 matches expected 40.
+
+FAILURES!
+Tests: 3, Assertions: 5, Failures: 1, Errors: 0.

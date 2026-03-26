@@ -1,0 +1,10 @@
+# npm audit report
+
+minimatch  9.0.0
+Severity: high
+Regular Expression Denial of Service in minimatch — https://github.com/advisories/GHSA-xxxx
+
+found 3 vulnerabilities (1 low, 1 moderate, 1 high)
+
+To address all issues, run:
+  npm audit fix

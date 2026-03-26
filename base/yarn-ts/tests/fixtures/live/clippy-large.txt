@@ -1,0 +1,37 @@
+warning: this `if` statement can be collapsed
+   --> worker/src/jobs.rs:112:9
+    |
+112 | /         if payload.is_empty() {
+113 | |             return Ok(());
+114 | |         }
+    | |_________^
+    |
+    = help: for further information see <https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if>
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+
+warning: use of `or_insert_with(Vec::new)` to construct default value
+   --> worker/src/jobs.rs:140:22
+    |
+140 |         map.entry(k).or_insert_with(Vec::new).push(v);
+    |                      ^^^^^^^^^^^^^^^^^^^^^^ help: try: `or_default()`
+    |
+    = help: for further information see <https://rust-lang.github.io/rust-clippy/master/index.html#unwrap_or_default>
+    = note: `#[warn(clippy::or_fun_call)]` on by default
+
+warning: redundant closure
+  --> shared/src/net.rs:55:27
+   |
+55 |         threads.into_iter().map(|t| t.join().unwrap()).collect()
+   |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the tuple itself: `std::thread::JoinHandle::join`
+   |
+   = help: for further information see <https://rust-lang.github.io/rust-clippy/master/index.html#redundant_closure>
+   = note: `#[warn(clippy::redundant_closure)]` on by default
+
+error[E0382]: use of moved value: `buf`
+  --> shared/src/net.rs:88:17
+   |
+88 |         process(buf);
+   |                 ^^^ value used here after move
+
+warning: `worker` (lib) generated 2 warnings
+error: could not compile `shared` (lib) due to 1 previous error

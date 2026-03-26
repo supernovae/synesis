@@ -1,0 +1,21 @@
+
+vite v5.4.10 building for production...
+transforming (2048) node_modules/lodash-es/lodash.js
+✓ 2048 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                  0.78 kB │ gzip:  0.41 kB
+dist/assets/polyfills-legacy-DqWrJqZ8.js        45.20 kB │ gzip: 16.10 kB
+dist/assets/index-Cx9mK2pL.css                  28.44 kB │ gzip:  6.02 kB
+dist/assets/vendor-react-B8nN4xQ1.js           142.88 kB │ gzip: 45.90 kB
+dist/assets/page-dashboard-Yp2kLm9.js           88.12 kB │ gzip: 22.34 kB
+dist/assets/index-DwBUtGAx.js                  312.05 kB │ gzip: 98.76 kB
+dist/assets/chunk-icons-Bn4Kp9zQ.js            64.00 kB │ gzip: 18.44 kB
+dist/assets/chunk-charts-Qw8rT2mL.js           128.90 kB │ gzip: 40.12 kB
+dist/assets/chunk-i18n-Xp9mN3vR.js              22.10 kB │ gzip:  7.88 kB
+dist/assets/worker-data-Hj2kLm5P.js             11.02 kB │ gzip:  4.01 kB
+dist/assets/modulepreload-polyfill-B5Qt9EMX.js  0.71 kB │ gzip:  0.40 kB
+[plugin:vite:resolve] warning: 
+/var/app/src/legacy shim.ts is dynamically imported but also statically imported by /var/app/src/main.ts, dynamic import will not move module into another chunk.
+
+✓ built in 14.23s

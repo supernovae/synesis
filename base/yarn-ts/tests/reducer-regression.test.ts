@@ -2,58 +2,94 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { classifyReducerFamily } from "../src/reduction/classifier.js";
-import { ReducerRegistry } from "../src/reduction/registry.js";
+import { ReducerRegistry, registeredFamilies } from "../src/reduction/registry.js";
 import type { ReducerFamily } from "../src/reduction/types.js";
 
 function fixture(name: string): string {
   return readFileSync(join(process.cwd(), "tests", "fixtures", "reducers", `${name}.txt`), "utf8");
 }
 
-const ALL_FAMILIES: Array<Exclude<ReducerFamily, "generic">> = [
-  "pytest", "tsc", "lint", "git", "search",
-  "npm-install", "docker-build", "cargo", "make", "stack-trace",
-  "jest", "go-build", "pip-install", "ls-tree", "curl-http",
-  "kubectl", "terraform", "sql-result", "mypy", "java-build",
-  "ansible", "helm", "network-diag", "strace-perf", "log-stream"
-];
+function liveFixture(name: string): string {
+  return readFileSync(join(process.cwd(), "tests", "fixtures", "live", `${name}-large.txt`), "utf8");
+}
+
+const ALL_FAMILIES = registeredFamilies();
 
 const registry = new ReducerRegistry({
   enabled: true,
-  enabledFamilies: new Set(ALL_FAMILIES as ReducerFamily[]),
+  disabledFamilies: new Set<string>(),
   minConfidence: 0.6
 });
 
 const TOOL_HINTS: Record<string, { toolName: string; command: string }> = {
-  pytest:          { toolName: "pytest", command: "pytest" },
-  tsc:             { toolName: "tsc", command: "tsc --noEmit" },
-  lint:            { toolName: "ruff", command: "ruff check" },
-  git:             { toolName: "bash", command: "git status" },
-  search:          { toolName: "rg", command: "rg run" },
-  "npm-install":   { toolName: "bash", command: "npm install" },
-  "docker-build":  { toolName: "bash", command: "docker build ." },
-  cargo:           { toolName: "bash", command: "cargo build" },
-  make:            { toolName: "bash", command: "make" },
-  "stack-trace":   { toolName: "bash", command: "python app.py" },
-  jest:            { toolName: "bash", command: "npx jest" },
-  "go-build":      { toolName: "bash", command: "go build ./..." },
-  "pip-install":   { toolName: "bash", command: "pip install -r requirements.txt" },
-  "ls-tree":       { toolName: "bash", command: "tree ." },
-  "curl-http":     { toolName: "curl", command: "curl -v https://example.com" },
-  kubectl:         { toolName: "bash", command: "kubectl get pods" },
-  terraform:       { toolName: "bash", command: "terraform plan" },
-  "sql-result":    { toolName: "bash", command: "psql -c 'SELECT * FROM users'" },
-  mypy:            { toolName: "bash", command: "mypy src/" },
-  "java-build":    { toolName: "bash", command: "mvn package" },
-  ansible:         { toolName: "bash", command: "ansible-playbook site.yml" },
-  helm:            { toolName: "bash", command: "helm install my-release chart/" },
-  "network-diag":  { toolName: "bash", command: "ping -c 4 google.com" },
-  "strace-perf":   { toolName: "bash", command: "strace -c ls" },
-  "log-stream":    { toolName: "bash", command: "journalctl -u myapp --no-pager" },
+  // Original 25
+  pytest:              { toolName: "pytest", command: "pytest" },
+  tsc:                 { toolName: "tsc", command: "tsc --noEmit" },
+  lint:                { toolName: "ruff", command: "ruff check" },
+  git:                 { toolName: "bash", command: "git status" },
+  search:              { toolName: "rg", command: "rg run" },
+  "npm-install":       { toolName: "bash", command: "npm install" },
+  "docker-build":      { toolName: "bash", command: "docker build ." },
+  cargo:               { toolName: "bash", command: "cargo build" },
+  make:                { toolName: "bash", command: "make" },
+  "stack-trace":       { toolName: "bash", command: "python app.py" },
+  jest:                { toolName: "bash", command: "npx jest" },
+  "go-build":          { toolName: "bash", command: "go build ./..." },
+  "pip-install":       { toolName: "bash", command: "pip install -r requirements.txt" },
+  "ls-tree":           { toolName: "bash", command: "tree ." },
+  "curl-http":         { toolName: "curl", command: "curl -v https://example.com" },
+  kubectl:             { toolName: "bash", command: "kubectl get pods" },
+  terraform:           { toolName: "bash", command: "terraform plan" },
+  "sql-result":        { toolName: "bash", command: "psql -c 'SELECT * FROM users'" },
+  mypy:                { toolName: "bash", command: "mypy src/" },
+  "java-build":        { toolName: "bash", command: "mvn package" },
+  ansible:             { toolName: "bash", command: "ansible-playbook site.yml" },
+  helm:                { toolName: "bash", command: "helm install my-release chart/" },
+  "network-diag":      { toolName: "bash", command: "ping -c 4 google.com" },
+  "strace-perf":       { toolName: "bash", command: "strace -c ls" },
+  "log-stream":        { toolName: "bash", command: "journalctl -u myapp --no-pager" },
+  // Batch 3: container/infra + VCS
+  "git-diff":          { toolName: "bash", command: "git diff HEAD~1" },
+  podman:              { toolName: "bash", command: "podman ps -a" },
+  oc:                  { toolName: "bash", command: "oc describe pod planner-xxx" },
+  "docker-compose":    { toolName: "bash", command: "docker compose logs" },
+  coverage:            { toolName: "bash", command: "npx c8 report" },
+  // Batch 4: cloud CLIs + audit
+  "aws-cli":           { toolName: "bash", command: "aws ec2 describe-instances" },
+  gcloud:              { toolName: "bash", command: "gcloud compute instances list" },
+  "az-cli":            { toolName: "bash", command: "az vm list" },
+  "npm-audit":         { toolName: "bash", command: "npm audit" },
+  webpack:             { toolName: "bash", command: "npx webpack" },
+  // Batch 5: JS build + package managers
+  vite:                { toolName: "bash", command: "vite build" },
+  esbuild:             { toolName: "bash", command: "npx esbuild" },
+  "yarn-install":      { toolName: "bash", command: "yarn install" },
+  pnpm:                { toolName: "bash", command: "pnpm install" },
+  "apt-pkg":           { toolName: "bash", command: "apt-get install -y nginx" },
+  // Batch 6: test runners
+  mocha:               { toolName: "bash", command: "npx mocha" },
+  rspec:               { toolName: "bash", command: "rspec" },
+  phpunit:             { toolName: "bash", command: "vendor/bin/phpunit" },
+  "python-unittest":   { toolName: "bash", command: "python -m unittest discover" },
+  dotnet:              { toolName: "bash", command: "dotnet build" },
+  // Batch 7: linters
+  pylint:              { toolName: "bash", command: "pylint src/" },
+  shellcheck:          { toolName: "bash", command: "shellcheck script.sh" },
+  clippy:              { toolName: "bash", command: "cargo clippy" },
+  rubocop:             { toolName: "bash", command: "rubocop" },
+  cppcheck:            { toolName: "bash", command: "cppcheck src/" },
+  // Batch 8: remaining
+  gradle:              { toolName: "bash", command: "gradle build" },
+  "swift-build":       { toolName: "bash", command: "swift build" },
+  cmake:               { toolName: "bash", command: "cmake .." },
+  composer:            { toolName: "bash", command: "composer install" },
+  "git-log":           { toolName: "bash", command: "git log --oneline -20" },
 };
 
 describe("Classifier: all families by toolName/command hint", () => {
   for (const family of ALL_FAMILIES) {
     const hint = TOOL_HINTS[family];
+    if (!hint) continue;
     it(`classifies ${family} via tool hints`, () => {
       const result = classifyReducerFamily(hint.toolName, hint.command, fixture(family));
       expect(result).toBe(family);
@@ -64,6 +100,7 @@ describe("Classifier: all families by toolName/command hint", () => {
 describe("ReducerRegistry: all families produce non-null output", () => {
   for (const family of ALL_FAMILIES) {
     const hint = TOOL_HINTS[family];
+    if (!hint) continue;
     it(`reduces ${family} fixture`, () => {
       const out = registry.reduce({
         raw: fixture(family),
@@ -76,16 +113,18 @@ describe("ReducerRegistry: all families produce non-null output", () => {
   }
 });
 
-function liveFixture(name: string): string {
-  return readFileSync(join(process.cwd(), "tests", "fixtures", "live", `${name}-large.txt`), "utf8");
-}
-
 describe("Classifier: raw-content-only fallback (toolName=bash, no command)", () => {
-  const PHASE2_FAMILIES: Array<Exclude<ReducerFamily, "generic">> = [
+  const PHASE2_FAMILIES: string[] = [
+    // Original families with Phase 2 rules
     "docker-build", "go-build", "terraform", "network-diag",
     "npm-install", "cargo", "make", "stack-trace", "jest",
     "pip-install", "kubectl", "java-build", "ansible", "helm",
     "strace-perf", "log-stream",
+    // Batch 3
+    "git-diff", "docker-compose", "coverage",
+    // Batch 4-8 (families with distinctive raw patterns)
+    "webpack", "npm-audit", "mocha",
+    "gradle", "cmake",
   ];
   for (const family of PHASE2_FAMILIES) {
     it(`classifies ${family} from raw content alone (live fixture)`, () => {
@@ -145,6 +184,7 @@ describe("Reducer output quality", () => {
   it("reduction is shorter than input for non-trivial outputs (>500 chars)", () => {
     for (const family of ALL_FAMILIES) {
       const hint = TOOL_HINTS[family];
+      if (!hint) continue;
       const raw = fixture(family);
       if (raw.length < 500) continue;
       const out = registry.reduce({

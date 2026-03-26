@@ -1,0 +1,28 @@
+In scripts/release.sh line 31:
+curl $API_URL/v1/deploy -d "$PAYLOAD"
+     ^-- SC2086 (info): Double quote to prevent globbing and word splitting.
+
+In scripts/release.sh line 44:
+source $ENV_FILE
+       ^-- SC1091 (info): Not following: ./.env was not specified as input (see shellcheck -x).
+
+In lib/common.sh line 12:
+echo $PATH
+     ^-- SC2086 (warning): Double quote to prevent globbing and word splitting.
+
+In lib/common.sh line 19:
+for f in $(ls *.sh); do
+         ^-- SC2046 (warning): Quote this to prevent word splitting.
+
+scripts/backup.sh:7:3: error: BACKUP_ROOT appears unused. Verify use (or export if used). [SC2034]
+ci/run_smoke.sh:22:5: warning: Declare and assign separately to avoid masking return values. [SC2155]
+hooks/pre-commit.sh:3:1: style: Tips depend on target shell and yours is unknown. Add a shebang or a 'shell' directive. [SC2148]
+vendor/patch.sh:100:10: info: Expressions don't expand in single quotes, use double quotes for that. [SC2016]
+
+In vendor/patch.sh line 105:
+[[ $x == "*.sh" ]]
+   ^-- SC2053 (warning): Quote the right-hand side of == in [[ ]] to prevent pattern matching.
+
+In docker/entrypoint.sh line 2:
+set -euo pipefail
+^-- SC3041 (info): In POSIX sh, set option pipefail is undefined.

@@ -30,9 +30,9 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "true").toLowerCase() !== "false"),
-  SYNESIS_YARN_REDUCER_FAMILIES: z
+  SYNESIS_YARN_REDUCER_DISABLED_FAMILIES: z
     .string()
-    .default("pytest,tsc,lint,git,search,npm-install,docker-build,cargo,make,stack-trace,jest,go-build,pip-install,ls-tree,curl-http,kubectl,terraform,sql-result,mypy,java-build,ansible,helm,network-diag,strace-perf,log-stream"),
+    .default(""),
   SYNESIS_YARN_REDUCER_MIN_CONFIDENCE: z.coerce.number().default(0.6),
   SYNESIS_YARN_REDUCER_PROFILE: z
     .enum(["balanced", "aggressive", "ultra"])

@@ -1,0 +1,3 @@
+Checking src/parser.cpp ...
+[src/parser.cpp:44]: (error) Array 'tok' accessed at index 8, which is out of bounds. [cppcheck-arrayIndexOutOfBounds] [cwe=788]
+src/parser.cpp:12:8: style: The scope of variable 'tmp' can be reduced. [variableScope]

@@ -1,0 +1,9 @@
+Inspecting 1 file
+C:
+
+Offenses:
+
+app/models/user.rb:12:5: C: Style/FrozenStringLiteralComment: Missing frozen string literal comment.
+spec/user_spec.rb:4:1: W: Lint/ScriptPermission: Script file not executable.
+
+1 file inspected, 2 offenses detected

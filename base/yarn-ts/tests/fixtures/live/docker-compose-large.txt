@@ -1,0 +1,40 @@
+ Network synesis_default  Creating
+ Network synesis_default  Created
+ Volume synesis_pgdata  Creating
+ Volume synesis_pgdata  Created
+ Container synesis-redis-1  Creating
+ Container synesis-postgres-1  Creating
+ Container synesis-planner-1  Creating
+ Container synesis-redis-1  Created
+ Container synesis-postgres-1  Created
+ Container synesis-planner-1  Created
+ Container synesis-postgres-1  Starting
+ Container synesis-redis-1  Starting
+ Container synesis-planner-1  Starting
+ Container synesis-redis-1  Started
+ Container synesis-postgres-1  Started
+postgres_1  | PostgreSQL init process complete; ready for connections.
+redis_1     | Ready to accept connections
+planner_1   | INFO:     Started server process [1]
+planner_1   | INFO:     Waiting for application startup.
+planner_1   | INFO:     Application startup complete.
+planner_1   | ERROR:    Exception in ASGI application
+planner_1   | Traceback (most recent call last):
+planner_1   |   File "/opt/app-root/venv/lib/python3.11/site-packages/uvicorn/protocols/http/httptools_impl.py", line 401, in run_asgi
+planner_1   |     result = await app( scope, receive, send )
+planner_1   | ConnectionRefusedError: [Errno 111] Connection refused
+api_1       | WARN: retrying embedder request (2/5)
+api_1       | ERROR: embedder timeout after 30s
+web_1       |  GET / 200 in 42ms
+web_1       |  GET /api/health 502 in 120ms
+web_1       | ERROR: upstream unavailable
+worker_1    | processing job queue-001
+worker_1    | processing job queue-002
+worker_1    | WARNING: slow task took 8.2s
+worker_1    | processing job queue-003
+worker_1    | ERROR: failed to publish metrics: broker unreachable
+nginx_1     | 2025/03/26 10:00:01 [error] 12#12: *45 connect() failed (111: Connection refused) while connecting to upstream
+nginx_1     | 2025/03/26 10:00:02 [warn] 12#12: *46 upstream server temporarily disabled
+Attaching to postgres_1, redis_1, planner_1, api_1, web_1, worker_1, nginx_1
+Container synesis-planner-1  Exited (1) 12 seconds ago
+Container synesis-api-1  Restarting (1) 3 seconds ago

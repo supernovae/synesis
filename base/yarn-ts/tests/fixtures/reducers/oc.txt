@@ -1,0 +1,10 @@
+Name:               api-gateway-7d9f8c6b4-xk2m
+Namespace:          synesis-yarn
+Status:             Running
+Labels:             app.kubernetes.io/name=api-gateway
+                    app.openshift.io/runtime=nodejs
+Conditions:
+  True    Initialized
+  False   Ready
+Events:
+  Warning  Unhealthy  2m   kubelet  Readiness probe failed: connection refused

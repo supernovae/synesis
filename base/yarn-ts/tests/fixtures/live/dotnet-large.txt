@@ -1,0 +1,28 @@
+  Determining projects to restore...
+  Restored /src/Synesis.Api/Synesis.Api.csproj (in 312 ms).
+  Restored /src/Synesis.Core/Synesis.Core.csproj (in 298 ms).
+Microsoft (R) Build Engine version 17.8.3+0e8b0e63f for .NET
+/usr/share/dotnet/sdk/17.8.3/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.targets(142,5): warning CS8019: Unreachable code detected [/src/Synesis.Core/Synesis.Core.csproj]
+/src/Synesis.Api/Controllers/HealthController.cs(24,28): error CS1061: 'IServiceProvider' does not contain a definition for 'GetRequiredKeyedService' [/src/Synesis.Api/Synesis.Api.csproj]
+/src/Synesis.Api/Program.cs(88,9): warning CS0162: Unreachable code detected [/src/Synesis.Api/Synesis.Api.csproj]
+
+Build FAILED.
+
+/src/Synesis.Api/Controllers/HealthController.cs(24,28): error CS1061: 'IServiceProvider' does not contain a definition for 'GetRequiredKeyedService' [/src/Synesis.Api/Synesis.Api.csproj]
+    2 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:04.21
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+  Failed Synesis.Core.Tests.ClockTests.UtcNow_IsMonotonic [28 ms]
+  Error Message:
+   Assert.InRange() Failure: Value not in range
+Range:  (0 - 0)
+Actual: 1
+  Stack Trace:
+     at Synesis.Core.Tests.ClockTests.UtcNow_IsMonotonic() in /src/Synesis.Core.Tests/ClockTests.cs:line 19
+
+Failed!  - Failed:     1, Passed:    17, Skipped:     2, Total:    20, Duration: 842 ms
+

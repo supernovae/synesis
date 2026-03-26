@@ -1,0 +1,42 @@
+commit 9f1e2d3c4b5a697887766554433221100ffeedd
+Author: Jordan Lee <jordan@synesis.dev>
+Date:   Wed Mar 26 09:15:44 2025 -0700
+
+    feat(router): add timeout budget per retrieval hop
+
+    Each hop in the retrieval chain now receives a shrinking deadline so
+    tail latencies do not compound across Milvus, reranker, and snippet
+    assembly. Metrics export hop_durations_ms for dashboards.
+
+commit 8a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3
+Author: Sam Rivera <sam@synesis.dev>
+Date:   Tue Mar 25 16:02:11 2025 -0700
+
+    fix(planner): guard empty evidence bundles
+
+    When the router returns zero chunks, the planner now emits a structured
+    clarification request instead of fabricating citations.
+
+commit 70123456789abcdef0123456789abcdef0123456
+Author: Jordan Lee <jordan@synesis.dev>
+Date:   Mon Mar 24 11:40:00 2025 -0700
+
+    chore: bump litellm pin and refresh lockfile
+
+commit 6123456789abcdef0123456789abcdef01234567
+Merge: 5012345 4abcdef
+Author: CI Bot <ci@synesis.dev>
+Date:   Sun Mar 23 08:00:02 2025 +0000
+
+    Merge pull request #1842 from synesis/release/2025.03.3
+
+commit 50123456789abcdef0123456789abcdef0123456
+Author: Alex Dev <alex@example.com>
+Date:   Sat Mar 22 19:33:59 2025 +0000
+
+    docs: describe OpenShift AI model routing
+
+    Align README with admin Registry as source of truth for live endpoints.
+
+a1b2c3d4e5f6789012345678901234abcd5678ef0 Short subject only oneline style
+deadbeefdeadbeefdeadbeefdeadbeefdeadbeef Second oneline entry without porcelain headers

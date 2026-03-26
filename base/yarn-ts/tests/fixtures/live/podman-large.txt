@@ -1,0 +1,54 @@
+{
+  "Id": "a1b2c3d4e5f6789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "Created": "2025-03-20T10:15:00.123456789Z",
+  "Path": "uvicorn",
+  "Args": ["main:app", "--host", "0.0.0.0", "--port", "8080"],
+  "State": {
+    "Status": "running",
+    "Running": true,
+    "Paused": false,
+    "Restarting": false,
+    "OOMKilled": false,
+    "Dead": false,
+    "Pid": 12345,
+    "ExitCode": 0,
+    "Error": "",
+    "StartedAt": "2025-03-20T10:15:05Z",
+    "FinishedAt": "0001-01-01T00:00:00Z"
+  },
+  "Image": "quay.io/synesis/yarn:latest",
+  "ImageName": "quay.io/synesis/yarn:latest",
+  "Name": "/synesis-yarn-api",
+  "RestartCount": 0,
+  "Driver": "overlay",
+  "Platform": "linux",
+  "Mounts": [
+    { "Type": "bind", "Source": "/host/project", "Destination": "/workspace", "Mode": "Z", "RW": true, "Propagation": "rprivate" },
+    { "Type": "volume", "Name": "yarn-cache", "Source": "/var/lib/containers/storage/volumes/yarn-cache/_data", "Destination": "/cache", "Driver": "local", "Mode": "z", "RW": true, "Propagation": "" }
+  ],
+  "Config": {
+    "Hostname": "a1b2c3d4e5f6",
+    "User": "1001",
+    "Env": ["PATH=/usr/local/bin:/usr/bin", "HOME=/opt/app-root", "SYNESIS_YARN_PORT=8080"],
+    "Cmd": ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"],
+    "Image": "quay.io/synesis/yarn:latest",
+    "WorkingDir": "/opt/app-root/src",
+    "Labels": { "io.openshift.builder.version": "1.0", "org.opencontainers.image.vendor": "synesis" }
+  },
+  "NetworkSettings": {
+    "Ports": {
+      "8080/tcp": [{ "HostIp": "0.0.0.0", "HostPort": "8787" }]
+    },
+    "Gateway": "10.88.0.1",
+    "IPAddress": "10.88.0.42",
+    "MacAddress": "aa:bb:cc:dd:ee:ff",
+    "Networks": {
+      "podman": {
+        "NetworkID": "net123",
+        "Gateway": "10.88.0.1",
+        "IPAddress": "10.88.0.42",
+        "MacAddress": "aa:bb:cc:dd:ee:ff"
+      }
+    }
+  }
+}

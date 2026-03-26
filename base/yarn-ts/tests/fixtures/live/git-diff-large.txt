@@ -1,0 +1,73 @@
+diff --git a/base/planner/app/config.py b/base/planner/app/config.py
+index 9aa1c2d..b3e4f5a 100644
+--- a/base/planner/app/config.py
++++ b/base/planner/app/config.py
+@@ -12,6 +12,8 @@ class Settings:
+     router_model_url: str = "http://synesis-router:8080/v1"
+     planner_model_url: str = "http://synesis-planner:8080/v1"
++    request_timeout_s: float = 120.0
++    max_tool_rounds: int = 24
+     embedder_url: str = "http://embedder.synesis-rag.svc:8080"
+diff --git a/base/yarn-ts/src/config.ts b/base/yarn-ts/src/config.ts
+index 1111111..2222222 100644
+--- a/base/yarn-ts/src/config.ts
++++ b/base/yarn-ts/src/config.ts
+@@ -1,5 +1,6 @@
+ export const defaults = {
+   port: 8787,
++  reducersEnabled: true,
+   logLevel: "info",
+ };
+diff --git a/base/gateway/litellm-config.yaml b/base/gateway/litellm-config.yaml
+--- a/base/gateway/litellm-config.yaml
++++ b/base/gateway/litellm-config.yaml
+@@ -40,3 +40,5 @@ model_list:
+   - model_name: synesis-router
+     litellm_params:
+       model: openai/synesis-router
++      timeout: 180
++      max_retries: 2
+diff --git a/scripts/deploy.sh b/scripts/deploy.sh
+index abcd123..ef456789 100644
+--- a/scripts/deploy.sh
++++ b/scripts/deploy.sh
+@@ -88,6 +88,7 @@ rollout() {
+   oc rollout status "deployment/$name" -n "$ns" --timeout=5m
++  oc get pods -n "$ns" -l "app=$name" -o wide
+ }
+diff --git a/base/rag/indexer/app/enrichment.py b/base/rag/indexer/app/enrichment.py
+index 0000aaa..1111bbb 100644
+--- a/base/rag/indexer/app/enrichment.py
++++ b/base/rag/indexer/app/enrichment.py
+@@ -22,4 +22,6 @@ def enrich_chunk(text: str, tier: str) -> dict:
+     if tier == "full":
+         return llm_json_enrich(text)
++    if tier == "minimal":
++        return {"keywords": [], "summary": text[:200]}
+     return template_prefix(text)
+diff --git a/overlays/api/kustomization.yaml b/overlays/api/kustomization.yaml
+--- a/overlays/api/kustomization.yaml
++++ b/overlays/api/kustomization.yaml
+@@ -5,6 +5,7 @@ resources:
+   - ../../base/yarn
+   - ingress.yaml
++  - network-policy.yaml
+ patches:
+   - path: patch-replicas.yaml
+diff --git a/docs/README.md b/docs/README.md
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -1,4 +1,5 @@
+ # Synesis
++> Internal platform documentation.
+ 
+ ## Getting started
+diff --git a/base/planner/tests/test_router.py b/base/planner/tests/test_router.py
+--- a/base/planner/tests/test_router.py
++++ b/base/planner/tests/test_router.py
+@@ -10,3 +10,7 @@ def test_router_governance(monkeypatch):
+     assert "rag" not in lowered
++    assert "router" in lowered
++
++def test_timeout_defaults():
++    assert Settings().request_timeout_s == 120.0

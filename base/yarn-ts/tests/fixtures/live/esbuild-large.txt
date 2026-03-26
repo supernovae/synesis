@@ -1,0 +1,33 @@
+esbuild src/entry.ts --bundle --splitting --format=esm --outdir=dist --minify --sourcemap
+
+  app.js                         4.2kb
+  chunk-7XQ8M2.js             12.8kb
+  chunk-AB12CD.js             56.3kb
+  dashboard.js                24.1kb
+  worker.js                    2.0kb
+  style.css                   18.9kb
+  chunk-icons.js              44.2kb
+  chunk-vendor-react.js      412.0kb
+  chunk-vendor-d3.js         188.4kb
+  sourcemap-main.js.map      512.0kb
+
+Done in 156ms
+
+✘ [ERROR] Could not resolve "missing-pkg"
+
+    src/auth.ts:12:27:
+      12 │ import { x } from "missing-pkg"
+         ╵                    ~~~~~~~~~~~~
+
+✘ [ERROR] No matching export in "src/utils.ts" for import "oldFn"
+
+    src/hooks/useSession.ts:4:9:
+      4 │ import { oldFn } from "../utils"
+        ╵          ~~~~~
+
+2 errors
+[WARN] Import "assert" will always be undefined because there is no matching export in "node:assert"
+[WARN] Duplicate member "x" in class body
+  src/models/User.ts:88:2:
+      88 │   x = 1
+         ╵   ^

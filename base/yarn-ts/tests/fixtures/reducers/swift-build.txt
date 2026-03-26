@@ -1,0 +1,5 @@
+SwiftEmitModule normal arm64 Emitting\ module\ for\ MyLib (in target 'MyLib' from project 'app')
+/Users/dev/app/Sources/Foo.swift:12:5: error: cannot find 'bar' in scope
+    bar()
+    ^~~
+** BUILD FAILED **

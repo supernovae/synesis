@@ -1,0 +1,12 @@
+warning: this `if` statement can be collapsed
+ --> crates/core/src/lib.rs:18:5
+  |
+18 | /     if x > 0 {
+19 | |         return true;
+20 | |     }
+   | |_____^
+   |
+   = note: for more information, see <https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if>
+   = note: `#[warn(clippy::collapsible_if)]` on by default
+
+warning: `core` (lib) generated 1 warning

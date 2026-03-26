@@ -1,0 +1,8 @@
+  dist/chunk-p3K9m.js       22.1kb
+  dist/chunk-nested.js      1.1kb
+  dist/main.js             104.5kb
+  dist/style.css            3.8kb
+  dist/vendor-shared.js    512.3kb
+  dist/worker-bg.js        8.2kb
+
+Done in 36ms

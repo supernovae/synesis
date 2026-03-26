@@ -1,0 +1,41 @@
+PHPUnit 10.5.9 by Sebastian Bergmann and contributors.
+
+Runtime:       PHP 8.2.12
+Configuration: /srv/app/phpunit.xml.dist
+
+RR........F..E..........                                                22 / 22 (100%)
+
+OK, but incomplete, skipped, or risky tests!
+
+There were 2 risky tests:
+
+1) Tests\Unit\DateHelperTest::test_dst_boundary
+This test did not perform any assertions
+
+/srv/app/tests/Unit/DateHelperTest.php:12
+
+2) Tests\Unit\ConfigTest::test_env_fallback
+This test did not perform any assertions
+
+/srv/app/tests/Unit/ConfigTest.php:31
+
+Time: 00:00.156, Memory: 18.00 MB
+
+There was 1 error:
+
+1) Tests\Integration\WebhookTest::test_signature_validation
+TypeError: hash_hmac(): Argument #3 ($key) must be of type string, null given
+
+/srv/app/tests/Integration/WebhookTest.php:61
+
+--
+
+There was 1 failure:
+
+1) Tests\Unit\PricingTest::test_volume_discount_applies
+Failed asserting that 199.99 matches expected 189.99.
+
+/srv/app/tests/Unit/PricingTest.php:44
+
+FAILURES!
+Tests: 22, Assertions: 58, Failures: 1, Errors: 1.
