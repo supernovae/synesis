@@ -179,7 +179,7 @@ function buildScenarios(): Scenario[] {
       expectedDelta: { "family.git": 1 }
     },
     {
-      name: "search-openai", family: "search", toolName: "bash",
+      name: "search-openai", family: "search", toolName: "rg",
       toolOutput: loadFixture("search"), protocol: "openai",
       expectedDelta: { "family.search": 1 }
     },

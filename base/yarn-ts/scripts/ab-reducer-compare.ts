@@ -121,7 +121,7 @@ const SCENARIOS: ScenarioDef[] = [
   { name: "tsc", family: "tsc", toolName: "tsc", fixture: loadFixture("tsc") },
   { name: "lint", family: "lint", toolName: "ruff", fixture: loadFixture("lint") },
   { name: "git", family: "git", toolName: "bash", fixture: loadFixture("git") },
-  { name: "search", family: "search", toolName: "bash", fixture: loadFixture("search") },
+  { name: "search", family: "search", toolName: "rg", fixture: loadFixture("search") },
 ];
 
 async function httpPost(path: string, payload: unknown): Promise<{ status: number; body: string; latencyMs: number }> {
