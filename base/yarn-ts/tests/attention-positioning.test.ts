@@ -30,17 +30,16 @@ describe("AttentionPositioningService", () => {
     expect(result.beginBlockCount).toBe(1);
   });
 
-  it("places working frame at the end", () => {
+  it("places working frame at the beginning", () => {
     const s = svc();
     const msgs = [
-      { role: "system", content: "<WORKING_FRAME>goal=fix bug</WORKING_FRAME>" },
       { role: "user", content: "hello" },
+      { role: "system", content: "<WORKING_FRAME>goal=fix bug</WORKING_FRAME>" },
       { role: "assistant", content: "hi" }
     ];
     const result = s.position(msgs);
-    const last = result.messages[result.messages.length - 1];
-    expect((last.content as string)).toContain("<WORKING_FRAME>");
-    expect(result.endBlockCount).toBe(1);
+    expect((result.messages[0].content as string)).toContain("<WORKING_FRAME>");
+    expect(result.beginBlockCount).toBe(1);
   });
 
   it("places client adapter at the beginning and manifest in the middle", () => {
@@ -88,8 +87,7 @@ describe("AttentionPositioningService", () => {
     expect(beginSystemBlocks.some((m) => (m.content as string).includes("<ARCHITECTURAL_STATE>"))).toBe(true);
     expect(beginSystemBlocks.some((m) => (m.content as string).includes("<CLIENT_ADAPTER>"))).toBe(true);
 
-    const lastMsg = result.messages[result.messages.length - 1];
-    expect((lastMsg.content as string)).toContain("<WORKING_FRAME>");
+    expect(beginSystemBlocks.some((m) => (m.content as string).includes("<WORKING_FRAME>"))).toBe(true);
   });
 
   it("tracks stats across calls", () => {
@@ -104,7 +102,7 @@ describe("AttentionPositioningService", () => {
     ]);
     const stats = s.getStats();
     expect(stats.positionedCount).toBe(2);
-    expect(stats.endBlocksPlaced).toBe(1);
-    expect(stats.beginBlocksPlaced).toBe(1);
+    expect(stats.endBlocksPlaced).toBe(0);
+    expect(stats.beginBlocksPlaced).toBe(2);
   });
 });

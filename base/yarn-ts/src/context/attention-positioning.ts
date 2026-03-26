@@ -47,7 +47,7 @@ function classifyBlock(content: string): ContextBlock {
     return { role: "system", content, priority: "high", placement: "begin" };
   }
   if (content.includes("<WORKING_FRAME>")) {
-    return { role: "system", content, priority: "medium", placement: "end" };
+    return { role: "system", content, priority: "medium", placement: "begin" };
   }
   if (content.includes("<PROJECT_MANIFEST>")) {
     return { role: "system", content, priority: "low", placement: "any" };

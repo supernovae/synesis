@@ -12,11 +12,10 @@ export interface StablePrefixStats {
   uniquePrefixHashes: number;
 }
 
-const BASE_INSTRUCTIONS = [
-  "You are an AI coding assistant provided by Synesis.",
-  "Follow the tool result summaries provided. If a summary lacks detail, use synesis_artifact_retrieve to get the full content.",
-  "Prefer concise, actionable responses. When editing files, use patch/replace operations over full rewrites."
-].join(" ");
+const BASE_INSTRUCTIONS =
+  "You are an AI coding assistant provided by Synesis. " +
+  "Tool results may be compressed summaries — if an artifact_handle is present, " +
+  "the full content is available via the synesis_artifact_retrieve tool.";
 
 export class StablePrefixService {
   private stats: StablePrefixStats = {
