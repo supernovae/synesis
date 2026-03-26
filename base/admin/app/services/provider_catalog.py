@@ -60,6 +60,7 @@ KNOWN_ROLES = (
     "coder-pulse",
     "coder-core",
     "coder-horizon",
+    "coder-compaction",
     "summarizer",
 )
 
@@ -73,6 +74,7 @@ ROLE_DESCRIPTIONS = {
     "coder-pulse": "Fast coder tier — lightweight completions, refactors, tab-complete (maps to Claude Haiku class)",
     "coder-core": "Balanced coder tier — multi-step agentic tasks, default for IDE sessions (maps to Claude Sonnet class)",
     "coder-horizon": "Deep reasoning coder tier — architecture decisions, complex debugging (maps to Claude Opus class)",
+    "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Yarn coder sessions",
     "summarizer": "Pivot history summarization — router evidence compression",
 }
 
@@ -83,6 +85,7 @@ ROLE_SERVED_NAMES = {
     "coder-pulse": "synesis-pulse",
     "coder-core": "synesis-core",
     "coder-horizon": "synesis-horizon",
+    "coder-compaction": "synesis-compaction",
 }
 
 

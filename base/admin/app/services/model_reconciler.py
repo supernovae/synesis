@@ -30,6 +30,7 @@ PROTECTED_MODELS = frozenset(
         "synesis-pulse",
         "synesis-core",
         "synesis-horizon",
+        "synesis-compaction",
     }
 )
 

@@ -35,6 +35,7 @@ const KNOWN_ROLES = [
   "coder-pulse",
   "coder-core",
   "coder-horizon",
+  "coder-compaction",
   "summarizer",
 ] as const;
 
@@ -48,6 +49,7 @@ const ROLE_DESCRIPTIONS: Record<string, string> = {
   "coder-pulse": "Fast coder tier — lightweight completions, tab-complete (Claude Haiku class)",
   "coder-core": "Balanced coder tier — agentic tasks, IDE default (Claude Sonnet class)",
   "coder-horizon": "Deep reasoning coder tier — architecture, complex debugging (Claude Opus class)",
+  "coder-compaction": "Context compaction — small fast model for sawtooth trajectory summarization in Yarn coder sessions",
   summarizer: "Pivot history summarization — router evidence compression",
 };
 
