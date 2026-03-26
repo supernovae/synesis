@@ -217,8 +217,8 @@ ensure_internal_service_auth() {
 }
 
 # -----------------------------------------------------------------------
-# Yarn (synesis-yarn): clone gateway secrets so envFrom provider-api-keys /
-# litellm-secrets resolve in the Yarn namespace (DeepInfra + optional LiteLLM).
+# Yarn (synesis-yarn): clone gateway secrets so envFrom provider-api-keys
+# resolves in the Yarn namespace (OpenRouter API key, etc.).
 # -----------------------------------------------------------------------
 ensure_yarn_secrets_from_gateway() {
     local gw="synesis-gateway"
@@ -1010,30 +1010,7 @@ _patch_deployment_env() {
     fi
 }
 
-# Post-apply: enforce Claude compatibility env defaults on Yarn so
-# Claude Code / Agent SDK behavior is deterministic across redeploys.
-patch_yarn_claude_compat() {
-    local ns="synesis-yarn"
-    local deploy="synesis-yarn"
-    local container="yarn"
-
-    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
-        return
-    fi
-
-    local claude_enabled="${SYNESIS_YARN_CLAUDE_COMPAT_ENABLED:-true}"
-    local claude_tool_search_mode="${SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE:-passthrough}"
-    local claude_custom_model_ids="${SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS:-synesis-pulse,synesis-core,synesis-horizon}"
-
-    log "  Enforcing Yarn Claude compatibility env:"
-    log "    SYNESIS_YARN_CLAUDE_COMPAT_ENABLED=$claude_enabled"
-    log "    SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE=$claude_tool_search_mode"
-    log "    SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS=$claude_custom_model_ids"
-
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_COMPAT_ENABLED" "$claude_enabled" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_TOOL_SEARCH_MODE" "$claude_tool_search_mode" "$container"
-    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_CLAUDE_CUSTOM_MODEL_IDS" "$claude_custom_model_ids" "$container"
-}
+# Yarn TS handles Claude/Anthropic natively -- no env-var compat flags needed.
 
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
@@ -1573,10 +1550,6 @@ log "Refreshing Yarn secrets from gateway (post-apply)..."
 ensure_yarn_secrets_from_gateway
 
 log ""
-log "Configuring Yarn Claude compatibility (post-apply)..."
-patch_yarn_claude_compat
-
-log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."
 reconcile_litellm_webui_secrets
 
@@ -1717,11 +1690,6 @@ wait_for_deployment synesis-webui open-webui
 
 # Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.
 if [[ "$APPLY_OK" == "true" ]]; then
-    # Retire transitional Yarn-TS resources (cutover now runs on synesis-yarn name).
-    oc delete deployment synesis-yarn-ts -n synesis-yarn --ignore-not-found >/dev/null 2>&1 || true
-    oc delete service synesis-yarn-ts -n synesis-yarn --ignore-not-found >/dev/null 2>&1 || true
-    oc delete route synesis-yarn-ts -n synesis-yarn --ignore-not-found >/dev/null 2>&1 || true
-
     log ""
     log "Pruning stale ReplicaSets (0 replicas)..."
     prune_old_replicasets
