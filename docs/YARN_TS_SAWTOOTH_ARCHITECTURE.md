@@ -36,11 +36,22 @@ where:
 
 ## Sawtooth Checkpointing Rules
 
-- Trigger consolidation every 10-12 tool calls, or earlier on logic milestones.
-- Summarize recent trajectory into a strict `<ARCHITECTURAL_STATE>` block.
+- `toolCallsSinceCheckpoint` increments for every tool-result message received (both OpenAI and Claude paths).
+- User and assistant messages are appended to `session.history` on every request (including streaming paths).
+- Trigger consolidation every 10-12 tool calls (configurable via `SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS`), or when history exceeds 60 entries.
+- Summarize recent trajectory into a strict `<ARCHITECTURAL_STATE>` block using the compaction model (`synesis-compaction` tier) or fall back to a heuristic (last 20 messages).
+- On subsequent requests, any compacted `<ARCHITECTURAL_STATE>` block is injected as the first system message, giving the model continuity without unbounded context growth.
 - Replace verbose logs with masked form:
   - keep first 10 and last 10 lines,
   - suppress middle payload.
+
+### Telemetry
+
+The `/health/telemetry` endpoint exposes `sawtoothContext`:
+- `activeSessionCount`: in-memory sessions
+- `totalHistoryEntries`: sum of all history array lengths
+- `checkpointedSessions`: sessions with at least one compaction
+- `checkpointThreshold`: configured tool-call trigger value
 
 ## Extension-Based Heuristics
 

@@ -2,6 +2,8 @@ import type { AppConfig } from "../config.js";
 import { ArtifactStore } from "../state/artifact-store.js";
 import { ReducerRegistry, registeredFamilies } from "./registry.js";
 import type { ReducerFamily } from "./types.js";
+import { compactJsonArray } from "./json-compactor.js";
+import { ContentDispatchService } from "./content-dispatch.js";
 
 export interface ToolResultLike {
   role: string;
@@ -17,6 +19,8 @@ export interface ToolResultReductionStats {
   artifactHandleCount: number;
   tokensSavedEstimateTotal: number;
   fallbackToArtifactCount: number;
+  jsonCompactionCount: number;
+  contentDispatchCount: number;
   reducerFailures: number;
   byFamily: Record<string, number>;
   lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
@@ -54,11 +58,14 @@ export class ToolResultReductionService {
     artifactHandleCount: 0,
     tokensSavedEstimateTotal: 0,
     fallbackToArtifactCount: 0,
+    jsonCompactionCount: 0,
+    contentDispatchCount: 0,
     reducerFailures: 0,
     byFamily: buildByFamilyStats(),
     lifecycle: {}
   };
   private readonly registry: ReducerRegistry;
+  private readonly contentDispatch = new ContentDispatchService();
 
   constructor(
     private readonly config: AppConfig,
@@ -81,6 +88,18 @@ export class ToolResultReductionService {
     const out = messages.map((m) => {
       if (m.role !== "tool") return m;
       const raw = toStringContent(m.content);
+
+      const dispatched = this.contentDispatch.dispatch(raw);
+      if (dispatched.transformed) {
+        this.stats.contentDispatchCount += 1;
+        this.stats.rawCharsTotal += raw.length;
+        this.stats.reducedCharsTotal += dispatched.transformed.length;
+        this.stats.reducedCount += 1;
+        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(dispatched.transformed));
+        reducedCount += 1;
+        return { ...m, content: dispatched.transformed };
+      }
+
       const reduced = this.registry.reduce({
         raw,
         context: {
@@ -94,14 +113,20 @@ export class ToolResultReductionService {
       const shouldReduce = Boolean(reduced) || raw.length > this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS;
       if (!shouldReduce) return { ...m, content: raw };
 
-      const summary = reduced
-        ? reduced.summary
-        : this.artifactSummary(raw, m.name);
-      if (!reduced) {
-        this.stats.fallbackToArtifactCount += 1;
-        this.stats.reducerFailures += 1;
-      } else {
+      let summary: string;
+      if (reduced) {
+        summary = reduced.summary;
         this.stats.byFamily[reduced.family] += 1;
+      } else {
+        const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
+        if (jsonResult && jsonResult.compressionRatio > 0.2) {
+          summary = jsonResult.compacted;
+          this.stats.jsonCompactionCount += 1;
+        } else {
+          summary = this.artifactSummary(raw, m.name);
+          this.stats.fallbackToArtifactCount += 1;
+          this.stats.reducerFailures += 1;
+        }
       }
 
       this.stats.rawCharsTotal += raw.length;
@@ -131,13 +156,32 @@ export class ToolResultReductionService {
         minConfidence: this.config.SYNESIS_YARN_REDUCER_MIN_CONFIDENCE
       }
     });
-    if (!reduced && raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) return raw;
-    const summary = reduced ? reduced.summary : this.artifactSummary(raw, toolName);
+    if (!reduced && raw.length <= this.config.SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS) {
+      const jsonResult = compactJsonArray(raw);
+      if (jsonResult && jsonResult.compressionRatio > 0.2) {
+        this.stats.jsonCompactionCount += 1;
+        this.stats.rawCharsTotal += raw.length;
+        this.stats.reducedCharsTotal += jsonResult.compacted.length;
+        this.stats.reducedCount += 1;
+        this.stats.tokensSavedEstimateTotal += Math.max(0, estimateTokens(raw) - estimateTokens(jsonResult.compacted));
+        return jsonResult.compacted;
+      }
+      return raw;
+    }
+    let summary: string;
     if (reduced) {
+      summary = reduced.summary;
       this.stats.byFamily[reduced.family] += 1;
     } else {
-      this.stats.fallbackToArtifactCount += 1;
-      this.stats.reducerFailures += 1;
+      const jsonResult = compactJsonArray(raw, { artifactHandle: this.artifactStore.putToolResult(raw).id });
+      if (jsonResult && jsonResult.compressionRatio > 0.2) {
+        summary = jsonResult.compacted;
+        this.stats.jsonCompactionCount += 1;
+      } else {
+        summary = this.artifactSummary(raw, toolName);
+        this.stats.fallbackToArtifactCount += 1;
+        this.stats.reducerFailures += 1;
+      }
     }
     this.stats.rawCharsTotal += raw.length;
     this.stats.reducedCharsTotal += summary.length;
@@ -147,9 +191,9 @@ export class ToolResultReductionService {
     return summary;
   }
 
-  getStats(): ToolResultReductionStats {
+  getStats(): ToolResultReductionStats & { contentDispatch: ReturnType<ContentDispatchService["getStats"]> } {
     this.stats.lifecycle = this.registry.lifecycleStates();
-    return { ...this.stats };
+    return { ...this.stats, contentDispatch: this.contentDispatch.getStats() };
   }
 
   private artifactSummary(raw: string, toolName?: string): string {

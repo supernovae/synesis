@@ -1,6 +1,14 @@
 import { Redis } from "ioredis";
 import type { AppConfig } from "../config.js";
 
+export interface SessionContinuity {
+  currentTask: string;
+  keyFindings: string[];
+  decisions: string[];
+  recentFiles: string[];
+  updatedAt: number;
+}
+
 export interface SessionRecord {
   sessionKey: string;
   userId: string;
@@ -14,6 +22,7 @@ export interface SessionRecord {
   requestCount: number;
   escalationCount: number;
   metadata: Record<string, unknown>;
+  continuity?: SessionContinuity;
   version: number;
 }
 
@@ -90,6 +99,22 @@ export class SessionStore {
       return true;
     }
     return false;
+  }
+
+  async saveContinuity(userId: string, continuity: SessionContinuity): Promise<void> {
+    const key = `yarn-ts:continuity:${userId}`;
+    await this.redis.set(key, JSON.stringify(continuity), "EX", this.ttlSeconds);
+  }
+
+  async loadContinuity(userId: string): Promise<SessionContinuity | null> {
+    const key = `yarn-ts:continuity:${userId}`;
+    const raw = await this.redis.get(key);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as SessionContinuity;
+    } catch {
+      return null;
+    }
   }
 
   async close(): Promise<void> {

@@ -38,4 +38,8 @@ export class ArtifactStore {
   get(id: string): ArtifactRecord | undefined {
     return this.artifacts.get(id);
   }
+
+  size(): number {
+    return this.artifacts.size;
+  }
 }

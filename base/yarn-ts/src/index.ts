@@ -16,12 +16,16 @@ import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
 import { ValidationNormalizationService } from "./validation/service.js";
 import { ArtifactStore } from "./state/artifact-store.js";
+import { ArtifactRetrievalService, ARTIFACT_TOOL_NAME } from "./state/artifact-retrieval.js";
 import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
 import { WorkingFrameService } from "./frame/working-frame-service.js";
 import { ProjectManifestService } from "./project/project-manifest-service.js";
 import { DeterministicPolicyEngine } from "./policy/deterministic-policy-engine.js";
 import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
 import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
+import { StablePrefixService } from "./context/stable-prefix.js";
+import { AttentionPositioningService } from "./context/attention-positioning.js";
+import { SessionContinuityService } from "./context/session-continuity.js";
 import {
   openAIToolsToSDK,
   claudeToolsToSDK,
@@ -50,6 +54,7 @@ const sessionStore = new SessionStore(config);
 const usageWriter = new UsageWriter(config);
 const authResolver = new AuthResolver(config);
 const artifactStore = new ArtifactStore();
+const artifactRetrieval = new ArtifactRetrievalService(artifactStore);
 const validationNormalization = new ValidationNormalizationService(config, artifactStore);
 const toolResultReduction = new ToolResultReductionService(config, artifactStore);
 const workingFrameService = new WorkingFrameService(config.SYNESIS_YARN_FRAME_MAX_FILES);
@@ -57,31 +62,36 @@ const projectManifestService = new ProjectManifestService();
 const policyEngine = new DeterministicPolicyEngine();
 const phaseOrchestrator = new PhaseModelOrchestrator();
 const clientAdapterPacks = new ClientAdapterPacks();
+const stablePrefixService = new StablePrefixService();
+const attentionPositioning = new AttentionPositioningService();
+const sessionContinuity = new SessionContinuityService();
 
 function enrichWithFrameAndManifest(
   messages: Array<{ role: string; content: unknown }>,
+  sessionKey: string,
   adapterBlock?: string
 ): Array<{ role: string; content: unknown }> {
   const out = [...messages];
-  const blocks: string[] = [];
-  if (adapterBlock) {
-    blocks.push(adapterBlock);
-  }
+
+  const { stablePrefix } = stablePrefixService.partition(sessionKey, adapterBlock);
+
+  const volatileBlocks: Array<{ role: string; content: string }> = [];
   if (config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
     const frame = workingFrameService.build(out);
-    blocks.push(workingFrameService.toSystemBlock(frame));
+    volatileBlocks.push({ role: "system", content: workingFrameService.toSystemBlock(frame) });
   }
   if (config.SYNESIS_YARN_PROJECT_MANIFEST_ENABLED) {
     const manifest = projectManifestService.build(out);
-    blocks.push(projectManifestService.toSystemBlock(manifest));
+    volatileBlocks.push({ role: "system", content: projectManifestService.toSystemBlock(manifest) });
   }
-  if (blocks.length > 0) {
-    out.unshift({
-      role: "system",
-      content: blocks.join("\n\n")
-    });
-  }
-  return out;
+
+  const enriched: Array<{ role: string; content: unknown }> = [
+    { role: "system", content: stablePrefix },
+    ...volatileBlocks,
+    ...out
+  ];
+
+  return attentionPositioning.position(enriched).messages;
 }
 
 interface SessionIdentity {
@@ -120,13 +130,30 @@ async function getSessionState(key: string, identity: SessionIdentity): Promise<
     metadata: {},
     version: 0
   };
-  const state: SessionState = { history: [], toolCallsSinceCheckpoint: 0, record };
+  const history: SessionState["history"] = [];
+
+  if (!loaded && identity.userId !== "anon") {
+    const prevContinuity = await sessionStore.loadContinuity(identity.userId);
+    if (prevContinuity) {
+      const block = sessionContinuity.toSystemBlock(prevContinuity);
+      if (block) {
+        history.push({ role: "system", content: block });
+      }
+    }
+  }
+
+  const state: SessionState = { history, toolCallsSinceCheckpoint: 0, record };
   sessions.set(key, state);
   return state;
 }
 
 
 async function casSessionSave(state: SessionState): Promise<void> {
+  if (state.history.length > 2 && state.record.userId !== "anon") {
+    const continuity = sessionContinuity.extract(state.history);
+    state.record.continuity = continuity;
+    void sessionStore.saveContinuity(state.record.userId, continuity);
+  }
   const ok = await sessionStore.save(state.record);
   if (!ok) {
     const reloaded = await sessionStore.load(state.record.sessionKey);
@@ -153,6 +180,17 @@ function maybeCheckpoint(state: SessionState): void {
     state.history = [{ role: "system", content: consolidated.summary }];
     state.toolCallsSinceCheckpoint = 0;
   });
+}
+
+function injectSessionContext(
+  messages: Array<{ role: string; content: unknown }>,
+  state: SessionState
+): Array<{ role: string; content: unknown }> {
+  const compacted = state.history.find(
+    (m) => m.role === "system" && m.content.includes("<ARCHITECTURAL_STATE>")
+  );
+  if (!compacted) return messages;
+  return [{ role: "system", content: compacted.content }, ...messages];
 }
 
 async function refreshTierRegistry(): Promise<void> {
@@ -288,6 +326,7 @@ const sessionEvictionTimer = setInterval(() => {
     if (now - state.record.lastActiveAt > SESSION_TTL_MS) {
       void casSessionSave(state);
       sessions.delete(key);
+      stablePrefixService.evictSession(key);
     }
   }
 }, 60_000);
@@ -303,20 +342,68 @@ async function shutdown(): Promise<void> {
 process.on("SIGTERM", () => void shutdown());
 process.on("SIGINT", () => void shutdown());
 
+function computeEfficiencyIndex(): {
+  score: number;
+  reducerHitRate: number;
+  artifactOffloadRate: number;
+  tokenSavingsRate: number;
+  jsonCompactionRate: number;
+} {
+  const stats = toolResultReduction.getStats();
+  const total = stats.reducedCount + stats.fallbackToArtifactCount;
+  const reducerHitRate = total > 0 ? (total - stats.fallbackToArtifactCount) / total : 0;
+  const artifactOffloadRate = total > 0 ? stats.artifactHandleCount / total : 0;
+  const tokenSavingsRate = stats.rawCharsTotal > 0
+    ? (stats.rawCharsTotal - stats.reducedCharsTotal) / stats.rawCharsTotal
+    : 0;
+  const jsonCompactionRate = total > 0 ? stats.jsonCompactionCount / total : 0;
+  const score = reducerHitRate * 0.3 + artifactOffloadRate * 0.15 + tokenSavingsRate * 0.45 + jsonCompactionRate * 0.1;
+  return {
+    score: Math.round(score * 1000) / 1000,
+    reducerHitRate: Math.round(reducerHitRate * 1000) / 1000,
+    artifactOffloadRate: Math.round(artifactOffloadRate * 1000) / 1000,
+    tokenSavingsRate: Math.round(tokenSavingsRate * 1000) / 1000,
+    jsonCompactionRate: Math.round(jsonCompactionRate * 1000) / 1000
+  };
+}
+
 // --- Health endpoints ---
 app.get("/health", async () => ({ status: "ok" }));
 app.get("/health/readiness", async () => ({ status: "ready" }));
-app.get("/health/telemetry", async () => ({
-  timestamp: Date.now(),
-  writeQueue: usageWriter.getStats(),
-  validationNormalization: validationNormalization.getStats(),
-  toolResultReduction: toolResultReduction.getStats(),
-  workingFrame: workingFrameService.getStats(),
-  projectManifest: projectManifestService.getStats(),
-  deterministicPolicy: policyEngine.getStats(),
-  phaseOrchestrator: phaseOrchestrator.getStats(),
-  clientAdapterPacks: clientAdapterPacks.getStats()
-}));
+app.get("/health/telemetry", async () => {
+  let activeSessionCount = 0;
+  let totalHistoryEntries = 0;
+  let checkpointedSessions = 0;
+  for (const [, state] of sessions) {
+    activeSessionCount++;
+    totalHistoryEntries += state.history.length;
+    if (state.history.some((m) => m.content.includes("<ARCHITECTURAL_STATE>"))) {
+      checkpointedSessions++;
+    }
+  }
+  return {
+    timestamp: Date.now(),
+    writeQueue: usageWriter.getStats(),
+    validationNormalization: validationNormalization.getStats(),
+    toolResultReduction: toolResultReduction.getStats(),
+    workingFrame: workingFrameService.getStats(),
+    projectManifest: projectManifestService.getStats(),
+    deterministicPolicy: policyEngine.getStats(),
+    phaseOrchestrator: phaseOrchestrator.getStats(),
+    clientAdapterPacks: clientAdapterPacks.getStats(),
+    sawtoothContext: {
+      activeSessionCount,
+      totalHistoryEntries,
+      checkpointedSessions,
+      checkpointThreshold: config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS
+    },
+    stablePrefix: stablePrefixService.getStats(),
+    artifactRetrieval: artifactRetrieval.getStats(),
+    attentionPositioning: attentionPositioning.getStats(),
+    compressionEfficiencyIndex: computeEfficiencyIndex(),
+    sessionContinuity: sessionContinuity.getStats()
+  };
+});
 
 app.get("/v1", async () => ({
   status: "ok",
@@ -394,6 +481,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
   }
   const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
+  const toolResultCount = (request.messages as Array<{ role: string }>).filter((m) => m.role === "tool").length;
   const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
   const adapterProfile = clientAdapterPacks.resolve(
     String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
@@ -407,22 +495,35 @@ app.post("/v1/chat/completions", async (req, reply) => {
     latestUserText: String(latestUserText?.content ?? ""),
     riskProfile: preManifest.riskProfile
   });
-  const normalizedRequest: OpenAIChatCompletionRequest = {
-    ...request,
-    model: orchestration.selectedModel,
-    messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, adapterBlock) as never
-  };
-
   const identity: SessionIdentity = {
     userId: request.user || authUser.userId,
     orgId: authUser.orgId,
     conversationId: request.conversation_id || ""
   };
-  const session = await getSessionState(getSessionKey(identity), identity);
+  const sessionKey = getSessionKey(identity);
+  const normalizedRequest: OpenAIChatCompletionRequest = {
+    ...request,
+    model: orchestration.selectedModel,
+    messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, sessionKey, adapterBlock) as never
+  };
+
+  const session = await getSessionState(sessionKey, identity);
+  session.toolCallsSinceCheckpoint += toolResultCount;
   const reqId = `chatcmpl-${crypto.randomUUID()}`;
   if (policyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
   }
+
+  if (latestUserText?.content) {
+    session.history.push({ role: "user", content: String(latestUserText.content) });
+  }
+
+  normalizedRequest.messages = injectSessionContext(
+    normalizedRequest.messages as Array<{ role: string; content: unknown }>,
+    session
+  ) as never;
+
+  normalizedRequest.tools = artifactRetrieval.injectToolOpenAI(normalizedRequest.tools as unknown[]) as never;
 
   const { resolved, messages } = runOpenAIRequest(normalizedRequest);
   const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
@@ -430,23 +531,69 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
   if (!normalizedRequest.stream) {
     const started = Date.now();
-    const result = await generateText({
+    let currentMessages = messages;
+    let finalResult = await generateText({
       model: resolved.model as never,
-      messages,
+      messages: currentMessages,
       maxOutputTokens: orchestration.maxOutputTokens,
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
     });
-    const toolCalls = (result as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
-    const finishReason = toolCalls.length > 0 ? "tool_calls" : "stop";
-    session.history.push({ role: "assistant", content: result.text });
-    const usage = readUsage((result as unknown as { usage?: unknown }).usage);
+
+    // Auto-resolve artifact retrieval tool calls (max 3 rounds to prevent loops)
+    for (let round = 0; round < 3; round++) {
+      const allCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+      const artifactCalls = allCalls.filter((tc) => tc.toolName === ARTIFACT_TOOL_NAME);
+      if (artifactCalls.length === 0) break;
+      const clientCalls = allCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+
+      const toolResults: Array<{ type: "tool-result"; toolCallId: string; toolName: string; output: { type: "text"; value: string } }> = [];
+      for (const ac of artifactCalls) {
+        const args = ac.args as { artifact_handle?: string; query?: string };
+        const result = artifactRetrieval.retrieve(args.artifact_handle ?? "", args.query);
+        toolResults.push({
+          type: "tool-result",
+          toolCallId: ac.toolCallId,
+          toolName: ARTIFACT_TOOL_NAME,
+          output: { type: "text", value: result.content }
+        });
+      }
+
+      if (clientCalls.length > 0) break;
+
+      const assistantParts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
+      if (finalResult.text) assistantParts.push({ type: "text", text: finalResult.text });
+      for (const ac of artifactCalls) {
+        assistantParts.push({ type: "tool-call", toolCallId: ac.toolCallId, toolName: ac.toolName, args: ac.args });
+      }
+      if (assistantParts.length === 0) assistantParts.push({ type: "text", text: "" });
+
+      currentMessages = [
+        ...currentMessages,
+        { role: "assistant", content: assistantParts } as never,
+        { role: "tool", content: toolResults } as never
+      ];
+
+      finalResult = await generateText({
+        model: resolved.model as never,
+        messages: currentMessages,
+        maxOutputTokens: orchestration.maxOutputTokens,
+        ...(sdkTools ? { tools: sdkTools } : {}),
+        ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
+      });
+    }
+
+    const toolCalls = (finalResult as unknown as { toolCalls?: Array<{ toolCallId: string; toolName: string; args: unknown }> }).toolCalls ?? [];
+    const externalToolCalls = toolCalls.filter((tc) => tc.toolName !== ARTIFACT_TOOL_NAME);
+    const finishReason = externalToolCalls.length > 0 ? "tool_calls" : "stop";
+    session.history.push({ role: "assistant", content: finalResult.text });
+    const usage = readUsage((finalResult as unknown as { usage?: unknown }).usage);
     persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, finishReason);
     maybeCheckpoint(session);
 
-    const message: Record<string, unknown> = { role: "assistant", content: result.text };
-    if (toolCalls.length > 0) {
-      message.tool_calls = sdkToolCallsToOpenAI(toolCalls);
+    const message: Record<string, unknown> = { role: "assistant", content: finalResult.text };
+    if (externalToolCalls.length > 0) {
+      message.tool_calls = sdkToolCallsToOpenAI(externalToolCalls);
     }
     return reply.send({
       id: reqId,
@@ -524,7 +671,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
   reply.raw.write("data: [DONE]\n\n");
   reply.raw.end();
   const totalUsage = await streamed.totalUsage;
+  const streamedText = await streamed.text;
+  if (streamedText) {
+    session.history.push({ role: "assistant", content: streamedText });
+  }
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, readUsage(totalUsage as unknown), Date.now() - started, finishReason);
+  maybeCheckpoint(session);
   return reply;
 });
 
@@ -573,6 +725,7 @@ app.post("/v1/messages", async (req, reply) => {
     body.messages as never,
     (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
   );
+  const claudeToolResultCount = (body.messages as Array<{ role: string }>).filter((m) => m.role === "tool_result" || m.role === "tool").length;
   const normalizedFromClaude = validationNormalization.normalizeMessages(openAIMessages as never);
   const claudeAdapterProfile = clientAdapterPacks.resolve(
     String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
@@ -586,21 +739,34 @@ app.post("/v1/messages", async (req, reply) => {
     latestUserText: String(latestClaudeUser?.content ?? ""),
     riskProfile: claudeManifest.riskProfile
   });
-  const openAIShape: OpenAIChatCompletionRequest = {
-    model: claudeOrchestration.selectedModel,
-    messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeAdapterBlock) as never,
-    stream: body.stream
-  };
   const claudeIdentity: SessionIdentity = {
     userId: claudeAuthUser.userId,
     orgId: claudeAuthUser.orgId,
     conversationId: ""
   };
-  const session = await getSessionState(getSessionKey(claudeIdentity), claudeIdentity);
+  const claudeSessionKey = getSessionKey(claudeIdentity);
+  const openAIShape: OpenAIChatCompletionRequest = {
+    model: claudeOrchestration.selectedModel,
+    messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeSessionKey, claudeAdapterBlock) as never,
+    stream: body.stream
+  };
+  const session = await getSessionState(claudeSessionKey, claudeIdentity);
+  session.toolCallsSinceCheckpoint += claudeToolResultCount;
   const reqId = `msg-${crypto.randomUUID()}`;
   if (claudePolicyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });
   }
+
+  if (latestClaudeUser?.content) {
+    session.history.push({ role: "user", content: String(latestClaudeUser.content) });
+  }
+
+  openAIShape.messages = injectSessionContext(
+    openAIShape.messages as Array<{ role: string; content: unknown }>,
+    session
+  ) as never;
+
+  body.tools = artifactRetrieval.injectToolClaude(body.tools as unknown[]) as never;
 
   const { resolved, messages } = runOpenAIRequest(openAIShape);
   const sdkTools = claudeToolsToSDK(body.tools as never);
@@ -688,7 +854,12 @@ app.post("/v1/messages", async (req, reply) => {
     });
     sse(reply, "message_stop", { type: "message_stop" });
     reply.raw.end();
+    const claudeStreamedText = await streamed.text;
+    if (claudeStreamedText) {
+      session.history.push({ role: "assistant", content: claudeStreamedText });
+    }
     persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, stopReason);
+    maybeCheckpoint(session);
     return reply;
   }
 
@@ -706,7 +877,11 @@ app.post("/v1/messages", async (req, reply) => {
   const reasoning = (result as unknown as { reasoning?: string }).reasoning;
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
   const stopReason = toolCalls.length > 0 ? "tool_use" : "end_turn";
+  if (result.text) {
+    session.history.push({ role: "assistant", content: result.text });
+  }
   persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, stopReason);
+  maybeCheckpoint(session);
 
   const content: Array<Record<string, unknown>> = [];
   if (reasoning) {
