@@ -29,8 +29,10 @@ const CostEnvelopeSchema = z
   })
   .passthrough();
 
+export type TierId = "synesis-pulse" | "synesis-core" | "synesis-horizon" | "synesis-compaction";
+
 export interface TierConfig {
-  id: "synesis-pulse" | "synesis-core" | "synesis-horizon";
+  id: TierId;
   backendModel: string;
   baseUrl: string;
   apiKey: string;
@@ -39,10 +41,11 @@ export interface TierConfig {
   cachedPerM: number;
 }
 
-const ROLE_TO_TIER: Record<string, TierConfig["id"]> = {
+const ROLE_TO_TIER: Record<string, TierId> = {
   "coder-pulse": "synesis-pulse",
   "coder-core": "synesis-core",
-  "coder-horizon": "synesis-horizon"
+  "coder-horizon": "synesis-horizon",
+  "coder-compaction": "synesis-compaction"
 };
 
 const PROVIDER_BASE_URLS: Record<string, string> = {

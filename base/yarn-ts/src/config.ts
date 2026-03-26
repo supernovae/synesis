@@ -19,6 +19,7 @@ const EnvSchema = z.object({
   SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS: z.coerce.number().default(3000),
   SYNESIS_YARN_WRITE_QUEUE_MAX: z.coerce.number().default(10000),
   SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS: z.coerce.number().default(50),
+  SYNESIS_YARN_SESSION_TTL_MS: z.coerce.number().default(14_400_000),
   SYNESIS_YARN_PERSIST_USAGE_TO_DB: z
     .string()
     .optional()

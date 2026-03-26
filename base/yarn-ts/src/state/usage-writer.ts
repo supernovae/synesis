@@ -150,6 +150,7 @@ export class UsageWriter {
         $7, $8, $9, $10, $11,
         $12, $13, $14
       )
+      ON CONFLICT (request_id) DO NOTHING
       `,
       [
         event.sessionKey,
