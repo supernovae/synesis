@@ -1858,6 +1858,17 @@ export interface YarnPerformanceBucket {
   errors: number;
 }
 
+export interface YarnIntelligence {
+  since_hours: number;
+  requests: number;
+  avg_tool_calls_per_request: number;
+  cache_hit_estimate: number;
+  tool_use_stop_rate: number;
+  error_like_rate: number;
+  top_models: Array<{ model: string; requests: number; cost_usd: number }>;
+  finish_reason_counts: Record<string, number>;
+}
+
 export interface YarnSessionRow {
   id: number;
   session_key: string;
@@ -1955,6 +1966,15 @@ export function useYarnPerformance(sinceHours: number, bucketMinutes = 15) {
           params: { since_hours: sinceHours, bucket_minutes: bucketMinutes },
         })
         .then((r) => r.data),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useYarnIntelligence(sinceHours: number) {
+  return useQuery<YarnIntelligence>({
+    queryKey: ["yarn", "intelligence", sinceHours],
+    queryFn: () =>
+      client.get("/yarn/intelligence", { params: { since_hours: sinceHours } }).then((r) => r.data),
     refetchInterval: 60_000,
   });
 }

@@ -368,3 +368,87 @@ async def get_user_yarn_usage(user_id: str, since_hours: int = 720) -> dict:
         "escalations": int(row.escalations),
         "errors": int(row.errors),
     }
+
+
+# ── Session intelligence summary ──────────────────────────────────────────────
+
+
+async def get_yarn_intelligence(
+    since_hours: int = 24,
+    scope_user_id: str = "",
+    scope_org_id: str = "",
+) -> dict:
+    cutoff = _cutoff(since_hours)
+    async with async_session() as session:
+        base = select(YarnUsageLog).where(YarnUsageLog.created_at >= cutoff)
+        if scope_user_id:
+            base = base.where(YarnUsageLog.user_id == scope_user_id)
+        elif scope_org_id:
+            base = base.where(YarnUsageLog.org_id == scope_org_id)
+        sub = base.subquery()
+
+        agg = await session.execute(
+            select(
+                func.count().label("requests"),
+                func.coalesce(func.avg(sub.c.tool_calls_count), 0).label("avg_tool_calls"),
+                func.coalesce(func.sum(sub.c.tokens_cached), 0).label("cached_tokens"),
+                func.coalesce(func.sum(sub.c.tokens_in + sub.c.tokens_out), 0).label("total_tokens"),
+                func.coalesce(func.sum(case((sub.c.finish_reason == "tool_use", 1), else_=0)), 0).label("tool_use_stops"),
+                func.coalesce(func.sum(case((sub.c.finish_reason.in_(["error", "tool_loop_limit_exceeded"]), 1), else_=0)), 0).label("error_like"),
+            ).select_from(sub)
+        )
+        row = agg.one()
+
+        top_models_res = await session.execute(
+            select(
+                YarnUsageLog.model,
+                func.count().label("requests"),
+                func.coalesce(func.sum(YarnUsageLog.cost_usd), 0).label("cost_usd"),
+            )
+            .where(YarnUsageLog.created_at >= cutoff)
+            .where(text(":uid = '' OR user_id = :uid"))
+            .where(text(":oid = '' OR org_id = :oid"))
+            .params(uid=scope_user_id or "", oid=scope_org_id or "")
+            .group_by(YarnUsageLog.model)
+            .order_by(text("requests DESC"))
+            .limit(5)
+        )
+        top_models = [
+            {
+                "model": (r.model or "unknown"),
+                "requests": int(r.requests or 0),
+                "cost_usd": round(float(r.cost_usd or 0), 4),
+            }
+            for r in top_models_res
+        ]
+
+        finish_reason_res = await session.execute(
+            select(YarnUsageLog.finish_reason, func.count().label("count"))
+            .where(YarnUsageLog.created_at >= cutoff)
+            .where(text(":uid = '' OR user_id = :uid"))
+            .where(text(":oid = '' OR org_id = :oid"))
+            .params(uid=scope_user_id or "", oid=scope_org_id or "")
+            .group_by(YarnUsageLog.finish_reason)
+            .order_by(text("count DESC"))
+            .limit(8)
+        )
+        finish_reason_counts = {
+            (r.finish_reason or "unknown"): int(r.count or 0)
+            for r in finish_reason_res
+        }
+
+    requests = int(row.requests or 0)
+    total_tokens = int(row.total_tokens or 0)
+    cached_tokens = int(row.cached_tokens or 0)
+    cache_hit_estimate = (cached_tokens / total_tokens) if total_tokens else 0.0
+
+    return {
+        "since_hours": since_hours,
+        "requests": requests,
+        "avg_tool_calls_per_request": round(float(row.avg_tool_calls or 0), 2),
+        "cache_hit_estimate": round(cache_hit_estimate, 4),
+        "tool_use_stop_rate": round((int(row.tool_use_stops or 0) / requests), 4) if requests else 0.0,
+        "error_like_rate": round((int(row.error_like or 0) / requests), 4) if requests else 0.0,
+        "top_models": top_models,
+        "finish_reason_counts": finish_reason_counts,
+    }

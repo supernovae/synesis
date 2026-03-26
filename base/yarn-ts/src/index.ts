@@ -11,11 +11,17 @@ import {
 import { fetchTierConfigs } from "./providers/admin-tier-registry.js";
 import { SynesisProviderRegistry } from "./providers/synesis-provider.js";
 import { SawtoothContextManager } from "./context/sawtooth-manager.js";
-import { RepeatGuard } from "./middleware/repeat-guard.js";
 import { SessionStore, type SessionRecord } from "./state/session-store.js";
 import { UsageWriter } from "./state/usage-writer.js";
 import { AuthResolver } from "./auth.js";
-import { enforcePatchFirst } from "./middleware/patch-first.js";
+import { ValidationNormalizationService } from "./validation/service.js";
+import { ArtifactStore } from "./state/artifact-store.js";
+import { ToolResultReductionService } from "./reduction/tool-result-reducer.js";
+import { WorkingFrameService } from "./frame/working-frame-service.js";
+import { ProjectManifestService } from "./project/project-manifest-service.js";
+import { DeterministicPolicyEngine } from "./policy/deterministic-policy-engine.js";
+import { PhaseModelOrchestrator } from "./orchestration/phase-model-orchestrator.js";
+import { ClientAdapterPacks } from "./adapters/client-adapter-packs.js";
 import {
   openAIToolsToSDK,
   claudeToolsToSDK,
@@ -38,11 +44,44 @@ const app = Fastify({
 });
 const tierRegistry = new SynesisProviderRegistry();
 const sawtooth = new SawtoothContextManager(config.SYNESIS_YARN_SAWTOOTH_CHECKPOINT_TOOL_CALLS);
-const repeatGuard = new RepeatGuard();
 const sessions = new Map<string, SessionState>();
 const sessionStore = new SessionStore(config);
 const usageWriter = new UsageWriter(config);
 const authResolver = new AuthResolver(config);
+const artifactStore = new ArtifactStore();
+const validationNormalization = new ValidationNormalizationService(config, artifactStore);
+const toolResultReduction = new ToolResultReductionService(config, artifactStore);
+const workingFrameService = new WorkingFrameService(config.SYNESIS_YARN_FRAME_MAX_FILES);
+const projectManifestService = new ProjectManifestService();
+const policyEngine = new DeterministicPolicyEngine();
+const phaseOrchestrator = new PhaseModelOrchestrator();
+const clientAdapterPacks = new ClientAdapterPacks();
+
+function enrichWithFrameAndManifest(
+  messages: Array<{ role: string; content: unknown }>,
+  adapterBlock?: string
+): Array<{ role: string; content: unknown }> {
+  const out = [...messages];
+  const blocks: string[] = [];
+  if (adapterBlock) {
+    blocks.push(adapterBlock);
+  }
+  if (config.SYNESIS_YARN_WORKING_FRAME_ENABLED) {
+    const frame = workingFrameService.build(out);
+    blocks.push(workingFrameService.toSystemBlock(frame));
+  }
+  if (config.SYNESIS_YARN_PROJECT_MANIFEST_ENABLED) {
+    const manifest = projectManifestService.build(out);
+    blocks.push(projectManifestService.toSystemBlock(manifest));
+  }
+  if (blocks.length > 0) {
+    out.unshift({
+      role: "system",
+      content: blocks.join("\n\n")
+    });
+  }
+  return out;
+}
 
 function getSessionKey(request: OpenAIChatCompletionRequest): string {
   return request.conversation_id || request.user || "anon";
@@ -258,7 +297,14 @@ app.get("/health", async () => ({ status: "ok" }));
 app.get("/health/readiness", async () => ({ status: "ready" }));
 app.get("/health/telemetry", async () => ({
   timestamp: Date.now(),
-  writeQueue: usageWriter.getStats()
+  writeQueue: usageWriter.getStats(),
+  validationNormalization: validationNormalization.getStats(),
+  toolResultReduction: toolResultReduction.getStats(),
+  workingFrame: workingFrameService.getStats(),
+  projectManifest: projectManifestService.getStats(),
+  deterministicPolicy: policyEngine.getStats(),
+  phaseOrchestrator: phaseOrchestrator.getStats(),
+  clientAdapterPacks: clientAdapterPacks.getStats()
 }));
 
 app.get("/v1", async () => ({
@@ -272,6 +318,19 @@ app.get("/v1/models", async () => ({
   object: "list",
   data: tierRegistry.getAvailableModels()
 }));
+
+app.get("/v1/adapter-packs", async () => ({
+  catalog: clientAdapterPacks.getCatalog()
+}));
+
+app.get("/v1/artifacts/:id", async (req, reply) => {
+  const id = (req.params as { id: string }).id;
+  const artifact = artifactStore.get(id);
+  if (!artifact) {
+    return reply.code(404).send({ error: { type: "not_found", message: "Artifact not found" } });
+  }
+  return reply.send(artifact);
+});
 
 // --- MCP proxy ---
 app.get("/v1/mcp/tools", async (req, reply) => {
@@ -311,31 +370,53 @@ app.post("/v1/chat/completions", async (req, reply) => {
   }
 
   const request = parsed.data;
-  const patchError = enforcePatchFirst(request.tools);
-  if (patchError) {
-    return reply.code(400).send({ error: { type: "invalid_request_error", message: patchError } });
-  }
-
-  const session = await getSessionState(getSessionKey(request), request);
-  const reqId = `chatcmpl-${crypto.randomUUID()}`;
-  const repeat = repeatGuard.shouldPivot({
-    toolName: "chat_completion",
-    args: { model: request.model, tool_choice: request.tool_choice },
-    fsFingerprint: "unknown"
+  const policyPrecheck = policyEngine.evaluate({
+    tools: request.tools as unknown[],
+    repeatAttempt: {
+      action: "chat_completion",
+      args: { model: request.model, tool_choice: request.tool_choice },
+      fsFingerprint: "unknown"
+    }
   });
-  if (repeat) {
-    session.history.push({ role: "system", content: RepeatGuard.pivotPrompt() });
+  if (!policyPrecheck.allow) {
+    return reply.code(400).send({ error: { type: "invalid_request_error", message: policyPrecheck.rejectReason ?? "Policy rejected request." } });
+  }
+  const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
+  const normalizedOpenAI = validationNormalization.normalizeMessages(reducedOpenAI.messages as never);
+  const adapterProfile = clientAdapterPacks.resolve(
+    String((req.headers["x-synesis-client"] as string | undefined) ?? "unknown"),
+    String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
+  );
+  const adapterBlock = clientAdapterPacks.toSystemBlock(adapterProfile);
+  const latestUserText = [...(normalizedOpenAI.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
+  const preManifest = projectManifestService.build(normalizedOpenAI.messages as never);
+  const orchestration = phaseOrchestrator.decide({
+    requestedModel: request.model,
+    latestUserText: String(latestUserText?.content ?? ""),
+    riskProfile: preManifest.riskProfile
+  });
+  const normalizedRequest: OpenAIChatCompletionRequest = {
+    ...request,
+    model: orchestration.selectedModel,
+    messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, adapterBlock) as never
+  };
+
+  const session = await getSessionState(getSessionKey(normalizedRequest), normalizedRequest);
+  const reqId = `chatcmpl-${crypto.randomUUID()}`;
+  if (policyPrecheck.pivotPrompt) {
+    session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
   }
 
-  const { resolved, messages } = await runOpenAIRequest(request);
-  const sdkTools = openAIToolsToSDK(request.tools);
-  const sdkToolChoice = mapToolChoice(request.tool_choice);
+  const { resolved, messages } = await runOpenAIRequest(normalizedRequest);
+  const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
+  const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
-  if (!request.stream) {
+  if (!normalizedRequest.stream) {
     const started = Date.now();
     const result = await generateText({
       model: resolved.model as never,
       messages,
+      maxOutputTokens: orchestration.maxOutputTokens,
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
     });
@@ -363,6 +444,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   const streamed = streamText({
     model: resolved.model as never,
     messages,
+    maxOutputTokens: orchestration.maxOutputTokens,
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {})
   });
@@ -454,15 +536,48 @@ app.post("/v1/messages", async (req, reply) => {
     });
   }
   const body: ClaudeMessagesRequest = parsed.data;
+  const claudePolicyPrecheck = policyEngine.evaluate({
+    tools: (body.tools as unknown[]) ?? [],
+    repeatAttempt: {
+      action: "claude_messages",
+      args: { model: body.model, tool_choice: body.tool_choice },
+      fsFingerprint: "unknown"
+    }
+  });
+  if (!claudePolicyPrecheck.allow) {
+    return reply.code(400).send({
+      type: "error",
+      error: { type: "invalid_request_error", message: claudePolicyPrecheck.rejectReason ?? "Policy rejected request." }
+    });
+  }
 
-  const openAIMessages = claudeMessagesToOpenAI(body.messages as never);
+  const openAIMessages = claudeMessagesToOpenAI(
+    body.messages as never,
+    (content, toolName) => toolResultReduction.reduceStandaloneToolResult(content, toolName)
+  );
+  const normalizedFromClaude = validationNormalization.normalizeMessages(openAIMessages as never);
+  const claudeAdapterProfile = clientAdapterPacks.resolve(
+    String((req.headers["x-synesis-client"] as string | undefined) ?? "claude-code"),
+    String((req.headers["x-synesis-mode"] as string | undefined) ?? "")
+  );
+  const claudeAdapterBlock = clientAdapterPacks.toSystemBlock(claudeAdapterProfile);
+  const latestClaudeUser = [...(normalizedFromClaude.messages as Array<{ role: string; content: unknown }>)].reverse().find((m) => m.role === "user");
+  const claudeManifest = projectManifestService.build(normalizedFromClaude.messages as never);
+  const claudeOrchestration = phaseOrchestrator.decide({
+    requestedModel: body.model,
+    latestUserText: String(latestClaudeUser?.content ?? ""),
+    riskProfile: claudeManifest.riskProfile
+  });
   const openAIShape: OpenAIChatCompletionRequest = {
-    model: body.model,
-    messages: openAIMessages as never,
+    model: claudeOrchestration.selectedModel,
+    messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeAdapterBlock) as never,
     stream: body.stream
   };
   const session = await getSessionState(getSessionKey(openAIShape), openAIShape);
   const reqId = `msg-${crypto.randomUUID()}`;
+  if (claudePolicyPrecheck.pivotPrompt) {
+    session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });
+  }
 
   const { resolved, messages } = await runOpenAIRequest(openAIShape);
   const sdkTools = claudeToolsToSDK(body.tools as never);
@@ -476,6 +591,7 @@ app.post("/v1/messages", async (req, reply) => {
     const streamed = streamText({
       model: resolved.model as never,
       messages,
+      maxOutputTokens: claudeOrchestration.maxOutputTokens,
       ...(sdkTools ? { tools: sdkTools } : {}),
       ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
       ...(providerOptions ? { providerOptions } : {})
@@ -558,6 +674,7 @@ app.post("/v1/messages", async (req, reply) => {
   const result = await generateText({
     model: resolved.model as never,
     messages,
+    maxOutputTokens: claudeOrchestration.maxOutputTokens,
     ...(sdkTools ? { tools: sdkTools } : {}),
     ...(sdkToolChoice ? { toolChoice: sdkToolChoice } : {}),
     ...(providerOptions ? { providerOptions } : {})
@@ -588,7 +705,7 @@ app.post("/v1/messages", async (req, reply) => {
     id: `msg_${crypto.randomUUID()}`,
     type: "message",
     role: "assistant",
-    model: body.model,
+    model: resolved.resolvedModelId,
     content,
     stop_reason: stopReason,
     usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens }

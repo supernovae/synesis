@@ -111,6 +111,22 @@ describe("claudeMessagesToOpenAI", () => {
     expect(result[0].tool_call_id).toBe("tc_1");
   });
 
+  it("applies tool_result reducer callback when provided", () => {
+    const result = claudeMessagesToOpenAI(
+      [
+        {
+          role: "user",
+          content: [
+            { type: "tool_result", tool_use_id: "tc_1", content: "very large output" }
+          ]
+        }
+      ],
+      (content) => `REDUCED:${String(content)}`
+    );
+    expect(result[0].role).toBe("tool");
+    expect(result[0].content).toBe("REDUCED:very large output");
+  });
+
   it("handles mixed text and tool_result content blocks", () => {
     const result = claudeMessagesToOpenAI([
       {

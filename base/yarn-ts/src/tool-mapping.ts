@@ -106,8 +106,11 @@ interface ClaudeMessage {
   content: string | ClaudeContentBlock[];
 }
 
+type ReduceToolResultFn = (content: unknown, toolName?: string) => string;
+
 export function claudeMessagesToOpenAI(
-  messages: ClaudeMessage[]
+  messages: ClaudeMessage[],
+  reduceToolResult?: ReduceToolResultFn
 ): Array<{ role: string; content: string; tool_call_id?: string; name?: string }> {
   const out: Array<{ role: string; content: string; tool_call_id?: string; name?: string }> = [];
   for (const m of messages) {
@@ -148,9 +151,12 @@ export function claudeMessagesToOpenAI(
     }
 
     for (const tr of toolResultParts) {
-      const resultContent = typeof tr.content === "string"
+      const baseResultContent = typeof tr.content === "string"
         ? tr.content
         : JSON.stringify(tr.content ?? "");
+      const resultContent = reduceToolResult
+        ? reduceToolResult(baseResultContent, tr.name)
+        : baseResultContent;
       out.push({
         role: "tool",
         content: resultContent,

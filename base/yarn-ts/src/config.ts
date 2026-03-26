@@ -20,6 +20,21 @@ const EnvSchema = z.object({
   SYNESIS_YARN_WRITE_QUEUE_MAX: z.coerce.number().default(10000),
   SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS: z.coerce.number().default(50),
   SYNESIS_YARN_SESSION_TTL_MS: z.coerce.number().default(14_400_000),
+  SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: z.coerce.number().default(12_000),
+  SYNESIS_YARN_VALIDATION_MAX_FINDINGS: z.coerce.number().default(30),
+  SYNESIS_YARN_VALIDATION_INCLUDE_RAW: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_WORKING_FRAME_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_PROJECT_MANIFEST_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_FRAME_MAX_FILES: z.coerce.number().default(12),
   SYNESIS_YARN_PERSIST_USAGE_TO_DB: z
     .string()
     .optional()

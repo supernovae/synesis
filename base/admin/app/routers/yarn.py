@@ -52,6 +52,19 @@ async def yarn_overview(
     )
 
 
+@router.get("/intelligence")
+async def yarn_intelligence(
+    since_hours: int = Query(24, ge=1, le=720),
+    user: UserInfo = Depends(require_org_admin),
+):
+    scope_user_id, scope_org_id, _tenant_id = _scope(user)
+    return await yarn_service.get_yarn_intelligence(
+        since_hours=since_hours,
+        scope_user_id=scope_user_id,
+        scope_org_id=scope_org_id,
+    )
+
+
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
 

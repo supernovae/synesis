@@ -26,6 +26,7 @@ import {
 import {
   useYarnOverview,
   useYarnPerformance,
+  useYarnIntelligence,
   type YarnPerformanceBucket,
 } from "../../api/hooks";
 import MetricCard from "../../components/common/MetricCard";
@@ -85,8 +86,9 @@ export default function YarnOverview() {
   const [sinceHours, setSinceHours] = useState(24);
   const { data: overview, isLoading: ovLoading } = useYarnOverview(sinceHours);
   const { data: perf, isLoading: perfLoading } = useYarnPerformance(sinceHours);
+  const { data: intelligence, isLoading: intelLoading } = useYarnIntelligence(sinceHours);
 
-  const loading = ovLoading || perfLoading;
+  const loading = ovLoading || perfLoading || intelLoading;
   const buckets: YarnPerformanceBucket[] = perf ?? [];
 
   const chartData = buckets.map((b) => ({
@@ -178,6 +180,72 @@ export default function YarnOverview() {
               subtitle="touched in window"
             />
           </div>
+
+          {intelligence ? (
+            <div className="grid gap-4 lg:grid-cols-3">
+              <ChartCard
+                title="Session Intelligence"
+                subtitle="Behavior quality and efficiency indicators"
+              >
+                <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                  <div className="flex items-center justify-between">
+                    <span>Avg tool calls / request</span>
+                    <span className="font-medium">{intelligence.avg_tool_calls_per_request.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Cache hit estimate</span>
+                    <span className="font-medium">{(intelligence.cache_hit_estimate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Tool-use stop rate</span>
+                    <span className="font-medium">{(intelligence.tool_use_stop_rate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Error-like rate</span>
+                    <span className="font-medium">{(intelligence.error_like_rate * 100).toFixed(1)}%</span>
+                  </div>
+                </div>
+              </ChartCard>
+
+              <ChartCard
+                title="Top Models"
+                subtitle="Most active models in this window"
+              >
+                <div className="space-y-2">
+                  {intelligence.top_models.length === 0 ? (
+                    <p className="text-sm text-gray-500">No model data yet.</p>
+                  ) : (
+                    intelligence.top_models.map((m) => (
+                      <div key={m.model} className="flex items-center justify-between text-sm">
+                        <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{m.model}</span>
+                        <span className="text-gray-500 dark:text-gray-400">
+                          {m.requests} req · {fmtCost(m.cost_usd)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ChartCard>
+
+              <ChartCard
+                title="Finish Reasons"
+                subtitle="Most common terminal outcomes"
+              >
+                <div className="space-y-2">
+                  {Object.keys(intelligence.finish_reason_counts).length === 0 ? (
+                    <p className="text-sm text-gray-500">No finish reason data yet.</p>
+                  ) : (
+                    Object.entries(intelligence.finish_reason_counts).map(([reason, count]) => (
+                      <div key={reason} className="flex items-center justify-between text-sm">
+                        <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{reason}</span>
+                        <span className="text-gray-500 dark:text-gray-400">{count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ChartCard>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <ChartCard
