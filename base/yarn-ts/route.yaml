@@ -1,14 +1,14 @@
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: synesis-yarn-ts
+  name: synesis-yarn
   labels:
-    app.kubernetes.io/name: synesis-yarn-ts
+    app.kubernetes.io/name: synesis-yarn
     app.kubernetes.io/component: yarn
 spec:
   to:
     kind: Service
-    name: synesis-yarn-ts
+    name: synesis-yarn
   port:
     targetPort: http
   tls:

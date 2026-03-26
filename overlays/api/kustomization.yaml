@@ -14,7 +14,6 @@ resources:
   - ../../base/core
   # MCP agent + Yarn IDE path (LiteLLM route synesis-yarn); depend on planner/redis from core.
   - ../../base/mcp
-  - ../../base/yarn
   - ../../base/yarn-ts
 
 patches:
@@ -145,9 +144,6 @@ images:
     newTag: latest
   - name: ghcr.io/supernovae/synesis/mcp
     newName: ghcr.io/supernovae/synesis/mcp
-    newTag: latest
-  - name: ghcr.io/supernovae/synesis/yarn
-    newName: ghcr.io/supernovae/synesis/yarn
     newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn-ts
     newName: ghcr.io/supernovae/synesis/yarn-ts

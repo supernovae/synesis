@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: synesis-yarn-ts
+  name: synesis-yarn
   labels:
-    app.kubernetes.io/name: synesis-yarn-ts
+    app.kubernetes.io/name: synesis-yarn
     app.kubernetes.io/component: yarn
     app.kubernetes.io/part-of: synesis
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: synesis-yarn-ts
+      app.kubernetes.io/name: synesis-yarn
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: synesis-yarn-ts
+        app.kubernetes.io/name: synesis-yarn
         app.kubernetes.io/component: yarn
         app.kubernetes.io/part-of: synesis
     spec:
       containers:
-        - name: yarn-ts
+        - name: yarn
           image: ghcr.io/supernovae/synesis/yarn-ts:latest
           imagePullPolicy: Always
           ports:
