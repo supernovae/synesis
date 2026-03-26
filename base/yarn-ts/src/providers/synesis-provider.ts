@@ -32,7 +32,7 @@ export class SynesisProviderRegistry {
     });
     const provider = customProvider({
       languageModels: {
-        [selected.id]: upstream(selected.backendModel)
+        [selected.id]: upstream.chat(selected.backendModel)
       }
     });
     return {
