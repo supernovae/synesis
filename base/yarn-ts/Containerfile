@@ -3,11 +3,12 @@ FROM registry.access.redhat.com/ubi9/nodejs-22:latest
 WORKDIR /opt/app-root/src
 
 COPY yarn-ts/package.json yarn-ts/package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm ci
 
 COPY yarn-ts/tsconfig.json ./tsconfig.json
 COPY yarn-ts/src ./src
 RUN npm run build
+RUN npm prune --omit=dev
 
 EXPOSE 8000
 
