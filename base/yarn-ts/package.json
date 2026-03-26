@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "start": "node --enable-source-maps dist/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench:reducers": "tsx scripts/bench-reducers.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "*",

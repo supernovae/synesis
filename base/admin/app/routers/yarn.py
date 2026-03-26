@@ -184,6 +184,21 @@ async def yarn_health(
     return result
 
 
+@router.get("/runtime-telemetry")
+async def yarn_runtime_telemetry(
+    user: UserInfo = Depends(require_org_admin),
+):
+    """Proxy runtime telemetry from Yarn /health/telemetry."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{_YARN_URL.rstrip('/')}/health/telemetry")
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("yarn_runtime_telemetry_proxy_error: %s", str(exc)[:120])
+        raise HTTPException(status_code=502, detail="Could not reach Yarn telemetry endpoint")
+
+
 @router.post("/verify")
 async def yarn_verify(
     user: UserInfo = Depends(require_org_admin),

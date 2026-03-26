@@ -1869,6 +1869,18 @@ export interface YarnIntelligence {
   finish_reason_counts: Record<string, number>;
 }
 
+export interface YarnRuntimeTelemetry {
+  timestamp: number;
+  toolResultReduction?: {
+    reducedCount: number;
+    tokensSavedEstimateTotal: number;
+    fallbackToArtifactCount: number;
+    reducerFailures: number;
+    byFamily: Record<string, number>;
+    lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
+  };
+}
+
 export interface YarnSessionRow {
   id: number;
   session_key: string;
@@ -1976,6 +1988,14 @@ export function useYarnIntelligence(sinceHours: number) {
     queryFn: () =>
       client.get("/yarn/intelligence", { params: { since_hours: sinceHours } }).then((r) => r.data),
     refetchInterval: 60_000,
+  });
+}
+
+export function useYarnRuntimeTelemetry() {
+  return useQuery<YarnRuntimeTelemetry>({
+    queryKey: ["yarn", "runtime-telemetry"],
+    queryFn: () => client.get("/yarn/runtime-telemetry").then((r) => r.data),
+    refetchInterval: 30_000,
   });
 }
 

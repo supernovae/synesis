@@ -1,0 +1,5 @@
+src/index.ts:10:const result = run();
+src/index.ts:25:run();
+src/lib.ts:8:run();
+src/lib.ts:18:run();
+src/lib.ts:28:run();

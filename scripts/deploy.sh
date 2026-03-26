@@ -1012,6 +1012,27 @@ _patch_deployment_env() {
 
 # Yarn TS handles Claude/Anthropic natively -- no env-var compat flags needed.
 
+# Ensure Yarn reducer registry/runtime controls are present on each deploy.
+patch_yarn_reducer_envs() {
+    local ns="synesis-yarn"
+    local deploy="synesis-yarn"
+    local container="yarn"
+
+    if ! oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+        return
+    fi
+
+    local reducers_enabled="${SYNESIS_YARN_REDUCERS_ENABLED:-true}"
+    local reducer_families="${SYNESIS_YARN_REDUCER_FAMILIES:-pytest,tsc,lint,git,search}"
+    local reducer_min_conf="${SYNESIS_YARN_REDUCER_MIN_CONFIDENCE:-0.6}"
+    local reducer_profile="${SYNESIS_YARN_REDUCER_PROFILE:-balanced}"
+
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCERS_ENABLED" "$reducers_enabled" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCER_FAMILIES" "$reducer_families" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCER_MIN_CONFIDENCE" "$reducer_min_conf" "$container"
+    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCER_PROFILE" "$reducer_profile" "$container"
+}
+
 # Post-apply: refresh the synesis-admin-db-url Secret with the real CNPG password.
 # Deployments reference this Secret via secretKeyRef — no more inline-env race.
 patch_admin_db_urls() {
@@ -1548,6 +1569,10 @@ reconcile_provider_api_keys
 log ""
 log "Refreshing Yarn secrets from gateway (post-apply)..."
 ensure_yarn_secrets_from_gateway
+
+log ""
+log "Patching Yarn reducer runtime envs (post-apply)..."
+patch_yarn_reducer_envs
 
 log ""
 log "Reconciling LiteLLM / WebUI client secrets (post-apply)..."

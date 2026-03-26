@@ -15,6 +15,8 @@ describe("loadConfig", () => {
     expect(config.SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS).toBe(3000);
     expect(config.SYNESIS_YARN_WRITE_QUEUE_MAX).toBe(10000);
     expect(config.SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS).toBe(50);
+    expect(config.SYNESIS_YARN_REDUCERS_ENABLED).toBe(true);
+    expect(config.SYNESIS_YARN_REDUCER_PROFILE).toBe("balanced");
   });
 
   it("defaults SYNESIS_YARN_SESSION_TTL_MS to 14400000 (4 hours)", () => {

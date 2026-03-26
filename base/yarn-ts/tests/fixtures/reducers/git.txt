@@ -1,0 +1,8 @@
+On branch main
+Changes not staged for commit:
+	modified:   src/index.ts
+	modified:   src/foo.ts
+diff --git a/src/index.ts b/src/index.ts
+@@ -1,4 +1,6 @@
+diff --git a/src/foo.ts b/src/foo.ts
+@@ -10,2 +12,8 @@

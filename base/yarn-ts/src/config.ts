@@ -26,6 +26,17 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ?? "false").toLowerCase() === "true"),
+  SYNESIS_YARN_REDUCERS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => (v ?? "true").toLowerCase() !== "false"),
+  SYNESIS_YARN_REDUCER_FAMILIES: z
+    .string()
+    .default("pytest,tsc,lint,git,search"),
+  SYNESIS_YARN_REDUCER_MIN_CONFIDENCE: z.coerce.number().default(0.6),
+  SYNESIS_YARN_REDUCER_PROFILE: z
+    .enum(["balanced", "aggressive", "ultra"])
+    .default("balanced"),
   SYNESIS_YARN_WORKING_FRAME_ENABLED: z
     .string()
     .optional()

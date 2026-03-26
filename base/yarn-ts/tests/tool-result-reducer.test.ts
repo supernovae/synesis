@@ -27,6 +27,13 @@ function makeConfig(maxRawChars = 100): AppConfig {
     SYNESIS_YARN_VALIDATION_MAX_RAW_CHARS: maxRawChars,
     SYNESIS_YARN_VALIDATION_MAX_FINDINGS: 30,
     SYNESIS_YARN_VALIDATION_INCLUDE_RAW: false,
+    SYNESIS_YARN_REDUCERS_ENABLED: true,
+    SYNESIS_YARN_REDUCER_FAMILIES: "pytest,tsc,lint,git,search",
+    SYNESIS_YARN_REDUCER_MIN_CONFIDENCE: 0.6,
+    SYNESIS_YARN_REDUCER_PROFILE: "balanced",
+    SYNESIS_YARN_WORKING_FRAME_ENABLED: true,
+    SYNESIS_YARN_PROJECT_MANIFEST_ENABLED: true,
+    SYNESIS_YARN_FRAME_MAX_FILES: 12,
     SYNESIS_YARN_PERSIST_USAGE_TO_DB: true
   };
 }
@@ -59,8 +66,19 @@ describe("ToolResultReductionService", () => {
 
   it("can reduce standalone tool result payloads", () => {
     const svc = new ToolResultReductionService(makeConfig(10), new ArtifactStore());
-    const out = svc.reduceStandaloneToolResult("a".repeat(80), "pytest");
+    const out = svc.reduceStandaloneToolResult(
+      "_____________________ test_add _____________________\nE       assert 1 == 2",
+      "pytest"
+    );
+    expect(out).toContain("<TOOL_REDUCED");
+    expect(out).toContain('family="pytest"');
+  });
+
+  it("fails safe to artifact summary when no reducer matches and output is oversized", () => {
+    const svc = new ToolResultReductionService(makeConfig(20), new ArtifactStore());
+    const out = svc.reduceStandaloneToolResult("x".repeat(200), "unknown");
     expect(out).toContain("<TOOL_RESULT_SUMMARY");
-    expect(out).toContain('tool="pytest"');
+    const stats = svc.getStats();
+    expect(stats.fallbackToArtifactCount).toBeGreaterThan(0);
   });
 });
