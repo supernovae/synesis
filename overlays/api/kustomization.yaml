@@ -15,6 +15,7 @@ resources:
   # MCP agent + Yarn IDE path (LiteLLM route synesis-yarn); depend on planner/redis from core.
   - ../../base/mcp
   - ../../base/yarn
+  - ../../base/yarn-ts
 
 patches:
   # LiteLLM is now managed by Helm (base/gateway/helm/values-synesis.yaml).
@@ -147,4 +148,7 @@ images:
     newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn
     newName: ghcr.io/supernovae/synesis/yarn
+    newTag: latest
+  - name: ghcr.io/supernovae/synesis/yarn-ts
+    newName: ghcr.io/supernovae/synesis/yarn-ts
     newTag: latest

@@ -17,6 +17,7 @@ resources:
   - ../../base/model-serving
   - ../../base/mcp
   - ../../base/yarn
+  - ../../base/yarn-ts
 
 patches:
   # Small profile default: no dedicated critic pod — the router pod
@@ -73,4 +74,7 @@ images:
     newTag: latest
   - name: ghcr.io/supernovae/synesis/yarn
     newName: ghcr.io/supernovae/synesis/yarn
+    newTag: latest
+  - name: ghcr.io/supernovae/synesis/yarn-ts
+    newName: ghcr.io/supernovae/synesis/yarn-ts
     newTag: latest

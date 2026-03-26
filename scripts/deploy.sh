@@ -1713,6 +1713,9 @@ wait_for_deployment synesis-search searxng
 wait_for_deployment synesis-admin synesis-admin
 wait_for_deployment synesis-planner synesis-mcp
 wait_for_deployment synesis-yarn synesis-yarn
+if oc get deployment synesis-yarn-ts -n synesis-yarn &>/dev/null; then
+    wait_for_deployment synesis-yarn synesis-yarn-ts
+fi
 wait_for_deployment synesis-webui open-webui
 
 # Prune old ReplicaSets (0 replicas) after rollouts so we don't delete the new one.
@@ -1768,6 +1771,7 @@ WEBUI_HOST=$(oc get route synesis-webui -n synesis-webui -o jsonpath='{.spec.hos
 ADMIN_HOST=$(oc get route synesis-admin -n synesis-admin -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 KC_HOST=$(oc get route synesis-auth -n synesis-auth -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 YARN_HOST=$(oc get route synesis-yarn -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
+YARN_TS_HOST=$(oc get route synesis-yarn-ts -n synesis-yarn -o jsonpath='{.spec.host}' 2>/dev/null || echo "not-yet-created")
 
 log ""
 log "============================================================"
@@ -1776,6 +1780,7 @@ log "  API key:       $LITELLM_KEY"
 log "  Web UI:        https://$WEBUI_HOST"
 log "  Admin UI:      https://$ADMIN_HOST"
 log "  Yarn (IDE):    https://$YARN_HOST"
+log "  Yarn TS (new): https://$YARN_TS_HOST"
 log "  Keycloak:      https://$KC_HOST"
 log "============================================================"
 log ""

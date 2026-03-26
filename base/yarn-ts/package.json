@@ -1,0 +1,28 @@
+{
+  "name": "synesis-yarn-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node --enable-source-maps dist/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "*",
+    "ai": "*",
+    "fastify": "*",
+    "ioredis": "*",
+    "pg": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/pg": "*",
+    "tsx": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

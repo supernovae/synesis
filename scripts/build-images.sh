@@ -101,6 +101,7 @@ SERVICE_IMAGES=(
     "open-webui|base/webui/Dockerfile|base/webui"
     "mcp|base/mcp/Containerfile|."
     "yarn|base/yarn/Containerfile|base/yarn"
+    "yarn-ts|base/yarn-ts/Containerfile|base"
 )
 
 if [[ "$BASES_ONLY" == "true" ]]; then

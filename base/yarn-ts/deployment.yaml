@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synesis-yarn-ts
+  labels:
+    app.kubernetes.io/name: synesis-yarn-ts
+    app.kubernetes.io/component: yarn
+    app.kubernetes.io/part-of: synesis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synesis-yarn-ts
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synesis-yarn-ts
+        app.kubernetes.io/component: yarn
+        app.kubernetes.io/part-of: synesis
+    spec:
+      containers:
+        - name: yarn-ts
+          image: ghcr.io/supernovae/synesis/yarn-ts:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: PORT
+              value: "8000"
+            - name: HOST
+              value: "0.0.0.0"
+            - name: SYNESIS_YARN_ADMIN_API_URL
+              value: http://synesis-admin.synesis-admin.svc.cluster.local:8080
+            - name: SYNESIS_YARN_SESSION_REDIS_URL
+              value: redis://synesis-redis.synesis-rag.svc.cluster.local:6379/3
+            - name: SYNESIS_YARN_ADMIN_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-admin-db-url
+                  key: admin-url
+                  optional: true
+            - name: SYNESIS_INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: synesis-internal-service-auth
+                  key: token
+                  optional: true
+            - name: SYNESIS_YARN_DEFAULT_TIER
+              value: synesis-core
+            - name: SYNESIS_YARN_PERSIST_USAGE_TO_DB
+              value: "true"
+          envFrom:
+            - secretRef:
+                name: provider-api-keys
+                optional: true
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault

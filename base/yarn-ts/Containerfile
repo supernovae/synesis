@@ -1,0 +1,17 @@
+FROM registry.access.redhat.com/ubi9/nodejs-22:latest
+
+WORKDIR /opt/app-root/src
+
+COPY yarn-ts/package.json yarn-ts/package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY yarn-ts/tsconfig.json ./tsconfig.json
+COPY yarn-ts/src ./src
+RUN npm run build
+
+EXPOSE 8000
+
+ENV NODE_ENV=production
+ENV PORT=8000
+
+CMD ["node", "--enable-source-maps", "dist/index.js"]
