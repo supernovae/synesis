@@ -1,0 +1,103 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.9, pytest-8.3.4, pluggy-1.5.0
+rootdir: /workspace/synesis
+configfile: pyproject.toml
+plugins: anyio-4.8.0, httpx-0.34.0, cov-6.0.0, asyncio-0.25.3
+asyncio: mode=Mode.AUTO, asyncio_default_fixture_loop_scope="function"
+collected 147 items
+
+tests/test_auth.py::test_token_valid PASSED                              [  0%]
+tests/test_auth.py::test_token_expired PASSED                            [  1%]
+tests/test_auth.py::test_token_missing_scope FAILED                      [  2%]
+tests/test_auth.py::test_org_admin_required PASSED                       [  3%]
+tests/test_models.py::test_list_models PASSED                            [  4%]
+tests/test_models.py::test_create_model FAILED                           [  5%]
+tests/test_models.py::test_update_model PASSED                           [  6%]
+tests/test_models.py::test_delete_model PASSED                           [  7%]
+tests/test_models.py::test_model_not_found PASSED                        [  8%]
+tests/test_router.py::test_auto_routing_simple PASSED                    [  9%]
+tests/test_router.py::test_auto_routing_complex PASSED                   [ 10%]
+tests/test_router.py::test_auto_routing_ambiguous FAILED                 [ 11%]
+tests/test_router.py::test_pulse_routing PASSED                          [ 12%]
+tests/test_router.py::test_core_routing PASSED                           [ 13%]
+tests/test_router.py::test_horizon_routing PASSED                        [ 14%]
+tests/test_effort.py::test_effort_recommendation PASSED                  [ 15%]
+tests/test_effort.py::test_effort_override PASSED                        [ 16%]
+tests/test_effort.py::test_effort_fallback PASSED                        [ 17%]
+tests/test_settings.py::test_get_settings PASSED                         [ 18%]
+tests/test_settings.py::test_update_settings PASSED                      [ 19%]
+tests/test_yarn.py::test_yarn_sessions PASSED                            [ 20%]
+tests/test_yarn.py::test_yarn_intelligence PASSED                        [ 21%]
+tests/test_yarn.py::test_yarn_overview PASSED                            [ 22%]
+tests/test_yarn.py::test_yarn_events PASSED                              [ 23%]
+tests/test_yarn.py::test_yarn_telemetry_proxy PASSED                     [ 24%]
+tests/test_indexer.py::test_upload_document PASSED                       [ 25%]
+tests/test_indexer.py::test_upload_duplicate PASSED                      [ 26%]
+tests/test_indexer.py::test_list_documents PASSED                        [ 27%]
+tests/test_indexer.py::test_search_documents PASSED                      [ 28%]
+tests/test_indexer.py::test_delete_document PASSED                       [ 29%]
+tests/test_indexer.py::test_reindex_collection FAILED                    [ 30%]
+tests/test_enrichment.py::test_enrich_basic PASSED                       [ 31%]
+tests/test_enrichment.py::test_enrich_full PASSED                        [ 32%]
+tests/test_enrichment.py::test_enrich_empty PASSED                       [ 33%]
+tests/test_embeddings.py::test_embed_single PASSED                       [ 34%]
+tests/test_embeddings.py::test_embed_batch PASSED                        [ 35%]
+tests/test_embeddings.py::test_embed_error_handling PASSED               [ 36%]
+tests/test_gateway.py::test_proxy_completions PASSED                     [ 37%]
+tests/test_gateway.py::test_proxy_streaming PASSED                       [ 38%]
+tests/test_gateway.py::test_proxy_error PASSED                           [ 39%]
+tests/test_gateway.py::test_rate_limit FAILED                            [ 40%]
+
+=================================== FAILURES ===================================
+__________________________ test_token_missing_scope ____________________________
+
+    def test_token_missing_scope():
+        token = create_test_token(scopes=["read"])
+>       response = client.get("/api/v1/models", headers={"Authorization": f"Bearer {token}"})
+E       assert response.status_code == 403
+E        +  where response.status_code = 401
+
+tests/test_auth.py:45: AssertionError
+__________________________ test_create_model _______________________________
+
+    def test_create_model():
+        payload = {"name": "test-model", "provider": "openrouter", "model_id": "test/model-1"}
+>       response = client.post("/api/v1/models", json=payload, headers=admin_headers)
+E       assert response.status_code == 201
+E        +  where response.status_code = 422
+E       AssertionError: assert 422 == 201
+
+tests/test_models.py:28: AssertionError
+_________________________ test_auto_routing_ambiguous __________________________
+
+    def test_auto_routing_ambiguous():
+        signals = {"complexity": 0.7, "ambiguity": 0.9, "risk": 0.6}
+>       result = effort_router.recommend(signals)
+E       AssertionError: assert result.mode == "horizon"
+E        +  where result.mode = 'core'
+
+tests/test_router.py:52: AssertionError
+__________________________ test_reindex_collection _____________________________
+
+    def test_reindex_collection():
+        response = client.post(f"/api/v1/collections/{collection_id}/reindex", headers=admin_headers)
+>       assert response.status_code == 202
+E       assert 500 == 202
+
+tests/test_indexer.py:91: AssertionError
+__________________________ test_rate_limit _____________________________________
+
+    def test_rate_limit():
+        for i in range(100):
+            response = client.get("/api/v1/models", headers=user_headers)
+>       assert response.status_code == 429
+E       assert 200 == 429
+
+tests/test_gateway.py:78: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_auth.py::test_token_missing_scope - assert 401 == 403
+FAILED tests/test_models.py::test_create_model - assert 422 == 201
+FAILED tests/test_router.py::test_auto_routing_ambiguous - assert 'core' == 'horizon'
+FAILED tests/test_indexer.py::test_reindex_collection - assert 500 == 202
+FAILED tests/test_gateway.py::test_rate_limit - assert 200 == 429
+========================= 5 failed, 36 passed in 12.47s =======================

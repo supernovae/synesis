@@ -9,7 +9,11 @@
     "build": "tsc",
     "start": "node --enable-source-maps dist/index.js",
     "test": "vitest run",
-    "bench:reducers": "tsx scripts/bench-reducers.ts"
+    "bench:reducers": "tsx scripts/bench-reducers.ts",
+    "verify:live": "tsx scripts/live-verify.ts",
+    "verify:live:full": "SYNESIS_VERIFY_MODE=full tsx scripts/live-verify.ts",
+    "verify:ab": "tsx scripts/ab-reducer-compare.ts",
+    "scaffold:reducer": "tsx scripts/scaffold-reducer.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "*",

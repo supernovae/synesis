@@ -1,0 +1,53 @@
+On branch feature/effort-modes
+Your branch is ahead of 'origin/feature/effort-modes' by 3 commits.
+  (use "git push" to publish your local commits)
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	new file:   base/planner/app/effort_mode.py
+	new file:   base/planner/app/effort_router.py
+	modified:   base/planner/app/config.py
+	modified:   base/planner/app/graph.py
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   base/admin/app/routers/models.py
+	modified:   base/admin/frontend/src/pages/models/ModelPolicies.tsx
+	modified:   base/planner/tests/test_effort.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	base/planner/app/execution_policy.py
+	base/planner/tests/test_effort_router.py
+	docs/EFFORT_MODE_ARCHITECTURE.md
+
+diff --git a/base/planner/app/config.py b/base/planner/app/config.py
+index a1b2c3d..e4f5g6h 100644
+--- a/base/planner/app/config.py
++++ b/base/planner/app/config.py
+@@ -45,6 +45,12 @@ class PlannerSettings(BaseSettings):
+     critic_model_url: str = Field(default="http://synesis-critic.synesis-models.svc.cluster.local:8080/v1")
+     coder_model_url: str = Field(default="http://synesis-coder.synesis-models.svc.cluster.local:8080/v1")
+ 
++    # Effort mode defaults
++    general_pulse_model: str = Field(default="synesis-pulse")
++    general_core_model: str = Field(default="synesis-core")
++    general_horizon_model: str = Field(default="synesis-horizon")
++    effort_auto_enabled: bool = Field(default=True)
++
+diff --git a/base/planner/app/effort_mode.py b/base/planner/app/effort_mode.py
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/base/planner/app/effort_mode.py
+@@ -0,0 +1,48 @@
++from enum import Enum
++from typing import Optional
++from pydantic import BaseModel
++
++class EffortMode(str, Enum):
++    AUTO = "auto"
++    PULSE = "pulse"
++    CORE = "core"
++    HORIZON = "horizon"

@@ -1,0 +1,21 @@
+src/index.ts(15,3): error TS2322: Type 'string' is not assignable to type 'number'.
+src/index.ts(22,7): error TS2304: Cannot find name 'createServer'.
+src/index.ts(45,19): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/config.ts(8,14): error TS2339: Property 'PORT' does not exist on type 'ProcessEnv'.
+src/config.ts(12,5): error TS6133: 'defaultConfig' is declared but its value is never read.
+src/routes/auth.ts(3,1): error TS2307: Cannot find module 'jsonwebtoken' or its corresponding type declarations.
+src/routes/auth.ts(18,22): error TS2571: Object is of type 'unknown'.
+src/routes/auth.ts(25,5): error TS2322: Type '{ token: string; }' is not assignable to type 'AuthResponse'.
+src/routes/models.ts(10,3): error TS2741: Property 'provider' is missing in type '{ name: string; }' but required in type 'ModelConfig'.
+src/routes/models.ts(33,19): error TS2339: Property 'deletedAt' does not exist on type 'Model'.
+src/middleware/logging.ts(5,14): error TS6133: 'logger' is declared but its value is never read.
+src/middleware/cors.ts(8,5): error TS2345: Argument of type '{ origin: boolean; }' is not assignable to parameter of type 'CorsOptions'.
+src/services/provider.ts(12,3): error TS2322: Type 'Promise<Response>' is not assignable to type 'Response'.
+src/services/provider.ts(28,7): error TS18046: 'result' is of type 'unknown'.
+src/services/provider.ts(34,25): error TS2532: Object is possibly 'undefined'.
+src/utils/schema.ts(3,22): error TS2307: Cannot find module 'zod' or its corresponding type declarations.
+src/utils/schema.ts(15,5): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/types.ts(22,3): error TS2411: Property 'id' of type 'string' is not assignable to 'string' index signature type 'number'.
+src/types.ts(30,18): error TS2430: Interface 'ExtendedModel' incorrectly extends interface 'BaseModel'.
+
+Found 19 errors in 10 files.

@@ -32,3 +32,7 @@ This milestone adds command-aware reducers to shrink noisy tool output before it
 - Run regression tests: `npm test`.
 - Run fixture benchmark: `npm run bench:reducers`.
 - Compare `savedPct`, failure counts, and lifecycle transitions after reducer changes.
+
+## Live verification
+
+See [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) for the live verification suite that exercises reducers against a deployed Yarn instance, validates telemetry counters, and supports A-B profile comparison.

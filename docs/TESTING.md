@@ -317,7 +317,30 @@ python benchmarks/retrieval/bench_hybrid.py \
 
 ---
 
-## 10. Changelog
+## 10. Yarn-TS Live Verification (Reducers)
+
+See [LIVE_VERIFICATION_M9.md](./LIVE_VERIFICATION_M9.md) for the full runbook.
+
+### Quick reference
+
+```bash
+cd base/yarn-ts
+
+# Uses SYNESIS_TEST_AUTH from your shell (same var as planner live tests)
+SYNESIS_YARN_URL=https://… npm run verify:live
+
+# Full mode (adds Claude API path)
+SYNESIS_YARN_URL=https://… npm run verify:live:full
+
+# A-B reducer savings comparison
+SYNESIS_YARN_URL=https://… npm run verify:ab
+```
+
+Scenarios send deterministic tool-result payloads for each reducer family (`pytest`, `tsc`, `lint`, `git`, `search`) and assert telemetry counter movement. Reports emit structured JSON for archival. See the M9 doc for regression interpretation and CI integration plans.
+
+---
+
+## 11. Changelog
 
 | Date | Change |
 |------|--------|
@@ -325,3 +348,4 @@ python benchmarks/retrieval/bench_hybrid.py \
 | 2026-03-23 | §4: Planner vs Yarn OpenAI surface — implemented vs not implemented, test backlog. |
 | 2026-03-24 | §8: Validation ring (CI-to-cluster security). §9: H2 quality regression workflows + Testing Labs. |
 | 2026-03-24 | §9: Three-mode activation (PR-gated, dispatch, release). Local/CLI usage. Secrets reference. |
+| 2026-03-25 | §10: Yarn-TS live verification suite (M9) — reducer smoke tests, telemetry assertions, A-B comparison. |

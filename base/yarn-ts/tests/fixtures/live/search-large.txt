@@ -1,0 +1,16 @@
+base/yarn-ts/src/index.ts:174:async function runOpenAIRequest(request: OpenAIChatCompletionRequest) {
+base/yarn-ts/src/index.ts:384:  const reducedOpenAI = toolResultReduction.reduceMessages(request.messages as never);
+base/yarn-ts/src/index.ts:416:    const result = await generateText({
+base/yarn-ts/src/index.ts:444:  const streamed = streamText({
+base/yarn-ts/src/reduction/tool-result-reducer.ts:73:  reduceMessages(messages: ToolResultLike[]): ToolResultReductionResult {
+base/yarn-ts/src/reduction/tool-result-reducer.ts:116:  reduceStandaloneToolResult(content: unknown, toolName?: string): string {
+base/yarn-ts/src/reduction/registry.ts:15:  reduce(input: ReducerInput): ReducerOutput | null {
+base/yarn-ts/src/reduction/registry.ts:45:  lifecycleStates(): Record<string, { lifecycle: string; successes: number; failures: number }> {
+base/yarn-ts/src/reduction/classifier.ts:7:export function classifyReducerFamily(toolName?: string, command?: string, raw?: string): ReducerFamily {
+base/yarn-ts/src/reduction/reducers/pytest.ts:5:export class PytestReducer implements Reducer {
+base/yarn-ts/src/reduction/reducers/tsc.ts:5:export class TscReducer implements Reducer {
+base/yarn-ts/src/reduction/reducers/lint.ts:5:export class LintReducer implements Reducer {
+base/yarn-ts/src/reduction/reducers/git.ts:5:export class GitReducer implements Reducer {
+base/yarn-ts/src/reduction/reducers/search.ts:5:export class SearchReducer implements Reducer {
+base/planner/app/graph.py:88:    reducedOpenAI = toolResultReduction.reduceMessages(request.messages)
+scripts/deploy.sh:245:    _patch_deployment_env "$ns" "$deploy" "SYNESIS_YARN_REDUCERS_ENABLED" "$reducers_enabled" "$container"
