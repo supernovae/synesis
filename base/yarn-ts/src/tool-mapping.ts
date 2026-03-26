@@ -1,5 +1,74 @@
 import { jsonSchema } from "ai";
-import type { ToolSet, Tool } from "ai";
+import type { ToolSet, Tool, ModelMessage } from "ai";
+
+interface OpenAIChatMessage {
+  role: string;
+  content?: unknown;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type?: string;
+    function?: { name: string; arguments: string };
+  }>;
+}
+
+/**
+ * Convert raw OpenAI chat-format messages into the Vercel AI SDK ModelMessage
+ * format that generateText / streamText accept directly.
+ *
+ * This replaces convertToModelMessages (which expects the SDK's own UI format
+ * with `.parts` arrays and crashes on raw OpenAI payloads).
+ */
+export function openAIMessagesToModelMessages(messages: OpenAIChatMessage[]): ModelMessage[] {
+  const out: ModelMessage[] = [];
+  for (const m of messages) {
+    switch (m.role) {
+      case "system":
+        out.push({ role: "system", content: String(m.content ?? "") });
+        break;
+      case "user":
+        out.push({ role: "user", content: String(m.content ?? "") });
+        break;
+      case "assistant": {
+        const parts: Array<{ type: "text"; text: string } | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }> = [];
+        const text = typeof m.content === "string" ? m.content : "";
+        if (text) parts.push({ type: "text", text });
+        if (m.tool_calls) {
+          for (const tc of m.tool_calls) {
+            let parsedArgs: unknown = {};
+            try { parsedArgs = JSON.parse(tc.function?.arguments ?? "{}"); } catch { /* keep {} */ }
+            parts.push({
+              type: "tool-call",
+              toolCallId: tc.id,
+              toolName: tc.function?.name ?? "",
+              args: parsedArgs
+            });
+          }
+        }
+        if (parts.length === 0) parts.push({ type: "text", text: "" });
+        out.push({ role: "assistant", content: parts } as ModelMessage);
+        break;
+      }
+      case "tool": {
+        const resultContent = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+        out.push({
+          role: "tool",
+          content: [{
+            type: "tool-result",
+            toolCallId: m.tool_call_id ?? "",
+            toolName: m.name ?? "",
+            output: { type: "text" as const, value: resultContent }
+          }]
+        } as ModelMessage);
+        break;
+      }
+      default:
+        out.push({ role: "user", content: String(m.content ?? "") });
+    }
+  }
+  return out;
+}
 
 interface OpenAITool {
   type?: string;

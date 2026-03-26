@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import Fastify from "fastify";
-import { convertToModelMessages, generateText, streamText } from "ai";
+import { generateText, streamText } from "ai";
 import { loadConfig } from "./config.js";
 import {
   ClaudeMessagesRequestSchema,
@@ -28,7 +28,8 @@ import {
   mapToolChoice,
   sdkToolCallsToOpenAI,
   sdkToolCallsToClaude,
-  claudeMessagesToOpenAI
+  claudeMessagesToOpenAI,
+  openAIMessagesToModelMessages
 } from "./tool-mapping.js";
 
 type SessionState = {
@@ -171,9 +172,9 @@ async function refreshTierRegistry(): Promise<void> {
   }
 }
 
-async function runOpenAIRequest(request: OpenAIChatCompletionRequest) {
+function runOpenAIRequest(request: OpenAIChatCompletionRequest) {
   const resolved = tierRegistry.resolve(request.model, config.SYNESIS_YARN_DEFAULT_TIER);
-  const messages = await convertToModelMessages(request.messages as never);
+  const messages = openAIMessagesToModelMessages(request.messages as never);
   return { resolved, messages };
 }
 
@@ -407,7 +408,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
   }
 
-  const { resolved, messages } = await runOpenAIRequest(normalizedRequest);
+  const { resolved, messages } = runOpenAIRequest(normalizedRequest);
   const sdkTools = openAIToolsToSDK(normalizedRequest.tools);
   const sdkToolChoice = mapToolChoice(normalizedRequest.tool_choice);
 
@@ -579,7 +580,7 @@ app.post("/v1/messages", async (req, reply) => {
     session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });
   }
 
-  const { resolved, messages } = await runOpenAIRequest(openAIShape);
+  const { resolved, messages } = runOpenAIRequest(openAIShape);
   const sdkTools = claudeToolsToSDK(body.tools as never);
   const sdkToolChoice = mapToolChoice(body.tool_choice);
 
