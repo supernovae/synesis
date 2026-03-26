@@ -1,0 +1,26 @@
+ synesis_rag=# SELECT chunk_id, source_uri, token_count, created_at
+ FROM rag_chunks
+ WHERE tenant_id = 'acme-corp'
+   AND indexed_at > now() - interval '7 days'
+ ORDER BY created_at DESC
+ LIMIT 12;
+
++--------------------------------------+----------------------------------------------------------+-------------+----------------------------+
+| chunk_id                             | source_uri                                               | token_count | created_at                 |
++--------------------------------------+----------------------------------------------------------+-------------+----------------------------+
+| 8f3c1a2b-4d5e-6789-abcd-ef0123456789 | s3://synesis-docs-prod/policies/retention/v3.md          |         412 | 2025-03-26 08:11:02.441+00 |
+| 2a9b8c7d-6e5f-4321-fedc-ba9876543210 | git+https://github.com/example/synesis/base/planner/... |         891 | 2025-03-26 07:58:19.102+00 |
+| 5c4d3e2f-1a0b-9c8d-7e6f-543210fedcba | s3://synesis-docs-prod/runbooks/milvus-compaction.md   |         1204| 2025-03-25 22:40:55.883+00 |
+| 1deadbeef-cafe-babe-4242-424242424242| https://wiki.internal.example/display/RAG/Enrichment   |         336 | 2025-03-25 19:12:44.201+00 |
+| 0f0e0d0c-0b0a-0908-0706-050403020100 | s3://customer-ingest/acme/q1-2025/faq.pdf                |         2048| 2025-03-25 16:03:11.009+00 |
+| aabbccdd-eeff-0011-2233-445566778899 | s3://synesis-docs-prod/api/gateway/openapi.yaml        |         1533| 2025-03-25 11:27:38.774+00 |
+| 99998888-7777-6666-5555-444433332222 | git+https://github.com/example/synesis/docs/models.md    |         672 | 2025-03-24 23:55:01.330+00 |
+| 11112222-3333-4444-5555-666677778888 | s3://synesis-docs-prod/security/tls-hardening.md         |         445 | 2025-03-24 18:19:47.612+00 |
+| fedcba98-7654-3210-fedc-ba9876543210 | s3://synesis-docs-prod/deploy/openshift-ai.md           |         998 | 2025-03-24 09:44:22.905+00 |
+| 01234567-89ab-cdef-0123-456789abcdef | https://confluence.example.com/display/SYN/Chunk+schema |         289 | 2025-03-23 21:08:56.118+00 |
+| c0ffee00-dead-beef-0000-111122223333 | s3://customer-ingest/acme/handbook/chapter-04.docx       |         1762| 2025-03-23 14:33:40.557+00 |
+| ba5eba11-f001-f002-f003-f004f005f006 | s3://synesis-docs-prod/ops/backup-restore-postgres.md  |         721 | 2025-03-23 06:01:09.441+00 |
++--------------------------------------+----------------------------------------------------------+-------------+----------------------------+
+(18432 rows)
+
+Time: 142.817 ms

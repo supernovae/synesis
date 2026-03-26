@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/dev/synesis/base/planner/app/routes.py", line 88, in dispatch
+    return handler(req)
+  File "/Users/dev/synesis/base/planner/app/handlers.py", line 12, in handle
+    payload = json.loads(body)
+TypeError: the JSON object must be str, bytes or bytearray, not NoneType

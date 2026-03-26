@@ -1,0 +1,4 @@
+Collecting httpx==0.27.2
+Downloading httpx-0.27.2-py3-none-any.whl (76 kB)
+WARNING: You are using pip version 23.0.1; pip 24.3 is available.
+Successfully installed httpx-0.27.2 h11-0.14.0 sniffio-1.3.1

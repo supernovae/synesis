@@ -1,0 +1,22 @@
+Traceback (most recent call last):
+  File "/Users/bymiller/src/synesis/base/planner/app/main.py", line 312, in lifespan
+    await registry.sync_from_admin()
+  File "/Users/bymiller/src/synesis/base/planner/app/registry_client.py", line 89, in sync_from_admin
+    models = await self._fetch_models(session)
+  File "/Users/bymiller/src/synesis/base/planner/app/registry_client.py", line 141, in _fetch_models
+    resp.raise_for_status()
+  File "/opt/app-root/venv/lib/python3.11/site-packages/httpx/_models.py", line 758, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'http://admin.synesis-api.svc.cluster.local:8080/internal/v1/models'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/app-root/venv/lib/python3.11/site-packages/starlette/routing.py", line 677, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/opt/app-root/venv/lib/python3.11/contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+  File "/Users/bymiller/src/synesis/base/planner/app/main.py", line 318, in lifespan
+    raise RuntimeError("admin registry unreachable") from exc
+RuntimeError: admin registry unreachable

@@ -1,0 +1,10 @@
+NAME: synesis-router
+LAST DEPLOYED: Wed Mar 26 10:18:42 2025
+NAMESPACE: synesis-yarn
+STATUS: deployed
+REVISION: 4
+==> v1/Service
+NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)
+router          ClusterIP   172.30.88.12    <none>        8080/TCP
+NOTES:
+1. Router listens on port 8080 inside the cluster.

@@ -1,8 +1,28 @@
 import { classifyReducerFamily } from "./classifier.js";
+import { AnsibleReducer } from "./reducers/ansible.js";
+import { CargoReducer } from "./reducers/cargo.js";
+import { CurlHttpReducer } from "./reducers/curl-http.js";
+import { DockerBuildReducer } from "./reducers/docker-build.js";
 import { GitReducer } from "./reducers/git.js";
+import { GoBuildReducer } from "./reducers/go-build.js";
+import { HelmReducer } from "./reducers/helm.js";
+import { JavaBuildReducer } from "./reducers/java-build.js";
+import { JestReducer } from "./reducers/jest.js";
+import { KubectlReducer } from "./reducers/kubectl.js";
 import { LintReducer } from "./reducers/lint.js";
+import { LogStreamReducer } from "./reducers/log-stream.js";
+import { LsTreeReducer } from "./reducers/ls-tree.js";
+import { MakeReducer } from "./reducers/make.js";
+import { MypyReducer } from "./reducers/mypy.js";
+import { NetworkDiagReducer } from "./reducers/network-diag.js";
+import { NpmInstallReducer } from "./reducers/npm-install.js";
+import { PipInstallReducer } from "./reducers/pip-install.js";
 import { PytestReducer } from "./reducers/pytest.js";
 import { SearchReducer } from "./reducers/search.js";
+import { SqlResultReducer } from "./reducers/sql-result.js";
+import { StackTraceReducer } from "./reducers/stack-trace.js";
+import { StracePerfReducer } from "./reducers/strace-perf.js";
+import { TerraformReducer } from "./reducers/terraform.js";
 import { TscReducer } from "./reducers/tsc.js";
 import type { Reducer, ReducerFamily, ReducerInput, ReducerLifecycleState, ReducerOutput } from "./types.js";
 
@@ -11,7 +31,27 @@ const REDUCERS: Record<Exclude<ReducerFamily, "generic">, Reducer> = {
   tsc: new TscReducer(),
   lint: new LintReducer(),
   git: new GitReducer(),
-  search: new SearchReducer()
+  search: new SearchReducer(),
+  "npm-install": new NpmInstallReducer(),
+  "docker-build": new DockerBuildReducer(),
+  cargo: new CargoReducer(),
+  make: new MakeReducer(),
+  "stack-trace": new StackTraceReducer(),
+  jest: new JestReducer(),
+  "go-build": new GoBuildReducer(),
+  "pip-install": new PipInstallReducer(),
+  "ls-tree": new LsTreeReducer(),
+  "curl-http": new CurlHttpReducer(),
+  kubectl: new KubectlReducer(),
+  terraform: new TerraformReducer(),
+  "sql-result": new SqlResultReducer(),
+  mypy: new MypyReducer(),
+  "java-build": new JavaBuildReducer(),
+  ansible: new AnsibleReducer(),
+  helm: new HelmReducer(),
+  "network-diag": new NetworkDiagReducer(),
+  "strace-perf": new StracePerfReducer(),
+  "log-stream": new LogStreamReducer()
 };
 
 export interface RegistryOptions {

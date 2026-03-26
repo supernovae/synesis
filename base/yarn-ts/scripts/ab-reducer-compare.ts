@@ -117,11 +117,36 @@ interface ScenarioDef {
 }
 
 const SCENARIOS: ScenarioDef[] = [
+  // Original 5
   { name: "pytest", family: "pytest", toolName: "pytest", fixture: loadFixture("pytest") },
   { name: "tsc", family: "tsc", toolName: "tsc", fixture: loadFixture("tsc") },
   { name: "lint", family: "lint", toolName: "ruff", fixture: loadFixture("lint") },
   { name: "git", family: "git", toolName: "bash", fixture: loadFixture("git") },
   { name: "search", family: "search", toolName: "rg", fixture: loadFixture("search") },
+  // Batch A
+  { name: "npm-install", family: "npm-install", toolName: "bash", fixture: loadFixture("npm-install") },
+  { name: "docker-build", family: "docker-build", toolName: "bash", fixture: loadFixture("docker-build") },
+  { name: "cargo", family: "cargo", toolName: "bash", fixture: loadFixture("cargo") },
+  { name: "make", family: "make", toolName: "make", fixture: loadFixture("make") },
+  { name: "stack-trace", family: "stack-trace", toolName: "bash", fixture: loadFixture("stack-trace") },
+  // Batch B
+  { name: "jest", family: "jest", toolName: "bash", fixture: loadFixture("jest") },
+  { name: "go-build", family: "go-build", toolName: "bash", fixture: loadFixture("go-build") },
+  { name: "pip-install", family: "pip-install", toolName: "bash", fixture: loadFixture("pip-install") },
+  { name: "ls-tree", family: "ls-tree", toolName: "tree", fixture: loadFixture("ls-tree") },
+  { name: "curl-http", family: "curl-http", toolName: "curl", fixture: loadFixture("curl-http") },
+  // Batch C
+  { name: "kubectl", family: "kubectl", toolName: "kubectl", fixture: loadFixture("kubectl") },
+  { name: "terraform", family: "terraform", toolName: "bash", fixture: loadFixture("terraform") },
+  { name: "sql-result", family: "sql-result", toolName: "psql", fixture: loadFixture("sql-result") },
+  { name: "mypy", family: "mypy", toolName: "mypy", fixture: loadFixture("mypy") },
+  { name: "java-build", family: "java-build", toolName: "bash", fixture: loadFixture("java-build") },
+  // Batch D
+  { name: "ansible", family: "ansible", toolName: "bash", fixture: loadFixture("ansible") },
+  { name: "helm", family: "helm", toolName: "bash", fixture: loadFixture("helm") },
+  { name: "network-diag", family: "network-diag", toolName: "bash", fixture: loadFixture("network-diag") },
+  { name: "strace-perf", family: "strace-perf", toolName: "bash", fixture: loadFixture("strace-perf") },
+  { name: "log-stream", family: "log-stream", toolName: "bash", fixture: loadFixture("log-stream") },
 ];
 
 async function httpPost(path: string, payload: unknown): Promise<{ status: number; body: string; latencyMs: number }> {

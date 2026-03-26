@@ -1,0 +1,33 @@
+; <<>> DiG 9.18.21-RedHat-9.18.21-1.el9 <<>> @10.128.0.10 synesis-router.synesis-yarn.svc.cluster.local +noall +answer
+; (1 server found)
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 48291
+;; flags: qr aa rd; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags:; udp: 1232
+; COOKIE: 1a2b3c4d5e6f7890 (echoed)
+;; QUESTION SECTION:
+;synesis-router.synesis-yarn.svc.cluster.local. IN A
+
+;; ANSWER SECTION:
+synesis-router.synesis-yarn.svc.cluster.local. 30 IN A 172.30.88.12
+
+;; Query time: 1 msec
+;; SERVER: 10.128.0.10#53(10.128.0.10) (UDP)
+;; WHEN: Wed Mar 26 10:22:01 UTC 2025
+;; MSG SIZE  rcvd: 120
+
+---
+
+PING keyword-service.synesis-rag.svc.cluster.local (172.30.44.18) 56(84) bytes of data.
+64 bytes from keyword-service.synesis-rag.svc.cluster.local (172.30.44.18): icmp_seq=1 ttl=62 time=0.214 ms
+64 bytes from keyword-service.synesis-rag.svc.cluster.local (172.30.44.18): icmp_seq=2 ttl=62 time=0.198 ms
+64 bytes from keyword-service.synesis-rag.svc.cluster.local (172.30.44.18): icmp_seq=3 ttl=62 time=0.205 ms
+64 bytes from keyword-service.synesis-rag.svc.cluster.local (172.30.44.18): icmp_seq=4 ttl=62 time=0.201 ms
+64 bytes from keyword-service.synesis-rag.svc.cluster.local (172.30.44.18): icmp_seq=5 ttl=62 time=0.199 ms
+
+--- keyword-service.synesis-rag.svc.cluster.local ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4006ms
+rtt min/avg/max/mdev = 0.198/0.203/0.214/0.005 ms

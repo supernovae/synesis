@@ -1,0 +1,20 @@
+Collecting pydantic==2.6.4 (from -r /Users/bymiller/src/synesis/base/planner/requirements.txt (line 12))
+  Downloading pydantic-2.6.4-py3-none-any.whl.metadata (85 kB)
+Collecting fastapi==0.110.0 (from -r /Users/bymiller/src/synesis/base/planner/requirements.txt (line 3))
+  Using cached fastapi-0.110.0-py3-none-any.whl.metadata (25 kB)
+Collecting uvicorn[standard]==0.29.0 (from -r /Users/bymiller/src/synesis/base/planner/requirements.txt (line 4))
+  Downloading uvicorn-0.29.0-py3-none-any.whl.metadata (6.3 kB)
+Collecting httpx==0.27.2 (from -r /Users/bymiller/src/synesis/base/planner/requirements.txt (line 8))
+  Using cached httpx-0.27.2-py3-none-any.whl.metadata (7.1 kB)
+Collecting structlog==24.1.0 (from -r /Users/bymiller/src/synesis/base/planner/requirements.txt (line 22))
+  Downloading structlog-24.1.0-py3-none-any.whl.metadata (6.9 kB)
+Requirement already satisfied: typing-extensions>=4.8.0 in /opt/app-root/venv/lib/python3.11/site-packages (from pydantic==2.6.4) (4.10.0)
+Requirement already satisfied: annotated-types>=0.4.0 in /opt/app-root/venv/lib/python3.11/site-packages (from pydantic==2.6.4) (0.6.0)
+Downloading pydantic_core-2.16.3-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 12.4 MB/s eta 0:00:00
+Installing collected packages: pydantic-core, pydantic, structlog
+WARNING: The candidate selected for download or install is a yanked version: 'email-validator' version 2.1.0
+Reason for being yanked: Incorrect metadata; use 2.1.0.post1 instead
+WARNING: You are using pip version 23.2.1; however, version 24.3.1 is available.
+You should consider upgrading via the '/opt/app-root/venv/bin/python -m pip install --upgrade pip' command.
+Successfully installed pydantic-2.6.4 pydantic-core-2.16.3 structlog-24.1.0

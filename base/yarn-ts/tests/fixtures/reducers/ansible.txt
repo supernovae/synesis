@@ -1,0 +1,9 @@
+PLAY [Roll planner] ************************************************************
+
+TASK [Set image tag] *********************************************************
+changed: [planner-az-01] => {"changed": true}
+fatal: [planner-az-02]: FAILED! => {"msg": "ImagePullBackOff"}
+
+PLAY RECAP *********************************************************************
+planner-az-01              : ok=9 changed=1 unreachable=0 failed=0
+planner-az-02              : ok=3 changed=0 unreachable=0 failed=1

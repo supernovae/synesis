@@ -1,0 +1,28 @@
+make[1]: Entering directory '/Users/bymiller/src/synesis/base/rag/indexer'
+gcc -std=c11 -Wall -Wextra -O2 -fPIC -I/Users/bymiller/src/synesis/base/rag/indexer/native/include \
+  -c native/sha256.c -o build/obj/sha256.o
+gcc -std=c11 -Wall -Wextra -O2 -fPIC -I/Users/bymiller/src/synesis/base/rag/indexer/native/include \
+  -c native/hash_ring.c -o build/obj/hash_ring.o
+make[2]: Entering directory '/Users/bymiller/src/synesis/base/rag/indexer/native/deps'
+g++ -std=c++17 -Wall -O2 -I./vendor -c skiplist.cpp -o ../build/obj/skiplist.o
+skiplist.cpp: In function 'bool insert_node(SkipList*, const char*, size_t)':
+skiplist.cpp:188:21: warning: comparison of integer expressions of different signedness: 'int' and 'size_t' [-Wsign-compare]
+  188 |     for (int i = 0; i < key_len; i++) {
+      |                     ~~^~~~~~~~~
+skiplist.cpp:201:15: warning: unused variable 'depth' [-Wunused-variable]
+  201 |         int depth = rand() % MAX_LEVEL;
+      |               ^~~~~
+make[2]: Leaving directory '/Users/bymiller/src/synesis/base/rag/indexer/native/deps'
+gcc -shared -o build/libindexer_hash.so build/obj/sha256.o build/obj/hash_ring.o ../build/obj/skiplist.o -lpthread
+clang -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk \
+  -I/opt/homebrew/include -c native/metrics_stub.c -o build/obj/metrics_stub.o
+make[1]: Leaving directory '/Users/bymiller/src/synesis/base/rag/indexer'
+
+make[1]: Entering directory '/Users/bymiller/src/synesis/overlays/openshift'
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSYNESIS_NAMESPACE=synesis-rag
+CMake Error at CMakeLists.txt:17 (find_package):
+  Could not find a package configuration file provided by "OpenSSL" with any
+  of the following names: OpenSSLConfig.cmake openssl-config.cmake
+make[1]: *** [Makefile:42: configure] Error 1
+make[1]: Leaving directory '/Users/bymiller/src/synesis/overlays/openshift'
+make: *** [all] Error 2

@@ -1,0 +1,37 @@
+
+PLAY [Bootstrap OpenShift nodes — synesis fleet] *******************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [worker-03.ocp.prod.example.com]
+ok: [worker-04.ocp.prod.example.com]
+
+TASK [Ensure chrony is configured] *********************************************
+ok: [worker-03.ocp.prod.example.com]
+ok: [worker-04.ocp.prod.example.com]
+
+PLAY [Deploy synesis-yarn stack] ***********************************************
+
+TASK [Apply namespace manifests] *********************************************
+changed: [localhost] => {"changed": true, "method": "patch"}
+
+TASK [Rollout router deployment] *********************************************
+changed: [api.ocp.prod.example.com] => {"changed": true, "revision": "4"}
+
+TASK [Wait for Deployment/router ready] ****************************************
+ok: [api.ocp.prod.example.com]
+
+TASK [Sync Secret/synesis-yarn-tls from vault] *********************************
+fatal: [api.ocp.prod.example.com]: FAILED! => {"changed": false, "msg": "HTTP 403 on vault path kv/openshift/synesis-yarn/tls: permission denied"}
+
+TASK [Fallback — create self-signed TLS Secret] ********************************
+changed: [api.ocp.prod.example.com] => {"changed": true}
+
+TASK [helm upgrade synesis-yarn] ***********************************************
+changed: [bastion.prod.example.com] => {"changed": true, "command": "helm upgrade --install synesis-yarn charts/yarn -n synesis-yarn"}
+
+PLAY RECAP *********************************************************************
+localhost                  : ok=2    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+worker-03.ocp.prod.example.com : ok=4    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+worker-04.ocp.prod.example.com : ok=4    changed=0    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+api.ocp.prod.example.com   : ok=6    changed=2    unreachable=0    failed=1    skipped=0    rescued=1    ignored=0
+bastion.prod.example.com   : ok=3    changed=1    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0

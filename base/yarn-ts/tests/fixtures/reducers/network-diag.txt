@@ -1,0 +1,6 @@
+PING db-primary.prod.synesis.internal (10.128.4.22) 56(84) bytes of data.
+64 bytes from db-primary.prod.synesis.internal (10.128.4.22): icmp_seq=1 ttl=61 time=0.412 ms
+64 bytes from db-primary.prod.synesis.internal (10.128.4.22): icmp_seq=2 ttl=61 time=0.389 ms
+--- db-primary.prod.synesis.internal ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 0.389/0.401/0.412/0.010 ms

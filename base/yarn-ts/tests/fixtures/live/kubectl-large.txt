@@ -1,0 +1,33 @@
+# oc get pods -n synesis-rag -o wide
+NAME                              READY   STATUS             RESTARTS   AGE     IP            NODE
+embedder-7c9d4f8b6-xvq2m          1/1     Running            0          6d12h   10.131.2.88   worker-03.ocp.prod.example.com
+milvus-standalone-0               1/1     Running            1          41d     10.131.4.12   worker-01.ocp.prod.example.com
+keyword-service-5d7b9c4f8-hw9kp   1/1     Running            0          18h     10.131.2.44   worker-03.ocp.prod.example.com
+indexer-preprocess-684c9d7f9-zzrm 0/1     CrashLoopBackOff   37         3h7m    10.131.5.2    worker-02.ocp.prod.example.com
+router-sidecar-6f8b9d7c4-kp9nw     1/1     Running            0          2d      10.131.3.19   worker-04.ocp.prod.example.com
+tei-embed-0                       1/1     Running            0          9d      10.131.2.201  worker-03.ocp.prod.example.com
+pod/bge-reranker-7d8c9f4b2-m7qxh
+pod/chunk-worker-59f7d8c746-qp9n2
+pod/quality-runner-cron-29487500-ls4kd
+
+Name:             indexer-preprocess-684c9d7f9-zzrm
+Namespace:        synesis-rag
+Priority:         0
+Node:             worker-02.ocp.prod.example.com/192.168.50.112
+Start Time:       Wed, 26 Mar 2025 06:14:22 +0000
+Labels:           app.kubernetes.io/name=indexer-preprocess
+
+Conditions:
+  True    Initialized
+  False   Ready
+  True    PodScheduled
+
+Events:
+  Type     Reason     Age                   From               Message
+  ----     ------     ----                  ----               -------
+  Normal   Scheduled  12m                   default-scheduler  Successfully assigned synesis-rag/indexer-preprocess-684c9d7f9-zzrm to worker-02
+  Normal   Pulled     11m                   kubelet            Container image "registry.example.com/synesis/indexer-preprocess:v2.3.1" already present on machine
+  Normal   Created    11m                   kubelet            Created container preprocess
+  Normal   Started    11m                   kubelet            Started container preprocess
+  Warning  Unhealthy  3m (x15 over 10m)     kubelet            Readiness probe failed: Get "http://10.131.5.2:8081/ready": context deadline exceeded
+  Warning  BackOff    1m (x42 over 9m)      kubelet            Back-off restarting failed container preprocess in pod indexer-preprocess-684c9d7f9-zzrm_synesis-rag(8f3c1a2b-4d5e-6789-abcd-ef0123456789)

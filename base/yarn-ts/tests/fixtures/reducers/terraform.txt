@@ -1,0 +1,10 @@
+Terraform used the selected providers to generate the following execution plan.
+Plan: 2 to add, 1 to change, 0 to destroy.
+  # aws_s3_bucket.logs will be created
+  + resource "aws_s3_bucket" "logs" {
+      + bucket = "synesis-audit-logs-prod"
+    }
+  # module.vpc.aws_subnet.private[0] will be updated in-place
+  ~ resource "aws_subnet" "private" {
+      ~ tags = { "Env" = "prod" -> "production" }
+    }

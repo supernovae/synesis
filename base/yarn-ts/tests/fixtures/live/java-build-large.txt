@@ -1,0 +1,29 @@
+[INFO] Scanning for projects...
+[INFO] Building synesis-gateway 1.4.2-SNAPSHOT
+[INFO] --------------------------------[ jar ]---------------------------------
+Downloading from central: https://repo.maven.apache.org/maven2/io/netty/netty-common/4.1.108.Final/netty-common-4.1.108.Final.jar
+Downloaded from central: https://repo.maven.apache.org/maven2/io/netty/netty-common/4.1.108.Final/netty-common-4.1.108.Final.jar (689 kB at 2.1 MB/s)
+Downloading from central: https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.17.0/jackson-databind-2.17.0.jar
+Downloaded from central: https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-databind/2.17.0/jackson-databind-2.17.0.jar (1.6 MB at 3.4 MB/s)
+[WARNING] The artifact org.slf4j:slf4j-log4j12:jar:1.7.36 has been relocated to org.slf4j:slf4j-reload4j
+[WARNING] /workspace/gateway-core/src/main/java/com/example/synesis/gateway/ProxyHandler.java:[144,36] [deprecation] SSLContextBuilder in org.apache.http.ssl has been deprecated
+[INFO] --- maven-compiler-plugin:3.12.1:compile (default-compile) @ synesis-gateway-core ---
+[INFO] Compiling 87 source files with javac [debug release 21] to target/classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /workspace/gateway-core/src/main/java/com/example/synesis/gateway/AuthFilter.java:[62,19] cannot find symbol
+  symbol:   method verifyToken(java.lang.String,java.util.Map<java.lang.String,java.lang.Object>)
+  location: class com.example.synesis.security.JwtValidator
+[ERROR] /workspace/gateway-core/src/main/java/com/example/synesis/gateway/RateLimiter.java:[33,8] com.example.synesis.gateway.RateLimiter is not abstract and does not override abstract method tryAcquire(java.lang.String) in com.example.synesis.spi.Limiter
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] synesis-gateway-core ............................... FAILURE [  4.891 s]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  6.812 s
+[INFO] Finished at: 2025-03-26T11:22:08Z
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.12.1:compile (default-compile) on project synesis-gateway-core: Compilation failure: Compilation failure: 
+[ERROR] /workspace/gateway-core/src/main/java/com/example/synesis/gateway/AuthFilter.java:[62,19] cannot find symbol
+[ERROR] -> [Help 1]

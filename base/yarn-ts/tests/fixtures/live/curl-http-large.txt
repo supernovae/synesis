@@ -1,0 +1,25 @@
+* Host litellm.synesis-gateway.svc.cluster.local:8080 was resolved.
+* IPv6: (none)
+* IPv4: 172.30.142.18
+*   Trying 172.30.142.18:8080...
+* Connected to litellm.synesis-gateway.svc.cluster.local (172.30.142.18) port 8080
+* using HTTP/1.x
+* ALPN: curl offers http/1.1
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / x25519 / id-ecPublicKey
+*  SSL certificate verify ok.
+> GET /v1/models HTTP/1.1
+> Host: litellm.synesis-gateway.svc.cluster.local:8080
+> User-Agent: curl/8.7.1
+> Accept: */*
+> Authorization: Bearer sk-redacted-8f3a2c1e
+> 
+* Request completely sent off
+< HTTP/1.1 200 OK
+< date: Wed, 26 Mar 2025 14:22:01 GMT
+< server: uvicorn
+< content-length: 1842
+< content-type: application/json
+< x-request-id: 9c4e7b1a-2d8f-4a6c-9e1b-0f3d8a7c2e5b
+< 
+
+{"object":"list","data":[{"id":"synesis-router","object":"model","created":1711459200,"owned_by":"synesis"},{"id":"synesis-general","object":"model","created":1711459201,"owned_by":"synesis"},{"id":"synesis-critic","object":"model","created":1711459202,"owned_by":"synesis"}]}

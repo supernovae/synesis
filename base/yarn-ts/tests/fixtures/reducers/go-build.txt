@@ -1,0 +1,4 @@
+./internal/api/handlers.go:127:9: undefined: ValidateTenant
+--- FAIL: TestParseConfig (0.02s)
+FAIL	github.com/acme/synesis-worker/internal/config	0.341s
+ok  	github.com/acme/synesis-worker/pkg/hash	0.112s

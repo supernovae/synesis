@@ -1,0 +1,4 @@
+make[1]: Entering directory '/Users/dev/synesis/base/planner'
+gcc -Wall -O2 -c app/shim.c -o build/shim.o
+src/shim.c:44:9: warning: implicit declaration of function 'legacy_hook'
+make[1]: Leaving directory '/Users/dev/synesis/base/planner'

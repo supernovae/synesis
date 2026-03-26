@@ -158,50 +158,43 @@ interface Scenario {
 
 function buildScenarios(): Scenario[] {
   const base: Scenario[] = [
-    {
-      name: "pytest-openai", family: "pytest", toolName: "pytest",
-      toolOutput: loadFixture("pytest"), protocol: "openai",
-      expectedDelta: { "family.pytest": 1 }
-    },
-    {
-      name: "tsc-openai", family: "tsc", toolName: "tsc",
-      toolOutput: loadFixture("tsc"), protocol: "openai",
-      expectedDelta: { "family.tsc": 1 }
-    },
-    {
-      name: "lint-openai", family: "lint", toolName: "ruff",
-      toolOutput: loadFixture("lint"), protocol: "openai",
-      expectedDelta: { "family.lint": 1 }
-    },
-    {
-      name: "git-openai", family: "git", toolName: "bash",
-      toolOutput: loadFixture("git"), protocol: "openai",
-      expectedDelta: { "family.git": 1 }
-    },
-    {
-      name: "search-openai", family: "search", toolName: "rg",
-      toolOutput: loadFixture("search"), protocol: "openai",
-      expectedDelta: { "family.search": 1 }
-    },
+    // Original 5
+    { name: "pytest-openai", family: "pytest", toolName: "pytest", toolOutput: loadFixture("pytest"), protocol: "openai", expectedDelta: { "family.pytest": 1 } },
+    { name: "tsc-openai", family: "tsc", toolName: "tsc", toolOutput: loadFixture("tsc"), protocol: "openai", expectedDelta: { "family.tsc": 1 } },
+    { name: "lint-openai", family: "lint", toolName: "ruff", toolOutput: loadFixture("lint"), protocol: "openai", expectedDelta: { "family.lint": 1 } },
+    { name: "git-openai", family: "git", toolName: "bash", toolOutput: loadFixture("git"), protocol: "openai", expectedDelta: { "family.git": 1 } },
+    { name: "search-openai", family: "search", toolName: "rg", toolOutput: loadFixture("search"), protocol: "openai", expectedDelta: { "family.search": 1 } },
+    // Batch A
+    { name: "npm-install-openai", family: "npm-install", toolName: "bash", toolOutput: loadFixture("npm-install"), protocol: "openai", expectedDelta: { "family.npm-install": 1 } },
+    { name: "docker-build-openai", family: "docker-build", toolName: "bash", toolOutput: loadFixture("docker-build"), protocol: "openai", expectedDelta: { "family.docker-build": 1 } },
+    { name: "cargo-openai", family: "cargo", toolName: "bash", toolOutput: loadFixture("cargo"), protocol: "openai", expectedDelta: { "family.cargo": 1 } },
+    { name: "make-openai", family: "make", toolName: "make", toolOutput: loadFixture("make"), protocol: "openai", expectedDelta: { "family.make": 1 } },
+    { name: "stack-trace-openai", family: "stack-trace", toolName: "bash", toolOutput: loadFixture("stack-trace"), protocol: "openai", expectedDelta: { "family.stack-trace": 1 } },
+    // Batch B
+    { name: "jest-openai", family: "jest", toolName: "bash", toolOutput: loadFixture("jest"), protocol: "openai", expectedDelta: { "family.jest": 1 } },
+    { name: "go-build-openai", family: "go-build", toolName: "bash", toolOutput: loadFixture("go-build"), protocol: "openai", expectedDelta: { "family.go-build": 1 } },
+    { name: "pip-install-openai", family: "pip-install", toolName: "bash", toolOutput: loadFixture("pip-install"), protocol: "openai", expectedDelta: { "family.pip-install": 1 } },
+    { name: "ls-tree-openai", family: "ls-tree", toolName: "tree", toolOutput: loadFixture("ls-tree"), protocol: "openai", expectedDelta: { "family.ls-tree": 1 } },
+    { name: "curl-http-openai", family: "curl-http", toolName: "curl", toolOutput: loadFixture("curl-http"), protocol: "openai", expectedDelta: { "family.curl-http": 1 } },
+    // Batch C
+    { name: "kubectl-openai", family: "kubectl", toolName: "kubectl", toolOutput: loadFixture("kubectl"), protocol: "openai", expectedDelta: { "family.kubectl": 1 } },
+    { name: "terraform-openai", family: "terraform", toolName: "bash", toolOutput: loadFixture("terraform"), protocol: "openai", expectedDelta: { "family.terraform": 1 } },
+    { name: "sql-result-openai", family: "sql-result", toolName: "psql", toolOutput: loadFixture("sql-result"), protocol: "openai", expectedDelta: { "family.sql-result": 1 } },
+    { name: "mypy-openai", family: "mypy", toolName: "mypy", toolOutput: loadFixture("mypy"), protocol: "openai", expectedDelta: { "family.mypy": 1 } },
+    { name: "java-build-openai", family: "java-build", toolName: "bash", toolOutput: loadFixture("java-build"), protocol: "openai", expectedDelta: { "family.java-build": 1 } },
+    // Batch D
+    { name: "ansible-openai", family: "ansible", toolName: "bash", toolOutput: loadFixture("ansible"), protocol: "openai", expectedDelta: { "family.ansible": 1 } },
+    { name: "helm-openai", family: "helm", toolName: "bash", toolOutput: loadFixture("helm"), protocol: "openai", expectedDelta: { "family.helm": 1 } },
+    { name: "network-diag-openai", family: "network-diag", toolName: "bash", toolOutput: loadFixture("network-diag"), protocol: "openai", expectedDelta: { "family.network-diag": 1 } },
+    { name: "strace-perf-openai", family: "strace-perf", toolName: "bash", toolOutput: loadFixture("strace-perf"), protocol: "openai", expectedDelta: { "family.strace-perf": 1 } },
+    { name: "log-stream-openai", family: "log-stream", toolName: "bash", toolOutput: loadFixture("log-stream"), protocol: "openai", expectedDelta: { "family.log-stream": 1 } },
   ];
 
   if (MODE === "full") {
     base.push(
-      {
-        name: "pytest-claude", family: "pytest", toolName: "pytest",
-        toolOutput: loadFixture("pytest"), protocol: "claude", requiresFull: true,
-        expectedDelta: { "family.pytest": 1 }
-      },
-      {
-        name: "tsc-claude", family: "tsc", toolName: "tsc",
-        toolOutput: loadFixture("tsc"), protocol: "claude", requiresFull: true,
-        expectedDelta: { "family.tsc": 1 }
-      },
-      {
-        name: "git-claude", family: "git", toolName: "bash",
-        toolOutput: loadFixture("git"), protocol: "claude", requiresFull: true,
-        expectedDelta: { "family.git": 1 }
-      },
+      { name: "pytest-claude", family: "pytest", toolName: "pytest", toolOutput: loadFixture("pytest"), protocol: "claude", requiresFull: true, expectedDelta: { "family.pytest": 1 } },
+      { name: "tsc-claude", family: "tsc", toolName: "tsc", toolOutput: loadFixture("tsc"), protocol: "claude", requiresFull: true, expectedDelta: { "family.tsc": 1 } },
+      { name: "git-claude", family: "git", toolName: "bash", toolOutput: loadFixture("git"), protocol: "claude", requiresFull: true, expectedDelta: { "family.git": 1 } },
     );
   }
   return base;

@@ -1,0 +1,5 @@
+FAIL src/reducers/__tests__/npm-install.test.ts
+  ✕ summarizes peer dependency warnings
+    expect(received).toBe(expected)
+Test Suites: 1 failed, 3 passed, 4 total
+Tests:       1 failed, 22 passed, 23 total

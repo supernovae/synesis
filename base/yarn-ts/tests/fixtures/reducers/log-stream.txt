@@ -1,0 +1,21 @@
+09:00:01 s INFO r1 /h 200
+09:00:02 s DEBUG pool ok
+09:00:03 s WARN q 620ms
+09:00:04 s INFO b n=8
+09:00:05 s ERROR mv 14
+09:00:06 s INFO ry 1
+09:00:07 s WARN ch half
+09:00:08 s INFO P /q 200
+09:00:09 s DEBUG ca .91
+09:00:10 s INFO hk ok
+09:00:11 s WARN xl dep
+09:00:12 s INFO ro 512
+09:00:13 s ERROR kw to
+09:00:14 s INFO kw fb
+09:00:15 s DEBUG tr rt
+09:00:16 s INFO GET /m 200
+09:00:17 s WARN dk 78pct
+09:00:18 s INFO gc 40mb
+09:00:19 s INFO GET /c 404
+09:00:20 s DEBUG jwt pl
+09:00:21 s INFO dc ok

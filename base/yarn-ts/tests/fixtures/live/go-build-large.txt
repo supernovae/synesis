@@ -1,0 +1,25 @@
+# github.com/synesis/ingest/cmd/worker
+./internal/ingest/parser.go:56:12: cannot use evt.Timestamp (variable of struct type time.Time) as int64 value in argument to buffer.Append
+./internal/ingest/parser.go:71:24: undefined: synesis.ValidateULID
+./internal/queue/redis.go:14:2: "github.com/redis/go-redis/v9" imported as redis and not used
+vet: ./internal/queue/redis.go:14:2: "github.com/redis/go-redis/v9" imported as redis and not used
+
+=== RUN   TestDedupeKey
+=== PAUSE TestDedupeKey
+=== CONT  TestDedupeKey
+--- FAIL: TestDedupeKey (0.00s)
+    dedupe_test.go:31: expected key "ingest:job:7f3a9c2e" got "ingest:job:7f3a9c2e:1"
+=== RUN   TestBackoff
+--- PASS: TestBackoff (0.00s)
+FAIL
+FAIL	github.com/synesis/ingest/internal/ingest	0.214s
+ok  	github.com/synesis/ingest/internal/metrics	(cached)
+FAIL	github.com/synesis/ingest/internal/queue	0.089s
+ok  	github.com/synesis/ingest/pkg/ulid	0.031s
+ok  	github.com/synesis/ingest/pkg/version	(cached)
+FAIL	github.com/synesis/ingest/cmd/worker	0.412s
+=== RUN   TestMain
+--- PASS: TestMain (0.00s)
+PASS
+ok  	github.com/synesis/ingest/cmd/ctl	0.055s
+FAIL

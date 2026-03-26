@@ -1,0 +1,6 @@
+   Compiling synesis-router v0.2.1 (/Users/dev/synesis/crates/router)
+error[E0308]: mismatched types
+ --> src/auth.rs:112:18
+warning: unused variable: `tenant_id`
+warning: `synesis-router` (lib) generated 1 warning
+test result: ok. 14 passed; 0 failed; 0 ignored

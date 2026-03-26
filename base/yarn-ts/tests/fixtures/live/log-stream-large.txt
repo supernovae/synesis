@@ -1,0 +1,32 @@
+Mar 26 10:14:01 w03 synesis-router[284910]: INFO rid=8c21a4 GET /v1/models 200 lat=6ms cli=10.131.4.88
+Mar 26 10:14:02 w03 synesis-router[284910]: DEBUG upstream synesis-general.synesis-llm.svc:8080 ok=true
+Mar 26 10:14:03 w03 synesis-router[284910]: WARN slow_body /v1/chat/completions bytes=1048576 ms=980
+Mar 26 10:14:04 w03 synesis-router[284910]: INFO token_bucket refill=2400/s burst=4800
+Mar 26 10:14:05 w03 synesis-router[284910]: ERROR litellm_proxy 502 err=upstream_timeout
+Mar 26 10:14:06 w03 synesis-router[284910]: INFO circuit synesis-critic half_open ok=true
+Mar 26 10:14:07 w03 synesis-router[284910]: DEBUG tls sni=yarn.apps.ocp.prod.example.com cipher=AES256GCM
+Mar 26 10:14:08 w03 synesis-router[284910]: INFO rid=9d32b5 POST /v1/chat/completions 200 lat=8420ms
+Mar 26 10:14:09 w03 synesis-router[284910]: WARN legacy_auth X-Synesis-Legacy-Token tenant=acme-corp
+Mar 26 10:14:10 w03 synesis-router[284910]: INFO ratelimit tenant=acme-corp allow rem=11880
+Mar 26 10:14:11 w03 synesis-router[284910]: DEBUG oc_sa_token renewed ttl=3600s
+Mar 26 10:14:12 w03 synesis-router[284910]: INFO rid=ae43c6 GET /healthz 200 lat=1ms
+Mar 26 10:14:13 w03 synesis-router[284910]: ERROR milvus synesis-rag.svc:19530 connection_refused
+Mar 26 10:14:14 w03 synesis-router[284910]: INFO retry n=2 max=5 backoff_ms=400 jitter=true
+Mar 26 10:14:15 w03 synesis-router[284910]: WARN thread_pool q=812 workers=64 sat_ms=120
+Mar 26 10:14:16 w03 synesis-router[284910]: TRACE span=f7e2c1b0a9 http.server dur=3ms
+Mar 26 10:14:17 w03 synesis-router[284910]: INFO rid=bf54d7 GET /metrics 200 lat=12ms
+Mar 26 10:14:18 w03 synesis-router[284910]: DEBUG cache hit router:model_map:v4 ttl=55s
+Mar 26 10:14:19 w03 synesis-router[284910]: WARN ua_too_large len=16396 trunc=true
+Mar 26 10:14:20 w03 synesis-router[284910]: INFO ws_upgrade /v1/realtime origin=yarn.apps.ocp.prod.example.com
+Mar 26 10:14:21 w03 synesis-router[284910]: ERROR jwks_fetch oauth.example.com ETIMEDOUT
+Mar 26 10:14:22 w03 synesis-router[284910]: INFO fallback_auth mtls CN=synesis-planner
+Mar 26 10:14:23 w03 synesis-router[284910]: DEBUG hpack size=4096 evict=0
+Mar 26 10:14:24 w03 synesis-router[284910]: INFO rid=c065e8 POST /v1/embeddings 200 lat=88ms
+Mar 26 10:14:25 w03 synesis-router[284910]: WARN disk_pressure overlayfs evict_mb=128
+Mar 26 10:14:26 w03 synesis-router[284910]: INFO gc_young ms=6 promoted_mb=12
+Mar 26 10:14:27 w03 synesis-router[284910]: INFO rid=d176f9 GET /v1/usage 404 lat=4ms
+Mar 26 10:14:28 w03 synesis-router[284910]: DEBUG jwt sub=svc-indexer aud=synesis-yarn
+Mar 26 10:14:29 w03 synesis-router[284910]: INFO batch_flush n=240 loki=204
+Mar 26 10:14:30 w03 synesis-router[284910]: WARN tls_cert_expires_days=11 cn=synesis-router-tls
+Mar 26 10:14:31 w03 synesis-router[284910]: INFO shutdown SIGTERM drain=15s
+Mar 26 10:14:32 w03 synesis-router[284910]: INFO conns_closed=812 graceful=true

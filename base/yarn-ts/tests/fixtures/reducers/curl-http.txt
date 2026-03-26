@@ -1,0 +1,9 @@
+* Trying 10.128.0.45:8080...
+* Connected to planner.synesis-api.svc.cluster.local (10.128.0.45) port 8080
+> GET /health HTTP/1.1
+> Host: planner.synesis-api.svc.cluster.local:8080
+< HTTP/1.1 200 OK
+< content-type: application/json
+< content-length: 42
+
+{"status":"ok","version":"1.4.2"}

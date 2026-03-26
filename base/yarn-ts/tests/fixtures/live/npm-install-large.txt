@@ -1,0 +1,29 @@
+npm warn ERESOLVE overriding peer dependency: @typescript-eslint/parser@6.21.0 (requires eslint@^8.56.0) vs eslint@9.12.0 from root
+npm warn peer eslint@"^7.0.0 || ^8.0.0" from @typescript-eslint/parser@6.21.0
+npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it.
+npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+
+added 183 packages, removed 12 packages, changed 41 packages, and audited 2147 packages in 38s
+
+287 packages are looking for funding
+  run `npm fund` for details
+
+24 vulnerabilities (8 low, 11 moderate, 4 high, 1 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+npm notice
+npm notice New major version of npm available! 10.5.0 -> 11.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.2.0
+npm notice To update run: npm install -g npm@11.2.0
+npm notice

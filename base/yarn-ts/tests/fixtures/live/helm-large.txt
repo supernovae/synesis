@@ -1,0 +1,54 @@
+Release "synesis-router" does not exist. Installing it now.
+NAME: synesis-router
+LAST DEPLOYED: Wed Mar 26 10:18:42 2025
+NAMESPACE: synesis-yarn
+STATUS: deployed
+REVISION: 4
+DESCRIPTION: Upgrade complete
+TEST SUITE: None
+
+==> v1/Namespace
+NAME          STATUS   AGE
+synesis-yarn  Active   412d
+
+==> v1/ServiceAccount
+NAME            SECRETS   AGE
+synesis-yarn-sa 1         412d
+
+==> v1/ConfigMap
+NAME                    DATA   AGE
+synesis-yarn-config     12     18h
+router-upstream-endpoints 4    18h
+
+==> v1/Secret
+NAME                  TYPE                             DATA   AGE
+synesis-yarn-tls      kubernetes.io/tls                2      18h
+synesis-yarn-registry dockerconfigjson                 1      412d
+
+==> v1/Service
+NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)           AGE
+router          ClusterIP   172.30.88.12    <none>        8080/TCP,8443/TCP 412d
+router-headless ClusterIP   None            <none>        8080/TCP          412d
+
+==> apps/v1/Deployment
+NAME    READY   UP-TO-DATE   AVAILABLE   AGE
+router  3/3     3            3           90d
+
+==> networking.k8s.io/v1/Ingress
+NAME            CLASS   HOSTS                           ADDRESS        PORTS   AGE
+synesis-yarn    openshift-default   yarn.apps.ocp.prod.example.com   10.47.12.8   80,443  200d
+
+NOTES:
+Thank you for installing synesis-router.
+
+1. Verify the deployment:
+   kubectl -n synesis-yarn get pods,svc,ingress
+
+2. OpenShift route (if created):
+   https://yarn.apps.ocp.prod.example.com/
+
+3. Internal cluster URL:
+   http://router.synesis-yarn.svc.cluster.local:8080/v1/models
+
+4. To fetch release status later:
+   helm status synesis-router -n synesis-yarn

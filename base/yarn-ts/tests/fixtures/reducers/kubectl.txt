@@ -1,0 +1,8 @@
+pod/api-gateway-7d9f8c6b4-xk2m
+pod/postgres-0
+pod/redis-cache-5c8bbf7d-hn4wp
+  Normal   Pulled     3m   kubelet     Container image present on node
+  Warning  Unhealthy  1m   kubelet     Readiness probe failed: HTTP 503
+Conditions:
+  True    Initialized
+  False   Ready

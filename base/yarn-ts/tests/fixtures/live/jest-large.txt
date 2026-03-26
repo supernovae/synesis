@@ -1,0 +1,43 @@
+FAIL base/yarn-ts/tests/reduction/reducers/npm-install.test.ts
+  ● NpmInstallReducer › captures audit summary when present
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "12 vulnerabilities"
+    Received string:    "audit: 0 vulnerabilities found"
+
+      45 |     const out = reducer.reduce({ raw: fixture, context: { profile: "default" } });
+      46 |     expect(out).not.toBeNull();
+    > 47 |     expect(out!.summary).toContain("12 vulnerabilities");
+         |                          ^
+      48 |   });
+      49 | });
+      50 |
+
+      at Object.<anonymous> (tests/reduction/reducers/npm-install.test.ts:47:26)
+
+FAIL base/yarn-ts/tests/reduction/router.test.ts
+  ✕ picks jest family for vitest-style output when configured
+  ✓ returns null for empty tool output
+
+  ● picks jest family for vitest-style output when configured
+
+    expect(received).toMatch(expected)
+
+    Expected pattern: /jest/
+    Received string:  "vitest"
+
+      112 |     const family = detectFamily(text);
+      113 |     expect(family).toBeDefined();
+    > 114 |     expect(family).toMatch(/jest/);
+          |                    ^
+      115 |   });
+      116 | });
+
+      at Object.<anonymous> (tests/reduction/router.test.ts:114:20)
+
+Test Suites: 2 failed, 14 passed, 16 total
+Tests:       3 failed, 187 passed, 190 total
+Snapshots:   0 total
+Time:        42.118 s
+Ran all test suites.

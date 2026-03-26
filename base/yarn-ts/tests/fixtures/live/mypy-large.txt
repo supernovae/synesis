@@ -1,0 +1,19 @@
+mypy 1.9.0 (compiled: yes)
+base/planner/app/router_client.py: note: In function "fetch_with_retry":
+base/planner/app/router_client.py:112: error: Argument "headers" to "post" of "AsyncClient" has incompatible type "dict[str, str | None]"; expected "Mapping[str, str] | None"
+base/planner/app/router_client.py:118: error: Item "None" of "str | None" has no attribute "encode"
+base/rag/indexer/app/enrichment.py:44: error: Need type annotation for "metadata" (hint: "metadata: dict[<type>, <type>] = ...")
+base/rag/indexer/app/enrichment.py:91: error: Unsupported operand types for + ("object" and "int")
+base/images/base-api/synesis-telemetry/synesis_telemetry/metrics.py:203: error: Incompatible return value type (got "float", expected "int")
+base/yarn/app/session_store.py:67: error: Missing type parameters for generic type "dict"
+base/yarn/app/session_store.py:88: error: Argument 2 to "setdefault" of "MutableMapping" has incompatible type "list[Never]"; expected "set[str]"
+base/gateway/app/proxy.py:15: error: Function is missing a return type annotation
+base/gateway/app/proxy.py:33: error: "None" has no attribute "get"
+lib/cache/redis_client.py:12: error: Missing type parameters for generic type "dict"
+lib/cache/redis_client.py:55: error: Argument 1 to "int" has incompatible type "bytes | None"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"
+services/billing/invoice.py:44: error: Argument 1 to "sum" has incompatible type "list[str]"; expected "Iterable[int]"
+services/billing/invoice.py:51: note: Perhaps you meant "Iterable" instead of "list"?
+tools/migrate_users.py:102: error: Unsupported target for indexed assignment ("object")
+tools/migrate_users.py:102: note: Error code "misc" not covered by "type: ignore" comment
+tests/fixtures/factory.py:8: error: Function is missing a type annotation for one or more arguments
+Found 14 errors in 9 files (checked 2044 source files)

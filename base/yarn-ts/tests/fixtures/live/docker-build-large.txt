@@ -1,0 +1,38 @@
+[1/2] STEP 1/14 : FROM registry.access.redhat.com/ubi9/python-311:latest AS base
+[1/2] resolve registry.access.redhat.com/ubi9/python-311:latest 0.0s done
+[1/2] DONE 0.1s
+
+[2/2] STEP 2/14 : WORKDIR /opt/app-root
+[2/2] CACHED
+
+[2/2] STEP 3/14 : COPY requirements.lock /tmp/requirements.lock
+[2/2] DONE 0.2s
+
+[2/2] STEP 4/14 : RUN uv pip install --python /opt/app-root/venv/bin/python --require-hashes -r /tmp/requirements.lock
+[2/2]  ---> Running in f8e2c91a4b30
+[2/2] Resolved 142 packages in 4.2s
+[2/2] Installed 142 packages in 11s
+[2/2] DONE 18.4s
+
+[2/2] STEP 5/14 : COPY base/planner/app /opt/app-root/app
+[2/2] DONE 0.3s
+
+[2/2] STEP 6/14 : COPY base/planner/gunicorn.conf.py /opt/app-root/
+[2/2] CACHED
+
+[2/2] STEP 7/14 : ENV PYTHONUNBUFFERED=1
+[2/2] CACHED
+
+[2/2] STEP 8/14 : EXPOSE 8080
+[2/2] CACHED
+
+[2/2] STEP 9/14 : USER 1001
+[2/2] CACHED
+
+[2/2] STEP 10/14 : CMD ["/opt/app-root/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+[2/2] CACHED
+
+[2/2] exporting to image
+[2/2] naming to quay.io/synesis/planner:20250326.1 done
+Successfully built f4a91e2c8d7b
+Successfully tagged quay.io/synesis/planner:20250326.1

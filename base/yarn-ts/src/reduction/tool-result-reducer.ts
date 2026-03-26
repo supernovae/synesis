@@ -49,7 +49,14 @@ export class ToolResultReductionService {
     tokensSavedEstimateTotal: 0,
     fallbackToArtifactCount: 0,
     reducerFailures: 0,
-    byFamily: { pytest: 0, tsc: 0, lint: 0, git: 0, search: 0, generic: 0 },
+    byFamily: {
+      pytest: 0, tsc: 0, lint: 0, git: 0, search: 0,
+      "npm-install": 0, "docker-build": 0, cargo: 0, make: 0, "stack-trace": 0,
+      jest: 0, "go-build": 0, "pip-install": 0, "ls-tree": 0, "curl-http": 0,
+      kubectl: 0, terraform: 0, "sql-result": 0, mypy: 0, "java-build": 0,
+      ansible: 0, helm: 0, "network-diag": 0, "strace-perf": 0, "log-stream": 0,
+      generic: 0
+    },
     lifecycle: {}
   };
   private readonly registry: ReducerRegistry;

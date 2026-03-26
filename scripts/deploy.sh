@@ -1023,7 +1023,7 @@ patch_yarn_reducer_envs() {
     fi
 
     local reducers_enabled="${SYNESIS_YARN_REDUCERS_ENABLED:-true}"
-    local reducer_families="${SYNESIS_YARN_REDUCER_FAMILIES:-pytest,tsc,lint,git,search}"
+    local reducer_families="${SYNESIS_YARN_REDUCER_FAMILIES:-pytest,tsc,lint,git,search,npm-install,docker-build,cargo,make,stack-trace,jest,go-build,pip-install,ls-tree,curl-http,kubectl,terraform,sql-result,mypy,java-build,ansible,helm,network-diag,strace-perf,log-stream}"
     local reducer_min_conf="${SYNESIS_YARN_REDUCER_MIN_CONFIDENCE:-0.6}"
     local reducer_profile="${SYNESIS_YARN_REDUCER_PROFILE:-balanced}"
 

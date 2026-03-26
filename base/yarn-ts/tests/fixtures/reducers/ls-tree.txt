@@ -1,0 +1,16 @@
+total 48
+drwxr-xr-x 8 u s 256 .
+drwxr-xr-x 4 u s 128 ..
+drwxr-xr-x 3 u s  96 .github
+drwxr-xr-x 5 u s 160 base
+drwxr-xr-x 4 u s 128 docs
+drwxr-xr-x 2 u s  64 pkg
+drwxr-xr-x 2 u s  64 cmd
+-rw-r--r-- 1 u s 900 README.md
+-rw-r--r-- 1 u s 400 go.mod
+-rw-r--r-- 1 u s 200 Makefile
+-rw-r--r-- 1 u s  50 LICENSE
+-rw-r--r-- 1 u s  30 main.go
+-rw-r--r-- 1 u s  30 util.go
+-rw-r--r-- 1 u s  30 api.go
+-rw-r--r-- 1 u s  30 config.go

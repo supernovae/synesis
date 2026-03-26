@@ -1,0 +1,42 @@
+/Users/bymiller/src/synesis/base/yarn-ts
+├── package.json
+├── tsconfig.json
+├── vitest.config.ts
+├── src
+│   ├── index.ts
+│   ├── reduction
+│   │   ├── registry.ts
+│   │   ├── types.ts
+│   │   └── reducers
+│   │       ├── npm-install.ts
+│   │       ├── docker-build.ts
+│   │       ├── cargo.ts
+│   │       ├── make.ts
+│   │       ├── stack-trace.ts
+│   │       ├── jest.ts
+│   │       ├── go-build.ts
+│   │       ├── pip-install.ts
+│   │       ├── ls-tree.ts
+│   │       └── curl-http.ts
+│   └── tools
+│       └── sanitize.ts
+├── tests
+│   ├── fixtures
+│   │   ├── reducers
+│   │   │   ├── pytest.txt
+│   │   │   └── tsc.txt
+│   │   └── live
+│   │       └── pytest-large.txt
+│   ├── reduction
+│   │   ├── reducers.test.ts
+│   │   └── router.test.ts
+│   └── setup.ts
+├── dist
+│   ├── index.js
+│   └── reduction
+│       └── registry.js
+└── node_modules
+    ├── typescript
+    └── vitest
+
+4 directories, 28 files
