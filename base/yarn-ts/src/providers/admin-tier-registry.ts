@@ -15,11 +15,28 @@ const RolesEnvelopeSchema = z.object({
   roles: z.array(RoleSchema)
 });
 
+const CostRowSchema = z.object({
+  role: z.string(),
+  input_per_million: z.number().optional(),
+  output_per_million: z.number().optional(),
+  input_cached_per_million: z.number().nullable().optional()
+});
+
+const CostEnvelopeSchema = z
+  .object({
+    costs: z.array(CostRowSchema).optional(),
+    roles: z.array(CostRowSchema).optional()
+  })
+  .passthrough();
+
 export interface TierConfig {
   id: "synesis-pulse" | "synesis-core" | "synesis-horizon";
   backendModel: string;
   baseUrl: string;
   apiKey: string;
+  inputPerM: number;
+  outputPerM: number;
+  cachedPerM: number;
 }
 
 const ROLE_TO_TIER: Record<string, TierConfig["id"]> = {
@@ -35,8 +52,10 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
 
 export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]> {
   const hasToken = Boolean(config.SYNESIS_INTERNAL_SERVICE_TOKEN);
-  const path = hasToken ? "/api/v1/models/roles/internal" : "/api/v1/models/roles";
-  const url = `${config.SYNESIS_YARN_ADMIN_API_URL}${path}`;
+  const rolesPath = hasToken ? "/api/v1/models/roles/internal" : "/api/v1/models/roles";
+  const costsPath = hasToken ? "/api/v1/models/costs/active/internal" : "/api/v1/models/costs/active";
+  const rolesUrl = `${config.SYNESIS_YARN_ADMIN_API_URL}${rolesPath}`;
+  const costsUrl = `${config.SYNESIS_YARN_ADMIN_API_URL}${costsPath}`;
   const headers: Record<string, string> = {};
   if (hasToken) {
     const token = config.SYNESIS_INTERNAL_SERVICE_TOKEN!;
@@ -44,11 +63,20 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
     headers["x-synesis-service-name"] = "synesis-yarn-ts";
     headers.authorization = `Bearer ${token}`;
   }
-  const response = await fetch(url, { headers });
-  if (!response.ok) {
-    throw new Error(`tier fetch failed ${response.status}`);
+  const [rolesResponse, costsResponse] = await Promise.all([fetch(rolesUrl, { headers }), fetch(costsUrl, { headers })]);
+  if (!rolesResponse.ok) {
+    throw new Error(`tier role fetch failed ${rolesResponse.status}`);
   }
-  const payload = RolesEnvelopeSchema.parse(await response.json());
+  if (!costsResponse.ok) {
+    throw new Error(`tier costs fetch failed ${costsResponse.status}`);
+  }
+  const payload = RolesEnvelopeSchema.parse(await rolesResponse.json());
+  const costPayload = CostEnvelopeSchema.parse(await costsResponse.json());
+  const costs = costPayload.costs ?? costPayload.roles ?? [];
+  const costByRole = new Map<string, z.infer<typeof CostRowSchema>>();
+  for (const row of costs) {
+    costByRole.set(row.role, row);
+  }
   const out: TierConfig[] = [];
   for (const row of payload.roles) {
     const tierId = ROLE_TO_TIER[row.role];
@@ -60,11 +88,15 @@ export async function fetchTierConfigs(config: AppConfig): Promise<TierConfig[]>
     const endpoint = (row.endpoint ?? "").trim() || String(lp.api_base ?? "").trim() || PROVIDER_BASE_URLS[provider] || config.SYNESIS_YARN_OPENAI_COMPAT_BASE_URL;
     const keyEnv = (row.api_key_env ?? "").trim();
     const apiKey = (keyEnv ? process.env[keyEnv] : undefined) || config.SYNESIS_YARN_OPENAI_COMPAT_API_KEY;
+    const cost = costByRole.get(row.role);
     out.push({
       id: tierId,
       backendModel: row.model ?? "",
       baseUrl: endpoint,
-      apiKey
+      apiKey,
+      inputPerM: Number(cost?.input_per_million ?? 0),
+      outputPerM: Number(cost?.output_per_million ?? 0),
+      cachedPerM: Number(cost?.input_cached_per_million ?? 0)
     });
   }
   return out;

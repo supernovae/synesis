@@ -19,16 +19,77 @@ export interface UsageEvent {
   finishReason: string;
 }
 
+export interface WriterStats {
+  queueDepth: number;
+  totalEnqueued: number;
+  totalFlushed: number;
+  totalDropped: number;
+  totalFlushErrors: number;
+  lastFlushMs: number;
+}
+
 export class UsageWriter {
   private readonly pool: Pool | null;
-  private readonly enabled: boolean;
+  private readonly queue: Array<{ type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent }> = [];
+  private readonly queueMax: number;
+  private readonly flushIntervalMs: number;
+  private flushTimer: NodeJS.Timeout | null = null;
+  private flushing = false;
+  private _totalEnqueued = 0;
+  private _totalFlushed = 0;
+  private _totalDropped = 0;
+  private _totalFlushErrors = 0;
+  private _lastFlushMs = 0;
 
   constructor(config: AppConfig) {
-    this.enabled = config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(config.SYNESIS_YARN_ADMIN_DB_URL);
-    this.pool = this.enabled ? new Pool({ connectionString: config.SYNESIS_YARN_ADMIN_DB_URL }) : null;
+    const enabled = config.SYNESIS_YARN_PERSIST_USAGE_TO_DB && Boolean(config.SYNESIS_YARN_ADMIN_DB_URL);
+    this.pool = enabled
+      ? new Pool({
+          connectionString: config.SYNESIS_YARN_ADMIN_DB_URL,
+          max: config.SYNESIS_YARN_DB_POOL_MAX,
+          idleTimeoutMillis: config.SYNESIS_YARN_DB_POOL_IDLE_MS,
+          connectionTimeoutMillis: config.SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS
+        })
+      : null;
+    this.queueMax = config.SYNESIS_YARN_WRITE_QUEUE_MAX;
+    this.flushIntervalMs = config.SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS;
+    if (this.pool) {
+      this.flushTimer = setInterval(() => {
+        void this.flush();
+      }, this.flushIntervalMs);
+    }
   }
 
-  async upsertSession(session: SessionRecord): Promise<void> {
+  enqueueSessionUpsert(session: SessionRecord): void {
+    this.enqueue({ type: "session", session });
+  }
+
+  enqueueUsageInsert(event: UsageEvent): void {
+    this.enqueue({ type: "usage", event });
+  }
+
+  getStats(): WriterStats {
+    return {
+      queueDepth: this.queue.length,
+      totalEnqueued: this._totalEnqueued,
+      totalFlushed: this._totalFlushed,
+      totalDropped: this._totalDropped,
+      totalFlushErrors: this._totalFlushErrors,
+      lastFlushMs: this._lastFlushMs
+    };
+  }
+
+  private enqueue(item: { type: "session"; session: SessionRecord } | { type: "usage"; event: UsageEvent }): void {
+    if (!this.pool) return;
+    if (this.queue.length >= this.queueMax) {
+      this.queue.shift();
+      this._totalDropped++;
+    }
+    this.queue.push(item);
+    this._totalEnqueued++;
+  }
+
+  private async upsertSession(session: SessionRecord): Promise<void> {
     if (!this.pool) return;
     await this.pool.query(
       `
@@ -76,7 +137,7 @@ export class UsageWriter {
     );
   }
 
-  async insertUsage(event: UsageEvent): Promise<void> {
+  private async insertUsage(event: UsageEvent): Promise<void> {
     if (!this.pool) return;
     await this.pool.query(
       `
@@ -109,7 +170,36 @@ export class UsageWriter {
     );
   }
 
+  async flush(): Promise<void> {
+    if (!this.pool || this.flushing || this.queue.length === 0) return;
+    this.flushing = true;
+    try {
+      while (this.queue.length > 0) {
+        const item = this.queue.shift();
+        if (!item) break;
+        try {
+          if (item.type === "session") {
+            await this.upsertSession(item.session);
+          } else {
+            await this.insertUsage(item.event);
+          }
+          this._totalFlushed++;
+        } catch {
+          this._totalFlushErrors++;
+        }
+      }
+      this._lastFlushMs = Date.now();
+    } finally {
+      this.flushing = false;
+    }
+  }
+
   async close(): Promise<void> {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    await this.flush();
     await this.pool?.end();
   }
 }

@@ -103,24 +103,32 @@ async function runOpenAIRequest(request: OpenAIChatCompletionRequest) {
   return { resolved, messages };
 }
 
-async function persistSessionAndUsage(
+function persistSessionAndUsage(
   state: SessionState,
   requestId: string,
   resolvedModelId: string,
   usage: { inputTokens: number; outputTokens: number; cachedTokens: number; costUsd: number },
   latencyMs: number,
   finishReason: string
-): Promise<void> {
+): void {
+  const tier = tierRegistry.getTierConfig(resolvedModelId);
+  const computedCostUsd =
+    usage.costUsd > 0
+      ? usage.costUsd
+      : ((usage.inputTokens - usage.cachedTokens) / 1_000_000) * Number(tier?.inputPerM ?? 0) +
+        (usage.cachedTokens / 1_000_000) * Number(tier?.cachedPerM ?? 0) +
+        (usage.outputTokens / 1_000_000) * Number(tier?.outputPerM ?? 0);
+  const normalizedCostUsd = Number.isFinite(computedCostUsd) ? Math.max(0, computedCostUsd) : 0;
   state.record.totalTokensIn += usage.inputTokens;
   state.record.totalTokensOut += usage.outputTokens;
   state.record.totalTokensCached += usage.cachedTokens;
   const prevCost = Number(state.record.metadata.total_cost_usd ?? 0);
-  state.record.metadata.total_cost_usd = prevCost + usage.costUsd;
+  state.record.metadata.total_cost_usd = prevCost + normalizedCostUsd;
   state.record.requestCount += 1;
   state.record.lastActiveAt = Date.now();
-  await sessionStore.save(state.record);
-  await usageWriter.upsertSession(state.record);
-  await usageWriter.insertUsage({
+  void sessionStore.save(state.record);
+  usageWriter.enqueueSessionUpsert(state.record);
+  usageWriter.enqueueUsageInsert({
     sessionKey: state.record.sessionKey,
     requestId,
     userId: state.record.userId,
@@ -131,7 +139,7 @@ async function persistSessionAndUsage(
     tokensOut: usage.outputTokens,
     tokensCached: usage.cachedTokens,
     latencyMs,
-    costUsd: usage.costUsd,
+    costUsd: normalizedCostUsd,
     escalated: false,
     toolCallsCount: state.toolCallsSinceCheckpoint,
     finishReason
@@ -192,6 +200,11 @@ process.on("SIGINT", () => {
 
 app.get("/health", async () => ({ status: "ok" }));
 app.get("/health/readiness", async () => ({ status: "ready" }));
+
+app.get("/health/telemetry", async () => ({
+  timestamp: Date.now(),
+  writeQueue: usageWriter.getStats()
+}));
 
 app.get("/v1", async () => ({
   status: "ok",
@@ -267,7 +280,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
     });
     session.history.push({ role: "assistant", content: result.text });
     const usage = readUsage((result as unknown as { usage?: unknown; totalUsage?: unknown }).usage);
-    await persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, "stop");
+    persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, "stop");
     maybeCheckpoint(session);
     return reply.send({
       id: reqId,
@@ -301,7 +314,7 @@ app.post("/v1/chat/completions", async (req, reply) => {
   reply.raw.write("data: [DONE]\n\n");
   reply.raw.end();
   const totalUsage = await streamed.totalUsage;
-  await persistSessionAndUsage(
+  persistSessionAndUsage(
     session,
     reqId,
     resolved.resolvedModelId,
@@ -373,7 +386,7 @@ app.post("/v1/messages", async (req, reply) => {
     );
     reply.raw.write(`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`);
     reply.raw.end();
-    await persistSessionAndUsage(
+    persistSessionAndUsage(
       session,
       reqId,
       resolved.resolvedModelId,
@@ -387,7 +400,7 @@ app.post("/v1/messages", async (req, reply) => {
   const started = Date.now();
   const result = await generateText({ model: resolved.model as never, messages });
   const usage = readUsage((result as unknown as { usage?: unknown }).usage);
-  await persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, "end_turn");
+  persistSessionAndUsage(session, reqId, resolved.resolvedModelId, usage, Date.now() - started, "end_turn");
   return reply.send({
     id: `msg_${Date.now()}`,
     type: "message",

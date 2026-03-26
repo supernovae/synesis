@@ -15,7 +15,7 @@ describe("fetchTierConfigs", () => {
   });
 
   it("maps coder roles into synesis tiers with provider default endpoint", async () => {
-    const payload = {
+    const rolesPayload = {
       roles: [
         {
           role: "coder-core",
@@ -27,13 +27,29 @@ describe("fetchTierConfigs", () => {
         }
       ]
     };
+    const costsPayload = {
+      costs: [
+        {
+          role: "coder-core",
+          input_per_million: 1.25,
+          output_per_million: 4.5,
+          input_cached_per_million: 0.3
+        }
+      ]
+    };
     process.env.OPENROUTER_API_KEY = "or-test-key";
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => payload
-      })
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => rolesPayload
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => costsPayload
+        })
     );
 
     const config: AppConfig = {
@@ -50,6 +66,11 @@ describe("fetchTierConfigs", () => {
       SYNESIS_YARN_SESSION_REDIS_URL: "redis://localhost:6379/3",
       SYNESIS_YARN_ADMIN_DB_URL: "",
       SYNESIS_PAT_PEPPER: "",
+      SYNESIS_YARN_DB_POOL_MAX: 20,
+      SYNESIS_YARN_DB_POOL_IDLE_MS: 30000,
+      SYNESIS_YARN_DB_POOL_CONN_TIMEOUT_MS: 3000,
+      SYNESIS_YARN_WRITE_QUEUE_MAX: 10000,
+      SYNESIS_YARN_WRITE_FLUSH_INTERVAL_MS: 50,
       SYNESIS_YARN_PERSIST_USAGE_TO_DB: true
     };
 
@@ -59,5 +80,8 @@ describe("fetchTierConfigs", () => {
     expect(tiers[0].backendModel).toBe("qwen/qwen3-coder-next:nitro");
     expect(tiers[0].baseUrl).toBe("https://openrouter.ai/api/v1");
     expect(tiers[0].apiKey).toBe("or-test-key");
+    expect(tiers[0].inputPerM).toBe(1.25);
+    expect(tiers[0].outputPerM).toBe(4.5);
+    expect(tiers[0].cachedPerM).toBe(0.3);
   });
 });

@@ -40,4 +40,8 @@ export class SynesisProviderRegistry {
       resolvedModelId: selected.id
     };
   }
+
+  getTierConfig(modelId: string): TierConfig | undefined {
+    return this.tierMap.get(modelId);
+  }
 }
