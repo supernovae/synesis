@@ -25,8 +25,16 @@ _BUNDLED_PRICES: dict[str, tuple[float, float]] = {
     "openrouter/meta-llama/llama-4-maverick": (0.20, 0.60),
     "openrouter/meta-llama/llama-4-scout": (0.15, 0.40),
     "openrouter/qwen/qwen3-235b-a22b": (0.20, 0.60),
+    "openrouter/qwen/qwen3-235b-a22b-2507:nitro": (0.20, 0.60),
     "openrouter/qwen/qwen3-32b": (0.10, 0.30),
+    "openrouter/qwen/qwen3-coder-flash": (0.07, 0.28),
+    "openrouter/qwen/qwen3-coder-next": (0.16, 0.64),
+    "openrouter/qwen/qwen3-coder-next:nitro": (0.16, 0.64),
+    "openrouter/qwen/qwen3-coder": (0.20, 0.80),
+    "openrouter/qwen/qwen3-coder:nitro": (0.20, 0.80),
+    "openrouter/qwen/qwen2.5-coder-7b-instruct": (0.03, 0.06),
     "openrouter/deepseek/deepseek-r1": (0.55, 2.19),
+    "openrouter/deepseek/deepseek-r1-distill-qwen-32b": (0.10, 0.30),
     "openrouter/deepseek/deepseek-chat-v3-0324": (0.27, 1.10),
     "openrouter/google/gemini-2.5-pro-preview": (1.25, 10.0),
     "openrouter/anthropic/claude-sonnet-4": (3.0, 15.0),
@@ -111,6 +119,12 @@ def lookup_bundled_pricing(provider: str, model: str) -> tuple[float, float] | N
         short = model.rsplit("/", 1)[1]
         if short in _BARE_NAME_INDEX:
             return _BARE_NAME_INDEX[short]
+    # Fuzzy: strip routing variant suffix (e.g. ":nitro", ":extended").
+    if ":" in model:
+        base_model = model.split(":")[0]
+        result = lookup_bundled_pricing(provider, base_model)
+        if result:
+            return result
     return None
 
 

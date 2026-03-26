@@ -75,6 +75,7 @@ const navigation: NavItem[] = [
     children: [
       { label: "Overview", path: "/yarn" },
       { label: "Sessions", path: "/yarn/sessions" },
+      { label: "Reducers", path: "/yarn/reducers" },
       { label: "Events", path: "/yarn/events" },
       { label: "Performance", path: "/yarn/performance" },
       { label: "Verification", path: "/yarn/verification" },

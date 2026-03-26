@@ -1872,12 +1872,21 @@ export interface YarnIntelligence {
 export interface YarnRuntimeTelemetry {
   timestamp: number;
   toolResultReduction?: {
+    rawCharsTotal: number;
+    reducedCharsTotal: number;
     reducedCount: number;
+    artifactHandleCount: number;
     tokensSavedEstimateTotal: number;
     fallbackToArtifactCount: number;
     reducerFailures: number;
     byFamily: Record<string, number>;
     lifecycle: Record<string, { lifecycle: string; successes: number; failures: number; lastError?: string }>;
+  };
+  sawtoothContext?: {
+    compactionCount: number;
+    totalCharsBefore: number;
+    totalCharsAfter: number;
+    compactionFailures: number;
   };
 }
 

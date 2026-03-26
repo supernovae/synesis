@@ -84,22 +84,32 @@ function enrichWithFrameAndManifest(
   return out;
 }
 
-function getSessionKey(request: OpenAIChatCompletionRequest): string {
-  return request.conversation_id || request.user || "anon";
+interface SessionIdentity {
+  userId: string;
+  orgId: string;
+  conversationId: string;
 }
 
-async function getSessionState(key: string, request: OpenAIChatCompletionRequest): Promise<SessionState> {
+function getSessionKey(identity: SessionIdentity): string {
+  return identity.conversationId || identity.userId || "anon";
+}
+
+async function getSessionState(key: string, identity: SessionIdentity): Promise<SessionState> {
   const existing = sessions.get(key);
   if (existing) {
     existing.record.lastActiveAt = Date.now();
+    if (existing.record.userId === "anon" && identity.userId !== "anon") {
+      existing.record.userId = identity.userId;
+      existing.record.orgId = identity.orgId;
+    }
     return existing;
   }
   const loaded = await sessionStore.load(key);
   const record: SessionRecord = loaded ?? {
     sessionKey: key,
-    userId: request.user || "anon",
-    orgId: "",
-    conversationId: request.conversation_id || "",
+    userId: identity.userId,
+    orgId: identity.orgId,
+    conversationId: identity.conversationId,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
     totalTokensIn: 0,
@@ -364,8 +374,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
   if (!parsed.success) {
     return reply.code(400).send({ error: { type: "invalid_request_error", message: parsed.error.message } });
   }
+  let authUser: import("./auth.js").AuthUser;
   try {
-    await authResolver.resolve(req.headers.authorization);
+    authUser = await authResolver.resolve(req.headers.authorization);
   } catch (error) {
     return reply.code(401).send({ error: { type: "auth_error", message: String(error) } });
   }
@@ -402,7 +413,12 @@ app.post("/v1/chat/completions", async (req, reply) => {
     messages: enrichWithFrameAndManifest(normalizedOpenAI.messages as never, adapterBlock) as never
   };
 
-  const session = await getSessionState(getSessionKey(normalizedRequest), normalizedRequest);
+  const identity: SessionIdentity = {
+    userId: request.user || authUser.userId,
+    orgId: authUser.orgId,
+    conversationId: request.conversation_id || ""
+  };
+  const session = await getSessionState(getSessionKey(identity), identity);
   const reqId = `chatcmpl-${crypto.randomUUID()}`;
   if (policyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: policyPrecheck.pivotPrompt });
@@ -514,8 +530,9 @@ app.post("/v1/chat/completions", async (req, reply) => {
 
 // --- Claude Messages API ---
 app.post("/v1/messages", async (req, reply) => {
+  let claudeAuthUser: import("./auth.js").AuthUser;
   try {
-    await authResolver.resolve(req.headers.authorization);
+    claudeAuthUser = await authResolver.resolve(req.headers.authorization);
   } catch (error) {
     return reply.code(401).send({
       type: "error",
@@ -574,7 +591,12 @@ app.post("/v1/messages", async (req, reply) => {
     messages: enrichWithFrameAndManifest(normalizedFromClaude.messages as never, claudeAdapterBlock) as never,
     stream: body.stream
   };
-  const session = await getSessionState(getSessionKey(openAIShape), openAIShape);
+  const claudeIdentity: SessionIdentity = {
+    userId: claudeAuthUser.userId,
+    orgId: claudeAuthUser.orgId,
+    conversationId: ""
+  };
+  const session = await getSessionState(getSessionKey(claudeIdentity), claudeIdentity);
   const reqId = `msg-${crypto.randomUUID()}`;
   if (claudePolicyPrecheck.pivotPrompt) {
     session.history.push({ role: "system", content: claudePolicyPrecheck.pivotPrompt });

@@ -129,6 +129,55 @@ export default function YarnOverview() {
         </div>
       </div>
 
+      {runtimeTelemetry?.toolResultReduction ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <ChartCard
+            title="Reducer Performance"
+            subtitle="Live compaction savings and fail-safe fallback"
+          >
+            <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              <div className="flex items-center justify-between">
+                <span>Total reduced outputs</span>
+                <span className="font-medium">{runtimeTelemetry.toolResultReduction.reducedCount}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Estimated tokens saved</span>
+                <span className="font-medium">{runtimeTelemetry.toolResultReduction.tokensSavedEstimateTotal}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Fallback to artifact</span>
+                <span className="font-medium">{runtimeTelemetry.toolResultReduction.fallbackToArtifactCount}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Reducer failures</span>
+                <span className="font-medium">{runtimeTelemetry.toolResultReduction.reducerFailures}</span>
+              </div>
+            </div>
+          </ChartCard>
+          <ChartCard
+            title="Reducer Lifecycle"
+            subtitle="Enabled/degraded state by reducer family"
+          >
+            <div className="space-y-2">
+              {Object.entries(runtimeTelemetry.toolResultReduction.lifecycle || {}).length === 0 ? (
+                <p className="text-sm text-gray-500">No reducer lifecycle state yet.</p>
+              ) : (
+                Object.entries(runtimeTelemetry.toolResultReduction.lifecycle).map(([name, state]) => (
+                  <div key={name} className="flex items-center justify-between text-sm">
+                    <span className="truncate pr-2 text-gray-700 dark:text-gray-300">
+                      {name} ({state.lifecycle})
+                    </span>
+                    <span className="text-gray-500 dark:text-gray-400">
+                      ok {state.successes} / fail {state.failures}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </ChartCard>
+        </div>
+      ) : null}
+
       {loading && !overview ? (
         <div className="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800" />
       ) : !overview || overview.total_requests === 0 ? (
@@ -241,55 +290,6 @@ export default function YarnOverview() {
                       <div key={reason} className="flex items-center justify-between text-sm">
                         <span className="truncate pr-2 text-gray-700 dark:text-gray-300">{reason}</span>
                         <span className="text-gray-500 dark:text-gray-400">{count}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </ChartCard>
-            </div>
-          ) : null}
-
-          {runtimeTelemetry?.toolResultReduction ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <ChartCard
-                title="Reducer Performance"
-                subtitle="Compaction savings and fail-safe fallback"
-              >
-                <div className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
-                  <div className="flex items-center justify-between">
-                    <span>Total reduced outputs</span>
-                    <span className="font-medium">{runtimeTelemetry.toolResultReduction.reducedCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Estimated tokens saved</span>
-                    <span className="font-medium">{runtimeTelemetry.toolResultReduction.tokensSavedEstimateTotal}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Fallback to artifact</span>
-                    <span className="font-medium">{runtimeTelemetry.toolResultReduction.fallbackToArtifactCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Reducer failures</span>
-                    <span className="font-medium">{runtimeTelemetry.toolResultReduction.reducerFailures}</span>
-                  </div>
-                </div>
-              </ChartCard>
-              <ChartCard
-                title="Reducer Lifecycle"
-                subtitle="Enabled/degraded state by reducer family"
-              >
-                <div className="space-y-2">
-                  {Object.entries(runtimeTelemetry.toolResultReduction.lifecycle || {}).length === 0 ? (
-                    <p className="text-sm text-gray-500">No reducer lifecycle state yet.</p>
-                  ) : (
-                    Object.entries(runtimeTelemetry.toolResultReduction.lifecycle).map(([name, state]) => (
-                      <div key={name} className="flex items-center justify-between text-sm">
-                        <span className="truncate pr-2 text-gray-700 dark:text-gray-300">
-                          {name} ({state.lifecycle})
-                        </span>
-                        <span className="text-gray-500 dark:text-gray-400">
-                          ok {state.successes} / fail {state.failures}
-                        </span>
                       </div>
                     ))
                   )}

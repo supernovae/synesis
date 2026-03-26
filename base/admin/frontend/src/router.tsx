@@ -71,6 +71,7 @@ const EffectivePermissions = lazy(() => import("./pages/security/EffectivePermis
 const YarnOverview = lazy(() => import("./pages/yarn/YarnOverview"));
 const YarnSessions = lazy(() => import("./pages/yarn/YarnSessions"));
 const YarnSessionDetail = lazy(() => import("./pages/yarn/YarnSessionDetail"));
+const YarnReducers = lazy(() => import("./pages/yarn/YarnReducers"));
 const YarnEvents = lazy(() => import("./pages/yarn/YarnEvents"));
 const YarnPerformance = lazy(() => import("./pages/yarn/YarnPerformance"));
 const YarnVerification = lazy(() => import("./pages/yarn/YarnVerification"));
@@ -146,6 +147,7 @@ export const router = createBrowserRouter([
       { path: "yarn", element: <YarnOverview /> },
       { path: "yarn/sessions", element: <YarnSessions /> },
       { path: "yarn/sessions/:sessionKey", element: <YarnSessionDetail /> },
+      { path: "yarn/reducers", element: <YarnReducers /> },
       { path: "yarn/events", element: <YarnEvents /> },
       { path: "yarn/performance", element: <YarnPerformance /> },
       { path: "yarn/verification", element: <YarnVerification /> },
