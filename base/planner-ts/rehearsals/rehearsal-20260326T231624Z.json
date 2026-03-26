@@ -3,7 +3,7 @@
     "date": "2026-03-26T23:16:24.954Z",
     "environment": "openshift:synesis-planner",
     "operator": "cursor-agent",
-    "planner_ts_image_tag": "unavailable",
+    "planner_ts_image_tag": "ghcr.io/supernovae/synesis/planner-ts:sha-60edc938@sha256:9ba8cab62ae668248e4eca77eec9b78e0c7d00b677a3d11305014edd13bbad5e",
     "python_fallback_image_tag": "ghcr.io/supernovae/synesis/planner:latest"
   },
   "checks": [
@@ -100,8 +100,8 @@
       "title": "Staging rollback rehearsal",
       "command": "switch traffic back to python planner and validate",
       "expected": "successful_rollback_and_recovery",
-      "status": "pending",
-      "evidence": "Blocked 2026-03-26: namespace synesis-planner currently has only deployment/svc synesis-planner (python image ghcr.io/supernovae/synesis/planner:latest). Route backend service is synesis-planner. No planner-ts standby deployment/service exists yet to promote then roll back."
+      "status": "pass",
+      "evidence": "PASS 2026-03-26: deployed standby deployment/service synesis-planner-ts with image ghcr.io/supernovae/synesis/planner-ts:sha-60edc938, switched route synesis-planner-api -> synesis-planner-ts, then rolled back route to synesis-planner. Post-rollback validation: synesis-planner deployment 2/2 available, /health returned 200 and /v1/chat/completions returned 401 (auth enforced) via port-forward."
     }
   ],
   "signoff": {
@@ -110,7 +110,7 @@
     "security": ""
   },
   "outcome": {
-    "result": "pending",
-    "notes": "Commit pushed: 4d9b6217bbd2cd8a19fc780440f8e0092994f2b5. GitHub Actions build run 23622954919 succeeded, but probe for ghcr.io/supernovae/synesis/planner:sha-4d9b6217 failed with manifest unknown. No planner-ts standby deployment/image is currently available in-cluster, so live promote+rollback remains blocked."
+    "result": "pass",
+    "notes": "GitHub commits pushed: 4d9b6217bbd2cd8a19fc780440f8e0092994f2b5, 12115500392ba618f1c9eec6951be93bbb50eb0b, 60edc938759d1284a2f64f253aea63c7285ae276. Build run 23623301666 published planner-ts image tag sha-60edc938 digest sha256:9ba8cab62ae668248e4eca77eec9b78e0c7d00b677a3d11305014edd13bbad5e. Rehearsal checks passed including route switch and rollback validation."
   }
 }
